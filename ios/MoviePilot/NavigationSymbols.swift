@@ -1,0 +1,41 @@
+import UIKit
+
+/// 导航图标使用公开 SF Symbols 映射，未知插件图标保留可访问文本并使用通用符号。
+@MainActor
+enum NavigationSymbols {
+  /// 底栏左右共用同一符号尺寸，动态动作保留大触点而不放大图标。
+  static let bottomConfiguration = UIImage.SymbolConfiguration(
+    pointSize: 22, weight: .regular, scale: .medium)
+
+  /// 只转换显示标识，不依据图标推断或执行业务行为。
+  static func image(_ key: String, configuration: UIImage.SymbolConfiguration? = nil) -> UIImage? {
+    let names = [
+      "dashboard": "house", "mdi-home-outline": "house", "tabler-smart-home": "house",
+      "recommend": "sparkles", "mdi-star-outline": "sparkles", "tabler-device-tv": "tv",
+      "discover": "safari", "mdi-apple-safari": "safari", "tabler-compass": "safari",
+      "apps": "square.grid.2x2", "tabler-apps": "square.grid.2x2",
+      "more": "ellipsis",
+      "search": "magnifyingglass", "mdi-magnify": "magnifyingglass",
+      "tabler-search": "magnifyingglass",
+      "refresh": "arrow.clockwise", "mdi-refresh": "arrow.clockwise",
+      "tabler-refresh": "arrow.clockwise",
+      "mdi-filter-multiple-outline": "line.3.horizontal.decrease",
+      "tabler-filter": "line.3.horizontal.decrease",
+      "mdi-sort-variant": "arrow.up.arrow.down", "tabler-sort-descending": "arrow.up.arrow.down",
+      "notifications": "bell", "profile": "person.crop.circle",
+      "mdi-puzzle-outline": "puzzlepiece.extension",
+      "mdi-card-multiple-outline": "square.stack", "mdi-movie-open-outline": "film",
+      "mdi-television": "tv", "mdi-music-note": "music.note",
+      "mdi-state-machine": "point.3.connected.trianglepath.dotted",
+      "mdi-calendar": "calendar", "mdi-download-outline": "arrow.down.circle",
+      "mdi-folder-play-outline": "folder", "mdi-folder-multiple-outline": "folder.on.folder",
+      "mdi-web": "globe", "mdi-account-group-outline": "person.2", "mdi-cog-outline": "gearshape",
+      "mdi-plus": "plus", "tabler-plus": "plus", "tabler-check": "checkmark",
+      "mdi-check": "checkmark", "mdi-restore": "arrow.counterclockwise",
+      "mdi-view-dashboard-edit": "slider.horizontal.3", "mdi-tune": "slider.horizontal.3",
+      "mdi-checkbox-multiple-marked-outline": "checkmark.circle",
+      "tabler-dots-vertical": "ellipsis", "mdi-dots-vertical": "ellipsis",
+    ]
+    return UIImage(systemName: names[key] ?? "square.grid.2x2", withConfiguration: configuration)
+  }
+}

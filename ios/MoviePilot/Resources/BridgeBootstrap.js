@@ -1,0 +1,15 @@
+(() => {
+  "use strict";
+  if (window.top !== window || window.MoviePilotNative) return;
+  const handler = window.webkit?.messageHandlers?.moviepilotChrome;
+  if (!handler) return;
+  Object.defineProperty(window, "MoviePilotNative", {
+    value: Object.freeze({
+      transportVersion: 1,
+      postMessage: (message) => handler.postMessage(message),
+      authenticationRequired: () => window.webkit.messageHandlers.moviepilotAuthentication.postMessage({version: 1, type: "required"}),
+    }),
+    configurable: false,
+    writable: false,
+  });
+})();

@@ -1,0 +1,30 @@
+name: iOS checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core-and-ios:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain
+        run: xcodebuild -version
+      - name: Core tests
+        run: zsh scripts/test-core.sh
+      - name: Swift formatting
+        run: xcrun swift-format lint --strict --recursive Sources Tests ios/MoviePilot ios/MoviePilotUITests
+      - name: Build iOS simulator app and UI tests
+        run: >-
+          xcodebuild build-for-testing
+          -project ios/MoviePilot.xcodeproj
+          -scheme MoviePilot
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath DerivedData
+          CODE_SIGNING_ALLOWED=NO

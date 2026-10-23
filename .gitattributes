@@ -1,0 +1,2 @@
+# 补丁中的单空格上下文行属于统一 diff 格式，保留才能正确应用。
+integration/*.patch -whitespace
