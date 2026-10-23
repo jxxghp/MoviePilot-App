@@ -1,5 +1,5 @@
 diff --git a/eslint-suppressions.json b/eslint-suppressions.json
-index cdb014668eb4df8b2b969a0b25a1540d4e06907f..6152c6e5fbfa017efce958633da983fa8a6bfb52 100644
+index cdb01466..6152c6e5 100644
 --- a/eslint-suppressions.json
 +++ b/eslint-suppressions.json
 @@ -444,9 +444,6 @@
@@ -19,8 +19,20 @@ index cdb014668eb4df8b2b969a0b25a1540d4e06907f..6152c6e5fbfa017efce958633da983fa
 -}
 \ No newline at end of file
 +}
+diff --git a/package.json b/package.json
+index 4ecfb2a8..0a6cf308 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "moviepilot",
+-  "version": "3.1.9",
++  "version": "3.1.10",
+   "private": true,
+   "type": "module",
+   "bin": "dist/service.js",
 diff --git a/src/@core/components/PageContentTitle.vue b/src/@core/components/PageContentTitle.vue
-index 91801e27e0d80638caa489a8de61dd55803b339e..d0ab5b6b598ceb0517f4b206f6614cacfac9ec6a 100644
+index 91801e27..d0ab5b6b 100644
 --- a/src/@core/components/PageContentTitle.vue
 +++ b/src/@core/components/PageContentTitle.vue
 @@ -1,11 +1,15 @@
@@ -42,7 +54,7 @@ index 91801e27e0d80638caa489a8de61dd55803b339e..d0ab5b6b598ceb0517f4b206f6614cac
        <h2
          class="ms-1 truncate text-2xl font-bold leading-7 text-gray-100 sm:overflow-visible sm:text-3xl sm:leading-9 md:mb-0"
 diff --git a/src/@layouts/components/VerticalNavLayout.vue b/src/@layouts/components/VerticalNavLayout.vue
-index 8c9eb31ee1afe1c579cf58282eab074086d990bf..0869f09350d9293967df06e657e45e5fdbdae8e7 100644
+index 8c9eb31e..0869f093 100644
 --- a/src/@layouts/components/VerticalNavLayout.vue
 +++ b/src/@layouts/components/VerticalNavLayout.vue
 @@ -13,6 +13,7 @@ import { useGlassFixedShellBackplate } from '@/composables/useGlassFixedShellBac
@@ -64,7 +76,7 @@ index 8c9eb31ee1afe1c579cf58282eab074086d990bf..0869f09350d9293967df06e657e45e5f
          [
            h(
 diff --git a/src/App.vue b/src/App.vue
-index bb3d46918935956ee2c57516fff4d59199641b5f..348b357a67be9a09cdd667fe2f904f33926de43a 100644
+index bb3d4691..348b357a 100644
 --- a/src/App.vue
 +++ b/src/App.vue
 @@ -13,6 +13,7 @@ import { addBackgroundTimer, removeBackgroundTimer } from '@/utils/backgroundMan
@@ -91,8 +103,56 @@ index bb3d46918935956ee2c57516fff4d59199641b5f..348b357a67be9a09cdd667fe2f904f33
        <!-- 全局共享弹窗入口，列表与卡片按需在这里挂载业务弹窗。 -->
        <SharedDialogHost />
        <!-- PWA安装提示 -->
+diff --git a/src/components/cards/NotificationChannelCard.vue b/src/components/cards/NotificationChannelCard.vue
+index 87f24a9a..ac0b1763 100644
+--- a/src/components/cards/NotificationChannelCard.vue
++++ b/src/components/cards/NotificationChannelCard.vue
+@@ -42,6 +42,7 @@ const notificationTypeNames: { [key: string]: string } = {
+   discord: t('notification.discord.name'),
+   dingtalk: t('notification.dingtalk.name'),
+   webpush: t('notification.webpush.name'),
++  apppush: t('notification.apppush.name'),
+   custom: t('setting.notification.custom'),
+ }
+ 
+diff --git a/src/components/dialog/NotificationChannelInfoDialog.vue b/src/components/dialog/NotificationChannelInfoDialog.vue
+index ee0d84cd..65c0f1a8 100644
+--- a/src/components/dialog/NotificationChannelInfoDialog.vue
++++ b/src/components/dialog/NotificationChannelInfoDialog.vue
+@@ -1201,6 +1201,31 @@ onMounted(() => {
+               />
+             </VCol>
+           </VRow>
++          <VRow v-else-if="notificationInfo.type == 'apppush'">
++            <VCol cols="12">
++              <VTextField v-model="notificationInfo.name" :label="t('notification.name')" />
++            </VCol>
++            <VCol cols="12">
++              <VTextField
++                v-model="notificationInfo.config.PUSH_SERVER_URL"
++                :label="t('notification.apppush.server')"
++                placeholder="https://push.example.com"
++              />
++            </VCol>
++            <VCol cols="12">
++              <VTextField
++                v-model="notificationInfo.config.PUSH_RELAY_KEY"
++                type="password"
++                autocomplete="new-password"
++                :label="t('notification.apppush.key')"
++                :hint="t('notification.apppush.keyHint')"
++                persistent-hint
++              />
++            </VCol>
++            <VCol cols="12"
++              ><VAlert type="info" variant="tonal">{{ t('notification.apppush.hint') }}</VAlert></VCol
++            >
++          </VRow>
+           <VRow v-else-if="notificationInfo.type == 'webpush'">
+             <VCol cols="12" md="6">
+               <VTextField
 diff --git a/src/components/filebrowser/FileBrowser.vue b/src/components/filebrowser/FileBrowser.vue
-index c0a34835c2c8d6bf4ac5193e8d9abfa162fd495d..4a479c9f008a9f2978741fdcf91cbb9cafd60054 100644
+index c0a34835..4a479c9f 100644
 --- a/src/components/filebrowser/FileBrowser.vue
 +++ b/src/components/filebrowser/FileBrowser.vue
 @@ -13,6 +13,7 @@ import { usePWA } from '@/composables/usePWA'
@@ -187,10 +247,10 @@ index c0a34835c2c8d6bf4ac5193e8d9abfa162fd495d..4a479c9f008a9f2978741fdcf91cbb9c
        </div>
 diff --git a/src/components/native/NativeNavigationHost.vue b/src/components/native/NativeNavigationHost.vue
 new file mode 100644
-index 0000000000000000000000000000000000000000..85bb790b8f6b32e7f9c59a113ec07eea061a0d7e
+index 00000000..8a63f74a
 --- /dev/null
 +++ b/src/components/native/NativeNavigationHost.vue
-@@ -0,0 +1,383 @@
+@@ -0,0 +1,397 @@
 +<script setup lang="ts">
 +import { computed, nextTick, onScopeDispose, ref, toValue, watch, watchEffect } from 'vue'
 +import { useRoute, useRouter } from 'vue-router'
@@ -218,6 +278,7 @@ index 0000000000000000000000000000000000000000..85bb790b8f6b32e7f9c59a113ec07eea
 +import { nativePageHeaders } from '@/native/page'
 +import type { DynamicHeaderTabButton } from '@/composables/useDynamicHeaderTab'
 +import type { NativeAction, NativeEnvelope, NativeSnapshot } from '@/native/protocol'
++import { isNativeRoute } from '@/native/protocol'
 +import { appActivityLifecycle } from '@/utils/appActivityLifecycle'
 +import '@/native/native.scss'
 +
@@ -457,6 +518,19 @@ index 0000000000000000000000000000000000000000..85bb790b8f6b32e7f9c59a113ec07eea
 +  if (message.type === 'navigation.selectRoot')
 +    return !overlayOpen.value && typeof payload.rootId === 'string' && history.selectRoot(payload.rootId)
 +  if (message.type === 'navigation.back') return history.back(document, window)
++  if (message.type === 'notification.open') {
++    if (!authenticated.value || overlayOpen.value || !isNativeRoute(payload.path)) return false
++    if (payload.path === '/?shotcut=message') {
++      const action = nativeGlobalActions.value.get('notifications')
++      if (!action || (action.visible !== undefined && !toValue(action.visible))) return false
++      action.invoke()
++    } else {
++      void router.push(payload.path).catch(() => {
++        /* 业务守卫保留目的页的权限判断，失败不重放通知动作。 */
++      })
++    }
++    return true
++  }
 +  if (message.type === 'navigation.open') {
 +    if (overlayOpen.value) return false
 +    const item = current.snapshot.moreMenu
@@ -575,7 +649,7 @@ index 0000000000000000000000000000000000000000..85bb790b8f6b32e7f9c59a113ec07eea
 +
 +<template><span hidden aria-hidden="true" data-native-navigation-host /></template>
 diff --git a/src/composables/__tests__/useDynamicHeaderTab.spec.ts b/src/composables/__tests__/useDynamicHeaderTab.spec.ts
-index 7a12978bb6c31327bfa1a001c1e0428bd3b71033..979c38df397789e5ed01214f96b36d4df6f40531 100644
+index 7a12978b..979c38df 100644
 --- a/src/composables/__tests__/useDynamicHeaderTab.spec.ts
 +++ b/src/composables/__tests__/useDynamicHeaderTab.spec.ts
 @@ -9,6 +9,7 @@ describe('useDynamicHeaderTab', () => {
@@ -615,7 +689,7 @@ index 7a12978bb6c31327bfa1a001c1e0428bd3b71033..979c38df397789e5ed01214f96b36d4d
      wrapper.unmount()
    })
 diff --git a/src/composables/dynamicButtonRegistry.ts b/src/composables/dynamicButtonRegistry.ts
-index 5d006afdffd2376f3272ecc4eab144e43ae4304c..956f90322dff63d57804fa8a644971025dad5a58 100644
+index 5d006afd..956f9032 100644
 --- a/src/composables/dynamicButtonRegistry.ts
 +++ b/src/composables/dynamicButtonRegistry.ts
 @@ -25,6 +25,8 @@ export interface DynamicButtonMenuItem {
@@ -628,7 +702,7 @@ index 5d006afdffd2376f3272ecc4eab144e43ae4304c..956f90322dff63d57804fa8a64497102
    icon: string
    /** 没有菜单时执行的主操作。 */
 diff --git a/src/composables/useDynamicHeaderTab.ts b/src/composables/useDynamicHeaderTab.ts
-index d04bee3050904c3b96a7ff3a94be50eb243e0b5b..11ab9f34e2c68d28ccf91e1a2ed8f6dc3c79443d 100644
+index d04bee30..11ab9f34 100644
 --- a/src/composables/useDynamicHeaderTab.ts
 +++ b/src/composables/useDynamicHeaderTab.ts
 @@ -2,8 +2,10 @@ import type { ComputedRef, Ref } from 'vue'
@@ -807,7 +881,7 @@ index d04bee3050904c3b96a7ff3a94be50eb243e0b5b..11ab9f34e2c68d28ccf91e1a2ed8f6dc
    }
  
 diff --git a/src/composables/useFooterDockHeight.ts b/src/composables/useFooterDockHeight.ts
-index f34df26172bffa4ec30bfd12c7f82497b3bf6f67..d21ed02687f8ddb3dd177220054987acc380231c 100644
+index f34df261..d21ed026 100644
 --- a/src/composables/useFooterDockHeight.ts
 +++ b/src/composables/useFooterDockHeight.ts
 @@ -1,4 +1,5 @@
@@ -829,7 +903,7 @@ index f34df26172bffa4ec30bfd12c7f82497b3bf6f67..d21ed02687f8ddb3dd177220054987ac
 +  }
  }
 diff --git a/src/composables/usePWA.ts b/src/composables/usePWA.ts
-index cf2338a204be6e6bd9829273391619af009a2f49..94bb3f57ef7a0c8c9aaec7d8c3353637306f54d0 100644
+index cf2338a2..94bb3f57 100644
 --- a/src/composables/usePWA.ts
 +++ b/src/composables/usePWA.ts
 @@ -1,5 +1,6 @@
@@ -888,7 +962,7 @@ index cf2338a204be6e6bd9829273391619af009a2f49..94bb3f57ef7a0c8c9aaec7d8c3353637
      if (uiMode.value === 'desktop') return false
  
 diff --git a/src/layouts/default/components/DefaultLayout.vue b/src/layouts/default/components/DefaultLayout.vue
-index 1c3f94264254c187dbf3647b8400b66355711c8c..5dc97974bb2ac629cdfbabd095f2f537461f2429 100644
+index 1c3f9426..5dc97974 100644
 --- a/src/layouts/default/components/DefaultLayout.vue
 +++ b/src/layouts/default/components/DefaultLayout.vue
 @@ -26,8 +26,6 @@ import {
@@ -1077,19 +1151,19 @@ index 1c3f94264254c187dbf3647b8400b66355711c8c..5dc97974bb2ac629cdfbabd095f2f537
                  @click="handleHeaderButtonClick(button)"
                />
 diff --git a/src/layouts/default/components/Footer.vue b/src/layouts/default/components/Footer.vue
-index 11297531ad0670954c89164edf97cb5ef50d5fe5..fe0848a6b93bf2a9d141cdc9ac9c531e593283d8 100644
+index 908be8b8..1918f538 100644
 --- a/src/layouts/default/components/Footer.vue
 +++ b/src/layouts/default/components/Footer.vue
-@@ -17,6 +17,8 @@ import {
-   type DynamicButtonUnregister,
+@@ -18,6 +18,8 @@ import {
  } from '@/composables/dynamicButtonRegistry'
  import type { DynamicButtonMenuItem } from '@/composables/useDynamicButton'
+ import { usePublishFooterDockGeometry } from '@/composables/useFooterDockGeometry'
 +import { buildFooterMenus } from '@/utils/footerNavigation'
 +import { nativeChromeActive } from '@/native/layout'
  
  const { register: registerSharedDynamicButton, unregister: unregisterSharedDynamicButton } = dynamicButtonRegistry
  
-@@ -63,7 +65,7 @@ const navMenus = computed(() => {
+@@ -64,7 +66,7 @@ const navMenus = computed(() => {
    return filterMenusByPermission(allMenus, userPermissions.value)
  })
  
@@ -1098,7 +1172,7 @@ index 11297531ad0670954c89164edf97cb5ef50d5fe5..fe0848a6b93bf2a9d141cdc9ac9c531e
  function getMenuPathFromRoute(path: string): string {
    const matchedMenu = navMenus.value.find((menu: NavMenu) => menu.footer === true && path.startsWith(menu.to as string))
    return matchedMenu ? (matchedMenu.to as string) : '/apps'
-@@ -73,44 +75,7 @@ function getMenuPathFromRoute(path: string): string {
+@@ -74,44 +76,7 @@ function getMenuPathFromRoute(path: string): string {
  const currentMenu = ref<string>(getMenuPathFromRoute(route.path))
  
  // 过滤出底部菜单项
@@ -1144,7 +1218,7 @@ index 11297531ad0670954c89164edf97cb5ef50d5fe5..fe0848a6b93bf2a9d141cdc9ac9c531e
  
  // 监听路由变化来更新currentMenu
  watch(
-@@ -223,7 +188,7 @@ watch(
+@@ -224,7 +189,7 @@ watch(
  )
  onUnmounted(() => clearTimeout(accessoryExitTimer))
  
@@ -1152,8 +1226,8 @@ index 11297531ad0670954c89164edf97cb5ef50d5fe5..fe0848a6b93bf2a9d141cdc9ac9c531e
 +const shouldRenderFooterNav = computed(() => appMode.value && props.showNav && !nativeChromeActive.value)
  const shouldRevealFooterNav = computed(() => shouldRenderFooterNav.value && !isLaunchLoading.value)
  
- const legacyDynamicMenuTitleKeyMap: Record<string, string> = {
-@@ -233,7 +198,7 @@ const legacyDynamicMenuTitleKeyMap: Record<string, string> = {
+ const dockContainerRef = ref<HTMLElement | null>(null)
+@@ -239,7 +204,7 @@ const legacyDynamicMenuTitleKeyMap: Record<string, string> = {
    'components.pluginMarketSetting.title': 'dialog.pluginMarketSetting.title',
  }
  
@@ -1162,7 +1236,7 @@ index 11297531ad0670954c89164edf97cb5ef50d5fe5..fe0848a6b93bf2a9d141cdc9ac9c531e
  function resolveDynamicMenuItemTitle(item: DynamicButtonMenuItem) {
    if (item.titleKey) {
      return t(item.titleKey, item.titleParams ?? {})
-@@ -249,7 +214,7 @@ function resolveDynamicMenuItemTitle(item: DynamicButtonMenuItem) {
+@@ -255,7 +220,7 @@ function resolveDynamicMenuItemTitle(item: DynamicButtonMenuItem) {
    return looksLikeI18nKey ? t(normalizedTitleKey, item.titleParams ?? {}) : item.title
  }
  
@@ -1171,7 +1245,7 @@ index 11297531ad0670954c89164edf97cb5ef50d5fe5..fe0848a6b93bf2a9d141cdc9ac9c531e
  function handleDynamicButtonClick() {
    if (
      !showDynamicButton.value ||
-@@ -262,7 +227,7 @@ function handleDynamicButtonClick() {
+@@ -268,7 +233,7 @@ function handleDynamicButtonClick() {
    dynamicButton.value.action()
  }
  
@@ -1181,7 +1255,7 @@ index 11297531ad0670954c89164edf97cb5ef50d5fe5..fe0848a6b93bf2a9d141cdc9ac9c531e
    if (
      !showDynamicButton.value ||
 diff --git a/src/layouts/default/components/SearchBar.vue b/src/layouts/default/components/SearchBar.vue
-index 1e986452173892763274a5dcc5c4b70f78717a1b..a62d415392b93233dcd5c376d11ed663a4162351 100644
+index 1e986452..a62d4153 100644
 --- a/src/layouts/default/components/SearchBar.vue
 +++ b/src/layouts/default/components/SearchBar.vue
 @@ -1,6 +1,11 @@
@@ -1213,7 +1287,7 @@ index 1e986452173892763274a5dcc5c4b70f78717a1b..a62d415392b93233dcd5c376d11ed663
 +  <SearchBarDialog ref="searchBar" v-model="searchOpen" :show-activator="!nativeChromeActive" @close="closeSearch" />
  </template>
 diff --git a/src/layouts/default/components/ShortcutBar.vue b/src/layouts/default/components/ShortcutBar.vue
-index c71ff06ac5261749176113ef759a473049530af3..af6f5690d193bf02a5be8385f552dde2b9edd9e1 100644
+index c71ff06a..af6f5690 100644
 --- a/src/layouts/default/components/ShortcutBar.vue
 +++ b/src/layouts/default/components/ShortcutBar.vue
 @@ -2,6 +2,8 @@
@@ -1259,7 +1333,7 @@ index c71ff06ac5261749176113ef759a473049530af3..af6f5690d193bf02a5be8385f552dde2
          <VIcon icon="mdi-card-multiple-outline" />
        </IconBtn>
 diff --git a/src/layouts/default/components/UserNotification.vue b/src/layouts/default/components/UserNotification.vue
-index 9dfb07a30220a94401681304290affddaeb7bcbb..91c4a6d19d8ca7f8fc8cc162feeeeb77fa2a7a7d 100644
+index 9dfb07a3..a9ddef39 100644
 --- a/src/layouts/default/components/UserNotification.vue
 +++ b/src/layouts/default/components/UserNotification.vue
 @@ -8,6 +8,8 @@ import { useBackground } from '@/composables/useBackground'
@@ -1271,10 +1345,24 @@ index 9dfb07a30220a94401681304290affddaeb7bcbb..91c4a6d19d8ca7f8fc8cc162feeeeb77
  
  type NotificationDisplayItem =
    | { kind: 'section'; key: string; title: string; count: number }
-@@ -24,6 +26,15 @@ const PAGE_SIZE = 20
+@@ -24,6 +26,29 @@ const PAGE_SIZE = 20
  const NOTIFICATION_ITEM_HEIGHT = 136
  
  const appsMenu = ref(false)
++const route = useRoute()
++const router = useRouter()
++// 通知链接复用当前通知中心；消费参数后刷新页面不会再次弹出。
++watch(
++  () => route.query.shotcut,
++  value => {
++    if (value !== 'message') return
++    appsMenu.value = true
++    const query = { ...route.query }
++    delete query.shotcut
++    void router.replace({ query })
++  },
++  { immediate: true },
++)
 +useNativeGlobalAction({
 +  id: 'notifications',
 +  title: () => t('notification.center'),
@@ -1287,7 +1375,7 @@ index 9dfb07a30220a94401681304290affddaeb7bcbb..91c4a6d19d8ca7f8fc8cc162feeeeb77
  const hasNewMessage = ref(false)
  const notificationList = ref<SystemNotification[]>([])
  const page = ref(1)
-@@ -521,6 +532,7 @@ watch(appsMenu, handleNotificationMenuVisibleChange)
+@@ -521,6 +546,7 @@ watch(appsMenu, handleNotificationMenuVisibleChange)
  <template>
    <VMenu
      v-model="appsMenu"
@@ -1295,7 +1383,7 @@ index 9dfb07a30220a94401681304290affddaeb7bcbb..91c4a6d19d8ca7f8fc8cc162feeeeb77
      width="420"
      max-width="calc(100vw - 24px)"
      transition="scale-transition"
-@@ -528,7 +540,7 @@ watch(appsMenu, handleNotificationMenuVisibleChange)
+@@ -528,7 +554,7 @@ watch(appsMenu, handleNotificationMenuVisibleChange)
      class="notification-menu"
      scrim
    >
@@ -1305,7 +1393,7 @@ index 9dfb07a30220a94401681304290affddaeb7bcbb..91c4a6d19d8ca7f8fc8cc162feeeeb77
          v-if="hasUnreadMessageIndicator"
          dot
 diff --git a/src/layouts/default/components/UserProfile.vue b/src/layouts/default/components/UserProfile.vue
-index 204da634fe012cba2da984f249e05ac8ac5e9391..93b2adfb90b616c8e94cb18750851733512ca99a 100644
+index 204da634..93b2adfb 100644
 --- a/src/layouts/default/components/UserProfile.vue
 +++ b/src/layouts/default/components/UserProfile.vue
 @@ -30,6 +30,8 @@ import { useLocalStorage } from '@vueuse/core'
@@ -1342,9 +1430,63 @@ index 204da634fe012cba2da984f249e05ac8ac5e9391..93b2adfb90b616c8e94cb18750851733
        width="15rem"
        location="bottom end"
        offset="14px"
+diff --git a/src/locales/en-US.ts b/src/locales/en-US.ts
+index 6af75c9c..8f7863b3 100644
+--- a/src/locales/en-US.ts
++++ b/src/locales/en-US.ts
+@@ -1237,6 +1237,13 @@ export default {
+       adminsHint: 'User IDs that can use admin menu and commands, separated by commas',
+       adminsPlaceholder: 'User IDs list, separated by commas',
+     },
++    apppush: {
++      name: 'Private App Push',
++      server: 'Private Server URL',
++      key: 'Instance relay key',
++      keyHint: 'Match a PUSH_RELAY_KEYS value on Server, at least 32 characters. Stored only on the backend.',
++      hint: 'Save and enable, then bind in the App under Connection and Display → Notifications. Free signing uses the Home Screen notification web app. APNs requires an eligible signing profile.',
++    },
+     webpush: {
+       name: 'WebPush',
+       username: 'Login Username',
+diff --git a/src/locales/zh-CN.ts b/src/locales/zh-CN.ts
+index 0f73920d..b3c0a7de 100644
+--- a/src/locales/zh-CN.ts
++++ b/src/locales/zh-CN.ts
+@@ -1205,6 +1205,13 @@ export default {
+       adminsHint: '可使用管理菜单及命令的用户ID列表，多个ID使用,分隔',
+       adminsPlaceholder: '用户ID列表，多个ID使用,分隔',
+     },
++    apppush: {
++      name: 'App 私有推送',
++      server: '私有 Server 地址',
++      key: '实例中转密钥',
++      keyHint: '与 Server 的 PUSH_RELAY_KEYS 对应，至少 32 位；仅保存在后台。',
++      hint: '保存并启用后，在 App 的“连接与显示 → 通知”中绑定。免费自签使用主屏幕通知网页；支持 APNs 的签名可开启原生通知。',
++    },
+     webpush: {
+       name: 'WebPush',
+       username: '登录用户名',
+diff --git a/src/locales/zh-TW.ts b/src/locales/zh-TW.ts
+index a9f966ac..5e1eab84 100644
+--- a/src/locales/zh-TW.ts
++++ b/src/locales/zh-TW.ts
+@@ -1202,6 +1202,13 @@ export default {
+       adminsHint: '可使用管理菜單及命令的用戶ID列表，多個ID使用,分隔',
+       adminsPlaceholder: '用戶ID列表，多個ID使用,分隔',
+     },
++    apppush: {
++      name: 'App 私有推播',
++      server: '私有 Server 位址',
++      key: '實例中轉金鑰',
++      keyHint: '與 Server 的 PUSH_RELAY_KEYS 對應，至少 32 位；僅保存在後台。',
++      hint: '儲存並啟用後，在 App 的「連線與顯示 → 通知」中綁定。免費自簽使用主畫面通知網頁；支援 APNs 的簽章可啟用原生通知。',
++    },
+     webpush: {
+       name: 'WebPush',
+       username: '登錄用戶名',
 diff --git a/src/native/__tests__/header.spec.ts b/src/native/__tests__/header.spec.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..3fc2b9e4341490917818795f0239a076645bc61a
+index 00000000..3fc2b9e4
 --- /dev/null
 +++ b/src/native/__tests__/header.spec.ts
 @@ -0,0 +1,51 @@
@@ -1401,7 +1543,7 @@ index 0000000000000000000000000000000000000000..3fc2b9e4341490917818795f0239a076
 +})
 diff --git a/src/native/__tests__/history.spec.ts b/src/native/__tests__/history.spec.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..41ec7dacabe8dd3ba798955ff05f1b80af98d471
+index 00000000..41ec7dac
 --- /dev/null
 +++ b/src/native/__tests__/history.spec.ts
 @@ -0,0 +1,92 @@
@@ -1499,7 +1641,7 @@ index 0000000000000000000000000000000000000000..41ec7dacabe8dd3ba798955ff05f1b80
 +})
 diff --git a/src/native/__tests__/layout.spec.ts b/src/native/__tests__/layout.spec.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..139c362b624468a0815ef4e8984acd84d645c52c
+index 00000000..139c362b
 --- /dev/null
 +++ b/src/native/__tests__/layout.spec.ts
 @@ -0,0 +1,60 @@
@@ -1563,9 +1705,53 @@ index 0000000000000000000000000000000000000000..139c362b624468a0815ef4e8984acd84
 +    expect(document.documentElement.style.getPropertyValue('--native-top')).toBe('')
 +  })
 +})
+diff --git a/src/native/__tests__/notifications.spec.ts b/src/native/__tests__/notifications.spec.ts
+new file mode 100644
+index 00000000..07b21fa4
+--- /dev/null
++++ b/src/native/__tests__/notifications.spec.ts
+@@ -0,0 +1,38 @@
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { revokeNativeNotificationBinding } from '../notifications'
++
++afterEach(() => {
++  delete window.MoviePilotNative
++  vi.unstubAllGlobals()
++})
++
++describe('原生通知退出边界', () => {
++  it('普通网页不会额外调用通知接口', () => {
++    const fetch = vi.fn()
++    vi.stubGlobal('fetch', fetch)
++    revokeNativeNotificationBinding('existing-token')
++    expect(fetch).not.toHaveBeenCalled()
++  })
++
++  it('退出请求复用原登录态且仅撤销当前安装，不允许客户端指定账号', () => {
++    const fetch = vi.fn().mockResolvedValue({ ok: true })
++    vi.stubGlobal('fetch', fetch)
++    window.MoviePilotNative = {
++      transportVersion: 1,
++      postMessage: vi.fn(),
++      notificationInstallation: 'installation-0001',
++    }
++    revokeNativeNotificationBinding('existing-token')
++    expect(fetch).toHaveBeenCalledOnce()
++    const [url, request] = fetch.mock.calls[0]
++    expect(url.pathname).toMatch(/\/notification\/app$/)
++    expect(url.origin).toBe(location.origin)
++    expect(request.headers.Authorization).toBe('Bearer existing-token')
++    expect(request.keepalive).toBe(true)
++    expect(JSON.parse(request.body)).toEqual({
++      action: 'unregister',
++      installation: 'installation-0001',
++      origin: location.origin,
++    })
++  })
++})
 diff --git a/src/native/__tests__/page.spec.ts b/src/native/__tests__/page.spec.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..b64de4edabca78a9318dd4169d90ac31a2d56699
+index 00000000..b64de4ed
 --- /dev/null
 +++ b/src/native/__tests__/page.spec.ts
 @@ -0,0 +1,77 @@
@@ -1648,7 +1834,7 @@ index 0000000000000000000000000000000000000000..b64de4edabca78a9318dd4169d90ac31
 +})
 diff --git a/src/native/__tests__/session.spec.ts b/src/native/__tests__/session.spec.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..be8f3b343b6d00c4a392697d614e551d80ea60e5
+index 00000000..be8f3b34
 --- /dev/null
 +++ b/src/native/__tests__/session.spec.ts
 @@ -0,0 +1,207 @@
@@ -1861,7 +2047,7 @@ index 0000000000000000000000000000000000000000..be8f3b343b6d00c4a392697d614e551d
 +})
 diff --git a/src/native/header.ts b/src/native/header.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..8f81a263b533cee93d0742f87355169bad94128d
+index 00000000..8f81a263
 --- /dev/null
 +++ b/src/native/header.ts
 @@ -0,0 +1,36 @@
@@ -1903,7 +2089,7 @@ index 0000000000000000000000000000000000000000..8f81a263b533cee93d0742f87355169b
 +}
 diff --git a/src/native/history.ts b/src/native/history.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..5ecd6974e10b2d3b6a543758d367023c0d3382ba
+index 00000000..5ecd6974
 --- /dev/null
 +++ b/src/native/history.ts
 @@ -0,0 +1,141 @@
@@ -2050,7 +2236,7 @@ index 0000000000000000000000000000000000000000..5ecd6974e10b2d3b6a543758d367023c
 +}
 diff --git a/src/native/layout.ts b/src/native/layout.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..98648450d772b7d9fe92bb318b2c3e459331124e
+index 00000000..98648450
 --- /dev/null
 +++ b/src/native/layout.ts
 @@ -0,0 +1,134 @@
@@ -2190,7 +2376,7 @@ index 0000000000000000000000000000000000000000..98648450d772b7d9fe92bb318b2c3e45
 +}
 diff --git a/src/native/native.scss b/src/native/native.scss
 new file mode 100644
-index 0000000000000000000000000000000000000000..8f244fe13bd27209067c92fd86d27967cb434cef
+index 00000000..8f244fe1
 --- /dev/null
 +++ b/src/native/native.scss
 @@ -0,0 +1,75 @@
@@ -2269,9 +2455,38 @@ index 0000000000000000000000000000000000000000..8f244fe13bd27209067c92fd86d27967
 +    padding-block-end: var(--native-bottom);
 +  }
 +}
+diff --git a/src/native/notifications.ts b/src/native/notifications.ts
+new file mode 100644
+index 00000000..f8e591ab
+--- /dev/null
++++ b/src/native/notifications.ts
+@@ -0,0 +1,23 @@
++import type { NativeTransport } from './protocol'
++
++/** 使用现有登录态撤销当前安装的 APNs 及其配对网页，不新增认证或通用 API 桥。 */
++export function revokeNativeNotificationBinding(token: string | null) {
++  const installation = (window.MoviePilotNative as NativeTransport | undefined)?.notificationInstallation
++  if (!token || !installation || !/^[a-zA-Z0-9_-]{16,64}$/.test(installation)) return
++  const base = new URL(import.meta.env.VITE_API_BASE_URL, document.baseURI)
++  if (base.origin !== location.origin) return
++  const endpoint = new URL('notification/app', base)
++  const origin = new URL(document.baseURI)
++  origin.hash = ''
++  origin.search = ''
++  void fetch(endpoint, {
++    method: 'POST',
++    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
++    body: JSON.stringify({ action: 'unregister', installation, origin: origin.href.replace(/\/$/, '') }),
++    credentials: 'same-origin',
++    keepalive: true,
++    cache: 'no-store',
++  }).catch(() => {
++    /* 离线时只能完成本地退出，服务端绑定可在通知网页或恢复联网后解除。 */
++  })
++}
 diff --git a/src/native/page.ts b/src/native/page.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..20712f3db18e21d732914dd5e8abac13652901d8
+index 00000000..20712f3d
 --- /dev/null
 +++ b/src/native/page.ts
 @@ -0,0 +1,43 @@
@@ -2320,10 +2535,10 @@ index 0000000000000000000000000000000000000000..20712f3db18e21d732914dd5e8abac13
 +}
 diff --git a/src/native/protocol.ts b/src/native/protocol.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..1ccb6572558e40f24fb18b26d4b872d7647380cc
+index 00000000..c778b65a
 --- /dev/null
 +++ b/src/native/protocol.ts
-@@ -0,0 +1,97 @@
+@@ -0,0 +1,99 @@
 +/** 原生导航只接收声明；业务回调不参与 JSON 序列化。 */
 +export interface NativeAction {
 +  actionId: string
@@ -2387,6 +2602,8 @@ index 0000000000000000000000000000000000000000..1ccb6572558e40f24fb18b26d4b872d7
 +/** 由主文档开始时注入的最小 WebKit 传输门面。 */
 +export interface NativeTransport {
 +  transportVersion: 1
++  /** 非敏感安装标识，仅用于退出当前账号时撤销对应通知绑定。 */
++  notificationInstallation?: string
 +  /** 只发送 JSON 声明，不暴露任意原生方法。 */
 +  postMessage(message: NativeEnvelope): void
 +  /** 只通知宿主显示登录框架，不携带令牌或用户输入。 */
@@ -2423,7 +2640,7 @@ index 0000000000000000000000000000000000000000..1ccb6572558e40f24fb18b26d4b872d7
 +}
 diff --git a/src/native/registry.ts b/src/native/registry.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..453059fa731c05c42feffad54c3f9dcf76fef8aa
+index 00000000..453059fa
 --- /dev/null
 +++ b/src/native/registry.ts
 @@ -0,0 +1,34 @@
@@ -2463,10 +2680,10 @@ index 0000000000000000000000000000000000000000..453059fa731c05c42feffad54c3f9dcf
 +}
 diff --git a/src/native/session.ts b/src/native/session.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..18c0103e5a8570691f690ea436a2867220f10fb6
+index 00000000..dec38186
 --- /dev/null
 +++ b/src/native/session.ts
-@@ -0,0 +1,257 @@
+@@ -0,0 +1,261 @@
 +import {
 +  isNativeIdentifier,
 +  isRecord,
@@ -2514,7 +2731,10 @@ index 0000000000000000000000000000000000000000..18c0103e5a8570691f690ea436a28672
 +    if (this.phase !== 'web') return
 +    this.phase = 'waiting'
 +    this.options.target.addEventListener('moviepilot:native-message', this.listener)
-+    this.post('web.ready', { majors: [1], capabilities: ['navigation.v1', 'actions.v1', 'layout.v1', 'menu.v1'] })
++    this.post('web.ready', {
++      majors: [1],
++      capabilities: ['navigation.v1', 'actions.v1', 'layout.v1', 'menu.v1', 'notifications.v1'],
++    })
 +    this.timer = setTimeout(() => {
 +      void this.fail()
 +    }, 3000)
@@ -2642,6 +2862,7 @@ index 0000000000000000000000000000000000000000..18c0103e5a8570691f690ea436a28672
 +        'navigation.selectRoot',
 +        'navigation.back',
 +        'navigation.open',
++        'notification.open',
 +        'headerTab.select',
 +        'action.invoke',
 +        'state.request',
@@ -2725,7 +2946,7 @@ index 0000000000000000000000000000000000000000..18c0103e5a8570691f690ea436a28672
 +  }
 +}
 diff --git a/src/pages/appcenter.vue b/src/pages/appcenter.vue
-index 425504c465a51cbd2cb5242657924416a77b2ea8..ebc07643921187f59c2c86a8ceaca2b5824463ba 100644
+index 425504c4..ebc07643 100644
 --- a/src/pages/appcenter.vue
 +++ b/src/pages/appcenter.vue
 @@ -7,6 +7,7 @@ import { filterPluginSidebarNavEntries } from '@/utils/pluginSidebarNav'
@@ -2768,7 +2989,7 @@ index 425504c465a51cbd2cb5242657924416a77b2ea8..ebc07643921187f59c2c86a8ceaca2b5
  }
  
 diff --git a/src/pages/music/artist/resources.vue b/src/pages/music/artist/resources.vue
-index 3bab30956f3c45d57626deb9a90987e2fdded4a0..c3d3154ec47a050949581371e10dcde990af44dc 100644
+index 3bab3095..c3d3154e 100644
 --- a/src/pages/music/artist/resources.vue
 +++ b/src/pages/music/artist/resources.vue
 @@ -6,6 +6,7 @@ import NoDataFound from '@/components/states/NoDataFound.vue'
@@ -2812,7 +3033,7 @@ index 3bab30956f3c45d57626deb9a90987e2fdded4a0..c3d3154ec47a050949581371e10dcde9
          <VBtn variant="text" prepend-icon="mdi-arrow-left" class="px-0 mb-1" @click="router.back()">
            {{ t('common.back') }}
 diff --git a/src/pages/resource.vue b/src/pages/resource.vue
-index 176e0610c8c5a1904c559b7e7b50ae9c0eb184b1..54ff44cb8cebc50fa2ccfd2efadbe42dc22e1580 100644
+index 176e0610..54ff44cb 100644
 --- a/src/pages/resource.vue
 +++ b/src/pages/resource.vue
 @@ -23,6 +23,7 @@ import { SearchReplaceBatchCollector, isSearchReplaceBatchEvent } from '@/utils/
@@ -2888,8 +3109,52 @@ index 176e0610c8c5a1904c559b7e7b50ae9c0eb184b1..54ff44cb8cebc50fa2ccfd2efadbe42d
        <div class="resource-page-header__copy">
          <VPageContentTitle
            :title="isSubtitleSearch ? t('resource.subtitleSearchResults') : t('resource.searchResults')"
+diff --git a/src/stores/auth.ts b/src/stores/auth.ts
+index 027c5f0f..66160da9 100644
+--- a/src/stores/auth.ts
++++ b/src/stores/auth.ts
+@@ -4,6 +4,7 @@ import type { authState } from '@/stores/types'
+ import { usePluginSidebarNavStore } from '@/stores/pluginSidebarNav'
+ import { useUserStore } from '@/stores/user'
+ import { clearCachedMediaSubscribeStatuses } from '@/utils/mediaStatusCache'
++import { revokeNativeNotificationBinding } from '@/native/notifications'
+ 
+ export const useAuthStore = defineStore('auth', {
+   state: (): authState => ({
+@@ -16,23 +17,31 @@ export const useAuthStore = defineStore('auth', {
+   persist: true,
+ 
+   actions: {
++    /** 登录或刷新时替换当前认证令牌，持久化由原 store 插件统一管理。 */
+     setToken(token: string | null) {
+       this.token = token
+     },
++    /** 清除本地认证，调用方负责先撤销需要旧身份的系统绑定。 */
+     clearToken() {
+       this.token = null
+     },
++    /** 保存用户明确选择的登录记忆偏好。 */
+     setRemember(remember: boolean) {
+       this.remember = remember
+     },
++    /** 保存登录完成后的原业务目的地。 */
+     setOriginalPath(originalPath: string | null) {
+       this.originalPath = originalPath
+     },
++    /** 接受既有认证接口结果，不创建另一套容器认证。 */
+     login(payload: authState) {
+       this.setToken(payload.token)
+       this.setRemember(payload.remember)
+     },
++    /** 先请求撤销容器通知，再清理当前用户和依赖登录态的缓存。 */
+     logout() {
++      // 在清除现有认证之前撤销通知；失败不能阻断本地退出或恢复已失效会话。
++      revokeNativeNotificationBinding(this.token)
+       this.clearToken()
+       this.setOriginalPath(null)
+       // 身份和权限属于登录会话；退出后不得被同一浏览器中的下一个账号继承。
 diff --git a/src/utils/__tests__/appActivityLifecycle.spec.ts b/src/utils/__tests__/appActivityLifecycle.spec.ts
-index d337f4227c512e1864d2238bb9e969b21033a56d..cca93169311cb71bc41b6f10ae8bd544a2b93b9c 100644
+index d337f422..cca93169 100644
 --- a/src/utils/__tests__/appActivityLifecycle.spec.ts
 +++ b/src/utils/__tests__/appActivityLifecycle.spec.ts
 @@ -95,4 +95,21 @@ describe('AppActivityLifecycle', () => {
@@ -2915,7 +3180,7 @@ index d337f4227c512e1864d2238bb9e969b21033a56d..cca93169311cb71bc41b6f10ae8bd544
 +  })
  })
 diff --git a/src/utils/appActivityLifecycle.ts b/src/utils/appActivityLifecycle.ts
-index a20aa53ce2bea97cba2ef64aa5bf18a08ccd0d52..abe1785cfddcdb609410862c5c98de4638a233b3 100644
+index a20aa53c..abe1785c 100644
 --- a/src/utils/appActivityLifecycle.ts
 +++ b/src/utils/appActivityLifecycle.ts
 @@ -22,8 +22,10 @@ export class AppActivityLifecycle {
@@ -3034,7 +3299,7 @@ index a20aa53ce2bea97cba2ef64aa5bf18a08ccd0d52..abe1785cfddcdb609410862c5c98de46
      this.clearSuspendTimer()
 diff --git a/src/utils/appNavigation.ts b/src/utils/appNavigation.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..816b6728cff20e26b16724d230e32b81f314d669
+index 00000000..816b6728
 --- /dev/null
 +++ b/src/utils/appNavigation.ts
 @@ -0,0 +1,11 @@
@@ -3051,7 +3316,7 @@ index 0000000000000000000000000000000000000000..816b6728cff20e26b16724d230e32b81
 +}
 diff --git a/src/utils/footerNavigation.ts b/src/utils/footerNavigation.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..cac6bd22c257bb7c7566b31d7069cfdef18d8a33
+index 00000000..cac6bd22
 --- /dev/null
 +++ b/src/utils/footerNavigation.ts
 @@ -0,0 +1,16 @@
@@ -3072,7 +3337,7 @@ index 0000000000000000000000000000000000000000..cac6bd22c257bb7c7566b31d7069cfde
 +  return [...preferred, ...remaining.slice(0, 3 - preferred.length)]
 +}
 diff --git a/src/views/discover/MediaDetailView.vue b/src/views/discover/MediaDetailView.vue
-index 7b1bc9366bfdd22247fcb626e44882d2a7ab4381..5cf220f8438ae818a807574c132bc1e22b928503 100644
+index 7b1bc936..5cf220f8 100644
 --- a/src/views/discover/MediaDetailView.vue
 +++ b/src/views/discover/MediaDetailView.vue
 @@ -1,5 +1,6 @@
@@ -3156,7 +3421,7 @@ index 7b1bc9366bfdd22247fcb626e44882d2a7ab4381..5cf220f8438ae818a807574c132bc1e2
              <template #prepend>
                <VIcon icon="mdi-magnify" />
 diff --git a/src/views/discover/MusicAlbumView.vue b/src/views/discover/MusicAlbumView.vue
-index 1c13b1d851ec631a3a88af323688c00bb1cacb57..ecbb27e17b3149e23a8d179d57b1190d1cad5935 100644
+index 1c13b1d8..ecbb27e1 100644
 --- a/src/views/discover/MusicAlbumView.vue
 +++ b/src/views/discover/MusicAlbumView.vue
 @@ -1,5 +1,6 @@
@@ -3194,7 +3459,7 @@ index 1c13b1d851ec631a3a88af323688c00bb1cacb57..ecbb27e17b3149e23a8d179d57b1190d
  
  <template>
 diff --git a/src/views/discover/MusicArtistView.vue b/src/views/discover/MusicArtistView.vue
-index 9db29da077f0b92447bb1c8e120c0121e9828eaf..7a15905445eabaa2cb105128fac5dcdecd858856 100644
+index 9db29da0..7a159054 100644
 --- a/src/views/discover/MusicArtistView.vue
 +++ b/src/views/discover/MusicArtistView.vue
 @@ -1,5 +1,6 @@
@@ -3230,7 +3495,7 @@ index 9db29da077f0b92447bb1c8e120c0121e9828eaf..7a15905445eabaa2cb105128fac5dcde
  
  <template>
 diff --git a/src/views/discover/MusicDetailLayout.vue b/src/views/discover/MusicDetailLayout.vue
-index 7c96d1473d90739b143ea2fd345095dae41ccb13..e4b1e60fd8e3b962e04e61d0170c1727f72fb59e 100644
+index 7c96d147..e4b1e60f 100644
 --- a/src/views/discover/MusicDetailLayout.vue
 +++ b/src/views/discover/MusicDetailLayout.vue
 @@ -2,6 +2,7 @@
@@ -3268,7 +3533,7 @@ index 7c96d1473d90739b143ea2fd345095dae41ccb13..e4b1e60fd8e3b962e04e61d0170c1727
          </div>
        </div>
 diff --git a/src/views/discover/MusicDetailView.vue b/src/views/discover/MusicDetailView.vue
-index d81c6f3cb6b53b208e6937409f30f330a48dc35e..91328dcdf029a49266bba2c77d46db1f437f0919 100644
+index d81c6f3c..91328dcd 100644
 --- a/src/views/discover/MusicDetailView.vue
 +++ b/src/views/discover/MusicDetailView.vue
 @@ -1,5 +1,6 @@
@@ -3306,7 +3571,7 @@ index d81c6f3cb6b53b208e6937409f30f330a48dc35e..91328dcdf029a49266bba2c77d46db1f
  
  <template>
 diff --git a/src/views/discover/PersonDetailView.vue b/src/views/discover/PersonDetailView.vue
-index 6e9155cfce0db20c2e776da4fae460d0a46c2788..2c1ee56bfd7f79f0f957fa67723814ed02d843e6 100644
+index 6e9155cf..2c1ee56b 100644
 --- a/src/views/discover/PersonDetailView.vue
 +++ b/src/views/discover/PersonDetailView.vue
 @@ -9,6 +9,7 @@ import { useGlobalSettingsStore } from '@/stores'
@@ -3335,7 +3600,7 @@ index 6e9155cfce0db20c2e776da4fae460d0a46c2788..2c1ee56bfd7f79f0f957fa67723814ed
          </h1>
          <div class="mt-1 mb-2 space-y-1 text-xs sm:text-sm lg:text-base text-center text-lg-left">
 diff --git a/src/views/reorganize/TransferHistoryView.vue b/src/views/reorganize/TransferHistoryView.vue
-index 08c3b3209dc7ecf75ecf86e50bf909e89c451fa6..dbfe5beea20cb9ad04122219dfaf7614cde993b3 100644
+index 08c3b320..dbfe5bee 100644
 --- a/src/views/reorganize/TransferHistoryView.vue
 +++ b/src/views/reorganize/TransferHistoryView.vue
 @@ -29,6 +29,8 @@ import { buildUserPermissionContext, hasPermission } from '@/utils/permission'
@@ -3385,7 +3650,7 @@ index 08c3b3209dc7ecf75ecf86e50bf909e89c451fa6..dbfe5beea20cb9ad04122219dfaf7614
          :title="t('navItems.mediaOrganize')"
          class="transfer-history-mobile-title my-0"
 diff --git a/src/views/site/SiteCardListView.vue b/src/views/site/SiteCardListView.vue
-index 5cea415c7924d8cc4bfe3e95f6a7d621b770efba..632f8f40f8a2331acfaf351c126ca4b5e1b7c73e 100644
+index 5cea415c..632f8f40 100644
 --- a/src/views/site/SiteCardListView.vue
 +++ b/src/views/site/SiteCardListView.vue
 @@ -12,6 +12,8 @@ import { useKeepAliveRefresh, type KeepAliveRefreshContext } from '@/composables
@@ -3457,7 +3722,7 @@ index 5cea415c7924d8cc4bfe3e95f6a7d621b770efba..632f8f40f8a2331acfaf351c126ca4b5
                <VIcon :icon="currentFilter?.icon || 'mdi-filter'" />
              </IconBtn>
 diff --git a/src/views/user/UserListView.vue b/src/views/user/UserListView.vue
-index a1b7b9e30cf9efc8b0382f67211af2ed36ae475f..8cedf4ea021cca1498563a9cc1efbf307eac4b78 100644
+index a1b7b9e3..8cedf4ea 100644
 --- a/src/views/user/UserListView.vue
 +++ b/src/views/user/UserListView.vue
 @@ -98,7 +98,7 @@ useDynamicButton({

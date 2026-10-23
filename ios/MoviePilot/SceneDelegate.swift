@@ -1,3 +1,4 @@
+import MoviePilotCore
 import UIKit
 import WebKit
 
@@ -19,6 +20,26 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     self.window = window
     if let instance = instances.selected { connect(instance) } else { showConnection() }
     window.makeKeyAndVisible()
+    if let response = connectionOptions.notificationResponse,
+      let intent = NotificationService.intent(from: response.notification.request.content.userInfo)
+    {
+      NotificationService.shared.receive(intent)
+    }
+    openNotificationURLs(connectionOptions.urlContexts)
+  }
+
+  /// 主屏幕通知网页的显式链接与系统通知使用相同账号和实例校验。
+  func scene(_ scene: UIScene, openURLContexts urlContexts: Set<UIOpenURLContext>) {
+    openNotificationURLs(urlContexts)
+  }
+
+  /// 仅识别声明的通知 scheme，冷启动时保留导航意图直到登录完成。
+  private func openNotificationURLs(_ contexts: Set<UIOpenURLContext>) {
+    for context in contexts {
+      if let intent = NotificationIntent(url: context.url) {
+        NotificationService.shared.receive(intent)
+      }
+    }
   }
 
   /// 恢复可交互状态后重新同步网页状态，不重放业务动作。
@@ -103,6 +124,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     let shell = ShellController(coordinator: coordinator) { [weak self] in self?.showConnection() }
     coordinator.shell = shell
     self.coordinator = coordinator
+    NotificationService.shared.attach(coordinator)
     window?.rootViewController = shell
     coordinator.start()
   }

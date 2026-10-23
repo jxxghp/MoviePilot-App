@@ -16,6 +16,7 @@ settings:
     CURRENT_PROJECT_VERSION: 1
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: ""
+    MOVIEPILOT_APNS_ENVIRONMENT: disabled
 targets:
   MoviePilot:
     type: application

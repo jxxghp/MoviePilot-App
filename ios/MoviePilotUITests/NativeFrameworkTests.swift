@@ -3,6 +3,77 @@ import XCTest
 /// 使用显式配置的测试实例验收原生框架与原业务 HTML 的真实交接，不写入业务数据。
 @MainActor
 final class NativeFrameworkTests: XCTestCase {
+  /// 隔离中转夹具验证原生设置、真实绑定码与主屏幕通知链接，不访问外部推送服务。
+  func testNotificationSettingsAndHotLink() async throws {
+    guard let fixture = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_NOTIFICATION_FIXTURE"],
+      let server = URL(string: fixture)
+    else { throw XCTSkip("通知联调仅在隔离夹具中执行。") }
+    let app = try signIn()
+    settlePage(app)
+    dismissUpdateReminderIfVisible(app)
+    app.buttons["操作菜单"].tap()
+    app.buttons["连接与显示"].tap()
+    app.buttons["通知"].firstMatch.tap()
+    let settings = app.tables["notification-settings"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 10))
+    XCTAssertTrue(settings.cells["notification-generate"].waitForExistence(timeout: 15))
+    let ready = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "isEnabled == true"),
+      object: settings.cells["notification-generate"])
+    XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 15), .completed)
+    attachScreen("通知-免费自签与主屏幕入口", app: app)
+    settings.cells["notification-generate"].tap()
+    XCTAssertTrue(settings.cells["notification-copy-code"].waitForExistence(timeout: 15))
+    attachScreen("通知-Server一次性绑定码", app: app)
+    app.buttons["完成"].tap()
+    _ = try await URLSession.shared.data(from: server.appendingPathComponent("__fixture/open"))
+    confirmNotificationAppOpening()
+    XCTAssertTrue(app.webViews.staticTexts["通知中心"].waitForExistence(timeout: 15))
+    attachScreen("通知-链接返回原HTML通知中心", app: app)
+    app.buttons["返回"].tap()
+    _ = try await URLSession.shared.data(
+      from: URL(string: "__fixture/open?other=true", relativeTo: server)!)
+    confirmNotificationAppOpening()
+    XCTAssertTrue(
+      app.alerts["通知"].staticTexts["这条通知属于其他实例或账号，请切换后查看通知中心。"].waitForExistence(timeout: 10))
+    app.alerts["通知"].buttons["好"].tap()
+  }
+
+  /// 通知链接经系统入口冷启动，等待原登录完成后再打开既有通知中心。
+  func testNotificationColdStartLink() async throws {
+    guard let fixture = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_NOTIFICATION_FIXTURE"],
+      let server = URL(string: fixture)
+    else { throw XCTSkip("通知联调仅在隔离夹具中执行。") }
+    let app = try signIn()
+    settlePage(app)
+    _ = try await URLSession.shared.data(
+      from: URL(string: "__fixture/open?cold=true", relativeTo: server)!)
+    confirmNotificationAppOpening()
+    let outcome = XCTNSPredicateExpectation(
+      predicate: NSPredicate { _, _ in
+        app.textFields["用户名"].exists || app.webViews.staticTexts["通知中心"].exists
+      }, object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [outcome], timeout: 20), .completed)
+    if app.textFields["用户名"].exists {
+      let environment = ProcessInfo.processInfo.environment
+      app.textFields["用户名"].tap()
+      app.textFields["用户名"].typeText(environment["MOVIEPILOT_E2E_USERNAME"] ?? "")
+      app.secureTextFields["密码"].tap()
+      app.secureTextFields["密码"].typeText((environment["MOVIEPILOT_E2E_PASSWORD"] ?? "") + "\n")
+      let prompt = app.alerts["已登录"]
+      if prompt.waitForExistence(timeout: 3) { prompt.buttons["好"].tap() }
+    }
+    XCTAssertTrue(app.webViews.staticTexts["通知中心"].waitForExistence(timeout: 45))
+    attachScreen("通知-冷启动等待登录后打开", app: app)
+  }
+
+  /// 自定义 scheme 的系统确认属于真实用户交接，自动化也必须明确点击打开。
+  private func confirmNotificationAppOpening() {
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    let open = springboard.alerts.buttons["打开"]
+    if open.waitForExistence(timeout: 3) { open.tap() }
+  }
+
   /// 受控首屏资源门关闭时只显示静态原生启动页，释放后才交接到可访问的真实 WebView。
   func testStaticStartupWaitsForContent() async throws {
     guard let address = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_STARTUP_FIXTURE"],
@@ -467,7 +538,7 @@ final class NativeFrameworkTests: XCTestCase {
     let reminder = app.webViews.staticTexts.matching(
       NSPredicate(format: "label CONTAINS %@", "发现站点资源更新")
     ).firstMatch
-    guard reminder.exists else { return }
+    guard reminder.exists && reminder.isHittable else { return }
     let later = app.webViews.buttons["稍后"]
     guard later.isHittable else { return }
     later.tap()

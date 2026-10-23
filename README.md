@@ -2,7 +2,7 @@
 
 使用系统原生导航的 MoviePilot iOS 客户端。Swift / UIKit 负责连接、登录、顶部与底部导航，WKWebView 继续加载现有 MoviePilot-Frontend 业务页面、弹窗和插件界面。
 
-**当前为开发预览版，仅面向 iOS。已通过 iPhone 17 Pro 模拟器的登录、17 个页面入口、主要分类及菜单/弹窗验证；真实 iPhone、完整系统集成和原生推送仍待验收。**
+**当前为开发预览版，仅面向 iOS。已通过 iPhone 17 Pro 模拟器的登录、17 个页面入口、主要分类、菜单/弹窗及通知点击验证；真实 iPhone 和完整系统集成仍待验收。**
 
 ## 界面
 
@@ -19,13 +19,13 @@
 
 [全部截图及分类索引](screenshots/README.md) · [可离线筛选和放大的截图册](screenshots/index.html)
 
-截图来自 **iPhone 17 Pro / iOS 27.0 模拟器**，原图为 1206 × 2622。公开截图的配置密钥和实例地址使用演示值。GitHub 不直接运行 HTML，可下载仓库后在浏览器中打开截图册。
+截图册包含 64 张图：原生界面来自 **iPhone 17 Pro / iOS 27.0 模拟器**，原图为 1206 × 2622；另有两张 402 × 874 的通知网页浏览器截图。公开截图的配置密钥和实例地址使用演示值。GitHub 不直接运行 HTML，可下载仓库后在浏览器中打开截图册。
 
 ## 安装前准备
 
 需要 Mac、**Xcode 26 或更新版本**、Apple 账户，以及运行 **iOS 17+** 的 iPhone。iOS 26+ 才会显示系统 Liquid Glass。本地构建验证使用 Xcode 27.1 / iOS SDK 27.1。
 
-App 连接你自己的 MoviePilot 实例，不内置后端或业务前端。完整原生导航需要实例使用支持容器桥接的 MoviePilot-Frontend；不支持的前端会保留网页导航。当前适配源码通过本仓的 [前端补丁](integration/MoviePilot-Frontend-native.patch) 提供，构建方法见下文。
+App 连接你自己的 MoviePilot 实例，不内置后端或业务前端。完整原生导航需要实例使用支持容器桥接的 MoviePilot-Frontend；不支持的前端会保留网页导航。适配源码也通过本仓的 [前端补丁](integration/MoviePilot-Frontend-native.patch) 提供，构建方法见下文。
 
 ## 个人打包并安装到 iPhone
 
@@ -72,7 +72,7 @@ open ios/MoviePilot.xcodeproj
 
 ## 构建兼容前端
 
-此步骤在 MoviePilot-Frontend 仓库进行。补丁仅增加默认关闭的容器适配、标题/操作交接和相关测试，继续复用原业务页面与认证接口。
+优先部署 [MoviePilot-Frontend v3.1.10](https://github.com/jxxghp/MoviePilot-Frontend/releases/tag/v3.1.10) 或更新的兼容版本。需要自行构建时，在 MoviePilot-Frontend 仓库应用以下补丁；补丁增加默认关闭的容器适配、标题/操作交接、私有通知配置和相关测试，继续复用原业务页面与认证接口。
 
 使用固定基线构建，避免直接套到不同版本：
 
@@ -80,7 +80,7 @@ open ios/MoviePilot.xcodeproj
 # 与 MoviePilot-App 放在同一父目录
 git clone --branch v3 https://github.com/jxxghp/MoviePilot-Frontend.git
 cd MoviePilot-Frontend
-git switch -c native-ios 795c975850289ac2e0146b18c05cf63541cb352a
+git switch -c native-ios 5a451cac
 git apply --check ../MoviePilot-App/integration/MoviePilot-Frontend-native.patch
 git apply ../MoviePilot-App/integration/MoviePilot-Frontend-native.patch
 
@@ -104,9 +104,43 @@ MOVIEPILOT_DEV_PROXY_TARGET=https://your-moviepilot.example.com \
 
 ## 消息通知
 
-**当前 App 尚未接入原生 APNs 推送，不能接收原 PWA 的后台、锁屏系统通知。** WKWebView 不会自动继承 PWA 的推送订阅和通知权限。原 PWA 的 Web Push 可继续独立使用；消息列表和现有其他通知渠道仍由 MoviePilot 提供。
+消息链路为 **MoviePilot → 你的 MoviePilot-Server → 系统推送服务 → 手机**。Server 保存设备绑定并负责投递；App 不保存中转密钥、VAPID 私钥或 Apple 私钥。沿用 MoviePilot 的通知渠道、消息类型开关和用户路由，按实例及用户隔离设备。
 
-原生推送接入正在后续阶段实施，需要 App 系统授权/APNs 注册、服务端设备绑定与投递，以及真实 iPhone 的前台、后台、锁屏、冷启动点击验收。模拟器测试不代表实际推送到达。[WebKit 平台说明](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/)
+| 安装签名 | 使用方式 | 系统通知归属 |
+| --- | --- | --- |
+| 免费 Personal Team 自签 | 添加专用通知网页到主屏幕 | 主屏幕“MoviePilot 通知” |
+| 具备 Push Notifications 权限的开发者签名 | App 原生 APNs | MoviePilot App |
+
+免费签名没有原生 APNs 权限，Server 中转也不能补上该权限。主屏幕 Web Push 不需要付费开发者账号，不要求 App 常驻前台；通知由主屏幕网页接收，点击后可选择返回 App 或打开实例网页。WKWebView 不会继承 Safari/PWA 的订阅；原 PWA 的 Web Push 和其他通知渠道继续独立使用。[WebKit 平台说明](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/)
+
+### 免费自签：配置私有 Server 和主屏幕通知
+
+1. 更新 MoviePilot 后端与兼容前端，并按 [Server 私有推送部署说明](https://github.com/jxxghp/MoviePilot-Server#私有-app-消息推送) 部署 MoviePilot-Server。Server 需要数据库、Redis、持久保存的 P-256 VAPID 私钥及至少 32 位的随机中转密钥，通过受信任的 HTTPS 域名开放完整 `/push/` 路径。
+2. 在 MoviePilot 的通知渠道中添加 **AppPush**，填写私有 Server 地址与对应的中转密钥，启用所需消息类型。密钥只配置在后端；默认通知路由使用管理员，需要其他用户接收时选择现有的用户路由。
+3. 在 App 登录该实例，打开右上角 **三点 → 连接与显示 → 通知**，点击“生成绑定码”。绑定码十分钟有效、只能使用一次。
+4. 点击“打开通知网页”，在 Safari 中打开该地址，使用 **分享 → 添加到主屏幕**。再从主屏幕启动通知网页，粘贴绑定码并允许通知。
+5. 点击“发送测试通知”。之后下载、入库或订阅消息按已开启的通知类型经 Server 投递。点击通知后选择“在 App 中打开”，会返回当前实例原有的业务页面；默认进入现有 HTML 通知中心。
+
+主屏幕通知要求 iOS 16.4+，本 App 最低要求 iOS 17。手机必须能访问 Server；点击业务页面还需要能访问 MoviePilot 实例。通知到达受网络、权限和专注模式影响。“测试通知已提交”表示推送服务接受请求，实际到达需在手机上检查。
+
+当前 Server 即时投递，不持久排队或自动重发消息；失败会反馈到 MoviePilot 的通知渠道日志。
+
+App 可解除本机及其配对网页绑定，通知网页也可自行解绑。在线退出登录时会请求撤销本机绑定；断网退出无法保证 Server 已撤销，应联网后在通知页解绑。已经进入系统推送服务的通知无法撤回。更换中转密钥、VAPID 密钥或清除主屏幕网页数据后需要重新绑定。
+
+### 可选：原生 APNs
+
+有有效开发者团队和 Push Notifications 描述文件时，在 Xcode 中为自己的 Bundle ID 开启该能力，并设置：
+
+```text
+CODE_SIGN_ENTITLEMENTS = MoviePilot/Resources/APNs.entitlements
+MOVIEPILOT_APNS_ENVIRONMENT = development
+```
+
+开发签名使用 `development`（投递到 sandbox），正式分发签名使用 `production`。Server 按部署说明配置 `.p8` 文件、Team ID、Key ID 与允许的 Bundle ID；Apple 私钥只保存在 Server。App 通知页申请权限并注册设备，token 更新会同步覆盖旧绑定。
+
+工程默认 `MOVIEPILOT_APNS_ENVIRONMENT=disabled`，不要求免费个人团队具备推送权限。请勿为免费签名启用 APNs entitlement。原生 APNs 已实现并通过服务端协议测试、模拟器点击及冷启动交接验证，真实 Apple 投递、后台和锁屏到达仍待有效签名及真机验收。
+
+实现参考了 [MoviePilotLite](https://github.com/singleton-altman/MoviePilotLite) 的中转与设备绑定思路和 [MoviePilotAppPush](https://github.com/buzhengg/MoviePilotAppPush) 的 APNs 链路。本项目独立实现，使用自己的 Server；两个参考项目的 iOS 原生通知同样依赖 APNs 权限。
 
 ## 开发与验证
 
