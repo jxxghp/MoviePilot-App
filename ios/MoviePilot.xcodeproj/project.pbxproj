@@ -18,6 +18,7 @@
 		9DED5DAFCA66C504730AEEC9 /* HeaderActionsButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5E06407DFB281561F8B92FB /* HeaderActionsButton.swift */; };
 		A0AB51CE161F94808B6EE599 /* AccountAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 274895617146E30E9DDE5876 /* AccountAppearance.swift */; };
 		A642DFCFFE0254BB381EE957 /* MoviePilotCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0A56C13BC20DA849FEC8E121 /* MoviePilotCore */; };
+		AABED68CFA2524E767AD4CE1 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C5522D23DCCE1A49988D78B /* NotificationService.swift */; };
 		AF1B137366BEA44FD5055EF3 /* ConnectionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E27A900F0778C506F3B44F3E /* ConnectionController.swift */; };
 		B54AB8C8D2E2ADEB1BB60A6B /* NavigationSymbols.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3BEFC3136EEA7192AD5C20D /* NavigationSymbols.swift */; };
 		B751481BFB0F29D5319D82A4 /* InstanceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11C1FABE88ED006EC70944CD /* InstanceStore.swift */; };
@@ -27,6 +28,7 @@
 		D25729D75787FFE684BCE836 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDC7F876AC1F304D50E70B03 /* SceneDelegate.swift */; };
 		E2CC1E5D7BA47467F0727E6B /* StartupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF1A8D67F8876B6AECE70ECA /* StartupView.swift */; };
 		E4468F866BDEF9BB3036AF33 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 571C52ACC53E9ADFF2774ACA /* LaunchScreen.storyboard */; };
+		EB24867710544E7DFEBDA90C /* NotificationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E54307B2FD9DE9B104A4C0B /* NotificationController.swift */; };
 		FBCCCA54858635AC0FAFCBBE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 15977B3A7EE8DCEF7B5257CF /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -44,10 +46,13 @@
 		11C1FABE88ED006EC70944CD /* InstanceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstanceStore.swift; sourceTree = "<group>"; };
 		15977B3A7EE8DCEF7B5257CF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		16DC09F74832A0B86B73E0DB /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		1E54307B2FD9DE9B104A4C0B /* NotificationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationController.swift; sourceTree = "<group>"; };
 		1EDD6E57585F04BA1211B21F /* ShellController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellController.swift; sourceTree = "<group>"; };
 		274895617146E30E9DDE5876 /* AccountAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountAppearance.swift; sourceTree = "<group>"; };
+		2A663A5F20E9060A67A02499 /* APNs.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = APNs.entitlements; sourceTree = "<group>"; };
 		2ED77660949143CE0F66ABB7 /* AuthenticationClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationClient.swift; sourceTree = "<group>"; };
 		3B9A3A01FB3A03C2FC8AD128 /* MoviePilot-App */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "MoviePilot-App"; path = ..; sourceTree = SOURCE_ROOT; };
+		3C5522D23DCCE1A49988D78B /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		43EEF99FFB4650801A93C48B /* BridgeBootstrap.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = BridgeBootstrap.js; sourceTree = "<group>"; };
 		45F7C55CF76C93C422A267E7 /* MoviePilotUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MoviePilotUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		492AB810F34D732AF976E01D /* NativeFrameworkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFrameworkTests.swift; sourceTree = "<group>"; };
@@ -91,6 +96,8 @@
 				8072C0F89DB70887DB4A4AEC /* LoginController.swift */,
 				E07A2D5374C03798153CFA82 /* MoreMenuController.swift */,
 				E3BEFC3136EEA7192AD5C20D /* NavigationSymbols.swift */,
+				1E54307B2FD9DE9B104A4C0B /* NotificationController.swift */,
+				3C5522D23DCCE1A49988D78B /* NotificationService.swift */,
 				EDC7F876AC1F304D50E70B03 /* SceneDelegate.swift */,
 				1EDD6E57585F04BA1211B21F /* ShellController.swift */,
 				EF1A8D67F8876B6AECE70ECA /* StartupView.swift */,
@@ -132,6 +139,7 @@
 		AB5632D541AFC95441910E75 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				2A663A5F20E9060A67A02499 /* APNs.entitlements */,
 				15977B3A7EE8DCEF7B5257CF /* Assets.xcassets */,
 				43EEF99FFB4650801A93C48B /* BridgeBootstrap.js */,
 				571C52ACC53E9ADFF2774ACA /* LaunchScreen.storyboard */,
@@ -259,6 +267,8 @@
 				0B79AFE6E3E507A780FAEDAB /* LoginController.swift in Sources */,
 				B95E25B659010EF18733CB13 /* MoreMenuController.swift in Sources */,
 				B54AB8C8D2E2ADEB1BB60A6B /* NavigationSymbols.swift in Sources */,
+				EB24867710544E7DFEBDA90C /* NotificationController.swift in Sources */,
+				AABED68CFA2524E767AD4CE1 /* NotificationService.swift in Sources */,
 				D25729D75787FFE684BCE836 /* SceneDelegate.swift in Sources */,
 				4230F60B0326B26D9A25E2BC /* ShellController.swift in Sources */,
 				E2CC1E5D7BA47467F0727E6B /* StartupView.swift in Sources */,
@@ -337,6 +347,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 0.1.0;
+				MOVIEPILOT_APNS_ENVIRONMENT = disabled;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -455,6 +466,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 0.1.0;
+				MOVIEPILOT_APNS_ENVIRONMENT = disabled;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

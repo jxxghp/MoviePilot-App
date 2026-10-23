@@ -403,6 +403,11 @@ final class ShellController: UIViewController {
     let connection = UIMenu(
       title: "连接与显示", image: UIImage(systemName: "gearshape"),
       children: [
+        UIAction(title: "通知", image: UIImage(systemName: "bell.badge")) { [weak self] _ in
+          guard let self else { return }
+          let settings = NotificationController(coordinator: self.coordinator)
+          self.present(UINavigationController(rootViewController: settings), animated: true)
+        },
         UIAction(title: "重新加载", image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in
           self?.coordinator.reloadInWebMode()
         },
@@ -421,6 +426,14 @@ final class ShellController: UIViewController {
     // UIBarButtonItem 会同步自定义按钮的启用状态，两层保持一致，避免安装时重新启用。
     item.isEnabled = enabled
     return item
+  }
+
+  /// 通知属于其他登录身份时给出系统提示，不自动切换账号或加载外部地址。
+  func showNotificationMessage(_ message: String) {
+    guard presentedViewController == nil else { return }
+    let alert = UIAlertController(title: "通知", message: message, preferredStyle: .alert)
+    alert.addAction(UIAlertAction(title: "好", style: .default))
+    present(alert, animated: true)
   }
 
   /// 横向操作临时覆盖标题区；收起时只恢复最新已确认的路由标题，不保存旧页面文案。

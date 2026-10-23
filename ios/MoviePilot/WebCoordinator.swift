@@ -42,6 +42,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   private var downloadReferences: [ObjectIdentifier: WKDownload] = [:]
   private var authentication: AuthenticationResult?
   private let onAuthenticationRequired: (() -> Void)?
+  private var notificationLookupStarted = false
+  private var notificationNavigationAvailable = false
 
   /// 数据容器按实例 UUID 隔离；不将 Safari 或其他实例 Cookie 导入此会话。
   init(
@@ -62,7 +64,10 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       let script = try? String(contentsOf: path, encoding: .utf8)
     {
       configuration.userContentController.addUserScript(
-        WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        WKUserScript(
+          source: script.replacingOccurrences(
+            of: "__MOVIEPILOT_INSTALLATION__", with: NotificationService.installation),
+          injectionTime: .atDocumentStart, forMainFrameOnly: true))
     }
     if let authentication,
       let data = try? JSONEncoder().encode(authentication.session.browserStorage),
@@ -128,6 +133,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 
   /// 切换实例时显式解绑脚本、计时器与通知，不让旧文档继续发送动作。
   func stop() {
+    if NotificationService.shared.coordinator === self { NotificationService.shared.attach(nil) }
     timeout?.invalidate()
     startupTimeout?.invalidate()
     startupPending = false
@@ -172,6 +178,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     if session.sessionId != nil {
       send("host.lifecycle", payload: .object(["state": .string(value)]))
       if value == "active" {
+        NotificationService.shared.resumePending()
         if session.phase == .nativeNavigation {
           command("state.request", payload: .object(["reason": .string("foreground")]))
         } else if session.phase != .webNavigation {
@@ -231,6 +238,86 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     send(type, requestId: request, payload: payload)
   }
 
+  /// 固定通知端点复用当前 Web 认证，不向原生暴露 token 或提供通用网络代理。
+  func notificationRequest(_ action: String, extra: [String: String] = [:]) async throws -> [String:
+    JSONValue]
+  {
+    guard ["status", "pair", "register", "unregister", "test"].contains(action),
+      relay.owner != nil, let url = webView.url, instance.address.contains(url),
+      session.phase == .nativeNavigation
+    else { throw NotificationFailure(message: "请等待页面登录并完成加载。") }
+    let document = documentID
+    let identitySession = session.sessionId
+    let endpoint = instance.address.url.appendingPathComponent("api/v1/notification/app")
+      .absoluteString
+    var body = extra
+    body["action"] = action
+    body["installation"] = NotificationService.installation
+    body["origin"] = String(instance.address.url.absoluteString.dropLast())
+    let script = """
+      if (location.origin !== new URL(endpoint).origin) throw new Error('origin');
+      const auth = JSON.parse(localStorage.getItem('auth') || 'null');
+      if (!auth?.token) throw new Error('authentication');
+      const response = await fetch(endpoint, {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        headers: {'Content-Type': 'application/json', Authorization: 'Bearer ' + auth.token},
+        body: JSON.stringify(body), signal: AbortSignal.timeout(65000)
+      });
+      if (!response.ok) return JSON.stringify({success:false, message:'通知服务暂不可用，请检查后台版本与渠道配置。'});
+      return JSON.stringify(await response.json());
+      """
+    let raw: String = try await withCheckedThrowingContinuation { continuation in
+      webView.callAsyncJavaScript(
+        script, arguments: ["endpoint": endpoint, "body": body], in: nil, in: .page
+      ) { result in
+        switch result {
+        case .success(let value):
+          if let value = value as? String {
+            continuation.resume(returning: value)
+          } else {
+            continuation.resume(throwing: NotificationFailure(message: "通知服务响应无效。"))
+          }
+        case .failure:
+          continuation.resume(throwing: NotificationFailure(message: "无法连接通知服务，请检查网络与登录状态。"))
+        }
+      }
+    }
+    guard document == documentID, identitySession == session.sessionId, relay.owner != nil else {
+      throw NotificationFailure(message: "登录状态已改变，请重新打开通知设置。")
+    }
+    let reply = try JSONDecoder().decode(NotificationReply.self, from: Data(raw.utf8))
+    guard reply.success else {
+      throw NotificationFailure(message: reply.message ?? "请先配置并启用 AppPush 通知渠道。")
+    }
+    return reply.data ?? [:]
+  }
+
+  /// 绑定状态查询只在每次已认证文档中尝试一次，旧后端不会被不断重试。
+  private func refreshNotificationContext() {
+    guard !notificationLookupStarted else { return }
+    notificationLookupStarted = true
+    Task { [weak self] in
+      guard let self, let data = try? await self.notificationRequest("status"),
+        case .string(let owner) = data["owner"]
+      else { return }
+      NotificationService.shared.identified(owner)
+    }
+  }
+
+  /// 仅提交已经匹配实例与账号的内部导航，网页仍复核权限和弹层状态。
+  func openNotification(_ intent: NotificationIntent) -> Bool {
+    guard session.phase == .nativeNavigation, lifecycle == "active",
+      intent.matches(address: instance.address, owner: NotificationService.shared.owner ?? ""),
+      session.snapshot?.presentation?.overlayOpen != true
+    else { return false }
+    guard notificationNavigationAvailable else {
+      shell?.showNotificationMessage("请更新兼容前端后，在通知中心查看这条消息。")
+      return true
+    }
+    command("notification.open", payload: .object(["path": .string(intent.route)]))
+    return true
+  }
+
   /// 释放事务先要求网页恢复布局，收到确认后才移除系统业务栏。
   func releaseChrome() {
     guard session.sessionId != nil else { return }
@@ -268,10 +355,11 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     if message.name == "moviepilotAuthentication" {
       guard source.isMainFrame, source.isCurrentWebView, source.origin == instance.address.origin,
         let body = message.body as? [String: Any], body.count == 2,
-        body["version"] as? Int == 1, body["type"] as? String == "required",
-        let onAuthenticationRequired
+        body["version"] as? Int == 1, body["type"] as? String == "required"
       else { return }
-      onAuthenticationRequired()
+      NotificationService.shared.disable()
+      NotificationService.shared.attach(nil)
+      onAuthenticationRequired?()
       return
     }
     guard JSONSerialization.isValidJSONObject(message.body),
@@ -296,6 +384,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     switch message.type {
     case "web.ready":
       let ready = try message.decodePayload(ReadyPayload.self)
+      notificationNavigationAvailable = ready.capabilities.contains("notifications.v1")
       let id = try session.negotiate(majors: ready.majors, capabilities: Set(ready.capabilities))
       lastLayout = nil
       send(
@@ -326,6 +415,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
         timeout?.invalidate()
         shell?.apply(snapshot)
         layoutChanged()
+        refreshNotificationContext()
+        NotificationService.shared.resumePending()
       }
     case "chrome.accepted":
       let accepted = try message.decodePayload(LayoutAcknowledgement.self)
@@ -334,6 +425,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       if let snapshot = session.snapshot { shell?.apply(snapshot) }
       layoutChanged()
       completeStartupIfReady()
+      refreshNotificationContext()
     case "chrome.released":
       guard session.phase == .releasing else { throw BridgeError.busy }
       timeout?.invalidate()
@@ -346,6 +438,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       let result = try message.decodePayload(CommandResult.self)
       pendingCommands.removeValue(forKey: result.requestId)?.invalidate()
     case "session.state":
+      notificationLookupStarted = false
+      NotificationService.shared.attach(self)
       for timer in pendingCommands.values { timer.invalidate() }
       pendingCommands.removeAll()
       if session.phase == .nativeNavigation, let previousId = session.sessionId {
@@ -422,6 +516,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     timeout?.invalidate()
     documentID = UUID()
     contentReady = false
+    notificationLookupStarted = false
+    notificationNavigationAvailable = false
+    NotificationService.shared.attach(self)
     startupPending = true
     for timer in pendingCommands.values { timer.invalidate() }
     pendingCommands.removeAll()

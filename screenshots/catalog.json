@@ -288,5 +288,35 @@
     "title": "连接 · 深色",
     "group": "连接与登录",
     "file": "screens/58.png"
+  },
+  {
+    "title": "免费自签通知设置",
+    "group": "通知",
+    "file": "screens/59.png"
+  },
+  {
+    "title": "一次性绑定码",
+    "group": "通知",
+    "file": "screens/60.png"
+  },
+  {
+    "title": "热启动打开通知中心",
+    "group": "通知",
+    "file": "screens/61.png"
+  },
+  {
+    "title": "冷启动打开通知中心",
+    "group": "通知",
+    "file": "screens/62.png"
+  },
+  {
+    "title": "主屏幕通知网页绑定",
+    "group": "通知",
+    "file": "screens/63.png"
+  },
+  {
+    "title": "通知网页返回 App",
+    "group": "通知",
+    "file": "screens/64.png"
   }
 ]

@@ -15,6 +15,7 @@ xcuserdata/
 *.mobileprovision
 *.p12
 *.p8
+*.pem
 .env
 .env.local
 .env.*.local
