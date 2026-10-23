@@ -1,0 +1,292 @@
+[
+  {
+    "title": "下载管理",
+    "group": "页面",
+    "file": "screens/01.png"
+  },
+  {
+    "title": "仪表盘",
+    "group": "页面",
+    "file": "screens/02.png"
+  },
+  {
+    "title": "媒体整理",
+    "group": "页面",
+    "file": "screens/03.png"
+  },
+  {
+    "title": "工作流",
+    "group": "页面",
+    "file": "screens/04.png"
+  },
+  {
+    "title": "探索",
+    "group": "页面",
+    "file": "screens/05.png"
+  },
+  {
+    "title": "推荐",
+    "group": "页面",
+    "file": "screens/06.png"
+  },
+  {
+    "title": "插件",
+    "group": "页面",
+    "file": "screens/07.png"
+  },
+  {
+    "title": "搜索结果",
+    "group": "页面",
+    "file": "screens/08.png"
+  },
+  {
+    "title": "文件管理",
+    "group": "页面",
+    "file": "screens/09.png"
+  },
+  {
+    "title": "日历",
+    "group": "页面",
+    "file": "screens/10.png"
+  },
+  {
+    "title": "更多",
+    "group": "页面",
+    "file": "screens/11.png"
+  },
+  {
+    "title": "用户管理",
+    "group": "页面",
+    "file": "screens/12.png"
+  },
+  {
+    "title": "电影订阅",
+    "group": "页面",
+    "file": "screens/13.png"
+  },
+  {
+    "title": "电视剧订阅",
+    "group": "页面",
+    "file": "screens/14.png"
+  },
+  {
+    "title": "站点管理",
+    "group": "页面",
+    "file": "screens/15.png"
+  },
+  {
+    "title": "设定",
+    "group": "页面",
+    "file": "screens/16.png"
+  },
+  {
+    "title": "音乐订阅",
+    "group": "页面",
+    "file": "screens/17.png"
+  },
+  {
+    "title": "工作流 · 工作流分享",
+    "group": "页内分类",
+    "file": "screens/18.png"
+  },
+  {
+    "title": "工作流 · 我的工作流",
+    "group": "页内分类",
+    "file": "screens/19.png"
+  },
+  {
+    "title": "插件 · 我的插件",
+    "group": "页内分类",
+    "file": "screens/20.png"
+  },
+  {
+    "title": "插件 · 插件市场",
+    "group": "页内分类",
+    "file": "screens/21.png"
+  },
+  {
+    "title": "电影订阅 · 我的订阅",
+    "group": "页内分类",
+    "file": "screens/22.png"
+  },
+  {
+    "title": "电影订阅 · 热门订阅",
+    "group": "页内分类",
+    "file": "screens/23.png"
+  },
+  {
+    "title": "电视剧订阅 · 我的订阅",
+    "group": "页内分类",
+    "file": "screens/24.png"
+  },
+  {
+    "title": "电视剧订阅 · 热门订阅",
+    "group": "页内分类",
+    "file": "screens/25.png"
+  },
+  {
+    "title": "电视剧订阅 · 订阅分享",
+    "group": "页内分类",
+    "file": "screens/26.png"
+  },
+  {
+    "title": "设定 · 存储 & 目录",
+    "group": "页内分类",
+    "file": "screens/27.png"
+  },
+  {
+    "title": "设定 · 搜索 & 下载",
+    "group": "页内分类",
+    "file": "screens/28.png"
+  },
+  {
+    "title": "设定 · 站点",
+    "group": "页内分类",
+    "file": "screens/29.png"
+  },
+  {
+    "title": "设定 · 系统",
+    "group": "页内分类",
+    "file": "screens/30.png"
+  },
+  {
+    "title": "设定 · 规则",
+    "group": "页内分类",
+    "file": "screens/31.png"
+  },
+  {
+    "title": "设定 · 订阅",
+    "group": "页内分类",
+    "file": "screens/32.png"
+  },
+  {
+    "title": "设定 · 通知",
+    "group": "页内分类",
+    "file": "screens/33.png"
+  },
+  {
+    "title": "音乐订阅 · 我的订阅",
+    "group": "页内分类",
+    "file": "screens/34.png"
+  },
+  {
+    "title": "HTML主题菜单",
+    "group": "导航与弹窗",
+    "file": "screens/35.png"
+  },
+  {
+    "title": "HTML全屏设置弹窗",
+    "group": "导航与弹窗",
+    "file": "screens/36.png"
+  },
+  {
+    "title": "HTML用户菜单",
+    "group": "导航与弹窗",
+    "file": "screens/37.png"
+  },
+  {
+    "title": "HTML页面跳转与导航联动",
+    "group": "导航与弹窗",
+    "file": "screens/38.png"
+  },
+  {
+    "title": "中文分类联动",
+    "group": "导航与弹窗",
+    "file": "screens/39.png"
+  },
+  {
+    "title": "单行原生导航",
+    "group": "导航与弹窗",
+    "file": "screens/40.png"
+  },
+  {
+    "title": "原生中文分类菜单",
+    "group": "导航与弹窗",
+    "file": "screens/41.png"
+  },
+  {
+    "title": "原生页内分类菜单",
+    "group": "导航与弹窗",
+    "file": "screens/42.png"
+  },
+  {
+    "title": "文件管理刷新菜单",
+    "group": "导航与弹窗",
+    "file": "screens/43.png"
+  },
+  {
+    "title": "更多菜单搜索",
+    "group": "导航与弹窗",
+    "file": "screens/44.png"
+  },
+  {
+    "title": "框架打开原HTML站点筛选",
+    "group": "导航与弹窗",
+    "file": "screens/45.png"
+  },
+  {
+    "title": "站点标题操作进入三点菜单",
+    "group": "导航与弹窗",
+    "file": "screens/46.png"
+  },
+  {
+    "title": "站点统一标题与渐变顶栏",
+    "group": "导航与弹窗",
+    "file": "screens/47.png"
+  },
+  {
+    "title": "静态启动画面",
+    "group": "导航与弹窗",
+    "file": "screens/48.png"
+  },
+  {
+    "title": "顶部操作横向展开",
+    "group": "导航与弹窗",
+    "file": "screens/49.png"
+  },
+  {
+    "title": "密码可见切换",
+    "group": "连接与登录",
+    "file": "screens/50.png"
+  },
+  {
+    "title": "密码可见切换 · 深色",
+    "group": "连接与登录",
+    "file": "screens/51.png"
+  },
+  {
+    "title": "登录",
+    "group": "连接与登录",
+    "file": "screens/52.png"
+  },
+  {
+    "title": "登录 · 深色",
+    "group": "连接与登录",
+    "file": "screens/53.png"
+  },
+  {
+    "title": "登录键盘",
+    "group": "连接与登录",
+    "file": "screens/54.png"
+  },
+  {
+    "title": "空白登录键盘",
+    "group": "连接与登录",
+    "file": "screens/55.png"
+  },
+  {
+    "title": "空白登录键盘 · 深色",
+    "group": "连接与登录",
+    "file": "screens/56.png"
+  },
+  {
+    "title": "连接",
+    "group": "连接与登录",
+    "file": "screens/57.png"
+  },
+  {
+    "title": "连接 · 深色",
+    "group": "连接与登录",
+    "file": "screens/58.png"
+  }
+]

@@ -1,0 +1,3471 @@
+diff --git a/eslint-suppressions.json b/eslint-suppressions.json
+index cdb014668eb4df8b2b969a0b25a1540d4e06907f..6152c6e5fbfa017efce958633da983fa8a6bfb52 100644
+--- a/eslint-suppressions.json
++++ b/eslint-suppressions.json
+@@ -444,9 +444,6 @@
+     }
+   },
+   "src/composables/useDynamicHeaderTab.ts": {
+-    "@typescript-eslint/no-explicit-any": {
+-      "count": 3
+-    },
+     "no-useless-assignment": {
+       "count": 1
+     },
+@@ -766,4 +763,4 @@
+       "count": 1
+     }
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/@core/components/PageContentTitle.vue b/src/@core/components/PageContentTitle.vue
+index 91801e27e0d80638caa489a8de61dd55803b339e..d0ab5b6b598ceb0517f4b206f6614cacfac9ec6a 100644
+--- a/src/@core/components/PageContentTitle.vue
++++ b/src/@core/components/PageContentTitle.vue
+@@ -1,11 +1,15 @@
+ <script setup lang="ts">
+-defineProps({
++import { useNativePageHeader } from '@/native/page'
++
++const props = defineProps({
+   // 标题
+   title: String,
+ })
++
++useNativePageHeader({ title: () => props.title })
+ </script>
+ <template>
+-  <div v-if="title" class="my-3 mx-3 md:flex md:items-center md:justify-between">
++  <div v-if="title" class="my-3 mx-3 md:flex md:items-center md:justify-between" data-native-page-title>
+     <div class="min-w-0 flex-1 mx-0">
+       <h2
+         class="ms-1 truncate text-2xl font-bold leading-7 text-gray-100 sm:overflow-visible sm:text-3xl sm:leading-9 md:mb-0"
+diff --git a/src/@layouts/components/VerticalNavLayout.vue b/src/@layouts/components/VerticalNavLayout.vue
+index 8c9eb31ee1afe1c579cf58282eab074086d990bf..0869f09350d9293967df06e657e45e5fdbdae8e7 100644
+--- a/src/@layouts/components/VerticalNavLayout.vue
++++ b/src/@layouts/components/VerticalNavLayout.vue
+@@ -13,6 +13,7 @@ import { useGlassFixedShellBackplate } from '@/composables/useGlassFixedShellBac
+ import { usePWA } from '@/composables/usePWA'
+ import { useShellScrollState } from '@/composables/useShellScrollState'
+ import { useFooterDockHeight } from '@/composables/useFooterDockHeight'
++import { nativeChromeActive } from '@/native/layout'
+ import { supportsGlassNavbarLiveRefraction } from '@/utils/glassNavbarRefraction'
+ import {
+   FLOATING_NAVBAR_INSET_PX,
+@@ -165,7 +166,8 @@ export default defineComponent({
+           class: ['layout-navbar navbar-blur'],
+           ref: navbarRef,
+           'data-shell-navbar-state': shellScroll.state.value,
+-          inert: appMode.value && shellScroll.state.value === 'compact' ? '' : undefined,
++          inert: nativeChromeActive.value || (appMode.value && shellScroll.state.value === 'compact') ? '' : undefined,
++          'aria-hidden': nativeChromeActive.value ? 'true' : undefined,
+         },
+         [
+           h(
+diff --git a/src/App.vue b/src/App.vue
+index bb3d46918935956ee2c57516fff4d59199641b5f..348b357a67be9a09cdd667fe2f904f33926de43a 100644
+--- a/src/App.vue
++++ b/src/App.vue
+@@ -13,6 +13,7 @@ import { addBackgroundTimer, removeBackgroundTimer } from '@/utils/backgroundMan
+ import PWAInstallPrompt from '@/components/pwa/PWAInstallPrompt.vue'
+ import GithubTokenPrompt from '@/components/github/GithubTokenPrompt.vue'
+ import SharedDialogHost from '@/components/dialog/SharedDialogHost.vue'
++import NativeNavigationHost from '@/components/native/NativeNavigationHost.vue'
+ import {
+   applyStoredThemeCustomizerAppearance,
+   restoreThemeCustomizerSettingsFromServer,
+@@ -72,6 +73,7 @@ import {
+ } from '@/utils/glassWallpaperTone'
+ 
+ const LOGIN_WALLPAPER_ROUTE = '/login'
++const nativeTransportAvailable = typeof window !== 'undefined' && window.MoviePilotNative?.transportVersion === 1
+ const BACKGROUND_CROSSFADE_DURATION_MS = 1500
+ const LAUNCH_MIN_VISIBLE_MS = 320
+ const LAUNCH_MAX_WAIT_MS = 1200
+@@ -1181,6 +1183,7 @@ onUnmounted(() => {
+         @wallpaper-prepared="handleOpticalWallpaperPrepared"
+       />
+       <RouterView />
++      <NativeNavigationHost v-if="nativeTransportAvailable" />
+       <!-- 全局共享弹窗入口，列表与卡片按需在这里挂载业务弹窗。 -->
+       <SharedDialogHost />
+       <!-- PWA安装提示 -->
+diff --git a/src/components/filebrowser/FileBrowser.vue b/src/components/filebrowser/FileBrowser.vue
+index c0a34835c2c8d6bf4ac5193e8d9abfa162fd495d..4a479c9f008a9f2978741fdcf91cbb9cafd60054 100644
+--- a/src/components/filebrowser/FileBrowser.vue
++++ b/src/components/filebrowser/FileBrowser.vue
+@@ -13,6 +13,7 @@ import { usePWA } from '@/composables/usePWA'
+ import { useStorageOptions } from '@/composables/useStorageOptions'
+ import { useUserStore } from '@/stores'
+ import { buildUserPermissionContext, hasPermission } from '@/utils/permission'
++import { useNativePageHeader } from '@/native/page'
+ 
+ // LocalStorage keys
+ // 排序列沿用原有键名（历史值 name / time 直接兼容），方向为新增键。
+@@ -49,6 +50,7 @@ const props = defineProps({
+ // 对外事件
+ const emit = defineEmits(['pathchanged'])
+ const route = useRoute()
++const { t } = useI18n()
+ const { appMode } = usePWA()
+ const userStore = useUserStore()
+ const { catalog: storageCatalog, loadStorageCatalog } = useStorageOptions()
+@@ -172,6 +174,23 @@ const loading = ref(0)
+ 
+ // 刷新
+ const refreshPending = ref(false)
++
++/** 页面与原生导航复用同一刷新入口，列表仍负责实际请求和完成状态。 */
++function refreshFiles() {
++  refreshPending.value = true
++}
++
++useNativePageHeader({
++  actions: computed(() => [
++    {
++      title: t('common.refresh'),
++      icon: 'mdi-refresh',
++      disabled: loading.value > 0,
++      action: refreshFiles,
++    },
++  ]),
++})
++
+ /** 读取持久化的排序列；未知值回退为名称。 */
+ function readSortKey(): FileSortKey {
+   const stored = localStorage.getItem(SORT_KEY)
+@@ -271,6 +290,7 @@ function preventSelect(event: Event) {
+   return false
+ }
+ 
++/** 补齐历史浏览器的选区样式，清理拖动时与标准属性一并恢复。 */
+ interface DocumentDragStyle extends CSSStyleDeclaration {
+   MozUserSelect: string
+   webkitUserSelect: string
+@@ -302,6 +322,7 @@ function startDrag(event: MouseEvent) {
+   setDocumentDragStyles(true)
+ }
+ 
++/** 拖动时将目录树宽度限制在可操作范围内，持久化由现有 watcher 负责。 */
+ function handleDrag(event: MouseEvent) {
+   if (!isDragging.value) return
+ 
+@@ -317,6 +338,7 @@ function handleDrag(event: MouseEvent) {
+   navigatorWidth.value = Math.max(minWidth, Math.min(maxWidth, newWidth))
+ }
+ 
++/** 结束拖动后成对撤销全局监听与选区样式。 */
+ function stopDrag() {
+   isDragging.value = false
+   document.removeEventListener('mousemove', handleDrag)
+@@ -326,6 +348,7 @@ function stopDrag() {
+   setDocumentDragStyles(false)
+ }
+ 
++/** 缓存页面失活或卸载时，清理尚未完成的拖动。 */
+ function cleanupDrag() {
+   if (isDragging.value) {
+     stopDrag()
+@@ -346,15 +369,10 @@ onUnmounted(cleanupDrag)
+     }"
+     :aria-busy="loading > 0"
+   >
+-    <header class="file-workspace__header d-flex justify-space-between align-center mb-1">
++    <header class="file-workspace__header d-flex justify-space-between align-center mb-1" data-native-page-heading>
+       <PageContentTitle :title="$t('navItems.fileManager')" class="my-0" style="margin-block: 0" />
+       <div class="d-flex align-center gap-1">
+-        <IconBtn
+-          variant="text"
+-          :aria-label="$t('common.refresh')"
+-          :disabled="loading > 0"
+-          @click="refreshPending = true"
+-        >
++        <IconBtn variant="text" :aria-label="$t('common.refresh')" :disabled="loading > 0" @click="refreshFiles">
+           <VIcon icon="mdi-refresh" />
+         </IconBtn>
+       </div>
+diff --git a/src/components/native/NativeNavigationHost.vue b/src/components/native/NativeNavigationHost.vue
+new file mode 100644
+index 0000000000000000000000000000000000000000..85bb790b8f6b32e7f9c59a113ec07eea061a0d7e
+--- /dev/null
++++ b/src/components/native/NativeNavigationHost.vue
+@@ -0,0 +1,383 @@
++<script setup lang="ts">
++import { computed, nextTick, onScopeDispose, ref, toValue, watch, watchEffect } from 'vue'
++import { useRoute, useRouter } from 'vue-router'
++import { useI18n } from 'vue-i18n'
++import { useTheme } from 'vuetify'
++import { useAuthStore, useUserStore, usePluginSidebarNavStore } from '@/stores'
++import { getNavMenus } from '@/router/i18n-menu'
++import {
++  buildUserPermissionContext,
++  filterItemsByPermission,
++  filterMenusByPermission,
++  hasItemPermission,
++} from '@/utils/permission'
++import { isMediaSourceCatalogLoaded } from '@/utils/mediaId'
++import { isModuleCatalogLoaded } from '@/composables/useModuleCatalog'
++import { dynamicButtonRegistry } from '@/composables/dynamicButtonRegistry'
++import { buildFooterMenus } from '@/utils/footerNavigation'
++import { groupAppMenus } from '@/utils/appNavigation'
++import { filterPluginSidebarNavEntries } from '@/utils/pluginSidebarNav'
++import { nativeGlobalActions, nativeHeaderRegistration } from '@/native/registry'
++import { NativeChromeSession } from '@/native/session'
++import { NativeLayoutAdapter, nativeChromeActive } from '@/native/layout'
++import { NativeRouteHistory } from '@/native/history'
++import { NativeHeaderTabs } from '@/native/header'
++import { nativePageHeaders } from '@/native/page'
++import type { DynamicHeaderTabButton } from '@/composables/useDynamicHeaderTab'
++import type { NativeAction, NativeEnvelope, NativeSnapshot } from '@/native/protocol'
++import { appActivityLifecycle } from '@/utils/appActivityLifecycle'
++import '@/native/native.scss'
++
++const route = useRoute()
++const router = useRouter()
++const { t, te } = useI18n()
++const theme = useTheme()
++const auth = useAuthStore()
++const user = useUserStore()
++const pluginMenus = usePluginSidebarNavStore()
++const routerReady = ref(false)
++const overlayOpen = ref(false)
++const permissions = computed(() => buildUserPermissionContext(user.superUser, user.permissions))
++const menus = computed(() => filterMenusByPermission(getNavMenus(t), permissions.value))
++const authenticated = computed(() => Boolean(auth.token) && user.userID >= 0 && Boolean(route.meta.requiresAuth))
++const roots = computed<NativeSnapshot['roots']>(() =>
++  authenticated.value
++    ? [
++        ...buildFooterMenus(menus.value)
++          .filter(menu => typeof menu.to === 'string' && menu.to !== '/apps')
++          .map(menu => ({
++            id: menu.to as string,
++            path: menu.to as string,
++            title: menu.title,
++            icon: typeof menu.icon === 'string' ? menu.icon : 'apps',
++          })),
++        { id: '/apps', path: '/apps', title: t('nav.more'), icon: 'more' },
++      ]
++    : [],
++)
++const history = new NativeRouteHistory(router, () => roots.value)
++const layout = new NativeLayoutAdapter(document, window)
++const headerProjection = new NativeHeaderTabs()
++let bridge: NativeChromeSession | undefined
++let ownerSequence = 0
++const legacyOwners = new WeakMap<object, string>()
++
++/** 兼容未携带 owner 的旧注册，为每个实际注册对象分配有限生命周期标识。 */
++function ownerFor(object: object, explicit?: string | null) {
++  if (explicit) return explicit
++  let owner = legacyOwners.get(object)
++  if (!owner) {
++    owner = `legacy-${++ownerSequence}`
++    legacyOwners.set(object, owner)
++  }
++  return owner
++}
++
++/** 菜单页使用原目录标题；详情沿用业务路由携带的标题，不改变主入口名称。 */
++function pageTitle() {
++  const menu = [...menus.value]
++    .sort((a, b) => String(b.to).length - String(a.to).length)
++    .find(item => typeof item.to === 'string' && (route.path === item.to || route.path.startsWith(`${item.to}/`)))
++  if (menu?.to === route.path) return menu.full_title || menu.title
++  const pageHeader = [...nativePageHeaders.value.values()]
++    .filter(header => header.routePath === route.path)
++    .map(header => toValue(header.title))
++    .reverse()
++    .find(title => Boolean(title))
++  const detailTitle = typeof route.query.title === 'string' ? route.query.title : undefined
++  return (
++    pageHeader ||
++    detailTitle ||
++    menu?.full_title ||
++    menu?.title ||
++    (route.path === '/apps' ? t('nav.more') : document.title || 'MoviePilot')
++  )
++}
++
++/** 菜单标题与网页 Dock 使用相同旧键兼容，未声明文案时采用当前页的更多操作。 */
++function menuTitle(item: { titleKey?: string; title?: string; titleParams?: Record<string, unknown> }) {
++  const aliases: Record<string, string> = {
++    'components.subscribeHistory.title': 'dialog.subscribeHistory.title',
++    'components.subscribeEdit.titleDefault': 'dialog.subscribeEdit.titleDefault',
++    'components.transferQueue.title': 'dialog.transferQueue.title',
++    'components.pluginMarketSetting.title': 'dialog.pluginMarketSetting.title',
++  }
++  const key = item.titleKey ?? aliases[item.title ?? ''] ?? item.title
++  return key ? (item.titleKey || te(key) ? t(key, item.titleParams ?? {}) : key) : `${pageTitle()} · ${t('nav.more')}`
++}
++
++/** 旧注册的图标按钮补充可读操作名，避免原生菜单与 VoiceOver 出现多个同名更多按钮。 */
++function actionTitle(button: { title?: string; icon: string }) {
++  if (button.title) return button.title
++  const keys: Record<string, string> = {
++    'mdi-filter-multiple-outline': 'common.filter',
++    'mdi-sort-variant': 'file.sort',
++    'mdi-refresh': 'common.refresh',
++    'mdi-plus': 'common.add',
++  }
++  return keys[button.icon] ? t(keys[button.icon]) : `${pageTitle()} · ${t('nav.more')}`
++}
++
++/** 从当前注册和当前权限重新生成声明及 JS 回调表，旧对象不作为执行依据。 */
++const model = computed(() => {
++  const revision = history.revision.value
++  const actions: NativeAction[] = []
++  const callbacks = new Map<string, () => void>()
++  const header = nativeHeaderRegistration.value
++  let headerTabs: NativeSnapshot['headerTabs']
++  /** 共用标题栏与页内标题旁动作的权限、禁用和回调规则，执行时再次读取当前声明。 */
++  function appendHeaderActions(buttons: DynamicHeaderTabButton[], ownerId: string, source: string) {
++    for (const [index, button] of buttons.entries()) {
++      if (toValue(button.show) === false || !hasItemPermission(button, permissions.value)) continue
++      if (!button.action) throw new Error('unsupported_header_action')
++      const actionId = `r${revision}:${source}:${index}`
++      const loading = Boolean(toValue(button.loading))
++      actions.push({
++        actionId,
++        ownerId,
++        title: actionTitle(button),
++        icon: button.icon,
++        position: 'trailing',
++        enabled: !loading && !toValue(button.disabled),
++        loading,
++        ...(button.dataAttr ? { dataAttr: button.dataAttr } : {}),
++      })
++      callbacks.set(actionId, button.action)
++    }
++  }
++  if (authenticated.value && header && header.routePath === route.path) {
++    const ownerId = ownerFor(header, header.ownerId)
++    const items = filterItemsByPermission(header.items, permissions.value)
++    if (items.length) {
++      if (!header.onUpdateModelValue) throw new Error('unsupported_header_registration')
++      headerTabs = headerProjection.project(ownerId, items, header.modelValue)
++    }
++    appendHeaderActions(header.appendButtons ?? [], ownerId, 'header')
++  }
++  if (authenticated.value) {
++    for (const page of nativePageHeaders.value.values()) {
++      if (page.routePath === route.path) appendHeaderActions(toValue(page.actions) ?? [], page.ownerId, page.ownerId)
++    }
++    for (const action of nativeGlobalActions.value.values()) {
++      if (action.visible !== undefined && !toValue(action.visible)) continue
++      const actionId = `r${revision}:global:${action.id}`
++      actions.push({
++        actionId,
++        ownerId: ownerFor(action),
++        title: toValue(action.title),
++        icon: action.icon,
++        position: 'trailing',
++        enabled: true,
++        loading: false,
++        ...(action.dataAttr ? { dataAttr: action.dataAttr } : {}),
++      })
++      callbacks.set(actionId, action.invoke)
++    }
++    const registration = dynamicButtonRegistry.registration.value
++    const button = registration?.button
++    if (
++      route.path !== '/apps' &&
++      registration &&
++      button?.show &&
++      (!button.routePath || button.routePath === route.path) &&
++      hasItemPermission(button, permissions.value)
++    ) {
++      const ownerId = ownerFor(registration, registration.ownerId)
++      const actionId = `r${revision}:accessory`
++      const items = filterItemsByPermission(button.menuItems ?? [], permissions.value)
++      const menu = items.map((item, index) => {
++        const id = `${actionId}:menu:${index}`
++        if (!item.disabled) callbacks.set(id, item.action)
++        return { actionId: id, title: menuTitle(item), icon: item.icon || 'apps', enabled: !item.disabled }
++      })
++      actions.push({
++        actionId,
++        ownerId,
++        title: actionTitle(button),
++        icon: button.icon,
++        position: 'accessory',
++        enabled: true,
++        loading: false,
++        ...(menu.length ? { menu } : {}),
++      })
++      if (!menu.length) callbacks.set(actionId, button.action)
++    }
++  }
++  let menuSequence = 0
++  const moreMenu = authenticated.value
++    ? Object.entries(
++        groupAppMenus(
++          menus.value,
++          filterPluginSidebarNavEntries(pluginMenus.items, t, permissions.value).map(entry => entry.navMenu),
++          t('appcenter.others'),
++        ),
++      ).map(([title, items], section) => ({
++        id: `section-${section}`,
++        title,
++        items: items.map(item => ({
++          id: `menu-${++menuSequence}`,
++          path: router.resolve(item.to || '/apps').fullPath,
++          title: item.full_title || item.title,
++          icon: typeof item.icon === 'string' ? item.icon : 'apps',
++          ...(item.description ? { subtitle: item.description } : {}),
++        })),
++      }))
++    : []
++  const navigation = history.navigation
++  const snapshot: NativeSnapshot = {
++    route: {
++      fullPath: route.fullPath,
++      ...navigation,
++      title: pageTitle(),
++      ...(overlayOpen.value ? { canGoBack: true, backTarget: navigation.backTarget || route.fullPath } : {}),
++    },
++    roots: roots.value,
++    actions,
++    moreMenu,
++    presentation: { overlayOpen: overlayOpen.value },
++    ...(headerTabs ? { headerTabs } : {}),
++    chrome: {
++      topVisible: Boolean(route.meta.requiresAuth),
++      bottomVisible: authenticated.value,
++      theme: theme.global.current.value.dark ? 'dark' : 'light',
++      ...(/^#[0-9a-f]{6}$/i.test(theme.global.current.value.colors.primary)
++        ? { accentColor: theme.global.current.value.colors.primary }
++        : {}),
++      content: route.path === '/apps' && authenticated.value ? 'menu' : 'web',
++    },
++  }
++  if (overlayOpen.value) for (const action of actions) action.enabled = false
++  if (
++    actions.length > 16 ||
++    actions.some(action => (action.menu?.length ?? 0) > 32) ||
++    moreMenu.length > 32 ||
++    menuSequence > 128
++  )
++    throw new Error('unsupported_action_count')
++  return { routeRevision: revision, snapshot, callbacks }
++})
++
++/** 分派时重新读取 model，复核 owner、路由、权限、loading 及可见性。 */
++function execute(message: NativeEnvelope) {
++  const current = model.value
++  const payload = message.payload
++  if (message.type === 'navigation.selectRoot')
++    return !overlayOpen.value && typeof payload.rootId === 'string' && history.selectRoot(payload.rootId)
++  if (message.type === 'navigation.back') return history.back(document, window)
++  if (message.type === 'navigation.open') {
++    if (overlayOpen.value) return false
++    const item = current.snapshot.moreMenu
++      ?.flatMap(section => section.items)
++      .find(item => item.id === payload.itemId && item.path === payload.path)
++    if (!item || route.path !== '/apps') return false
++    void router.push(item.path).catch(() => {
++      /* 守卫取消保持当前菜单，不重放导航。 */
++    })
++    return true
++  }
++  if (message.type === 'headerTab.select') {
++    if (overlayOpen.value) return false
++    const tabs = current.snapshot.headerTabs
++    if (!tabs || payload.ownerId !== tabs.ownerId || !tabs.items.some(item => item.id === payload.tabId)) return false
++    const value = headerProjection.resolve(tabs.ownerId, payload.tabId as string)
++    if (value === undefined) return false
++    nativeHeaderRegistration.value?.onUpdateModelValue?.(value)
++    return true
++  }
++  if (message.type !== 'action.invoke' || typeof payload.actionId !== 'string') return false
++  const action = current.snapshot.actions.find(
++    item =>
++      item.ownerId === payload.ownerId &&
++      (item.actionId === payload.actionId ||
++        item.menu?.some(child => child.actionId === payload.actionId && child.enabled)),
++  )
++  const callback = current.callbacks.get(payload.actionId)
++  if (!action || !action.enabled || action.loading || !callback) return false
++  if (action.dataAttr) layout.positionAnchor(action.dataAttr, payload.framePoints, payload.layoutRevision)
++  callback()
++  return true
++}
++
++const canStart = computed(
++  () => routerReady.value && authenticated.value && isMediaSourceCatalogLoaded().value && isModuleCatalogLoaded().value,
++)
++watch([routerReady, () => route.path], ([ready, path]) => {
++  if (ready && path === '/login') window.MoviePilotNative?.authenticationRequired?.()
++})
++
++let overlayScheduled = false
++const overlayObserver = new MutationObserver(records => {
++  if (
++    overlayScheduled ||
++    !records.some(
++      record =>
++        record.type === 'childList' ||
++        (record.target instanceof Element && record.target.classList.contains('v-overlay')),
++    )
++  )
++    return
++  overlayScheduled = true
++  queueMicrotask(() => {
++    overlayScheduled = false
++    overlayOpen.value = Boolean(document.querySelector('.v-overlay--active.v-dialog, .v-overlay--active.v-menu'))
++  })
++})
++overlayObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
++watch(
++  canStart,
++  ready => {
++    const transport = window.MoviePilotNative
++    if (!ready || bridge || transport?.transportVersion !== 1) return
++    bridge = new NativeChromeSession({
++      target: window,
++      transport,
++      readState: () => ({ routeRevision: model.value.routeRevision, snapshot: model.value.snapshot }),
++      applyLayout: payload => layout.apply(payload),
++      execute,
++      setActive: async active => {
++        layout.setActive(active)
++        if (!active) appActivityLifecycle.setHostLifecycle(undefined)
++        await nextTick()
++        if (active)
++          layout.syncAnchors(model.value.snapshot.actions.flatMap(action => (action.dataAttr ? [action.dataAttr] : [])))
++      },
++      lifecycle: state => appActivityLifecycle.setHostLifecycle(state),
++    })
++    bridge.start()
++  },
++  { immediate: true },
++)
++
++watchEffect(
++  () => {
++    try {
++      const value = model.value
++      if (nativeChromeActive.value)
++        layout.syncAnchors(value.snapshot.actions.flatMap(action => (action.dataAttr ? [action.dataAttr] : [])))
++      bridge?.publish()
++    } catch {
++      bridge?.fallback()
++    }
++  },
++  { flush: 'post' },
++)
++watch(
++  () => JSON.stringify([user.userID, user.superUser, user.permissions, roots.value.map(root => root.id)]),
++  () => {
++    history.reset()
++    bridge?.identityChanged()
++  },
++  { flush: 'sync' },
++)
++void router.isReady().then(() => {
++  routerReady.value = true
++})
++onScopeDispose(() => {
++  overlayObserver.disconnect()
++  history.stop()
++  void bridge?.stop()
++  layout.setActive(false)
++})
++</script>
++
++<template><span hidden aria-hidden="true" data-native-navigation-host /></template>
+diff --git a/src/composables/__tests__/useDynamicHeaderTab.spec.ts b/src/composables/__tests__/useDynamicHeaderTab.spec.ts
+index 7a12978bb6c31327bfa1a001c1e0428bd3b71033..979c38df397789e5ed01214f96b36d4df6f40531 100644
+--- a/src/composables/__tests__/useDynamicHeaderTab.spec.ts
++++ b/src/composables/__tests__/useDynamicHeaderTab.spec.ts
+@@ -9,6 +9,7 @@ describe('useDynamicHeaderTab', () => {
+     const register = vi.fn()
+     const unregister = vi.fn()
+     const mountedRegistrationCount = vi.fn()
++    const activeTab = ref('movie')
+     const router = createRouter({
+       history: createMemoryHistory(),
+       routes: [{ path: '/recommend', component: { template: '<div />' } }],
+@@ -18,7 +19,6 @@ describe('useDynamicHeaderTab', () => {
+ 
+     const Page = defineComponent({
+       setup() {
+-        const activeTab = ref('movie')
+         const { registerHeaderTab } = useDynamicHeaderTab()
+         registerHeaderTab({
+           enableStateRestore: false,
+@@ -56,11 +56,18 @@ describe('useDynamicHeaderTab', () => {
+     expect(register.mock.calls.at(-1)?.[0].routePath).toBe('/recommend')
+ 
+     await wrapper.get('button').trigger('click')
+-    expect(unregister).toHaveBeenCalledWith('/recommend')
++    const ownerId = register.mock.calls.at(-1)?.[0].ownerId
++    expect(ownerId).toEqual(expect.stringMatching(/^header:/))
++    expect(unregister).toHaveBeenCalledWith('/recommend', ownerId)
+ 
+     const registrationsBeforeActivation = register.mock.calls.length
++    activeTab.value = 'tv'
++    await wrapper.vm.$nextTick()
++    expect(register.mock.calls).toHaveLength(registrationsBeforeActivation)
+     await wrapper.get('button').trigger('click')
+     expect(register.mock.calls.length).toBeGreaterThan(registrationsBeforeActivation)
++    expect(register.mock.calls.at(-1)?.[0].ownerId).toBe(ownerId)
++    expect(register.mock.calls.at(-1)?.[0].modelValue).toBe('tv')
+ 
+     wrapper.unmount()
+   })
+diff --git a/src/composables/dynamicButtonRegistry.ts b/src/composables/dynamicButtonRegistry.ts
+index 5d006afdffd2376f3272ecc4eab144e43ae4304c..956f90322dff63d57804fa8a644971025dad5a58 100644
+--- a/src/composables/dynamicButtonRegistry.ts
++++ b/src/composables/dynamicButtonRegistry.ts
+@@ -25,6 +25,8 @@ export interface DynamicButtonMenuItem {
+ 
+ /** 当前路由对主 Dock 提供的单个附属按钮。 */
+ export interface DynamicButton {
++  /** 可选操作文案，原生及辅助功能不依赖图标猜测业务含义。 */
++  title?: string
+   /** 图标库标识。 */
+   icon: string
+   /** 没有菜单时执行的主操作。 */
+diff --git a/src/composables/useDynamicHeaderTab.ts b/src/composables/useDynamicHeaderTab.ts
+index d04bee3050904c3b96a7ff3a94be50eb243e0b5b..11ab9f34e2c68d28ccf91e1a2ed8f6dc3c79443d 100644
+--- a/src/composables/useDynamicHeaderTab.ts
++++ b/src/composables/useDynamicHeaderTab.ts
+@@ -2,8 +2,10 @@ import type { ComputedRef, Ref } from 'vue'
+ import { useTabStateRestore } from '@/composables/useStateRestore'
+ import type { UserPermissionFeatureKey, UserPermissionKey } from '@/utils/permission'
+ 
+-// 动态标签页相关类型
++/** 页内标签附属按钮，回调只保留在当前页面。 */
+ interface DynamicHeaderTabButton {
++  /** 原生与辅助功能可使用的操作文案；旧页面可省略。 */
++  title?: string
+   icon: string
+   color?: string | ComputedRef<string>
+   variant?: 'flat' | 'text' | 'elevated' | 'tonal' | 'outlined' | 'plain'
+@@ -14,9 +16,11 @@ interface DynamicHeaderTabButton {
+   feature?: UserPermissionFeatureKey
+   show?: boolean | ComputedRef<boolean>
+   loading?: boolean | ComputedRef<boolean>
++  disabled?: boolean | ComputedRef<boolean>
+   dataAttr?: string // 用于VMenu定位的data属性
+ }
+ 
++/** 页内分类声明；网页与原生均使用相同权限条件。 */
+ interface DynamicHeaderTabItem {
+   title: string
+   icon?: string
+@@ -25,7 +29,9 @@ interface DynamicHeaderTabItem {
+   feature?: UserPermissionFeatureKey
+ }
+ 
++/** 由页面实例持有的当前标签注册，兼容旧模块省略 owner。 */
+ interface DynamicHeaderTabConfig {
++  ownerId?: string
+   items: DynamicHeaderTabItem[]
+   modelValue: string
+   appendButtons?: DynamicHeaderTabButton[]
+@@ -33,13 +39,24 @@ interface DynamicHeaderTabConfig {
+   onUpdateModelValue?: (value: string) => void
+ }
+ 
++declare global {
++  interface Window {
++    /** 与 inject 相同的跨模块注册，旧插件可省略 owner。 */
++    __VUE_INJECT_DYNAMIC_HEADER_TAB__?: (config: DynamicHeaderTabConfig) => void
++    /** 按路由和 owner 注销，防止旧实例清除新注册。 */
++    __VUE_UNINJECT_DYNAMIC_HEADER_TAB__?: (routePath?: string, ownerId?: string) => void
++  }
++}
++
+ /** 提供页面动态头部标签的注册、状态恢复和注销能力。 */
+ export function useDynamicHeaderTab() {
+   const route = useRoute()
+ 
+   // 尝试从inject获取
+   const registerDynamicHeaderTab = inject<(tab: DynamicHeaderTabConfig) => void>('registerDynamicHeaderTab')
+-  const unregisterDynamicHeaderTab = inject<(routePath?: string) => void>('unregisterDynamicHeaderTab')
++  const unregisterDynamicHeaderTab =
++    inject<(routePath?: string, ownerId?: string) => void>('unregisterDynamicHeaderTab')
++  let ownedConfig: DynamicHeaderTabConfig | undefined
+ 
+   /** 注册当前页面的动态头部标签配置。 */
+   const registerHeaderTab = (config: {
+@@ -62,6 +79,7 @@ export function useDynamicHeaderTab() {
+     }
+ 
+     const tabConfig: DynamicHeaderTabConfig = {
++      ownerId: `header:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}:${Math.random().toString(36).slice(2)}`}`,
+       items: Array.isArray(config.items) ? config.items : config.items.value,
+       modelValue: config.modelValue.value,
+       appendButtons: config.appendButtons,
+@@ -74,6 +92,15 @@ export function useDynamicHeaderTab() {
+         }
+       },
+     }
++    ownedConfig = tabConfig
++    let componentActive = false
++
++    /** 仅激活且仍属于当前路径的页面能够替换注册，防止 KeepAlive 后台更新抢占导航。 */
++    const publish = () => {
++      if (!componentActive || tabConfig.routePath !== route.path) return
++      if (registerDynamicHeaderTab) registerDynamicHeaderTab(tabConfig)
++      else if (typeof window !== 'undefined') window.__VUE_INJECT_DYNAMIC_HEADER_TAB__?.(tabConfig)
++    }
+ 
+     // 如果启用了PWA状态恢复，监听PWA状态变化并同步到modelValue
+     // 但只在非激活状态下响应，避免干扰页面激活时的状态
+@@ -83,9 +110,7 @@ export function useDynamicHeaderTab() {
+           config.modelValue.value = newTab
+           // 更新tabConfig并重新注册
+           tabConfig.modelValue = newTab
+-          if (registerDynamicHeaderTab) {
+-            registerDynamicHeaderTab(tabConfig)
+-          }
++          publish()
+         }
+       })
+     }
+@@ -98,15 +123,7 @@ export function useDynamicHeaderTab() {
+         pwaTabState.activeTab.value = newValue
+       }
+       // 重新注册以更新值
+-      if (registerDynamicHeaderTab) {
+-        registerDynamicHeaderTab(tabConfig)
+-      } else if (typeof window !== 'undefined') {
+-        // 使用全局方法作为备用
+-        const globalRegister = (window as any).__VUE_INJECT_DYNAMIC_HEADER_TAB__
+-        if (globalRegister) {
+-          globalRegister(tabConfig)
+-        }
+-      }
++      publish()
+     })
+ 
+     // 如果items是computed或ref，也需要监听其变化
+@@ -116,22 +133,15 @@ export function useDynamicHeaderTab() {
+         newItems => {
+           tabConfig.items = newItems
+           // 重新注册以更新items
+-          if (registerDynamicHeaderTab) {
+-            registerDynamicHeaderTab(tabConfig)
+-          } else if (typeof window !== 'undefined') {
+-            // 使用全局方法作为备用
+-            const globalRegister = (window as any).__VUE_INJECT_DYNAMIC_HEADER_TAB__
+-            if (globalRegister) {
+-              globalRegister(tabConfig)
+-            }
+-          }
++          publish()
+         },
+         { deep: true },
+       )
+     }
+ 
+-    // 注册函数
++    /** 激活时重新读取实际状态，并将这次注册绑定到当前路由。 */
+     const doRegister = () => {
++      componentActive = true
+       // 确保路由路径是最新的
+       tabConfig.routePath = route.path
+       // 确保items是最新的
+@@ -139,21 +149,16 @@ export function useDynamicHeaderTab() {
+       // 确保modelValue是最新的
+       tabConfig.modelValue = config.modelValue.value
+ 
+-      if (registerDynamicHeaderTab) {
+-        registerDynamicHeaderTab(tabConfig)
+-      } else if (typeof window !== 'undefined') {
+-        // 使用全局方法作为备用
+-        const globalRegister = (window as any).__VUE_INJECT_DYNAMIC_HEADER_TAB__
+-        if (globalRegister) {
+-          globalRegister(tabConfig)
+-        }
+-      }
++      publish()
+     }
+ 
+-    // 取消注册函数
++    /** 离开时先停止响应式重注册，只按自己的 owner 释放当前注册。 */
+     const doUnregister = () => {
++      componentActive = false
+       if (unregisterDynamicHeaderTab) {
+-        unregisterDynamicHeaderTab(tabConfig.routePath)
++        unregisterDynamicHeaderTab(tabConfig.routePath, tabConfig.ownerId)
++      } else if (typeof window !== 'undefined') {
++        window.__VUE_UNINJECT_DYNAMIC_HEADER_TAB__?.(tabConfig.routePath, tabConfig.ownerId)
+       }
+     }
+ 
+@@ -189,7 +194,7 @@ export function useDynamicHeaderTab() {
+   /** 取消当前页面注册的动态头部标签。 */
+   const unregisterHeaderTab = () => {
+     if (unregisterDynamicHeaderTab) {
+-      unregisterDynamicHeaderTab()
++      if (ownedConfig) unregisterDynamicHeaderTab(ownedConfig.routePath, ownedConfig.ownerId)
+     }
+   }
+ 
+diff --git a/src/composables/useFooterDockHeight.ts b/src/composables/useFooterDockHeight.ts
+index f34df26172bffa4ec30bfd12c7f82497b3bf6f67..d21ed02687f8ddb3dd177220054987acc380231c 100644
+--- a/src/composables/useFooterDockHeight.ts
++++ b/src/composables/useFooterDockHeight.ts
+@@ -1,4 +1,5 @@
+-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
++import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
++import { nativeChromeActive, nativeContentInsets } from '@/native/layout'
+ 
+ /**
+  * 观察通过 Teleport 挂载到 body 的 App 底部 Footer，并返回其实际占用高度。
+@@ -57,5 +58,9 @@ export function useFooterDockHeight() {
+     observedFooter = null
+   })
+ 
+-  return { footerDockHeight }
++  return {
++    footerDockHeight: computed(() =>
++      nativeChromeActive.value ? nativeContentInsets.value.bottom : footerDockHeight.value,
++    ),
++  }
+ }
+diff --git a/src/composables/usePWA.ts b/src/composables/usePWA.ts
+index cf2338a204be6e6bd9829273391619af009a2f49..94bb3f57ef7a0c8c9aaec7d8c3353637306f54d0 100644
+--- a/src/composables/usePWA.ts
++++ b/src/composables/usePWA.ts
+@@ -1,5 +1,6 @@
+ import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
+ import { useDisplay } from 'vuetify'
++import { nativeChromeActive } from '@/native/layout'
+ import {
+   checkPWAStatus,
+   getPWADisplayEnvironment,
+@@ -58,6 +59,7 @@ function syncDisplayEnvironment() {
+   }
+ }
+ 
++/** 首个消费者持有系统显示环境监听。 */
+ function retainDisplayEnvironmentObserver() {
+   displayEnvironmentSubscribers += 1
+   syncDisplayEnvironment()
+@@ -67,6 +69,7 @@ function retainDisplayEnvironmentObserver() {
+   displayEnvironmentMediaQueries.forEach(mediaQuery => mediaQuery.addEventListener('change', syncDisplayEnvironment))
+ }
+ 
++/** 最后一个消费者卸载后解绑共享监听。 */
+ function releaseDisplayEnvironmentObserver() {
+   displayEnvironmentSubscribers = Math.max(0, displayEnvironmentSubscribers - 1)
+   if (displayEnvironmentSubscribers > 0) return
+@@ -87,13 +90,13 @@ function readUIMode(): UIMode {
+ 
+ const uiMode = ref<UIMode>(readUIMode())
+ 
+-// 设置UI模式
++/** 保存网页导航偏好；原生接管期间只临时覆盖，不改用户存储。 */
+ function setUIMode(mode: UIMode) {
+   uiMode.value = mode
+   localStorage.setItem('ui-mode', mode)
+ }
+ 
+-// 全局初始化函数
++/** 共享一次 PWA 能力检测，失败也释放等待调用方。 */
+ async function initializePWAGlobally() {
+   if (initPromise) return initPromise
+ 
+@@ -138,6 +141,7 @@ async function initializePWAGlobally() {
+   return initPromise
+ }
+ 
++/** 提供 PWA 能力与页面导航族；原生接管是独立的显式状态。 */
+ export function usePWA() {
+   if (typeof window !== 'undefined') syncDisplayEnvironment()
+ 
+@@ -151,6 +155,7 @@ export function usePWA() {
+   const autoAppNavigation = computed(() => isMobilePlatform() && display.mdAndDown.value)
+ 
+   const appMode = computed(() => {
++    if (nativeChromeActive.value) return true
+     if (uiMode.value === 'app') return true
+     if (uiMode.value === 'desktop') return false
+ 
+diff --git a/src/layouts/default/components/DefaultLayout.vue b/src/layouts/default/components/DefaultLayout.vue
+index 1c3f94264254c187dbf3647b8400b66355711c8c..5dc97974bb2ac629cdfbabd095f2f537461f2429 100644
+--- a/src/layouts/default/components/DefaultLayout.vue
++++ b/src/layouts/default/components/DefaultLayout.vue
+@@ -26,8 +26,6 @@ import {
+   filterMenusByPermission,
+   hasItemPermission,
+   hasPermission,
+-  type UserPermissionFeatureKey,
+-  type UserPermissionKey,
+ } from '@/utils/permission'
+ import { usePWA } from '@/composables/usePWA'
+ import { useCompactFabStackTouch } from '@/composables/useCompactFabStackTouch'
+@@ -40,6 +38,13 @@ import {
+ } from '@/composables/useThemeCustomizer'
+ import ThemeLogoMark from '@/components/misc/ThemeLogoMark.vue'
+ import SystemUpdatePrompt from '@/components/system/SystemUpdatePrompt.vue'
++import { nativeHeaderRegistration, useNativeGlobalAction } from '@/native/registry'
++import { nativeChromeActive } from '@/native/layout'
++import type {
++  DynamicHeaderTabConfig as DynamicHeaderTab,
++  DynamicHeaderTabButton,
++  DynamicHeaderTabItem,
++} from '@/composables/useDynamicHeaderTab'
+ 
+ const display = useDisplay()
+ // PWA模式检测
+@@ -112,49 +117,19 @@ const mainContentPaddingTop = computed(() => {
+ // 插件快速访问相关状态
+ const showPluginQuickAccess = ref(false)
+ 
+-// 动态标签页相关
+-// 定义动态标签页类型
+-interface DynamicHeaderTabButton {
+-  icon: string
+-  color?: string | ComputedRef<string>
+-  variant?: 'flat' | 'text' | 'elevated' | 'tonal' | 'outlined' | 'plain'
+-  size?: string
+-  class?: string
+-  action?: () => void
+-  permission?: UserPermissionKey
+-  feature?: UserPermissionFeatureKey
+-  show?: boolean | ComputedRef<boolean>
+-  loading?: boolean | ComputedRef<boolean>
+-  dataAttr?: string
+-}
+-
+-interface DynamicHeaderTabItem {
+-  title: string
+-  icon?: string
+-  tab: string
+-  permission?: UserPermissionKey
+-  feature?: UserPermissionFeatureKey
+-}
+-
+-interface DynamicHeaderTab {
+-  items: DynamicHeaderTabItem[]
+-  modelValue: string
+-  appendButtons?: DynamicHeaderTabButton[]
+-  routePath?: string // 用于标识哪个路由注册的
+-  onUpdateModelValue?: (value: string) => void // 用于通知值更新
+-}
+-
++/** 兼容模块联邦既有的动态页签注册入口。 */
+ type DynamicHeaderTabWindow = Window & {
+   __VUE_INJECT_DYNAMIC_HEADER_TAB__?: (tab: DynamicHeaderTab) => void
+ }
+ 
+ // 提供动态标签页注册和获取的方法
+-const dynamicHeaderTab = ref<DynamicHeaderTab | null>(null)
++const dynamicHeaderTab = nativeHeaderRegistration
+ const openHorizontalNavGroup = ref<string | null>(null)
+ const pendingHorizontalTab = ref<{ path: string; tab: string } | null>(null)
+ 
+ /** 注册页面动态标签页，并在页面可用后应用待切换的水平导航标签。 */
+ const registerDynamicHeaderTab = (tab: DynamicHeaderTab) => {
++  if (tab.routePath && tab.routePath !== route.path) return
+   // 保存注册标签页的路由路径
+   tab.routePath = route.path
+   // 强制更新，确保响应式系统能检测到变化
+@@ -163,8 +138,9 @@ const registerDynamicHeaderTab = (tab: DynamicHeaderTab) => {
+ }
+ 
+ /** 仅注销仍由指定路由持有的动态标签，避免相邻页面生命周期互相覆盖。 */
+-const unregisterDynamicHeaderTab = (routePath?: string) => {
++const unregisterDynamicHeaderTab = (routePath?: string, ownerId?: string) => {
+   if (routePath && dynamicHeaderTab.value?.routePath !== routePath) return
++  if (ownerId && dynamicHeaderTab.value?.ownerId !== ownerId) return
+ 
+   dynamicHeaderTab.value = null
+ }
+@@ -186,6 +162,7 @@ const handleTabChange = (newValue: string) => {
+ if (typeof window !== 'undefined') {
+   // 确保在浏览器环境中
+   ;(window as DynamicHeaderTabWindow).__VUE_INJECT_DYNAMIC_HEADER_TAB__ = registerDynamicHeaderTab
++  window.__VUE_UNINJECT_DYNAMIC_HEADER_TAB__ = unregisterDynamicHeaderTab
+ }
+ 
+ // 提供给其他组件使用
+@@ -217,7 +194,9 @@ const visibleDynamicHeaderTabItems = computed(() => {
+ const hasDynamicHeaderTab = computed(() => visibleDynamicHeaderTabItems.value.length > 0)
+ 
+ // 水平布局下动态标签页会并入顶部导航三级菜单，不再额外显示标签页栏。
+-const showDynamicHeaderTab = computed(() => hasDynamicHeaderTab.value && !showHorizontalThemeNav.value)
++const showDynamicHeaderTab = computed(
++  () => hasDynamicHeaderTab.value && !showHorizontalThemeNav.value && !nativeChromeActive.value,
++)
+ 
+ const visibleDynamicHeaderButtons = computed(() => {
+   if (!hasDynamicHeaderTab.value) return []
+@@ -236,10 +215,15 @@ const visibleHorizontalHeaderButtons = computed(() => {
+ 
+ // 在组件销毁时清理
+ onUnmounted(() => {
+-  dynamicHeaderTab.value = null
+-  // 清理全局方法
+-  if (typeof window !== 'undefined') {
++  // 旧布局迟到卸载时不能清掉新布局的注册和跨模块桥。
++  if (
++    typeof window !== 'undefined' &&
++    (window as DynamicHeaderTabWindow).__VUE_INJECT_DYNAMIC_HEADER_TAB__ === registerDynamicHeaderTab
++  ) {
++    dynamicHeaderTab.value = null
+     delete (window as DynamicHeaderTabWindow).__VUE_INJECT_DYNAMIC_HEADER_TAB__
++    if (window.__VUE_UNINJECT_DYNAMIC_HEADER_TAB__ === unregisterDynamicHeaderTab)
++      delete window.__VUE_UNINJECT_DYNAMIC_HEADER_TAB__
+   }
+ })
+ 
+@@ -251,6 +235,7 @@ const getMenuList = (header: string) => {
+   return filteredMenus.filter((item: NavMenu) => item.header === header)
+ }
+ 
++/** 将菜单标题与目标一起用于本地渲染标识。 */
+ const getMenuIdentity = (item: NavMenu) => `${item.title}-${JSON.stringify(item.to ?? null)}`
+ 
+ /** 返回浏览历史中的上一页。 */
+@@ -329,9 +314,19 @@ function resolveHeaderButtonLoading(button: DynamicHeaderTabButton) {
+   return resolveMaybeRefValue(button.loading, false)
+ }
+ 
++/** 网页与原生保持相同的禁用状态，避免导航模式切换后执行不可用操作。 */
++function resolveHeaderButtonDisabled(button: DynamicHeaderTabButton) {
++  return resolveMaybeRefValue(button.disabled, false)
++}
++
+ /** 校验权限后执行动态头部按钮动作。 */
+ function handleHeaderButtonClick(button: DynamicHeaderTabButton) {
+-  if (!hasItemPermission(button, userPermissions.value)) return
++  if (
++    !hasItemPermission(button, userPermissions.value) ||
++    resolveHeaderButtonLoading(button) ||
++    resolveHeaderButtonDisabled(button)
++  )
++    return
+ 
+   button.action?.()
+ }
+@@ -393,6 +388,14 @@ function handleOpenPluginQuickAccess() {
+   showPluginQuickAccess.value = true
+ }
+ 
++useNativeGlobalAction({
++  id: 'plugins',
++  title: () => t('plugin.quickAccess'),
++  icon: 'mdi-puzzle-outline',
++  visible: canAdmin,
++  invoke: handleOpenPluginQuickAccess,
++})
++
+ /** 点击插件入口后关闭插件快速访问面板。 */
+ function handlePluginClick() {
+   showPluginQuickAccess.value = false
+@@ -635,6 +638,7 @@ onMounted(async () => {
+             :size="button.size || 'default'"
+             :class="button.class || 'settings-icon-button'"
+             :loading="resolveHeaderButtonLoading(button)"
++            :disabled="resolveHeaderButtonDisabled(button)"
+             :data-menu-activator="button.dataAttr"
+             @click="handleHeaderButtonClick(button)"
+           />
+@@ -697,6 +701,7 @@ onMounted(async () => {
+                 :size="button.size || 'default'"
+                 :class="button.class || 'settings-icon-button'"
+                 :loading="resolveHeaderButtonLoading(button)"
++                :disabled="resolveHeaderButtonDisabled(button)"
+                 :data-menu-activator="button.dataAttr"
+                 @click="handleHeaderButtonClick(button)"
+               />
+diff --git a/src/layouts/default/components/Footer.vue b/src/layouts/default/components/Footer.vue
+index 11297531ad0670954c89164edf97cb5ef50d5fe5..fe0848a6b93bf2a9d141cdc9ac9c531e593283d8 100644
+--- a/src/layouts/default/components/Footer.vue
++++ b/src/layouts/default/components/Footer.vue
+@@ -17,6 +17,8 @@ import {
+   type DynamicButtonUnregister,
+ } from '@/composables/dynamicButtonRegistry'
+ import type { DynamicButtonMenuItem } from '@/composables/useDynamicButton'
++import { buildFooterMenus } from '@/utils/footerNavigation'
++import { nativeChromeActive } from '@/native/layout'
+ 
+ const { register: registerSharedDynamicButton, unregister: unregisterSharedDynamicButton } = dynamicButtonRegistry
+ 
+@@ -63,7 +65,7 @@ const navMenus = computed(() => {
+   return filterMenusByPermission(allMenus, userPermissions.value)
+ })
+ 
+-// 根据当前路径获取匹配的菜单路径
++/** 根据当前路径获取网页 Dock 的已授权入口。 */
+ function getMenuPathFromRoute(path: string): string {
+   const matchedMenu = navMenus.value.find((menu: NavMenu) => menu.footer === true && path.startsWith(menu.to as string))
+   return matchedMenu ? (matchedMenu.to as string) : '/apps'
+@@ -73,44 +75,7 @@ function getMenuPathFromRoute(path: string): string {
+ const currentMenu = ref<string>(getMenuPathFromRoute(route.path))
+ 
+ // 过滤出底部菜单项
+-const footerMenus = computed(() => {
+-  // 获取所有有权限的菜单
+-  const allAuthorizedMenus = navMenus.value
+-
+-  // 优先获取有 footer: true 属性的菜单
+-  const footerMenusWithProperty = allAuthorizedMenus.filter((menu: NavMenu) => menu.footer === true)
+-
+-  // 设置期望的底部菜单数量（不包括"更多"按钮）
+-  // 一般来说，底部导航栏显示 3-4 个主要功能比较合适
+-  const expectedFooterMenuCount = 3
+-
+-  // 如果有 footer 属性的菜单已经足够，优先显示它们
+-  if (footerMenusWithProperty.length >= expectedFooterMenuCount) {
+-    return footerMenusWithProperty.slice(0, expectedFooterMenuCount)
+-  }
+-
+-  // 如果不够，从没有 footer 属性或 footer 为 false 的菜单中补充
+-  // 优先选择一些常用的功能菜单
+-  const nonFooterMenus = allAuthorizedMenus.filter(
+-    (menu: NavMenu) =>
+-      menu.footer !== true &&
+-      // 排除已经在 footerMenusWithProperty 中的菜单
+-      !footerMenusWithProperty.some(footerMenu => footerMenu.to === menu.to),
+-  )
+-
+-  // 计算还需要多少个菜单
+-  const needCount = expectedFooterMenuCount - footerMenusWithProperty.length
+-
+-  // 合并菜单：优先显示有 footer 属性的，然后按菜单定义顺序添加其他菜单
+-  let finalMenus = [...footerMenusWithProperty, ...nonFooterMenus.slice(0, needCount)]
+-
+-  // 确保至少有一个菜单显示，如果都没有权限，则显示第一个有权限的菜单
+-  if (finalMenus.length === 0 && allAuthorizedMenus.length > 0) {
+-    finalMenus = [allAuthorizedMenus[0]]
+-  }
+-
+-  return finalMenus
+-})
++const footerMenus = computed(() => buildFooterMenus(navMenus.value))
+ 
+ // 监听路由变化来更新currentMenu
+ watch(
+@@ -223,7 +188,7 @@ watch(
+ )
+ onUnmounted(() => clearTimeout(accessoryExitTimer))
+ 
+-const shouldRenderFooterNav = computed(() => appMode.value && props.showNav)
++const shouldRenderFooterNav = computed(() => appMode.value && props.showNav && !nativeChromeActive.value)
+ const shouldRevealFooterNav = computed(() => shouldRenderFooterNav.value && !isLaunchLoading.value)
+ 
+ const legacyDynamicMenuTitleKeyMap: Record<string, string> = {
+@@ -233,7 +198,7 @@ const legacyDynamicMenuTitleKeyMap: Record<string, string> = {
+   'components.pluginMarketSetting.title': 'dialog.pluginMarketSetting.title',
+ }
+ 
+-// 解析动态按钮菜单项标题，兼容旧版直接传入 i18n key 的写法。
++/** 解析动态按钮菜单项标题，兼容旧版直接传入 i18n key 的写法。 */
+ function resolveDynamicMenuItemTitle(item: DynamicButtonMenuItem) {
+   if (item.titleKey) {
+     return t(item.titleKey, item.titleParams ?? {})
+@@ -249,7 +214,7 @@ function resolveDynamicMenuItemTitle(item: DynamicButtonMenuItem) {
+   return looksLikeI18nKey ? t(normalizedTitleKey, item.titleParams ?? {}) : item.title
+ }
+ 
+-// 处理页面注册的动态按钮主操作点击。
++/** 执行前复核当前路由与权限，再调用原页面操作。 */
+ function handleDynamicButtonClick() {
+   if (
+     !showDynamicButton.value ||
+@@ -262,7 +227,7 @@ function handleDynamicButtonClick() {
+   dynamicButton.value.action()
+ }
+ 
+-// 处理页面注册的动态按钮菜单项点击。
++/** 执行前复核菜单项仍由当前页面持有且未被禁用。 */
+ function handleDynamicMenuItemClick(item: DynamicButtonMenuItem) {
+   if (
+     !showDynamicButton.value ||
+diff --git a/src/layouts/default/components/SearchBar.vue b/src/layouts/default/components/SearchBar.vue
+index 1e986452173892763274a5dcc5c4b70f78717a1b..a62d415392b93233dcd5c376d11ed663a4162351 100644
+--- a/src/layouts/default/components/SearchBar.vue
++++ b/src/layouts/default/components/SearchBar.vue
+@@ -1,6 +1,11 @@
+ <script lang="ts" setup>
+ import * as Mousetrap from 'mousetrap'
+ import SearchBarDialog from '@/components/dialog/SearchBarDialog.vue'
++import { useI18n } from 'vue-i18n'
++import { useNativeGlobalAction } from '@/native/registry'
++import { nativeChromeActive } from '@/native/layout'
++
++const { t } = useI18n()
+ 
+ const searchOpen = ref(false)
+ const searchBar = ref<InstanceType<typeof SearchBarDialog> | null>(null)
+@@ -17,6 +22,8 @@ function closeSearch() {
+   searchOpen.value = false
+ }
+ 
++useNativeGlobalAction({ id: 'search', title: () => t('common.search'), icon: 'search', invoke: openSearch })
++
+ onMounted(() => {
+   Mousetrap.bind(['command+k', 'ctrl+k'], openSearch)
+ })
+@@ -27,5 +34,5 @@ onBeforeUnmount(() => {
+ </script>
+ 
+ <template>
+-  <SearchBarDialog ref="searchBar" v-model="searchOpen" show-activator @close="closeSearch" />
++  <SearchBarDialog ref="searchBar" v-model="searchOpen" :show-activator="!nativeChromeActive" @close="closeSearch" />
+ </template>
+diff --git a/src/layouts/default/components/ShortcutBar.vue b/src/layouts/default/components/ShortcutBar.vue
+index c71ff06ac5261749176113ef759a473049530af3..af6f5690d193bf02a5be8385f552dde2b9edd9e1 100644
+--- a/src/layouts/default/components/ShortcutBar.vue
++++ b/src/layouts/default/components/ShortcutBar.vue
+@@ -2,6 +2,8 @@
+ import { getQueryValue } from '@/@core/utils'
+ import { useShortcutTools } from '@/composables/useShortcutTools'
+ import { useI18n } from 'vue-i18n'
++import { useNativeGlobalAction } from '@/native/registry'
++import { nativeChromeActive } from '@/native/layout'
+ 
+ // 国际化
+ const { t } = useI18n()
+@@ -9,6 +11,15 @@ const { visibleShortcuts, openShortcutDialog: openShortcutTool } = useShortcutTo
+ 
+ // App捷径
+ const appsMenu = ref(false)
++useNativeGlobalAction({
++  id: 'shortcuts',
++  title: () => t('shortcut.title'),
++  icon: 'mdi-card-multiple-outline',
++  dataAttr: 'native-shortcuts',
++  invoke: () => {
++    appsMenu.value = true
++  },
++})
+ 
+ // 菜单最大宽度
+ const menuMaxWidth = ref(420)
+@@ -33,6 +44,7 @@ onMounted(() => {
+ <template>
+   <VMenu
+     v-model="appsMenu"
++    :activator="nativeChromeActive ? '[data-menu-activator=native-shortcuts]' : undefined"
+     :max-width="menuMaxWidth"
+     width="100%"
+     max-height="560"
+@@ -43,7 +55,7 @@ onMounted(() => {
+     scrim
+   >
+     <!-- Menu Activator -->
+-    <template #activator="{ props }">
++    <template v-if="!nativeChromeActive" #activator="{ props }">
+       <IconBtn class="ms-2" v-bind="props">
+         <VIcon icon="mdi-card-multiple-outline" />
+       </IconBtn>
+diff --git a/src/layouts/default/components/UserNotification.vue b/src/layouts/default/components/UserNotification.vue
+index 9dfb07a30220a94401681304290affddaeb7bcbb..91c4a6d19d8ca7f8fc8cc162feeeeb77fa2a7a7d 100644
+--- a/src/layouts/default/components/UserNotification.vue
++++ b/src/layouts/default/components/UserNotification.vue
+@@ -8,6 +8,8 @@ import { useBackground } from '@/composables/useBackground'
+ import { useToast } from 'vue-toastification'
+ import { useI18n } from 'vue-i18n'
+ import { useConfirm } from '@/composables/useConfirm'
++import { useNativeGlobalAction } from '@/native/registry'
++import { nativeChromeActive } from '@/native/layout'
+ 
+ type NotificationDisplayItem =
+   | { kind: 'section'; key: string; title: string; count: number }
+@@ -24,6 +26,15 @@ const PAGE_SIZE = 20
+ const NOTIFICATION_ITEM_HEIGHT = 136
+ 
+ const appsMenu = ref(false)
++useNativeGlobalAction({
++  id: 'notifications',
++  title: () => t('notification.center'),
++  icon: 'notifications',
++  dataAttr: 'native-notifications',
++  invoke: () => {
++    appsMenu.value = true
++  },
++})
+ const hasNewMessage = ref(false)
+ const notificationList = ref<SystemNotification[]>([])
+ const page = ref(1)
+@@ -521,6 +532,7 @@ watch(appsMenu, handleNotificationMenuVisibleChange)
+ <template>
+   <VMenu
+     v-model="appsMenu"
++    :activator="nativeChromeActive ? '[data-menu-activator=native-notifications]' : undefined"
+     width="420"
+     max-width="calc(100vw - 24px)"
+     transition="scale-transition"
+@@ -528,7 +540,7 @@ watch(appsMenu, handleNotificationMenuVisibleChange)
+     class="notification-menu"
+     scrim
+   >
+-    <template #activator="{ props }">
++    <template v-if="!nativeChromeActive" #activator="{ props }">
+       <VBadge
+         v-if="hasUnreadMessageIndicator"
+         dot
+diff --git a/src/layouts/default/components/UserProfile.vue b/src/layouts/default/components/UserProfile.vue
+index 204da634fe012cba2da984f249e05ac8ac5e9391..93b2adfb90b616c8e94cb18750851733512ca99a 100644
+--- a/src/layouts/default/components/UserProfile.vue
++++ b/src/layouts/default/components/UserProfile.vue
+@@ -30,6 +30,8 @@ import { useLocalStorage } from '@vueuse/core'
+ import { COMMUNITY_AUTH_CHANGED_EVENT, useCommunityContribution } from '@/composables/useCommunityContribution'
+ import CommunityMedalEntry from '@/layouts/default/components/CommunityMedalEntry.vue'
+ import { isMedalKey, unseenMedalKeys } from '@/utils/communityMedals'
++import { useNativeGlobalAction } from '@/native/registry'
++import { nativeChromeActive } from '@/native/layout'
+ 
+ const AboutDialog = defineAsyncComponent(() => import('@/components/dialog/AboutDialog.vue'))
+ const CommunityMedalDialog = defineAsyncComponent(() => import('@/components/dialog/CommunityMedalDialog.vue'))
+@@ -58,6 +60,15 @@ const showUIModeMenu = ref(false)
+ 
+ // 用户头像主菜单是否显示；打开布局级面板前需要主动关闭，避免菜单 overlay 残留。
+ const showUserMenu = ref(false)
++useNativeGlobalAction({
++  id: 'profile',
++  title: () => t('common.userMenu'),
++  icon: 'profile',
++  dataAttr: 'native-profile',
++  invoke: () => {
++    showUserMenu.value = true
++  },
++})
+ const userAvatarRef = ref<{ $el: HTMLElement } | null>(null)
+ 
+ // 主题菜单是否显示
+@@ -712,7 +723,7 @@ onUnmounted(() => {
+ 
+     <VMenu
+       v-model="showUserMenu"
+-      activator="parent"
++      :activator="nativeChromeActive ? '[data-menu-activator=native-profile]' : 'parent'"
+       width="15rem"
+       location="bottom end"
+       offset="14px"
+diff --git a/src/native/__tests__/header.spec.ts b/src/native/__tests__/header.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..3fc2b9e4341490917818795f0239a076645bc61a
+--- /dev/null
++++ b/src/native/__tests__/header.spec.ts
+@@ -0,0 +1,51 @@
++import { describe, expect, it } from 'vitest'
++import { NativeHeaderTabs } from '../header'
++import { isNativeIdentifier } from '../protocol'
++
++describe('原生页内分类和业务值交接', () => {
++  it('中文分类以稳定短标识跨桥，选择后解析回原来的业务值', () => {
++    const adapter = new NativeHeaderTabs()
++    const items = [
++      { tab: '全部', title: '全部' },
++      { tab: '电影', title: '电影' },
++    ]
++    const first = adapter.project('recommend', items, '全部')!
++    expect(first.items.every(item => isNativeIdentifier(item.id))).toBe(true)
++    expect(adapter.resolve('recommend', first.selectedId)).toBe('全部')
++    const second = adapter.project('recommend', [...items].reverse(), '电影')!
++    expect(second.items.find(item => item.title === '全部')?.id).toBe(first.selectedId)
++    expect(adapter.resolve('recommend', second.selectedId)).toBe('电影')
++  })
++
++  it('权限移除的分类和旧 owner 不能通过旧标识选择新项目', () => {
++    const adapter = new NativeHeaderTabs()
++    const first = adapter.project('page-a', [{ tab: '旧分类', title: '旧分类' }], '旧分类')!
++    const second = adapter.project('page-a', [{ tab: '新分类', title: '新分类' }], '新分类')!
++    expect(second.selectedId).not.toBe(first.selectedId)
++    expect(adapter.resolve('page-a', first.selectedId)).toBeUndefined()
++    adapter.project('page-b', [{ tab: '其他页面', title: '其他页面' }], '其他页面')
++    expect(adapter.resolve('page-a', second.selectedId)).toBeUndefined()
++  })
++
++  it('页面尚未确定默认分类时暂不呈现，业务初始化后再发布实际选择', () => {
++    const adapter = new NativeHeaderTabs()
++    const items = [{ tab: 'mysub', title: '我的订阅' }]
++    expect(adapter.project('subscribe', items, '')).toBeUndefined()
++    const actual = adapter.project('subscribe', items, 'mysub')!
++    expect(adapter.resolve('subscribe', actual.selectedId)).toBe('mysub')
++  })
++
++  it('重复业务值无法形成可确认的原生选择，应当回退', () => {
++    const adapter = new NativeHeaderTabs()
++    expect(() =>
++      adapter.project(
++        'page',
++        [
++          { tab: 'a', title: 'A' },
++          { tab: 'a', title: 'B' },
++        ],
++        'a',
++      ),
++    ).toThrow()
++  })
++})
+diff --git a/src/native/__tests__/history.spec.ts b/src/native/__tests__/history.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..41ec7dacabe8dd3ba798955ff05f1b80af98d471
+--- /dev/null
++++ b/src/native/__tests__/history.spec.ts
+@@ -0,0 +1,92 @@
++import { afterEach, describe, expect, it } from 'vitest'
++import { createRouter, createWebHashHistory, type Router } from 'vue-router'
++import { flushPromises } from '@vue/test-utils'
++import { NativeRouteHistory } from '../history'
++
++const roots = [
++  { id: '/dashboard', path: '/dashboard', title: '首页', icon: 'dashboard' },
++  { id: '/apps', path: '/apps', title: '更多', icon: 'apps' },
++]
++const cleanups: Array<() => void> = []
++
++/** 使用真实 hash Router，确保不是只验证一份自制栈的实现镜像。 */
++async function harness() {
++  window.history.replaceState(null, '', '/#/dashboard')
++  const router = createRouter({
++    history: createWebHashHistory(),
++    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' }, meta: { requiresAuth: true } }],
++  })
++  await router.push('/dashboard')
++  const history = new NativeRouteHistory(router, () => roots)
++  cleanups.push(() => {
++    history.stop()
++    router.options.history.destroy()
++  })
++  return { router, history }
++}
++
++/** 在触发浏览器 pop 前先订阅完成事件，避免依赖不确定延迟。
++ */
++function navigateOnce(router: Router, action: () => void) {
++  return new Promise<void>(resolve => {
++    const remove = router.afterEach(() => {
++      remove()
++      resolve()
++    })
++    action()
++  })
++}
++
++afterEach(() => {
++  for (const cleanup of cleanups.splice(0)) cleanup()
++})
++
++describe('网页业务路由是导航事实来源', () => {
++  it('push/replace/pop 与 Tab 恢复均不要求重建文档', async () => {
++    const { router, history } = await harness()
++    await router.push('/media/1')
++    await router.replace('/media/2')
++    expect(history.navigation).toEqual({ rootId: '/dashboard', canGoBack: true, backTarget: '/dashboard' })
++    await navigateOnce(router, () => router.back())
++    expect(history.navigation.canGoBack).toBe(false)
++    await router.push('/media/3')
++    expect(history.selectRoot('/apps')).toBe(true)
++    await flushPromises()
++    expect(router.currentRoute.value.fullPath).toBe('/apps')
++    expect(history.selectRoot('/dashboard')).toBe(true)
++    await flushPromises()
++    expect(router.currentRoute.value.fullPath).toBe('/media/3')
++    expect(history.navigation.backTarget).toBe('/dashboard')
++    expect(history.back(document, window)).toBe(true)
++    await flushPromises()
++    expect(router.currentRoute.value.fullPath).toBe('/dashboard')
++  })
++
++  it('守卫取消不会提前改变选中入口或返回栈', async () => {
++    const { router, history } = await harness()
++    router.beforeEach(to => to.path !== '/apps')
++    history.selectRoot('/apps')
++    await flushPromises()
++    expect(router.currentRoute.value.path).toBe('/dashboard')
++    expect(history.navigation.rootId).toBe('/dashboard')
++    expect(history.navigation.canGoBack).toBe(false)
++  })
++
++  it('顶层 HTML 弹层或输入框优先消费返回，不改变业务路由', async () => {
++    const { router, history } = await harness()
++    await router.push('/media/1')
++    const overlay = document.createElement('div')
++    overlay.className = 'v-overlay--active'
++    document.body.append(overlay)
++    expect(history.back(document, window)).toBe(true)
++    expect(router.currentRoute.value.path).toBe('/media/1')
++    overlay.remove()
++    const input = document.createElement('input')
++    document.body.append(input)
++    input.focus()
++    expect(history.back(document, window)).toBe(true)
++    expect(document.activeElement).not.toBe(input)
++    expect(router.currentRoute.value.path).toBe('/media/1')
++    input.remove()
++  })
++})
+diff --git a/src/native/__tests__/layout.spec.ts b/src/native/__tests__/layout.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..139c362b624468a0815ef4e8984acd84d645c52c
+--- /dev/null
++++ b/src/native/__tests__/layout.spec.ts
+@@ -0,0 +1,60 @@
++import { afterEach, describe, expect, it } from 'vitest'
++import { NativeLayoutAdapter, nativeChromeActive, nativeContentInsets } from '../layout'
++
++const viewport = { innerWidth: 390, innerHeight: 844 } as Window
++const layout = {
++  layoutRevision: 1,
++  viewportPoints: { width: 780, height: 1688 },
++  contentInsets: { top: 200, bottom: 160, left: 0, right: 0 },
++  systemSafeArea: { top: 100, bottom: 60, left: 0, right: 0 },
++  chromeOcclusion: { top: 100, bottom: 100, left: 0, right: 0 },
++  keyboardOcclusion: 600,
++  consumedByNativeFrame: false,
++}
++const adapter = new NativeLayoutAdapter(document, viewport)
++afterEach(() => adapter.setActive(false))
++
++describe('系统布局与 HTML 菜单锚点', () => {
++  it('按 viewport 比例换算 point，安全区与键盘不重复叠加', () => {
++    adapter.apply(layout)
++    adapter.setActive(true)
++    expect(nativeChromeActive.value).toBe(true)
++    expect(nativeContentInsets.value).toEqual({ top: 100, bottom: 80, left: 0, right: 0 })
++    expect(document.documentElement.style.getPropertyValue('--native-keyboard-occlusion')).toBe('300px')
++    adapter.apply({ ...layout, layoutRevision: 2, consumedByNativeFrame: true })
++    expect(nativeContentInsets.value.bottom).toBe(0)
++  })
++
++  it('原菜单属性保持可量测，控件位置约束在可见页面且不成为焦点', () => {
++    adapter.apply(layout)
++    adapter.setActive(true)
++    adapter.syncAnchors(['installed-filter-btn'])
++    adapter.positionAnchor('installed-filter-btn', { x: 760, y: -80, width: 88, height: 88 }, 1)
++    const anchor = document.querySelector<HTMLElement>('[data-menu-activator="installed-filter-btn"]')!
++    expect(anchor.style.display).not.toBe('none')
++    expect(anchor.style.left).toBe('346px')
++    expect(anchor.style.top).toBe('0px')
++    expect(parseFloat(anchor.style.left) + parseFloat(anchor.style.width)).toBe(viewport.innerWidth)
++    expect(anchor.style.pointerEvents).toBe('none')
++    expect(anchor.tabIndex).toBe(-1)
++    expect(anchor.getAttribute('role')).toBe('presentation')
++    expect(anchor.getAttribute('aria-hidden')).toBeNull()
++    expect(anchor.inert).not.toBe(true)
++    adapter.positionAnchor('installed-filter-btn', { x: 0, y: 0, width: 1, height: 1 }, 0)
++    expect(anchor.style.left).toBe('346px')
++    adapter.positionAnchor('installed-filter-btn', { x: 100, y: 140, width: 88, height: 88 }, 1)
++    expect(anchor.style.top).toBe('70px')
++    adapter.syncAnchors([])
++    expect(document.querySelector('[data-menu-activator="installed-filter-btn"]')).toBeNull()
++  })
++
++  it('拒绝无效几何并在释放时恢复默认 DOM 模式', () => {
++    expect(() => adapter.apply({ ...layout, viewportPoints: { width: 0, height: 844 } })).toThrow()
++    expect(() => adapter.apply({ ...layout, contentInsets: { top: NaN } })).toThrow()
++    adapter.apply(layout)
++    adapter.setActive(true)
++    adapter.setActive(false)
++    expect(document.documentElement.dataset.nativeChrome).toBeUndefined()
++    expect(document.documentElement.style.getPropertyValue('--native-top')).toBe('')
++  })
++})
+diff --git a/src/native/__tests__/page.spec.ts b/src/native/__tests__/page.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..b64de4edabca78a9318dd4169d90ac31a2d56699
+--- /dev/null
++++ b/src/native/__tests__/page.spec.ts
+@@ -0,0 +1,77 @@
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { computed, defineComponent, h, KeepAlive, ref, toValue } from 'vue'
++import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
++import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
++import { nativePageHeaders, useNativePageHeader } from '../page'
++
++let wrapper: VueWrapper | undefined
++afterEach(() => {
++  wrapper?.unmount()
++  wrapper = undefined
++  expect(nativePageHeaders.value.size).toBe(0)
++})
++
++describe('页面标题与原生操作的作用域', () => {
++  it('异步标题与禁用状态保持响应，KeepAlive 失活立即撤销旧回调，返回时重新登记', async () => {
++    const title = ref('加载中')
++    const disabled = ref(false)
++    const invoke = vi.fn()
++    const first = defineComponent({
++      setup() {
++        useNativePageHeader({
++          title,
++          actions: computed(() => [{ title: '筛选', icon: 'mdi-filter', disabled: disabled.value, action: invoke }]),
++        })
++        return () => h('main', 'first')
++      },
++    })
++    const second = defineComponent({
++      setup() {
++        useNativePageHeader({ title: '第二页' })
++        return () => h('main', 'second')
++      },
++    })
++    const router = createRouter({
++      history: createMemoryHistory(),
++      routes: [
++        { path: '/first', component: first },
++        { path: '/second', component: second },
++      ],
++    })
++    await router.push('/first')
++    wrapper = mount(
++      defineComponent({
++        setup: () => () =>
++          h(
++            RouterView,
++            {},
++            {
++              default: ({ Component }: { Component: object }) => h(KeepAlive, {}, () => h(Component)),
++            },
++          ),
++      }),
++      { global: { plugins: [router] } },
++    )
++    await flushPromises()
++    const original = [...nativePageHeaders.value.values()][0]
++    expect(nativePageHeaders.value.size).toBe(1)
++    title.value = '真实详情标题'
++    disabled.value = true
++    expect(toValue(original.title)).toBe('真实详情标题')
++    expect(toValue(original.actions)?.[0].disabled).toBe(true)
++
++    await router.push('/second')
++    await flushPromises()
++    expect([...nativePageHeaders.value.values()].map(entry => entry.routePath)).toEqual(['/second'])
++    title.value = '后台更新'
++    expect([...nativePageHeaders.value.values()].some(entry => toValue(entry.title) === '后台更新')).toBe(false)
++    expect(invoke).not.toHaveBeenCalled()
++
++    await router.push('/first')
++    await flushPromises()
++    const returned = [...nativePageHeaders.value.values()][0]
++    expect(returned.ownerId).toBe(original.ownerId)
++    expect(toValue(returned.title)).toBe('后台更新')
++    expect(nativePageHeaders.value.size).toBe(1)
++  })
++})
+diff --git a/src/native/__tests__/session.spec.ts b/src/native/__tests__/session.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..be8f3b343b6d00c4a392697d614e551d80ea60e5
+--- /dev/null
++++ b/src/native/__tests__/session.spec.ts
+@@ -0,0 +1,207 @@
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { flushPromises } from '@vue/test-utils'
++import { NativeChromeSession, type NativeSessionOptions } from '../session'
++import type { NativeEnvelope, NativeSnapshot } from '../protocol'
++
++const snapshot: NativeSnapshot = {
++  route: { fullPath: '/apps', rootId: '/apps', title: '更多', canGoBack: false },
++  roots: [{ id: '/apps', path: '/apps', title: '更多', icon: 'apps' }],
++  actions: [],
++  chrome: { topVisible: true, bottomVisible: true, theme: 'system' },
++}
++const cleanups: Array<() => Promise<void>> = []
++
++/** 用宿主固定入口发送消息，不越过会话的实际事件监听路径。 */
++async function send(type: string, payload: Record<string, unknown> = {}, extra: Partial<NativeEnvelope> = {}) {
++  window.dispatchEvent(
++    new CustomEvent('moviepilot:native-message', {
++      detail: {
++        protocol: 'moviepilot.chrome',
++        major: 1,
++        type,
++        requestId: 'native-1',
++        sessionId: 'session-1',
++        routeRevision: 1,
++        payload,
++        ...extra,
++      },
++    }),
++  )
++  await flushPromises()
++}
++
++/** 每个测试拥有独立回调和文档会话，便于验证重复分派与权限代次变化。 */
++function harness(overrides: Partial<NativeSessionOptions> = {}) {
++  const messages: NativeEnvelope[] = []
++  const options: NativeSessionOptions = {
++    target: window,
++    transport: { transportVersion: 1, postMessage: message => messages.push(message) },
++    readState: () => ({ routeRevision: 1, snapshot }),
++    setActive: vi.fn(),
++    applyLayout: vi.fn(),
++    execute: vi.fn(() => true),
++    lifecycle: vi.fn(),
++    ...overrides,
++  }
++  const session = new NativeChromeSession(options)
++  cleanups.push(() => session.stop())
++  session.start()
++  return { session, options, messages }
++}
++
++/** 宿主协商和布局确认都必须经事件入口完成。 */
++async function activate() {
++  await send('host.configure', {
++    sessionId: 'session-1',
++    major: 1,
++    capabilities: ['navigation.v1', 'actions.v1', 'layout.v1', 'menu.v1'],
++  })
++  await send('chrome.prepare', { layoutRevision: 7 })
++}
++
++afterEach(async () => {
++  for (const cleanup of cleanups.splice(0)) await cleanup()
++})
++
++describe('原生导航接管事务', () => {
++  it('先保留网页，只有完整配置与布局确认后才提交接管', async () => {
++    const { options, messages } = harness()
++    expect(messages[0].type).toBe('web.ready')
++    expect(options.setActive).not.toHaveBeenCalled()
++    await send('chrome.prepare', { layoutRevision: 1 })
++    expect(options.setActive).not.toHaveBeenCalled()
++    await activate()
++    expect(messages.map(message => message.type)).toEqual(['web.ready', 'navigation.state', 'chrome.accepted'])
++    expect(options.applyLayout).toHaveBeenCalledBefore(options.setActive as ReturnType<typeof vi.fn>)
++    expect(options.setActive).toHaveBeenCalledWith(true)
++    expect(messages.at(-1)?.payload.layoutRevision).toBe(7)
++  })
++
++  it('过期会话和过期路由不能执行动作，重复请求只分派一次', async () => {
++    const { options, messages } = harness()
++    await activate()
++    await send('action.invoke', {}, { sessionId: 'old' })
++    await send('action.invoke', {}, { routeRevision: 0, requestId: 'old-route' })
++    expect(options.execute).not.toHaveBeenCalled()
++    expect(messages.find(message => message.payload.requestId === 'old-route')?.payload.error).toBe('stale_route')
++    await send('action.invoke', {}, { requestId: 'once' })
++    await send('action.invoke', {}, { requestId: 'once' })
++    expect(options.execute).toHaveBeenCalledTimes(1)
++    expect(
++      messages.filter(message => message.type === 'command.result' && message.payload.requestId === 'once'),
++    ).toHaveLength(2)
++  })
++
++  it('仍在等待回调的重复命令也不会重复分派', async () => {
++    let finish!: (value: boolean) => void
++    const { options } = harness({
++      execute: vi.fn(
++        () =>
++          new Promise<boolean>(resolve => {
++            finish = resolve
++          }),
++      ),
++    })
++    await activate()
++    await send('action.invoke', {}, { requestId: 'waiting' })
++    await send('action.invoke', {}, { requestId: 'waiting' })
++    expect(options.execute).toHaveBeenCalledTimes(1)
++    finish(true)
++    await flushPromises()
++  })
++
++  it('结果缓存周转不会驱逐仍在执行的请求并重复分派', async () => {
++    let finish!: (value: boolean) => void
++    const execute = vi.fn((message: NativeEnvelope) =>
++      message.requestId === 'waiting'
++        ? new Promise<boolean>(resolve => {
++            finish = resolve
++          })
++        : true,
++    )
++    harness({ execute })
++    await activate()
++    await send('action.invoke', {}, { requestId: 'waiting' })
++    for (let index = 0; index < 260; index++) await send('action.invoke', {}, { requestId: `finished-${index}` })
++    await send('action.invoke', {}, { requestId: 'waiting' })
++    expect(execute.mock.calls.filter(([message]) => message.requestId === 'waiting')).toHaveLength(1)
++    finish(true)
++    await flushPromises()
++  })
++
++  it('恢复网页 DOM 完成后才确认释放，之后命令失效', async () => {
++    const { options, messages } = harness()
++    await activate()
++    await send('chrome.release')
++    expect(options.setActive).toHaveBeenLastCalledWith(false)
++    expect(messages.at(-1)?.type).toBe('chrome.released')
++    await send('action.invoke')
++    expect(options.execute).not.toHaveBeenCalled()
++  })
++
++  it('失配能力或布局错误保持网页模式', async () => {
++    const { options } = harness({
++      applyLayout: () => {
++        throw new Error('invalid')
++      },
++    })
++    await send('host.configure', { sessionId: 'session-1', major: 1, capabilities: [] })
++    expect(options.setActive).not.toHaveBeenCalled()
++    await activate()
++    expect(options.setActive).not.toHaveBeenCalledWith(true)
++    expect(options.setActive).toHaveBeenCalledWith(false)
++  })
++
++  it('准备与释放交错时不会迟到接管', async () => {
++    let finish!: () => void
++    const { messages } = harness({
++      setActive: value =>
++        value
++          ? new Promise<void>(resolve => {
++              finish = resolve
++            })
++          : undefined,
++    })
++    await send('host.configure', {
++      sessionId: 'session-1',
++      major: 1,
++      capabilities: ['navigation.v1', 'actions.v1', 'layout.v1', 'menu.v1'],
++    })
++    await send('chrome.prepare', { layoutRevision: 7 })
++    await send('chrome.release')
++    finish()
++    await flushPromises()
++    expect(messages.some(message => message.type === 'chrome.accepted')).toBe(false)
++  })
++
++  it('身份轮换后拒绝旧文档关联，并能从适配失败中确认恢复网页', async () => {
++    const { session, options, messages } = harness()
++    await activate()
++    session.identityChanged()
++    expect(messages.at(-1)?.type).toBe('session.state')
++    await send('host.rekey', { sessionId: 'session-2' })
++    expect(messages.at(-1)?.sessionId).toBe('session-2')
++    await send('action.invoke', {}, { requestId: 'old-user' })
++    expect(options.execute).not.toHaveBeenCalled()
++    session.fallback()
++    await flushPromises()
++    expect(messages.at(-1)?.type).toBe('chrome.failed')
++    await send('chrome.release', {}, { sessionId: 'session-2' })
++    expect(messages.at(-1)?.type).toBe('chrome.released')
++  })
++
++  it('当前注册无法形成快照时撤销接管且不执行命令，不遗留未处理的结果拒绝', async () => {
++    const { options, messages } = harness()
++    await activate()
++    options.readState = () => {
++      throw new Error('unsupported_header_registration')
++    }
++    await send('action.invoke', {}, { requestId: 'broken-registration' })
++    expect(options.execute).not.toHaveBeenCalled()
++    expect(options.setActive).toHaveBeenLastCalledWith(false)
++    expect(messages.at(-1)?.type).toBe('chrome.failed')
++    expect(messages.at(-1)?.routeRevision).toBe(1)
++    await send('chrome.release')
++    expect(messages.at(-1)?.type).toBe('chrome.released')
++  })
++})
+diff --git a/src/native/header.ts b/src/native/header.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8f81a263b533cee93d0742f87355169bad94128d
+--- /dev/null
++++ b/src/native/header.ts
+@@ -0,0 +1,36 @@
++import type { NativeSnapshot } from './protocol'
++
++/** 将业务分类值映射为当前 owner 的稳定短标识，中文和任意业务值都留在网页内。 */
++export class NativeHeaderTabs {
++  private owner: string | undefined
++  private sequence = 0
++  private identifiers = new Map<string, string>()
++
++  /** 同 owner 重排保留标识；移除后不复用旧标识，避免旧菜单点击另一个分类。 */
++  project(ownerId: string, items: Array<{ tab: string; title: string }>, selected: string) {
++    if (!items.length || items.length > 32 || new Set(items.map(item => item.tab)).size !== items.length)
++      throw new Error('unsupported_header_registration')
++    // 旧页面在 mounted 中设置默认分类；此前暂不呈现选择器，不能替业务抢选或终止整个接管。
++    if (!items.some(item => item.tab === selected)) return undefined
++    if (this.owner !== ownerId) {
++      this.owner = ownerId
++      this.sequence = 0
++      this.identifiers.clear()
++    }
++    const current = new Set(items.map(item => item.tab))
++    for (const value of this.identifiers.keys()) if (!current.has(value)) this.identifiers.delete(value)
++    for (const item of items)
++      if (!this.identifiers.has(item.tab)) this.identifiers.set(item.tab, `tab-${++this.sequence}`)
++    return {
++      ownerId,
++      selectedId: this.identifiers.get(selected)!,
++      items: items.map(item => ({ id: this.identifiers.get(item.tab)!, title: item.title })),
++    } satisfies NonNullable<NativeSnapshot['headerTabs']>
++  }
++
++  /** 只解析当前 owner 的现存标识，过期或已失去权限的分类不能执行。 */
++  resolve(ownerId: string, id: string) {
++    if (ownerId !== this.owner) return undefined
++    return [...this.identifiers].find(([, identifier]) => identifier === id)?.[0]
++  }
++}
+diff --git a/src/native/history.ts b/src/native/history.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5ecd6974e10b2d3b6a543758d367023c0d3382ba
+--- /dev/null
++++ b/src/native/history.ts
+@@ -0,0 +1,141 @@
++import { shallowRef } from 'vue'
++import type { Router } from 'vue-router'
++import { isNativeRoute, type NativeSnapshot } from './protocol'
++
++/** 每个入口的逻辑路径由网页 Router 完成钩子维护，原生不保存第二份业务栈。
++ */
++export class NativeRouteHistory {
++  readonly revision = shallowRef(0)
++  private readonly trails = new Map<string, string[]>()
++  private currentRoot: string | null = null
++  private lastPosition?: number
++  private intent?: { target: string; kind: 'root' | 'back'; rootId: string }
++  private readonly removeHook: () => void
++
++  /** 使用当前 Vue Router 的公开 history.state.position 识别 push/replace/pop，并以实际成功路由为准。
++   */
++  constructor(
++    private readonly router: Router,
++    private readonly roots: () => NativeSnapshot['roots'],
++  ) {
++    this.record()
++    this.removeHook = router.afterEach((_to, _from, failure) => {
++      if (!failure) this.record()
++    })
++  }
++
++  /** 身份或权限代次变化立即撤销旧动作和路径缓存。
++   */
++  reset() {
++    this.trails.clear()
++    this.currentRoot = null
++    this.lastPosition = undefined
++    this.intent = undefined
++    this.record()
++  }
++
++  /** 读取已确认的根入口与返回目标；直接深链接也能回到所属入口。
++   */
++  get navigation() {
++    const trail = this.currentRoot ? this.trails.get(this.currentRoot) : undefined
++    const backTarget = trail && trail.length > 1 ? trail[trail.length - 2] : undefined
++    return { rootId: this.currentRoot, canGoBack: Boolean(backTarget), ...(backTarget ? { backTarget } : {}) }
++  }
++
++  /** Tab 使用 replace 恢复该入口最后位置，取消守卫不会提前改变栈或选中项。
++   */
++  selectRoot(id: string) {
++    const root = this.roots().find(item => item.id === id)
++    if (!root || this.intent) return false
++    const target = this.trails.get(id)?.at(-1) ?? root.path
++    this.navigate(target, 'root', id)
++    return true
++  }
++
++  /** 先结束键盘编辑或交给当前 HTML 弹层处理返回，再请求 Router 通过业务守卫。
++   */
++  back(document: Document, targetWindow: Window) {
++    const focused = document.activeElement
++    if (focused instanceof HTMLElement && focused.matches('input,textarea,[contenteditable="true"]')) {
++      focused.blur()
++      return true
++    }
++    if (document.querySelector('.v-overlay--active')) {
++      targetWindow.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))
++      return true
++    }
++    const target = this.navigation.backTarget
++    if (!target || !this.currentRoot || this.intent) return false
++    this.navigate(target, 'back', this.currentRoot)
++    return true
++  }
++
++  /** 宿主卸载后清理钩子，避免重复记录一次路由。
++   */
++  stop() {
++    this.removeHook()
++    this.trails.clear()
++  }
++
++  /** 只为一次当前意图保留关联；确认后才处理路径栈，失败不重放。
++   */
++  private navigate(target: string, kind: 'root' | 'back', rootId: string) {
++    if (!isNativeRoute(target)) return
++    const intent = { target, kind, rootId }
++    this.intent = intent
++    void this.router
++      .replace(target)
++      .finally(() => {
++        if (this.intent === intent) this.intent = undefined
++      })
++      .catch(() => {
++        /* Router 保留当前已确认页面，失败意图不重放。 */
++      })
++  }
++
++  /** 匹配实际入口；详情页沿用来源入口，普通业务页面归属更多。
++   */
++  private rootFor(path: string) {
++    const roots = this.roots()
++    if (!this.router.currentRoute.value.meta.requiresAuth) return null
++    const explicit = roots.find(root => path === root.path || path.startsWith(`${root.path}/`))
++    if (explicit) return explicit.id
++    if (/^\/(media|person|browse|credits)(\/|$)/.test(path) && roots.some(root => root.id === this.currentRoot))
++      return this.currentRoot
++    return roots.find(root => root.path === '/apps')?.id ?? roots[0]?.id ?? null
++  }
++
++  /** 完成钩子同时覆盖页面自身导航、外部 hash 和原生意图；失败钩子不写入。
++   */
++  private record() {
++    const route = this.router.currentRoute.value
++    const position = this.router.options.history.state.position
++    const numericPosition = typeof position === 'number' ? position : undefined
++    const intent = this.intent?.target === route.fullPath ? this.intent : undefined
++    const rootId = intent?.rootId ?? this.rootFor(route.path)
++    if (rootId) {
++      const root = this.roots().find(item => item.id === rootId)
++      let trail = this.trails.get(rootId) ?? (root && route.fullPath !== root.path ? [root.path] : [])
++      if (intent?.kind === 'back') {
++        const index = trail.lastIndexOf(route.fullPath)
++        trail = index >= 0 ? trail.slice(0, index + 1) : [...trail, route.fullPath]
++      } else if (intent?.kind !== 'root') {
++        const index = trail.lastIndexOf(route.fullPath)
++        if (
++          numericPosition !== undefined &&
++          this.lastPosition !== undefined &&
++          numericPosition < this.lastPosition &&
++          index >= 0
++        )
++          trail = trail.slice(0, index + 1)
++        else if (numericPosition === this.lastPosition && rootId === this.currentRoot && trail.length)
++          trail = [...trail.slice(0, -1), route.fullPath]
++        else if (trail.at(-1) !== route.fullPath) trail = [...trail, route.fullPath]
++      } else if (!trail.length) trail = [route.fullPath]
++      this.trails.set(rootId, trail.slice(-128))
++    }
++    this.currentRoot = rootId
++    this.lastPosition = numericPosition
++    this.revision.value += 1
++  }
++}
+diff --git a/src/native/layout.ts b/src/native/layout.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..98648450d772b7d9fe92bb318b2c3e459331124e
+--- /dev/null
++++ b/src/native/layout.ts
+@@ -0,0 +1,134 @@
++import { readonly, ref } from 'vue'
++import { isRecord, type NativeLayout } from './protocol'
++
++const active = ref(false)
++const insets = ref({ top: 0, left: 0, bottom: 0, right: 0 })
++/** 只有事务提交后才为 true；普通网页不依赖 UA 或查询参数改变布局。 */
++export const nativeChromeActive = readonly(active)
++/** 正文、固定浮层与菜单共用的 CSS 边距，已经包含导航和系统安全区。 */
++export const nativeContentInsets = readonly(insets)
++
++/** 对一份受控文档管理接管布局与不可见菜单锚点。 */
++export class NativeLayoutAdapter {
++  private revision = -1
++  private scale = 1
++  private readonly anchors = new Map<string, HTMLElement>()
++
++  /** 文档和 viewport 显式传入，测试不依赖设备像素密度。 */
++  constructor(
++    private readonly document: Document,
++    private readonly viewport: Window,
++  ) {}
++
++  /** 消费原生 point 量测；不叠加 env safe area 或旧网页 Dock 高度。 */
++  apply(payload: Record<string, unknown>) {
++    if (
++      !Number.isSafeInteger(payload.layoutRevision) ||
++      !isRecord(payload.viewportPoints) ||
++      !this.validInsets(payload.contentInsets) ||
++      !this.validInsets(payload.systemSafeArea) ||
++      !this.validInsets(payload.chromeOcclusion) ||
++      typeof payload.consumedByNativeFrame !== 'boolean' ||
++      typeof payload.keyboardOcclusion !== 'number' ||
++      !Number.isFinite(payload.keyboardOcclusion) ||
++      payload.keyboardOcclusion < 0
++    )
++      throw new Error('invalid_layout')
++    const layout = payload as unknown as NativeLayout
++    if (layout.layoutRevision < this.revision) return
++    const { width, height } = layout.viewportPoints
++    if (
++      ![width, height].every(
++        value => typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= 10000,
++      )
++    )
++      throw new Error('invalid_layout')
++    this.revision = layout.layoutRevision
++    this.scale = this.viewport.innerWidth / width
++    const values = layout.consumedByNativeFrame ? { top: 0, left: 0, bottom: 0, right: 0 } : layout.contentInsets
++    insets.value = Object.fromEntries(
++      Object.entries(values).map(([edge, value]) => [edge, value * this.scale]),
++    ) as typeof insets.value
++    for (const [edge, value] of Object.entries(insets.value))
++      this.document.documentElement.style.setProperty(`--native-${edge}`, `${value}px`)
++    // WebKit 的 VisualViewport 已负责键盘缩放；这里只记录原生遮挡，不再扣一次高度。
++    this.document.documentElement.style.setProperty(
++      '--native-keyboard-occlusion',
++      `${layout.keyboardOcclusion * this.scale}px`,
++    )
++  }
++
++  /** 改变 DOM 模式只允许由桥接事务调用，释放时清理所有兼容锚点。 */
++  setActive(value: boolean) {
++    active.value = value
++    if (value) this.document.documentElement.dataset.nativeChrome = 'active'
++    else {
++      delete this.document.documentElement.dataset.nativeChrome
++      insets.value = { top: 0, left: 0, bottom: 0, right: 0 }
++      for (const edge of ['top', 'left', 'bottom', 'right', 'keyboard-occlusion'])
++        this.document.documentElement.style.removeProperty(`--native-${edge}`)
++      for (const anchor of this.anchors.values()) anchor.remove()
++      this.anchors.clear()
++      this.revision = -1
++    }
++  }
++
++  /** 保留当前动作需要的可量测 DOM 锚点，注销后立即删除旧 owner 的锚点。 */
++  syncAnchors(attributes: string[]) {
++    const current = new Set(attributes)
++    for (const [key, anchor] of this.anchors) {
++      if (!current.has(key)) {
++        anchor.remove()
++        this.anchors.delete(key)
++      }
++    }
++    for (const attribute of attributes) {
++      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(attribute)) throw new Error('invalid_anchor')
++      if (this.anchors.has(attribute)) continue
++      const anchor = this.document.createElement('span')
++      anchor.dataset.menuActivator = attribute
++      anchor.dataset.nativeMenuAnchor = ''
++      // Vuetify 用 aria-owns 将弹层归属到锚点；隐藏或 inert 会让 WebKit 连带移除整份菜单。
++      // 空的展示节点本身不绘制内容、不参与顺序焦点，也不接收触控，但其菜单仍须可访问。
++      anchor.setAttribute('role', 'presentation')
++      anchor.style.cssText = 'position:fixed;pointer-events:none;width:1px;height:1px;'
++      anchor.style.left = `${Math.max(0, this.viewport.innerWidth - 48 - insets.value.right)}px`
++      anchor.style.top = `${insets.value.top}px`
++      this.document.body.append(anchor)
++      this.anchors.set(attribute, anchor)
++    }
++  }
++
++  /** 将被点击原生控件的位置转换为 CSS 像素，并限制整个锚点在 viewport 范围。
++   * 旧量测不用于新旋转布局，防止菜单锚定到屏幕外。
++   */
++  positionAnchor(attribute: string, frame: unknown, layoutRevision: unknown) {
++    const anchor = this.anchors.get(attribute)
++    if (!anchor || !isRecord(frame) || layoutRevision !== this.revision) return
++    const values = ['x', 'y', 'width', 'height'].map(key => frame[key])
++    if (!values.every(value => typeof value === 'number' && Number.isFinite(value))) return
++    const [x, y, width, height] = values as number[]
++    const anchorWidth = Math.max(1, Math.min(44, width * this.scale))
++    const anchorHeight = Math.max(1, Math.min(44, height * this.scale))
++    const maxX = Math.max(insets.value.left, this.viewport.innerWidth - insets.value.right - anchorWidth)
++    const maxY = Math.max(0, this.viewport.innerHeight - insets.value.bottom - anchorHeight)
++    Object.assign(anchor.style, {
++      left: `${Math.min(maxX, Math.max(insets.value.left, x * this.scale))}px`,
++      top: `${Math.min(maxY, Math.max(0, y * this.scale))}px`,
++      width: `${anchorWidth}px`,
++      height: `${anchorHeight}px`,
++    })
++  }
++
++  /** 非负、有限边距才可进入 CSS，拒绝 NaN 与恶意超大占位。
++   */
++  private validInsets(value: unknown): value is NativeLayout['contentInsets'] {
++    return (
++      isRecord(value) &&
++      ['top', 'left', 'bottom', 'right'].every(
++        edge =>
++          typeof value[edge] === 'number' && Number.isFinite(value[edge]) && value[edge] >= 0 && value[edge] <= 10000,
++      )
++    )
++  }
++}
+diff --git a/src/native/native.scss b/src/native/native.scss
+new file mode 100644
+index 0000000000000000000000000000000000000000..8f244fe13bd27209067c92fd86d27967cb434cef
+--- /dev/null
++++ b/src/native/native.scss
+@@ -0,0 +1,75 @@
++// 只有双方事务提交后的文档才采用此布局；普通网页/PWA 不匹配选择器。
++html[data-native-chrome='active'] {
++  scroll-padding-block: var(--native-top) var(--native-bottom);
++
++  // 页面级标题与附属操作由系统顶栏承载；业务卡片、章节和弹窗标题不属于此选择器。
++  [data-native-page-title],
++  [data-native-page-heading],
++  [data-native-page-actions] {
++    display: none !important;
++  }
++
++  .layout-navbar {
++    visibility: hidden !important;
++    pointer-events: none !important;
++    block-size: 0 !important;
++    overflow: hidden !important;
++  }
++
++  .layout-vertical-nav,
++  .layout-overlay {
++    display: none !important;
++  }
++
++  .layout-content-wrapper {
++    padding-inline-start: 0 !important;
++  }
++
++  .layout-page-content {
++    // 系统栏下面保留正文呼吸空间，不改变菜单锚点或全屏弹窗的安全区原点。
++    padding-block-start: calc(var(--native-top) + 12px) !important;
++    padding-block-end: var(--native-bottom) !important;
++    // UIKit 上报的是物理左右边距；保留对称网页留白，避免缺口或系统侧栏遮挡正文。
++    padding-left: calc(var(--native-left) + 0.5rem) !important;
++    padding-right: calc(var(--native-right) + 0.5rem) !important;
++  }
++
++  .page-content-container > div:first-child {
++    // 旧网页的 viewport 宽度没有扣除系统侧栏，改为消费上层已经计算的可见宽度。
++    inline-size: 100% !important;
++    min-inline-size: 0;
++  }
++
++  .main-content-wrapper {
++    padding-block-start: 0 !important;
++  }
++
++  .footer-content-container {
++    block-size: 0 !important;
++    min-block-size: 0 !important;
++  }
++
++  // 弹层打开时原生底栏已隐藏；背景延伸至屏幕底部，交互内容单独避让 Home Indicator。
++  .v-dialog {
++    inset-block: var(--native-top) 0 !important;
++    inset-inline: var(--native-left) var(--native-right) !important;
++  }
++
++  .v-dialog > .v-overlay__content,
++  .v-menu > .v-overlay__content {
++    margin-block: 0 !important;
++  }
++
++  .v-dialog > .v-overlay__content {
++    max-block-size: 100%;
++  }
++
++  .v-dialog--fullscreen > .v-overlay__content {
++    block-size: 100%;
++  }
++
++  .v-dialog--fullscreen > .v-overlay__content > .v-card,
++  .v-bottom-sheet > .v-bottom-sheet__content.v-overlay__content > .v-card {
++    padding-block-end: var(--native-bottom);
++  }
++}
+diff --git a/src/native/page.ts b/src/native/page.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..20712f3db18e21d732914dd5e8abac13652901d8
+--- /dev/null
++++ b/src/native/page.ts
+@@ -0,0 +1,43 @@
++import { onActivated, onBeforeMount, onDeactivated, onScopeDispose, shallowRef, type MaybeRefOrGetter } from 'vue'
++import { useRoute } from 'vue-router'
++import type { DynamicHeaderTabButton } from '@/composables/useDynamicHeaderTab'
++
++/** 页面标题和附属操作共用原业务回调，只有当前激活路由的声明能够进入原生导航。 */
++export interface NativePageHeader {
++  title?: MaybeRefOrGetter<string | undefined>
++  actions?: MaybeRefOrGetter<DynamicHeaderTabButton[]>
++}
++
++/** 每份声明保留组件 owner 和实际路径，避免 KeepAlive 后台页面占用当前导航。 */
++interface OwnedPageHeader extends NativePageHeader {
++  ownerId: string
++  routePath: string
++}
++
++/** 按组件作用域保存声明；原生模式之外没有可见布局或业务副作用。 */
++export const nativePageHeaders = shallowRef<ReadonlyMap<string, OwnedPageHeader>>(new Map())
++let sequence = 0
++
++/** 将页面标题及其原有操作交给原生框架，失活或卸载时立即撤销对应 owner。 */
++export function useNativePageHeader(header: NativePageHeader) {
++  const route = useRoute()
++  const entry: OwnedPageHeader = { ...header, ownerId: `page-${++sequence}`, routePath: route.path }
++
++  /** 激活时绑定当前页面，不把缓存组件的旧路径带入新路由。 */
++  function activate() {
++    entry.routePath = route.path
++    nativePageHeaders.value = new Map(nativePageHeaders.value).set(entry.ownerId, entry)
++  }
++
++  /** 只撤销本组件的声明，其他页面或新实例的同名动作不受影响。 */
++  function release() {
++    const next = new Map(nativePageHeaders.value)
++    if (!next.delete(entry.ownerId)) return
++    nativePageHeaders.value = next
++  }
++
++  onBeforeMount(activate)
++  onActivated(activate)
++  onDeactivated(release)
++  onScopeDispose(release)
++}
+diff --git a/src/native/protocol.ts b/src/native/protocol.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1ccb6572558e40f24fb18b26d4b872d7647380cc
+--- /dev/null
++++ b/src/native/protocol.ts
+@@ -0,0 +1,97 @@
++/** 原生导航只接收声明；业务回调不参与 JSON 序列化。 */
++export interface NativeAction {
++  actionId: string
++  ownerId: string
++  title: string
++  icon: string
++  position: 'leading' | 'trailing' | 'accessory'
++  enabled: boolean
++  loading: boolean
++  dataAttr?: string
++  menu?: Array<{ actionId: string; title: string; icon: string; enabled: boolean }>
++}
++
++/** 已经经过网页权限过滤和路由守卫的完整原生显示状态。 */
++export interface NativeSnapshot {
++  route: { fullPath: string; rootId: string | null; title: string; canGoBack: boolean; backTarget?: string }
++  roots: Array<{ id: string; path: string; title: string; icon: string }>
++  headerTabs?: { ownerId: string; selectedId: string; items: Array<{ id: string; title: string }> }
++  actions: NativeAction[]
++  moreMenu?: NativeMenuSection[]
++  presentation?: { overlayOpen: boolean }
++  chrome: {
++    topVisible: boolean
++    bottomVisible: boolean
++    theme: 'system' | 'light' | 'dark'
++    content?: 'web' | 'menu'
++    accentColor?: string
++  }
++}
++
++/** 原生更多页只呈现已授权的入口；实际目的地仍由 Vue Router 和业务守卫处理。 */
++export interface NativeMenuSection {
++  id: string
++  title: string
++  items: Array<{ id: string; path: string; title: string; icon: string; subtitle?: string }>
++}
++
++/** 系统 point 几何；网页通过实际 viewport 宽度换算 CSS 像素。 */
++export interface NativeLayout {
++  layoutRevision: number
++  viewportPoints: { width: number; height: number }
++  contentInsets: { top: number; left: number; bottom: number; right: number }
++  systemSafeArea: { top: number; left: number; bottom: number; right: number }
++  chromeOcclusion: { top: number; left: number; bottom: number; right: number }
++  keyboardOcclusion: number
++  consumedByNativeFrame: boolean
++}
++
++/** v1 消息外壳；会话仅用于隔离不同文档，不作为认证凭据。 */
++export interface NativeEnvelope {
++  protocol: 'moviepilot.chrome'
++  major: 1
++  type: string
++  requestId: string
++  sessionId?: string
++  routeRevision?: number
++  stateRevision?: number
++  payload: Record<string, unknown>
++}
++
++/** 由主文档开始时注入的最小 WebKit 传输门面。 */
++export interface NativeTransport {
++  transportVersion: 1
++  /** 只发送 JSON 声明，不暴露任意原生方法。 */
++  postMessage(message: NativeEnvelope): void
++  /** 只通知宿主显示登录框架，不携带令牌或用户输入。 */
++  authenticationRequired?(): void
++}
++
++declare global {
++  interface Window {
++    /** 普通浏览器和 PWA 中不存在；存在也不代表已完成接管。 */
++    MoviePilotNative?: NativeTransport
++  }
++}
++
++/** 桥接对象必须是普通 JSON 对象，不能把 null 或数组当作消息。 */
++export function isRecord(value: unknown): value is Record<string, unknown> {
++  return value !== null && typeof value === 'object' && !Array.isArray(value)
++}
++
++/** 关联标识保持与 Swift 相同的短 ASCII 范围。 */
++export function isNativeIdentifier(value: unknown): value is string {
++  return typeof value === 'string' && /^[\x21-\x7e]{1,128}$/.test(value)
++}
++
++/** 内部路由不接受绝对来源、反斜杠或控制字符。 */
++export function isNativeRoute(value: unknown): value is string {
++  return (
++    typeof value === 'string' &&
++    value.startsWith('/') &&
++    !value.startsWith('//') &&
++    !value.includes('\\') &&
++    !/[\p{Cc}\p{Cf}]/u.test(value) &&
++    new TextEncoder().encode(value).length <= 4096
++  )
++}
+diff --git a/src/native/registry.ts b/src/native/registry.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..453059fa731c05c42feffad54c3f9dcf76fef8aa
+--- /dev/null
++++ b/src/native/registry.ts
+@@ -0,0 +1,34 @@
++import { onScopeDispose, ref, shallowRef, type MaybeRefOrGetter } from 'vue'
++import type { DynamicHeaderTabConfig } from '@/composables/useDynamicHeaderTab'
++
++/** 保留原始回调的全局导航动作，不穿过原生桥接。
++ */
++export interface NativeGlobalAction {
++  id: string
++  title: MaybeRefOrGetter<string>
++  icon: string
++  dataAttr?: string
++  visible?: MaybeRefOrGetter<boolean>
++  /** 原生入口直接打开既有业务组件，不合成另一套页面。
++   */
++  invoke(): void
++}
++
++/** 带 owner 的页内标签共享注册；布局仍持有原有 inject/global API。
++ */
++export const nativeHeaderRegistration = ref<DynamicHeaderTabConfig | null>(null)
++/** 全局动作替换容器以便跨组件订阅，未接管时不影响原网页入口。
++ */
++export const nativeGlobalActions = shallowRef<ReadonlyMap<string, NativeGlobalAction>>(new Map())
++
++/** 按组件作用域登记原回调；旧实例销毁不能注销新实例的同名动作。
++ */
++export function useNativeGlobalAction(action: NativeGlobalAction) {
++  nativeGlobalActions.value = new Map(nativeGlobalActions.value).set(action.id, action)
++  onScopeDispose(() => {
++    if (nativeGlobalActions.value.get(action.id) !== action) return
++    const next = new Map(nativeGlobalActions.value)
++    next.delete(action.id)
++    nativeGlobalActions.value = next
++  })
++}
+diff --git a/src/native/session.ts b/src/native/session.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..18c0103e5a8570691f690ea436a2867220f10fb6
+--- /dev/null
++++ b/src/native/session.ts
+@@ -0,0 +1,257 @@
++import {
++  isNativeIdentifier,
++  isRecord,
++  type NativeEnvelope,
++  type NativeSnapshot,
++  type NativeTransport,
++} from './protocol'
++
++/** 桥接只操作导航声明及生命周期，所有业务操作由调用方回到既有回调。 */
++export interface NativeSessionOptions {
++  transport: NativeTransport
++  target: Window
++  /** 每次分派前读取当前状态，避免缓存权限或旧 owner。 */
++  readState(): { routeRevision: number; snapshot: NativeSnapshot }
++  /** 接管与释放使用同一个 DOM 提交入口。 */
++  setActive(active: boolean): void | Promise<void>
++  /** 校验并应用原生量测，失败时不能隐藏网页导航。 */
++  applyLayout(payload: Record<string, unknown>): void
++  /** 执行已复核的当前意图；确认仅表示分派，不等待业务网络完成。 */
++  execute(message: NativeEnvelope): boolean | Promise<boolean>
++  /** 通知现有网页生命周期管理器，不启动另一套后台时钟。 */
++  lifecycle(state: 'active' | 'inactive' | 'background'): void
++}
++
++/** 单主文档的事务桥；没有 WebKit 门面时不会创建此对象。 */
++export class NativeChromeSession {
++  private phase: 'web' | 'waiting' | 'configured' | 'preparing' | 'active' | 'closed' = 'web'
++  private sessionId?: string
++  private stateRevision = 0
++  private routeRevision = 0
++  private sequence = 0
++  private timer?: ReturnType<typeof setTimeout>
++  private runningCommands = 0
++  private readonly results = new Map<string, Promise<{ accepted: boolean; error?: string }>>()
++  private readonly completed = new Set<string>()
++  private readonly listener = (event: Event) => {
++    void this.receive((event as CustomEvent<unknown>).detail).catch(() => this.fail())
++  }
++
++  /** 所有外部能力通过窄接口注入，便于用真实 Router 和受控 DOM 验证。 */
++  constructor(private readonly options: NativeSessionOptions) {}
++
++  /** 网页仍显示完整导航，先协商双方版本与能力。 */
++  start() {
++    if (this.phase !== 'web') return
++    this.phase = 'waiting'
++    this.options.target.addEventListener('moviepilot:native-message', this.listener)
++    this.post('web.ready', { majors: [1], capabilities: ['navigation.v1', 'actions.v1', 'layout.v1', 'menu.v1'] })
++    this.timer = setTimeout(() => {
++      void this.fail()
++    }, 3000)
++  }
++
++  /** 使用全量状态且单调递增展示修订，不序列化回调或认证信息。 */
++  publish() {
++    if (!['configured', 'preparing', 'active'].includes(this.phase)) return
++    const { routeRevision, snapshot } = this.options.readState()
++    this.routeRevision = routeRevision
++    this.stateRevision += 1
++    this.post('navigation.state', snapshot as unknown as Record<string, unknown>)
++  }
++
++  /** 卸载时撤销 DOM 模式及全部回调引用，不能把旧 owner 留给下一布局。 */
++  async stop() {
++    clearTimeout(this.timer)
++    this.options.target.removeEventListener('moviepilot:native-message', this.listener)
++    this.phase = 'closed'
++    await this.options.setActive(false)
++    this.results.clear()
++    this.completed.clear()
++    this.sessionId = undefined
++  }
++
++  /** 当前认证或权限上下文变化时通知宿主清理旧命令，再发布新代次。 */
++  identityChanged() {
++    if (!this.sessionId) return
++    this.results.clear()
++    this.completed.clear()
++    this.post('session.state', { changed: true })
++  }
++
++  /** 当前页面注册超出协议表达范围时恢复完整网页导航。 */
++  fallback() {
++    void this.fail()
++  }
++
++  /** 只接受结构、大小、版本和当前会话均正确的封闭消息集合。 */
++  private async receive(value: unknown) {
++    if (
++      !isRecord(value) ||
++      (this.phase === 'closed' && value.type !== 'chrome.release') ||
++      value.protocol !== 'moviepilot.chrome' ||
++      value.major !== 1 ||
++      !isNativeIdentifier(value.requestId) ||
++      typeof value.type !== 'string' ||
++      !isRecord(value.payload) ||
++      new TextEncoder().encode(JSON.stringify(value)).length > 65536
++    )
++      return
++    const message = value as unknown as NativeEnvelope
++    if (message.type === 'host.configure') {
++      const capabilities = message.payload.capabilities
++      if (
++        this.phase !== 'waiting' ||
++        !isNativeIdentifier(message.sessionId) ||
++        message.payload.sessionId !== message.sessionId ||
++        message.payload.major !== 1 ||
++        !Array.isArray(capabilities) ||
++        !['navigation.v1', 'actions.v1', 'layout.v1', 'menu.v1'].every(capability => capabilities.includes(capability))
++      )
++        return
++      clearTimeout(this.timer)
++      this.sessionId = message.sessionId
++      this.phase = 'configured'
++      this.publish()
++      this.timer = setTimeout(() => {
++        void this.fail()
++      }, 3000)
++      return
++    }
++    if (!this.sessionId || message.sessionId !== this.sessionId) return
++    if (message.type === 'host.rekey') {
++      if (this.phase !== 'active' || !isNativeIdentifier(message.payload.sessionId)) {
++        await this.fail()
++        return
++      }
++      this.sessionId = message.payload.sessionId
++      this.stateRevision = 0
++      this.results.clear()
++      this.completed.clear()
++      this.publish()
++      return
++    }
++    if (message.type === 'chrome.release') {
++      this.phase = 'closed'
++      clearTimeout(this.timer)
++      await this.options.setActive(false)
++      this.post('chrome.released', {})
++      return
++    }
++    if (message.type === 'chrome.prepare') {
++      if (this.phase !== 'configured') return
++      this.options.applyLayout(message.payload)
++      this.phase = 'preparing'
++      await this.options.setActive(true)
++      if (this.phase !== 'preparing') {
++        await this.options.setActive(false)
++        return
++      }
++      this.phase = 'active'
++      clearTimeout(this.timer)
++      this.post('chrome.accepted', { layoutRevision: message.payload.layoutRevision })
++      return
++    }
++    if (message.type === 'host.layout' && this.phase === 'active') {
++      this.options.applyLayout(message.payload)
++      return
++    }
++    if (message.type === 'host.lifecycle') {
++      const state = message.payload.state
++      if (state === 'active' || state === 'inactive' || state === 'background') {
++        this.options.lifecycle(state)
++        clearTimeout(this.timer)
++        if (state === 'active' && ['configured', 'preparing'].includes(this.phase))
++          this.timer = setTimeout(() => {
++            void this.fail()
++          }, 3000)
++      }
++      return
++    }
++    if (
++      ![
++        'navigation.selectRoot',
++        'navigation.back',
++        'navigation.open',
++        'headerTab.select',
++        'action.invoke',
++        'state.request',
++      ].includes(message.type)
++    )
++      return
++    let result = this.results.get(message.requestId)
++    if (!result) {
++      if (this.runningCommands >= 16) {
++        this.post('command.result', { requestId: message.requestId, accepted: false, error: 'busy' })
++        return
++      }
++      this.runningCommands += 1
++      result = this.dispatch(message).finally(() => {
++        this.runningCommands -= 1
++      })
++      this.results.set(message.requestId, result)
++      // 只清理已经完成的旧结果，不移除尚未确认的命令来腾出并发槽。
++      void result.then(() => {
++        if (this.results.get(message.requestId) !== result) return
++        this.completed.add(message.requestId)
++        while (this.results.size > 256 && this.completed.size) {
++          const oldest = this.completed.values().next().value!
++          this.completed.delete(oldest)
++          this.results.delete(oldest)
++        }
++      })
++    }
++    const reply = await result
++    if (message.sessionId === this.sessionId && this.phase === 'active') {
++      this.post('command.result', { requestId: message.requestId, ...reply })
++      this.publish()
++    }
++  }
++
++  /** 分派前重新检查当前代次；重复 requestId 只返回第一次分派结果。 */
++  private async dispatch(message: NativeEnvelope) {
++    if (this.phase !== 'active') return { accepted: false, error: 'busy' }
++    try {
++      if (message.type !== 'state.request' && message.routeRevision !== this.options.readState().routeRevision)
++        return { accepted: false, error: 'stale_route' }
++      const accepted = message.type === 'state.request' || (await this.options.execute(message))
++      return accepted ? { accepted: true } : { accepted: false, error: 'action_not_available' }
++    } catch {
++      return { accepted: false, error: 'navigation_cancelled' }
++    }
++  }
++
++  /** 发送上限内 JSON；传输失败恢复网页并让原生执行释放事务。 */
++  private post(type: string, payload: Record<string, unknown>) {
++    const message: NativeEnvelope = {
++      protocol: 'moviepilot.chrome',
++      major: 1,
++      type,
++      requestId: `web-${++this.sequence}`,
++      payload,
++    }
++    if (this.sessionId) {
++      message.sessionId = this.sessionId
++      // 恢复通知也必须能在当前注册损坏时发送，元数据使用最后一次成功读取的路由代次。
++      message.routeRevision = this.routeRevision
++      message.stateRevision = this.stateRevision
++    }
++    if (new TextEncoder().encode(JSON.stringify(message)).length > 65536) throw new Error('invalid_message')
++    this.options.transport.postMessage(message)
++  }
++
++  /** 只有仍可执行 JS 时才能恢复网页；宿主另行处理进程终止。 */
++  private async fail() {
++    if (this.phase === 'closed') return
++    this.phase = 'closed'
++    clearTimeout(this.timer)
++    await this.options.setActive(false)
++    if (this.sessionId) {
++      try {
++        this.post('chrome.failed', { reason: 'adapter_unavailable' })
++      } catch {
++        /* 宿主超时将显示恢复出口。 */
++      }
++    }
++  }
++}
+diff --git a/src/pages/appcenter.vue b/src/pages/appcenter.vue
+index 425504c465a51cbd2cb5242657924416a77b2ea8..ebc07643921187f59c2c86a8ceaca2b5824463ba 100644
+--- a/src/pages/appcenter.vue
++++ b/src/pages/appcenter.vue
+@@ -7,6 +7,7 @@ import { filterPluginSidebarNavEntries } from '@/utils/pluginSidebarNav'
+ import { buildUserPermissionContext, filterMenusByPermission } from '@/utils/permission'
+ import { useDynamicButton } from '@/composables/useDynamicButton'
+ import { usePWA } from '@/composables/usePWA'
++import { groupAppMenus } from '@/utils/appNavigation'
+ 
+ // 国际化
+ const { t } = useI18n()
+@@ -31,26 +32,10 @@ const appSearchInput = ref<{ focus: () => void } | null>(null)
+ function categorizeApps() {
+   const allMenus = getNavMenus(t)
+   const filteredMenus = filterMenusByPermission(allMenus, userPermissions.value)
+-  let menus = filteredMenus.filter((item: NavMenu) => !item.footer)
+-
+-  if (pluginSidebarNavStore.items.length > 0) {
+-    const pluginNavMenus = filterPluginSidebarNavEntries(pluginSidebarNavStore.items, t, userPermissions.value).map(
+-      e => e.navMenu,
+-    )
+-    menus = [...menus, ...pluginNavMenus]
+-  }
+-
+-  const groupedMenus: Record<string, NavMenu[]> = {}
+-
+-  menus.forEach(menu => {
+-    const header = menu.header || t('appcenter.others')
+-    if (!groupedMenus[header]) {
+-      groupedMenus[header] = []
+-    }
+-    groupedMenus[header].push(menu)
+-  })
+-
+-  appGroups.value = groupedMenus
++  const pluginMenus = filterPluginSidebarNavEntries(pluginSidebarNavStore.items, t, userPermissions.value).map(
++    entry => entry.navMenu,
++  )
++  appGroups.value = groupAppMenus(filteredMenus, pluginMenus, t('appcenter.others'))
+   appGroupsReady.value = true
+ }
+ 
+diff --git a/src/pages/music/artist/resources.vue b/src/pages/music/artist/resources.vue
+index 3bab30956f3c45d57626deb9a90987e2fdded4a0..c3d3154ec47a050949581371e10dcde990af44dc 100644
+--- a/src/pages/music/artist/resources.vue
++++ b/src/pages/music/artist/resources.vue
+@@ -6,6 +6,7 @@ import NoDataFound from '@/components/states/NoDataFound.vue'
+ import { useConfirm } from '@/composables/useConfirm'
+ import { isMediaDataSource } from '@/utils/mediaId'
+ import { requiresMusicConfirmation } from '@/utils/music'
++import { useNativePageHeader } from '@/native/page'
+ 
+ type MatchState =
+   'pending' | 'searching' | 'exact' | 'candidate' | 'unmatched' | 'error' | 'downloaded' | 'download_error'
+@@ -375,11 +376,30 @@ async function downloadCollection(resource: ArtistCollectionResource) {
+ }
+ 
+ watch(() => [artistId.value, mediaSource.value, sites.value], loadCatalog, { immediate: true })
++useNativePageHeader({
++  title: () => `${artistName.value} · ${t('music.discographyResources')}`,
++  actions: computed(() => [
++    {
++      title: t('music.selectDownloadable'),
++      icon: 'mdi-checkbox-multiple-marked-outline',
++      permission: 'search',
++      action: selectAllDownloadable,
++    },
++    {
++      title: `${t('music.batchDownload')} (${selectedRows.value.length})`,
++      icon: 'mdi-download-multiple',
++      permission: 'search',
++      disabled: !selectedRows.value.length,
++      loading: downloading.value,
++      action: batchDownload,
++    },
++  ]),
++})
+ </script>
+ 
+ <template>
+   <div class="discography-page">
+-    <div class="d-flex flex-wrap align-center justify-space-between ga-3 mb-5">
++    <div class="d-flex flex-wrap align-center justify-space-between ga-3 mb-5" data-native-page-heading>
+       <div>
+         <VBtn variant="text" prepend-icon="mdi-arrow-left" class="px-0 mb-1" @click="router.back()">
+           {{ t('common.back') }}
+diff --git a/src/pages/resource.vue b/src/pages/resource.vue
+index 176e0610c8c5a1904c559b7e7b50ae9c0eb184b1..54ff44cb8cebc50fa2ccfd2efadbe42dc22e1580 100644
+--- a/src/pages/resource.vue
++++ b/src/pages/resource.vue
+@@ -23,6 +23,7 @@ import { SearchReplaceBatchCollector, isSearchReplaceBatchEvent } from '@/utils/
+ import { getCurrentLocale } from '@/plugins/i18n'
+ import { isMediaDataSource, isValidMediaSourceId } from '@/utils/mediaId'
+ import { requiresMusicConfirmation } from '@/utils/music'
++import { useNativePageHeader } from '@/native/page'
+ 
+ // 国际化
+ const { t } = useI18n()
+@@ -1596,6 +1597,51 @@ onUnmounted(() => {
+   stopAiRecommendPolling()
+   clearStreamPreviewState()
+ })
++// 页面抬头的操作统一交给框架；可见性、加载和禁用状态沿用原搜索流程。
++useNativePageHeader({
++  actions: computed(() => [
++    {
++      title: t('resource.refreshSearch'),
++      icon: 'mdi-refresh',
++      show: showResultHeader.value,
++      loading: isRefreshing.value,
++      disabled: progressActive.value,
++      action: refreshSearch,
++    },
++    {
++      title: t('resource.loadNextPage'),
++      icon: 'mdi-page-next-outline',
++      show: showResultHeader.value && searchPagination.value.can_continue,
++      loading: loadingNextPage.value,
++      disabled: progressActive.value || isRefreshing.value,
++      action: loadNextPage,
++    },
++    {
++      title: t('resource.aiRecommend'),
++      icon: 'lucide:sparkles',
++      show:
++        showResultHeader.value &&
++        !isSubtitleSearch.value &&
++        aiRecommendEnabled.value &&
++        originalDataList.value.length > 0,
++      disabled: isRecommending.value || !aiStatusChecked.value,
++      action: toggleAiRecommend,
++    },
++    {
++      title: t('resource.reRecommend'),
++      icon: 'mdi-auto-fix',
++      show:
++        showResultHeader.value &&
++        !isSubtitleSearch.value &&
++        aiRecommendEnabled.value &&
++        originalDataList.value.length > 0 &&
++        (aiRecommended.value || isRecommending.value),
++      loading: isRecommending.value,
++      disabled: !aiStatusChecked.value,
++      action: reRecommend,
++    },
++  ]),
++})
+ </script>
+ 
+ <template>
+@@ -1670,7 +1716,11 @@ onUnmounted(() => {
+     </VFadeTransition>
+ 
+     <!-- 结果抬头：保持和站点管理一致的页面标题结构，筛选控制交给下方工具条。 -->
+-    <div v-if="showResultHeader" class="resource-page-header d-flex justify-space-between align-center mb-3">
++    <div
++      v-if="showResultHeader"
++      class="resource-page-header d-flex justify-space-between align-center mb-3"
++      data-native-page-heading
++    >
+       <div class="resource-page-header__copy">
+         <VPageContentTitle
+           :title="isSubtitleSearch ? t('resource.subtitleSearchResults') : t('resource.searchResults')"
+diff --git a/src/utils/__tests__/appActivityLifecycle.spec.ts b/src/utils/__tests__/appActivityLifecycle.spec.ts
+index d337f4227c512e1864d2238bb9e969b21033a56d..cca93169311cb71bc41b6f10ae8bd544a2b93b9c 100644
+--- a/src/utils/__tests__/appActivityLifecycle.spec.ts
++++ b/src/utils/__tests__/appActivityLifecycle.spec.ts
+@@ -95,4 +95,21 @@ describe('AppActivityLifecycle', () => {
+     expect(removeWindowListener).toHaveBeenCalledWith('blur', expect.any(Function))
+     expect(removeWindowListener).toHaveBeenCalledWith('focus', expect.any(Function))
+   })
++
++  it('原生后台信号阻止浏览器焦点误唤醒，释放后恢复网页事件', () => {
++    lifecycle.setHostLifecycle('background')
++    expect(lifecycle.getState()).toBe('suspended')
++    window.dispatchEvent(new Event('focus'))
++    window.dispatchEvent(new Event('blur'))
++    document.dispatchEvent(new Event('pointerdown'))
++    expect(lifecycle.getState()).toBe('suspended')
++    lifecycle.setHostLifecycle('inactive')
++    expect(lifecycle.getState()).toBe('passive')
++    lifecycle.setHostLifecycle('active')
++    expect(lifecycle.getState()).toBe('active')
++    lifecycle.setHostLifecycle(undefined)
++    focused = false
++    window.dispatchEvent(new Event('blur'))
++    expect(lifecycle.getState()).toBe('passive')
++  })
+ })
+diff --git a/src/utils/appActivityLifecycle.ts b/src/utils/appActivityLifecycle.ts
+index a20aa53ce2bea97cba2ef64aa5bf18a08ccd0d52..abe1785cfddcdb609410862c5c98de4638a233b3 100644
+--- a/src/utils/appActivityLifecycle.ts
++++ b/src/utils/appActivityLifecycle.ts
+@@ -22,8 +22,10 @@ export class AppActivityLifecycle {
+   private lastActivityAt = Date.now()
+   private acquireCount = 0
+   private started = false
++  private hostLifecycle?: 'active' | 'inactive' | 'background'
+ 
+   private readonly handleActivity = () => {
++    if (this.hostLifecycle && this.hostLifecycle !== 'active') return
+     if (document.visibilityState !== 'visible' || !document.hasFocus()) return
+ 
+     this.lastActivityAt = Date.now()
+@@ -32,6 +34,7 @@ export class AppActivityLifecycle {
+   }
+ 
+   private readonly handleBlur = () => {
++    if (this.hostLifecycle === 'background') return
+     if (document.visibilityState === 'hidden') return
+ 
+     this.clearIdleTimer()
+@@ -40,6 +43,7 @@ export class AppActivityLifecycle {
+   }
+ 
+   private readonly handleFocus = () => {
++    if (this.hostLifecycle && this.hostLifecycle !== 'active') return
+     if (document.visibilityState !== 'visible') return
+ 
+     this.clearSuspendTimer()
+@@ -49,6 +53,16 @@ export class AppActivityLifecycle {
+   }
+ 
+   private readonly handleVisibilityChange = () => {
++    if (this.hostLifecycle === 'background') {
++      this.clearTimers()
++      this.setState('suspended')
++      return
++    }
++    if (this.hostLifecycle === 'inactive') {
++      this.clearTimers()
++      this.setState('passive')
++      return
++    }
+     if (document.visibilityState === 'hidden') {
+       this.clearTimers()
+       this.setState('suspended')
+@@ -105,6 +119,13 @@ export class AppActivityLifecycle {
+     this.handleActivity()
+   }
+ 
++  /** 原生场景生命周期进入既有管理器；释放接管后恢复浏览器事件作为唯一来源。 */
++  setHostLifecycle(state: 'active' | 'inactive' | 'background' | undefined) {
++    this.hostLifecycle = state
++    this.handleVisibilityChange()
++  }
++
++  /** 首个使用者安装共享 DOM 监听。 */
+   private start() {
+     if (this.started) return
+ 
+@@ -117,6 +138,7 @@ export class AppActivityLifecycle {
+     this.handleVisibilityChange()
+   }
+ 
++  /** 最后使用者解绑监听并取消所有计时器。 */
+   private stop() {
+     if (!this.started) return
+ 
+@@ -128,6 +150,7 @@ export class AppActivityLifecycle {
+     this.started = false
+   }
+ 
++  /** 状态实际变化时才通知所有消费者。 */
+   private setState(state: AppActivityState) {
+     if (this.state === state) return
+ 
+@@ -135,6 +158,7 @@ export class AppActivityLifecycle {
+     this.listeners.forEach(listener => listener(state))
+   }
+ 
++  /** 复用最近活动时间安排前台空闲检查。 */
+   private scheduleIdle() {
+     if (this.idleTimer !== null) return
+ 
+@@ -155,6 +179,7 @@ export class AppActivityLifecycle {
+     }, delay)
+   }
+ 
++  /** 持续失焦后暂停昂贵渲染。 */
+   private scheduleSuspend() {
+     this.clearSuspendTimer()
+     this.suspendTimer = window.setTimeout(() => {
+@@ -163,6 +188,7 @@ export class AppActivityLifecycle {
+     }, APP_ACTIVITY_SUSPEND_DELAY_MS)
+   }
+ 
++  /** 取消前台空闲检查并释放计时器引用。 */
+   private clearIdleTimer() {
+     if (this.idleTimer === null) return
+ 
+@@ -170,6 +196,7 @@ export class AppActivityLifecycle {
+     this.idleTimer = null
+   }
+ 
++  /** 取消延迟暂停检查并释放计时器引用。 */
+   private clearSuspendTimer() {
+     if (this.suspendTimer === null) return
+ 
+@@ -177,6 +204,7 @@ export class AppActivityLifecycle {
+     this.suspendTimer = null
+   }
+ 
++  /** 在隐藏、卸载与系统生命周期切换时统一取消检查。 */
+   private clearTimers() {
+     this.clearIdleTimer()
+     this.clearSuspendTimer()
+diff --git a/src/utils/appNavigation.ts b/src/utils/appNavigation.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..816b6728cff20e26b16724d230e32b81f314d669
+--- /dev/null
++++ b/src/utils/appNavigation.ts
+@@ -0,0 +1,11 @@
++import type { NavMenu } from '@/@layouts/types'
++
++/** 将已过滤权限的内置与插件入口按现有应用中心规则分组，供网页与原生菜单共同消费。 */
++export function groupAppMenus(menus: NavMenu[], pluginMenus: NavMenu[], fallbackHeader: string) {
++  const grouped: Record<string, NavMenu[]> = {}
++  for (const menu of [...menus.filter(item => !item.footer), ...pluginMenus]) {
++    const header = menu.header || fallbackHeader
++    ;(grouped[header] ??= []).push(menu)
++  }
++  return grouped
++}
+diff --git a/src/utils/footerNavigation.ts b/src/utils/footerNavigation.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..cac6bd22c257bb7c7566b31d7069cfdef18d8a33
+--- /dev/null
++++ b/src/utils/footerNavigation.ts
+@@ -0,0 +1,16 @@
++import type { NavMenu } from '@/@layouts/types'
++
++/** Dock 的已确定内部路由和图标，不把任意链接对象带入导航声明。 */
++export type FooterMenu = NavMenu & { to: string; icon: string }
++
++/** 网页 Dock 和原生 Tab 共用现有菜单优先级，输入必须先按权限过滤。
++ */
++export function buildFooterMenus(authorizedMenus: NavMenu[]): FooterMenu[] {
++  const menus: FooterMenu[] = authorizedMenus
++    .filter((menu): menu is NavMenu & { to: string } => typeof menu.to === 'string')
++    .map(menu => ({ ...menu, icon: typeof menu.icon === 'string' ? menu.icon : 'mdi-apps' }))
++  const preferred = menus.filter(menu => menu.footer === true)
++  if (preferred.length >= 3) return preferred.slice(0, 3)
++  const remaining = menus.filter(menu => menu.footer !== true && !preferred.some(item => item.to === menu.to))
++  return [...preferred, ...remaining.slice(0, 3 - preferred.length)]
++}
+diff --git a/src/views/discover/MediaDetailView.vue b/src/views/discover/MediaDetailView.vue
+index 7b1bc9366bfdd22247fcb626e44882d2a7ab4381..5cf220f8438ae818a807574c132bc1e22b928503 100644
+--- a/src/views/discover/MediaDetailView.vue
++++ b/src/views/discover/MediaDetailView.vue
+@@ -1,5 +1,6 @@
+ <script setup lang="ts">
+ import { useToast } from 'vue-toastification'
++import { useNativePageHeader } from '@/native/page'
+ import PersonCardSlideView from './PersonCardSlideView.vue'
+ import MediaCardSlideView from './MediaCardSlideView.vue'
+ import MediaCommentView from './MediaCommentView.vue'
+@@ -804,6 +805,51 @@ onMounted(() => {
+ onUnmounted(() => {
+   window.removeEventListener('resize', updateEpisodeGroupScrollState)
+ })
++useNativePageHeader({
++  title: () => mediaDetail.value.title || mediaProps.title,
++  actions: computed(() => [
++    {
++      title: `${t('media.actions.searchResource')} · ${t('media.search.byTitle')}`,
++      icon: 'mdi-magnify',
++      permission: 'search',
++      show: hasMediaIdentity(),
++      action: () => {
++        void clickSearch('title')
++      },
++    },
++    {
++      title: `${t('media.actions.searchResource')} · ${t('media.search.byImdb')}`,
++      icon: 'mdi-magnify',
++      permission: 'search',
++      show: hasMediaIdentity(),
++      action: () => {
++        void clickSearch('imdbid')
++      },
++    },
++    {
++      title: t('media.actions.searchSubtitle'),
++      icon: 'mdi-subtitles-outline',
++      permission: 'search',
++      show: hasMediaIdentity(),
++      action: handleSubtitleSearch,
++    },
++    {
++      title: getSubscribeText.value,
++      icon: getSubscribeIcon.value,
++      permission: 'subscribe',
++      show: mediaDetail.value.type === '电影' || hasMediaIdentity(),
++      action: () => {
++        handleSubscribe()
++      },
++    },
++    {
++      title: t('media.actions.playOnline'),
++      icon: 'mdi-play',
++      show: Boolean(existsItemId.value),
++      action: handlePlay,
++    },
++  ]),
++})
+ </script>
+ 
+ <template>
+@@ -847,7 +893,10 @@ onUnmounted(() => {
+               </div>
+             </span>
+           </div>
+-          <h1 class="d-flex flex-column flex-lg-row align-baseline justify-center justify-lg-start">
++          <h1
++            class="d-flex flex-column flex-lg-row align-baseline justify-center justify-lg-start"
++            data-native-page-title
++          >
+             <div class="align-self-center align-self-lg-end">
+               {{ mediaDetail.title }}
+             </div>
+@@ -865,7 +914,7 @@ onUnmounted(() => {
+             <span v-if="mediaDetail.genres">{{ getGenresName(mediaDetail.genres || []) }}</span>
+           </span>
+         </div>
+-        <div class="media-actions">
++        <div class="media-actions" data-native-page-actions>
+           <VBtn v-if="hasMediaIdentity() && canSearch" variant="tonal" color="primary" class="media-action-button">
+             <template #prepend>
+               <VIcon icon="mdi-magnify" />
+diff --git a/src/views/discover/MusicAlbumView.vue b/src/views/discover/MusicAlbumView.vue
+index 1c13b1d851ec631a3a88af323688c00bb1cacb57..ecbb27e17b3149e23a8d179d57b1190d1cad5935 100644
+--- a/src/views/discover/MusicAlbumView.vue
++++ b/src/views/discover/MusicAlbumView.vue
+@@ -1,5 +1,6 @@
+ <script lang="ts" setup>
+ import api from '@/api'
++import { useNativePageHeader } from '@/native/page'
+ import type { MediaDataSource, MediaInfo, MusicAlbumInfo } from '@/api/types'
+ import MediaCardSlideView from '@/views/discover/MediaCardSlideView.vue'
+ import MusicArtistSlideView from '@/views/discover/MusicArtistSlideView.vue'
+@@ -124,6 +125,26 @@ function getReleaseSubtitle(release: NonNullable<MusicAlbumInfo['releases']>[num
+ }
+ 
+ watch(() => [props.mediaSource, props.mediaId], loadAlbumDetail, { immediate: true })
++useNativePageHeader({
++  actions: computed(() => [
++    {
++      title: t('music.searchResources'),
++      icon: 'mdi-magnify',
++      permission: 'search',
++      show: Boolean(album.value),
++      action: openMusicSiteSearch,
++    },
++    {
++      title: isSubscribed.value ? t('music.unsubscribe') : t('music.subscribe'),
++      icon: isSubscribed.value ? 'mdi-heart' : 'mdi-heart-outline',
++      permission: 'subscribe',
++      show: Boolean(album.value),
++      action: () => {
++        void subscribeActions.handleSubscribe()
++      },
++    },
++  ]),
++})
+ </script>
+ 
+ <template>
+diff --git a/src/views/discover/MusicArtistView.vue b/src/views/discover/MusicArtistView.vue
+index 9db29da077f0b92447bb1c8e120c0121e9828eaf..7a15905445eabaa2cb105128fac5dcdecd858856 100644
+--- a/src/views/discover/MusicArtistView.vue
++++ b/src/views/discover/MusicArtistView.vue
+@@ -1,5 +1,6 @@
+ <script lang="ts" setup>
+ import api from '@/api'
++import { useNativePageHeader } from '@/native/page'
+ import type { MediaDataSource, MusicArtistInfo } from '@/api/types'
+ import MediaCardSlideView from '@/views/discover/MediaCardSlideView.vue'
+ import MusicArtistSlideView from '@/views/discover/MusicArtistSlideView.vue'
+@@ -97,6 +98,24 @@ function getAlbumsBrowseRoute(albumType: string, title: string) {
+ }
+ 
+ watch(() => [props.mediaSource, props.mediaId], loadArtistDetail, { immediate: true })
++useNativePageHeader({
++  actions: computed(() => [
++    {
++      title: t('music.discographyResources'),
++      icon: 'mdi-album',
++      permission: 'search',
++      show: Boolean(artist.value),
++      action: openDiscographyResources,
++    },
++    {
++      title: t('music.searchResources'),
++      icon: 'mdi-magnify',
++      permission: 'search',
++      show: Boolean(artist.value),
++      action: openMusicSiteSearch,
++    },
++  ]),
++})
+ </script>
+ 
+ <template>
+diff --git a/src/views/discover/MusicDetailLayout.vue b/src/views/discover/MusicDetailLayout.vue
+index 7c96d1473d90739b143ea2fd345095dae41ccb13..e4b1e60fd8e3b962e04e61d0170c1727f72fb59e 100644
+--- a/src/views/discover/MusicDetailLayout.vue
++++ b/src/views/discover/MusicDetailLayout.vue
+@@ -2,6 +2,7 @@
+ import { useGlobalSettingsStore } from '@/stores'
+ import { getDisplayImageUrl } from '@/utils/imageUtils'
+ import { useTheme } from 'vuetify'
++import { useNativePageHeader } from '@/native/page'
+ 
+ // 音乐详情体系（单曲、专辑、艺术家）共用的头部与背景布局
+ const props = defineProps({
+@@ -22,6 +23,7 @@ const props = defineProps({
+ })
+ 
+ const theme = useTheme()
++useNativePageHeader({ title: () => props.title })
+ const globalSettingsStore = useGlobalSettingsStore()
+ 
+ // 透明与毛玻璃主题下背景图需要改用遮罩淡出，与影视详情页保持一致
+@@ -68,7 +70,7 @@ watch(displayCover, () => {
+           </VSheet>
+         </div>
+         <div class="music-title">
+-          <h1>{{ props.title }}</h1>
++          <h1 data-native-page-title>{{ props.title }}</h1>
+           <div class="music-subtitle">
+             <slot name="subtitle" />
+           </div>
+@@ -79,7 +81,7 @@ watch(displayCover, () => {
+             </template>
+           </span>
+         </div>
+-        <div class="music-actions">
++        <div class="music-actions" data-native-page-actions>
+           <slot name="actions" />
+         </div>
+       </div>
+diff --git a/src/views/discover/MusicDetailView.vue b/src/views/discover/MusicDetailView.vue
+index d81c6f3cb6b53b208e6937409f30f330a48dc35e..91328dcdf029a49266bba2c77d46db1f437f0919 100644
+--- a/src/views/discover/MusicDetailView.vue
++++ b/src/views/discover/MusicDetailView.vue
+@@ -1,5 +1,6 @@
+ <script lang="ts" setup>
+ import api from '@/api'
++import { useNativePageHeader } from '@/native/page'
+ import type { MediaDataSource, MediaInfo, MusicAlbumInfo } from '@/api/types'
+ import MediaCardSlideView from '@/views/discover/MediaCardSlideView.vue'
+ import MusicArtistSlideView from '@/views/discover/MusicArtistSlideView.vue'
+@@ -140,6 +141,26 @@ function goArtist(artistId?: string, name?: string) {
+ }
+ 
+ watch(() => [props.mediaSource, props.mediaId], loadMusicDetail, { immediate: true })
++useNativePageHeader({
++  actions: computed(() => [
++    {
++      title: t('music.searchResources'),
++      icon: 'mdi-magnify',
++      permission: 'search',
++      show: Boolean(music.value),
++      action: openMusicSiteSearch,
++    },
++    {
++      title: isSubscribed.value ? t('music.unsubscribe') : t('music.subscribe'),
++      icon: isSubscribed.value ? 'mdi-heart' : 'mdi-heart-outline',
++      permission: 'subscribe',
++      show: Boolean(music.value),
++      action: () => {
++        void subscribeActions.handleSubscribe()
++      },
++    },
++  ]),
++})
+ </script>
+ 
+ <template>
+diff --git a/src/views/discover/PersonDetailView.vue b/src/views/discover/PersonDetailView.vue
+index 6e9155cfce0db20c2e776da4fae460d0a46c2788..2c1ee56bfd7f79f0f957fa67723814ed02d843e6 100644
+--- a/src/views/discover/PersonDetailView.vue
++++ b/src/views/discover/PersonDetailView.vue
+@@ -9,6 +9,7 @@ import { useGlobalSettingsStore } from '@/stores'
+ import { getDisplayImageUrl } from '@/utils/imageUtils'
+ import MarkdownIt from 'markdown-it'
+ import mdLinkAttributes from 'markdown-it-link-attributes'
++import { useNativePageHeader } from '@/native/page'
+ 
+ // 国际化
+ const { t } = useI18n()
+@@ -41,6 +42,7 @@ markdown.use(mdLinkAttributes, {
+ 
+ // 媒体详情
+ const personDetail = ref<Person>({} as Person)
++useNativePageHeader({ title: () => personDetail.value.name })
+ 
+ // 是否已加载完成
+ const isRefreshed = ref(false)
+@@ -149,7 +151,7 @@ onBeforeMount(() => {
+         <VImg :src="getPersonImage()" cover @load="isImageLoaded = true" />
+       </VAvatar>
+       <div class="ms-3">
+-        <h1 class="text-3xl lg:text-4xl text-center text-lg-left">
++        <h1 class="text-3xl lg:text-4xl text-center text-lg-left" data-native-page-title>
+           {{ personDetail.name }}
+         </h1>
+         <div class="mt-1 mb-2 space-y-1 text-xs sm:text-sm lg:text-base text-center text-lg-left">
+diff --git a/src/views/reorganize/TransferHistoryView.vue b/src/views/reorganize/TransferHistoryView.vue
+index 08c3b3209dc7ecf75ecf86e50bf909e89c451fa6..dbfe5beea20cb9ad04122219dfaf7614cde993b3 100644
+--- a/src/views/reorganize/TransferHistoryView.vue
++++ b/src/views/reorganize/TransferHistoryView.vue
+@@ -29,6 +29,8 @@ import { buildUserPermissionContext, hasPermission } from '@/utils/permission'
+ import { getDisplayImageUrl } from '@/utils/imageUtils'
+ import { getNameTail } from '@/components/filebrowser/tailEllipsis'
+ import { formatMusicAudioSpecs } from '@/utils/music'
++import { useNativePageHeader } from '@/native/page'
++import { nativeChromeActive } from '@/native/layout'
+ 
+ const TransferHistoryDeleteDialog = defineAsyncComponent(
+   () => import('@/components/dialog/TransferHistoryDeleteDialog.vue'),
+@@ -1987,6 +1989,27 @@ useDynamicButton({
+   show: computed(() => appMode.value),
+ })
+ 
++useNativePageHeader({
++  actions: computed(() => [
++    {
++      title: t('transferHistory.statusFilter.label'),
++      icon: 'mdi-filter-multiple-outline',
++      dataAttr: 'history-status-filter-btn',
++      action: () => {
++        mobileStatusFilterMenu.value = true
++      },
++    },
++    {
++      title: mobileBatchMode.value
++        ? t('transferHistory.actions.exitBatchSelect')
++        : t('transferHistory.actions.batchSelect'),
++      icon: 'mdi-checkbox-multiple-marked-outline',
++      permission: 'manage',
++      action: toggleMobileBatchMode,
++    },
++  ]),
++})
++
+ // 初始加载数据
+ onMounted(() => {
+   void loadStorages()
+@@ -2543,7 +2566,7 @@ onUnmounted(() => {
+   </section>
+ 
+   <section v-else class="transfer-history-mobile-page">
+-    <div class="transfer-history-mobile-titlebar">
++    <div v-if="!nativeChromeActive" class="transfer-history-mobile-titlebar">
+       <VPageContentTitle
+         :title="t('navItems.mediaOrganize')"
+         class="transfer-history-mobile-title my-0"
+diff --git a/src/views/site/SiteCardListView.vue b/src/views/site/SiteCardListView.vue
+index 5cea415c7924d8cc4bfe3e95f6a7d621b770efba..632f8f40f8a2331acfaf351c126ca4b5e1b7c73e 100644
+--- a/src/views/site/SiteCardListView.vue
++++ b/src/views/site/SiteCardListView.vue
+@@ -12,6 +12,8 @@ import { useKeepAliveRefresh, type KeepAliveRefreshContext } from '@/composables
+ import { openSharedDialog } from '@/composables/useSharedDialog'
+ import { useUserStore } from '@/stores'
+ import { buildUserPermissionContext, hasPermission } from '@/utils/permission'
++import { useNativePageHeader } from '@/native/page'
++import { nativeChromeActive } from '@/native/layout'
+ 
+ // 国际化
+ const { t } = useI18n()
+@@ -64,6 +66,10 @@ const savingPriority = ref(false)
+ // 筛选相关
+ const filterMenu = ref(false)
+ const filterOption = ref('all') // all, active, inactive, connected, slow, failed, unknown
++// 原生操作从系统顶栏发起，仍打开同一份 HTML 筛选菜单。
++const siteFilterActivator = computed(() =>
++  nativeChromeActive.value ? '[data-native-menu-anchor][data-menu-activator="site-filter-btn"]' : undefined,
++)
+ 
+ // 筛选选项
+ const filterOptions = computed(() => [
+@@ -393,18 +399,44 @@ useDynamicButton({
+   permission: 'manage',
+   show: computed(() => appMode.value && shouldShowFloatingActions.value),
+ })
++
++useNativePageHeader({
++  actions: computed(() => [
++    {
++      title: t('common.filter'),
++      icon: 'mdi-filter-multiple-outline',
++      dataAttr: 'site-filter-btn',
++      action: () => {
++        filterMenu.value = true
++      },
++    },
++    {
++      title: t('file.sort'),
++      icon: 'mdi-sort-variant',
++      permission: 'manage',
++      action: toggleSortMode,
++    },
++  ]),
++})
+ </script>
+ 
+ <template>
+   <div class="card-list-container">
+     <!-- 页面标题和筛选/排序按钮 -->
+-    <div class="d-flex justify-space-between align-center mb-3">
++    <div class="d-flex justify-space-between align-center mb-3" data-native-page-heading>
+       <VPageContentTitle :title="t('navItems.siteManager')" class="my-0" style="margin-block: 0" />
+       <!-- 右侧按钮组：保留筛选和排序，其他页面动作移到 FAB -->
+       <div class="d-flex align-center gap-1">
+         <!-- 筛选按钮 -->
+-        <VMenu v-model="filterMenu" offset-y :close-on-content-click="false" location="bottom end">
+-          <template #activator="{ props }">
++        <VMenu
++          v-model="filterMenu"
++          :activator="siteFilterActivator"
++          offset-y
++          :close-on-content-click="false"
++          location="bottom end"
++        >
++          <!-- 原生模式只保留可访问的外部锚点；隐藏按钮的 aria-owns 会使 WebKit 连带隐藏菜单。 -->
++          <template v-if="!nativeChromeActive" #activator="{ props }">
+             <IconBtn v-bind="props" :variant="filterOption === 'all' ? 'text' : 'tonal'" :color="currentFilter?.color">
+               <VIcon :icon="currentFilter?.icon || 'mdi-filter'" />
+             </IconBtn>
+diff --git a/src/views/user/UserListView.vue b/src/views/user/UserListView.vue
+index a1b7b9e30cf9efc8b0382f67211af2ed36ae475f..8cedf4ea021cca1498563a9cc1efbf307eac4b78 100644
+--- a/src/views/user/UserListView.vue
++++ b/src/views/user/UserListView.vue
+@@ -98,7 +98,7 @@ useDynamicButton({
+ 
+ <template>
+   <!-- 页面标题 -->
+-  <div class="d-flex justify-space-between align-center mb-3">
++  <div class="d-flex justify-space-between align-center mb-3" data-native-page-heading>
+     <VPageContentTitle :title="t('user.management')" />
+   </div>
+   <div class="card-list-container">
