@@ -734,8 +734,9 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     navigation.overrideUserInterfaceStyle = overrideUserInterfaceStyle
     navigation.view.tintColor = view.tintColor
     navigation.modalPresentationStyle = .popover
+    controller.loadViewIfNeeded()
     navigation.preferredContentSize = CGSize(
-      width: min(view.bounds.width - 32, 430),
+      width: controller.preferredPanelWidth(maximum: min(view.bounds.width - 40, 430)),
       height: min(
         580,
         max(280, view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom - 170)))

@@ -48,9 +48,18 @@ final class NativePanelImageLoader: NSObject, URLSessionTaskDelegate {
 
   /// 同一地址合并请求，Cookie 仅用于当前实例同源图片，外部海报不携带实例身份。
   func image(_ reference: String) async -> UIImage? {
-    guard !stopped, NavigationSnapshot.isImageReference(reference), let url = URL(string: reference)
+    guard !stopped, NavigationSnapshot.isProfileImageReference(reference),
+      let url = URL(string: reference)
     else { return nil }
     if let cached = cache.object(forKey: url as NSURL) { return cached }
+    if reference.hasPrefix("data:image/jpeg;base64,") {
+      guard let data = Data(base64Encoded: String(reference.dropFirst(23))),
+        let image = Self.thumbnail(data)
+      else { return nil }
+      cache.setObject(
+        image, forKey: url as NSURL, cost: Int(image.size.width * image.size.height * 4))
+      return image
+    }
     if let task = tasks[reference] { return await task.value }
     let task = Task { [weak self] () -> UIImage? in
       guard let self else { return nil }
@@ -71,23 +80,31 @@ final class NativePanelImageLoader: NSObject, URLSessionTaskDelegate {
       }
       guard !self.stopped, !Task.isCancelled,
         let data = await Self.download(request, network: self.network), !Task.isCancelled,
-        !self.stopped, let source = CGImageSourceCreateWithData(data as CFData, nil),
-        let image = CGImageSourceCreateThumbnailAtIndex(
-          source, 0,
-          [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: 300,
-          ] as CFDictionary)
+        !self.stopped, let thumbnail = Self.thumbnail(data)
       else { return nil }
-      let thumbnail = UIImage(cgImage: image)
-      self.cache.setObject(thumbnail, forKey: url as NSURL, cost: image.width * image.height * 4)
+      self.cache.setObject(
+        thumbnail, forKey: url as NSURL, cost: Int(thumbnail.size.width * thumbnail.size.height * 4)
+      )
       return thumbnail
     }
     tasks[reference] = task
     let result = await task.value
     tasks[reference] = nil
     return result
+  }
+
+  /// 只解码有界栅格缩略图，头像和海报共用尺寸限制，不把图片当成网页内容执行。
+  private static func thumbnail(_ data: Data) -> UIImage? {
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+      let image = CGImageSourceCreateThumbnailAtIndex(
+        source, 0,
+        [
+          kCGImageSourceCreateThumbnailFromImageAlways: true,
+          kCGImageSourceCreateThumbnailWithTransform: true,
+          kCGImageSourceThumbnailMaxPixelSize: 300,
+        ] as CFDictionary)
+    else { return nil }
+    return UIImage(cgImage: image)
   }
 
   /// 按字节读取限制每张图片最多四 MiB，下载在非主 actor 执行，不阻塞列表滚动。
@@ -151,6 +168,8 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
   private let progress = UIActivityIndicatorView(style: .medium)
   private var sections: [(String?, [NativePanelItem])] = []
   private var headerText: String?
+  private var measuredWidth: CGFloat?
+  private var profileImageTask: Task<Void, Never>?
   private var queryTask: Task<Void, Never>?
   private var imageTasks: [Task<Void, Never>] = []
 
@@ -179,6 +198,11 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     tableView.estimatedRowHeight = 64
     tableView.keyboardDismissMode = .interactive
     tableView.alwaysBounceVertical = true
+    registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) {
+      (controller: NativePanelController, _: UITraitCollection) in
+      controller.measuredWidth = nil
+      controller.view.setNeedsLayout()
+    }
     NativeModalAppearance.apply(to: self)
     navigationItem.rightBarButtonItem = UIBarButtonItem(
       systemItem: .close, primaryAction: UIAction { [weak self] _ in self?.onClose() })
@@ -195,13 +219,14 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
   /// 内容较少的子菜单缩短浮层高度，长列表限制在底栏上方，避免留下大块空白。
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
-    updatePreferredHeight()
+    updateHeaderHeight()
+    updatePreferredSize()
   }
 
   /// 初次呈现动画结束后再适配短内容，避免加载快照在动画中反复改变浮层几何。
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
-    updatePreferredHeight()
+    updatePreferredSize()
   }
 
   /// 离开搜索页即取消尚未发送的输入，旧控制器不能把查询发给后来打开的其他面板。
@@ -210,8 +235,46 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     queryTask?.cancel()
   }
 
-  /// 只在当前面板完成过渡后量测内容；最小高度容纳导航和空状态。
-  private func updatePreferredHeight() {
+  /// 按当前可见内容量测宽度；同一次菜单不随搜索结果反复横向跳动，大字体保留可读空间。
+  func preferredPanelWidth(maximum: CGFloat) -> CGFloat {
+    if traitCollection.preferredContentSizeCategory.isAccessibilityCategory { return maximum }
+    if let measuredWidth { return min(maximum, measuredWidth) }
+    let rows = sections.flatMap(\.1)
+    var width: CGFloat = path.isEmpty && snapshot.search != nil ? 320 : 260
+    if path.isEmpty, let profile = snapshot.profile {
+      width = max(
+        width,
+        min(
+          320,
+          (profile.name as NSString).size(withAttributes: [
+            .font: UIFont.preferredFont(forTextStyle: .headline)
+          ]).width + 112))
+    }
+    for row in rows {
+      width = max(
+        width,
+        min(
+          240,
+          (row.title as NSString).size(withAttributes: [
+            .font: UIFont.preferredFont(forTextStyle: .body)
+          ]).width) + 88)
+      if let detail = row.subtitle {
+        width = max(
+          width,
+          min(
+            240,
+            (detail as NSString).size(withAttributes: [
+              .font: UIFont.preferredFont(forTextStyle: .subheadline)
+            ]).width) + 88)
+      }
+      if row.image != nil { width = max(width, 336) }
+    }
+    if !rows.isEmpty { measuredWidth = width }
+    return min(maximum, width)
+  }
+
+  /// 只在当前面板完成过渡后更新尺寸，内容少时收窄缩短，长列表始终留在底栏上方。
+  private func updatePreferredSize() {
     guard let navigationController, navigationController.topViewController === self,
       let host = navigationController.presentingViewController,
       !navigationController.isBeingPresented, navigationController.transitionCoordinator == nil,
@@ -224,8 +287,11 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
         host.view.bounds.height - host.view.safeAreaInsets.top - host.view.safeAreaInsets.bottom
           - 170))
     let height = min(maximum, max(220, tableView.contentSize.height + 56))
-    if abs(navigationController.preferredContentSize.height - height) > 2 {
-      navigationController.preferredContentSize.height = height
+    let width = preferredPanelWidth(maximum: min(430, host.view.bounds.width - 40))
+    if abs(navigationController.preferredContentSize.height - height) > 2
+      || abs(navigationController.preferredContentSize.width - width) > 2
+    {
+      navigationController.preferredContentSize = CGSize(width: width, height: height)
     }
   }
 
@@ -256,23 +322,27 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     tableView.reloadData()
   }
 
-  /// 面板顶部按需要显示用户名说明和系统搜索框，宽度跟随系统列表边距。
+  /// 账号摘要和搜索框使用系统字体与列表边距，头像仅存在于当前面板会话。
   private func configureHeader() {
     let text = path.isEmpty ? snapshot.subtitle : nil
+    let profile = path.isEmpty ? snapshot.profile : nil
     let hasSearch = path.isEmpty && snapshot.search != nil
-    let identity = "\(text ?? "")|\(hasSearch)"
+    let identity =
+      "\(text ?? "")|\(profile?.name ?? "")|\(profile?.detail ?? "")|\(profile?.image ?? "")|\(hasSearch)"
     guard headerText != identity else { return }
     headerText = identity
-    guard text != nil || hasSearch else {
+    profileImageTask?.cancel()
+    guard text != nil || profile != nil || hasSearch else {
       tableView.tableHeaderView = nil
       return
     }
-    let height: CGFloat = (text == nil ? 0 : 38) + (hasSearch ? 58 : 0)
     let header = UIView(
-      frame: CGRect(x: 0, y: 0, width: preferredContentSize.width, height: height))
+      frame: CGRect(x: 0, y: 0, width: tableView.bounds.width, height: 1))
     let stack = UIStackView()
     stack.axis = .vertical
+    stack.spacing = 12
     stack.translatesAutoresizingMaskIntoConstraints = false
+    if let profile { stack.addArrangedSubview(profileHeader(profile)) }
     if let text {
       let label = UILabel()
       label.text = text
@@ -282,15 +352,86 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
       label.numberOfLines = 2
       stack.addArrangedSubview(label)
     }
-    if hasSearch { stack.addArrangedSubview(search) }
+    if hasSearch {
+      search.heightAnchor.constraint(greaterThanOrEqualToConstant: 50).isActive = true
+      stack.addArrangedSubview(search)
+    }
     header.addSubview(stack)
     NSLayoutConstraint.activate([
       stack.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
       stack.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
-      stack.topAnchor.constraint(equalTo: header.topAnchor, constant: 4),
-      stack.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -4),
+      stack.topAnchor.constraint(equalTo: header.topAnchor, constant: 12),
+      stack.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -12),
     ])
     tableView.tableHeaderView = header
+    updateHeaderHeight()
+  }
+
+  /// 原生账号摘要展示头像、昵称与当前身份，不能修改账号、权限或登录状态。
+  private func profileHeader(_ profile: NativePanelProfile) -> UIView {
+    let avatar = UIImageView(image: UIImage(systemName: "person.crop.circle.fill"))
+    avatar.contentMode = .scaleAspectFill
+    avatar.tintColor = .secondaryLabel
+    avatar.clipsToBounds = true
+    avatar.layer.cornerRadius = 28
+    avatar.isAccessibilityElement = true
+    avatar.accessibilityLabel = "用户头像"
+    avatar.accessibilityIdentifier = "native-profile-avatar"
+    avatar.accessibilityValue = "默认头像"
+    NSLayoutConstraint.activate([
+      avatar.widthAnchor.constraint(equalToConstant: 56),
+      avatar.heightAnchor.constraint(equalToConstant: 56),
+    ])
+    if let image = profile.image {
+      profileImageTask = Task { [weak avatar, images] in
+        let loaded = await images.image(image)
+        guard !Task.isCancelled, let avatar else { return }
+        if let loaded {
+          avatar.image = loaded
+          avatar.tintColor = nil
+          avatar.accessibilityValue = "头像已加载"
+        }
+      }
+    }
+    let name = UILabel()
+    name.text = profile.name
+    name.font = .preferredFont(forTextStyle: .headline)
+    name.adjustsFontForContentSizeCategory = true
+    name.numberOfLines = 2
+    name.accessibilityIdentifier = "native-profile-name"
+    let labels = UIStackView(arrangedSubviews: [name])
+    labels.axis = .vertical
+    labels.spacing = 5
+    if let detail = profile.detail {
+      let role = UILabel()
+      role.text = detail
+      role.textColor = .secondaryLabel
+      role.font = .preferredFont(forTextStyle: .subheadline)
+      role.adjustsFontForContentSizeCategory = true
+      role.numberOfLines = 0
+      role.accessibilityIdentifier = "native-profile-detail"
+      labels.addArrangedSubview(role)
+    }
+    let stack = UIStackView(arrangedSubviews: [avatar, labels])
+    stack.axis = .horizontal
+    stack.alignment = .center
+    stack.spacing = 14
+    stack.accessibilityIdentifier = "native-profile-summary"
+    return stack
+  }
+
+  /// 宽度或动态字体变化后重新量测 tableHeaderView，避免账号信息被固定高度裁切。
+  private func updateHeaderHeight() {
+    guard let header = tableView.tableHeaderView, tableView.bounds.width > 0 else { return }
+    let width = tableView.bounds.width
+    let height = header.systemLayoutSizeFitting(
+      CGSize(width: width, height: 0), withHorizontalFittingPriority: .required,
+      verticalFittingPriority: .fittingSizeLevel
+    ).height
+    if abs(header.frame.height - height) > 1 || abs(header.frame.width - width) > 1 {
+      header.frame = CGRect(x: 0, y: 0, width: width, height: height)
+      tableView.tableHeaderView = header
+    }
   }
 
   /// 空状态、加载和历史翻页均保留系统触点，不依赖网页无限滚动命中。
