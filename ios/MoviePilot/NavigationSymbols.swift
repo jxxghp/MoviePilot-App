@@ -34,13 +34,15 @@ enum NavigationSymbols {
       "mdi-movie-search": "film", "mdi-movie-filter": "film.stack",
       "mdi-account-search": "person.text.rectangle",
       "mdi-blur-radial": "circle.dotted", "mdi-opacity": "circle.lefthalf.filled",
-      "mdi-palette": "paintpalette",
+      "mdi-palette": "paintpalette", "mdi-cog": "gearshape",
+      "mdi-pin-outline": "pin", "mdi-pin-off-outline": "pin.slash",
       "mdi-puzzle-outline": "puzzlepiece.extension",
       "mdi-card-multiple-outline": "square.stack", "mdi-movie-open-outline": "film",
       "mdi-television": "tv", "mdi-music-note": "music.note",
       "mdi-state-machine": "point.3.connected.trianglepath.dotted",
       "mdi-calendar": "calendar", "mdi-download-outline": "arrow.down.circle",
-      "mdi-folder-play-outline": "folder", "mdi-folder-multiple-outline": "folder.on.folder",
+      "mdi-folder-play-outline": "folder.badge.gearshape",
+      "mdi-folder-multiple-outline": "folder.on.folder",
       "mdi-web": "globe", "mdi-account-group-outline": "person.2", "mdi-cog-outline": "gearshape",
       "mdi-plus": "plus", "tabler-plus": "plus", "tabler-check": "checkmark",
       "mdi-check": "checkmark", "mdi-restore": "arrow.counterclockwise",
@@ -49,6 +51,7 @@ enum NavigationSymbols {
       "tabler-dots-vertical": "ellipsis", "mdi-dots-vertical": "ellipsis",
     ]
     return UIImage(systemName: names[key] ?? "square.grid.2x2", withConfiguration: configuration)
+      ?? UIImage(systemName: "square.grid.2x2", withConfiguration: configuration)
   }
 
   /// 前端颜色先经协议校验，这里只转换六位 RGB 展示值。

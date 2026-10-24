@@ -69,4 +69,32 @@ struct ServerAddressTests {
         ServerAddress.self, from: Data("\"http://public.example.test/\"".utf8))
     }
   }
+
+  /// 真实回收后 WebKit 可能只返回文档入口，仍须恢复 Vue 最后确认的编码路由。
+  @Test func restoresConfirmedHashWithoutChangingDocument() throws {
+    let server = try ServerAddress("https://mp.test/base/")
+    let document = URL(string: "https://mp.test/base/index.html?theme=dark#/old")!
+    let route = "/search?q=%E7%94%B5%E5%BD%B1%2Ftest&source=tmdb"
+    let target = server.recoveryURL(currentDocument: document, confirmedRoute: route)
+    #expect(target.absoluteString == "https://mp.test/base/index.html?theme=dark#\(route)")
+    #expect(server.recoveryURL(currentDocument: document) == document)
+    #expect(
+      server.recoveryURL(currentDocument: nil, confirmedRoute: "/recommend").absoluteString
+        == "https://mp.test/base/#/recommend")
+  }
+
+  /// 非同源和含凭据的文档不能成为恢复入口，非法路由不能替换原有 hash。
+  @Test func rejectsUnsafeRecoveryTargets() throws {
+    let server = try ServerAddress("https://mp.test/base/")
+    for reference in [
+      "https://evil.test/base/", "http://mp.test/base/", "https://mp.test:8443/",
+      "https://user:secret@mp.test/base/", "file:///tmp/index.html",
+    ] {
+      #expect(server.recoveryURL(currentDocument: URL(string: reference)) == server.url)
+    }
+    let document = URL(string: "https://mp.test/base/#/recommend")!
+    for route in ["//evil.test/path", "https://evil.test/", "/bad\\path", "/bad\npath", "/bad%GG"] {
+      #expect(server.recoveryURL(currentDocument: document, confirmedRoute: route) == document)
+    }
+  }
 }

@@ -61,6 +61,7 @@ public struct ActionSnapshot: Codable, Equatable, Sendable {
 /// 系统快捷面板的纯展示声明，业务方法与权限仍留在当前网页组件中。
 public struct NativePanelSnapshot: Codable, Equatable, Sendable {
   public let title: String
+  public let layout: NativePanelLayout?
   public let subtitle: String?
   public let profile: NativePanelProfile?
   public let search: NativePanelSearch?
@@ -69,6 +70,9 @@ public struct NativePanelSnapshot: Codable, Equatable, Sendable {
   public let hasMore: Bool?
   public let emptyText: String?
 }
+
+/// 网格用于捷径和插件工具面板，旧版声明缺省时保持系统列表。
+public enum NativePanelLayout: String, Codable, Sendable { case grid }
 
 /// 账号卡片只展示当前网页提供的昵称、身份与头像，不接触原生认证或复制用户 API。
 public struct NativePanelProfile: Codable, Equatable, Sendable {
@@ -101,6 +105,8 @@ public struct NativePanelItem: Codable, Equatable, Sendable {
   public let selected: Bool?
   public let destructive: Bool?
   public let keepOpen: Bool?
+  /// 当前子菜单唯一主要动作；缺省时保留旧版列表呈现。
+  public let primary: Bool?
   public let children: [NativePanelItem]?
 }
 
@@ -268,11 +274,14 @@ public struct NavigationSnapshot: Codable, Equatable, Sendable {
     var ids = Set<String>()
     /// 递归检查每行，所有分组和子菜单共享同一标识空间。
     func validateRows(_ rows: [NativePanelItem], depth: Int) throws {
-      guard depth <= 2 else { throw BridgeError.invalidMessage }
+      guard depth <= 2, rows.filter({ $0.primary == true }).count <= 1 else {
+        throw BridgeError.invalidMessage
+      }
       for row in rows {
         guard ids.count < 96, BridgeValidator.isIdentifier(row.id), ids.insert(row.id).inserted,
           isLabel(row.title), row.icon.map(isLabel) ?? true,
           row.image.map(isImageReference) ?? true,
+          row.primary != true || depth > 0 && (row.children ?? []).isEmpty && row.keepOpen != true,
           row.subtitle.map({
             $0.utf8.count <= 2048 && !$0.isEmpty
               && !$0.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })

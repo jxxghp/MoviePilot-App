@@ -13,7 +13,9 @@ private struct NativeHeaderConfiguration: Equatable {
 
 /// 系统顶部和底部导航的呈现层，所有路由与业务动作只发送网页意图。
 @MainActor
-final class ShellController: UIViewController, UIPopoverPresentationControllerDelegate {
+final class ShellController: UIViewController, UIPopoverPresentationControllerDelegate,
+  UIGestureRecognizerDelegate
+{
   private let coordinator: WebCoordinator
   private let onConnection: () -> Void
   private let compatibilityHost = ContentHostController(rootId: nil)
@@ -27,6 +29,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   private var recoveryView: UIView?
   private var startupView: StartupView?
   private var nativeVisible = false
+  private var edgeBackIdentity: EdgeBackIdentity?
   private let moreMenu = MoreMenuController()
   private let bottomNavigation = BottomNavigationView()
   private var panelNavigation: UINavigationController?
@@ -36,10 +39,18 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   private var sheetNavigation: UINavigationController?
   private var sheetAttachedID: String?
   private var sheetDismissing = false
+  private var sheetRestoreToken: UUID?
   private var preparingSheetID: String?
   private var sheetSnapshotToken: UUID?
-  private var sheetPagePlaceholder: UIImageView?
+  private var sheetPagePlaceholder: UIView?
+  private var sheetExitPlaceholder: UIView?
   private var headerConfigurations: [ObjectIdentifier: NativeHeaderConfiguration] = [:]
+
+  /// 直接使用已确认的页面主题，避免 UIKit trait 传播尚未结束时取到上一主题的浮层外观。
+  private var modalInterfaceStyle: UIUserInterfaceStyle {
+    overrideUserInterfaceStyle == .unspecified
+      ? traitCollection.userInterfaceStyle : overrideUserInterfaceStyle
+  }
 
   /// 容器保存协调器；协调器以弱引用回调 UI，避免脚本与视图形成环。
   init(coordinator: WebCoordinator, onConnection: @escaping () -> Void) {
@@ -61,6 +72,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   override func viewDidLoad() {
     super.viewDidLoad()
     view.backgroundColor = .systemBackground
+    installBackGesture(on: view)
     showWebNavigation()
     setLoading(true)
   }
@@ -69,6 +81,53 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
     coordinator.layoutChanged()
+  }
+
+  /// 使用系统左边缘识别器，普通横向列表和网页自身触摸不参与返回判定。
+  private func installBackGesture(on target: UIView) {
+    let gesture = UIScreenEdgePanGestureRecognizer(
+      target: self, action: #selector(handleBackGesture))
+    gesture.edges = .left
+    gesture.delegate = self
+    target.addGestureRecognizer(gesture)
+  }
+
+  /// 只有可返回的当前原生页面或可关闭的业务弹窗才能开始侧滑。
+  func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    guard let gesture = gestureRecognizer as? UIScreenEdgePanGestureRecognizer,
+      nativeVisible, recoveryView == nil, startupView == nil, !sheetDismissing
+    else { return false }
+    let sheetID: String?
+    if gesture.view === sheetNavigation?.view {
+      sheetID = sheetAttachedID
+      guard sheetID != nil else { return false }
+    } else {
+      guard presentedViewController == nil else { return false }
+      sheetID = nil
+    }
+    let velocity = gesture.velocity(in: gesture.view)
+    guard velocity.x > 0, abs(velocity.x) > abs(velocity.y),
+      let identity = coordinator.backGestureIdentity(sheetID: sheetID)
+    else { return false }
+    edgeBackIdentity = identity
+    return true
+  }
+
+  /// 滑动结束才提交；取消、短滑或中途换页均不调用业务回调。
+  @objc private func handleBackGesture(_ gesture: UIScreenEdgePanGestureRecognizer) {
+    guard [.ended, .cancelled, .failed].contains(gesture.state) else { return }
+    defer { edgeBackIdentity = nil }
+    guard let identity = edgeBackIdentity else { return }
+    let current = coordinator.backGestureIdentity(sheetID: identity.sheetID)
+    if EdgeBackGesture.shouldCommit(
+      distance: Double(gesture.translation(in: gesture.view).x),
+      velocity: Double(gesture.velocity(in: gesture.view).x),
+      width: Double(gesture.view?.bounds.width ?? 0),
+      cancelled: gesture.state != .ended, began: identity, current: current)
+    {
+      if identity.sheetID != nil { preserveWebSheetExit() }
+      coordinator.completeBackGesture(identity)
+    }
   }
 
   /// 将网页默认模式放在独立导航容器内，避免隐藏 Tab 留下不可见占位。
@@ -137,8 +196,9 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
 
   /// 返回当前最终宿主的 point 几何，正文和菜单锚点使用同一坐标原点。
   func layoutPayload(revision: Int, keyboard: CGRect?) -> JSONValue {
+    let sheetOwnsContent = webSheet?.contentHost === coordinator.content.parent
     let host =
-      webSheet?.contentHost
+      (sheetOwnsContent ? webSheet?.contentHost : nil)
       ?? (nativeVisible ? selectedHost : (latest == nil ? compatibilityHost : selectedHost))
     host.loadViewIfNeeded()
     let bounds = host.view.bounds
@@ -155,7 +215,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
           bottom: max(0, safe.bottom - system.bottom), right: safe.right)),
       "contentInsets": insets(safe),
       "keyboardOcclusion": .number(overlap.isFinite ? overlap : 0),
-      "consumedByNativeFrame": .bool(webSheet != nil),
+      "consumedByNativeFrame": .bool(sheetOwnsContent),
     ])
   }
 
@@ -219,7 +279,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     config.title = "重新打开"
     let retry = UIButton(
       configuration: config,
-      primaryAction: UIAction { [weak self] _ in self?.coordinator.reloadInWebMode() })
+      primaryAction: UIAction { [weak self] _ in self?.coordinator.reload() })
     var secondary = UIButton.Configuration.plain()
     secondary.title = "更改服务地址"
     let change = UIButton(
@@ -297,11 +357,16 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   /// 顶栏只使用原生导航语义；动作仍回到网页注册的回调。
   private func configureHeader(_ host: ContentHostController, snapshot: NavigationSnapshot) {
     let trailing = snapshot.actions.filter { $0.position != .accessory }
+    let identity = ObjectIdentifier(host)
+    // Sheet 自己承载关闭；页面返回状态在系统动画开始前不能因网页弹层先闪出一个箭头。
+    let canGoBack =
+      snapshot.presentation?.sheet == nil
+      ? snapshot.route.canGoBack
+      : (headerConfigurations[identity]?.canGoBack ?? snapshot.route.canGoBack)
     let configuration = NativeHeaderConfiguration(
-      title: snapshot.route.title, canGoBack: snapshot.route.canGoBack,
+      title: snapshot.route.title, canGoBack: canGoBack,
       tabs: snapshot.headerTabs, actions: trailing,
       overlayOpen: snapshot.presentation?.overlayOpen == true)
-    let identity = ObjectIdentifier(host)
     guard headerConfigurations[identity] != configuration else {
       configureBottomBar(host, snapshot: snapshot)
       return
@@ -311,7 +376,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     host.navigationItem.title = snapshot.route.title
     host.navigationController?.interactivePopGestureRecognizer?.isEnabled = false
     host.navigationItem.leftBarButtonItems =
-      snapshot.route.canGoBack
+      canGoBack
       ? [
         UIBarButtonItem(
           image: UIImage(systemName: "chevron.backward"),
@@ -376,11 +441,13 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     configureBottomBar(host, snapshot: snapshot)
   }
 
-  /// 普通菜单保留底栏，只有网页明确声明的全屏弹窗释放整行占位。
+  /// 系统 Sheet 直接覆盖底栏，保持底页 viewport 稳定；旧网页全屏弹层仍释放占位。
   private func configureBottomBar(_ host: ContentHostController, snapshot: NavigationSnapshot) {
     host.toolbarItems = nil
     host.navigationController?.setToolbarHidden(true, animated: false)
-    let visible = snapshot.chrome.bottomVisible && snapshot.presentation?.fullscreen != true
+    let systemSheet = snapshot.presentation?.sheet != nil || webSheet != nil
+    let visible =
+      snapshot.chrome.bottomVisible && (systemSheet || snapshot.presentation?.fullscreen != true)
     host.additionalSafeAreaInsets.bottom =
       visible ? BottomNavigationView.height + BottomNavigationView.bottomSpacing : 0
     if bottomNavigation.superview == nil {
@@ -466,13 +533,13 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
           navigation.overrideUserInterfaceStyle = self.overrideUserInterfaceStyle
           navigation.view.tintColor = self.view.tintColor
           NativeModalAppearance.apply(
-            to: navigation.presentationController, style: self.traitCollection.userInterfaceStyle)
+            to: navigation.presentationController, style: self.modalInterfaceStyle)
           navigation.sheetPresentationController?.detents = [.medium(), .large()]
           navigation.sheetPresentationController?.prefersGrabberVisible = true
           self.present(navigation, animated: true)
         },
         UIAction(title: "重新加载", image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in
-          self?.coordinator.reloadInWebMode()
+          self?.coordinator.reload()
         },
         UIAction(title: "更改服务地址", image: UIImage(systemName: "server.rack")) { [weak self] _ in
           self?.onConnection()
@@ -567,10 +634,9 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     }
     if let controller = webSheet {
       sheetNavigation?.overrideUserInterfaceStyle = overrideUserInterfaceStyle
-      controller.apply(descriptor, style: traitCollection.userInterfaceStyle)
+      controller.apply(descriptor, style: modalInterfaceStyle)
       if sheetAttachedID != descriptor.id {
-        sheetAttachedID = descriptor.id
-        coordinator.command("presentation.attach", payload: .object(["id": .string(descriptor.id)]))
+        attachWebSheet(descriptor, controller: controller)
       }
       return
     }
@@ -591,41 +657,30 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     presentWebSheet(descriptor)
   }
 
-  /// 唯一 WebView 搬走前保留底页，仅作为系统转场下的页面上下文，不绘制玻璃或模糊材质。
+  /// 保留窗口中已经显示的底页，避免异步 WebKit 快照漏掉合成层；不将快照用作材质。
   private func preserveWebSheetPage(_ descriptor: NativeSheetSnapshot) {
     let token = UUID()
     sheetSnapshotToken = token
     preparingSheetID = descriptor.id
     if latest?.chrome.content == .menu {
-      finishWebSheetPreparation(id: descriptor.id, token: token, image: nil)
+      finishWebSheetPreparation(id: descriptor.id, token: token, page: nil)
       return
     }
-    let configuration = WKSnapshotConfiguration()
-    configuration.rect = coordinator.webView.bounds
-    configuration.afterScreenUpdates = true
-    coordinator.webView.takeSnapshot(with: configuration) { [weak self] image, _ in
-      self?.finishWebSheetPreparation(id: descriptor.id, token: token, image: image)
-    }
-    Task { [weak self] in
-      try? await Task.sleep(for: .seconds(1))
-      // 页面快照失败或进程挂起不能让业务弹窗一直等待，也不重复执行业务动作。
-      self?.finishWebSheetPreparation(id: descriptor.id, token: token, image: nil)
-    }
+    let page = selectedHost.view.snapshotView(afterScreenUpdates: false)
+    finishWebSheetPreparation(id: descriptor.id, token: token, page: page)
   }
 
   /// 只接收仍属当前弹窗的准备结果，底页只驻留内存，关闭或降级后立即释放。
-  private func finishWebSheetPreparation(id: String, token: UUID, image: UIImage?) {
+  private func finishWebSheetPreparation(id: String, token: UUID, page: UIView?) {
     guard sheetSnapshotToken == token, preparingSheetID == id,
       let descriptor = latest?.presentation?.sheet, descriptor.id == id,
       descriptor.backdropReady == true, nativeVisible, presentedViewController == nil
     else { return }
     sheetSnapshotToken = nil
     preparingSheetID = nil
-    if let image {
-      let page = UIImageView(image: image)
+    if let page {
       page.frame = selectedHost.view.bounds
       page.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-      page.contentMode = .scaleToFill
       page.accessibilityElementsHidden = true
       page.isUserInteractionEnabled = false
       selectedHost.view.addSubview(page)
@@ -636,7 +691,9 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
 
   /// 标题、关闭按钮、背景和转场来自系统 Sheet，同一 Vue 文档继续持有原表单。
   private func presentWebSheet(_ descriptor: NativeSheetSnapshot) {
-    guard presentedViewController == nil, webSheet == nil, nativeVisible else { return }
+    guard presentedViewController == nil, webSheet == nil, nativeVisible,
+      let container = activeContainer
+    else { return }
     let controller = NativeWebSheetController(snapshot: descriptor) { [weak self] type, action in
       self?.invokeWebSheetCommand(type, action: action)
     }
@@ -648,8 +705,14 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     navigation.modalPresentationStyle = .pageSheet
     webSheet = controller
     sheetNavigation = navigation
-    sheetAttachedID = descriptor.id
     controller.loadViewIfNeeded()
+    navigation.loadViewIfNeeded()
+    installBackGesture(on: navigation.view)
+    navigation.view.frame = view.bounds
+    // WKWebView 必须留在窗口中才能完成 rAF；底页占位覆盖准备内容，确认后再交给系统呈现。
+    addChild(navigation)
+    view.insertSubview(navigation.view, belowSubview: container.view)
+    navigation.didMove(toParent: self)
     controller.contentHost.attach(coordinator.content)
     coordinator.content.view.isHidden = false
     coordinator.content.view.backgroundColor = .clear
@@ -657,10 +720,43 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     coordinator.webView.backgroundColor = .clear
     coordinator.webView.underPageBackgroundColor = .clear
     coordinator.webView.scrollView.backgroundColor = .clear
-    controller.apply(descriptor, style: traitCollection.userInterfaceStyle)
+    controller.apply(descriptor, style: modalInterfaceStyle)
     navigation.presentationController?.delegate = controller
-    coordinator.command("presentation.attach", payload: .object(["id": .string(descriptor.id)]))
-    present(navigation, animated: true) { [weak self] in self?.coordinator.layoutChanged() }
+    navigation.view.layoutIfNeeded()
+    attachWebSheet(descriptor, controller: controller)
+  }
+
+  /// 网页标题和容器布局完成绘制后才开始系统动画，嵌套切换会撤销旧层的呈现回调。
+  private func attachWebSheet(
+    _ descriptor: NativeSheetSnapshot, controller: NativeWebSheetController
+  ) {
+    sheetAttachedID = descriptor.id
+    coordinator.layoutChanged()
+    coordinator.command(
+      "presentation.attach", payload: .object(["id": .string(descriptor.id)])
+    ) { [weak self, weak controller] accepted in
+      guard let self, let controller, self.webSheet === controller,
+        self.sheetAttachedID == descriptor.id, !self.sheetDismissing
+      else { return }
+      guard accepted else {
+        self.coordinator.releaseChrome()
+        return
+      }
+      guard let navigation = self.sheetNavigation, navigation.presentingViewController == nil,
+        self.presentedViewController == nil, self.nativeVisible,
+        self.latest?.presentation?.sheet?.id == descriptor.id
+      else { return }
+      self.removeSheetStaging(navigation)
+      self.present(navigation, animated: true) { [weak self] in self?.coordinator.layoutChanged() }
+    }
+  }
+
+  /// 将预备阶段的可绘制子控制器交还 UIKit，取消准备时也必须移除其视图与父引用。
+  private func removeSheetStaging(_ navigation: UINavigationController) {
+    guard navigation.parent === self else { return }
+    navigation.willMove(toParent: nil)
+    navigation.view.removeFromSuperview()
+    navigation.removeFromParent()
   }
 
   /// 原生栏只接受最新弹窗的关闭和标题栏动作，嵌套后旧标识不能再次执行。
@@ -673,43 +769,102 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     else { return }
     var payload: [String: JSONValue] = ["id": .string(descriptor.id)]
     if let action { payload["actionId"] = .string(action) }
+    if type == "presentation.dismiss" { preserveWebSheetExit() }
     coordinator.command(type, payload: .object(payload))
   }
 
-  /// Vue 确认关闭后再退出系统动画，交还原宿主；外围背景由系统同步恢复。
+  /// 退出动画保留最后一帧表单，唯一 WebView 可先在其后还原底页，不将快照用作材质。
+  private func preserveWebSheetExit() {
+    guard sheetExitPlaceholder == nil, !sheetDismissing,
+      let host = webSheet?.contentHost.view,
+      let placeholder = host.snapshotView(afterScreenUpdates: false)
+    else { return }
+    placeholder.frame = host.bounds
+    placeholder.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    placeholder.isUserInteractionEnabled = false
+    placeholder.accessibilityElementsHidden = true
+    host.addSubview(placeholder)
+    sheetExitPlaceholder = placeholder
+    Task { [weak self, weak placeholder] in
+      try? await Task.sleep(for: .seconds(2))
+      guard let self, let placeholder, self.sheetExitPlaceholder === placeholder,
+        !self.sheetDismissing
+      else { return }
+      // 业务拒绝关闭时恢复实时表单，不能让临时动画帧挡住后续输入。
+      placeholder.removeFromSuperview()
+      self.sheetExitPlaceholder = nil
+    }
+  }
+
+  /// Vue 确认关闭后先归位并绘制底页，再退出系统动画，避免露出旧主题或空白页面。
   private func dismissWebSheet(animated: Bool = true) {
     preparingSheetID = nil
     sheetSnapshotToken = nil
-    guard let navigation = sheetNavigation, !sheetDismissing else {
-      if sheetNavigation == nil {
+    guard let navigation = sheetNavigation, !sheetDismissing || !nativeVisible else {
+      if sheetNavigation == nil, !nativeVisible {
+        sheetRestoreToken = nil
+        sheetDismissing = false
         sheetPagePlaceholder?.removeFromSuperview()
         sheetPagePlaceholder = nil
       }
       return
     }
+    preserveWebSheetExit()
     sheetDismissing = true
+    let token = UUID()
+    sheetRestoreToken = token
     let id = sheetAttachedID
-    navigation.dismiss(animated: animated) { [weak self] in
-      guard let self else { return }
-      self.webSheet = nil
-      self.sheetNavigation = nil
-      self.sheetAttachedID = nil
-      self.sheetDismissing = false
-      let host = self.nativeVisible ? self.selectedHost : self.compatibilityHost
-      host.attach(self.coordinator.content)
-      self.coordinator.content.view.backgroundColor = .systemBackground
-      self.coordinator.webView.isOpaque = true
-      self.coordinator.webView.backgroundColor = .systemBackground
-      self.coordinator.webView.underPageBackgroundColor = .systemBackground
-      self.coordinator.webView.scrollView.backgroundColor = .systemBackground
+    let dismiss = { [weak self] in
+      guard let self, self.sheetRestoreToken == token else { return }
+      self.removeSheetStaging(navigation)
       self.sheetPagePlaceholder?.removeFromSuperview()
       self.sheetPagePlaceholder = nil
-      if let id {
-        self.coordinator.command("presentation.detach", payload: .object(["id": .string(id)]))
+      let finish = { [weak self] in
+        guard let self, self.sheetRestoreToken == token else { return }
+        self.finishWebSheetDismissal()
       }
-      if self.nativeVisible, let latest = self.latest { self.apply(latest) }
-      self.coordinator.layoutChanged()
+      if navigation.presentingViewController != nil {
+        navigation.dismiss(animated: animated, completion: finish)
+      } else {
+        finish()
+      }
     }
+    let host = nativeVisible ? selectedHost : compatibilityHost
+    host.attach(coordinator.content)
+    if let placeholder = sheetPagePlaceholder { host.view.bringSubviewToFront(placeholder) }
+    let background = NavigationSymbols.color(latest?.chrome.backgroundColor) ?? .systemBackground
+    coordinator.content.view.backgroundColor = background
+    coordinator.webView.isOpaque = true
+    coordinator.webView.backgroundColor = background
+    coordinator.webView.underPageBackgroundColor = background
+    coordinator.webView.scrollView.backgroundColor = background
+    host.view.layoutIfNeeded()
+    coordinator.layoutChanged()
+    if let id, nativeVisible {
+      coordinator.command(
+        "presentation.detach", payload: .object(["id": .string(id)])
+      ) { [weak self] accepted in
+        guard let self, self.sheetRestoreToken == token else { return }
+        if accepted { dismiss() } else { self.coordinator.releaseChrome() }
+      }
+    } else {
+      dismiss()
+    }
+  }
+
+  /// 底页已在原 viewport 完成绘制后才揭开占位，不触发网页刷新或重新加载。
+  private func finishWebSheetDismissal() {
+    sheetRestoreToken = nil
+    sheetDismissing = false
+    webSheet = nil
+    sheetNavigation = nil
+    sheetAttachedID = nil
+    sheetExitPlaceholder?.removeFromSuperview()
+    sheetExitPlaceholder = nil
+    sheetPagePlaceholder?.removeFromSuperview()
+    sheetPagePlaceholder = nil
+    if nativeVisible, let latest { apply(latest) }
+    coordinator.layoutChanged()
   }
 
   /// 快捷入口在系统浮层内使用独立导航，锚点位于宿主顶栏下方，底部导航继续显示。
@@ -733,7 +888,13 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     let navigation = UINavigationController(rootViewController: controller)
     navigation.overrideUserInterfaceStyle = overrideUserInterfaceStyle
     navigation.view.tintColor = view.tintColor
-    navigation.modalPresentationStyle = .popover
+    navigation.modalPresentationStyle = snapshot.layout == .grid ? .pageSheet : .popover
+    if snapshot.layout == .grid, let sheet = navigation.sheetPresentationController {
+      sheet.detents = [.medium(), .large()]
+      sheet.selectedDetentIdentifier = .medium
+      sheet.prefersGrabberVisible = true
+      sheet.prefersScrollingExpandsWhenScrolledToEdge = true
+    }
     controller.loadViewIfNeeded()
     navigation.preferredContentSize = CGSize(
       width: controller.preferredPanelWidth(maximum: min(view.bounds.width - 40, 430)),
@@ -750,7 +911,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     }
     navigation.presentationController?.delegate = self
     NativeModalAppearance.apply(
-      to: navigation.presentationController, style: traitCollection.userInterfaceStyle)
+      to: navigation.presentationController, style: modalInterfaceStyle)
     panelNavigation = navigation
     present(navigation, animated: true)
     coordinator.invoke(action, panelEvent: "open")
@@ -792,7 +953,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       navigation.overrideUserInterfaceStyle = overrideUserInterfaceStyle
       navigation.view.tintColor = view.tintColor
       NativeModalAppearance.apply(
-        to: navigation.presentationController, style: traitCollection.userInterfaceStyle)
+        to: navigation.presentationController, style: modalInterfaceStyle)
       for case let controller as NativePanelController in navigation.viewControllers {
         controller.apply(panel)
       }
@@ -853,7 +1014,8 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       background: NavigationSymbols.color(snapshot.chrome.backgroundColor)
         ?? .systemGroupedBackground,
       surface: NavigationSymbols.color(snapshot.chrome.surfaceColor)
-        ?? .secondarySystemGroupedBackground)
+        ?? .secondarySystemGroupedBackground,
+      accent: NavigationSymbols.color(snapshot.chrome.accentColor) ?? AccountAppearance.accent)
     if moreMenu.parent !== host {
       removeMoreMenu()
       host.addChild(moreMenu)

@@ -93,6 +93,30 @@ struct ChromeSessionTests {
     }
   }
 
+  /// 恢复文档必须允许重新接管，并拒绝被系统回收文档的会话和旧点击。
+  @Test func recoveredDocumentCanTakeOverWithFreshIdentity() throws {
+    var session = ChromeSession()
+    let old = try session.negotiate(majors: [1], capabilities: ChromeSession.requiredCapabilities)
+    try session.receive(snapshot(), routeRevision: 2, stateRevision: 3)
+    try session.prepare(layoutRevision: 1)
+    try session.accept(layoutRevision: 1)
+    session.failed()
+    session.beginDocument()
+    let current = try session.negotiate(
+      majors: [1], capabilities: ChromeSession.requiredCapabilities)
+    #expect(current != old)
+    #expect(session.snapshot == nil)
+    try session.receive(snapshot(), routeRevision: 0, stateRevision: 1)
+    try session.prepare(layoutRevision: 0)
+    try session.accept(layoutRevision: 0)
+    #expect(session.phase == .nativeNavigation)
+    #expect(throws: BridgeError.staleSession) {
+      try session.validateAction(sessionId: old, routeRevision: 2, actionId: "a1", ownerId: "page1")
+    }
+    try session.validateAction(
+      sessionId: current, routeRevision: 0, actionId: "a1", ownerId: "page1")
+  }
+
   /// 同文档换账号也必须拒绝旧会话，并在新快照到达前阻止旧按钮执行。
   @Test func identityRotationRevokesOldDocumentActions() throws {
     var session = ChromeSession()
