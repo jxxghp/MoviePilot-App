@@ -5,6 +5,34 @@ import Testing
 
 /// 验证通知载荷与自定义链接共用的实例、账号和内部路由边界。
 struct NotificationTests {
+  /// 默认公开中心和反向代理子路径均生成规范入口，旧后台配置可继续使用。
+  @Test func notificationCenterNormalizesPageAndBase() throws {
+    #expect(NotificationCenterAddress.defaultValue.displayURL == "https://movie-pilot.org")
+    #expect(
+      NotificationCenterAddress.defaultValue.pageURL.absoluteString
+        == "https://movie-pilot.org/push/app/")
+    let base = try NotificationCenterAddress("https://CENTER.test:443/base")
+    #expect(
+      NotificationCenterAddress(notificationPage: "https://center.test/base/push/app/") == base)
+    #expect(try NotificationCenterAddress("https://center.test/base/push/app") == base)
+    #expect(NotificationCenterAddress(notificationPage: "https://center.test/other") == nil)
+    #expect(base != NotificationCenterAddress.defaultValue)
+  }
+
+  /// 网页绑定只允许安全来源，不采纳携带凭据或查询参数的后台地址。
+  @Test func notificationCenterRejectsUnsafeAddresses() {
+    for value in [
+      "http://center.test", "http://192.168.1.2", "javascript:alert(1)",
+      "https://user:secret@center.test", "https://center.test/?token=secret",
+      "https://center.test/#fragment",
+    ] {
+      #expect(throws: (any Error).self) { try NotificationCenterAddress(value) }
+      #expect(NotificationCenterAddress(notificationPage: value) == nil)
+    }
+    #expect(
+      NotificationCenterAddress(notificationPage: "http://127.0.0.1:3301/push/app/") != nil)
+  }
+
   /// 规范地址允许冷启动后匹配，子目录、端口和账号改变均不能继承通知。
   @Test func matchesOnlyBoundAccountAndInstance() throws {
     let intent = try #require(
