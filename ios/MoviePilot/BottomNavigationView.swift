@@ -11,6 +11,8 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
   private var rootIds: [String] = []
   private var selectedRoot: String?
   private var onSelect: ((String) -> Void)?
+  private var actionWidth: NSLayoutConstraint!
+  private var actionSpacing: NSLayoutConstraint!
 
   /// 固定主入口和动作的空间关系，玻璃材质、选中反馈与无障碍语义交由 UIKit。
   init() {
@@ -23,16 +25,19 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
     actionHost.translatesAutoresizingMaskIntoConstraints = false
     addSubview(tabBar)
     addSubview(actionHost)
+    actionWidth = actionHost.widthAnchor.constraint(equalToConstant: Self.height)
+    actionSpacing = tabBar.trailingAnchor.constraint(
+      equalTo: actionHost.leadingAnchor, constant: -12)
     NSLayoutConstraint.activate([
       tabBar.leadingAnchor.constraint(equalTo: leadingAnchor),
       tabBar.topAnchor.constraint(equalTo: topAnchor),
       tabBar.bottomAnchor.constraint(equalTo: bottomAnchor),
-      tabBar.trailingAnchor.constraint(equalTo: actionHost.leadingAnchor, constant: -12),
+      actionSpacing,
       actionHost.trailingAnchor.constraint(equalTo: trailingAnchor),
       // Tab Bar 包含系统底部区域，动态按钮与整个栏的垂直中心对齐，避免比主入口高一层。
       actionHost.centerYAnchor.constraint(equalTo: tabBar.centerYAnchor),
       actionHost.heightAnchor.constraint(equalToConstant: Self.height),
-      actionHost.widthAnchor.constraint(equalToConstant: Self.height),
+      actionWidth,
     ])
   }
 
@@ -71,6 +76,8 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
     tabBar.accessibilityElementsHidden = overlayOpen
     for view in actionHost.subviews { view.removeFromSuperview() }
     actionHost.isHidden = action == nil
+    actionWidth.constant = action == nil ? 0 : Self.height
+    actionSpacing.constant = action == nil ? 0 : -12
     if let action {
       action.accessibilityIdentifier = "native-bottom-action"
       action.translatesAutoresizingMaskIntoConstraints = false

@@ -7,6 +7,7 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
   private let search = UISearchTextField()
   var onSelect: ((MoreMenuItem) -> Void)?
   private var sections: [MoreMenuSection] = []
+  private var surface: UIColor = .secondarySystemGroupedBackground
 
   /// 系统分组列表和搜索由 UIKit 提供，业务页面不进入此控制器。
   init() { super.init(style: .insetGrouped) }
@@ -49,8 +50,11 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
   }
 
   /// 每次已确认快照恢复可操作状态；权限目录变化即时替换原生列表。
-  func apply(_ sections: [MoreMenuSection]) {
+  func apply(_ sections: [MoreMenuSection], background: UIColor, surface: UIColor) {
     loadViewIfNeeded()
+    tableView.backgroundColor = background
+    self.surface = surface
+    for cell in tableView.visibleCells { cell.backgroundColor = surface }
     tableView.isUserInteractionEnabled = true
     if self.sections != sections {
       self.sections = sections
@@ -61,6 +65,14 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
   /// 离开菜单时收起搜索键盘，搜索框属于列表正文，不占用第二层导航栏。
   func endSearch() {
     tableView.endEditing(true)
+  }
+
+  /// 主导航重新进入更多时恢复完整目录，逻辑返回仍可保留原搜索上下文。
+  func resetSearch() {
+    search.text = nil
+    tableView.reloadData()
+    tableView.setContentOffset(
+      CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
   }
 
   /// 系统搜索键结束输入，结果仍保留在当前原生列表中。
@@ -111,8 +123,9 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
     content.secondaryText = item.subtitle
     content.secondaryTextProperties.numberOfLines = 0
     content.image = NavigationSymbols.image(item.icon)
-    content.imageProperties.tintColor = .tintColor
+    content.imageProperties.tintColor = view.tintColor
     cell.contentConfiguration = content
+    cell.backgroundColor = surface
     cell.accessoryType = .disclosureIndicator
     cell.accessibilityIdentifier = "more-entry-\(item.id)"
     return cell

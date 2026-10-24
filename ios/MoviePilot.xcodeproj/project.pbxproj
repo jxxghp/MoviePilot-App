@@ -15,12 +15,12 @@
 		83789EE8C7B5E15DE9D339B2 /* NativeFrameworkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 492AB810F34D732AF976E01D /* NativeFrameworkTests.swift */; };
 		8464FBB90159A6B122B561E9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16DC09F74832A0B86B73E0DB /* AppDelegate.swift */; };
 		8A3D015696B0598EAB65001E /* WebCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D565B6584319D5328EB3F39 /* WebCoordinator.swift */; };
-		9DED5DAFCA66C504730AEEC9 /* HeaderActionsButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5E06407DFB281561F8B92FB /* HeaderActionsButton.swift */; };
 		A0AB51CE161F94808B6EE599 /* AccountAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 274895617146E30E9DDE5876 /* AccountAppearance.swift */; };
 		A642DFCFFE0254BB381EE957 /* MoviePilotCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0A56C13BC20DA849FEC8E121 /* MoviePilotCore */; };
 		AABED68CFA2524E767AD4CE1 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C5522D23DCCE1A49988D78B /* NotificationService.swift */; };
 		AF1B137366BEA44FD5055EF3 /* ConnectionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E27A900F0778C506F3B44F3E /* ConnectionController.swift */; };
 		B54AB8C8D2E2ADEB1BB60A6B /* NavigationSymbols.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3BEFC3136EEA7192AD5C20D /* NavigationSymbols.swift */; };
+		B6CBAC2E829D1B24417062D3 /* NativeWebSheetController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F09ECDFCEB53CD2E95A1404 /* NativeWebSheetController.swift */; };
 		B751481BFB0F29D5319D82A4 /* InstanceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11C1FABE88ED006EC70944CD /* InstanceStore.swift */; };
 		B93BB24FA57807F4D530B081 /* WebContentController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82C723DD27397A1AD7E2E7E2 /* WebContentController.swift */; };
 		B95E25B659010EF18733CB13 /* MoreMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E07A2D5374C03798153CFA82 /* MoreMenuController.swift */; };
@@ -29,6 +29,7 @@
 		E2CC1E5D7BA47467F0727E6B /* StartupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF1A8D67F8876B6AECE70ECA /* StartupView.swift */; };
 		E4468F866BDEF9BB3036AF33 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 571C52ACC53E9ADFF2774ACA /* LaunchScreen.storyboard */; };
 		EB24867710544E7DFEBDA90C /* NotificationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E54307B2FD9DE9B104A4C0B /* NotificationController.swift */; };
+		F9CFC187B7A882F2EE4BBA4E /* NativePanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97C577DD42CBEF2372229CE0 /* NativePanelController.swift */; };
 		FBCCCA54858635AC0FAFCBBE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 15977B3A7EE8DCEF7B5257CF /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -51,24 +52,25 @@
 		274895617146E30E9DDE5876 /* AccountAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountAppearance.swift; sourceTree = "<group>"; };
 		2A663A5F20E9060A67A02499 /* APNs.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = APNs.entitlements; sourceTree = "<group>"; };
 		2ED77660949143CE0F66ABB7 /* AuthenticationClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationClient.swift; sourceTree = "<group>"; };
-		3B9A3A01FB3A03C2FC8AD128 /* MoviePilot-App */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "MoviePilot-App"; path = ..; sourceTree = SOURCE_ROOT; };
+		2F09ECDFCEB53CD2E95A1404 /* NativeWebSheetController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWebSheetController.swift; sourceTree = "<group>"; };
 		3C5522D23DCCE1A49988D78B /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		43EEF99FFB4650801A93C48B /* BridgeBootstrap.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = BridgeBootstrap.js; sourceTree = "<group>"; };
 		45F7C55CF76C93C422A267E7 /* MoviePilotUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MoviePilotUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		492AB810F34D732AF976E01D /* NativeFrameworkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFrameworkTests.swift; sourceTree = "<group>"; };
 		5459CACEBD27D42F6FD137E0 /* MoviePilot.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MoviePilot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		571C52ACC53E9ADFF2774ACA /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		3B9A3A01FB3A03C2FC8AD128 /* MoviePilot-App */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "MoviePilot-App"; path = ..; sourceTree = SOURCE_ROOT; };
 		6D565B6584319D5328EB3F39 /* WebCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebCoordinator.swift; sourceTree = "<group>"; };
 		7E0A361DAFEEE9F51B4F91B7 /* TokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenStore.swift; sourceTree = "<group>"; };
 		8072C0F89DB70887DB4A4AEC /* LoginController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginController.swift; sourceTree = "<group>"; };
 		82C723DD27397A1AD7E2E7E2 /* WebContentController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebContentController.swift; sourceTree = "<group>"; };
+		97C577DD42CBEF2372229CE0 /* NativePanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePanelController.swift; sourceTree = "<group>"; };
 		E07A2D5374C03798153CFA82 /* MoreMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreMenuController.swift; sourceTree = "<group>"; };
 		E27A900F0778C506F3B44F3E /* ConnectionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionController.swift; sourceTree = "<group>"; };
 		E3BEFC3136EEA7192AD5C20D /* NavigationSymbols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationSymbols.swift; sourceTree = "<group>"; };
 		EC6B4DF852680FFE4FCB4A47 /* BottomNavigationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomNavigationView.swift; sourceTree = "<group>"; };
 		EDC7F876AC1F304D50E70B03 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		EF1A8D67F8876B6AECE70ECA /* StartupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupView.swift; sourceTree = "<group>"; };
-		F5E06407DFB281561F8B92FB /* HeaderActionsButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeaderActionsButton.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -91,10 +93,11 @@
 				2ED77660949143CE0F66ABB7 /* AuthenticationClient.swift */,
 				EC6B4DF852680FFE4FCB4A47 /* BottomNavigationView.swift */,
 				E27A900F0778C506F3B44F3E /* ConnectionController.swift */,
-				F5E06407DFB281561F8B92FB /* HeaderActionsButton.swift */,
 				11C1FABE88ED006EC70944CD /* InstanceStore.swift */,
 				8072C0F89DB70887DB4A4AEC /* LoginController.swift */,
 				E07A2D5374C03798153CFA82 /* MoreMenuController.swift */,
+				97C577DD42CBEF2372229CE0 /* NativePanelController.swift */,
+				2F09ECDFCEB53CD2E95A1404 /* NativeWebSheetController.swift */,
 				E3BEFC3136EEA7192AD5C20D /* NavigationSymbols.swift */,
 				1E54307B2FD9DE9B104A4C0B /* NotificationController.swift */,
 				3C5522D23DCCE1A49988D78B /* NotificationService.swift */,
@@ -262,10 +265,11 @@
 				1A0A64BFB15E9E666C46208E /* AuthenticationClient.swift in Sources */,
 				C4059A8F886BC8E2B08268BA /* BottomNavigationView.swift in Sources */,
 				AF1B137366BEA44FD5055EF3 /* ConnectionController.swift in Sources */,
-				9DED5DAFCA66C504730AEEC9 /* HeaderActionsButton.swift in Sources */,
 				B751481BFB0F29D5319D82A4 /* InstanceStore.swift in Sources */,
 				0B79AFE6E3E507A780FAEDAB /* LoginController.swift in Sources */,
 				B95E25B659010EF18733CB13 /* MoreMenuController.swift in Sources */,
+				F9CFC187B7A882F2EE4BBA4E /* NativePanelController.swift in Sources */,
+				B6CBAC2E829D1B24417062D3 /* NativeWebSheetController.swift in Sources */,
 				B54AB8C8D2E2ADEB1BB60A6B /* NavigationSymbols.swift in Sources */,
 				EB24867710544E7DFEBDA90C /* NotificationController.swift in Sources */,
 				AABED68CFA2524E767AD4CE1 /* NotificationService.swift in Sources */,
@@ -346,7 +350,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				MOVIEPILOT_APNS_ENVIRONMENT = disabled;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -465,7 +469,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				MOVIEPILOT_APNS_ENVIRONMENT = disabled;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;

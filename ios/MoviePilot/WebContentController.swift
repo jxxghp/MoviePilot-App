@@ -29,7 +29,6 @@ final class WebContentController: UIViewController {
       webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
     ])
     self.view = view
-    setContentScrollView(webView.scrollView, for: .all)
   }
 
   /// 旋转和系统栏尺寸改变后通知协调器重新量测。
@@ -63,6 +62,8 @@ final class ContentHostController: UIViewController {
   /// 正确解除旧父子关系，再将同一内容控制器归属到当前入口。
   func attach(_ content: WebContentController) {
     guard content.parent !== self else { return }
+    // 先解除旧导航容器的滚动跟踪，避免同一 WKScrollView 同时驱动两份系统导航栏。
+    (content.parent as? ContentHostController)?.setContentScrollView(nil, for: .all)
     content.willMove(toParent: nil)
     content.view.removeFromSuperview()
     content.removeFromParent()

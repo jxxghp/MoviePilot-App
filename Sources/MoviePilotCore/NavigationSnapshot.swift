@@ -33,20 +33,70 @@ public struct HeaderTabsSnapshot: Codable, Equatable, Sendable {
 /// 导航动作的显示位置；业务实现仍保存在网页回调表中。
 public enum ActionPosition: String, Codable, Sendable { case leading, trailing, accessory }
 
-/// 不含回调与业务数据的导航动作描述。
+/// 动作所属范围只影响菜单分组，不改变网页回调与权限校验。
+public enum ActionScope: String, Codable, Sendable { case global, page }
+
+/// 不含回调与认证凭据的导航动作及面板展示声明。
 public struct ActionSnapshot: Codable, Equatable, Sendable {
   public let actionId: String
   public let ownerId: String
   public let title: String
   public let icon: String
   public let position: ActionPosition
+  public let scope: ActionScope?
   public let enabled: Bool
   public let loading: Bool
   public let dataAttr: String?
   public let menu: [ActionMenuItem]?
+  public let panel: NativePanelSnapshot?
+
+  /// 旧前端沿用已发布的全局动作标识；新前端明确声明范围，未知动作归入当前页面。
+  public var isGlobal: Bool {
+    if let scope { return scope == .global }
+    let parts = actionId.split(separator: ":", omittingEmptySubsequences: false)
+    return parts.count == 3 && parts[0].hasPrefix("r") && parts[1] == "global"
+  }
 }
 
-/// 纯命令菜单项；复杂 HTML 面板继续通过父动作打开。
+/// 系统快捷面板的纯展示声明，业务方法与权限仍留在当前网页组件中。
+public struct NativePanelSnapshot: Codable, Equatable, Sendable {
+  public let title: String
+  public let subtitle: String?
+  public let search: NativePanelSearch?
+  public let sections: [NativePanelSection]
+  public let loading: Bool?
+  public let hasMore: Bool?
+  public let emptyText: String?
+}
+
+/// 搜索词只由系统输入框和当前网页状态同步，不包含后端接口地址。
+public struct NativePanelSearch: Codable, Equatable, Sendable {
+  public let text: String
+  public let placeholder: String
+}
+
+/// 原生面板按当前业务组件的分组顺序显示。
+public struct NativePanelSection: Codable, Equatable, Sendable {
+  public let id: String
+  public let title: String?
+  public let items: [NativePanelItem]
+}
+
+/// 有限层级的系统列表项；图片仅用于展示，点击只回传稳定标识。
+public struct NativePanelItem: Codable, Equatable, Sendable {
+  public let id: String
+  public let title: String
+  public let subtitle: String?
+  public let icon: String?
+  public let image: String?
+  public let enabled: Bool?
+  public let selected: Bool?
+  public let destructive: Bool?
+  public let keepOpen: Bool?
+  public let children: [NativePanelItem]?
+}
+
+/// 纯命令菜单项；业务回调仍由当前网页处理。
 public struct ActionMenuItem: Codable, Equatable, Sendable {
   public let actionId: String
   public let title: String
@@ -64,6 +114,8 @@ public struct ChromeSnapshot: Codable, Equatable, Sendable {
   public let theme: ChromeTheme
   public let content: ChromeContent?
   public let accentColor: String?
+  public let backgroundColor: String?
+  public let surfaceColor: String?
 }
 
 /// 业务 HTML 与原生框架菜单使用不同呈现，但共享同一个 Router 会话。
@@ -85,8 +137,31 @@ public struct MoreMenuItem: Codable, Equatable, Sendable {
   public let subtitle: String?
 }
 
-/// 网页弹层仍由既有组件实现，原生限制其后方导航并提供关闭返回。
-public struct PresentationSnapshot: Codable, Equatable, Sendable { public let overlayOpen: Bool }
+/// 系统 Sheet 接管已有 Vue 弹窗的标题栏；内容与业务状态不离开原文档。
+public struct NativeSheetSnapshot: Codable, Equatable, Sendable {
+  public let id: String
+  public let title: String
+  public let fullscreen: Bool
+  public let canDismiss: Bool
+  /// 旧前端缺省时直接接管；支持准备的前端先保留原底页，再移交唯一 WebView。
+  public let backdropReady: Bool?
+  public let actions: [NativeSheetAction]
+}
+
+/// 标题栏只引用当前 DOM 按钮，不携带脚本、选择器或业务接口。
+public struct NativeSheetAction: Codable, Equatable, Sendable {
+  public let id: String
+  public let title: String
+  public let enabled: Bool
+}
+
+/// 普通菜单保留底栏，业务弹窗可由具备可选能力的系统 Sheet 承载。
+public struct PresentationSnapshot: Codable, Equatable, Sendable {
+  public let overlayOpen: Bool
+  public let fullscreen: Bool?
+  public let requestedPanel: String?
+  public let sheet: NativeSheetSnapshot?
+}
 
 /// 原生显示所需的完整原子快照，受大小、数量及修订约束。
 public struct NavigationSnapshot: Codable, Equatable, Sendable {
@@ -101,9 +176,10 @@ public struct NavigationSnapshot: Codable, Equatable, Sendable {
   /// 验证所有路径、数量与标识唯一性；不把不完整快照提交到原生控件。
   public func validate() throws {
     guard Self.isRoute(route.fullPath), Self.isLabel(route.title),
-      chrome.accentColor.map({
-        $0.utf8.count == 7 && $0.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil
-      }) ?? true,
+      [chrome.accentColor, chrome.backgroundColor, chrome.surfaceColor].allSatisfy({ color in
+        color.map(Self.isColor) ?? true
+      }),
+      presentation?.requestedPanel.map(BridgeValidator.isIdentifier) ?? true,
       route.backTarget.map(Self.isRoute) ?? true,
       !route.canGoBack || route.backTarget != nil,
       roots.count <= 4, actions.count <= 16,
@@ -116,6 +192,13 @@ public struct NavigationSnapshot: Codable, Equatable, Sendable {
       })
     else {
       throw BridgeError.invalidMessage
+    }
+    if let sheet = presentation?.sheet {
+      guard presentation?.overlayOpen == true, BridgeValidator.isIdentifier(sheet.id),
+        Self.isLabel(sheet.title), sheet.actions.count <= 8,
+        Set(sheet.actions.map(\.id)).count == sheet.actions.count,
+        sheet.actions.allSatisfy({ BridgeValidator.isIdentifier($0.id) && Self.isLabel($0.title) })
+      else { throw BridgeError.invalidMessage }
     }
     if let tabs = headerTabs {
       guard BridgeValidator.isIdentifier(tabs.ownerId), !tabs.items.isEmpty, tabs.items.count <= 32,
@@ -154,7 +237,60 @@ public struct NavigationSnapshot: Codable, Equatable, Sendable {
           throw BridgeError.invalidMessage
         }
       }
+      if let panel = action.panel { try Self.validatePanel(panel) }
     }
+  }
+
+  /// 面板限制层级、数量、文本和唯一标识，防止失控声明进入系统控件。
+  private static func validatePanel(_ panel: NativePanelSnapshot) throws {
+    guard isLabel(panel.title), panel.subtitle.map(isLabel) ?? true,
+      panel.emptyText.map(isLabel) ?? true, panel.sections.count <= 16,
+      Set(panel.sections.map(\.id)).count == panel.sections.count
+    else { throw BridgeError.invalidMessage }
+    if let search = panel.search {
+      guard search.text.utf8.count <= 1024, isLabel(search.placeholder),
+        !search.text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+      else { throw BridgeError.invalidMessage }
+    }
+    var ids = Set<String>()
+    /// 递归检查每行，所有分组和子菜单共享同一标识空间。
+    func validateRows(_ rows: [NativePanelItem], depth: Int) throws {
+      guard depth <= 2 else { throw BridgeError.invalidMessage }
+      for row in rows {
+        guard ids.count < 96, BridgeValidator.isIdentifier(row.id), ids.insert(row.id).inserted,
+          isLabel(row.title), row.icon.map(isLabel) ?? true,
+          row.image.map(isImageReference) ?? true,
+          row.subtitle.map({
+            $0.utf8.count <= 2048 && !$0.isEmpty
+              && !$0.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+          }) ?? true
+        else { throw BridgeError.invalidMessage }
+        if let children = row.children, !children.isEmpty {
+          try validateRows(children, depth: depth + 1)
+        }
+      }
+    }
+    for section in panel.sections {
+      guard BridgeValidator.isIdentifier(section.id), section.title.map(isLabel) ?? true
+      else { throw BridgeError.invalidMessage }
+      try validateRows(section.items, depth: 0)
+    }
+  }
+
+  /// 图片仅接受有界 HTTP(S) 地址，不接受脚本、本机文件或 URL 中的用户凭据。
+  public static func isImageReference(_ value: String) -> Bool {
+    guard value.utf8.count <= 4096,
+      !value.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+      let url = URL(string: value), let scheme = url.scheme?.lowercased(),
+      ["https", "http"].contains(scheme), url.host != nil, url.user == nil, url.password == nil
+    else { return false }
+    return true
+  }
+
+  /// 颜色仅允许六位十六进制值，不能透传 CSS 指令。
+  private static func isColor(_ value: String) -> Bool {
+    value.utf8.count == 7
+      && value.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil
   }
 
   /// 只接受 Vue 内部路径，禁止绝对来源、反斜杠与控制字符。
