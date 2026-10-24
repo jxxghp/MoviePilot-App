@@ -2989,10 +2989,10 @@ index 212f0e2d..37a3138a 100644
    </VDialog>
 diff --git a/src/components/native/NativeNavigationHost.vue b/src/components/native/NativeNavigationHost.vue
 new file mode 100644
-index 00000000..4a53ae43
+index 00000000..4a8329a0
 --- /dev/null
 +++ b/src/components/native/NativeNavigationHost.vue
-@@ -0,0 +1,506 @@
+@@ -0,0 +1,528 @@
 +<script setup lang="ts">
 +import { glassAppearancePreference } from '@/utils/themePalette'
 +import { computed, nextTick, onScopeDispose, ref, toValue, watch, watchEffect } from 'vue'
@@ -3146,7 +3146,18 @@ index 00000000..4a53ae43
 +      const loading = Boolean(toValue(button.loading))
 +      const panel = button.panel?.()
 +      const projection = panel
-+        ? projectNativePanel(activePanel.value === actionId ? panel : { ...panel, sections: [] })
++        ? projectNativePanel(
++            activePanel.value === actionId
++              ? panel
++              : {
++                  ...panel,
++                  sections: [],
++                  feed: undefined,
++                  retainedItems: undefined,
++                  loadError: undefined,
++                  hasMore: false,
++                },
++          )
 +        : undefined
 +      if (projection) panels.set(actionId, projection)
 +      actions.push({
@@ -3182,7 +3193,18 @@ index 00000000..4a53ae43
 +      const actionId = `r${revision}:global:${action.id}`
 +      const source = action.panel?.()
 +      const projection = source
-+        ? projectNativePanel(activePanel.value === actionId ? source : { ...source, sections: [] })
++        ? projectNativePanel(
++            activePanel.value === actionId
++              ? source
++              : {
++                  ...source,
++                  sections: [],
++                  feed: undefined,
++                  retainedItems: undefined,
++                  loadError: undefined,
++                  hasMore: false,
++                },
++          )
 +        : undefined
 +      if (projection) panels.set(actionId, projection)
 +      actions.push({
@@ -6150,20 +6172,27 @@ index c71ff06a..40fcb6e6 100644
          <VIcon icon="mdi-card-multiple-outline" />
        </IconBtn>
 diff --git a/src/layouts/default/components/UserNotification.vue b/src/layouts/default/components/UserNotification.vue
-index 9dfb07a3..d9aca1a8 100644
+index 9dfb07a3..3bff225f 100644
 --- a/src/layouts/default/components/UserNotification.vue
 +++ b/src/layouts/default/components/UserNotification.vue
-@@ -8,6 +8,9 @@ import { useBackground } from '@/composables/useBackground'
+@@ -8,6 +8,10 @@ import { useBackground } from '@/composables/useBackground'
  import { useToast } from 'vue-toastification'
  import { useI18n } from 'vue-i18n'
  import { useConfirm } from '@/composables/useConfirm'
 +import { useNativeGlobalAction, nativeRequestedPanel } from '@/native/registry'
 +import { nativePanelId } from '@/native/panel'
++import type { NativePanelEntry, NativePanelSource } from '@/native/registry'
 +import { nativeChromeActive } from '@/native/layout'
  
  type NotificationDisplayItem =
    | { kind: 'section'; key: string; title: string; count: number }
-@@ -24,6 +27,31 @@ const PAGE_SIZE = 20
+@@ -20,10 +24,37 @@ const $toast = useToast()
+ const createConfirm = useConfirm()
+ 
+ const PAGE_SIZE = 20
++// 最坏情况下同时包含长正文和四 KiB 图片地址，仍不放大原生桥接的单次消息预算。
++const NATIVE_FEED_BATCH_SIZE = 3
+ // 虚拟滚动的默认通知项高度，展开后的实际高度由 VVirtualScroll 的 itemRef 动态测量。
  const NOTIFICATION_ITEM_HEIGHT = 136
  
  const appsMenu = ref(false)
@@ -6195,37 +6224,169 @@ index 9dfb07a3..d9aca1a8 100644
  const hasNewMessage = ref(false)
  const notificationList = ref<SystemNotification[]>([])
  const page = ref(1)
-@@ -32,6 +60,7 @@ const clearing = ref(false)
+@@ -32,6 +63,14 @@ const clearing = ref(false)
  const hasMore = ref(true)
  const notificationKeys = new Set<string>()
  const expandedNotificationKeys = ref(new Set<string>())
 +const nativePageOffset = ref(0)
++const nativeLoadedCount = ref(PAGE_SIZE)
++const nativeFeedGeneration = ref(0)
++const nativeFeedRevision = ref(0)
++const nativeLoadError = ref(false)
++const nativePublishedKeys = ref(new Set<string>())
++/** 未协商连续列表时保留旧容器行为，普通网页不进入原生分片流程。 */
++const usesNativeFeed = () => window.MoviePilotNative?.panelFeedsVersion === 1
  
  const hasUnreadNotifications = computed(() => notificationList.value.some(item => item.read === false))
  const hasBadgeUnreadMessages = computed(() => appUnreadMessageCount.value > 0)
-@@ -516,11 +545,96 @@ function handleNotificationMenuVisibleChange(open: boolean) {
+@@ -199,6 +238,7 @@ function resetNotifications() {
+   page.value = 1
+   hasMore.value = true
+   hasNewMessage.value = false
++  resetNativeNotificationFeed()
+ }
+ 
+ /** 重新根据当前列表生成去重 key，避免分类清理后遗留已移除消息的去重状态。 */
+@@ -250,6 +290,7 @@ function removeNotificationsByScope(scope: NotificationClearScope) {
+   rebuildNotificationKeys()
+   rebuildExpandedNotificationKeys()
+   syncUnreadStateAfterListChange()
++  resetNativeNotificationFeed()
+ }
+ 
+ /** 获取不同清理范围的确认文案。 */
+@@ -340,8 +381,10 @@ async function refreshNotificationsOnOpen() {
+     notificationKeys.clear()
+     notificationList.value = compactNotifications(notificationList.value)
+     rebuildNotificationKeys()
++    nativeLoadError.value = false
+     await fetchNotificationPage()
+   } catch (error) {
++    nativeLoadError.value = true
+     console.error('刷新通知失败:', error)
+   } finally {
+     loading.value = false
+@@ -387,6 +430,7 @@ function handleMessage(event: MessageEvent) {
+ 
+     if (mergeNotifications([notification], { prepend: true, read: false })) {
+       hasNewMessage.value = true
++      if (usesNativeFeed()) publishNativeNotificationPage(0)
+       emitAgentAssistantNotificationBubble(notification)
+     }
+   } catch (error) {
+@@ -516,11 +560,169 @@ function handleNotificationMenuVisibleChange(open: boolean) {
  }
  
  watch(appsMenu, handleNotificationMenuVisibleChange)
 +
-+/** 原生消息中心使用同一列表、SSE、已读和清理流程；历史按二十条翻页防止桥接超限。 */
-+function notificationNativePanel() {
-+  const rows = notificationList.value.slice(nativePageOffset.value, nativePageOffset.value + PAGE_SIZE)
++/** 清理或重新打开时撤销原生旧分片和旧回调，不让不同展示会话相互继承。 */
++function resetNativeNotificationFeed() {
++  nativeFeedGeneration.value += 1
++  nativeFeedRevision.value = 0
++  nativeLoadedCount.value = usesNativeFeed() ? NATIVE_FEED_BATCH_SIZE : PAGE_SIZE
++  nativePageOffset.value = 0
++  nativeLoadError.value = false
++  nativePublishedKeys.value = new Set()
++}
++
++/** 单次只传有界正文，已展示标识留在网页内以便向上回看和执行原有展开操作。 */
++function publishNativeNotificationPage(offset: number) {
++  nativePageOffset.value = offset
++  nativePublishedKeys.value = new Set([
++    ...nativePublishedKeys.value,
++    ...notificationList.value.slice(offset, offset + NATIVE_FEED_BATCH_SIZE).map(getNotificationKey),
++  ])
++}
++
++/** 继续使用原分页/去重流程；完成序号为原生提供明确应答，失败后等待用户重试。 */
++async function loadMoreNativeNotifications() {
++  if (loading.value || clearing.value) return
++  if (!usesNativeFeed()) {
++    if (nativePageOffset.value + PAGE_SIZE >= notificationList.value.length) await loadNotifications({ done: () => {} })
++    if (nativePageOffset.value + PAGE_SIZE < notificationList.value.length) nativePageOffset.value += PAGE_SIZE
++    return
++  }
++  try {
++    nativeLoadError.value = false
++    const offset = Math.min(nativeLoadedCount.value, notificationList.value.length)
++    if (offset >= notificationList.value.length)
++      await loadNotifications({
++        done: status => {
++          nativeLoadError.value = status === 'error'
++        },
++      })
++    if (!nativeLoadError.value && offset < notificationList.value.length) {
++      publishNativeNotificationPage(offset)
++      nativeLoadedCount.value = Math.min(offset + NATIVE_FEED_BATCH_SIZE, notificationList.value.length)
++    }
++  } finally {
++    nativeFeedRevision.value += 1
++  }
++}
++
++/** 旧行继续调用当前组件的已读/展开逻辑，并只补发该行所在的有界分片。 */
++function nativeNotificationEntry(item: SystemNotification): NativePanelEntry {
++  return {
++    id: nativePanelId('message', getNotificationKey(item)),
++    title: item.title || t('notification.center'),
++    subtitle: [
++      item.read === false ? '●' : '',
++      formatDateDifference(getNotificationTime(item)),
++      isNotificationExpanded(item) ? item.text : String(item.text || '').slice(0, 100),
++    ]
++      .filter(Boolean)
++      .join(' · '),
++    icon: getNotificationIcon(item),
++    // 兼容旧通知 image，同时优先采用新后端的独立竖版海报。
++    image: item.poster || item.image || undefined,
++    keepOpen: true,
++    invoke: () => {
++      const index = notificationList.value.findIndex(
++        current => getNotificationKey(current) === getNotificationKey(item),
++      )
++      if (index < 0) return
++      toggleNotificationExpanded(notificationList.value[index])
++      if (usesNativeFeed())
++        publishNativeNotificationPage(Math.floor(index / NATIVE_FEED_BATCH_SIZE) * NATIVE_FEED_BATCH_SIZE)
++    },
++  }
++}
++
++/** 原生消息中心复用网页列表和业务流程；新容器按分片连续追加，旧容器保留已发布兼容行为。 */
++function notificationNativePanel(): NativePanelSource {
++  const feed = usesNativeFeed()
++  const rows = notificationList.value.slice(
++    nativePageOffset.value,
++    nativePageOffset.value + (feed ? NATIVE_FEED_BATCH_SIZE : PAGE_SIZE),
++  )
 +  return {
 +    title: t('notification.center'),
-+    width: 'full' as const,
++    width: 'full',
 +    loading: loading.value || clearing.value,
-+    hasMore: nativePageOffset.value + PAGE_SIZE < notificationList.value.length || hasMore.value,
++    hasMore:
++      (feed ? nativeLoadedCount.value : nativePageOffset.value + PAGE_SIZE) < notificationList.value.length ||
++      hasMore.value,
++    ...(feed
++      ? {
++          feed: {
++            id: `notifications-${nativeFeedGeneration.value}`,
++            offset: nativePageOffset.value,
++            revision: nativeFeedRevision.value,
++            sectionIds: ['system', 'media'],
++          },
++          retainedItems: notificationList.value
++            .filter(item => nativePublishedKeys.value.has(getNotificationKey(item)))
++            .map(nativeNotificationEntry),
++          ...(nativeLoadError.value ? { loadError: '加载失败，轻点重试' } : {}),
++        }
++      : {}),
 +    emptyText: t('notification.empty'),
-+    onOpen: () => {
-+      nativePageOffset.value = 0
-+      return refreshNotificationsOnOpen()
++    onOpen: async () => {
++      resetNativeNotificationFeed()
++      await refreshNotificationsOnOpen()
++      if (feed) publishNativeNotificationPage(0)
 +    },
-+    onLoadMore: async () => {
-+      if (nativePageOffset.value + PAGE_SIZE >= notificationList.value.length)
-+        await loadNotifications({ done: () => {} })
-+      if (nativePageOffset.value + PAGE_SIZE < notificationList.value.length) nativePageOffset.value += PAGE_SIZE
-+    },
++    onLoadMore: loadMoreNativeNotifications,
 +    sections: [
 +      {
 +        id: 'tools',
@@ -6251,7 +6412,7 @@ index 9dfb07a3..d9aca1a8 100644
 +              invoke: () => clearNotifications(option.scope),
 +            })),
 +          },
-+          ...(nativePageOffset.value
++          ...(!feed && nativePageOffset.value
 +            ? [
 +                {
 +                  id: 'previous',
@@ -6269,24 +6430,7 @@ index 9dfb07a3..d9aca1a8 100644
 +      ...(['system', 'media'] as const).map(kind => ({
 +        id: kind,
 +        title: t(kind === 'system' ? 'notification.systemMessages' : 'notification.mediaMessages'),
-+        items: rows
-+          .filter(item => getNotificationClearScope(item) === kind)
-+          .map(item => ({
-+            id: nativePanelId('message', getNotificationKey(item)),
-+            title: item.title || t('notification.center'),
-+            subtitle: [
-+              item.read === false ? '●' : '',
-+              formatDateDifference(getNotificationTime(item)),
-+              isNotificationExpanded(item) ? item.text : String(item.text || '').slice(0, 100),
-+            ]
-+              .filter(Boolean)
-+              .join(' · '),
-+            icon: getNotificationIcon(item),
-+            // 新后端优先使用独立竖版海报；已部署旧版本和历史通知沿用网页实际展示的 image 字段。
-+            image: item.poster || item.image || undefined,
-+            keepOpen: true,
-+            invoke: () => toggleNotificationExpanded(item),
-+          })),
++        items: rows.filter(item => getNotificationClearScope(item) === kind).map(nativeNotificationEntry),
 +      })),
 +    ],
 +  }
@@ -6300,7 +6444,7 @@ index 9dfb07a3..d9aca1a8 100644
      width="420"
      max-width="calc(100vw - 24px)"
      transition="scale-transition"
-@@ -528,7 +642,7 @@ watch(appsMenu, handleNotificationMenuVisibleChange)
+@@ -528,7 +730,7 @@ watch(appsMenu, handleNotificationMenuVisibleChange)
      class="notification-menu"
      scrim
    >
@@ -6800,20 +6944,215 @@ index 486f7d5a..dc34536c 100644
      expect(profile).toMatch(/<VListItem v-if="community\.eligible\.value" link @click="showCommunityDialog\(\)"/)
    })
 diff --git a/src/layouts/default/components/__tests__/UserNotification.spec.ts b/src/layouts/default/components/__tests__/UserNotification.spec.ts
-index 73db3b3c..8161c774 100644
+index 73db3b3c..cff30ce0 100644
 --- a/src/layouts/default/components/__tests__/UserNotification.spec.ts
 +++ b/src/layouts/default/components/__tests__/UserNotification.spec.ts
-@@ -1,5 +1,6 @@
+@@ -1,5 +1,7 @@
  import UserNotification from '../UserNotification.vue'
  import type { SystemNotification } from '@/api/types'
 +import { nativeGlobalActions } from '@/native/registry'
++import { dispatchNativePanel, nativePanelId, projectNativePanel } from '@/native/panel'
  import { renderWithProviders } from '@tests/support/render'
  import { apiJson } from '@tests/support/msw/response'
  import { server } from '@tests/support/msw/server'
-@@ -29,6 +30,52 @@ function deferNotifications() {
+@@ -7,8 +9,13 @@ import { fireEvent, screen, waitFor } from '@testing-library/vue'
+ import { HttpResponse, http } from 'msw'
+ import { describe, expect, it, vi } from 'vitest'
+ 
++const background = vi.hoisted(() => ({ receive: undefined as ((event: MessageEvent) => void) | undefined }))
+ vi.mock('@/composables/useBackground', () => ({
+-  useBackground: () => ({ useDelayedSSE: vi.fn() }),
++  useBackground: () => ({
++    useDelayedSSE: (_url: string, receive: (event: MessageEvent) => void) => {
++      background.receive = receive
++    },
++  }),
+ }))
+ vi.mock('vue-toastification', () => ({ useToast: () => ({ success: vi.fn(), error: vi.fn() }) }))
+ 
+@@ -29,6 +36,231 @@ function deferNotifications() {
  }
  
  describe('UserNotification', () => {
++  it('连续三页无漏项，回看旧通知仍可展开，重新打开撤销上次会话的回调', async () => {
++    vi.stubGlobal('MoviePilotNative', { transportVersion: 1, panelFeedsVersion: 1, postMessage: vi.fn() })
++    const items = Array.from({ length: 65 }, (_, index) => ({
++      id: index + 1,
++      title: `通知${index + 1}`,
++      text: `正文${index + 1}`.repeat(80),
++      reg_time: new Date(Date.UTC(2026, 9, 24, 12) - index * 1000).toISOString(),
++    }))
++    const requests: number[] = []
++    server.use(
++      http.get('http://localhost/api/v1/message/notification', ({ request }) => {
++        const page = Number(new URL(request.url).searchParams.get('page'))
++        requests.push(page)
++        return apiJson(items.slice((page - 1) * 20, page * 20))
++      }),
++    )
++    await renderWithProviders(UserNotification)
++    const action = nativeGlobalActions.value.get('notifications')!
++    await action.panel!()!.onOpen!()
++    const initial = projectNativePanel(action.panel!()!)
++    const seen = new Set<string>()
++    for (let attempt = 0; attempt < 30; attempt++) {
++      const source = action.panel!()!
++      const current = projectNativePanel(source)
++      expect(current.panel.sections[0].items.some(item => item.id === 'previous')).toBe(false)
++      const messages = current.panel.sections.slice(1).flatMap(section => section.items)
++      expect(messages.length).toBeLessThanOrEqual(3)
++      messages.forEach(item => seen.add(item.id))
++      expect(new TextEncoder().encode(JSON.stringify(current.panel)).length).toBeLessThan(28000)
++      if (!source.hasMore) break
++      await source.onLoadMore!()
++    }
++    expect(seen).toEqual(new Set(items.map(item => nativePanelId('message', `id:${item.id}`))))
++    expect(requests).toEqual([1, 2, 3, 4])
++    const latest = projectNativePanel(action.panel!()!)
++    const firstId = nativePanelId('message', 'id:1')
++    expect(dispatchNativePanel(latest, { panelEvent: 'select', itemId: firstId, value: latest.panel.feed!.id })).toBe(
++      true,
++    )
++    expect(projectNativePanel(action.panel!()!).callbacks.get(firstId)?.subtitle).toContain(items[0].text)
++    const lastId = nativePanelId('message', 'id:65')
++    await action.panel!()!.onOpen!()
++    const reopened = projectNativePanel(action.panel!()!)
++    expect(
++      dispatchNativePanel(reopened, { panelEvent: 'select', itemId: firstId, value: initial.panel.feed!.id }),
++    ).toBe(false)
++    expect(
++      dispatchNativePanel(reopened, { panelEvent: 'select', itemId: lastId, value: reopened.panel.feed!.id }),
++    ).toBe(false)
++  })
++
++  it('单页失败不越过游标，并发触底不重复请求，重试沿用原接口', async () => {
++    vi.stubGlobal('MoviePilotNative', { transportVersion: 1, panelFeedsVersion: 1, postMessage: vi.fn() })
++    vi.spyOn(console, 'error').mockImplementation(() => {})
++    let release!: () => void
++    const held = new Promise<void>(resolve => {
++      release = resolve
++    })
++    const requests: number[] = []
++    server.use(
++      http.get('http://localhost/api/v1/message/notification', async ({ request }) => {
++        const page = Number(new URL(request.url).searchParams.get('page'))
++        requests.push(page)
++        if (page === 2 && requests.filter(value => value === 2).length === 1) {
++          await held
++          return HttpResponse.json({ detail: 'failed' }, { status: 500 })
++        }
++        return apiJson(
++          Array.from({ length: page === 1 ? 20 : 1 }, (_, index) => ({
++            id: (page - 1) * 20 + index + 1,
++            title: `通知${page}-${index}`,
++            text: `${page}-${index}`,
++          })),
++        )
++      }),
++    )
++    await renderWithProviders(UserNotification)
++    const action = nativeGlobalActions.value.get('notifications')!
++    await action.panel!()!.onOpen!()
++    for (let i = 0; i < 6; i++) await action.panel!()!.onLoadMore!()
++    const pending = action.panel!()!.onLoadMore!()
++    await waitFor(() => expect(requests).toEqual([1, 2]))
++    await action.panel!()!.onLoadMore!()
++    expect(requests).toEqual([1, 2])
++    release()
++    await pending
++    const failed = action.panel!()!
++    expect(failed.loadError).toBeTruthy()
++    expect(failed.hasMore).toBe(true)
++    await failed.onLoadMore!()
++    const retried = action.panel!()!
++    expect(retried.loadError).toBeUndefined()
++    expect(retried.hasMore).toBe(false)
++    expect(
++      retried.sections.flatMap(section => section.items).some(item => item.id === nativePanelId('message', 'id:21')),
++    ).toBe(true)
++    expect(requests).toEqual([1, 2, 2])
++  })
++
++  it('首屏失败重试从第一条开始，不跳过尚未加载的通知', async () => {
++    vi.stubGlobal('MoviePilotNative', { transportVersion: 1, panelFeedsVersion: 1, postMessage: vi.fn() })
++    vi.spyOn(console, 'error').mockImplementation(() => {})
++    let attempts = 0
++    server.use(
++      http.get('http://localhost/api/v1/message/notification', () => {
++        if (++attempts === 1) return HttpResponse.json({ detail: 'failed' }, { status: 500 })
++        return apiJson(Array.from({ length: 5 }, (_, index) => ({ id: index + 1, title: `通知${index + 1}` })))
++      }),
++    )
++    await renderWithProviders(UserNotification)
++    const action = nativeGlobalActions.value.get('notifications')!
++    await action.panel!()!.onOpen!()
++    expect(action.panel!()!.loadError).toBeTruthy()
++    await action.panel!()!.onLoadMore!()
++    const source = action.panel!()!
++    expect(source.loadError).toBeUndefined()
++    expect(source.feed!.offset).toBe(0)
++    expect(source.sections.slice(1).flatMap(section => section.items.map(item => item.title))).toEqual([
++      '通知1',
++      '通知2',
++      '通知3',
++    ])
++    expect(source.hasMore).toBe(true)
++    expect(attempts).toBe(2)
++  })
++
++  it('SSE新消息补到首片，已展示旧消息继续保留当前业务回调', async () => {
++    vi.stubGlobal('MoviePilotNative', { transportVersion: 1, panelFeedsVersion: 1, postMessage: vi.fn() })
++    const pending = deferNotifications()
++    await renderWithProviders(UserNotification)
++    const action = nativeGlobalActions.value.get('notifications')!
++    const opened = action.panel!()!.onOpen!()
++    pending.resolve(
++      Array.from({ length: 8 }, (_, i) => ({
++        id: i + 1,
++        title: `旧消息${i}`,
++        text: `旧正文${i}`,
++        reg_time: `2026-10-24 12:00:0${8 - i}`,
++      })),
++    )
++    await opened
++    await action.panel!()!.onLoadMore!()
++    background.receive!(
++      new MessageEvent('message', {
++        data: JSON.stringify({ id: 99, title: '实时新消息', text: '新正文', reg_time: '2026-10-25 12:00:00' }),
++      }),
++    )
++    const current = projectNativePanel(action.panel!()!)
++    expect(current.panel.feed!.offset).toBe(0)
++    expect(current.panel.sections.flatMap(section => section.items).some(item => item.title === '实时新消息')).toBe(
++      true,
++    )
++    expect(current.callbacks.has(nativePanelId('message', 'id:6'))).toBe(true)
++  })
++
++  it('三条最长展示正文及图片地址仍全部装入有界分片', async () => {
++    vi.stubGlobal('MoviePilotNative', { transportVersion: 1, panelFeedsVersion: 1, postMessage: vi.fn() })
++    const pending = deferNotifications()
++    await renderWithProviders(UserNotification)
++    const action = nativeGlobalActions.value.get('notifications')!
++    const opened = action.panel!()!.onOpen!()
++    pending.resolve(
++      Array.from({ length: 3 }, (_, i) => ({
++        id: i + 1,
++        title: `${i}${'标题'.repeat(400)}`,
++        text: `${i}${'正文'.repeat(4000)}`,
++        image: `https://image.example/${'a'.repeat(4000)}`,
++      })),
++    )
++    await opened
++    for (const entry of action.panel!()!
++      .sections.slice(1)
++      .flatMap(section => section.items))
++      await entry.invoke!()
++    const projection = projectNativePanel(action.panel!()!)
++    expect(projection.panel.sections.slice(1).flatMap(section => section.items)).toHaveLength(3)
++    expect(new TextEncoder().encode(JSON.stringify(projection.panel)).length).toBeLessThan(28000)
++  })
++
 +  it('原生优先投影独立海报，旧版和历史通知兼容网页实际使用的 image 属性', async () => {
 +    const pending = deferNotifications()
 +    await renderWithProviders(UserNotification)
@@ -7677,15 +8016,41 @@ index 00000000..b64de4ed
 +})
 diff --git a/src/native/__tests__/panel.spec.ts b/src/native/__tests__/panel.spec.ts
 new file mode 100644
-index 00000000..341f3c50
+index 00000000..3bd91517
 --- /dev/null
 +++ b/src/native/__tests__/panel.spec.ts
-@@ -0,0 +1,190 @@
+@@ -0,0 +1,216 @@
 +import { describe, expect, it, vi } from 'vitest'
 +import { dispatchNativePanel, nativePanelId, projectNativePanel } from '../panel'
 +import type { NativePanelSource } from '../registry'
 +
 +describe('原生面板声明与当前业务回调隔离', () => {
++  it('连续列表只保留当前会话已展示行的回调，禁用行和旧会话仍不能执行', () => {
++    const invoke = vi.fn(),
++      onLoadMore = vi.fn()
++    const source: NativePanelSource = {
++      title: '通知中心',
++      hasMore: true,
++      onLoadMore,
++      feed: { id: 'current', offset: 3, revision: 1, sectionIds: ['messages'] },
++      sections: [{ id: 'messages', items: [{ id: 'new', title: '当前分片' }] }],
++      retainedItems: [
++        { id: 'old', title: '已展示通知', invoke },
++        { id: 'disabled', title: '已禁用通知', enabled: false, invoke },
++      ],
++    }
++    const current = projectNativePanel(source)
++    expect(JSON.stringify(current.panel)).not.toContain('已展示通知')
++    expect(dispatchNativePanel(current, { panelEvent: 'select', itemId: 'old', value: 'current' })).toBe(true)
++    expect(dispatchNativePanel(current, { panelEvent: 'select', itemId: 'disabled', value: 'current' })).toBe(false)
++    expect(dispatchNativePanel(current, { panelEvent: 'select', itemId: 'old', value: 'expired' })).toBe(false)
++    expect(dispatchNativePanel(current, { panelEvent: 'more', value: 'expired' })).toBe(false)
++    expect(dispatchNativePanel(current, { panelEvent: 'more', value: 'current' })).toBe(true)
++    expect(invoke).toHaveBeenCalledOnce()
++    expect(onLoadMore).toHaveBeenCalledOnce()
++    expect(projectNativePanel({ ...source, feed: undefined }).callbacks.has('old')).toBe(false)
++  })
++
 +  it('通知长正文宽度通过显式声明传递，短菜单不自动拉满', () => {
 +    const source: NativePanelSource = { title: '通知中心', width: 'full', sections: [] }
 +    expect(projectNativePanel(source).panel.width).toBe('full')
@@ -9179,10 +9544,10 @@ index 00000000..20712f3d
 +}
 diff --git a/src/native/panel.ts b/src/native/panel.ts
 new file mode 100644
-index 00000000..7b7116b1
+index 00000000..24ad0aac
 --- /dev/null
 +++ b/src/native/panel.ts
-@@ -0,0 +1,139 @@
+@@ -0,0 +1,152 @@
 +import type { NativePanel, NativePanelItem } from './protocol'
 +import type { NativePanelEntry, NativePanelSource } from './registry'
 +
@@ -9219,7 +9584,7 @@ index 00000000..7b7116b1
 +  }
 +}
 +
-+/** 将本地声明转换为有界 JSON；只给仍在当前投影中的项目保留可执行回调。 */
++/** 转换为有界 JSON；连续列表的旧行回调仍须来自当前业务组件及本次展示会话。 */
 +export function projectNativePanel(source: NativePanelSource) {
 +  const callbacks = new Map<string, NativePanelEntry>()
 +  let remaining = 96
@@ -9283,7 +9648,14 @@ index 00000000..7b7116b1
 +    })),
 +    loading: source.loading === true,
 +    hasMore: source.hasMore === true,
++    ...(source.feed ? { feed: source.feed } : {}),
++    ...(text(source.loadError) ? { loadError: text(source.loadError) } : {}),
 +    ...(text(source.emptyText) ? { emptyText: text(source.emptyText) } : {}),
++  }
++  if (source.feed) {
++    for (const entry of source.retainedItems ?? []) {
++      if (/^[\x21-\x7e]{1,128}$/.test(entry.id) && !callbacks.has(entry.id)) callbacks.set(entry.id, entry)
++    }
 +  }
 +  return { panel, callbacks, source }
 +}
@@ -9299,6 +9671,12 @@ index 00000000..7b7116b1
 +  current: ReturnType<typeof projectNativePanel>,
 +  payload: Record<string, unknown>,
 +): boolean {
++  if (
++    current.panel.feed &&
++    ['more', 'select'].includes(String(payload.panelEvent)) &&
++    payload.value !== current.panel.feed.id
++  )
++    return false
 +  switch (payload.panelEvent) {
 +    case 'open':
 +      void current.source.onOpen?.()
@@ -9384,10 +9762,10 @@ index 00000000..3d1ff21b
 +}
 diff --git a/src/native/protocol.ts b/src/native/protocol.ts
 new file mode 100644
-index 00000000..abd0c3b4
+index 00000000..4af0fb50
 --- /dev/null
 +++ b/src/native/protocol.ts
-@@ -0,0 +1,176 @@
+@@ -0,0 +1,182 @@
 +/** 原生导航只接收声明；业务回调不参与 JSON 序列化。 */
 +export interface NativeAction {
 +  actionId: string
@@ -9434,6 +9812,10 @@ index 00000000..abd0c3b4
 +  sections: Array<{ id: string; title?: string; items: NativePanelItem[] }>
 +  loading?: boolean
 +  hasMore?: boolean
++  /** 连续列表只发送当前有界分片；会话内的旧行由原生保留。 */
++  feed?: { id: string; offset: number; revision: number; sectionIds: string[] }
++  /** 加载失败时停止自动请求，只保留显式重试。 */
++  loadError?: string
 +  emptyText?: string
 +}
 +
@@ -9522,6 +9904,8 @@ index 00000000..abd0c3b4
 +  transportVersion: 1
 +  /** 可选原生快捷面板能力；旧容器仍使用原有 HTML 回调。 */
 +  panelsVersion?: 1
++  /** 连续列表的分片保留和触底加载；旧容器仍使用已有分页。 */
++  panelFeedsVersion?: 1
 +  /** 可选原生业务弹窗容器；未协商时完整保留网页弹窗。 */
 +  sheetsVersion?: 1
 +  /** 可选系统确认框，不支持时仍由原 HTML 弹窗结算。 */
@@ -9566,10 +9950,10 @@ index 00000000..abd0c3b4
 +}
 diff --git a/src/native/registry.ts b/src/native/registry.ts
 new file mode 100644
-index 00000000..5e9c97f8
+index 00000000..d3cfb40d
 --- /dev/null
 +++ b/src/native/registry.ts
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,58 @@
 +import { onScopeDispose, ref, shallowRef, type MaybeRefOrGetter } from 'vue'
 +import type { DynamicHeaderTabConfig } from '@/composables/useDynamicHeaderTab'
 +import type { NativePanel, NativePanelItem } from './protocol'
@@ -9584,6 +9968,8 @@ index 00000000..5e9c97f8
 +/** 原生面板提供者复用组件状态，不单独请求另一套业务 API。 */
 +export interface NativePanelSource extends Omit<NativePanel, 'sections'> {
 +  sections: Array<{ id: string; title?: string; items: NativePanelEntry[] }>
++  /** 只在连续列表中保留当前会话已经展示且仍有效的行回调，不重复发送正文。 */
++  retainedItems?: NativePanelEntry[]
 +  /** 打开时刷新现有组件的数据。 */
 +  onOpen?(): void | Promise<unknown>
 +  /** 输入只更新组件原有搜索词。 */

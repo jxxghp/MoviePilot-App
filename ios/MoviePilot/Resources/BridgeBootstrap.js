@@ -7,6 +7,7 @@
     value: Object.freeze({
       transportVersion: 1,
       panelsVersion: 1,
+      panelFeedsVersion: 1,
       sheetsVersion: 1,
       confirmationsVersion: 1,
       navigationPreviewVersion: 1,

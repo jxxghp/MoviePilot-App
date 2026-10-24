@@ -69,7 +69,17 @@ public struct NativePanelSnapshot: Codable, Equatable, Sendable {
   public let sections: [NativePanelSection]
   public let loading: Bool?
   public let hasMore: Bool?
+  public let feed: NativePanelFeed?
+  public let loadError: String?
   public let emptyText: String?
+}
+
+/// 连续列表的一次有界增量；会话变化撤销旧行，完成序号确认一次加载请求。
+public struct NativePanelFeed: Codable, Equatable, Sendable {
+  public let id: String
+  public let offset: Int
+  public let revision: Int
+  public let sectionIds: [String]
 }
 
 /// 网格用于捷径和插件工具面板，旧版声明缺省时保持系统列表。
@@ -288,9 +298,18 @@ public struct NavigationSnapshot: Codable, Equatable, Sendable {
   /// 面板限制层级、数量、文本和唯一标识，防止失控声明进入系统控件。
   private static func validatePanel(_ panel: NativePanelSnapshot) throws {
     guard isLabel(panel.title), panel.subtitle.map(isLabel) ?? true,
-      panel.emptyText.map(isLabel) ?? true, panel.sections.count <= 16,
+      panel.emptyText.map(isLabel) ?? true, panel.loadError.map(isLabel) ?? true,
+      panel.sections.count <= 16,
       Set(panel.sections.map(\.id)).count == panel.sections.count
     else { throw BridgeError.invalidMessage }
+    if let feed = panel.feed {
+      guard BridgeValidator.isIdentifier(feed.id), (0...Int(Int32.max)).contains(feed.offset),
+        (0...Int(Int32.max)).contains(feed.revision), !feed.sectionIds.isEmpty,
+        feed.sectionIds.count <= 16, Set(feed.sectionIds).count == feed.sectionIds.count,
+        feed.sectionIds.allSatisfy({ id in panel.sections.contains(where: { $0.id == id }) }),
+        panel.layout == nil
+      else { throw BridgeError.invalidMessage }
+    }
     if let profile = panel.profile {
       guard isLabel(profile.name), profile.detail.map(isLabel) ?? true,
         profile.image.map(isProfileImageReference) ?? true

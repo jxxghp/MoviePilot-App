@@ -789,6 +789,88 @@ final class NativeFrameworkTests: XCTestCase {
     }
   }
 
+  /// 真实表格滚动跨越后端分页，旧行保持可回看、可展开，末尾不再显示翻页入口。
+  func testNotificationContinuousLoading() async throws {
+    try await setUIScenario("notifications-feed")
+    let app = try signIn()
+    settlePage(app)
+    app.buttons["操作菜单"].tap()
+    app.buttons["通知中心"].firstMatch.tap()
+    let panel = app.tables["native-quick-panel"]
+    XCTAssertTrue(panel.waitForExistence(timeout: 8))
+    XCTAssertTrue(panel.staticTexts["连续通知 01"].waitForExistence(timeout: 8))
+    XCTAssertFalse(app.buttons["native-panel-more"].exists)
+    XCTAssertFalse(panel.staticTexts["上一步"].exists)
+    scrollNotifications(panel, to: panel.staticTexts["连续通知 21"])
+    attachScreen("通知-触底连续追加", app: app)
+    scrollNotifications(panel, to: panel.staticTexts["连续通知 45"])
+    XCTAssertTrue(app.staticTexts["native-panel-feed-end"].waitForExistence(timeout: 8))
+    let completedRequests = try await notificationRequests()
+    XCTAssertEqual(completedRequests, [1, 2, 3])
+    attachScreen("通知-连续加载末尾", app: app)
+    scrollNotifications(panel, to: panel.staticTexts["连续通知 01"], upward: false)
+    panel.staticTexts["连续通知 01"].tap()
+    XCTAssertTrue(
+      panel.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "正文完整结束"))
+        .firstMatch.waitForExistence(timeout: 8))
+    attachScreen("通知-回看与展开旧消息", app: app)
+    app.buttons["native-panel-close"].tap()
+    try await setUIScenario("default")
+  }
+
+  /// 下一 API 页首次失败后停止自动请求，用户重试成功仍在原列表继续追加。
+  func testNotificationLoadRetry() async throws {
+    try await setUIScenario("notifications-error")
+    let app = try signIn()
+    settlePage(app)
+    app.buttons["操作菜单"].tap()
+    app.buttons["通知中心"].firstMatch.tap()
+    let panel = app.tables["native-quick-panel"]
+    XCTAssertTrue(panel.waitForExistence(timeout: 8))
+    let retry = app.buttons["native-panel-retry"]
+    scrollNotifications(panel, to: retry)
+    let failedRequests = try await notificationRequests()
+    XCTAssertEqual(failedRequests, [1, 2])
+    try await Task.sleep(for: .seconds(1))
+    let waitingRequests = try await notificationRequests()
+    XCTAssertEqual(waitingRequests, [1, 2], "失败后不能自动循环重试")
+    attachScreen("通知-加载失败保留列表与重试", app: app)
+    retry.tap()
+    scrollNotifications(panel, to: panel.staticTexts["连续通知 45"])
+    XCTAssertTrue(app.staticTexts["native-panel-feed-end"].waitForExistence(timeout: 8))
+    let retriedRequests = try await notificationRequests()
+    XCTAssertEqual(retriedRequests, [1, 2, 2, 3])
+    attachScreen("通知-重试后连续加载完成", app: app)
+    app.buttons["native-panel-close"].tap()
+    try await setUIScenario("default")
+  }
+
+  /// 只操作当前面板的内容区域，每次拖动等待真实快照更新，不调用网页内部测试入口。
+  private func scrollNotifications(
+    _ panel: XCUIElement, to target: XCUIElement, upward: Bool = true
+  ) {
+    for _ in 0..<45 {
+      if target.exists && target.isHittable { return }
+      panel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: upward ? 0.85 : 0.22))
+        .press(
+          forDuration: 0.05,
+          thenDragTo: panel.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: upward ? 0.22 : 0.85)))
+    }
+    XCTAssertTrue(target.exists && target.isHittable, "连续滚动应到达目标通知或重试按钮")
+  }
+
+  /// 只读取本机夹具记录的分页序号，避免把同一 API 页重复请求误判为成功追加。
+  private func notificationRequests() async throws -> [Int] {
+    guard let value = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_PROCESS_FIXTURE"],
+      let fixture = URL(string: value), fixture.host == "127.0.0.1", fixture.scheme == "http"
+    else { throw XCTSkip("连续通知验收需要本机分页夹具。") }
+    let (data, _) = try await URLSession.shared.data(
+      from: fixture.appendingPathComponent("__fixture/metrics"))
+    let metrics = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+    return try XCTUnwrap(metrics?["notificationRequests"] as? [Int])
+  }
+
   /// 系统半屏展开不会改变前景动作的可用状态，保留同一网格的两种高度截图供颜色验收。
   func testNativeGridSheetExpansion() async throws {
     try await setUIScenario("default")

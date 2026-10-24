@@ -668,5 +668,30 @@
     "group": "网页兼容",
     "title": "网页桌面深色页面",
     "file": "screens/134.png"
+  },
+  {
+    "title": "回看与展开旧消息",
+    "group": "通知",
+    "file": "screens/135.png"
+  },
+  {
+    "title": "连续加载末尾",
+    "group": "通知",
+    "file": "screens/136.png"
+  },
+  {
+    "title": "触底连续追加",
+    "group": "通知",
+    "file": "screens/137.png"
+  },
+  {
+    "title": "重试后连续加载完成",
+    "group": "通知",
+    "file": "screens/138.png"
+  },
+  {
+    "title": "加载失败保留列表与重试",
+    "group": "通知",
+    "file": "screens/139.png"
   }
 ]
