@@ -76,7 +76,7 @@ index 8c9eb31e..0869f093 100644
          [
            h(
 diff --git a/src/App.vue b/src/App.vue
-index bb3d4691..348b357a 100644
+index bb3d4691..2e6298cd 100644
 --- a/src/App.vue
 +++ b/src/App.vue
 @@ -13,6 +13,7 @@ import { addBackgroundTimer, removeBackgroundTimer } from '@/utils/backgroundMan
@@ -95,14 +95,20 @@ index bb3d4691..348b357a 100644
  const BACKGROUND_CROSSFADE_DURATION_MS = 1500
  const LAUNCH_MIN_VISIBLE_MS = 320
  const LAUNCH_MAX_WAIT_MS = 1200
-@@ -1181,6 +1183,7 @@ onUnmounted(() => {
+@@ -1181,10 +1183,11 @@ onUnmounted(() => {
          @wallpaper-prepared="handleOpticalWallpaperPrepared"
        />
        <RouterView />
 +      <NativeNavigationHost v-if="nativeTransportAvailable" />
        <!-- 全局共享弹窗入口，列表与卡片按需在这里挂载业务弹窗。 -->
        <SharedDialogHost />
-       <!-- PWA安装提示 -->
+-      <!-- PWA安装提示 -->
+-      <PWAInstallPrompt />
++      <!-- 原生容器已安装为 App，无需再提示安装 PWA；桥接降级时也不展示。 -->
++      <PWAInstallPrompt v-if="!nativeTransportAvailable" />
+       <!-- GitHub Token 一次性设置提示 -->
+       <GithubTokenPrompt />
+     </VApp>
 diff --git a/src/api/manage.ts b/src/api/manage.ts
 index 1907fc17..65d94217 100644
 --- a/src/api/manage.ts
