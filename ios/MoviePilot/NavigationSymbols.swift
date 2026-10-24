@@ -23,6 +23,18 @@ enum NavigationSymbols {
       "tabler-filter": "line.3.horizontal.decrease",
       "mdi-sort-variant": "arrow.up.arrow.down", "tabler-sort-descending": "arrow.up.arrow.down",
       "notifications": "bell", "profile": "person.crop.circle",
+      "mdi-account-outline": "person.crop.circle", "mdi-lock-check-outline": "lock.shield",
+      "mdi-medal-outline": "medal", "mdi-information-outline": "info.circle",
+      "mdi-help-circle-outline": "questionmark.circle", "mdi-translate": "globe",
+      "mdi-restart": "restart", "mdi-logout": "rectangle.portrait.and.arrow.right",
+      "mdi-trash-can-outline": "trash", "mdi-history": "clock.arrow.circlepath",
+      "mdi-text-recognition": "text.viewfinder", "mdi-filter-cog": "line.3.horizontal.decrease",
+      "mdi-file-document": "doc.text", "mdi-network": "network", "mdi-database": "externaldrive",
+      "mdi-file-word-box": "text.word.spacing", "mdi-list-box": "list.bullet.rectangle",
+      "mdi-movie-search": "film", "mdi-movie-filter": "film.stack",
+      "mdi-account-search": "person.text.rectangle",
+      "mdi-blur-radial": "circle.dotted", "mdi-opacity": "circle.lefthalf.filled",
+      "mdi-palette": "paintpalette",
       "mdi-puzzle-outline": "puzzlepiece.extension",
       "mdi-card-multiple-outline": "square.stack", "mdi-movie-open-outline": "film",
       "mdi-television": "tv", "mdi-music-note": "music.note",
@@ -37,5 +49,15 @@ enum NavigationSymbols {
       "tabler-dots-vertical": "ellipsis", "mdi-dots-vertical": "ellipsis",
     ]
     return UIImage(systemName: names[key] ?? "square.grid.2x2", withConfiguration: configuration)
+  }
+
+  /// 前端颜色先经协议校验，这里只转换六位 RGB 展示值。
+  static func color(_ hex: String?) -> UIColor? {
+    guard let hex, hex.count == 7, hex.hasPrefix("#"),
+      let value = UInt32(hex.dropFirst(), radix: 16)
+    else { return nil }
+    return UIColor(
+      red: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255,
+      blue: CGFloat(value & 255) / 255, alpha: 1)
   }
 }

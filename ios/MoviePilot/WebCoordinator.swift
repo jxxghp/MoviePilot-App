@@ -190,7 +190,10 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   }
 
   /// 原生控件只能分派当前已确认动作，旧菜单对象也要在这里再次复核。
-  func invoke(_ action: ActionSnapshot, menuActionId: String? = nil, frame: CGRect? = nil) {
+  func invoke(
+    _ action: ActionSnapshot, menuActionId: String? = nil, frame: CGRect? = nil,
+    panelEvent: String? = nil, itemId: String? = nil, value: String? = nil
+  ) {
     guard let id = session.sessionId else { return }
     let actionId = menuActionId ?? action.actionId
     do {
@@ -207,6 +210,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
           "height": .number(frame.height),
         ])
       }
+      if let panelEvent { payload["panelEvent"] = .string(panelEvent) }
+      if let itemId { payload["itemId"] = .string(itemId) }
+      if let value { payload["value"] = .string(value) }
       command("action.invoke", payload: .object(payload))
     } catch { command("state.request", payload: .object(["reason": .string("stale_action")])) }
   }

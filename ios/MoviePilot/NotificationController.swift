@@ -49,6 +49,7 @@ final class NotificationController: UITableViewController {
     navigationItem.rightBarButtonItem = UIBarButtonItem(
       systemItem: .done, primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) })
     tableView.accessibilityIdentifier = "notification-settings"
+    NativeModalAppearance.apply(to: self)
     Task { [weak self] in await self?.perform("status") }
   }
 
@@ -86,6 +87,7 @@ final class NotificationController: UITableViewController {
     -> UITableViewCell
   {
     let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+    cell.backgroundConfiguration = .clear()
     cell.textLabel?.numberOfLines = 0
     cell.detailTextLabel?.numberOfLines = 0
     cell.selectionStyle = .none

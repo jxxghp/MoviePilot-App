@@ -31,6 +31,26 @@ index 4ecfb2a8..0a6cf308 100644
    "private": true,
    "type": "module",
    "bin": "dist/service.js",
+diff --git a/src/@core/components/DialogCloseBtn.vue b/src/@core/components/DialogCloseBtn.vue
+index 2acda52c..177814ea 100644
+--- a/src/@core/components/DialogCloseBtn.vue
++++ b/src/@core/components/DialogCloseBtn.vue
+@@ -8,6 +8,7 @@ const props = defineProps({
+ })
+ const emit = defineEmits(['click', 'update:modelValue'])
+ 
++/** 统一发出关闭事件，允许共享弹窗和受控 v-model 使用同一按钮。 */
+ function onClick() {
+   emit('update:modelValue', false)
+   emit('click')
+@@ -16,6 +17,7 @@ function onClick() {
+ 
+ <template>
+   <IconBtn
++    data-native-dialog-close
+     :aria-label="t('common.close')"
+     :class="props.innerClass ? props.innerClass : 'absolute right-3 top-3 z-10'"
+     @click.stop="onClick"
 diff --git a/src/@core/components/PageContentTitle.vue b/src/@core/components/PageContentTitle.vue
 index 91801e27..d0ab5b6b 100644
 --- a/src/@core/components/PageContentTitle.vue
@@ -126,7 +146,7 @@ index 1907fc17..65d94217 100644
  export function manageStorage<T = Record<string, unknown>>(
    storage: string,
 diff --git a/src/components/agent/AgentAssistantPanel.vue b/src/components/agent/AgentAssistantPanel.vue
-index 367c5a7d..15388364 100644
+index 367c5a7d..e223015c 100644
 --- a/src/components/agent/AgentAssistantPanel.vue
 +++ b/src/components/agent/AgentAssistantPanel.vue
 @@ -2864,7 +2864,8 @@ async function handleChoiceClick(message: AgentChatMessage, choice: AgentChoiceC
@@ -166,6 +186,20 @@ index 367c5a7d..15388364 100644
      if (!historySession.messages.length) {
        historySession = await loadServerHistorySession(targetSessionId)
      }
+@@ -3288,7 +3289,12 @@ onScopeDispose(() => {
+           >
+             <VIcon :icon="fullscreen ? 'mdi-fullscreen-exit' : 'mdi-fullscreen'" />
+           </IconBtn>
+-          <IconBtn :title="t('common.close')" :aria-label="t('common.close')" @click="closeDrawer">
++          <IconBtn
++            data-native-dialog-close
++            :title="t('common.close')"
++            :aria-label="t('common.close')"
++            @click="closeDrawer"
++          >
+             <VIcon icon="mdi-close" />
+           </IconBtn>
+         </div>
 diff --git a/src/components/cards/NotificationChannelCard.vue b/src/components/cards/NotificationChannelCard.vue
 index 87f24a9a..ac0b1763 100644
 --- a/src/components/cards/NotificationChannelCard.vue
@@ -178,6 +212,68 @@ index 87f24a9a..ac0b1763 100644
    custom: t('setting.notification.custom'),
  }
  
+diff --git a/src/components/classification/ClassificationCategoryEditor.vue b/src/components/classification/ClassificationCategoryEditor.vue
+index 13776afe..dee865cb 100644
+--- a/src/components/classification/ClassificationCategoryEditor.vue
++++ b/src/components/classification/ClassificationCategoryEditor.vue
+@@ -397,8 +397,8 @@ function updateFallback(mediaType: ClassificationMediaType, categoryId: string |
+         aria-labelledby="classification-category-form-title"
+         :aria-describedby="validationMessage ? validationErrorId : undefined"
+       >
+-        <div class="classification-category-form-header">
+-          <h3 id="classification-category-form-title">
++        <div class="classification-category-form-header" data-native-dialog-header>
++          <h3 id="classification-category-form-title" data-native-dialog-title>
+             {{
+               draft.originalId
+                 ? t('setting.classification.category.editTitle')
+@@ -406,7 +406,13 @@ function updateFallback(mediaType: ClassificationMediaType, categoryId: string |
+             }}
+           </h3>
+           <div class="classification-category-form-actions">
+-            <VBtn icon variant="text" :aria-label="t('setting.classification.category.cancelEdit')" @click="cancelEdit">
++            <VBtn
++              data-native-dialog-close
++              icon
++              variant="text"
++              :aria-label="t('setting.classification.category.cancelEdit')"
++              @click="cancelEdit"
++            >
+               <VIcon icon="mdi-close" />
+               <VTooltip activator="parent" location="top">
+                 {{ t('setting.classification.category.cancelEdit') }}
+diff --git a/src/components/classification/ClassificationHelpDialog.vue b/src/components/classification/ClassificationHelpDialog.vue
+index 4530530f..c549da08 100644
+--- a/src/components/classification/ClassificationHelpDialog.vue
++++ b/src/components/classification/ClassificationHelpDialog.vue
+@@ -45,7 +45,13 @@ function close(): void {
+         <VCardTitle>{{ t('setting.classification.helpTitle') }}</VCardTitle>
+         <VCardSubtitle>{{ t('setting.classification.helpDescription') }}</VCardSubtitle>
+         <template #append>
+-          <VBtn icon="mdi-close" variant="text" :aria-label="t('common.close')" @click="close" />
++          <VBtn
++            data-native-dialog-close
++            icon="mdi-close"
++            variant="text"
++            :aria-label="t('common.close')"
++            @click="close"
++          />
+         </template>
+       </VCardItem>
+ 
+diff --git a/src/components/dialog/LlmProviderAuthDialog.vue b/src/components/dialog/LlmProviderAuthDialog.vue
+index f7149f81..8115ae33 100644
+--- a/src/components/dialog/LlmProviderAuthDialog.vue
++++ b/src/components/dialog/LlmProviderAuthDialog.vue
+@@ -76,7 +76,7 @@ function closeDialog() {
+       </VCardText>
+       <VCardActions class="app-dialog-actions">
+         <VSpacer />
+-        <VBtn color="primary" variant="flat" class="px-5" @click="closeDialog">
++        <VBtn data-native-dialog-close color="primary" variant="flat" class="px-5" @click="closeDialog">
+           {{ t('common.close') }}
+         </VBtn>
+       </VCardActions>
 diff --git a/src/components/dialog/NotificationChannelInfoDialog.vue b/src/components/dialog/NotificationChannelInfoDialog.vue
 index ee0d84cd..5d3ad5d9 100644
 --- a/src/components/dialog/NotificationChannelInfoDialog.vue
@@ -278,6 +374,261 @@ index ee0d84cd..5d3ad5d9 100644
            <VRow v-else-if="notificationInfo.type == 'webpush'">
              <VCol cols="12" md="6">
                <VTextField
+diff --git a/src/components/dialog/SearchBarDialog.vue b/src/components/dialog/SearchBarDialog.vue
+index 525096be..2bf3fb67 100644
+--- a/src/components/dialog/SearchBarDialog.vue
++++ b/src/components/dialog/SearchBarDialog.vue
+@@ -10,6 +10,8 @@ import { useDisplay } from 'vuetify'
+ import { VDialog, VMenu } from 'vuetify/components'
+ import { buildUserPermissionContext, hasPermission, filterMenusByPermission } from '@/utils/permission'
+ import { useMediaSources } from '@/composables/useMediaSources'
++import type { NativePanelEntry, NativePanelSource } from '@/native/registry'
++import { nativePanelId } from '@/native/panel'
+ 
+ // 显示器宽度
+ const display = useDisplay()
+@@ -615,7 +617,134 @@ watch(dialog, async isOpen => {
+   focusSearchInput()
+ })
+ 
+-defineExpose({ focusSearchInput })
++/** 让 App 使用系统搜索框；结果、来源选择、权限与跳转均复用本组件状态。 */
++function nativePanel(): NativePanelSource {
++  const keyword = searchWord.value?.trim() || ''
++  const actions: NativePanelEntry[] = []
++  if (keyword && hasDiscoveryPermission.value) {
++    for (const action of mediaSearchActions.value) {
++      actions.push({
++        id: `media-${action.type}`,
++        title: action.title,
++        icon: action.icon,
++        subtitle: `${t('common.search')} ${keyword}`,
++        children: [
++          {
++            id: `run-${action.type}`,
++            title: `${t('common.search')} ${keyword}`,
++            icon: 'search',
++            invoke: () => searchMedia(action.type),
++          },
++          ...mediaSearchSourceOptions.value[action.type].map(source => ({
++            id: `source-${action.type}-${source.value}`,
++            title: source.label,
++            selected: selectedMediaSearchSources[action.type].includes(source.value),
++            keepOpen: true,
++            invoke: () => {
++              const selected = selectedMediaSearchSources[action.type]
++              if (selected.includes(source.value)) {
++                if (selected.length > 1)
++                  selectedMediaSearchSources[action.type] = selected.filter(value => value !== source.value)
++              } else selectedMediaSearchSources[action.type] = [...selected, source.value]
++            },
++          })),
++        ],
++      })
++    }
++  }
++  if (keyword && hasSearchPermission.value) {
++    const resources = [
++      { type: 'torrent' as const, title: t('dialog.searchBar.relatedResources'), invoke: searchTorrent },
++      { type: 'music' as const, title: t('dialog.searchBar.relatedMusicResources'), invoke: searchMusicTorrent },
++      { type: 'subtitle' as const, title: t('dialog.searchBar.relatedSubtitles'), invoke: searchSubtitle },
++    ]
++    actions.push(
++      ...resources.map(item => ({
++        id: `resource-${item.type}`,
++        title: item.title,
++        icon: 'search',
++        children: [
++          { id: `run-resource-${item.type}`, title: `${t('common.search')} ${keyword}`, invoke: item.invoke },
++          {
++            id: `sites-${item.type}`,
++            title: t('dialog.searchBar.selectSites'),
++            icon: 'mdi-web',
++            invoke: () => openSiteDialog(item.type),
++          },
++        ],
++      })),
++    )
++  }
++  if (keyword && hasSubscribePermission.value)
++    actions.push({
++      id: 'shares',
++      title: t('subscribe.searchShares'),
++      icon: 'mdi-share-variant',
++      invoke: searchSubscribeShares,
++    })
++  if (keyword && hasManagePermission.value)
++    actions.push({ id: 'history', title: t('navItems.history'), icon: 'mdi-history', invoke: searchHistory })
++  return {
++    title: t('common.search'),
++    search: { text: keyword, placeholder: t('dialog.searchBar.searchPlaceholder') },
++    emptyText: t('dialog.searchBar.emptySearchHint'),
++    onQuery: value => {
++      searchWord.value = value
++    },
++    sections: [
++      { id: 'actions', items: actions },
++      {
++        id: 'menus',
++        title: t('dialog.searchBar.functions'),
++        items: matchedMenuItems.value.slice(0, 20).map(item => ({
++          id: nativePanelId('menu', item.to),
++          title: item.title || '',
++          subtitle: item.description,
++          icon: String(item.icon || 'apps'),
++          invoke: () => goPage(String(item.to)),
++        })),
++      },
++      {
++        id: 'subscriptions',
++        title: t('dialog.searchBar.subscriptions'),
++        items: matchedSubscribeItems.value.slice(0, 10).map(item => ({
++          id: nativePanelId('subscribe', item.id),
++          title: item.name || '',
++          icon: 'mdi-rss',
++          invoke: () => goSubscribe(item),
++        })),
++      },
++      {
++        id: 'plugins',
++        title: t('dialog.searchBar.plugins'),
++        items: matchedPluginItems.value.slice(0, 10).map(item => ({
++          id: nativePanelId('plugin', item.id),
++          title: item.plugin_name || item.id || '',
++          subtitle: item.plugin_desc,
++          icon: 'mdi-puzzle-outline',
++          invoke: () => showPlugin(item.id),
++        })),
++      },
++      {
++        id: 'recent',
++        title: t('dialog.searchBar.recentSearches'),
++        items: keyword
++          ? []
++          : recentSearches.value.slice(0, 5).map(item => ({
++              id: nativePanelId('recent', item),
++              title: item,
++              icon: 'mdi-history',
++              keepOpen: true,
++              invoke: () => {
++                searchWord.value = item
++              },
++            })),
++      },
++    ],
++  }
++}
++
++defineExpose({ focusSearchInput, nativePanel })
+ 
+ onMounted(() => {
+   // 搜索来源默认跟随全局媒体搜索数据源配置，保证基础设置生效
+diff --git a/src/components/dialog/SourceClassificationDialog.vue b/src/components/dialog/SourceClassificationDialog.vue
+index 8fedac4d..804604f6 100644
+--- a/src/components/dialog/SourceClassificationDialog.vue
++++ b/src/components/dialog/SourceClassificationDialog.vue
+@@ -248,7 +248,7 @@ async function submit(execute = false) {
+         </VCard>
+       </VCardText>
+       <VCardActions>
+-        <VBtn :disabled="busy" @click="emit('close')">关闭</VBtn>
++        <VBtn data-native-dialog-close :disabled="busy" @click="emit('close')">关闭</VBtn>
+         <VSpacer />
+         <VBtn :loading="busy" :disabled="busy || (mode === 'manual' && !targetPath.trim())" @click="submit(false)">
+           识别并预览
+diff --git a/src/components/dialog/SubscribeActivityDialog.vue b/src/components/dialog/SubscribeActivityDialog.vue
+index e18f388c..af375bfa 100644
+--- a/src/components/dialog/SubscribeActivityDialog.vue
++++ b/src/components/dialog/SubscribeActivityDialog.vue
+@@ -402,7 +402,7 @@ onBeforeUnmount(() => {
+           <VIcon icon="mdi-movie-open-outline" size="40" />
+         </div>
+         <div class="activity-heading">
+-          <h2>{{ t('subscriptionActivity.title') }}</h2>
++          <h2 data-native-dialog-title>{{ t('subscriptionActivity.title') }}</h2>
+           <p class="activity-subtitle">{{ subtitle }}</p>
+           <p class="activity-progress-label" v-if="libraryCount !== null">
+             {{ t('subscriptionActivity.libraryProgress', { count: libraryCount, total: subscription.total_episode }) }}
+@@ -429,7 +429,13 @@ onBeforeUnmount(() => {
+               >{{ t('subscriptionActivity.runtimeLogs') }}</VBtn
+             >
+             <span class="activity-action-divider" />
+-            <VBtn icon="mdi-close" variant="text" :aria-label="t('common.close')" @click="visible = false" />
++            <VBtn
++              data-native-dialog-close
++              icon="mdi-close"
++              variant="text"
++              :aria-label="t('common.close')"
++              @click="visible = false"
++            />
+           </div>
+           <div class="activity-filters">
+             <VSelect
+diff --git a/src/components/dialog/SubscribeExecutionDialog.vue b/src/components/dialog/SubscribeExecutionDialog.vue
+index e4a7c272..2768914d 100644
+--- a/src/components/dialog/SubscribeExecutionDialog.vue
++++ b/src/components/dialog/SubscribeExecutionDialog.vue
+@@ -110,7 +110,7 @@ function openSiteManager() {
+         </VBtn>
+         <VBtn v-if="canViewLogs" variant="text" @click="emit('logs')">{{ t('subscribe.viewLogs') }}</VBtn>
+         <VSpacer />
+-        <VBtn variant="text" @click="emit('close')">{{ t('common.close') }}</VBtn>
++        <VBtn data-native-dialog-close variant="text" @click="emit('close')">{{ t('common.close') }}</VBtn>
+       </VCardActions>
+     </VCard>
+   </VDialog>
+diff --git a/src/components/dialog/SubscribeFilesDialog.vue b/src/components/dialog/SubscribeFilesDialog.vue
+index a81f4e03..3d9e8104 100644
+--- a/src/components/dialog/SubscribeFilesDialog.vue
++++ b/src/components/dialog/SubscribeFilesDialog.vue
+@@ -411,6 +411,7 @@ onBeforeMount(() => {
+   >
+     <VCard class="subscribe-files-dialog no-blur">
+       <VBtn
++        data-native-dialog-close
+         class="subscribe-files-dialog__close"
+         icon="mdi-close"
+         variant="text"
+diff --git a/src/components/dialog/TorrentMoreSourcesDialog.vue b/src/components/dialog/TorrentMoreSourcesDialog.vue
+index 8c98a65b..eec2cb7e 100644
+--- a/src/components/dialog/TorrentMoreSourcesDialog.vue
++++ b/src/components/dialog/TorrentMoreSourcesDialog.vue
+@@ -57,7 +57,13 @@ function handleDetail(item: Context) {
+       <VCardTitle class="py-3 d-flex align-center">
+         <span>其他来源</span>
+         <VSpacer />
+-        <VBtn variant="text" size="small" icon="mdi-close" @click.stop="visible = false"></VBtn>
++        <VBtn
++          data-native-dialog-close
++          variant="text"
++          size="small"
++          icon="mdi-close"
++          @click.stop="visible = false"
++        ></VBtn>
+       </VCardTitle>
+ 
+       <VDivider />
+diff --git a/src/components/dialog/TorrentSingleFilterDialog.vue b/src/components/dialog/TorrentSingleFilterDialog.vue
+index f1b5d5bc..5c10008b 100644
+--- a/src/components/dialog/TorrentSingleFilterDialog.vue
++++ b/src/components/dialog/TorrentSingleFilterDialog.vue
+@@ -56,7 +56,15 @@ function updateFilter(values: string[]) {
+ </script>
+ 
+ <template>
+-  <VDialog v-if="visible" v-model="visible" max-width="25rem" max-height="85vh" location="center" scrollable>
++  <VDialog
++    v-if="visible"
++    v-model="visible"
++    max-width="25rem"
++    max-height="85vh"
++    location="center"
++    scrollable
++    :aria-label="props.filterTitle"
++  >
+     <VCard>
+       <VCardTitle class="py-3 d-flex align-center">
+         <VIcon :icon="getFilterIcon(props.filterKey)" class="me-2"></VIcon>
 diff --git a/src/components/dialog/TransferManualReviewDialog.vue b/src/components/dialog/TransferManualReviewDialog.vue
 index b68f3217..e4ee8510 100644
 --- a/src/components/dialog/TransferManualReviewDialog.vue
@@ -385,6 +736,119 @@ index 7baaa1ed..b985e00d 100644
    )
  }
  
+diff --git a/src/components/dialog/VerifyPasswordDialog.vue b/src/components/dialog/VerifyPasswordDialog.vue
+index 2ead97dd..55be0a40 100644
+--- a/src/components/dialog/VerifyPasswordDialog.vue
++++ b/src/components/dialog/VerifyPasswordDialog.vue
+@@ -57,7 +57,7 @@ function submitPassword() {
+             @click:append-inner="passwordVisible = !passwordVisible"
+           />
+           <div class="d-flex justify-end gap-4 mt-4">
+-            <VBtn variant="outlined" color="secondary" @click="visible = false">
++            <VBtn data-native-dialog-close variant="outlined" color="secondary" @click="visible = false">
+               {{ t('common.cancel') }}
+             </VBtn>
+             <VBtn type="submit" color="primary">
+diff --git a/src/components/dialog/WorkflowActionsDialog.vue b/src/components/dialog/WorkflowActionsDialog.vue
+index 29d3573b..8b1371cb 100644
+--- a/src/components/dialog/WorkflowActionsDialog.vue
++++ b/src/components/dialog/WorkflowActionsDialog.vue
+@@ -513,19 +513,25 @@ const isMacOS = computed(() => {
+       <!-- Toolbar -->
+       <VToolbar color="primary" density="comfortable">
+         <VToolbarItems>
+-          <VBtn icon @click="emit('close')" class="ms-3">
++          <VBtn data-native-dialog-close icon @click="emit('close')" class="ms-3">
+             <VIcon size="large" color="white" icon="mdi-close" />
+           </VBtn>
+         </VToolbarItems>
+         <VToolbarTitle> {{ t('dialog.workflowActions.title') }} - {{ workflow?.name }} </VToolbarTitle>
+         <VToolbarItems>
+-          <VBtn icon variant="text" @click="importCodeDialog = true" class="ms-2">
++          <VBtn
++            icon
++            variant="text"
++            :aria-label="t('dialog.importCode.import')"
++            @click="importCodeDialog = true"
++            class="ms-2"
++          >
+             <VIcon size="24" color="white" icon="mdi-import" />
+           </VBtn>
+-          <VBtn icon variant="text" @click="shareWorkflow" class="ms-2">
++          <VBtn icon variant="text" :aria-label="t('common.share')" @click="shareWorkflow" class="ms-2">
+             <VIcon size="24" color="white" icon="mdi-share" />
+           </VBtn>
+-          <VBtn icon variant="text" @click="updateWorkflow" class="ms-2 me-3">
++          <VBtn icon variant="text" :aria-label="t('common.save')" @click="updateWorkflow" class="ms-2 me-3">
+             <VIcon size="24" color="white" icon="mdi-content-save" />
+           </VBtn>
+         </VToolbarItems>
+diff --git a/src/components/dialog/__tests__/CommunityMedalDialog.spec.ts b/src/components/dialog/__tests__/CommunityMedalDialog.spec.ts
+index 6ad57309..844ecd2c 100644
+--- a/src/components/dialog/__tests__/CommunityMedalDialog.spec.ts
++++ b/src/components/dialog/__tests__/CommunityMedalDialog.spec.ts
+@@ -230,7 +230,8 @@ describe('Community medal entry', () => {
+     })
+     const Harness = defineComponent({ setup: () => () => h('div', [h(UserProfile), h(SharedDialogHost)]) })
+     await renderWithProviders(Harness, { initialState: adminState() })
+-    await fireEvent.click(await screen.findByRole('button', { name: '社区勋章' }))
++    await fireEvent.contextMenu(screen.getByRole('button', { name: '用户菜单' }))
++    await fireEvent.click(await screen.findByText('社区勋章'))
+     expect(await screen.findByText('配置 GitHub Token 后，即可查看你获得的社区勋章')).toBeVisible()
+     phase = 'warming'
+     window.dispatchEvent(new Event(COMMUNITY_AUTH_CHANGED_EVENT))
+@@ -246,7 +247,7 @@ describe('Community medal entry', () => {
+     expect(screen.queryByText('配置 GitHub Token 后，即可查看你获得的社区勋章')).not.toBeInTheDocument()
+   })
+ 
+-  it('全局开关尚在后台预热时显示占位，并在查询确认开放后自动显示勋章', async () => {
++  it('后台预热时隐藏顶栏入口和占位，确认持有勋章后自动显示入口', async () => {
+     vi.useFakeTimers()
+     let queried = false
+     mocks.get.mockImplementation((url: string) => {
+@@ -262,7 +263,8 @@ describe('Community medal entry', () => {
+       },
+     })
+     await vi.advanceTimersByTimeAsync(0)
+-    expect(screen.getByRole('status', { name: '社区勋章 · 加载中' })).toBeInTheDocument()
++    expect(screen.queryByRole('status', { name: '社区勋章 · 加载中' })).not.toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: /社区勋章/ })).not.toBeInTheDocument()
+     await vi.advanceTimersByTimeAsync(1500)
+     expect(screen.getByRole('button', { name: /社区勋章/ })).toBeVisible()
+   })
+@@ -291,13 +293,14 @@ describe('Community medal entry', () => {
+     ['none', [], false],
+     ['unknown only', [{ key: 'future-medal', at: '2030' }], false],
+   ] as const)(
+-    'shows the menu entry for a verified account, with a dot only for unseen medals: %s',
++    'shows the navbar entry only for held medals and keeps the verified account menu entry: %s',
+     async (_, medals, unseen) => {
+       mocks.get.mockImplementation((url: string) =>
+         Promise.resolve(url === 'github/community' ? profile({ medals: medals as CommunityProfile['medals'] }) : {}),
+       )
+       await renderWithProviders(UserProfile, { initialState: adminState() })
+       await waitFor(() => expect(mocks.get).toHaveBeenCalledWith('github/community', expect.anything()))
++      expect(document.querySelector('.community-medal-entry') !== null).toBe(unseen)
+       await fireEvent.contextMenu(screen.getByRole('button', { name: '用户菜单' }))
+       await screen.findByText('关于 MoviePilot')
+       const entry = await screen.findByText('社区勋章')
+@@ -350,7 +353,7 @@ describe('Community medal entry', () => {
+     expect(screen.queryByRole('button', { name: /掌灯勋章/ })).not.toBeInTheDocument()
+   })
+ 
+-  it('shows the entry without an unseen dot or worn medal while the token is not configured', async () => {
++  it('keeps only the menu entry while the token is not configured', async () => {
+     localStorage.setItem('community-medal-worn:1:none', 'helper')
+     mocks.get.mockImplementation((url: string) =>
+       Promise.resolve(
+@@ -359,6 +362,7 @@ describe('Community medal entry', () => {
+     )
+     await renderWithProviders(UserProfile, { initialState: adminState() })
+     await waitFor(() => expect(mocks.get).toHaveBeenCalledWith('github/community', expect.anything()))
++    expect(document.querySelector('.community-medal-entry')).not.toBeInTheDocument()
+     await fireEvent.contextMenu(screen.getByRole('button', { name: '用户菜单' }))
+     expect(await screen.findByText('社区勋章')).toBeInTheDocument()
+     expect(screen.queryByRole('status', { name: '新勋章' })).not.toBeInTheDocument()
 diff --git a/src/components/dialog/__tests__/NotificationChannelInfoDialog.spec.ts b/src/components/dialog/__tests__/NotificationChannelInfoDialog.spec.ts
 index ec786852..5270ae0a 100644
 --- a/src/components/dialog/__tests__/NotificationChannelInfoDialog.spec.ts
@@ -465,6 +929,19 @@ index b55c544f..7364209a 100644
      )
    })
  
+diff --git a/src/components/dialog/music-transfer/CorrectionDialog.vue b/src/components/dialog/music-transfer/CorrectionDialog.vue
+index b1225b7e..01c6dee4 100644
+--- a/src/components/dialog/music-transfer/CorrectionDialog.vue
++++ b/src/components/dialog/music-transfer/CorrectionDialog.vue
+@@ -230,7 +230,7 @@ onUnmounted(() => {
+         </template>
+       </VCardText>
+       <VCardActions class="flex-wrap">
+-        <VBtn :disabled="busy" @click="emit('close')">{{ t('common.cancel') }}</VBtn>
++        <VBtn data-native-dialog-close :disabled="busy" @click="emit('close')">{{ t('common.cancel') }}</VBtn>
+         <VSpacer />
+         <VBtn color="primary" variant="flat" :disabled="!ready || loading || busy" :loading="busy" @click="apply">{{
+           t(prefix + 'applyPreview')
 diff --git a/src/components/filebrowser/FileBrowser.vue b/src/components/filebrowser/FileBrowser.vue
 index c0a34835..4a479c9f 100644
 --- a/src/components/filebrowser/FileBrowser.vue
@@ -559,12 +1036,25 @@ index c0a34835..4a479c9f 100644
            <VIcon icon="mdi-refresh" />
          </IconBtn>
        </div>
+diff --git a/src/components/github/GithubTokenAuthDialog.vue b/src/components/github/GithubTokenAuthDialog.vue
+index 212f0e2d..37a3138a 100644
+--- a/src/components/github/GithubTokenAuthDialog.vue
++++ b/src/components/github/GithubTokenAuthDialog.vue
+@@ -111,7 +111,7 @@ function closeDialog() {
+ 
+       <VCardActions class="app-dialog-actions">
+         <VSpacer />
+-        <VBtn variant="text" @click="closeDialog">{{ t('common.cancel') }}</VBtn>
++        <VBtn data-native-dialog-close variant="text" @click="closeDialog">{{ t('common.cancel') }}</VBtn>
+       </VCardActions>
+     </VCard>
+   </VDialog>
 diff --git a/src/components/native/NativeNavigationHost.vue b/src/components/native/NativeNavigationHost.vue
 new file mode 100644
-index 00000000..8a63f74a
+index 00000000..87890bf3
 --- /dev/null
 +++ b/src/components/native/NativeNavigationHost.vue
-@@ -0,0 +1,397 @@
+@@ -0,0 +1,480 @@
 +<script setup lang="ts">
 +import { computed, nextTick, onScopeDispose, ref, toValue, watch, watchEffect } from 'vue'
 +import { useRoute, useRouter } from 'vue-router'
@@ -584,14 +1074,17 @@ index 00000000..8a63f74a
 +import { buildFooterMenus } from '@/utils/footerNavigation'
 +import { groupAppMenus } from '@/utils/appNavigation'
 +import { filterPluginSidebarNavEntries } from '@/utils/pluginSidebarNav'
-+import { nativeGlobalActions, nativeHeaderRegistration } from '@/native/registry'
++import { nativeGlobalActions, nativeHeaderRegistration, nativeRequestedPanel } from '@/native/registry'
++import { dispatchNativePanel, projectNativePanel } from '@/native/panel'
++import { readNativePresentation } from '@/native/presentation'
++import { NativeSheetAdapter } from '@/native/sheet'
 +import { NativeChromeSession } from '@/native/session'
 +import { NativeLayoutAdapter, nativeChromeActive } from '@/native/layout'
 +import { NativeRouteHistory } from '@/native/history'
 +import { NativeHeaderTabs } from '@/native/header'
 +import { nativePageHeaders } from '@/native/page'
 +import type { DynamicHeaderTabButton } from '@/composables/useDynamicHeaderTab'
-+import type { NativeAction, NativeEnvelope, NativeSnapshot } from '@/native/protocol'
++import type { NativeAction, NativeEnvelope, NativeSheet, NativeSnapshot } from '@/native/protocol'
 +import { isNativeRoute } from '@/native/protocol'
 +import { appActivityLifecycle } from '@/utils/appActivityLifecycle'
 +import '@/native/native.scss'
@@ -605,6 +1098,9 @@ index 00000000..8a63f74a
 +const pluginMenus = usePluginSidebarNavStore()
 +const routerReady = ref(false)
 +const overlayOpen = ref(false)
++const fullscreenOverlay = ref(false)
++const activePanel = ref<string>()
++const sheet = ref<NativeSheet>()
 +const permissions = computed(() => buildUserPermissionContext(user.superUser, user.permissions))
 +const menus = computed(() => filterMenusByPermission(getNavMenus(t), permissions.value))
 +const authenticated = computed(() => Boolean(auth.token) && user.userID >= 0 && Boolean(route.meta.requiresAuth))
@@ -625,6 +1121,7 @@ index 00000000..8a63f74a
 +)
 +const history = new NativeRouteHistory(router, () => roots.value)
 +const layout = new NativeLayoutAdapter(document, window)
++const sheetAdapter = new NativeSheetAdapter(document)
 +const headerProjection = new NativeHeaderTabs()
 +let bridge: NativeChromeSession | undefined
 +let ownerSequence = 0
@@ -691,6 +1188,7 @@ index 00000000..8a63f74a
 +  const revision = history.revision.value
 +  const actions: NativeAction[] = []
 +  const callbacks = new Map<string, () => void>()
++  const panels = new Map<string, ReturnType<typeof projectNativePanel>>()
 +  const header = nativeHeaderRegistration.value
 +  let headerTabs: NativeSnapshot['headerTabs']
 +  /** 共用标题栏与页内标题旁动作的权限、禁用和回调规则，执行时再次读取当前声明。 */
@@ -700,14 +1198,21 @@ index 00000000..8a63f74a
 +      if (!button.action) throw new Error('unsupported_header_action')
 +      const actionId = `r${revision}:${source}:${index}`
 +      const loading = Boolean(toValue(button.loading))
++      const panel = button.panel?.()
++      const projection = panel
++        ? projectNativePanel(activePanel.value === actionId ? panel : { ...panel, sections: [] })
++        : undefined
++      if (projection) panels.set(actionId, projection)
 +      actions.push({
 +        actionId,
 +        ownerId,
 +        title: actionTitle(button),
 +        icon: button.icon,
 +        position: 'trailing',
++        scope: 'page',
 +        enabled: !loading && !toValue(button.disabled),
 +        loading,
++        ...(projection ? { panel: projection.panel } : {}),
 +        ...(button.dataAttr ? { dataAttr: button.dataAttr } : {}),
 +      })
 +      callbacks.set(actionId, button.action)
@@ -729,15 +1234,22 @@ index 00000000..8a63f74a
 +    for (const action of nativeGlobalActions.value.values()) {
 +      if (action.visible !== undefined && !toValue(action.visible)) continue
 +      const actionId = `r${revision}:global:${action.id}`
++      const source = action.panel?.()
++      const projection = source
++        ? projectNativePanel(activePanel.value === actionId ? source : { ...source, sections: [] })
++        : undefined
++      if (projection) panels.set(actionId, projection)
 +      actions.push({
 +        actionId,
 +        ownerId: ownerFor(action),
 +        title: toValue(action.title),
 +        icon: action.icon,
 +        position: 'trailing',
++        scope: 'global',
 +        enabled: true,
 +        loading: false,
 +        ...(action.dataAttr ? { dataAttr: action.dataAttr } : {}),
++        ...(projection ? { panel: projection.panel } : {}),
 +      })
 +      callbacks.set(actionId, action.invoke)
 +    }
@@ -764,6 +1276,7 @@ index 00000000..8a63f74a
 +        title: actionTitle(button),
 +        icon: button.icon,
 +        position: 'accessory',
++        scope: 'page',
 +        enabled: true,
 +        loading: false,
 +        ...(menu.length ? { menu } : {}),
@@ -802,12 +1315,19 @@ index 00000000..8a63f74a
 +    roots: roots.value,
 +    actions,
 +    moreMenu,
-+    presentation: { overlayOpen: overlayOpen.value },
++    presentation: {
++      overlayOpen: overlayOpen.value,
++      fullscreen: fullscreenOverlay.value,
++      ...(sheet.value ? { sheet: sheet.value } : {}),
++      ...(nativeRequestedPanel.value ? { requestedPanel: nativeRequestedPanel.value } : {}),
++    },
 +    ...(headerTabs ? { headerTabs } : {}),
 +    chrome: {
 +      topVisible: Boolean(route.meta.requiresAuth),
 +      bottomVisible: authenticated.value,
 +      theme: theme.global.current.value.dark ? 'dark' : 'light',
++      backgroundColor: theme.global.current.value.colors.background,
++      surfaceColor: theme.global.current.value.colors.surface,
 +      ...(/^#[0-9a-f]{6}$/i.test(theme.global.current.value.colors.primary)
 +        ? { accentColor: theme.global.current.value.colors.primary }
 +        : {}),
@@ -822,13 +1342,21 @@ index 00000000..8a63f74a
 +    menuSequence > 128
 +  )
 +    throw new Error('unsupported_action_count')
-+  return { routeRevision: revision, snapshot, callbacks }
++  return { routeRevision: revision, snapshot, callbacks, panels }
 +})
 +
 +/** 分派时重新读取 model，复核 owner、路由、权限、loading 及可见性。 */
 +function execute(message: NativeEnvelope) {
 +  const current = model.value
 +  const payload = message.payload
++  if (message.type.startsWith('presentation.')) {
++    if (window.MoviePilotNative?.sheetsVersion !== 1) return false
++    sheetAdapter.read(pageTitle())
++    const accepted = sheetAdapter.execute(message.type, payload)
++    // 明确发布准备状态；原生保留底页后才搬走唯一 WebView，不等待无关 DOM 变更。
++    if (accepted && message.type === 'presentation.prepare') sheet.value = sheetAdapter.read(pageTitle())
++    return accepted
++  }
 +  if (message.type === 'navigation.selectRoot')
 +    return !overlayOpen.value && typeof payload.rootId === 'string' && history.selectRoot(payload.rootId)
 +  if (message.type === 'navigation.back') return history.back(document, window)
@@ -837,7 +1365,8 @@ index 00000000..8a63f74a
 +    if (payload.path === '/?shotcut=message') {
 +      const action = nativeGlobalActions.value.get('notifications')
 +      if (!action || (action.visible !== undefined && !toValue(action.visible))) return false
-+      action.invoke()
++      if (action.panel && window.MoviePilotNative?.panelsVersion === 1) nativeRequestedPanel.value = action.id
++      else action.invoke()
 +    } else {
 +      void router.push(payload.path).catch(() => {
 +        /* 业务守卫保留目的页的权限判断，失败不重放通知动作。 */
@@ -873,7 +1402,24 @@ index 00000000..8a63f74a
 +        item.menu?.some(child => child.actionId === payload.actionId && child.enabled)),
 +  )
 +  const callback = current.callbacks.get(payload.actionId)
-+  if (!action || !action.enabled || action.loading || !callback) return false
++  if (!action || !action.enabled || action.loading) return false
++  if (payload.panelEvent !== undefined) {
++    const panel = current.panels.get(action.actionId)
++    if (!panel) return false
++    if (payload.panelEvent === 'close') {
++      if (activePanel.value === action.actionId) activePanel.value = undefined
++      return true
++    }
++    if (payload.panelEvent === 'open') {
++      activePanel.value = action.actionId
++      nativeRequestedPanel.value = undefined
++    } else if (activePanel.value !== action.actionId) return false
++    const accepted = dispatchNativePanel(model.value.panels.get(action.actionId)!, payload)
++    if (accepted && payload.panelEvent === 'select' && !panel.callbacks.get(String(payload.itemId))?.keepOpen)
++      activePanel.value = undefined
++    return accepted
++  }
++  if (!callback) return false
 +  if (action.dataAttr) layout.positionAnchor(action.dataAttr, payload.framePoints, payload.layoutRevision)
 +  callback()
 +  return true
@@ -893,17 +1439,28 @@ index 00000000..8a63f74a
 +    !records.some(
 +      record =>
 +        record.type === 'childList' ||
-+        (record.target instanceof Element && record.target.classList.contains('v-overlay')),
++        (record.target instanceof Element &&
++          Boolean(record.target.closest('.v-overlay, .theme-customizer-panel-host, .agent-assistant-panel'))),
 +    )
 +  )
 +    return
 +  overlayScheduled = true
 +  queueMicrotask(() => {
 +    overlayScheduled = false
-+    overlayOpen.value = Boolean(document.querySelector('.v-overlay--active.v-dialog, .v-overlay--active.v-menu'))
++    const presentation = readNativePresentation(document)
++    overlayOpen.value = presentation.overlayOpen
++    fullscreenOverlay.value = presentation.fullscreen
++    const nextSheet = window.MoviePilotNative?.sheetsVersion === 1 ? sheetAdapter.read(pageTitle()) : undefined
++    // 弹窗内动画或正文更新不重发相同的栏位声明，保留系统交互和键盘的稳定性。
++    if (JSON.stringify(nextSheet) !== JSON.stringify(sheet.value)) sheet.value = nextSheet
 +  })
 +})
-+overlayObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
++overlayObserver.observe(document.body, {
++  childList: true,
++  subtree: true,
++  attributes: true,
++  attributeFilter: ['class', 'disabled', 'aria-label'],
++})
 +watch(
 +  canStart,
 +  ready => {
@@ -917,7 +1474,14 @@ index 00000000..8a63f74a
 +      execute,
 +      setActive: async active => {
 +        layout.setActive(active)
-+        if (!active) appActivityLifecycle.setHostLifecycle(undefined)
++        if (!active) {
++          sheetAdapter.reset()
++          appActivityLifecycle.setHostLifecycle(undefined)
++          activePanel.value = undefined
++          const requested = nativeRequestedPanel.value
++          nativeRequestedPanel.value = undefined
++          if (requested) nativeGlobalActions.value.get(requested)?.invoke()
++        }
 +        await nextTick()
 +        if (active)
 +          layout.syncAnchors(model.value.snapshot.actions.flatMap(action => (action.dataAttr ? [action.dataAttr] : [])))
@@ -946,9 +1510,17 @@ index 00000000..8a63f74a
 +  () => JSON.stringify([user.userID, user.superUser, user.permissions, roots.value.map(root => root.id)]),
 +  () => {
 +    history.reset()
++    activePanel.value = undefined
++    nativeRequestedPanel.value = undefined
 +    bridge?.identityChanged()
 +  },
 +  { flush: 'sync' },
++)
++watch(
++  () => history.revision.value,
++  () => {
++    activePanel.value = undefined
++  },
 +)
 +void router.isReady().then(() => {
 +  routerReady.value = true
@@ -958,10 +1530,24 @@ index 00000000..8a63f74a
 +  history.stop()
 +  void bridge?.stop()
 +  layout.setActive(false)
++  sheetAdapter.reset()
 +})
 +</script>
 +
 +<template><span hidden aria-hidden="true" data-native-navigation-host /></template>
+diff --git a/src/components/theme/ThemeCustomizer.vue b/src/components/theme/ThemeCustomizer.vue
+index cd4a2edf..357b0f44 100644
+--- a/src/components/theme/ThemeCustomizer.vue
++++ b/src/components/theme/ThemeCustomizer.vue
+@@ -233,7 +233,7 @@ async function handleResetSettings() {
+               <VIcon class="text-high-emphasis" icon="mdi-refresh" />
+             </IconBtn>
+           </VBadge>
+-          <IconBtn :aria-label="t('common.close')" @click="emit('close')">
++          <IconBtn data-native-dialog-close :aria-label="t('common.close')" @click="emit('close')">
+             <VIcon class="text-high-emphasis" icon="mdi-close" />
+           </IconBtn>
+         </div>
 diff --git a/src/composables/__tests__/useDynamicHeaderTab.spec.ts b/src/composables/__tests__/useDynamicHeaderTab.spec.ts
 index 7a12978b..979c38df 100644
 --- a/src/composables/__tests__/useDynamicHeaderTab.spec.ts
@@ -1016,12 +1602,14 @@ index 5d006afd..956f9032 100644
    icon: string
    /** 没有菜单时执行的主操作。 */
 diff --git a/src/composables/useDynamicHeaderTab.ts b/src/composables/useDynamicHeaderTab.ts
-index d04bee30..11ab9f34 100644
+index d04bee30..86f19461 100644
 --- a/src/composables/useDynamicHeaderTab.ts
 +++ b/src/composables/useDynamicHeaderTab.ts
-@@ -2,8 +2,10 @@ import type { ComputedRef, Ref } from 'vue'
+@@ -1,22 +1,29 @@
+ import type { ComputedRef, Ref } from 'vue'
  import { useTabStateRestore } from '@/composables/useStateRestore'
  import type { UserPermissionFeatureKey, UserPermissionKey } from '@/utils/permission'
++import type { NativePanelSource } from '@/native/registry'
  
 -// 动态标签页相关类型
 +/** 页内标签附属按钮，回调只保留在当前页面。 */
@@ -1031,7 +1619,12 @@ index d04bee30..11ab9f34 100644
    icon: string
    color?: string | ComputedRef<string>
    variant?: 'flat' | 'text' | 'elevated' | 'tonal' | 'outlined' | 'plain'
-@@ -14,9 +16,11 @@ interface DynamicHeaderTabButton {
+   size?: string
+   class?: string
+   action?: () => void
++  /** 原生容器可选列表声明；普通网页继续使用 action 对应的原有菜单。 */
++  panel?: () => NativePanelSource
+   permission?: UserPermissionKey
    feature?: UserPermissionFeatureKey
    show?: boolean | ComputedRef<boolean>
    loading?: boolean | ComputedRef<boolean>
@@ -1043,7 +1636,7 @@ index d04bee30..11ab9f34 100644
  interface DynamicHeaderTabItem {
    title: string
    icon?: string
-@@ -25,7 +29,9 @@ interface DynamicHeaderTabItem {
+@@ -25,7 +32,9 @@ interface DynamicHeaderTabItem {
    feature?: UserPermissionFeatureKey
  }
  
@@ -1053,7 +1646,7 @@ index d04bee30..11ab9f34 100644
    items: DynamicHeaderTabItem[]
    modelValue: string
    appendButtons?: DynamicHeaderTabButton[]
-@@ -33,13 +39,24 @@ interface DynamicHeaderTabConfig {
+@@ -33,13 +42,24 @@ interface DynamicHeaderTabConfig {
    onUpdateModelValue?: (value: string) => void
  }
  
@@ -1079,7 +1672,7 @@ index d04bee30..11ab9f34 100644
  
    /** 注册当前页面的动态头部标签配置。 */
    const registerHeaderTab = (config: {
-@@ -62,6 +79,7 @@ export function useDynamicHeaderTab() {
+@@ -62,6 +82,7 @@ export function useDynamicHeaderTab() {
      }
  
      const tabConfig: DynamicHeaderTabConfig = {
@@ -1087,7 +1680,7 @@ index d04bee30..11ab9f34 100644
        items: Array.isArray(config.items) ? config.items : config.items.value,
        modelValue: config.modelValue.value,
        appendButtons: config.appendButtons,
-@@ -74,6 +92,15 @@ export function useDynamicHeaderTab() {
+@@ -74,6 +95,15 @@ export function useDynamicHeaderTab() {
          }
        },
      }
@@ -1103,7 +1696,7 @@ index d04bee30..11ab9f34 100644
  
      // 如果启用了PWA状态恢复，监听PWA状态变化并同步到modelValue
      // 但只在非激活状态下响应，避免干扰页面激活时的状态
-@@ -83,9 +110,7 @@ export function useDynamicHeaderTab() {
+@@ -83,9 +113,7 @@ export function useDynamicHeaderTab() {
            config.modelValue.value = newTab
            // 更新tabConfig并重新注册
            tabConfig.modelValue = newTab
@@ -1114,7 +1707,7 @@ index d04bee30..11ab9f34 100644
          }
        })
      }
-@@ -98,15 +123,7 @@ export function useDynamicHeaderTab() {
+@@ -98,15 +126,7 @@ export function useDynamicHeaderTab() {
          pwaTabState.activeTab.value = newValue
        }
        // 重新注册以更新值
@@ -1131,7 +1724,7 @@ index d04bee30..11ab9f34 100644
      })
  
      // 如果items是computed或ref，也需要监听其变化
-@@ -116,22 +133,15 @@ export function useDynamicHeaderTab() {
+@@ -116,22 +136,15 @@ export function useDynamicHeaderTab() {
          newItems => {
            tabConfig.items = newItems
            // 重新注册以更新items
@@ -1157,7 +1750,7 @@ index d04bee30..11ab9f34 100644
        // 确保路由路径是最新的
        tabConfig.routePath = route.path
        // 确保items是最新的
-@@ -139,21 +149,16 @@ export function useDynamicHeaderTab() {
+@@ -139,21 +152,16 @@ export function useDynamicHeaderTab() {
        // 确保modelValue是最新的
        tabConfig.modelValue = config.modelValue.value
  
@@ -1185,7 +1778,7 @@ index d04bee30..11ab9f34 100644
        }
      }
  
-@@ -189,7 +194,7 @@ export function useDynamicHeaderTab() {
+@@ -189,7 +197,7 @@ export function useDynamicHeaderTab() {
    /** 取消当前页面注册的动态头部标签。 */
    const unregisterHeaderTab = () => {
      if (unregisterDynamicHeaderTab) {
@@ -1275,8 +1868,26 @@ index cf2338a2..94bb3f57 100644
      if (uiMode.value === 'app') return true
      if (uiMode.value === 'desktop') return false
  
+diff --git a/src/layouts/default/components/CommunityMedalEntry.vue b/src/layouts/default/components/CommunityMedalEntry.vue
+index 8af3f891..c77cf8ef 100644
+--- a/src/layouts/default/components/CommunityMedalEntry.vue
++++ b/src/layouts/default/components/CommunityMedalEntry.vue
+@@ -5,11 +5,11 @@ import { medalArt } from '@/utils/communityMedalArt'
+ import { medalName, type CommunityMedalRecord } from '@/utils/communityMedals'
+ 
+ /**
+- * 顶栏的社区勋章入口，和插件、通知图标并排常驻。
++ * 顶栏的社区勋章入口，持有勋章时和插件、通知图标并排显示。
+  * 三种形态共用顶栏图标的同一个按钮盒子与间距：佩戴了勋章时放那一枚（阶梯勋章按持有档位）的正面小图，
+  * 不加底座，放进 32px 的方框；未佩戴时放线框勋章图标，有没看过的新勋章时右上角带一个红点。
+  * 小图是构建前按不透明区域裁切并预先缩到 96 像素的资产，缺图时退回线框图标。
+- * 功能是否可用由宿主判断，这里只负责呈现。
++ * 功能是否可用、是否持有勋章由宿主判断，这里只负责呈现。
+  */
+ const props = defineProps<{
+   /** 当前佩戴且仍持有的勋章，不佩戴时为空。 */
 diff --git a/src/layouts/default/components/DefaultLayout.vue b/src/layouts/default/components/DefaultLayout.vue
-index 1c3f9426..5dc97974 100644
+index 1c3f9426..cd3b5d3c 100644
 --- a/src/layouts/default/components/DefaultLayout.vue
 +++ b/src/layouts/default/components/DefaultLayout.vue
 @@ -26,8 +26,6 @@ import {
@@ -1292,7 +1903,7 @@ index 1c3f9426..5dc97974 100644
  } from '@/composables/useThemeCustomizer'
  import ThemeLogoMark from '@/components/misc/ThemeLogoMark.vue'
  import SystemUpdatePrompt from '@/components/system/SystemUpdatePrompt.vue'
-+import { nativeHeaderRegistration, useNativeGlobalAction } from '@/native/registry'
++import { nativeHeaderRegistration } from '@/native/registry'
 +import { nativeChromeActive } from '@/native/layout'
 +import type {
 +  DynamicHeaderTabConfig as DynamicHeaderTab,
@@ -1433,22 +2044,7 @@ index 1c3f9426..5dc97974 100644
  
    button.action?.()
  }
-@@ -393,6 +388,14 @@ function handleOpenPluginQuickAccess() {
-   showPluginQuickAccess.value = true
- }
- 
-+useNativeGlobalAction({
-+  id: 'plugins',
-+  title: () => t('plugin.quickAccess'),
-+  icon: 'mdi-puzzle-outline',
-+  visible: canAdmin,
-+  invoke: handleOpenPluginQuickAccess,
-+})
-+
- /** 点击插件入口后关闭插件快速访问面板。 */
- function handlePluginClick() {
-   showPluginQuickAccess.value = false
-@@ -635,6 +638,7 @@ onMounted(async () => {
+@@ -635,6 +630,7 @@ onMounted(async () => {
              :size="button.size || 'default'"
              :class="button.class || 'settings-icon-button'"
              :loading="resolveHeaderButtonLoading(button)"
@@ -1456,7 +2052,7 @@ index 1c3f9426..5dc97974 100644
              :data-menu-activator="button.dataAttr"
              @click="handleHeaderButtonClick(button)"
            />
-@@ -697,6 +701,7 @@ onMounted(async () => {
+@@ -697,6 +693,7 @@ onMounted(async () => {
                  :size="button.size || 'default'"
                  :class="button.class || 'settings-icon-button'"
                  :loading="resolveHeaderButtonLoading(button)"
@@ -1464,6 +2060,15 @@ index 1c3f9426..5dc97974 100644
                  :data-menu-activator="button.dataAttr"
                  @click="handleHeaderButtonClick(button)"
                />
+@@ -719,6 +716,8 @@ onMounted(async () => {
+   <!-- 👉 Plugin Quick Access -->
+   <QuickAccess
+     :visible="showPluginQuickAccess"
++    :native-enabled="canAdmin"
++    @open="handleOpenPluginQuickAccess"
+     @close="handleClosePluginQuickAccess"
+     @plugin-click="handlePluginClick"
+   />
 diff --git a/src/layouts/default/components/Footer.vue b/src/layouts/default/components/Footer.vue
 index 908be8b8..1918f538 100644
 --- a/src/layouts/default/components/Footer.vue
@@ -1568,8 +2173,189 @@ index 908be8b8..1918f538 100644
  function handleDynamicMenuItemClick(item: DynamicButtonMenuItem) {
    if (
      !showDynamicButton.value ||
+diff --git a/src/layouts/default/components/QuickAccess.vue b/src/layouts/default/components/QuickAccess.vue
+index bf87edac..238d6c02 100644
+--- a/src/layouts/default/components/QuickAccess.vue
++++ b/src/layouts/default/components/QuickAccess.vue
+@@ -7,6 +7,8 @@ import { useRecentPlugins } from '@/composables/useRecentPlugins'
+ import { openSharedDialog } from '@/composables/useSharedDialog'
+ import PluginDataDialog from '@/components/dialog/PluginDataDialog.vue'
+ import { getDominantColor } from '@/@core/utils/image'
++import { useNativeGlobalAction } from '@/native/registry'
++import { nativePanelId } from '@/native/panel'
+ 
+ // 国际化
+ const { t } = useI18n()
+@@ -17,12 +19,14 @@ const { getRecentPlugins, addRecentPlugin, getPinnedPluginIds, togglePinnedPlugi
+ // 输入参数
+ const props = defineProps<{
+   visible: boolean
++  nativeEnabled?: boolean
+ }>()
+ 
+ // 事件
+ const emit = defineEmits<{
+   (e: 'close'): void
+   (e: 'plugin-click', plugin: Plugin): void
++  (e: 'open'): void
+ }>()
+ 
+ // 有详情页面的插件列表
+@@ -86,12 +90,12 @@ const filteredRecentPlugins = computed(() =>
+     .filter(matchesPlugin),
+ )
+ 
+-// 处理插件图标加载错误
++/** 处理插件图标加载错误 */
+ function handleIconError(plugin: Plugin) {
+   pluginIconLoadError.value[plugin.id] = true
+ }
+ 
+-// 处理插件图标加载完成
++/** 处理插件图标加载完成 */
+ async function handleIconLoaded(src: string | undefined, plugin: Plugin) {
+   if (!src) return
+ 
+@@ -115,12 +119,12 @@ async function handleIconLoaded(src: string | undefined, plugin: Plugin) {
+   }
+ }
+ 
+-// 获取插件背景颜色
++/** 获取插件背景颜色 */
+ function getPluginBackgroundColor(plugin: Plugin): string {
+   return pluginBackgroundColors.value[plugin.id] || '#28A9E1'
+ }
+ 
+-// 计算插件图标路径
++/** 计算插件图标路径 */
+ function getPluginIcon(plugin: Plugin): string {
+   if (!plugin.plugin_icon) return getLogoUrl('plugin')
+   if (pluginIconLoadError.value[plugin.id]) return getLogoUrl('plugin')
+@@ -135,7 +139,7 @@ function getPluginIcon(plugin: Plugin): string {
+   return `./plugin_icon/${plugin.plugin_icon}`
+ }
+ 
+-// 判断插件是否匹配当前搜索关键词。
++/** 判断插件是否匹配当前搜索关键词。 */
+ function matchesPlugin(plugin: Plugin): boolean {
+   const keyword = normalizedSearchKeyword.value
+   if (!keyword) return true
+@@ -143,7 +147,7 @@ function matchesPlugin(plugin: Plugin): boolean {
+   return [plugin.plugin_name, plugin.id].some(value => value?.toLocaleLowerCase().includes(keyword))
+ }
+ 
+-// 获取有详情页面的插件
++/** 获取有详情页面的插件 */
+ async function fetchPluginsWithPage() {
+   if (loading.value) return
+ 
+@@ -166,25 +170,25 @@ async function fetchPluginsWithPage() {
+   }
+ }
+ 
+-// 加载最近访问和常用插件
++/** 加载最近访问和常用插件 */
+ function loadPluginAccessState() {
+   recentPlugins.value = getRecentPlugins()
+   pinnedPluginIds.value = getPinnedPluginIds()
+ }
+ 
+-// 切换插件固定状态
++/** 切换插件固定状态 */
+ function togglePluginPin(plugin: Plugin) {
+   if (!plugin.id) return
+ 
+   pinnedPluginIds.value = togglePinnedPlugin(plugin.id)
+ }
+ 
+-// 判断插件是否已固定
++/** 判断插件是否已固定 */
+ function isPinned(plugin: Plugin): boolean {
+   return Boolean(plugin.id && pinnedPluginIds.value.includes(plugin.id))
+ }
+ 
+-// 打开插件面板
++/** 打开插件面板 */
+ function handlePluginClick(plugin: Plugin) {
+   addRecentPlugin(plugin)
+   loadPluginAccessState()
+@@ -202,7 +206,7 @@ function handlePluginClick(plugin: Plugin) {
+   )
+ }
+ 
+-// 关闭面板并清理本次搜索状态。
++/** 关闭面板并清理本次搜索状态。 */
+ function handleClose() {
+   searchKeyword.value = ''
+   isEditingFavorites.value = false
+@@ -222,6 +226,65 @@ watch(
+   },
+   { immediate: true },
+ )
++
++/** App 插件面板使用系统搜索、分组和固定操作，仍打开同一共享插件详情。 */
++useNativeGlobalAction({
++  id: 'plugins',
++  title: () => t('plugin.quickAccess'),
++  icon: 'mdi-puzzle-outline',
++  visible: () => props.nativeEnabled === true,
++  invoke: () => emit('open'),
++  panel: () => {
++    /** 插件子菜单同时提供打开和固定操作，复用原有最近访问记录。 */
++    const entry = (plugin: Plugin) => ({
++      id: nativePanelId('plugin', plugin.id),
++      title: plugin.plugin_name || plugin.id || '',
++      subtitle: plugin.plugin_desc,
++      icon: 'mdi-puzzle-outline',
++      children: [
++        {
++          id: nativePanelId('open', plugin.id),
++          title: t('common.viewDetails'),
++          icon: 'mdi-puzzle-outline',
++          invoke: () => handlePluginClick(plugin),
++        },
++        {
++          id: nativePanelId('pin', plugin.id),
++          title: t(isPinned(plugin) ? 'plugin.unpinPlugin' : 'plugin.pinPlugin', { name: plugin.plugin_name }),
++          selected: isPinned(plugin),
++          keepOpen: true,
++          invoke: () => togglePluginPin(plugin),
++        },
++      ],
++    })
++    const pinned = pinnedPlugins.value.filter(matchesPlugin)
++    const recent = filteredRecentPlugins.value
++    const used = new Set([...pinned, ...recent].map(plugin => plugin.id))
++    return {
++      title: t('plugin.quickAccess'),
++      loading: loading.value,
++      emptyText: t(searchKeyword.value ? 'plugin.noMatchingContent' : 'plugin.noPluginsWithPage'),
++      search: { text: searchKeyword.value, placeholder: t('common.search') },
++      onQuery: value => {
++        searchKeyword.value = value
++      },
++      onOpen: () => {
++        searchKeyword.value = ''
++        loadPluginAccessState()
++        return fetchPluginsWithPage()
++      },
++      sections: [
++        { id: 'pinned', title: t('plugin.favorites'), items: pinned.map(entry) },
++        { id: 'recent', title: t('plugin.recentlyUsed'), items: recent.map(entry) },
++        {
++          id: 'all',
++          title: t('plugin.allPlugins'),
++          items: filteredPlugins.value.filter(plugin => !used.has(plugin.id)).map(entry),
++        },
++      ],
++    }
++  },
++})
+ </script>
+ 
+ <template>
 diff --git a/src/layouts/default/components/SearchBar.vue b/src/layouts/default/components/SearchBar.vue
-index 1e986452..a62d4153 100644
+index 1e986452..6642d906 100644
 --- a/src/layouts/default/components/SearchBar.vue
 +++ b/src/layouts/default/components/SearchBar.vue
 @@ -1,6 +1,11 @@
@@ -1584,16 +2370,22 @@ index 1e986452..a62d4153 100644
  
  const searchOpen = ref(false)
  const searchBar = ref<InstanceType<typeof SearchBarDialog> | null>(null)
-@@ -17,6 +22,8 @@ function closeSearch() {
+@@ -17,6 +22,14 @@ function closeSearch() {
    searchOpen.value = false
  }
  
-+useNativeGlobalAction({ id: 'search', title: () => t('common.search'), icon: 'search', invoke: openSearch })
++useNativeGlobalAction({
++  id: 'search',
++  title: () => t('common.search'),
++  icon: 'search',
++  invoke: openSearch,
++  panel: () => searchBar.value?.nativePanel(),
++})
 +
  onMounted(() => {
    Mousetrap.bind(['command+k', 'ctrl+k'], openSearch)
  })
-@@ -27,5 +34,5 @@ onBeforeUnmount(() => {
+@@ -27,5 +40,5 @@ onBeforeUnmount(() => {
  </script>
  
  <template>
@@ -1601,7 +2393,7 @@ index 1e986452..a62d4153 100644
 +  <SearchBarDialog ref="searchBar" v-model="searchOpen" :show-activator="!nativeChromeActive" @close="closeSearch" />
  </template>
 diff --git a/src/layouts/default/components/ShortcutBar.vue b/src/layouts/default/components/ShortcutBar.vue
-index c71ff06a..af6f5690 100644
+index c71ff06a..748bf1b7 100644
 --- a/src/layouts/default/components/ShortcutBar.vue
 +++ b/src/layouts/default/components/ShortcutBar.vue
 @@ -2,6 +2,8 @@
@@ -1613,7 +2405,7 @@ index c71ff06a..af6f5690 100644
  
  // 国际化
  const { t } = useI18n()
-@@ -9,6 +11,15 @@ const { visibleShortcuts, openShortcutDialog: openShortcutTool } = useShortcutTo
+@@ -9,6 +11,30 @@ const { visibleShortcuts, openShortcutDialog: openShortcutTool } = useShortcutTo
  
  // App捷径
  const appsMenu = ref(false)
@@ -1622,6 +2414,21 @@ index c71ff06a..af6f5690 100644
 +  title: () => t('shortcut.title'),
 +  icon: 'mdi-card-multiple-outline',
 +  dataAttr: 'native-shortcuts',
++  panel: () => ({
++    title: t('shortcut.title'),
++    sections: [
++      {
++        id: 'tools',
++        items: visibleShortcuts.value.map(item => ({
++          id: item.dialog,
++          title: item.title,
++          subtitle: item.subtitle,
++          icon: item.icon,
++          invoke: () => openShortcutDialog(item),
++        })),
++      },
++    ],
++  }),
 +  invoke: () => {
 +    appsMenu.value = true
 +  },
@@ -1629,7 +2436,7 @@ index c71ff06a..af6f5690 100644
  
  // 菜单最大宽度
  const menuMaxWidth = ref(420)
-@@ -33,6 +44,7 @@ onMounted(() => {
+@@ -33,6 +59,7 @@ onMounted(() => {
  <template>
    <VMenu
      v-model="appsMenu"
@@ -1637,7 +2444,7 @@ index c71ff06a..af6f5690 100644
      :max-width="menuMaxWidth"
      width="100%"
      max-height="560"
-@@ -43,7 +55,7 @@ onMounted(() => {
+@@ -43,7 +70,7 @@ onMounted(() => {
      scrim
    >
      <!-- Menu Activator -->
@@ -1647,19 +2454,20 @@ index c71ff06a..af6f5690 100644
          <VIcon icon="mdi-card-multiple-outline" />
        </IconBtn>
 diff --git a/src/layouts/default/components/UserNotification.vue b/src/layouts/default/components/UserNotification.vue
-index 9dfb07a3..a9ddef39 100644
+index 9dfb07a3..d9e2bedf 100644
 --- a/src/layouts/default/components/UserNotification.vue
 +++ b/src/layouts/default/components/UserNotification.vue
-@@ -8,6 +8,8 @@ import { useBackground } from '@/composables/useBackground'
+@@ -8,6 +8,9 @@ import { useBackground } from '@/composables/useBackground'
  import { useToast } from 'vue-toastification'
  import { useI18n } from 'vue-i18n'
  import { useConfirm } from '@/composables/useConfirm'
-+import { useNativeGlobalAction } from '@/native/registry'
++import { useNativeGlobalAction, nativeRequestedPanel } from '@/native/registry'
++import { nativePanelId } from '@/native/panel'
 +import { nativeChromeActive } from '@/native/layout'
  
  type NotificationDisplayItem =
    | { kind: 'section'; key: string; title: string; count: number }
-@@ -24,6 +26,29 @@ const PAGE_SIZE = 20
+@@ -24,6 +27,31 @@ const PAGE_SIZE = 20
  const NOTIFICATION_ITEM_HEIGHT = 136
  
  const appsMenu = ref(false)
@@ -1670,7 +2478,8 @@ index 9dfb07a3..a9ddef39 100644
 +  () => route.query.shotcut,
 +  value => {
 +    if (value !== 'message') return
-+    appsMenu.value = true
++    if (window.MoviePilotNative?.panelsVersion === 1) nativeRequestedPanel.value = 'notifications'
++    else appsMenu.value = true
 +    const query = { ...route.query }
 +    delete query.shotcut
 +    void router.replace({ query })
@@ -1682,6 +2491,7 @@ index 9dfb07a3..a9ddef39 100644
 +  title: () => t('notification.center'),
 +  icon: 'notifications',
 +  dataAttr: 'native-notifications',
++  panel: () => notificationNativePanel(),
 +  invoke: () => {
 +    appsMenu.value = true
 +  },
@@ -1689,7 +2499,102 @@ index 9dfb07a3..a9ddef39 100644
  const hasNewMessage = ref(false)
  const notificationList = ref<SystemNotification[]>([])
  const page = ref(1)
-@@ -521,6 +546,7 @@ watch(appsMenu, handleNotificationMenuVisibleChange)
+@@ -32,6 +60,7 @@ const clearing = ref(false)
+ const hasMore = ref(true)
+ const notificationKeys = new Set<string>()
+ const expandedNotificationKeys = ref(new Set<string>())
++const nativePageOffset = ref(0)
+ 
+ const hasUnreadNotifications = computed(() => notificationList.value.some(item => item.read === false))
+ const hasBadgeUnreadMessages = computed(() => appUnreadMessageCount.value > 0)
+@@ -516,11 +545,94 @@ function handleNotificationMenuVisibleChange(open: boolean) {
+ }
+ 
+ watch(appsMenu, handleNotificationMenuVisibleChange)
++
++/** 原生消息中心使用同一列表、SSE、已读和清理流程；历史按二十条翻页防止桥接超限。 */
++function notificationNativePanel() {
++  const rows = notificationList.value.slice(nativePageOffset.value, nativePageOffset.value + PAGE_SIZE)
++  return {
++    title: t('notification.center'),
++    loading: loading.value || clearing.value,
++    hasMore: nativePageOffset.value + PAGE_SIZE < notificationList.value.length || hasMore.value,
++    emptyText: t('notification.empty'),
++    onOpen: () => {
++      nativePageOffset.value = 0
++      return refreshNotificationsOnOpen()
++    },
++    onLoadMore: async () => {
++      if (nativePageOffset.value + PAGE_SIZE >= notificationList.value.length)
++        await loadNotifications({ done: () => {} })
++      if (nativePageOffset.value + PAGE_SIZE < notificationList.value.length) nativePageOffset.value += PAGE_SIZE
++    },
++    sections: [
++      {
++        id: 'tools',
++        items: [
++          {
++            id: 'read',
++            title: t('notification.markRead'),
++            icon: 'mdi-check',
++            enabled: canMarkAllAsRead.value,
++            keepOpen: true,
++            invoke: markAllAsRead,
++          },
++          {
++            id: 'clear',
++            title: t('notification.clear'),
++            icon: 'mdi-trash-can-outline',
++            enabled: notificationList.value.length > 0 && !clearing.value,
++            children: notificationClearOptions.value.map(option => ({
++              id: `clear-${option.scope}`,
++              title: option.title,
++              destructive: true,
++              enabled: option.count > 0,
++              invoke: () => clearNotifications(option.scope),
++            })),
++          },
++          ...(nativePageOffset.value
++            ? [
++                {
++                  id: 'previous',
++                  title: t('common.previous'),
++                  icon: 'mdi-chevron-left',
++                  keepOpen: true,
++                  invoke: () => {
++                    nativePageOffset.value = Math.max(0, nativePageOffset.value - PAGE_SIZE)
++                  },
++                },
++              ]
++            : []),
++        ],
++      },
++      ...(['system', 'media'] as const).map(kind => ({
++        id: kind,
++        title: t(kind === 'system' ? 'notification.systemMessages' : 'notification.mediaMessages'),
++        items: rows
++          .filter(item => getNotificationClearScope(item) === kind)
++          .map(item => ({
++            id: nativePanelId('message', getNotificationKey(item)),
++            title: item.title || t('notification.center'),
++            subtitle: [
++              item.read === false ? '●' : '',
++              formatDateDifference(getNotificationTime(item)),
++              isNotificationExpanded(item) ? item.text : String(item.text || '').slice(0, 100),
++            ]
++              .filter(Boolean)
++              .join(' · '),
++            icon: getNotificationIcon(item),
++            image: item.image || undefined,
++            keepOpen: true,
++            invoke: () => toggleNotificationExpanded(item),
++          })),
++      })),
++    ],
++  }
++}
+ </script>
+ 
  <template>
    <VMenu
      v-model="appsMenu"
@@ -1697,7 +2602,7 @@ index 9dfb07a3..a9ddef39 100644
      width="420"
      max-width="calc(100vw - 24px)"
      transition="scale-transition"
-@@ -528,7 +554,7 @@ watch(appsMenu, handleNotificationMenuVisibleChange)
+@@ -528,7 +640,7 @@ watch(appsMenu, handleNotificationMenuVisibleChange)
      class="notification-menu"
      scrim
    >
@@ -1707,19 +2612,19 @@ index 9dfb07a3..a9ddef39 100644
          v-if="hasUnreadMessageIndicator"
          dot
 diff --git a/src/layouts/default/components/UserProfile.vue b/src/layouts/default/components/UserProfile.vue
-index 204da634..93b2adfb 100644
+index 204da634..00c0698a 100644
 --- a/src/layouts/default/components/UserProfile.vue
 +++ b/src/layouts/default/components/UserProfile.vue
 @@ -30,6 +30,8 @@ import { useLocalStorage } from '@vueuse/core'
  import { COMMUNITY_AUTH_CHANGED_EVENT, useCommunityContribution } from '@/composables/useCommunityContribution'
  import CommunityMedalEntry from '@/layouts/default/components/CommunityMedalEntry.vue'
  import { isMedalKey, unseenMedalKeys } from '@/utils/communityMedals'
-+import { useNativeGlobalAction } from '@/native/registry'
++import { useNativeGlobalAction, type NativePanelEntry, type NativePanelSource } from '@/native/registry'
 +import { nativeChromeActive } from '@/native/layout'
  
  const AboutDialog = defineAsyncComponent(() => import('@/components/dialog/AboutDialog.vue'))
  const CommunityMedalDialog = defineAsyncComponent(() => import('@/components/dialog/CommunityMedalDialog.vue'))
-@@ -58,6 +60,15 @@ const showUIModeMenu = ref(false)
+@@ -58,6 +60,16 @@ const showUIModeMenu = ref(false)
  
  // 用户头像主菜单是否显示；打开布局级面板前需要主动关闭，避免菜单 overlay 残留。
  const showUserMenu = ref(false)
@@ -1728,6 +2633,7 @@ index 204da634..93b2adfb 100644
 +  title: () => t('common.userMenu'),
 +  icon: 'profile',
 +  dataAttr: 'native-profile',
++  panel: () => nativeProfilePanel(),
 +  invoke: () => {
 +    showUserMenu.value = true
 +  },
@@ -1735,7 +2641,260 @@ index 204da634..93b2adfb 100644
  const userAvatarRef = ref<{ $el: HTMLElement } | null>(null)
  
  // 主题菜单是否显示
-@@ -712,7 +723,7 @@ onUnmounted(() => {
+@@ -88,7 +100,7 @@ let customCssDialogController: ReturnType<typeof openSharedDialog> | null = null
+ // 确认框
+ const { createConfirm } = useConfirm()
+ 
+-// 执行注销操作
++/** 清理当前会话及重启状态，再使用原登录路由完成退出。 */
+ function logout() {
+   // 清理重启相关状态
+   finishSystemRestart()
+@@ -116,7 +128,7 @@ function closeRestartProgress() {
+   progressDialogController = null
+ }
+ 
+-// 检测服务状态
++/** 检测服务状态 */
+ async function checkServiceStatus(): Promise<boolean> {
+   try {
+     await api.get<null>('system/ping', { timeout: 3000, feedback: 'silent' })
+@@ -127,7 +139,7 @@ async function checkServiceStatus(): Promise<boolean> {
+   }
+ }
+ 
+-// 轮询检测服务恢复状态
++/** 轮询检测服务恢复状态 */
+ async function pollServiceStatus() {
+   // 如果已经有轮询在运行，先清除
+   if (restartPollingId.value) {
+@@ -177,7 +189,7 @@ async function pollServiceStatus() {
+   poll()
+ }
+ 
+-// 执行重启操作
++/** 执行重启操作 */
+ async function restart() {
+   if (!canAdmin.value) return
+ 
+@@ -204,7 +216,7 @@ async function restart() {
+   }, 5000)
+ }
+ 
+-// 显示重启确认对话框
++/** 显示重启确认对话框 */
+ async function showRestartDialog() {
+   if (!canAdmin.value) return
+ 
+@@ -273,7 +285,7 @@ const wornMedal = useLocalStorage(
+   computed(() => 'community-medal-worn:' + userStore.userID + ':' + (community.profile.value?.user_id ?? 'none')),
+   '',
+ )
+-// 只佩戴仍然持有的勋章；勋章被撤下后顶栏换回线框图标，记录保留以便恢复。
++// 只佩戴仍然持有的勋章；未持有时保留佩戴记录以便恢复。
+ const wornRecord = computed(() =>
+   isMedalKey(wornMedal.value) ? community.medals.value.find(item => item.key === wornMedal.value) : undefined,
+ )
+@@ -412,7 +424,7 @@ const uiModes = computed(() => [
+   },
+ ])
+ 
+-// 切换UI模式
++/** 更新网页导航偏好，原生容器继续由宿主控制系统导航。 */
+ function changeUIMode(mode: UIMode) {
+   setUIMode(mode)
+   showUIModeMenu.value = false
+@@ -486,7 +498,7 @@ const currentThemeSummary = computed(() => {
+ // Ace 跟随 Vuetify 当前生效主题，避免 auto 模式或弹窗打开后切主题时颜色不同步。
+ const editorTheme = computed(() => (globalTheme.current.value.dark ? 'github_dark' : 'github_light_default'))
+ 
+-// 更新主题
++/** 更新主题 */
+ async function updateTheme() {
+   const autoTheme = checkPrefersColorSchemeIsDark() ? 'dark' : 'light'
+   const theme = currentThemeName.value === 'auto' ? autoTheme : currentThemeName.value
+@@ -515,7 +527,7 @@ function handleThemeCustomizerSettingsChange(event: Event) {
+   savedTheme.value = nextTheme
+ }
+ 
+-// 获取自定义 CSS
++/** 获取自定义 CSS */
+ async function getCustomCSS() {
+   if (!canAdmin.value) return
+ 
+@@ -631,7 +643,7 @@ const locales = computed(() => {
+   }))
+ })
+ 
+-// 切换语言
++/** 保存既有语言偏好并重新加载当前文档。 */
+ async function changeLocale(locale: SupportedLocale) {
+   showLanguageMenu.value = false
+   try {
+@@ -644,6 +656,149 @@ async function changeLocale(locale: SupportedLocale) {
+   }
+ }
+ 
++/** 原生用户菜单只投影当前权限下的项目，设置弹窗仍由现有组件处理。 */
++function nativeProfilePanel(): NativePanelSource {
++  const account: NativePanelEntry[] = [
++    {
++      id: 'profile',
++      title: t('user.profile'),
++      icon: 'mdi-account-outline',
++      invoke: () => {
++        void router.push('/profile')
++      },
++    },
++  ]
++  if (canAdmin.value) {
++    account.push({
++      id: 'settings',
++      title: t('user.systemSettings'),
++      icon: 'mdi-cog-outline',
++      invoke: () => {
++        void router.push('/setting')
++      },
++    })
++    if (userLevel.value < 2)
++      account.push({
++        id: 'auth',
++        title: t('user.siteAuth'),
++        icon: 'mdi-lock-check-outline',
++        invoke: showSiteAuthDialog,
++      })
++  }
++  const themeItems: NativePanelEntry[] = [
++    { id: 'customizer', title: t('theme.customizer.title'), icon: 'mdi-tune', invoke: showThemeCustomizerDrawer },
++  ]
++  if (isTransparentTheme.value)
++    themeItems.push({
++      id: 'transparency',
++      title: t('theme.transparencyAdjust'),
++      icon: 'mdi-opacity',
++      invoke: showTransparencySettingsDialog,
++    })
++  else if (isGlassTheme.value)
++    themeItems.push({
++      id: 'glass',
++      title: t('theme.glassSettings'),
++      icon: 'mdi-blur-radial',
++      invoke: showGlassSettingsDialog,
++    })
++  if (canAdmin.value)
++    themeItems.push({ id: 'css', title: t('theme.custom'), icon: 'mdi-palette', invoke: showCustomCssDialog })
++  const information: NativePanelEntry[] = [
++    {
++      id: 'help',
++      title: t('user.helpDocs'),
++      icon: 'mdi-help-circle-outline',
++      invoke: () => {
++        window.open('https://movie-pilot.org', '_blank')
++      },
++    },
++  ]
++  if (community.eligible.value)
++    information.push({
++      id: 'medals',
++      title: t('community.title'),
++      icon: 'mdi-medal-outline',
++      invoke: () => showCommunityDialog(),
++    })
++  if (canAdmin.value) {
++    information.push({
++      id: 'about',
++      title: t('setting.about.title'),
++      icon: 'mdi-information-outline',
++      invoke: showAboutDialog,
++    })
++    information.push(
++      ...systemUpdateMenuItems.value.map(item => ({
++        id: `update-${item.type}`,
++        title: t(item.state === 'ready' ? 'systemUpdate.menuRestartTo' : 'systemUpdate.menuUpdateTo', {
++          version: systemUpdateMenuVersion(item),
++        }),
++        icon: 'mdi-update',
++        invoke: () => openSystemUpdate(item),
++      })),
++    )
++  }
++  return {
++    title: t('common.userMenu'),
++    subtitle: userName.value,
++    sections: [
++      { id: 'account', items: account },
++      // 主题仅有少量设置入口，直接展示在用户菜单内，避免再打开一个二级面板。
++      { id: 'theme', title: t('common.theme'), items: themeItems },
++      {
++        id: 'appearance',
++        items: [
++          {
++            id: 'ui',
++            title: t('common.uiMode'),
++            icon: getUIModeIcon.value,
++            subtitle: uiModes.value.find(mode => mode.name === uiMode.value)?.title,
++            children: uiModes.value.map(mode => ({
++              id: `ui-${mode.name}`,
++              title: mode.title,
++              icon: mode.icon,
++              selected: uiMode.value === mode.name,
++              keepOpen: true,
++              invoke: () => changeUIMode(mode.name as UIMode),
++            })),
++          },
++          {
++            id: 'language',
++            title: t('common.language'),
++            icon: 'mdi-translate',
++            subtitle: locales.value.find(locale => locale.value === currentLocale.value)?.title,
++            children: locales.value.map(locale => ({
++              id: `locale-${locale.value}`,
++              title: `${locale.flag} ${locale.title}`,
++              selected: currentLocale.value === locale.value,
++              invoke: () => changeLocale(locale.value),
++            })),
++          },
++        ],
++      },
++      { id: 'information', items: information },
++      {
++        id: 'session',
++        items: [
++          ...(canAdmin.value
++            ? [
++                {
++                  id: 'restart',
++                  title: t('user.restart'),
++                  icon: 'mdi-restart',
++                  destructive: true,
++                  invoke: showRestartDialog,
++                },
++              ]
++            : []),
++          { id: 'logout', title: t('app.logout'), icon: 'mdi-logout', destructive: true, invoke: logout },
++        ],
++      },
++    ],
++  }
++}
++
+ // 获取当前语言图标
+ const getCurrentIcon = computed(() => {
+   const locale = locales.value.find(l => l.value === currentLocale.value)
+@@ -686,10 +841,9 @@ onUnmounted(() => {
+ </script>
+ 
+ <template>
+-  <!-- 顶栏常驻的勋章入口：功能可用时始终显示，佩戴时换成那枚勋章；头像菜单里的入口保留为次要入口。 -->
++  <!-- 顶栏仅在持有勋章时显示入口；没有勋章或尚未核验时隐藏，头像菜单仍可打开勋章墙。 -->
+   <CommunityMedalEntry
+-    v-if="community.eligible.value || community.initialLoading.value"
+-    :loading="community.initialLoading.value"
++    v-if="community.eligible.value && community.medals.value.length > 0"
+     :worn="wornRecord"
+     :unseen="hasUnseenMedals"
+     @open="showCommunityDialog"
+@@ -712,7 +866,7 @@ onUnmounted(() => {
  
      <VMenu
        v-model="showUserMenu"
@@ -1744,6 +2903,23 @@ index 204da634..93b2adfb 100644
        width="15rem"
        location="bottom end"
        offset="14px"
+diff --git a/src/layouts/default/components/__tests__/CommunityMedalEntry.spec.ts b/src/layouts/default/components/__tests__/CommunityMedalEntry.spec.ts
+index 486f7d5a..dc34536c 100644
+--- a/src/layouts/default/components/__tests__/CommunityMedalEntry.spec.ts
++++ b/src/layouts/default/components/__tests__/CommunityMedalEntry.spec.ts
+@@ -53,10 +53,10 @@ describe('CommunityMedalEntry', () => {
+     expect(button.querySelector('.v-icon')).toBeInTheDocument()
+   })
+ 
+-  it('功能不可用时顶栏不渲染入口，头像菜单入口仍保留', () => {
++  it('没有勋章或功能不可用时顶栏不渲染入口，头像菜单入口仍保留', () => {
+     const profile = readFileSync(resolve('src/layouts/default/components/UserProfile.vue'), 'utf8')
+     expect(profile).toMatch(
+-      /<CommunityMedalEntry\s+v-if="community\.eligible\.value \|\| community\.initialLoading\.value"/,
++      /<CommunityMedalEntry\s+v-if="community\.eligible\.value && community\.medals\.value\.length > 0"/,
+     )
+     expect(profile).toMatch(/<VListItem v-if="community\.eligible\.value" link @click="showCommunityDialog\(\)"/)
+   })
 diff --git a/src/locales/en-US.ts b/src/locales/en-US.ts
 index 6af75c9c..70ecd512 100644
 --- a/src/locales/en-US.ts
@@ -1873,10 +3049,10 @@ index 00000000..3fc2b9e4
 +})
 diff --git a/src/native/__tests__/history.spec.ts b/src/native/__tests__/history.spec.ts
 new file mode 100644
-index 00000000..41ec7dac
+index 00000000..a1fa8f54
 --- /dev/null
 +++ b/src/native/__tests__/history.spec.ts
-@@ -0,0 +1,92 @@
+@@ -0,0 +1,123 @@
 +import { afterEach, describe, expect, it } from 'vitest'
 +import { createRouter, createWebHashHistory, type Router } from 'vue-router'
 +import { flushPromises } from '@vue/test-utils'
@@ -1955,7 +3131,7 @@ index 00000000..41ec7dac
 +    const { router, history } = await harness()
 +    await router.push('/media/1')
 +    const overlay = document.createElement('div')
-+    overlay.className = 'v-overlay--active'
++    overlay.className = 'v-overlay--active v-dialog'
 +    document.body.append(overlay)
 +    expect(history.back(document, window)).toBe(true)
 +    expect(router.currentRoute.value.path).toBe('/media/1')
@@ -1967,6 +3143,37 @@ index 00000000..41ec7dac
 +    expect(document.activeElement).not.toBe(input)
 +    expect(router.currentRoute.value.path).toBe('/media/1')
 +    input.remove()
++  })
++
++  it('更多每次都回到目录，不能恢复上一次打开的业务页面', async () => {
++    const { router, history } = await harness()
++    history.selectRoot('/apps')
++    await flushPromises()
++    await router.push('/plugins')
++    await router.push('/setting')
++    expect(history.navigation.canGoBack).toBe(true)
++    history.selectRoot('/apps')
++    await flushPromises()
++    expect(router.currentRoute.value.path).toBe('/apps')
++    expect(history.navigation.canGoBack).toBe(false)
++    await router.push('/plugins')
++    history.selectRoot('/dashboard')
++    await flushPromises()
++    history.selectRoot('/apps')
++    await flushPromises()
++    expect(router.currentRoute.value.path).toBe('/apps')
++  })
++
++  it('榜单里的工具提示不会吞掉原生返回', async () => {
++    const { router, history } = await harness()
++    await router.push('/browse/recommend/douban?title=豆瓣电影')
++    const tooltip = document.createElement('div')
++    tooltip.className = 'v-overlay--active v-tooltip'
++    document.body.append(tooltip)
++    expect(history.back(document, window)).toBe(true)
++    await flushPromises()
++    expect(router.currentRoute.value.fullPath).toBe('/dashboard')
++    tooltip.remove()
 +  })
 +})
 diff --git a/src/native/__tests__/layout.spec.ts b/src/native/__tests__/layout.spec.ts
@@ -2162,14 +3369,159 @@ index 00000000..b64de4ed
 +    expect(nativePageHeaders.value.size).toBe(1)
 +  })
 +})
+diff --git a/src/native/__tests__/panel.spec.ts b/src/native/__tests__/panel.spec.ts
+new file mode 100644
+index 00000000..a54d7074
+--- /dev/null
++++ b/src/native/__tests__/panel.spec.ts
+@@ -0,0 +1,101 @@
++import { describe, expect, it, vi } from 'vitest'
++import { dispatchNativePanel, nativePanelId, projectNativePanel } from '../panel'
++import type { NativePanelSource } from '../registry'
++
++describe('原生面板声明与当前业务回调隔离', () => {
++  it('只序列化有界展示数据，不把回调或控制字符交给原生', () => {
++    const invoke = vi.fn()
++    const { panel, callbacks } = projectNativePanel({
++      title: '消息中心',
++      sections: [
++        {
++          id: 'messages',
++          items: Array.from({ length: 200 }, (_, index) => ({
++            id: `message-${index}`,
++            title: '通知\n标题',
++            subtitle: '长正文'.repeat(3000),
++            invoke,
++          })),
++        },
++      ],
++    })
++    expect(JSON.stringify(panel)).not.toContain('invoke')
++    expect(JSON.stringify(panel)).not.toContain('\\n')
++    expect(new TextEncoder().encode(JSON.stringify(panel)).length).toBeLessThan(28000)
++    expect(callbacks.size).toBeLessThan(96)
++    expect(panel.sections[0].items[0].title).toBe('通知 标题')
++    expect(invoke).not.toHaveBeenCalled()
++  })
++
++  it('最新权限投影会撤销旧行，禁用项目和未知事件不能执行', () => {
++    const invoke = vi.fn()
++    const source: NativePanelSource = {
++      title: '捷径',
++      sections: [{ id: 'tools', items: [{ id: 'tool', title: '工具', invoke }] }],
++    }
++    const old = projectNativePanel(source)
++    expect(dispatchNativePanel(old, { panelEvent: 'select', itemId: 'tool' })).toBe(true)
++    source.sections[0].items = [{ id: 'tool', title: '工具', enabled: false, invoke }]
++    const disabled = projectNativePanel(source)
++    expect(dispatchNativePanel(disabled, { panelEvent: 'select', itemId: 'tool' })).toBe(false)
++    source.sections[0].items = []
++    expect(dispatchNativePanel(projectNativePanel(source), { panelEvent: 'select', itemId: 'tool' })).toBe(false)
++    expect(dispatchNativePanel(old, { panelEvent: 'eval', itemId: 'tool' })).toBe(false)
++    expect(invoke).toHaveBeenCalledTimes(1)
++  })
++
++  it('搜索、打开和翻页使用业务组件提供的方法，拒绝超长输入与加载中重复翻页', () => {
++    const onQuery = vi.fn(),
++      onOpen = vi.fn(),
++      onLoadMore = vi.fn()
++    const source: NativePanelSource = { title: '搜索', sections: [], hasMore: true, onQuery, onOpen, onLoadMore }
++    const current = projectNativePanel(source)
++    expect(dispatchNativePanel(current, { panelEvent: 'open' })).toBe(true)
++    expect(dispatchNativePanel(current, { panelEvent: 'query', value: '电影' })).toBe(true)
++    expect(dispatchNativePanel(current, { panelEvent: 'query', value: 'x'.repeat(257) })).toBe(false)
++    expect(dispatchNativePanel(current, { panelEvent: 'more' })).toBe(true)
++    expect(dispatchNativePanel(projectNativePanel({ ...source, loading: true }), { panelEvent: 'more' })).toBe(false)
++    expect(onQuery).toHaveBeenCalledExactlyOnceWith('电影')
++    expect(onOpen).toHaveBeenCalledTimes(1)
++    expect(onLoadMore).toHaveBeenCalledTimes(1)
++  })
++
++  it('嵌套菜单共享标识空间，中文业务标识不会成为原生命令文本', () => {
++    const id = nativePanelId('message', '含中文和空格的通知')
++    expect(id).toMatch(/^[\x21-\x7e]{1,128}$/)
++    expect(nativePanelId('message', '含中文和空格的通知')).toBe(id)
++    const { panel } = projectNativePanel({
++      title: '用户',
++      sections: [
++        {
++          id: 'settings',
++          items: [
++            {
++              id: 'theme',
++              title: '主题',
++              children: [
++                { id: 'glass', title: '玻璃设置' },
++                { id: 'glass', title: '重复' },
++              ],
++            },
++          ],
++        },
++      ],
++    })
++    expect(panel.sections[0].items[0].children).toHaveLength(1)
++  })
++
++  it('海报保留原 HTTP 图片资源，拒绝脚本、本机文件及含用户密码的地址', () => {
++    const urls = [
++      'https://image.example/poster.jpg',
++      'javascript:alert(1)',
++      'file:///tmp/a',
++      'https://user:pass@example/a',
++    ]
++    const { panel } = projectNativePanel({
++      title: '通知',
++      sections: [{ id: 'media', items: urls.map((image, i) => ({ id: `image-${i}`, title: '通知', image })) }],
++    })
++    expect(panel.sections[0].items.map(item => item.image)).toEqual([urls[0], undefined, undefined, undefined])
++  })
++})
+diff --git a/src/native/__tests__/presentation.spec.ts b/src/native/__tests__/presentation.spec.ts
+new file mode 100644
+index 00000000..ef22af2c
+--- /dev/null
++++ b/src/native/__tests__/presentation.spec.ts
+@@ -0,0 +1,31 @@
++import { afterEach, describe, expect, it } from 'vitest'
++import { readNativePresentation } from '../presentation'
++
++afterEach(() => {
++  document.body.innerHTML = ''
++})
++
++describe('菜单与全屏弹窗的导航语义', () => {
++  it('普通菜单和普通弹窗保留底栏，只有全屏声明隐藏底栏', () => {
++    const overlay = document.createElement('div')
++    document.body.append(overlay)
++    overlay.className = 'v-overlay--active v-menu'
++    expect(readNativePresentation(document)).toEqual({ overlayOpen: true, fullscreen: false })
++    overlay.className = 'v-overlay--active v-dialog'
++    expect(readNativePresentation(document)).toEqual({ overlayOpen: true, fullscreen: false })
++    overlay.classList.add('v-dialog--fullscreen')
++    expect(readNativePresentation(document)).toEqual({ overlayOpen: true, fullscreen: true })
++    overlay.className = 'v-overlay--active v-tooltip'
++    expect(readNativePresentation(document)).toEqual({ overlayOpen: false, fullscreen: false })
++  })
++
++  it('自定义主题全屏设置同样参与返回、遮挡与底栏互锁', () => {
++    const customizer = document.createElement('aside')
++    customizer.className = 'theme-customizer-panel-host'
++    customizer.setAttribute('role', 'dialog')
++    document.body.append(customizer)
++    expect(readNativePresentation(document)).toEqual({ overlayOpen: true, fullscreen: true })
++    customizer.remove()
++    expect(readNativePresentation(document)).toEqual({ overlayOpen: false, fullscreen: false })
++  })
++})
 diff --git a/src/native/__tests__/session.spec.ts b/src/native/__tests__/session.spec.ts
 new file mode 100644
-index 00000000..be8f3b34
+index 00000000..572acf9f
 --- /dev/null
 +++ b/src/native/__tests__/session.spec.ts
-@@ -0,0 +1,207 @@
+@@ -0,0 +1,226 @@
 +import { afterEach, describe, expect, it, vi } from 'vitest'
 +import { flushPromises } from '@vue/test-utils'
++import { isProxy, reactive } from 'vue'
 +import { NativeChromeSession, type NativeSessionOptions } from '../session'
 +import type { NativeEnvelope, NativeSnapshot } from '../protocol'
 +
@@ -2234,6 +3586,24 @@ index 00000000..be8f3b34
 +})
 +
 +describe('原生导航接管事务', () => {
++  it('展示快照脱离 Vue 代理，传输后修改原状态不会改变已经交付的消息', async () => {
++    const source = reactive<NativeSnapshot>({
++      ...snapshot,
++      presentation: {
++        overlayOpen: true,
++        sheet: { id: 'sheet-1', title: '名称识别', fullscreen: false, canDismiss: true, actions: [] },
++      },
++    })
++    const { messages } = harness({ readState: () => ({ routeRevision: 1, snapshot: source }) })
++    await activate()
++    const delivered = messages.find(message => message.type === 'navigation.state')!
++    expect(isProxy(delivered.payload)).toBe(false)
++    const presentation = delivered.payload.presentation as NativeSnapshot['presentation']
++    expect(isProxy(presentation?.sheet)).toBe(false)
++    source.presentation!.sheet!.title = '后续弹窗'
++    expect(presentation?.sheet?.title).toBe('名称识别')
++  })
++
 +  it('先保留网页，只有完整配置与布局确认后才提交接管', async () => {
 +    const { options, messages } = harness()
 +    expect(messages[0].type).toBe('web.ready')
@@ -2375,6 +3745,158 @@ index 00000000..be8f3b34
 +    expect(messages.at(-1)?.type).toBe('chrome.released')
 +  })
 +})
+diff --git a/src/native/__tests__/sheet.spec.ts b/src/native/__tests__/sheet.spec.ts
+new file mode 100644
+index 00000000..ed002d40
+--- /dev/null
++++ b/src/native/__tests__/sheet.spec.ts
+@@ -0,0 +1,146 @@
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { NativeSheetAdapter } from '../sheet'
++
++/** 用实际按钮验证只转移展示职责，既有监听器与输入值始终保留。 */
++function dialog(title: string, z = 2000) {
++  const root = document.createElement('div')
++  root.className = 'v-overlay--active v-dialog'
++  root.style.zIndex = String(z)
++  root.innerHTML = `<div class="v-overlay__content"><div class="v-card"><div class="v-card-item"><div class="v-card-title"></div><button data-native-dialog-close>关闭</button><button aria-label="刷新">刷新</button></div><input value="尚未保存" /></div></div>`
++  root.querySelector('.v-card-title')!.textContent = title
++  document.body.append(root)
++  return root
++}
++
++afterEach(() => {
++  document.body.innerHTML = ''
++  document.documentElement.removeAttribute('data-native-sheet')
++  document.documentElement.removeAttribute('data-native-sheet-preparing')
++})
++
++describe('原生 Sheet 与原 Vue 内容交接', () => {
++  it('底页准备只响应当前原生请求，不触发业务按钮，接管或取消后立即清理', () => {
++    const root = dialog('名称识别')
++    const closed = vi.fn()
++    root.querySelector('[data-native-dialog-close]')!.addEventListener('click', closed)
++    const adapter = new NativeSheetAdapter(document)
++    const first = adapter.read('页面')!
++    expect(first.backdropReady).toBe(false)
++    expect(document.documentElement.hasAttribute('data-native-sheet-preparing')).toBe(false)
++    expect(adapter.execute('presentation.prepare', { id: 'stale' })).toBe(false)
++    expect(adapter.execute('presentation.prepare', { id: first.id })).toBe(true)
++    expect(adapter.read('页面')!.backdropReady).toBe(true)
++    expect(document.documentElement.hasAttribute('data-native-sheet-preparing')).toBe(true)
++    expect(root.querySelector('input')!.value).toBe('尚未保存')
++    expect(closed).not.toHaveBeenCalled()
++    adapter.execute('presentation.attach', { id: first.id })
++    expect(document.documentElement.hasAttribute('data-native-sheet-preparing')).toBe(false)
++    expect(adapter.execute('presentation.prepare', { id: first.id })).toBe(false)
++    adapter.reset()
++    adapter.execute('presentation.prepare', { id: first.id })
++    root.remove()
++    expect(adapter.read('页面')).toBeUndefined()
++    expect(document.documentElement.hasAttribute('data-native-sheet-preparing')).toBe(false)
++  })
++
++  it('准备期间更换弹窗撤销旧层准备，迟到请求不能隐藏新弹窗', () => {
++    dialog('父弹窗')
++    const adapter = new NativeSheetAdapter(document)
++    const first = adapter.read('页面')!
++    adapter.execute('presentation.prepare', { id: first.id })
++    dialog('子弹窗', 2100)
++    const next = adapter.read('页面')!
++    expect(next.backdropReady).toBe(false)
++    expect(document.documentElement.hasAttribute('data-native-sheet-preparing')).toBe(false)
++    expect(adapter.execute('presentation.prepare', { id: first.id })).toBe(false)
++    adapter.execute('presentation.prepare', { id: next.id })
++    adapter.reset()
++    expect(document.documentElement.hasAttribute('data-native-sheet-preparing')).toBe(false)
++  })
++
++  it('工具栏和声明式自定义标题使用同一原生栏，原按钮仍是唯一动作来源', () => {
++    const root = dialog('旧标题')
++    root.innerHTML =
++      '<div class="v-overlay__content"><div class="v-card"><header class="v-toolbar"><h2 class="v-toolbar-title">工作流</h2><button data-native-dialog-close>关闭</button><button aria-label="导入">导入</button></header></div></div>'
++    const adapter = new NativeSheetAdapter(document)
++    expect(adapter.read('页面')).toMatchObject({ title: '工作流', canDismiss: true, actions: [{ title: '导入' }] })
++    root.innerHTML =
++      '<div data-native-dialog-header><h3 data-native-dialog-title>分类</h3><button data-native-dialog-close>取消</button><button aria-label="保存">保存</button></div>'
++    expect(adapter.read('页面')).toMatchObject({ title: '分类', canDismiss: true, actions: [{ title: '保存' }] })
++  })
++
++  it('协商接管前不改变网页；接管后只发出原按钮事件并保留表单', () => {
++    const root = dialog('名称识别')
++    const closed = vi.fn(),
++      refreshed = vi.fn()
++    root.querySelector('[data-native-dialog-close]')!.addEventListener('click', closed)
++    root.querySelector('[aria-label="刷新"]')!.addEventListener('click', refreshed)
++    const adapter = new NativeSheetAdapter(document)
++    const state = adapter.read('页面')!
++    expect(state.title).toBe('名称识别')
++    expect(state.canDismiss).toBe(true)
++    expect(document.documentElement.hasAttribute('data-native-sheet')).toBe(false)
++    expect(adapter.execute('presentation.attach', { id: state.id })).toBe(true)
++    expect(root.hasAttribute('data-native-sheet-current')).toBe(true)
++    expect(adapter.execute('presentation.action', { id: state.id, actionId: state.actions[0].id })).toBe(true)
++    expect(adapter.execute('presentation.dismiss', { id: state.id })).toBe(true)
++    expect(refreshed).toHaveBeenCalledOnce()
++    expect(closed).toHaveBeenCalledOnce()
++    expect(root.querySelector('input')!.value).toBe('尚未保存')
++    expect(adapter.execute('presentation.detach', { id: state.id })).toBe(true)
++    expect(document.documentElement.hasAttribute('data-native-sheet')).toBe(false)
++    expect(root.querySelector('[data-native-sheet-header]')).toBeNull()
++  })
++
++  it('嵌套弹窗拒绝旧层关闭，关闭子层后恢复父层内容和身份', () => {
++    const parent = dialog('父弹窗')
++    const adapter = new NativeSheetAdapter(document)
++    const first = adapter.read('页面')!
++    adapter.execute('presentation.attach', { id: first.id })
++    const child = dialog('子弹窗', 2100)
++    const second = adapter.read('页面')!
++    expect(second.id).not.toBe(first.id)
++    expect(adapter.execute('presentation.dismiss', { id: first.id })).toBe(false)
++    expect(child.hasAttribute('data-native-sheet-current')).toBe(true)
++    child.remove()
++    expect(adapter.read('页面')!.id).toBe(first.id)
++    expect(parent.hasAttribute('data-native-sheet-current')).toBe(true)
++  })
++
++  it('按钮替换、禁用和不可关闭弹窗不会绕过当前业务状态', () => {
++    const root = dialog('持久进度')
++    const adapter = new NativeSheetAdapter(document)
++    const old = adapter.read('页面')!
++    root.querySelector('[data-native-dialog-close]')!.remove()
++    root.querySelector('[aria-label="刷新"]')!.outerHTML = '<button aria-label="保存">保存</button>'
++    const current = adapter.read('页面')!
++    expect(current.canDismiss).toBe(false)
++    expect(adapter.execute('presentation.dismiss', { id: current.id })).toBe(false)
++    expect(adapter.execute('presentation.action', { id: current.id, actionId: old.actions[0].id })).toBe(false)
++    root.querySelector('button')!.disabled = true
++    expect(adapter.execute('presentation.action', { id: current.id, actionId: current.actions[0].id })).toBe(false)
++    root.remove()
++    adapter.read('页面')
++    expect(adapter.execute('presentation.attach', { id: current.id })).toBe(false)
++  })
++
++  it('助手只接管打开的面板，保留菜单的实际锚点并移走标题和关闭按钮', () => {
++    const root = document.createElement('aside')
++    root.className = 'agent-assistant-panel'
++    root.setAttribute('role', 'dialog')
++    root.setAttribute('aria-label', '助手')
++    root.innerHTML =
++      '<header class="agent-assistant-header"><div class="agent-assistant-title">助手</div><button aria-haspopup="menu" aria-label="历史">历史</button><button data-native-dialog-close>关闭</button></header><textarea>草稿</textarea>'
++    document.body.append(root)
++    const adapter = new NativeSheetAdapter(document)
++    expect(adapter.read('页面')).toBeUndefined()
++    root.classList.add('is-open')
++    const state = adapter.read('页面')!
++    expect(state).toMatchObject({ title: '助手', fullscreen: true, canDismiss: true, actions: [] })
++    expect(root.querySelector('[data-native-sheet-header]')).toBeNull()
++    expect(root.querySelector('[data-native-sheet-heading]')).not.toBeNull()
++    adapter.execute('presentation.attach', { id: state.id })
++    expect(root.querySelector('[aria-haspopup="menu"]')).not.toBeNull()
++    expect(root.querySelector('textarea')!.value).toBe('草稿')
++  })
++})
 diff --git a/src/native/header.ts b/src/native/header.ts
 new file mode 100644
 index 00000000..8f81a263
@@ -2419,13 +3941,14 @@ index 00000000..8f81a263
 +}
 diff --git a/src/native/history.ts b/src/native/history.ts
 new file mode 100644
-index 00000000..5ecd6974
+index 00000000..7c90a96f
 --- /dev/null
 +++ b/src/native/history.ts
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,144 @@
 +import { shallowRef } from 'vue'
 +import type { Router } from 'vue-router'
 +import { isNativeRoute, type NativeSnapshot } from './protocol'
++import { readNativePresentation } from './presentation'
 +
 +/** 每个入口的逻辑路径由网页 Router 完成钩子维护，原生不保存第二份业务栈。
 + */
@@ -2472,7 +3995,8 @@ index 00000000..5ecd6974
 +  selectRoot(id: string) {
 +    const root = this.roots().find(item => item.id === id)
 +    if (!root || this.intent) return false
-+    const target = this.trails.get(id)?.at(-1) ?? root.path
++    // “更多”是目录入口，每次点击都回到目录，其他 Tab 保留最近业务位置。
++    const target = root.path === '/apps' ? root.path : (this.trails.get(id)?.at(-1) ?? root.path)
 +    this.navigate(target, 'root', id)
 +    return true
 +  }
@@ -2485,7 +4009,7 @@ index 00000000..5ecd6974
 +      focused.blur()
 +      return true
 +    }
-+    if (document.querySelector('.v-overlay--active')) {
++    if (readNativePresentation(document).overlayOpen) {
 +      targetWindow.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))
 +      return true
 +    }
@@ -2556,7 +4080,8 @@ index 00000000..5ecd6974
 +        else if (numericPosition === this.lastPosition && rootId === this.currentRoot && trail.length)
 +          trail = [...trail.slice(0, -1), route.fullPath]
 +        else if (trail.at(-1) !== route.fullPath) trail = [...trail, route.fullPath]
-+      } else if (!trail.length) trail = [route.fullPath]
++      } else if (root?.path === '/apps' && route.fullPath === root.path) trail = [root.path]
++      else if (!trail.length) trail = [route.fullPath]
 +      this.trails.set(rootId, trail.slice(-128))
 +    }
 +    this.currentRoot = rootId
@@ -2706,10 +4231,10 @@ index 00000000..98648450
 +}
 diff --git a/src/native/native.scss b/src/native/native.scss
 new file mode 100644
-index 00000000..8f244fe1
+index 00000000..d3cb602e
 --- /dev/null
 +++ b/src/native/native.scss
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,218 @@
 +// 只有双方事务提交后的文档才采用此布局；普通网页/PWA 不匹配选择器。
 +html[data-native-chrome='active'] {
 +  scroll-padding-block: var(--native-top) var(--native-bottom);
@@ -2761,9 +4286,9 @@ index 00000000..8f244fe1
 +    min-block-size: 0 !important;
 +  }
 +
-+  // 弹层打开时原生底栏已隐藏；背景延伸至屏幕底部，交互内容单独避让 Home Indicator。
++  // 普通菜单/弹窗保留底栏，只有全屏弹窗延伸到 Home Indicator 区域。
 +  .v-dialog {
-+    inset-block: var(--native-top) 0 !important;
++    inset-block: var(--native-top) var(--native-bottom) !important;
 +    inset-inline: var(--native-left) var(--native-right) !important;
 +  }
 +
@@ -2780,9 +4305,152 @@ index 00000000..8f244fe1
 +    block-size: 100%;
 +  }
 +
++  .v-dialog--fullscreen {
++    inset-block-end: 0 !important;
++  }
++
++  // 弹窗之外降低亮度并显著模糊，保留弹窗自身文字和控件的清晰度。
++  .v-dialog > .v-overlay__scrim,
++  .v-menu > .v-overlay__scrim {
++    background: rgba(var(--v-theme-background), 0.74) !important;
++    opacity: 1 !important;
++    backdrop-filter: blur(22px) saturate(0.75);
++    -webkit-backdrop-filter: blur(22px) saturate(0.75);
++  }
++
++  .medal-showcase .medal-showcase__close {
++    // 以已避开原生顶栏的弹窗为定位参考，避免再按整个屏幕偏移。
++    position: absolute;
++    inset-block-start: 12px;
++    inset-inline-end: 12px;
++  }
++
++  .theme-customizer-panel-host[role='dialog'] {
++    inset-block-start: var(--native-top) !important;
++    block-size: calc(100dvh - var(--native-top)) !important;
++    min-block-size: 0 !important;
++    inline-size: 100% !important;
++    padding-block-end: var(--native-bottom);
++  }
++
++  .theme-customizer-panel--dialog {
++    // 状态栏已计入原生顶边距，定制器内部不再重复添加安全区。
++    padding-block-start: 0;
++  }
++
 +  .v-dialog--fullscreen > .v-overlay__content > .v-card,
 +  .v-bottom-sheet > .v-bottom-sheet__content.v-overlay__content > .v-card {
 +    padding-block-end: var(--native-bottom);
++  }
++}
++
++// 仅在原生明确请求时短暂显示原底页，供单 WebView 搬入 Sheet 时保留上下文。
++html[data-native-chrome='active'][data-native-sheet-preparing] {
++  .v-overlay--active.v-dialog,
++  .theme-customizer-panel-host[role='dialog'],
++  .agent-assistant-panel.is-open[role='dialog'],
++  .agent-assistant-fab,
++  .agent-pet-stage-layer {
++    visibility: hidden !important;
++    opacity: 0 !important;
++  }
++}
++
++// 同一 WebView 进入系统 Sheet 后只显示当前 Vue 弹窗的内容；普通浏览器完全不匹配。
++html[data-native-chrome='active'][data-native-sheet] {
++  &,
++  body,
++  #app,
++  .v-application,
++  .v-application__wrap {
++    background: transparent !important;
++  }
++
++  #app {
++    visibility: hidden;
++  }
++
++  // 浮动助手入口不属于当前业务弹窗，不能盖在原生 Sheet 的内容或底部操作上。
++  .agent-assistant-fab,
++  .agent-pet-stage-layer {
++    display: none !important;
++  }
++
++  .v-overlay-container {
++    visibility: visible;
++  }
++
++  .v-dialog:not([data-native-sheet-current]),
++  .theme-customizer-panel-host:not([data-native-sheet-current]),
++  .agent-assistant-panel:not([data-native-sheet-current]) {
++    visibility: hidden !important;
++  }
++
++  [data-native-sheet-current] {
++    visibility: visible !important;
++    position: fixed !important;
++    inset: 0 !important;
++    inline-size: 100% !important;
++    block-size: 100% !important;
++    min-block-size: 0 !important;
++    padding: 0 !important;
++    background: transparent !important;
++    transition: none !important;
++
++    > .v-overlay__scrim,
++    [data-native-sheet-header],
++    [data-native-sheet-heading],
++    [data-native-dialog-close],
++    .medal-showcase__veil {
++      display: none !important;
++    }
++
++    > .v-overlay__content {
++      position: absolute !important;
++      inset: 0 !important;
++      inline-size: 100% !important;
++      block-size: 100% !important;
++      min-block-size: 0 !important;
++      max-inline-size: none !important;
++      max-block-size: none !important;
++      margin: 0 !important;
++      transform: none !important;
++      transition: none !important;
++    }
++
++    > .v-overlay__content > .v-card,
++    > .v-overlay__content > .medal-showcase,
++    > .theme-customizer-panel,
++    > .agent-assistant-shell {
++      inline-size: 100% !important;
++      block-size: 100% !important;
++      min-block-size: 0 !important;
++      max-block-size: none !important;
++      border: 0 !important;
++      border-radius: 0 !important;
++      box-shadow: none !important;
++      background: transparent !important;
++      backdrop-filter: none !important;
++      -webkit-backdrop-filter: none !important;
++      padding-block: 0 !important;
++    }
++
++    .agent-assistant-header {
++      justify-content: flex-end;
++      padding-block: 8px;
++      border: 0;
++    }
++
++    > .v-overlay__content > .v-card::before,
++    > .v-overlay__content > .v-card::after,
++    > .theme-customizer-panel::before,
++    > .theme-customizer-panel::after {
++      display: none !important;
++    }
++
++    > .theme-customizer-panel > .v-divider {
++      display: none;
++    }
 +  }
 +}
 diff --git a/src/native/notifications.ts b/src/native/notifications.ts
@@ -2863,12 +4531,155 @@ index 00000000..20712f3d
 +  onDeactivated(release)
 +  onScopeDispose(release)
 +}
+diff --git a/src/native/panel.ts b/src/native/panel.ts
+new file mode 100644
+index 00000000..4096911c
+--- /dev/null
++++ b/src/native/panel.ts
+@@ -0,0 +1,119 @@
++import type { NativePanel, NativePanelItem } from './protocol'
++import type { NativePanelEntry, NativePanelSource } from './registry'
++
++/** 对业务标识生成短 ASCII 标识，不把通知正文或任意 URL 当成原生命令。 */
++export function nativePanelId(prefix: string, value: unknown): string {
++  let hash = 2166136261
++  for (const character of String(value)) hash = Math.imul(hash ^ character.codePointAt(0)!, 16777619)
++  return `${prefix}-${(hash >>> 0).toString(16)}`
++}
++
++/** 限制跨进程展示文案的大小，并移除 UIKit 不需要的控制字符。 */
++function text(value: string | undefined, bytes = 512): string | undefined {
++  if (!value) return undefined
++  const encoder = new TextEncoder()
++  let result = ''
++  let size = 0
++  for (const character of value.replace(/[\p{Cc}\p{Cf}]/gu, ' ')) {
++    size += encoder.encode(character).length
++    if (size > bytes) break
++    result += character
++  }
++  return result || undefined
++}
++
++/** 保留网页原有图片地址，仅允许无用户信息的 HTTP(S) 资源。 */
++function imageReference(value: string | undefined): string | undefined {
++  if (!value || /[\p{Cc}\p{Cf}]/u.test(value)) return undefined
++  try {
++    const url = new URL(value, document.baseURI)
++    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return undefined
++    return new TextEncoder().encode(url.href).length <= 4096 ? url.href : undefined
++  } catch {
++    return undefined
++  }
++}
++
++/** 将本地声明转换为有界 JSON；只给仍在当前投影中的项目保留可执行回调。 */
++export function projectNativePanel(source: NativePanelSource) {
++  const callbacks = new Map<string, NativePanelEntry>()
++  let remaining = 96
++  let budget = 24000
++  /** 递归菜单最多三层，通知和搜索结果不会撑破整个桥接消息上限。 */
++  function items(entries: NativePanelEntry[], depth: number): NativePanelItem[] {
++    const result: NativePanelItem[] = []
++    for (const entry of entries) {
++      if (remaining <= 0 || budget <= 0) break
++      if (!/^[\x21-\x7e]{1,128}$/.test(entry.id) || callbacks.has(entry.id)) continue
++      const title = text(entry.title)
++      if (!title) continue
++      remaining--
++      callbacks.set(entry.id, entry)
++      const row: NativePanelItem = {
++        id: entry.id,
++        title,
++        ...(text(entry.subtitle, 2048) ? { subtitle: text(entry.subtitle, 2048) } : {}),
++        ...(entry.icon ? { icon: text(entry.icon) } : {}),
++        ...(imageReference(entry.image) ? { image: imageReference(entry.image) } : {}),
++        enabled: entry.enabled !== false,
++        selected: entry.selected === true,
++        destructive: entry.destructive === true,
++        keepOpen: entry.keepOpen === true,
++      }
++      budget -= new TextEncoder().encode(JSON.stringify(row)).length
++      if (entry.children?.length && depth < 2) row.children = items(entry.children, depth + 1)
++      result.push(row)
++    }
++    return result
++  }
++  const panel: NativePanel = {
++    title: text(source.title) || 'MoviePilot',
++    ...(text(source.subtitle) ? { subtitle: text(source.subtitle) } : {}),
++    ...(source.search
++      ? {
++          search: {
++            text: text(source.search.text, 1024) || '',
++            placeholder: text(source.search.placeholder) || '搜索',
++          },
++        }
++      : {}),
++    sections: source.sections.slice(0, 16).map(section => ({
++      id: section.id,
++      ...(text(section.title) ? { title: text(section.title) } : {}),
++      items: items(section.items, 0),
++    })),
++    loading: source.loading === true,
++    hasMore: source.hasMore === true,
++    ...(text(source.emptyText) ? { emptyText: text(source.emptyText) } : {}),
++  }
++  return { panel, callbacks, source }
++}
++
++/** 命令始终匹配最新面板的可见行，过期、禁用或未知项目不能调用旧闭包。 */
++export function dispatchNativePanel(
++  current: ReturnType<typeof projectNativePanel>,
++  payload: Record<string, unknown>,
++): boolean {
++  switch (payload.panelEvent) {
++    case 'open':
++      void current.source.onOpen?.()
++      return true
++    case 'query':
++      if (typeof payload.value !== 'string' || payload.value.length > 256 || !current.source.onQuery) return false
++      current.source.onQuery(payload.value)
++      return true
++    case 'more':
++      if (!current.panel.hasMore || current.panel.loading || !current.source.onLoadMore) return false
++      void current.source.onLoadMore()
++      return true
++    case 'select': {
++      if (typeof payload.itemId !== 'string') return false
++      const entry = current.callbacks.get(payload.itemId)
++      if (!entry || entry.enabled === false || !entry.invoke) return false
++      void entry.invoke()
++      return true
++    }
++    default:
++      return false
++  }
++}
+diff --git a/src/native/presentation.ts b/src/native/presentation.ts
+new file mode 100644
+index 00000000..41932aa4
+--- /dev/null
++++ b/src/native/presentation.ts
+@@ -0,0 +1,12 @@
++/** 区分普通菜单、全屏弹窗与自定义全屏设置，工具提示不参与导航互锁。 */
++export function readNativePresentation(document: Document) {
++  const customFullscreen = document.querySelector(
++    '.theme-customizer-panel-host[role="dialog"], .agent-assistant-panel.is-open[role="dialog"]',
++  )
++  return {
++    overlayOpen: Boolean(
++      customFullscreen || document.querySelector('.v-overlay--active.v-dialog, .v-overlay--active.v-menu'),
++    ),
++    fullscreen: Boolean(customFullscreen || document.querySelector('.v-overlay--active.v-dialog--fullscreen')),
++  }
++}
 diff --git a/src/native/protocol.ts b/src/native/protocol.ts
 new file mode 100644
-index 00000000..c778b65a
+index 00000000..b0003d97
 --- /dev/null
 +++ b/src/native/protocol.ts
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,145 @@
 +/** 原生导航只接收声明；业务回调不参与 JSON 序列化。 */
 +export interface NativeAction {
 +  actionId: string
@@ -2876,10 +4687,50 @@ index 00000000..c778b65a
 +  title: string
 +  icon: string
 +  position: 'leading' | 'trailing' | 'accessory'
++  /** 区分跨页面入口和当前页面操作；旧容器可以忽略。 */
++  scope?: 'global' | 'page'
 +  enabled: boolean
 +  loading: boolean
 +  dataAttr?: string
 +  menu?: Array<{ actionId: string; title: string; icon: string; enabled: boolean }>
++  panel?: NativePanel
++}
++
++/** 系统面板只接收展示数据和稳定标识，业务回调留在网页内。 */
++export interface NativePanelItem {
++  id: string
++  title: string
++  subtitle?: string
++  icon?: string
++  /** 通知等现有内容的图片地址，仅用于展示，不能作为导航或业务命令。 */
++  image?: string
++  enabled?: boolean
++  selected?: boolean
++  destructive?: boolean
++  keepOpen?: boolean
++  children?: NativePanelItem[]
++}
++
++/** 快捷入口共用系统列表与搜索控件，分组内容来自现有业务组件。 */
++export interface NativePanel {
++  title: string
++  subtitle?: string
++  search?: { text: string; placeholder: string }
++  sections: Array<{ id: string; title?: string; items: NativePanelItem[] }>
++  loading?: boolean
++  hasMore?: boolean
++  emptyText?: string
++}
++
++/** 原生 Sheet 只搬运现有 WebView；标题栏命令限定到当前实际弹窗及其按钮。 */
++export interface NativeSheet {
++  id: string
++  title: string
++  fullscreen: boolean
++  canDismiss: boolean
++  /** 可选的底页准备握手；不提供时容器沿用直接接管流程。 */
++  backdropReady?: boolean
++  actions: Array<{ id: string; title: string; enabled: boolean }>
 +}
 +
 +/** 已经经过网页权限过滤和路由守卫的完整原生显示状态。 */
@@ -2889,13 +4740,15 @@ index 00000000..c778b65a
 +  headerTabs?: { ownerId: string; selectedId: string; items: Array<{ id: string; title: string }> }
 +  actions: NativeAction[]
 +  moreMenu?: NativeMenuSection[]
-+  presentation?: { overlayOpen: boolean }
++  presentation?: { overlayOpen: boolean; fullscreen?: boolean; requestedPanel?: string; sheet?: NativeSheet }
 +  chrome: {
 +    topVisible: boolean
 +    bottomVisible: boolean
 +    theme: 'system' | 'light' | 'dark'
 +    content?: 'web' | 'menu'
 +    accentColor?: string
++    backgroundColor?: string
++    surfaceColor?: string
 +  }
 +}
 +
@@ -2932,6 +4785,10 @@ index 00000000..c778b65a
 +/** 由主文档开始时注入的最小 WebKit 传输门面。 */
 +export interface NativeTransport {
 +  transportVersion: 1
++  /** 可选原生快捷面板能力；旧容器仍使用原有 HTML 回调。 */
++  panelsVersion?: 1
++  /** 可选原生业务弹窗容器；未协商时完整保留网页弹窗。 */
++  sheetsVersion?: 1
 +  /** 非敏感安装标识，仅用于退出当前账号时撤销对应通知绑定。 */
 +  notificationInstallation?: string
 +  /** 只发送 JSON 声明，不暴露任意原生方法。 */
@@ -2970,12 +4827,31 @@ index 00000000..c778b65a
 +}
 diff --git a/src/native/registry.ts b/src/native/registry.ts
 new file mode 100644
-index 00000000..453059fa
+index 00000000..5e9c97f8
 --- /dev/null
 +++ b/src/native/registry.ts
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,56 @@
 +import { onScopeDispose, ref, shallowRef, type MaybeRefOrGetter } from 'vue'
 +import type { DynamicHeaderTabConfig } from '@/composables/useDynamicHeaderTab'
++import type { NativePanel, NativePanelItem } from './protocol'
++
++/** 面板项目保存本地回调；投影到原生时主动移除函数。 */
++export interface NativePanelEntry extends Omit<NativePanelItem, 'children'> {
++  children?: NativePanelEntry[]
++  /** 选择时执行当前业务组件已有的方法。 */
++  invoke?(): void | Promise<unknown>
++}
++
++/** 原生面板提供者复用组件状态，不单独请求另一套业务 API。 */
++export interface NativePanelSource extends Omit<NativePanel, 'sections'> {
++  sections: Array<{ id: string; title?: string; items: NativePanelEntry[] }>
++  /** 打开时刷新现有组件的数据。 */
++  onOpen?(): void | Promise<unknown>
++  /** 输入只更新组件原有搜索词。 */
++  onQuery?(text: string): void
++  /** 分页继续使用现有加载方法。 */
++  onLoadMore?(): void | Promise<unknown>
++}
 +
 +/** 保留原始回调的全局导航动作，不穿过原生桥接。
 + */
@@ -2985,6 +4861,7 @@ index 00000000..453059fa
 +  icon: string
 +  dataAttr?: string
 +  visible?: MaybeRefOrGetter<boolean>
++  panel?: () => NativePanelSource | undefined
 +  /** 原生入口直接打开既有业务组件，不合成另一套页面。
 +   */
 +  invoke(): void
@@ -2996,6 +4873,8 @@ index 00000000..453059fa
 +/** 全局动作替换容器以便跨组件订阅，未接管时不影响原网页入口。
 + */
 +export const nativeGlobalActions = shallowRef<ReadonlyMap<string, NativeGlobalAction>>(new Map())
++/** 通知深链接等网页入口可请求宿主打开当前原生面板。 */
++export const nativeRequestedPanel = ref<string>()
 +
 +/** 按组件作用域登记原回调；旧实例销毁不能注销新实例的同名动作。
 + */
@@ -3010,10 +4889,10 @@ index 00000000..453059fa
 +}
 diff --git a/src/native/session.ts b/src/native/session.ts
 new file mode 100644
-index 00000000..dec38186
+index 00000000..1b459dae
 --- /dev/null
 +++ b/src/native/session.ts
-@@ -0,0 +1,261 @@
+@@ -0,0 +1,268 @@
 +import {
 +  isNativeIdentifier,
 +  isRecord,
@@ -3195,6 +5074,11 @@ index 00000000..dec38186
 +        'notification.open',
 +        'headerTab.select',
 +        'action.invoke',
++        'presentation.prepare',
++        'presentation.attach',
++        'presentation.detach',
++        'presentation.dismiss',
++        'presentation.action',
 +        'state.request',
 +      ].includes(message.type)
 +    )
@@ -3256,8 +5140,10 @@ index 00000000..dec38186
 +      message.routeRevision = this.routeRevision
 +      message.stateRevision = this.stateRevision
 +    }
-+    if (new TextEncoder().encode(JSON.stringify(message)).length > 65536) throw new Error('invalid_message')
-+    this.options.transport.postMessage(message)
++    const serialized = JSON.stringify(message)
++    if (new TextEncoder().encode(serialized).length > 65536) throw new Error('invalid_message')
++    // WK 消息只接收独立的标准 JSON 值，不能直接传 Vue Proxy 或后续仍会变化的响应式对象。
++    this.options.transport.postMessage(JSON.parse(serialized) as NativeEnvelope)
 +  }
 +
 +  /** 只有仍可执行 JS 时才能恢复网页；宿主另行处理进程终止。 */
@@ -3273,6 +5159,164 @@ index 00000000..dec38186
 +        /* 宿主超时将显示恢复出口。 */
 +      }
 +    }
++  }
++}
+diff --git a/src/native/sheet.ts b/src/native/sheet.ts
+new file mode 100644
+index 00000000..adca6803
+--- /dev/null
++++ b/src/native/sheet.ts
+@@ -0,0 +1,152 @@
++import type { NativeSheet } from './protocol'
++
++/** 投影真实 Vue 弹窗及标题栏，持有 DOM 引用而不复制内容、事件或认证状态。 */
++export class NativeSheetAdapter {
++  private sequence = 0
++  private ids = new WeakMap<Element, string>()
++  private buttonIds = new WeakMap<Element, string>()
++  private root?: HTMLElement
++  private close?: HTMLButtonElement
++  private buttons = new Map<string, HTMLButtonElement>()
++  private attached?: string
++  private prepared?: string
++
++  /** 作用域限定当前文档；关闭文档或降级时必须调用 reset 恢复原页面。 */
++  constructor(private document: Document) {}
++
++  /** 每次重新读取活动最上层，嵌套弹窗撤销旧按钮的执行权限。 */
++  read(fallbackTitle: string): NativeSheet | undefined {
++    const roots = Array.from(
++      this.document.querySelectorAll<HTMLElement>(
++        '.v-overlay--active.v-dialog, .theme-customizer-panel-host[role="dialog"], .agent-assistant-panel.is-open[role="dialog"]',
++      ),
++    )
++    const root = roots.sort((a, b) => this.zIndex(a) - this.zIndex(b)).at(-1)
++    this.root = root
++    this.buttons.clear()
++    this.close = undefined
++    if (!root) {
++      if (!this.attached) this.clearMarkers()
++      return
++    }
++    let id = this.ids.get(root)
++    if (!id) this.ids.set(root, (id = `sheet-${++this.sequence}`))
++    if (this.prepared && this.prepared !== id) this.clearPreparation()
++    this.close = root.querySelector<HTMLButtonElement>('[data-native-dialog-close]') ?? undefined
++    const header = root.querySelector<HTMLElement>(
++      '[data-native-dialog-header], .v-card-item, .v-toolbar, .theme-customizer-header, .agent-assistant-header, :scope > .v-overlay__content > .v-card > .v-card-title',
++    )
++    const heading =
++      root.querySelector('[data-native-dialog-title]') ??
++      (header?.matches('.v-card-title') ? header : undefined) ??
++      header?.querySelector('.v-card-title, .v-toolbar-title, .theme-customizer-title, .agent-assistant-title') ??
++      root.querySelector(':scope > .v-overlay__content > .v-card > .v-card-title')
++    heading?.setAttribute('data-native-sheet-heading', '')
++    const title = this.label(root.getAttribute('aria-label') || heading?.textContent || fallbackTitle)
++    const actions: NativeSheet['actions'] = []
++    if (header) {
++      header.setAttribute('data-native-sheet-header', '')
++      for (const button of header.querySelectorAll<HTMLButtonElement>('button')) {
++        if (button === this.close || button.closest('[aria-hidden="true"]')) continue
++        const title = this.label(
++          button.getAttribute('aria-label') || button.getAttribute('title') || button.textContent,
++        )
++        if (!title || actions.length >= 8) continue
++        let actionId = this.buttonIds.get(button)
++        if (!actionId) this.buttonIds.set(button, (actionId = `sheet-button-${++this.sequence}`))
++        actions.push({ id: actionId, title, enabled: !button.disabled })
++        this.buttons.set(actionId, button)
++      }
++      // 无法表达的标题栏控件继续留在内容中，避免删除插件自己的业务入口。
++      if (header.querySelector('input, select, textarea, [role="tablist"], [aria-haspopup="menu"], [aria-owns]')) {
++        header.removeAttribute('data-native-sheet-header')
++        actions.length = 0
++        this.buttons.clear()
++      }
++    }
++    if (this.attached) this.mark(root)
++    return {
++      id,
++      title: title || 'MoviePilot',
++      fullscreen:
++        root.classList.contains('v-dialog--fullscreen') ||
++        root.matches('.theme-customizer-panel-host, .agent-assistant-panel'),
++      canDismiss: Boolean(this.close && !this.close.disabled),
++      backdropReady: this.prepared === id,
++      actions,
++    }
++  }
++
++  /** 只执行当前弹窗的可见按钮；旧层、关闭后的 ID 与任意选择器均不可执行。 */
++  execute(type: string, payload: Record<string, unknown>) {
++    if (type === 'presentation.detach') {
++      if (payload.id !== this.attached) return false
++      this.reset()
++      return true
++    }
++    const root = this.root
++    if (!root?.isConnected || this.ids.get(root) !== payload.id) return false
++    if (type === 'presentation.prepare') {
++      if (this.attached) return false
++      this.prepared = payload.id as string
++      this.document.documentElement.setAttribute('data-native-sheet-preparing', '')
++      return true
++    }
++    if (type === 'presentation.attach') {
++      this.attached = payload.id as string
++      this.mark(root)
++      return true
++    }
++    const button = type === 'presentation.dismiss' ? this.close : this.buttons.get(String(payload.actionId))
++    if (!['presentation.dismiss', 'presentation.action'].includes(type) || !button?.isConnected || button.disabled)
++      return false
++    button.click()
++    return true
++  }
++
++  /** 宿主退出或协商失效时立即恢复原来的网页弹窗标题、背景和布局。 */
++  reset() {
++    this.attached = undefined
++    this.clearMarkers()
++    for (const header of this.document.querySelectorAll('[data-native-sheet-header]'))
++      header.removeAttribute('data-native-sheet-header')
++    for (const heading of this.document.querySelectorAll('[data-native-sheet-heading]'))
++      heading.removeAttribute('data-native-sheet-heading')
++  }
++
++  /** 标记只影响当前活动弹窗，菜单仍在同一文档中保留原有交互。 */
++  private mark(root: HTMLElement) {
++    this.clearPreparation()
++    for (const old of this.document.querySelectorAll('[data-native-sheet-current]'))
++      if (old !== root) old.removeAttribute('data-native-sheet-current')
++    root.setAttribute('data-native-sheet-current', '')
++    this.document.documentElement.setAttribute('data-native-sheet', '')
++  }
++
++  /** 清除容器标记不关闭 Vue 弹窗，也不触发业务回调。 */
++  private clearMarkers() {
++    this.clearPreparation()
++    this.document.documentElement.removeAttribute('data-native-sheet')
++    for (const root of this.document.querySelectorAll('[data-native-sheet-current]'))
++      root.removeAttribute('data-native-sheet-current')
++  }
++
++  /** 原生已保留底页或准备取消时恢复弹窗展示，不改变任何业务输入与回调。 */
++  private clearPreparation() {
++    this.prepared = undefined
++    this.document.documentElement.removeAttribute('data-native-sheet-preparing')
++  }
++
++  /** Vuetify 层级优先，未声明层级时保持文档中的后开弹窗在上。 */
++  private zIndex(element: HTMLElement) {
++    return Number.parseInt(this.document.defaultView?.getComputedStyle(element).zIndex || '0') || 0
++  }
++
++  /** 标题有界且没有控制字符，不能扩大桥接消息或成为原生命令。 */
++  private label(value: string | null | undefined) {
++    return (value || '')
++      .replace(/[\p{Cc}\p{Cf}]/gu, ' ')
++      .trim()
++      .slice(0, 100)
 +  }
 +}
 diff --git a/src/pages/appcenter.vue b/src/pages/appcenter.vue
@@ -3439,6 +5483,81 @@ index 176e0610..54ff44cb 100644
        <div class="resource-page-header__copy">
          <VPageContentTitle
            :title="isSubtitleSearch ? t('resource.subtitleSearchResults') : t('resource.searchResults')"
+diff --git a/src/pages/subscribe/index.vue b/src/pages/subscribe/index.vue
+index f5b6a1cb..b7f72395 100644
+--- a/src/pages/subscribe/index.vue
++++ b/src/pages/subscribe/index.vue
+@@ -602,6 +602,36 @@ registerHeaderTab({
+       color: filterButtonColor,
+       class: 'settings-icon-button',
+       dataAttr: 'filter-btn',
++      panel: () => ({
++        title: t('common.filter'),
++        search: { text: subscribeFilter.value, placeholder: t('subscribe.name') },
++        onQuery: value => {
++          subscribeFilter.value = value
++        },
++        sections: [
++          {
++            id: 'status',
++            title: t('common.status'),
++            items: filterOptions.value.map(option => ({
++              id: `status-${option.value}`,
++              title: option.label,
++              icon: option.icon,
++              selected: (subscribeStatusFilter.value || 'all') === option.value,
++              invoke: () => selectFilter(option.value),
++            })),
++          },
++          {
++            id: 'sort',
++            title: t('subscribe.sortTitle'),
++            items: sortOptions.value.map(option => ({
++              id: `sort-${option.value}`,
++              title: option.label,
++              selected: currentSortBy.value === option.value,
++              invoke: () => selectSubscribeSort(option.value),
++            })),
++          },
++        ],
++      }),
+       permission: 'subscribe',
+       action: () => {
+         filterSubscribeDialog.value = true
+@@ -639,6 +669,14 @@ registerHeaderTab({
+       color: computed(() => (shareKeywordInput.value ? 'primary' : 'gray')),
+       class: 'settings-icon-button',
+       dataAttr: 'share-filter-btn',
++      panel: () => ({
++        title: t('subscribe.keyword'),
++        search: { text: shareKeywordInput.value, placeholder: t('subscribe.keyword') },
++        onQuery: value => {
++          shareKeywordInput.value = value
++        },
++        sections: [],
++      }),
+       permission: 'subscribe',
+       action: () => {
+         searchShareDialog.value = true
+diff --git a/src/pages/workflow.vue b/src/pages/workflow.vue
+index 5ce14a84..d206f013 100644
+--- a/src/pages/workflow.vue
++++ b/src/pages/workflow.vue
+@@ -85,6 +85,14 @@ registerHeaderTab({
+       color: computed(() => (shareKeywordInput.value ? 'primary' : 'gray')),
+       class: 'settings-icon-button',
+       dataAttr: 'share-filter-btn',
++      panel: () => ({
++        title: t('workflow.searchShares'),
++        search: { text: shareKeywordInput.value, placeholder: t('workflow.searchShares') },
++        onQuery: value => {
++          shareKeywordInput.value = value
++        },
++        sections: [],
++      }),
+       permission: 'manage',
+       show: computed(() => activeTab.value === 'share'),
+       action: () => {
 diff --git a/src/stores/auth.ts b/src/stores/auth.ts
 index 027c5f0f..66160da9 100644
 --- a/src/stores/auth.ts
@@ -3929,8 +6048,127 @@ index 6e9155cf..2c1ee56b 100644
            {{ personDetail.name }}
          </h1>
          <div class="mt-1 mb-2 space-y-1 text-xs sm:text-sm lg:text-base text-center text-lg-left">
+diff --git a/src/views/plugin/PluginCardListView.vue b/src/views/plugin/PluginCardListView.vue
+index 63e5c388..bad8e6cb 100644
+--- a/src/views/plugin/PluginCardListView.vue
++++ b/src/views/plugin/PluginCardListView.vue
+@@ -37,6 +37,8 @@ import { openSharedDialog } from '@/composables/useSharedDialog'
+ import { usePluginRuntimeStore, usePluginSidebarNavStore, useUserStore } from '@/stores'
+ import { resolvePluginInstallBlock } from '@/composables/usePluginInstallBlock'
+ import { buildUserPermissionContext, hasPermission } from '@/utils/permission'
++import type { NativePanelSource } from '@/native/registry'
++import { nativePanelId } from '@/native/panel'
+ 
+ // 国际化
+ const { t } = useI18n()
+@@ -108,6 +110,34 @@ registerHeaderTab({
+       ),
+       class: 'settings-icon-button',
+       dataAttr: 'installed-filter-btn',
++      panel: () => ({
++        title: t('common.filter'),
++        search: { text: installedFilter.value || '', placeholder: t('plugin.name') },
++        onQuery: value => {
++          installedFilter.value = value
++        },
++        sections: [
++          {
++            id: 'installed-filter',
++            items: [
++              {
++                id: 'running',
++                title: t('plugin.running'),
++                icon: 'mdi-play-circle',
++                selected: enabledFilter.value,
++                invoke: toggleEnabledInstalledFilter,
++              },
++              {
++                id: 'updates',
++                title: t('plugin.hasNewVersion'),
++                icon: 'mdi-arrow-up-circle',
++                selected: hasUpdateFilter.value,
++                invoke: toggleHasUpdateInstalledFilter,
++              },
++            ],
++          },
++        ],
++      }),
+       permission: 'admin',
+       action: () => {
+         filterInstalledPluginDialog.value = true
+@@ -131,6 +161,7 @@ registerHeaderTab({
+       color: computed(() => (isFilterFormEmpty.value ? 'gray' : 'primary')),
+       class: 'settings-icon-button',
+       dataAttr: 'market-filter-btn',
++      panel: () => nativeMarketFilterPanel(),
+       permission: 'admin',
+       action: () => {
+         filterMarketPluginDialog.value = true
+@@ -334,7 +365,7 @@ function submitMarketNameFilter(event: KeyboardEvent) {
+ }
+ 
+ // 插件过滤条件
+-const installedFilter = ref(null)
++const installedFilter = ref<string | null>(null)
+ 
+ // 有新版本过滤条件
+ const hasUpdateFilter = ref(false)
+@@ -378,6 +409,53 @@ const labelFilterOptions = ref<string[]>([])
+ // 插件库过滤项
+ const repoFilterOptions = ref<string[]>([])
+ 
++/** 系统筛选菜单只投影当前排序和多选条件，筛选结果继续由原有 watcher 计算。 */
++function nativeMarketFilterPanel(): NativePanelSource {
++  const filters = (['author', 'label', 'repo'] as const).map(key => {
++    const options =
++      key === 'author'
++        ? authorFilterOptions.value
++        : key === 'label'
++          ? labelFilterOptions.value
++          : repoFilterOptions.value
++    return {
++      id: key,
++      title: t(key === 'repo' ? 'plugin.repository' : `plugin.${key}`),
++      children: options.map(value => ({
++        id: nativePanelId(key, value),
++        title: value,
++        selected: filterForm[key].includes(value),
++        keepOpen: true,
++        invoke: () => {
++          filterForm[key] = filterForm[key].includes(value)
++            ? filterForm[key].filter(item => item !== value)
++            : [...filterForm[key], value]
++        },
++      })),
++    }
++  })
++  return {
++    title: t('common.filter'),
++    search: { text: filterForm.name, placeholder: t('plugin.name') },
++    onQuery: value => {
++      filterForm.name = value
++    },
++    sections: [
++      {
++        id: 'sort',
++        title: t('plugin.sortTitle'),
++        items: sortOptions.value.map(option => ({
++          id: option.value,
++          title: option.title,
++          selected: (activeSort.value || 'count') === option.value,
++          invoke: () => selectMarketSort(option.value),
++        })),
++      },
++      { id: 'filters', title: t('common.filter'), items: filters.filter(item => item.children.length) },
++    ],
++  }
++}
++
+ // 插件文件夹配置
+ const pluginFolders = ref<PluginFolderMap>({})
+ 
 diff --git a/src/views/reorganize/TransferHistoryView.vue b/src/views/reorganize/TransferHistoryView.vue
-index 08c3b320..dbfe5bee 100644
+index 08c3b320..9a96c5c1 100644
 --- a/src/views/reorganize/TransferHistoryView.vue
 +++ b/src/views/reorganize/TransferHistoryView.vue
 @@ -29,6 +29,8 @@ import { buildUserPermissionContext, hasPermission } from '@/utils/permission'
@@ -3942,7 +6180,7 @@ index 08c3b320..dbfe5bee 100644
  
  const TransferHistoryDeleteDialog = defineAsyncComponent(
    () => import('@/components/dialog/TransferHistoryDeleteDialog.vue'),
-@@ -1987,6 +1989,27 @@ useDynamicButton({
+@@ -1987,6 +1989,42 @@ useDynamicButton({
    show: computed(() => appMode.value),
  })
  
@@ -3952,6 +6190,21 @@ index 08c3b320..dbfe5bee 100644
 +      title: t('transferHistory.statusFilter.label'),
 +      icon: 'mdi-filter-multiple-outline',
 +      dataAttr: 'history-status-filter-btn',
++      panel: () => ({
++        title: t('transferHistory.statusFilter.label'),
++        sections: [
++          {
++            id: 'history-status',
++            items: statusFilterItems.value.map(option => ({
++              id: option.value,
++              title: option.title,
++              icon: option.icon,
++              selected: statusFilter.value === option.value,
++              invoke: () => selectStatusFilter(option.value),
++            })),
++          },
++        ],
++      }),
 +      action: () => {
 +        mobileStatusFilterMenu.value = true
 +      },
@@ -3970,7 +6223,7 @@ index 08c3b320..dbfe5bee 100644
  // 初始加载数据
  onMounted(() => {
    void loadStorages()
-@@ -2543,7 +2566,7 @@ onUnmounted(() => {
+@@ -2543,7 +2581,7 @@ onUnmounted(() => {
    </section>
  
    <section v-else class="transfer-history-mobile-page">
@@ -3980,7 +6233,7 @@ index 08c3b320..dbfe5bee 100644
          :title="t('navItems.mediaOrganize')"
          class="transfer-history-mobile-title my-0"
 diff --git a/src/views/site/SiteCardListView.vue b/src/views/site/SiteCardListView.vue
-index 5cea415c..632f8f40 100644
+index 5cea415c..43ed0411 100644
 --- a/src/views/site/SiteCardListView.vue
 +++ b/src/views/site/SiteCardListView.vue
 @@ -12,6 +12,8 @@ import { useKeepAliveRefresh, type KeepAliveRefreshContext } from '@/composables
@@ -4003,7 +6256,7 @@ index 5cea415c..632f8f40 100644
  
  // 筛选选项
  const filterOptions = computed(() => [
-@@ -393,18 +399,44 @@ useDynamicButton({
+@@ -393,18 +399,59 @@ useDynamicButton({
    permission: 'manage',
    show: computed(() => appMode.value && shouldShowFloatingActions.value),
  })
@@ -4014,6 +6267,21 @@ index 5cea415c..632f8f40 100644
 +      title: t('common.filter'),
 +      icon: 'mdi-filter-multiple-outline',
 +      dataAttr: 'site-filter-btn',
++      panel: () => ({
++        title: t('common.filter'),
++        sections: [
++          {
++            id: 'site-filter',
++            items: filterOptions.value.map(option => ({
++              id: option.value,
++              title: option.label,
++              icon: option.icon,
++              selected: filterOption.value === option.value,
++              invoke: () => selectFilter(option.value),
++            })),
++          },
++        ],
++      }),
 +      action: () => {
 +        filterMenu.value = true
 +      },

@@ -170,178 +170,303 @@
     "file": "screens/34.png"
   },
   {
-    "title": "HTML主题菜单",
+    "title": "HTML页面跳转与导航联动",
     "group": "导航与弹窗",
     "file": "screens/35.png"
   },
   {
-    "title": "HTML全屏设置弹窗",
+    "title": "中文分类联动",
     "group": "导航与弹窗",
     "file": "screens/36.png"
   },
   {
-    "title": "HTML用户菜单",
+    "title": "主题定制安全区",
     "group": "导航与弹窗",
     "file": "screens/37.png"
   },
   {
-    "title": "HTML页面跳转与导航联动",
+    "title": "单行原生导航",
     "group": "导航与弹窗",
     "file": "screens/38.png"
   },
   {
-    "title": "中文分类联动",
+    "title": "原生业务弹窗软键盘",
     "group": "导航与弹窗",
     "file": "screens/39.png"
   },
   {
-    "title": "单行原生导航",
+    "title": "原生中文分类菜单",
     "group": "导航与弹窗",
     "file": "screens/40.png"
   },
   {
-    "title": "原生中文分类菜单",
+    "title": "原生全局搜索",
     "group": "导航与弹窗",
     "file": "screens/41.png"
   },
   {
-    "title": "原生页内分类菜单",
+    "title": "原生工作流分享搜索",
     "group": "导航与弹窗",
     "file": "screens/42.png"
   },
   {
-    "title": "文件管理刷新菜单",
+    "title": "原生已安装插件筛选",
     "group": "导航与弹窗",
     "file": "screens/43.png"
   },
   {
-    "title": "更多菜单搜索",
+    "title": "原生捷径打开业务弹窗",
     "group": "导航与弹窗",
     "file": "screens/44.png"
   },
   {
-    "title": "框架打开原HTML站点筛选",
+    "title": "原生捷径面板",
     "group": "导航与弹窗",
     "file": "screens/45.png"
   },
   {
-    "title": "站点标题操作进入三点菜单",
+    "title": "原生插件市场筛选与排序",
     "group": "导航与弹窗",
     "file": "screens/46.png"
   },
   {
-    "title": "站点统一标题与渐变顶栏",
+    "title": "原生插件面板",
     "group": "导航与弹窗",
     "file": "screens/47.png"
   },
   {
-    "title": "静态启动画面",
+    "title": "原生搜索来源选择",
     "group": "导航与弹窗",
     "file": "screens/48.png"
   },
   {
-    "title": "顶部操作横向展开",
+    "title": "原生整理历史状态筛选",
     "group": "导航与弹窗",
     "file": "screens/49.png"
   },
   {
-    "title": "密码可见切换",
-    "group": "连接与登录",
+    "title": "原生消息中心",
+    "group": "导航与弹窗",
     "file": "screens/50.png"
   },
   {
-    "title": "密码可见切换 · 深色",
-    "group": "连接与登录",
+    "title": "原生玻璃设置 Sheet",
+    "group": "导航与弹窗",
     "file": "screens/51.png"
   },
   {
-    "title": "登录",
-    "group": "连接与登录",
+    "title": "原生用户菜单",
+    "group": "导航与弹窗",
     "file": "screens/52.png"
   },
   {
-    "title": "登录 · 深色",
-    "group": "连接与登录",
+    "title": "原生站点筛选菜单",
+    "group": "导航与弹窗",
     "file": "screens/53.png"
   },
   {
-    "title": "登录键盘",
-    "group": "连接与登录",
+    "title": "原生订阅分享搜索",
+    "group": "导航与弹窗",
     "file": "screens/54.png"
   },
   {
-    "title": "空白登录键盘",
-    "group": "连接与登录",
+    "title": "原生订阅状态与排序筛选",
+    "group": "导航与弹窗",
     "file": "screens/55.png"
   },
   {
-    "title": "空白登录键盘 · 深色",
-    "group": "连接与登录",
+    "title": "原生页内分类菜单",
+    "group": "导航与弹窗",
     "file": "screens/56.png"
   },
   {
-    "title": "连接",
-    "group": "连接与登录",
+    "title": "推荐榜单详情",
+    "group": "导航与弹窗",
     "file": "screens/57.png"
   },
   {
-    "title": "连接 · 深色",
-    "group": "连接与登录",
+    "title": "文件管理刷新菜单",
+    "group": "导航与弹窗",
     "file": "screens/58.png"
+  },
+  {
+    "title": "更多主题与居中底栏",
+    "group": "导航与弹窗",
+    "file": "screens/59.png"
+  },
+  {
+    "title": "更多菜单搜索",
+    "group": "导航与弹窗",
+    "file": "screens/60.png"
+  },
+  {
+    "title": "榜单返回推荐",
+    "group": "导航与弹窗",
+    "file": "screens/61.png"
+  },
+  {
+    "title": "浅色主题原生插件面板",
+    "group": "导航与弹窗",
+    "file": "screens/62.png"
+  },
+  {
+    "title": "浅色主题原生搜索",
+    "group": "导航与弹窗",
+    "file": "screens/63.png"
+  },
+  {
+    "title": "浅色主题系统磨砂 Sheet",
+    "group": "导航与弹窗",
+    "file": "screens/64.png"
+  },
+  {
+    "title": "深色主题原生插件面板",
+    "group": "导航与弹窗",
+    "file": "screens/65.png"
+  },
+  {
+    "title": "深色主题原生搜索",
+    "group": "导航与弹窗",
+    "file": "screens/66.png"
+  },
+  {
+    "title": "深色主题系统磨砂 Sheet",
+    "group": "导航与弹窗",
+    "file": "screens/67.png"
+  },
+  {
+    "title": "玻璃主题系统磨砂 Sheet",
+    "group": "导航与弹窗",
+    "file": "screens/68.png"
+  },
+  {
+    "title": "用户菜单内主题分组",
+    "group": "导航与弹窗",
+    "file": "screens/69.png"
+  },
+  {
+    "title": "社区勋章关闭位置",
+    "group": "导航与弹窗",
+    "file": "screens/70.png"
+  },
+  {
+    "title": "站点标题操作进入三点菜单",
+    "group": "导航与弹窗",
+    "file": "screens/71.png"
+  },
+  {
+    "title": "站点统一标题与渐变顶栏",
+    "group": "导航与弹窗",
+    "file": "screens/72.png"
+  },
+  {
+    "title": "静态启动画面",
+    "group": "导航与弹窗",
+    "file": "screens/73.png"
+  },
+  {
+    "title": "顶部常用入口与页面操作分组",
+    "group": "导航与弹窗",
+    "file": "screens/74.png"
   },
   {
     "title": "HTTPS 证书错误提示",
     "group": "连接与登录",
-    "file": "screens/69.png"
+    "file": "screens/75.png"
   },
   {
-    "title": "免费自签通知设置",
-    "group": "通知",
-    "file": "screens/59.png"
+    "title": "密码可见切换",
+    "group": "连接与登录",
+    "file": "screens/76.png"
+  },
+  {
+    "title": "密码可见切换 · 深色",
+    "group": "连接与登录",
+    "file": "screens/77.png"
+  },
+  {
+    "title": "登录",
+    "group": "连接与登录",
+    "file": "screens/78.png"
+  },
+  {
+    "title": "登录 · 深色",
+    "group": "连接与登录",
+    "file": "screens/79.png"
+  },
+  {
+    "title": "登录键盘",
+    "group": "连接与登录",
+    "file": "screens/80.png"
+  },
+  {
+    "title": "空白登录键盘",
+    "group": "连接与登录",
+    "file": "screens/81.png"
+  },
+  {
+    "title": "空白登录键盘 · 深色",
+    "group": "连接与登录",
+    "file": "screens/82.png"
+  },
+  {
+    "title": "连接",
+    "group": "连接与登录",
+    "file": "screens/83.png"
+  },
+  {
+    "title": "连接 · 深色",
+    "group": "连接与登录",
+    "file": "screens/84.png"
   },
   {
     "title": "一次性绑定码",
     "group": "通知",
-    "file": "screens/60.png"
-  },
-  {
-    "title": "热启动打开通知中心",
-    "group": "通知",
-    "file": "screens/61.png"
-  },
-  {
-    "title": "冷启动打开通知中心",
-    "group": "通知",
-    "file": "screens/62.png"
+    "file": "screens/85.png"
   },
   {
     "title": "主屏幕通知网页绑定",
     "group": "通知",
-    "file": "screens/63.png"
+    "file": "screens/86.png"
+  },
+  {
+    "title": "免费自签通知设置",
+    "group": "通知",
+    "file": "screens/87.png"
+  },
+  {
+    "title": "冷启动打开通知中心",
+    "group": "通知",
+    "file": "screens/88.png"
+  },
+  {
+    "title": "热启动打开通知中心",
+    "group": "通知",
+    "file": "screens/89.png"
   },
   {
     "title": "通知网页返回 App",
     "group": "通知",
-    "file": "screens/64.png"
-  },
-  {
-    "title": "自动接入通知渠道 · 手机浏览器",
-    "group": "中心接入",
-    "file": "screens/65.png"
-  },
-  {
-    "title": "中心推送实例 · 桌面浏览器",
-    "group": "中心接入",
-    "file": "screens/66.png"
+    "file": "screens/90.png"
   },
   {
     "title": "中心推送实例 · 手机浏览器",
     "group": "中心接入",
-    "file": "screens/67.png"
+    "file": "screens/91.png"
+  },
+  {
+    "title": "中心推送实例 · 桌面浏览器",
+    "group": "中心接入",
+    "file": "screens/92.png"
   },
   {
     "title": "停用实例确认 · 手机浏览器",
     "group": "中心接入",
-    "file": "screens/68.png"
+    "file": "screens/93.png"
+  },
+  {
+    "title": "自动接入通知渠道 · 手机浏览器",
+    "group": "中心接入",
+    "file": "screens/94.png"
   }
 ]
