@@ -113,6 +113,8 @@ enum AccountAppearance {
 @MainActor
 private final class AccountFormScrollView: UIScrollView {
   private weak var activeField: UITextField?
+  private var previousViewportSize: CGSize = .zero
+  private var previousInputRect: CGRect?
 
   /// 只观察本滚动容器内的输入焦点，不持有控制器或账号内容。
   init() {
@@ -131,11 +133,19 @@ private final class AccountFormScrollView: UIScrollView {
   /// 容器销毁时撤销观察，避免旧实例响应下一次登录的焦点变化。
   deinit { NotificationCenter.default.removeObserver(self) }
 
-  /// 系统键盘布局指南完成尺寸更新后，再按实际可见区域滚动，不叠加键盘高度。
+  /// 仅在视口或输入布局改变时定位；普通滚动不抢回焦点，也不叠加键盘高度。
   override func layoutSubviews() {
     super.layoutSubviews()
-    guard let field = activeField, field.isFirstResponder, bounds.height > 0 else { return }
+    let resized = previousViewportSize != bounds.size
+    previousViewportSize = bounds.size
+    guard let field = activeField, field.isFirstResponder, bounds.height > 0 else {
+      previousInputRect = nil
+      return
+    }
     let target = convert(field.bounds, from: field).insetBy(dx: 0, dy: -8)
+    let changed = resized || previousInputRect != target
+    previousInputRect = target
+    guard changed, !isTracking, !isDecelerating else { return }
     if !bounds.contains(target) { scrollRectToVisible(target, animated: false) }
   }
 
@@ -145,6 +155,7 @@ private final class AccountFormScrollView: UIScrollView {
       return
     }
     activeField = field
+    previousInputRect = nil
     setNeedsLayout()
   }
 

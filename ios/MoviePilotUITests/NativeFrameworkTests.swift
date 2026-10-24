@@ -480,6 +480,27 @@ final class NativeFrameworkTests: XCTestCase {
     XCUIDevice.shared.orientation = .portrait
   }
 
+  /// 输入框避让只处理尺寸和焦点变化；用户仍能手动滚到下方操作并打开原网页。
+  func testAccountKeyboardAllowsManualScroll() async throws {
+    let fixtures = try await networkFixtures()
+    let server = try XCTUnwrap(fixtures.servers.first, "网络夹具至少提供一个可连接地址")
+    let app = try launchLogin(server: server)
+    app.secureTextFields["密码"].tap()
+    XCUIDevice.shared.orientation = .landscapeLeft
+    settlePage(app)
+    let scroll = app.scrollViews.firstMatch
+    let webLogin = app.buttons["使用网页登录"]
+    for _ in 0..<6 {
+      if webLogin.isHittable { break }
+      scroll.swipeUp()
+    }
+    attachScreen("框架-横屏手动滚到登录操作", app: app)
+    XCTAssertTrue(webLogin.isHittable, "手动滚动不能被输入框自动定位拉回")
+    webLogin.tap()
+    XCTAssertTrue(app.webViews.staticTexts["网络连接验收就绪"].waitForExistence(timeout: 20))
+    XCUIDevice.shared.orientation = .portrait
+  }
+
   /// 公共登录前置只读取私有运行参数，截图不包含账号输入或密码。
   private func signIn() throws -> XCUIApplication {
     let environment = ProcessInfo.processInfo.environment
