@@ -1,10 +1,16 @@
 # 界面截图
 
-iPhone 17 Pro / iOS 27.0（24A434）模拟器，1206 × 2622 原图。
+[返回项目首页](../README.md) · [离线交互截图册](index.html)
 
-配置页的实例地址与密钥采用演示值，业务页面与菜单均来自实际 App 操作。
+截图册包含 68 张图：原生界面来自 **iPhone 17 Pro / iOS 27.0（24A434）模拟器**，原图为 1206 × 2622；另有主屏幕通知网页、自动接入设置及中心管理后台的浏览器截图。配置页的实例地址与密钥采用演示值。
 
-[离线交互截图册](index.html) · [页面总览](all-pages.png) · [菜单与弹窗总览](menus-and-dialogs.png)
+GitHub 不直接运行 HTML。下载仓库后，在浏览器中打开 `screenshots/index.html`，即可按分类筛选和放大图片。
+
+## 总览
+
+![所有页面总览](all-pages.png)
+
+![菜单与弹窗总览](menus-and-dialogs.png)
 
 ## 页面
 
