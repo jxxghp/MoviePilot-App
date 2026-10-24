@@ -43,6 +43,22 @@ struct ServerAddressTests {
     #expect(throws: (any Error).self) { try ServerAddress("http://\(host)/") }
   }
 
+  /// 网卡标识不能剥离后伪装成另一来源；旧记录仍可解码，连接前给出浏览器兼容提示。
+  @Test(arguments: [
+    "http://[fe80::1%25en0]:3000/", "https://[fe80::1%25en0]/",
+    "http://[fe80::1%251]:3000/",
+  ])
+  func identifiesUnsupportedIPv6Scope(input: String) throws {
+    let address = try ServerAddress(input)
+    #expect(address.webCompatibilityError != nil)
+    #expect(address.url.absoluteString == input)
+    #expect(!address.contains(URL(string: "http://[fe80::1]:3000/")!))
+    #expect(
+      try JSONDecoder().decode(ServerAddress.self, from: JSONEncoder().encode(address)) == address)
+    #expect(try ServerAddress("http://[fd00::1234]:3000/").webCompatibilityError == nil)
+    #expect(try ServerAddress("http://[::1]:3000/").webCompatibilityError == nil)
+  }
+
   /// 从磁盘读取配置仍执行校验，不能通过 Codable 注入一个额外来源。
   @Test func validatesPersistedConfiguration() throws {
     let address = try ServerAddress("https://mp.test/base/")

@@ -58,6 +58,10 @@ open ios/MoviePilot.xcodeproj
 
 推荐使用证书有效的 HTTPS。工程仅为本地名称、私网和回环地址配置 HTTP 例外，公网 HTTP 和不受信任证书可能被系统阻止。
 
+连接失败时，登录页与网页恢复页会提示证书、地址解析、超时或服务不可达等具体原因。局域网服务无法连接时，也请在 iPhone 的 **设置 → 隐私与安全性 → 本地网络**中检查 MoviePilot 的权限。
+
+IPv6 地址可使用 `http://[fd00::1234]:3000/` 这样的写法。带 `%en0` 等网卡标识的 IPv6 地址不受网页 URL 支持，请改用实例的 `.local` 主机名或其他可访问地址。
+
 ### 5. 导出安装包（可选）
 
 使用付费开发者团队时，可在 Xcode 中选择通用 iOS 设备，执行 **Product → Archive**，随后在 **Organizer → Distribute App** 中按账号和设备选择可用的开发、Ad Hoc 或 TestFlight 分发方式。接收设备必须满足所选签名方式的要求。

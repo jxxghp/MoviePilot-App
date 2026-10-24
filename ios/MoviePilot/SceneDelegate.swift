@@ -67,6 +67,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
   private func connect(_ instance: SavedInstance) {
     coordinator?.stop()
     coordinator = nil
+    guard instance.address.webCompatibilityError == nil else {
+      showConnection()
+      return
+    }
     if UserDefaults.standard.bool(forKey: "moviepilot.web-login.\(instance.id)") {
       openWeb(instance, authentication: nil, nativeAuthentication: false)
       return

@@ -72,7 +72,7 @@ enum AccountAppearance {
     return configuration
   }
 
-  /// 账户表单居中限宽并完全位于系统安全区与键盘之间，缩短横屏长行。
+  /// 表单限宽并跟随系统键盘收缩；滚动容器在旋转后仍保持当前输入可见。
   static func install(_ stack: UIStackView, in controller: UIViewController) {
     let view = controller.view!
     view.backgroundColor = .systemGroupedBackground
@@ -80,7 +80,8 @@ enum AccountAppearance {
     stack.axis = .vertical
     stack.spacing = 24
     stack.translatesAutoresizingMaskIntoConstraints = false
-    let scroll = UIScrollView()
+    let scroll = AccountFormScrollView()
+    scroll.contentInsetAdjustmentBehavior = .never
     scroll.keyboardDismissMode = .interactive
     if #available(iOS 26.0, *) { scroll.topEdgeEffect.style = .soft }
     controller.setContentScrollView(scroll, for: .top)
@@ -95,6 +96,8 @@ enum AccountAppearance {
       scroll.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
       scroll.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
       scroll.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
+      scroll.contentLayoutGuide.widthAnchor.constraint(
+        equalTo: scroll.frameLayoutGuide.widthAnchor),
       stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 28),
       stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -28),
       stack.centerXAnchor.constraint(equalTo: scroll.frameLayoutGuide.centerXAnchor),
@@ -103,6 +106,51 @@ enum AccountAppearance {
       stack.widthAnchor.constraint(
         lessThanOrEqualTo: scroll.frameLayoutGuide.widthAnchor, constant: -48),
     ])
+  }
+}
+
+/// 连接与登录共用的滚动表单；键盘和旋转改变视口后，将焦点输入框保持在可见范围内。
+@MainActor
+private final class AccountFormScrollView: UIScrollView {
+  private weak var activeField: UITextField?
+
+  /// 只观察本滚动容器内的输入焦点，不持有控制器或账号内容。
+  init() {
+    super.init(frame: .zero)
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(editingBegan), name: UITextField.textDidBeginEditingNotification,
+      object: nil)
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(editingEnded), name: UITextField.textDidEndEditingNotification,
+      object: nil)
+  }
+
+  /// 账户容器只通过代码创建，不从归档恢复输入状态。
+  required init?(coder: NSCoder) { fatalError("Use init()") }
+
+  /// 容器销毁时撤销观察，避免旧实例响应下一次登录的焦点变化。
+  deinit { NotificationCenter.default.removeObserver(self) }
+
+  /// 系统键盘布局指南完成尺寸更新后，再按实际可见区域滚动，不叠加键盘高度。
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    guard let field = activeField, field.isFirstResponder, bounds.height > 0 else { return }
+    let target = convert(field.bounds, from: field).insetBy(dx: 0, dy: -8)
+    if !bounds.contains(target) { scrollRectToVisible(target, animated: false) }
+  }
+
+  /// 输入框切换与验证码展开都走同一可见性处理，忽略其他窗口的编辑通知。
+  @objc private func editingBegan(_ notification: Notification) {
+    guard let field = notification.object as? UITextField, field.isDescendant(of: self) else {
+      return
+    }
+    activeField = field
+    setNeedsLayout()
+  }
+
+  /// 编辑结束后释放弱引用，普通浏览和交互收键盘不触发额外滚动。
+  @objc private func editingEnded(_ notification: Notification) {
+    if notification.object as? UITextField === activeField { activeField = nil }
   }
 }
 

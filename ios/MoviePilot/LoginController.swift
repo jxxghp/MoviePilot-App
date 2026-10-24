@@ -192,6 +192,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
         guard self.initialized else {
           self.show(AuthenticationError.notInitialized)
           self.login.configuration?.title = "在网页初始化"
+          self.login.accessibilityLabel = "在网页初始化"
           return
         }
         if let token = self.savedToken {
@@ -275,9 +276,14 @@ final class LoginController: UIViewController, UITextFieldDelegate {
 
   /// 已知失败保持准确文案，未知网络错误不泄露服务器原文。
   private func show(_ error: Error) {
-    setMessage(
-      (error as? AuthenticationError)?.errorDescription
-        ?? AuthenticationError.unavailable.errorDescription, error: true)
+    let description: String?
+    if let error = error as? AuthenticationError {
+      description = error.errorDescription
+    } else {
+      description = ConnectionFailure(error).errorDescription
+    }
+    guard let description else { return }
+    setMessage(description, error: true)
     UIAccessibility.post(notification: .announcement, argument: message.text)
   }
 
