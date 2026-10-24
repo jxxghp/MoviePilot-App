@@ -167,6 +167,7 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
   private let search = UISearchBar()
   private let progress = UIActivityIndicatorView(style: .medium)
   private var sections: [(String?, [NativePanelItem])] = []
+  private var sectionIDs: [String] = []
   private var gridColumns = 3
   private var primaryAction: NativePanelItem?
   private var contextText: String?
@@ -176,6 +177,12 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
   private var profileImageTask: Task<Void, Never>?
   private var queryTask: Task<Void, Never>?
   private var imageTasks: [Task<Void, Never>] = []
+  private var feedState = NativePanelFeedState()
+  private var applyingSnapshot = false
+  private var rowHeights:
+    [String: (
+      item: NativePanelItem, height: CGFloat, width: CGFloat, category: UIContentSizeCategory
+    )] = [:]
 
   /// 网格只作用于入口层，业务动作和其他子菜单仍使用原生导航栈。
   private var usesGrid: Bool { path.isEmpty && snapshot.layout == .grid }
@@ -214,6 +221,7 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     navigationItem.rightBarButtonItem = UIBarButtonItem(
       systemItem: .close, primaryAction: UIAction { [weak self] _ in self?.onClose() })
     navigationItem.rightBarButtonItem?.accessibilityIdentifier = "native-panel-close"
+    progress.accessibilityIdentifier = "native-panel-loading"
     search.delegate = self
     search.searchBarStyle = .minimal
     search.accessibilityIdentifier = "native-panel-search"
@@ -237,12 +245,14 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     }
     updateHeaderHeight()
     updatePreferredSize()
+    loadMoreIfNeeded()
   }
 
   /// 初次呈现动画结束后再适配短内容，避免加载快照在动画中反复改变浮层几何。
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
     updatePreferredSize()
+    loadMoreIfNeeded()
   }
 
   /// 每层导航自行声明工具栏；返回来源列表时不会遗留上一个分类的搜索按钮。
@@ -331,14 +341,21 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     return max(0, min(full ? 600 : 430, safeWidth - margins))
   }
 
-  /// 搜索与分组标题属于面板内部，永远不会放在宿主渐变导航栏后方。
+  /// 有界分片在当前原生列表中合并；保存首个可见行的位置，加载和新消息不把滚动位置跳回顶部。
   func apply(_ snapshot: NativePanelSnapshot) {
     self.snapshot = snapshot
     guard isViewLoaded, renderedSnapshot != snapshot else { return }
+    applyingSnapshot = true
+    let previousFeed = renderedSnapshot?.feed?.id
+    if previousFeed != snapshot.feed?.id { rowHeights.removeAll() }
     renderedSnapshot = snapshot
-    for task in imageTasks { task.cancel() }
-    imageTasks.removeAll()
-    var rows = snapshot.sections.flatMap(\.items)
+    let previousSections = sections
+    let previousIDs = sectionIDs
+    let previousRows = sections.flatMap(\.1)
+    let previousTitles = sections.map(\.0)
+    let anchor = visibleAnchor()
+    let incoming = path.isEmpty ? feedState.apply(snapshot) : snapshot.sections
+    var rows = incoming.flatMap(\.items)
     var current: NativePanelItem?
     for id in path {
       current = rows.first { $0.id == id }
@@ -350,8 +367,9 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     if let primaryAction { rows.removeAll { $0.id == primaryAction.id } }
     sections =
       path.isEmpty
-      ? snapshot.sections.filter { !$0.items.isEmpty }.map { ($0.title, $0.items) }
+      ? incoming.filter { !$0.items.isEmpty }.map { ($0.title, $0.items) }
       : [(nil, rows)]
+    sectionIDs = path.isEmpty ? incoming.filter { !$0.items.isEmpty }.map(\.id) : ["children"]
     if path.isEmpty, let input = snapshot.search {
       search.placeholder = input.placeholder
       if !search.searchTextField.isFirstResponder { search.text = input.text }
@@ -360,7 +378,124 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     configureFooter()
     tableView.separatorStyle = usesGrid ? .none : .singleLine
     if navigationController?.topViewController === self { configurePrimaryAction(animated: false) }
-    tableView.reloadData()
+    if previousRows != sections.flatMap(\.1) || previousTitles != sections.map(\.0) {
+      let continued = snapshot.feed != nil && previousFeed == snapshot.feed?.id && path.isEmpty
+      let incremental = continued && applyFeedRows(from: previousSections, ids: previousIDs)
+      if !incremental {
+        for task in imageTasks { task.cancel() }
+        imageTasks.removeAll()
+        tableView.reloadData()
+      }
+      tableView.layoutIfNeeded()
+      if let anchor,
+        !incremental
+          || previousRows.prefix(while: { $0.id != anchor.0 })
+            != sections.flatMap(\.1).prefix(while: { $0.id != anchor.0 })
+      {
+        restoreVisibleAnchor(anchor)
+      }
+    }
+    applyingSnapshot = false
+    loadMoreIfNeeded()
+  }
+
+  /// 连续分片只插入新增行、更新变化行，保留 UIKit 已量测的长正文高度和正在显示的单元格。
+  private func applyFeedRows(from previous: [(String?, [NativePanelItem])], ids: [String]) -> Bool {
+    let oldSections = Set(ids)
+    let newSections = Set(sectionIDs)
+    guard
+      ids.filter({ newSections.contains($0) }) == sectionIDs.filter({ oldSections.contains($0) })
+    else { return false }
+    var inserted: [IndexPath] = []
+    var deleted: [IndexPath] = []
+    var updated: [IndexPath] = []
+    for (oldIndex, id) in ids.enumerated() {
+      guard let newIndex = sectionIDs.firstIndex(of: id) else { continue }
+      let old = previous[oldIndex].1
+      let new = sections[newIndex].1
+      let oldIDs = Set(old.map(\.id))
+      let newIDs = Set(new.map(\.id))
+      guard previous[oldIndex].0 == sections[newIndex].0,
+        old.filter({ newIDs.contains($0.id) }).map(\.id)
+          == new.filter({ oldIDs.contains($0.id) }).map(\.id)
+      else { return false }
+      let current = Dictionary(uniqueKeysWithValues: new.map { ($0.id, $0) })
+      for (row, item) in old.enumerated() {
+        let path = IndexPath(row: row, section: oldIndex)
+        if !newIDs.contains(item.id) {
+          deleted.append(path)
+        } else if current[item.id] != item {
+          updated.append(path)
+        }
+      }
+      for (row, item) in new.enumerated() where !oldIDs.contains(item.id) {
+        inserted.append(IndexPath(row: row, section: newIndex))
+      }
+    }
+    let removed = IndexSet(ids.indices.filter { !newSections.contains(ids[$0]) })
+    let added = IndexSet(sectionIDs.indices.filter { !oldSections.contains(sectionIDs[$0]) })
+    UIView.performWithoutAnimation {
+      tableView.performBatchUpdates {
+        tableView.deleteSections(removed, with: .none)
+        tableView.insertSections(added, with: .none)
+        tableView.deleteRows(at: deleted, with: .none)
+        tableView.insertRows(at: inserted, with: .none)
+        tableView.reloadRows(at: updated, with: .none)
+      }
+    }
+    return true
+  }
+
+  /// 记录的是行标识和屏幕内相对位置，不保存业务数据或依赖估算的固定行高。
+  private func visibleAnchor() -> (String, CGFloat)? {
+    guard path.isEmpty, snapshot.feed != nil,
+      let index = tableView.indexPathsForVisibleRows?.first,
+      sections.indices.contains(index.section),
+      sections[index.section].1.indices.contains(index.row)
+    else { return nil }
+    return (
+      sections[index.section].1[index.row].id,
+      tableView.rectForRow(at: index).minY - tableView.contentOffset.y
+    )
+  }
+
+  /// 追加历史或更新旧行后恢复原可见位置；被清理的行不再充当锚点。
+  private func restoreVisibleAnchor(_ anchor: (String, CGFloat)?) {
+    guard let (id, distance) = anchor else { return }
+    for (section, rows) in sections.enumerated() {
+      guard let row = rows.1.firstIndex(where: { $0.id == id }) else { continue }
+      let target = tableView.rectForRow(at: IndexPath(row: row, section: section)).minY - distance
+      let maximum = max(
+        -tableView.adjustedContentInset.top,
+        tableView.contentSize.height - tableView.bounds.height
+          + tableView.adjustedContentInset.bottom)
+      tableView.setContentOffset(
+        CGPoint(x: 0, y: min(maximum, max(-tableView.adjustedContentInset.top, target))),
+        animated: false)
+      return
+    }
+  }
+
+  /// 接近列表底部由原生发出加载意图；完成应答、失败或结束前不会重复发请求。
+  private func loadMoreIfNeeded(retry: Bool = false) {
+    guard !applyingSnapshot, path.isEmpty, viewIfLoaded?.window != nil,
+      navigationController?.topViewController === self,
+      UIApplication.shared.applicationState == .active,
+      let feed = snapshot.feed
+    else { return }
+    let bottom =
+      tableView.contentOffset.y + tableView.bounds.height - tableView.adjustedContentInset.bottom
+    let contentBottom =
+      tableView.contentSize.height - (tableView.tableFooterView?.frame.height ?? 0)
+    guard feedState.requestMore(isNearEnd: bottom >= contentBottom - 100, retry: retry) else {
+      return
+    }
+    onEvent("more", nil, feed.id, true)
+  }
+
+  /// UIKit 滚动位置驱动连续加载，不依赖网页中已经隐藏的无限滚动交叉观察器。
+  override func scrollViewDidScroll(_ scrollView: UIScrollView) {
+    loadMoreIfNeeded()
   }
 
   /// 主要动作固定在系统底部工具栏，来源选择滚动时按钮仍可见；回调只引用最新声明。
@@ -383,7 +518,7 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
       primaryAction: UIAction { [weak self] _ in
         guard let self, let current = self.primaryAction, current.enabled != false else { return }
         self.tableView.endEditing(true)
-        self.onEvent("select", current.id, nil, false)
+        self.onEvent("select", current.id, self.snapshot.feed?.id, false)
       })
     button.tintColor = view.tintColor
     button.isEnabled = item.enabled != false && snapshot.loading != true
@@ -504,7 +639,7 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     }
   }
 
-  /// 空状态、加载和历史翻页均保留系统触点，不依赖网页无限滚动命中。
+  /// 连续列表只显示加载、末尾和失败重试；旧前端仍保留既有分页兼容入口。
   private func configureFooter() {
     let footer = UIStackView()
     footer.axis = .vertical
@@ -516,7 +651,10 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     } else {
       progress.stopAnimating()
     }
-    if sections.allSatisfy({ $0.1.isEmpty }) && snapshot.loading != true {
+    let empty =
+      snapshot.feed != nil && path.isEmpty
+      ? feedState.isEmpty : sections.allSatisfy({ $0.1.isEmpty })
+    if empty && snapshot.loading != true && snapshot.loadError == nil {
       let label = UILabel()
       label.text = snapshot.emptyText ?? "暂无内容"
       label.textColor = .secondaryLabel
@@ -525,7 +663,17 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
       label.textAlignment = .center
       footer.addArrangedSubview(label)
     }
-    if path.isEmpty && snapshot.hasMore == true {
+    if path.isEmpty, snapshot.feed != nil, let error = snapshot.loadError, snapshot.loading != true
+    {
+      var config = UIButton.Configuration.plain()
+      config.title = error
+      let retry = UIButton(
+        configuration: config,
+        primaryAction: UIAction { [weak self] _ in self?.loadMoreIfNeeded(retry: true) })
+      retry.accessibilityIdentifier = "native-panel-retry"
+      footer.addArrangedSubview(retry)
+    }
+    if path.isEmpty && snapshot.feed == nil && snapshot.hasMore == true {
       var config = UIButton.Configuration.tinted()
       config.title = "下一页"
       config.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 24, bottom: 12, trailing: 24)
@@ -538,13 +686,62 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
       more.isEnabled = snapshot.loading != true
       footer.addArrangedSubview(more)
     }
+    if path.isEmpty, snapshot.feed != nil, !feedState.isEmpty, snapshot.hasMore != true,
+      snapshot.loading != true
+    {
+      let label = UILabel()
+      label.text = "已显示全部内容"
+      label.font = .preferredFont(forTextStyle: .footnote)
+      label.textColor = .secondaryLabel
+      label.accessibilityIdentifier = "native-panel-feed-end"
+      footer.addArrangedSubview(label)
+    }
     footer.frame = CGRect(
-      x: 0, y: 0, width: tableView.bounds.width, height: footer.arrangedSubviews.isEmpty ? 12 : 92)
+      x: 0, y: 0, width: tableView.bounds.width, height: footer.arrangedSubviews.isEmpty ? 12 : 72)
     tableView.tableFooterView = footer
   }
 
   /// 表格只显示当前快照内的非空分组。
   override func numberOfSections(in tableView: UITableView) -> Int { sections.count }
+
+  /// 已经显示过的正文使用实际高度，避免历史行重新退回短行估算后将滚动位置拉回。
+  override func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat
+  {
+    cachedRowHeight(at: indexPath) ?? UITableView.automaticDimension
+  }
+
+  /// UIKit 的整体内容估算同样复用实际高度，新增行仍由系统自动量测。
+  override func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath)
+    -> CGFloat
+  {
+    cachedRowHeight(at: indexPath) ?? tableView.estimatedRowHeight
+  }
+
+  /// 高度缓存只用于同一内容、宽度和字体等级，不跨旋转、正文展开或系统字体变化复用。
+  private func cachedRowHeight(at indexPath: IndexPath) -> CGFloat? {
+    guard path.isEmpty, snapshot.feed != nil, sections.indices.contains(indexPath.section),
+      sections[indexPath.section].1.indices.contains(indexPath.row)
+    else { return nil }
+    let item = sections[indexPath.section].1[indexPath.row]
+    guard let cached = rowHeights[item.id], cached.item == item,
+      abs(cached.width - tableView.bounds.width) < 1,
+      cached.category == traitCollection.preferredContentSizeCategory
+    else { return nil }
+    return cached.height
+  }
+
+  /// 仅记录已经布局并即将展示的系统单元格，不自行计算文本或图片的排版尺寸。
+  override func tableView(
+    _ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath
+  ) {
+    guard path.isEmpty, snapshot.feed != nil, sections.indices.contains(indexPath.section),
+      sections[indexPath.section].1.indices.contains(indexPath.row), cell.bounds.height > 0
+    else { return }
+    let item = sections[indexPath.section].1[indexPath.row]
+    rowHeights[item.id] = (
+      item, cell.bounds.height, tableView.bounds.width, traitCollection.preferredContentSizeCategory
+    )
+  }
 
   /// 每组行数由当前权限投影决定。
   override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -699,10 +896,10 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     if let childID {
       guard let child = item.children?.first(where: { $0.id == childID }), child.enabled != false
       else { return }
-      onEvent("select", child.id, nil, child.keepOpen == true)
+      onEvent("select", child.id, snapshot.feed?.id, child.keepOpen == true)
     } else if let primary = item.children?.first(where: { $0.primary == true }) {
       guard primary.enabled != false else { return }
-      onEvent("select", primary.id, nil, primary.keepOpen == true)
+      onEvent("select", primary.id, snapshot.feed?.id, primary.keepOpen == true)
     } else {
       select(item)
     }
@@ -728,7 +925,7 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
       child.view.tintColor = view.tintColor
       navigationController?.pushViewController(child, animated: true)
     } else {
-      onEvent("select", item.id, nil, item.keepOpen == true)
+      onEvent("select", item.id, snapshot.feed?.id, item.keepOpen == true)
     }
   }
 

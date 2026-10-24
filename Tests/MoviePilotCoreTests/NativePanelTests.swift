@@ -5,6 +5,29 @@ import Testing
 
 /// 系统面板只接受有界展示声明，兼容旧网页且拒绝恶意层级与重复标识。
 struct NativePanelTests {
+  /// 分片只引用当前声明内的唯一分组，拒绝负数、超界和任意布局组合。
+  @Test func validatesContinuousFeed() throws {
+    let valid: [String: Any] = [
+      "id": "feed", "offset": 0, "revision": 1, "sectionIds": ["messages"],
+    ]
+    for override in [
+      [:], ["offset": -1], ["revision": -1], ["sectionIds": []],
+      ["sectionIds": ["missing"]], ["sectionIds": ["messages", "messages"]],
+      ["id": "invalid id"], ["offset": Int64(Int32.max) + 1],
+    ] as [[String: Any]] {
+      let value = try snapshot(panel: [
+        "title": "通知", "sections": [["id": "messages", "items": []]],
+        "feed": valid.merging(override) { _, new in new },
+      ])
+      if override.isEmpty {
+        try value.validate()
+        #expect(value.actions[0].panel?.feed?.revision == 1)
+      } else {
+        #expect(throws: BridgeError.invalidMessage) { try value.validate() }
+      }
+    }
+  }
+
   /// 宽度声明可选且仅接受已定义值，不依赖标题语言来判断通知面板。
   @Test func acceptsExplicitFullWidth() throws {
     for width in [nil, "full"] as [String?] {
