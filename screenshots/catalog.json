@@ -455,7 +455,7 @@
     "file": "screens/91.png"
   },
   {
-    "title": "用户菜单内主题分组",
+    "title": "用户菜单主题与语言相邻",
     "group": "导航与弹窗",
     "file": "screens/92.png"
   },
@@ -693,5 +693,110 @@
     "title": "加载失败保留列表与重试",
     "group": "通知",
     "file": "screens/139.png"
+  },
+  {
+    "title": "订阅编辑关闭保留底页",
+    "group": "导航与弹窗",
+    "file": "screens/140.png"
+  },
+  {
+    "title": "多卡片订阅编辑-2",
+    "group": "导航与弹窗",
+    "file": "screens/141.png"
+  },
+  {
+    "title": "多卡片订阅编辑-1",
+    "group": "导航与弹窗",
+    "file": "screens/142.png"
+  },
+  {
+    "title": "多卡片订阅编辑-0",
+    "group": "导航与弹窗",
+    "file": "screens/143.png"
+  },
+  {
+    "title": "多张订阅卡片与进度条底页",
+    "group": "导航与弹窗",
+    "file": "screens/144.png"
+  },
+  {
+    "title": "榜单多次往返后底栏可用",
+    "group": "导航与弹窗",
+    "file": "screens/145.png"
+  },
+  {
+    "title": "榜单底栏连续切换-4",
+    "group": "导航与弹窗",
+    "file": "screens/146.png"
+  },
+  {
+    "title": "榜单底栏连续切换-3",
+    "group": "导航与弹窗",
+    "file": "screens/147.png"
+  },
+  {
+    "title": "榜单底栏连续切换-2",
+    "group": "导航与弹窗",
+    "file": "screens/148.png"
+  },
+  {
+    "title": "榜单底栏连续切换-1",
+    "group": "导航与弹窗",
+    "file": "screens/149.png"
+  },
+  {
+    "title": "常用入口用户位于最后",
+    "group": "导航与弹窗",
+    "file": "screens/150.png"
+  },
+  {
+    "title": "嵌套返回浏览无旧内容-2",
+    "group": "导航与弹窗",
+    "file": "screens/151.png"
+  },
+  {
+    "title": "嵌套确认下载-2",
+    "group": "导航与弹窗",
+    "file": "screens/152.png"
+  },
+  {
+    "title": "嵌套返回浏览无旧内容-1",
+    "group": "导航与弹窗",
+    "file": "screens/153.png"
+  },
+  {
+    "title": "嵌套确认下载-1",
+    "group": "导航与弹窗",
+    "file": "screens/154.png"
+  },
+  {
+    "title": "嵌套返回浏览无旧内容-0",
+    "group": "导航与弹窗",
+    "file": "screens/155.png"
+  },
+  {
+    "title": "嵌套确认下载-0",
+    "group": "导航与弹窗",
+    "file": "screens/156.png"
+  },
+  {
+    "title": "嵌套弹窗浏览列表",
+    "group": "导航与弹窗",
+    "file": "screens/157.png"
+  },
+  {
+    "title": "嵌套关闭子窗首帧-2",
+    "group": "导航与弹窗",
+    "file": "screens/158.png"
+  },
+  {
+    "title": "嵌套关闭子窗首帧-1",
+    "group": "导航与弹窗",
+    "file": "screens/159.png"
+  },
+  {
+    "title": "嵌套关闭子窗首帧-0",
+    "group": "导航与弹窗",
+    "file": "screens/160.png"
   }
 ]

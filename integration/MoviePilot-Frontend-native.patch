@@ -20,7 +20,7 @@ index cdb01466..6152c6e5 100644
 \ No newline at end of file
 +}
 diff --git a/index.html b/index.html
-index 5a317112..0e36e983 100644
+index 5a317112..dea9e733 100644
 --- a/index.html
 +++ b/index.html
 @@ -6,7 +6,7 @@
@@ -28,7 +28,7 @@ index 5a317112..0e36e983 100644
      --safe-area-inset-bottom: env(safe-area-inset-bottom);
      --safe-area-inset-top: env(safe-area-inset-top);
 -    --initial-loader-bg: #0e1116;
-+    --initial-loader-bg: #000000;
++    --initial-loader-bg: #0b1322;
      --initial-loader-color: #8d51f9;
      --initial-loader-height: 100svh;
      --initial-loader-width: 100vw;
@@ -119,7 +119,7 @@ index 5a317112..0e36e983 100644
 -        const primaryColor = getLocalStorageValue('materio-initial-loader-color') || palette.primary
 +        const resolvedLaunchTheme = 'glass'
 +        const colorScheme = getLaunchColorScheme(themePreference)
-+        const loaderColor = colorScheme === 'dark' ? '#000000' : '#F2F2F7'
++        const loaderColor = colorScheme === 'dark' ? '#0B1322' : '#F2F2F7'
 +        const primaryColor = getLocalStorageValue('materio-initial-loader-color') || '#8D51F9'
  
 +        document.documentElement.setAttribute('data-glass-color-scheme', colorScheme)
@@ -718,7 +718,7 @@ index 90c5738a..041395bd 100644
    })
  })
 diff --git a/src/App.vue b/src/App.vue
-index bb3d4691..07876cbd 100644
+index bb3d4691..fae8c1ab 100644
 --- a/src/App.vue
 +++ b/src/App.vue
 @@ -13,23 +13,18 @@ import { addBackgroundTimer, removeBackgroundTimer } from '@/utils/backgroundMan
@@ -1081,10 +1081,10 @@ index bb3d4691..07876cbd 100644
    background:
 -    radial-gradient(circle at 50% 18%, transparent 24%, rgba(6, 10, 19, 12%) 100%),
 -    linear-gradient(rgba(6, 10, 19, 10%) 0%, rgba(6, 10, 19, 30%) 100%);
-+    radial-gradient(circle at 50% 18%, transparent 24%, rgba(var(--glass-wallpaper-shade-rgb, 0, 0, 0), 12%) 100%),
++    radial-gradient(circle at 50% 18%, transparent 24%, rgba(var(--glass-wallpaper-shade-rgb, 6, 10, 19), 12%) 100%),
 +    linear-gradient(
-+      rgba(var(--glass-wallpaper-shade-rgb, 0, 0, 0), 10%) 0%,
-+      rgba(var(--glass-wallpaper-shade-rgb, 0, 0, 0), 30%) 100%
++      rgba(var(--glass-wallpaper-shade-rgb, 6, 10, 19), 10%) 0%,
++      rgba(var(--glass-wallpaper-shade-rgb, 6, 10, 19), 30%) 100%
 +    );
  }
  
@@ -1095,10 +1095,10 @@ index bb3d4691..07876cbd 100644
    background:
 -    radial-gradient(circle at 50% 18%, transparent 22%, rgba(6, 10, 19, 14%) 100%),
 -    linear-gradient(rgba(6, 10, 19, 10%) 0%, rgba(6, 10, 19, 32%) 100%), rgba(var(--glass-material-accent-rgb), 3%);
-+    radial-gradient(circle at 50% 18%, transparent 22%, rgba(var(--glass-wallpaper-shade-rgb, 0, 0, 0), 14%) 100%),
++    radial-gradient(circle at 50% 18%, transparent 22%, rgba(var(--glass-wallpaper-shade-rgb, 6, 10, 19), 14%) 100%),
 +    linear-gradient(
-+      rgba(var(--glass-wallpaper-shade-rgb, 0, 0, 0), 10%) 0%,
-+      rgba(var(--glass-wallpaper-shade-rgb, 0, 0, 0), 32%) 100%
++      rgba(var(--glass-wallpaper-shade-rgb, 6, 10, 19), 10%) 0%,
++      rgba(var(--glass-wallpaper-shade-rgb, 6, 10, 19), 32%) 100%
 +    ),
 +    rgba(var(--glass-material-accent-rgb), 3%);
  }
@@ -1140,8 +1140,8 @@ index bb3d4691..07876cbd 100644
 -  }
 +  background:
 +    linear-gradient(
-+      rgba(var(--glass-wallpaper-shade-rgb, 0, 0, 0), 24%) 0%,
-+      rgba(var(--glass-wallpaper-shade-rgb, 0, 0, 0), 48%) 100%
++      rgba(var(--glass-wallpaper-shade-rgb, 6, 10, 19), 24%) 0%,
++      rgba(var(--glass-wallpaper-shade-rgb, 6, 10, 19), 48%) 100%
 +    ),
 +    rgba(var(--glass-material-rgb, 28, 28, 30), 8%);
  }
@@ -3564,7 +3564,7 @@ index 24bb4a06..491b0ca6 100644
    padding: 12px 16px;
  }
 diff --git a/src/components/theme/GlassFixedShellBackplate.vue b/src/components/theme/GlassFixedShellBackplate.vue
-index 7c2a5be8..83b5893b 100644
+index 7c2a5be8..e02eff81 100644
 --- a/src/components/theme/GlassFixedShellBackplate.vue
 +++ b/src/components/theme/GlassFixedShellBackplate.vue
 @@ -390,7 +390,7 @@ onBeforeUnmount(() => {
@@ -3572,7 +3572,7 @@ index 7c2a5be8..83b5893b 100644
  
    // 壁纸槽位以0.92透明度交叉淡化；不透明底板阻止未扩散的正文从槽位余量透穿。
 -  background-color: rgb(23, 27, 32);
-+  background-color: rgb(var(--glass-shell-rgb, 28, 28, 30));
++  background-color: rgb(var(--glass-shell-rgb, 23, 27, 32));
    z-index: variables.$layout-vertical-nav-layout-navbar-z-index - 1;
    clip-path: polygon(
      0 0,
@@ -3583,10 +3583,10 @@ index 7c2a5be8..83b5893b 100644
 -    background: linear-gradient(rgba(6, 10, 19, 24%) 0%, rgba(6, 10, 19, 48%) 100%), rgba(11, 19, 34, 8%);
 +    background:
 +      linear-gradient(
-+        rgba(var(--glass-wallpaper-shade-rgb, 0, 0, 0), 24%) 0%,
-+        rgba(var(--glass-wallpaper-shade-rgb, 0, 0, 0), 48%) 100%
++        rgba(var(--glass-wallpaper-shade-rgb, 6, 10, 19), 24%) 0%,
++        rgba(var(--glass-wallpaper-shade-rgb, 6, 10, 19), 48%) 100%
 +      ),
-+      rgba(var(--glass-material-rgb, 28, 28, 30), 8%);
++      rgba(var(--glass-material-rgb, 11, 19, 34), 8%);
      content: '';
      inset: 0;
    }
@@ -6454,7 +6454,7 @@ index 9dfb07a3..3bff225f 100644
          v-if="hasUnreadMessageIndicator"
          dot
 diff --git a/src/layouts/default/components/UserProfile.vue b/src/layouts/default/components/UserProfile.vue
-index 204da634..ee25599b 100644
+index 204da634..63c178a0 100644
 --- a/src/layouts/default/components/UserProfile.vue
 +++ b/src/layouts/default/components/UserProfile.vue
 @@ -8,14 +8,10 @@ import { useAuthStore, useGlobalSettingsStore, useUserStore } from '@/stores'
@@ -6497,7 +6497,7 @@ index 204da634..ee25599b 100644
  const showUserMenu = ref(false)
 +useNativeGlobalAction({
 +  id: 'profile',
-+  title: () => t('common.userMenu'),
++  title: () => t('common.user'),
 +  icon: 'profile',
 +  dataAttr: 'native-profile',
 +  panel: () => nativeProfilePanel(),
@@ -6779,7 +6779,7 @@ index 204da634..ee25599b 100644
 +      })
 +  }
 +  const themeItems: NativePanelEntry[] = [
-+    { id: 'customizer', title: t('theme.customizer.title'), icon: 'mdi-tune', invoke: showThemeCustomizerDrawer },
++    { id: 'customizer', title: t('common.theme'), icon: 'mdi-tune', invoke: showThemeCustomizerDrawer },
 +  ]
 +  const information: NativePanelEntry[] = [
 +    {
@@ -6817,7 +6817,7 @@ index 204da634..ee25599b 100644
 +    )
 +  }
 +  return {
-+    title: t('common.userMenu'),
++    title: t('common.user'),
 +    onOpen: () => community.refresh(),
 +    profile: {
 +      name: userName.value,
@@ -6826,11 +6826,11 @@ index 204da634..ee25599b 100644
 +    },
 +    sections: [
 +      { id: 'account', items: account },
-+      // App 固定玻璃、大圆角及原生布局，只开放主色；语言和原业务入口继续复用。
-+      { id: 'theme', title: t('common.theme'), items: themeItems },
++      // 明暗、主色与语言放在同组，保留原顺序且不重复显示主题分类标题。
 +      {
-+        id: 'language',
++        id: 'preferences',
 +        items: [
++          ...themeItems,
 +          {
 +            id: 'language',
 +            title: t('common.language'),
@@ -7204,15 +7204,15 @@ index 73db3b3c..cff30ce0 100644
      const pending = deferNotifications()
 diff --git a/src/layouts/default/components/__tests__/UserProfile.native.spec.ts b/src/layouts/default/components/__tests__/UserProfile.native.spec.ts
 new file mode 100644
-index 00000000..923978d5
+index 00000000..2ab39b29
 --- /dev/null
 +++ b/src/layouts/default/components/__tests__/UserProfile.native.spec.ts
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,84 @@
 +import UserProfile from '../UserProfile.vue'
 +import { renderWithProviders } from '@tests/support/render'
 +import { nativeGlobalActions } from '@/native/registry'
 +import { useUserStore } from '@/stores'
-+import { computed } from 'vue'
++import { computed, toValue } from 'vue'
 +import { waitFor } from '@testing-library/vue'
 +import { beforeEach, describe, expect, it, vi } from 'vitest'
 +
@@ -7245,7 +7245,9 @@ index 00000000..923978d5
 +
 +describe('原生用户菜单与网页状态同步', () => {
 +  it('已认证账号隐藏认证入口，勋章资格异步完成后立即出现在原顺序中', async () => {
-+    const { entries } = await renderProfile(2)
++    const { entries, action } = await renderProfile(2)
++    expect(toValue(action.title)).toBe('用户')
++    expect(action.panel!()!.title).toBe('用户')
 +    await waitFor(() => expect(entries.value.some(item => item.id === 'medals')).toBe(true))
 +    expect(entries.value.map(item => item.id)).toEqual([
 +      'profile',
@@ -7258,6 +7260,10 @@ index 00000000..923978d5
 +      'restart',
 +      'logout',
 +    ])
++    const preferences = action.panel!()!.sections.find(section => section.items.some(item => item.id === 'customizer'))!
++    expect(preferences.title).toBeUndefined()
++    expect(preferences.items.map(item => item.id)).toEqual(['customizer', 'language'])
++    expect(preferences.items[0].title).toBe('主题')
 +    expect(entries.value.some(item => item.id === 'auth')).toBe(false)
 +    expect(entries.value.some(item => ['css', 'ui', 'glass', 'transparency'].includes(item.id))).toBe(false)
 +  })
@@ -7694,10 +7700,10 @@ index 00000000..3fc2b9e4
 +})
 diff --git a/src/native/__tests__/history.spec.ts b/src/native/__tests__/history.spec.ts
 new file mode 100644
-index 00000000..a1fa8f54
+index 00000000..18ccde0a
 --- /dev/null
 +++ b/src/native/__tests__/history.spec.ts
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,146 @@
 +import { afterEach, describe, expect, it } from 'vitest'
 +import { createRouter, createWebHashHistory, type Router } from 'vue-router'
 +import { flushPromises } from '@vue/test-utils'
@@ -7819,6 +7825,29 @@ index 00000000..a1fa8f54
 +    await flushPromises()
 +    expect(router.currentRoute.value.fullPath).toBe('/dashboard')
 +    tooltip.remove()
++  })
++
++  it('含中文查询和 hash 的榜单恢复不会污染其它根入口的路径', async () => {
++    const { router, history } = await harness()
++    const ranking = '/browse/recommend/tmdb_trending?title=流行趋势&keyword=A%2FB+100%25#列表'
++    await router.push(ranking)
++    for (let cycle = 0; cycle < 3; cycle++) {
++      history.selectRoot('/apps')
++      await flushPromises()
++      expect(router.currentRoute.value.path).toBe('/apps')
++      expect(history.navigation.rootId).toBe('/apps')
++      history.selectRoot('/dashboard')
++      await flushPromises()
++      expect(router.currentRoute.value.path).toBe('/browse/recommend/tmdb_trending')
++      expect(router.currentRoute.value.query).toEqual({ title: '流行趋势', keyword: 'A/B 100%' })
++      expect(history.navigation).toEqual({ rootId: '/dashboard', canGoBack: true, backTarget: '/dashboard' })
++    }
++    expect(history.back(document, window)).toBe(true)
++    await flushPromises()
++    expect(router.currentRoute.value.fullPath).toBe('/dashboard')
++    history.selectRoot('/apps')
++    await flushPromises()
++    expect(router.currentRoute.value.fullPath).toBe('/apps')
 +  })
 +})
 diff --git a/src/native/__tests__/layout.spec.ts b/src/native/__tests__/layout.spec.ts
@@ -8555,10 +8584,10 @@ index 00000000..eb0f1d6c
 +})
 diff --git a/src/native/__tests__/sheet.spec.ts b/src/native/__tests__/sheet.spec.ts
 new file mode 100644
-index 00000000..f97c0554
+index 00000000..2744b2c1
 --- /dev/null
 +++ b/src/native/__tests__/sheet.spec.ts
-@@ -0,0 +1,216 @@
+@@ -0,0 +1,263 @@
 +import { afterEach, describe, expect, it, vi } from 'vitest'
 +import { NativeSheetAdapter } from '../sheet'
 +
@@ -8719,6 +8748,53 @@ index 00000000..f97c0554
 +    expect(parent.hasAttribute('data-native-sheet-current')).toBe(true)
 +  })
 +
++  it('隔离整个背景绘制分支，嵌套关闭时也隔离仍挂载的退出层，归还后不重建正文', () => {
++    const page = document.createElement('main')
++    page.innerHTML =
++      '<input value="原页面输入" /><div class="subscribe-card"><div class="v-progress-linear v-progress-linear--active"></div></div>'
++    document.body.append(page)
++    const parent = dialog('浏览')
++    const adapter = new NativeSheetAdapter(document)
++    const first = adapter.read('页面')!
++    expect(page.hasAttribute('data-native-sheet-background')).toBe(false)
++    adapter.execute('presentation.attach', { id: first.id })
++    expect(page.hasAttribute('data-native-sheet-background')).toBe(true)
++    expect(parent.closest('[data-native-sheet-background]')).toBeNull()
++    const child = dialog('确认下载', 2100)
++    const second = adapter.read('页面')!
++    adapter.execute('presentation.attach', { id: second.id })
++    expect(parent.hasAttribute('data-native-sheet-background')).toBe(true)
++    expect(child.closest('[data-native-sheet-background]')).toBeNull()
++    // Vue 关闭状态先更新，退出动画/异步卸载的 DOM 仍可能在文档中。
++    child.classList.remove('v-overlay--active')
++    expect(adapter.read('页面')!.id).toBe(first.id)
++    expect(child.hasAttribute('data-native-sheet-background')).toBe(true)
++    expect(parent.closest('[data-native-sheet-background]')).toBeNull()
++    adapter.execute('presentation.attach', { id: first.id })
++    adapter.execute('presentation.detach', { id: first.id })
++    expect(document.querySelector('[data-native-sheet-background]')).toBeNull()
++    expect(page.querySelector('input')!.value).toBe('原页面输入')
++    expect(page.querySelector('.v-progress-linear--active')).not.toBeNull()
++  })
++
++  it('自定义弹窗留在页面中时只隔离旁支，弹窗内原有 Teleport 菜单继续交互', () => {
++    document.body.innerHTML =
++      '<div id="app"><main><input value="页面状态" /></main><aside class="theme-customizer-panel-host" role="dialog" aria-label="主题"><button data-native-dialog-close>关闭</button><input value="主题状态" aria-owns="theme-options" /></aside></div><div class="v-overlay-container"><div id="theme-options" class="v-menu v-overlay--active"><button>选项</button></div><div class="v-dialog">退出中的旧内容</div></div>'
++    const adapter = new NativeSheetAdapter(document)
++    const first = adapter.read('页面')!
++    adapter.execute('presentation.attach', { id: first.id })
++    const current = document.querySelector('[data-native-sheet-current]')!
++    const menu = document.querySelector('.v-menu')!
++    expect(current.closest('[data-native-sheet-background]')).toBeNull()
++    expect(menu.closest('[data-native-sheet-background]')).toBeNull()
++    expect(document.querySelector('main')!.hasAttribute('data-native-sheet-background')).toBe(true)
++    expect(document.querySelector('.v-dialog')!.hasAttribute('data-native-sheet-background')).toBe(true)
++    adapter.setActive(false)
++    expect(document.querySelector('[data-native-sheet-background]')).toBeNull()
++    expect(current.querySelector('input')!.value).toBe('主题状态')
++    expect(document.querySelector('main input')!.getAttribute('value')).toBe('页面状态')
++  })
++
 +  it('按钮替换、禁用和不可关闭弹窗不会绕过当前业务状态', () => {
 +    const root = dialog('持久进度')
 +    const adapter = new NativeSheetAdapter(document)
@@ -8777,11 +8853,12 @@ index 00000000..f97c0554
 +})
 diff --git a/src/native/confirmation.ts b/src/native/confirmation.ts
 new file mode 100644
-index 00000000..ade134f6
+index 00000000..e26a5e87
 --- /dev/null
 +++ b/src/native/confirmation.ts
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,88 @@
 +import type { NativeConfirmation } from './protocol'
++import { closeNativeMenus } from './menu'
 +
 +/** 确认框只投影纯文字与当前按钮标识；Vue 组件继续拥有 Promise 和业务回调。 */
 +export class NativeConfirmationAdapter {
@@ -8789,6 +8866,7 @@ index 00000000..ade134f6
 +  private ids = new WeakMap<Element, string>()
 +  private answered = new WeakSet<Element>()
 +  private active = false
++  private root?: HTMLElement
 +
 +  /** 每个适配器只读取当前主文档，不能查找其他 frame 或实例。 */
 +  constructor(private document: Document) {}
@@ -8797,12 +8875,17 @@ index 00000000..ade134f6
 +  setActive(active: boolean) {
 +    this.active = active
 +    if (active) this.document.documentElement.setAttribute('data-native-confirmations', 'active')
-+    else this.document.documentElement.removeAttribute('data-native-confirmations')
++    else {
++      this.document.documentElement.removeAttribute('data-native-confirmations')
++      this.root = undefined
++    }
 +  }
 +
 +  /** 只读取最上层声明过的确认框，保留换行并限制桥接文字总量。 */
 +  read(): NativeConfirmation | undefined {
 +    const root = this.current()
++    if (root && root !== this.root) closeNativeMenus()
++    this.root = root
 +    if (!root) return
 +    const confirm = root.querySelector<HTMLButtonElement>('[data-native-confirm-accept]')
 +    const cancel = root.querySelector<HTMLButtonElement>('[data-native-confirm-cancel]')
@@ -8906,10 +8989,10 @@ index 00000000..8f81a263
 +}
 diff --git a/src/native/history.ts b/src/native/history.ts
 new file mode 100644
-index 00000000..7c90a96f
+index 00000000..5bcd2ff2
 --- /dev/null
 +++ b/src/native/history.ts
-@@ -0,0 +1,144 @@
+@@ -0,0 +1,152 @@
 +import { shallowRef } from 'vue'
 +import type { Router } from 'vue-router'
 +import { isNativeRoute, type NativeSnapshot } from './protocol'
@@ -8995,16 +9078,23 @@ index 00000000..7c90a96f
 +   */
 +  private navigate(target: string, kind: 'root' | 'back', rootId: string) {
 +    if (!isNativeRoute(target)) return
-+    const intent = { target, kind, rootId }
++    const normalized = this.canonicalPath(target)
++    const intent = { target: normalized, kind, rootId }
 +    this.intent = intent
 +    void this.router
-+      .replace(target)
++      .replace(normalized)
 +      .finally(() => {
 +        if (this.intent === intent) this.intent = undefined
 +      })
 +      .catch(() => {
 +        /* Router 保留当前已确认页面，失败意图不重放。 */
 +      })
++  }
++
++  /** Router 对象形式统一编码 query/hash，避免中文 URL 恢复后被误记到当前其它入口。 */
++  private canonicalPath(path: string) {
++    const resolved = this.router.resolve(path)
++    return this.router.resolve({ path: resolved.path, query: resolved.query, hash: resolved.hash }).fullPath
 +  }
 +
 +  /** 匹配实际入口；详情页沿用来源入口，普通业务页面归属更多。
@@ -9023,18 +9113,19 @@ index 00000000..7c90a96f
 +   */
 +  private record() {
 +    const route = this.router.currentRoute.value
++    const path = this.canonicalPath(route.fullPath)
 +    const position = this.router.options.history.state.position
 +    const numericPosition = typeof position === 'number' ? position : undefined
-+    const intent = this.intent?.target === route.fullPath ? this.intent : undefined
++    const intent = this.intent?.target === path ? this.intent : undefined
 +    const rootId = intent?.rootId ?? this.rootFor(route.path)
 +    if (rootId) {
 +      const root = this.roots().find(item => item.id === rootId)
-+      let trail = this.trails.get(rootId) ?? (root && route.fullPath !== root.path ? [root.path] : [])
++      let trail = this.trails.get(rootId) ?? (root && path !== root.path ? [root.path] : [])
 +      if (intent?.kind === 'back') {
-+        const index = trail.lastIndexOf(route.fullPath)
-+        trail = index >= 0 ? trail.slice(0, index + 1) : [...trail, route.fullPath]
++        const index = trail.lastIndexOf(path)
++        trail = index >= 0 ? trail.slice(0, index + 1) : [...trail, path]
 +      } else if (intent?.kind !== 'root') {
-+        const index = trail.lastIndexOf(route.fullPath)
++        const index = trail.lastIndexOf(path)
 +        if (
 +          numericPosition !== undefined &&
 +          this.lastPosition !== undefined &&
@@ -9043,10 +9134,10 @@ index 00000000..7c90a96f
 +        )
 +          trail = trail.slice(0, index + 1)
 +        else if (numericPosition === this.lastPosition && rootId === this.currentRoot && trail.length)
-+          trail = [...trail.slice(0, -1), route.fullPath]
-+        else if (trail.at(-1) !== route.fullPath) trail = [...trail, route.fullPath]
-+      } else if (root?.path === '/apps' && route.fullPath === root.path) trail = [root.path]
-+      else if (!trail.length) trail = [route.fullPath]
++          trail = [...trail.slice(0, -1), path]
++        else if (trail.at(-1) !== path) trail = [...trail, path]
++      } else if (root?.path === '/apps' && path === root.path) trail = [root.path]
++      else if (!trail.length) trail = [path]
 +      this.trails.set(rootId, trail.slice(-128))
 +    }
 +    this.currentRoot = rootId
@@ -9194,9 +9285,30 @@ index 00000000..98648450
 +    )
 +  }
 +}
+diff --git a/src/native/menu.ts b/src/native/menu.ts
+new file mode 100644
+index 00000000..6c15708c
+--- /dev/null
++++ b/src/native/menu.ts
+@@ -0,0 +1,15 @@
++import { nativeChromeActive } from './layout'
++
++const closers = new Set<() => void>()
++
++/** 菜单注册原有关闭回调；组件卸载时释放，不跨桥传递 Vue 状态。 */
++export function registerNativeMenuClose(close: () => void) {
++  closers.add(close)
++  return () => closers.delete(close)
++}
++
++/** 新 Sheet 出现时先结束网页菜单状态；普通网页与旧容器不受影响。 */
++export function closeNativeMenus() {
++  if (!nativeChromeActive.value || window.MoviePilotNative?.sheetsVersion !== 1) return
++  for (const close of closers) close()
++}
 diff --git a/src/native/native.scss b/src/native/native.scss
 new file mode 100644
-index 00000000..57f01677
+index 00000000..78f542f1
 --- /dev/null
 +++ b/src/native/native.scss
 @@ -0,0 +1,264 @@
@@ -9328,6 +9440,7 @@ index 00000000..57f01677
 +// 仅在原生明确请求时短暂显示原底页，供单 WebView 搬入 Sheet 时保留上下文。
 +html[data-native-chrome='active'][data-native-sheet-preparing] {
 +  .v-overlay--active.v-dialog,
++  .v-menu,
 +  .theme-customizer-panel-host[role='dialog'],
 +  .agent-assistant-panel.is-open[role='dialog'],
 +  .agent-assistant-fab,
@@ -9347,18 +9460,17 @@ index 00000000..57f01677
 +    background: transparent !important;
 +  }
 +
-+  #app {
-+    visibility: hidden;
++  // visibility 不能稳定阻止 WebKit 独立合成的进度条与退出层；整支透明且保持原布局。
++  [data-native-sheet-background] {
++    opacity: 0 !important;
++    pointer-events: none !important;
++    transition: none !important;
 +  }
 +
 +  // 浮动助手入口不属于当前业务弹窗，不能盖在原生 Sheet 的内容或底部操作上。
 +  .agent-assistant-fab,
 +  .agent-pet-stage-layer {
 +    display: none !important;
-+  }
-+
-+  .v-overlay-container {
-+    visibility: visible;
 +  }
 +
 +  .v-dialog:not([data-native-sheet-current]),
@@ -10324,11 +10436,12 @@ index 00000000..01f072f4
 +}
 diff --git a/src/native/sheet.ts b/src/native/sheet.ts
 new file mode 100644
-index 00000000..6f71f340
+index 00000000..c8ede555
 --- /dev/null
 +++ b/src/native/sheet.ts
-@@ -0,0 +1,190 @@
+@@ -0,0 +1,229 @@
 +import type { NativeSheet } from './protocol'
++import { closeNativeMenus } from './menu'
 +
 +/** 投影真实 Vue 弹窗及标题栏，持有 DOM 引用而不复制内容、事件或认证状态。 */
 +export class NativeSheetAdapter {
@@ -10338,6 +10451,7 @@ index 00000000..6f71f340
 +  private root?: HTMLElement
 +  private close?: HTMLButtonElement
 +  private buttons = new Map<string, HTMLButtonElement>()
++  private backgrounds = new Set<Element>()
 +  private attached?: string
 +  private prepared?: string
 +  private transition = 0
@@ -10388,6 +10502,7 @@ index 00000000..6f71f340
 +      )
 +      .sort((a, b) => this.zIndex(a) - this.zIndex(b))
 +      .at(-1)
++    if (root && root !== this.root) closeNativeMenus()
 +    this.root = root
 +    this.buttons.clear()
 +    this.close = undefined
@@ -10489,6 +10604,40 @@ index 00000000..6f71f340
 +      if (old !== root) old.removeAttribute('data-native-sheet-current')
 +    root.setAttribute('data-native-sheet-current', '')
 +    this.document.documentElement.setAttribute('data-native-sheet', '')
++    this.isolate(root)
++  }
++
++  /** 隔离整条背景绘制分支，避免 WebKit 合成层穿透；保留 DOM、滚动和当前内容所属菜单。 */
++  private isolate(root: HTMLElement) {
++    const visible = new Set<Element>([root])
++    const menus = Array.from(this.document.querySelectorAll<HTMLElement>('.v-menu.v-overlay--active[id]'))
++    for (const owner of visible) {
++      const owned = new Set(
++        Array.from(owner.querySelectorAll('[aria-owns], [aria-controls]')).flatMap(element =>
++          `${element.getAttribute('aria-owns') || ''} ${element.getAttribute('aria-controls') || ''}`.split(/\s+/),
++        ),
++      )
++      for (const menu of menus) if (owned.has(menu.id)) visible.add(menu)
++    }
++    const ancestors = new Set<Element>()
++    for (const content of visible)
++      for (let parent = content.parentElement; parent && parent !== this.document.body; parent = parent.parentElement)
++        ancestors.add(parent)
++    const backgrounds = new Set<Element>()
++    /** 只访问当前弹层路径，整个无关分支一次屏蔽，不逐项改动业务节点。 */
++    const visit = (parent: Element) => {
++      for (const child of parent.children) {
++        if (visible.has(child) || child.matches('script, style, link')) continue
++        if (ancestors.has(child)) visit(child)
++        else backgrounds.add(child)
++      }
++    }
++    visit(this.document.body)
++    for (const previous of this.backgrounds)
++      if (!backgrounds.has(previous)) previous.removeAttribute('data-native-sheet-background')
++    for (const background of backgrounds)
++      if (!this.backgrounds.has(background)) background.setAttribute('data-native-sheet-background', '')
++    this.backgrounds = backgrounds
 +  }
 +
 +  /** 清除容器标记不关闭 Vue 弹窗，也不触发业务回调。 */
@@ -10497,6 +10646,8 @@ index 00000000..6f71f340
 +    this.document.documentElement.removeAttribute('data-native-sheet')
 +    for (const root of this.document.querySelectorAll('[data-native-sheet-current]'))
 +      root.removeAttribute('data-native-sheet-current')
++    for (const background of this.backgrounds) background.removeAttribute('data-native-sheet-background')
++    this.backgrounds.clear()
 +  }
 +
 +  /** 原生已保留底页或准备取消时恢复弹窗展示，不改变任何业务输入与回调。 */
@@ -10984,6 +11135,64 @@ index 5d7dd6fc..7de4e344 100644
      }
    },
  })
+diff --git a/src/plugins/vuetify/AppMenu.ts b/src/plugins/vuetify/AppMenu.ts
+new file mode 100644
+index 00000000..eaf2a029
+--- /dev/null
++++ b/src/plugins/vuetify/AppMenu.ts
+@@ -0,0 +1,52 @@
++import { defineComponent, h, onBeforeUnmount, ref, watch } from 'vue'
++import { VMenu } from 'vuetify/components/VMenu'
++import { nativeChromeActive } from '@/native/layout'
++import { registerNativeMenuClose } from '@/native/menu'
++
++/** 复用 Vuetify 菜单及业务模型，只在原生 Sheet 接管时同步关闭旧菜单。 */
++export default defineComponent({
++  name: 'AppMenu',
++  inheritAttrs: false,
++  props: { modelValue: { type: Boolean, default: undefined } },
++  emits: ['update:modelValue'],
++  /** 保存受控或内部展开状态，宿主接管关闭时取消网页退出动画以完成绘制交接。 */
++  setup(props, { attrs, slots, emit }) {
++    const expanded = ref(props.modelValue ?? false)
++    const closingForSheet = ref(false)
++    watch(
++      () => props.modelValue,
++      value => {
++        if (value !== undefined) expanded.value = value
++        if (value) closingForSheet.value = false
++      },
++    )
++    /** 用户点击或业务 v-model 仍沿用原 update 事件，不替换菜单项回调。 */
++    const update = (value: boolean) => {
++      expanded.value = value
++      if (value) closingForSheet.value = false
++      emit('update:modelValue', value)
++    }
++    const unregister = registerNativeMenuClose(() => {
++      if (!expanded.value) return
++      closingForSheet.value = true
++      update(false)
++    })
++    onBeforeUnmount(() => unregister())
++    return () => {
++      const native = nativeChromeActive.value && window.MoviePilotNative?.sheetsVersion === 1
++      return h(
++        VMenu,
++        {
++          ...attrs,
++          // 普通网页未绑定模型时必须省略该属性，显式 undefined 会让 Vuetify 误判为受控菜单。
++          ...(native || props.modelValue !== undefined
++            ? { modelValue: native ? expanded.value : props.modelValue }
++            : {}),
++          'onUpdate:modelValue': update,
++          ...(native && closingForSheet.value ? { transition: false } : {}),
++        },
++        slots,
++      )
++    }
++  },
++})
 diff --git a/src/plugins/vuetify/__tests__/AppDialog.spec.ts b/src/plugins/vuetify/__tests__/AppDialog.spec.ts
 new file mode 100644
 index 00000000..7f0970bd
@@ -11026,6 +11235,135 @@ index 00000000..7f0970bd
 +    fallback.unmount()
 +  })
 +})
+diff --git a/src/plugins/vuetify/__tests__/AppMenu.spec.ts b/src/plugins/vuetify/__tests__/AppMenu.spec.ts
+new file mode 100644
+index 00000000..07e869c0
+--- /dev/null
++++ b/src/plugins/vuetify/__tests__/AppMenu.spec.ts
+@@ -0,0 +1,103 @@
++import { mount } from '@vue/test-utils'
++import { h, nextTick, ref } from 'vue'
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { createVuetify } from 'vuetify'
++import AppMenu from '../AppMenu'
++import { NativeLayoutAdapter } from '@/native/layout'
++import { NativeSheetAdapter } from '@/native/sheet'
++import { closeNativeMenus } from '@/native/menu'
++import { NativeConfirmationAdapter } from '@/native/confirmation'
++
++const layout = new NativeLayoutAdapter(document, window)
++const wrappers: ReturnType<typeof mount>[] = []
++
++afterEach(() => {
++  for (const wrapper of wrappers.splice(0)) wrapper.unmount()
++  layout.setActive(false)
++  delete window.MoviePilotNative
++  document.body.innerHTML = ''
++})
++
++/** 渲染真实 Vuetify 菜单，验证模型、激活器和卸载行为均能维持原契约。 */
++function menu(controlled = false) {
++  const model = ref(true)
++  const wrapper = mount(
++    {
++      setup: () => () =>
++        h(
++          AppMenu,
++          controlled
++            ? { modelValue: model.value, 'onUpdate:modelValue': (value: boolean) => (model.value = value) }
++            : {},
++          {
++            activator: ({ props }: { props: Record<string, unknown> }) => h('button', props, '打开菜单'),
++            default: () => h('button', '菜单项'),
++          },
++        ),
++    },
++    { attachTo: document.body, global: { plugins: [createVuetify()] } },
++  )
++  wrappers.push(wrapper)
++  return { wrapper, model }
++}
++
++describe('原生 Sheet 前结束网页菜单', () => {
++  it('普通网页未绑定 v-model 的菜单保留 Vuetify 内部状态和原激活器', async () => {
++    const { wrapper } = menu()
++    await wrapper.get('button').trigger('click')
++    await nextTick()
++    expect(document.querySelector('.v-menu.v-overlay--active')).not.toBeNull()
++    closeNativeMenus()
++    await nextTick()
++    expect(document.querySelector('.v-menu.v-overlay--active')).not.toBeNull()
++  })
++
++  it('普通网页保留原展开状态，协商后的新弹窗同步关闭原模型', async () => {
++    const { model } = menu(true)
++    await nextTick()
++    closeNativeMenus()
++    expect(model.value).toBe(true)
++    layout.setActive(true)
++    window.MoviePilotNative = { transportVersion: 1, sheetsVersion: 1, postMessage: vi.fn() }
++    const root = document.createElement('div')
++    root.className = 'v-dialog v-overlay--active'
++    document.body.append(root)
++    new NativeSheetAdapter(document).read('版本历史')
++    await nextTick()
++    expect(model.value).toBe(false)
++    expect(document.querySelector('.v-menu.v-overlay--active')).toBeNull()
++  })
++
++  it('未绑定 v-model 的菜单仍能由原激活器打开，接管关闭后可以再次打开', async () => {
++    layout.setActive(true)
++    window.MoviePilotNative = { transportVersion: 1, sheetsVersion: 1, postMessage: vi.fn() }
++    const { wrapper } = menu()
++    await wrapper.get('button').trigger('click')
++    await nextTick()
++    expect(document.querySelector('.v-menu.v-overlay--active')).not.toBeNull()
++    closeNativeMenus()
++    await nextTick()
++    expect(document.querySelector('.v-menu.v-overlay--active')).toBeNull()
++    await wrapper.get('button').trigger('click')
++    await nextTick()
++    expect(document.querySelector('.v-menu.v-overlay--active')).not.toBeNull()
++  })
++
++  it('系统确认框接管时也关闭原菜单，不遗留背景菜单状态', async () => {
++    layout.setActive(true)
++    window.MoviePilotNative = { transportVersion: 1, sheetsVersion: 1, postMessage: vi.fn() }
++    const { model } = menu(true)
++    await nextTick()
++    const adapter = new NativeConfirmationAdapter(document)
++    adapter.setActive(true)
++    const root = document.createElement('div')
++    root.className = 'v-dialog v-overlay--active'
++    root.setAttribute('data-native-confirm-dialog', '')
++    root.innerHTML = '<button data-native-confirm-accept>确认</button><button data-native-confirm-cancel>取消</button>'
++    document.body.append(root)
++    expect(adapter.read()).toMatchObject({ confirmText: '确认', cancelText: '取消' })
++    await nextTick()
++    expect(model.value).toBe(false)
++    expect(document.querySelector('.v-menu.v-overlay--active')).toBeNull()
++  })
++})
+diff --git a/src/plugins/vuetify/index.ts b/src/plugins/vuetify/index.ts
+index 6bb65c53..6a0b5ac0 100644
+--- a/src/plugins/vuetify/index.ts
++++ b/src/plugins/vuetify/index.ts
+@@ -3,6 +3,7 @@ import * as components from 'vuetify/components'
+ import { VBtn } from 'vuetify/components/VBtn'
+ import * as labsComponents from 'vuetify/labs/components'
+ import AppDialog from './AppDialog'
++import AppMenu from './AppMenu'
+ import { createResponsiveInputAdapter } from './AppInput'
+ import defaults from './defaults'
+ import { icons } from './icons'
+@@ -36,6 +37,7 @@ export default createVuetify({
+     ...components,
+     ...labsComponents,
+     VDialog: AppDialog,
++    VMenu: AppMenu,
+     ...responsiveInputComponents,
+   },
+ })
 diff --git a/src/plugins/vuetify/theme.ts b/src/plugins/vuetify/theme.ts
 index 0ef938aa..6cbcd6a6 100644
 --- a/src/plugins/vuetify/theme.ts
@@ -11350,7 +11688,7 @@ index 027c5f0f..66160da9 100644
        this.setOriginalPath(null)
        // 身份和权限属于登录会话；退出后不得被同一浏览器中的下一个账号继承。
 diff --git a/src/styles/__tests__/glassNavigationReading.spec.ts b/src/styles/__tests__/glassNavigationReading.spec.ts
-index 1e72ecd6..5c577821 100644
+index 1e72ecd6..093c3974 100644
 --- a/src/styles/__tests__/glassNavigationReading.spec.ts
 +++ b/src/styles/__tests__/glassNavigationReading.spec.ts
 @@ -182,6 +182,6 @@ describe('glass navigation reading material', () => {
@@ -11358,7 +11696,7 @@ index 1e72ecd6..5c577821 100644
        })
      })
 -    expect(background).toBe('rgb(23, 27, 32)')
-+    expect(background).toBe('rgb(var(--glass-shell-rgb, 28, 28, 30))')
++    expect(background).toBe('rgb(var(--glass-shell-rgb, 23, 27, 32))')
    })
  })
 diff --git a/src/styles/__tests__/glassOverlayMaterial.spec.ts b/src/styles/__tests__/glassOverlayMaterial.spec.ts
@@ -11588,7 +11926,7 @@ index 168f391e..e73b0c89 100644
  .app-card-top-action {
    z-index: 2;
 diff --git a/src/styles/themes/_glass-v3.scss b/src/styles/themes/_glass-v3.scss
-index 71393ecb..edffedee 100644
+index 71393ecb..a7f775f8 100644
 --- a/src/styles/themes/_glass-v3.scss
 +++ b/src/styles/themes/_glass-v3.scss
 @@ -31,7 +31,7 @@ $-custom-content-surfaces: (
@@ -11596,7 +11934,7 @@ index 71393ecb..edffedee 100644
  @mixin surfaces {
    html[data-theme='glass'] {
 -    --glass-v3-ink: 23, 27, 32;
-+    --glass-v3-ink: var(--glass-material-rgb);
++    --glass-v3-ink: var(--glass-card-rgb);
      --glass-v3-fill: clamp(0.12, calc(0.12 + var(--glass-surface-density, 0.62) * 0.2), 0.32);
      --glass-v3-rim: clamp(0.12, calc(0.16 + var(--glass-reflection, 0.38) * 0.28), 0.4);
      --glass-v3-sheen: clamp(0.04, calc(0.035 + var(--glass-reflection, 0.38) * 0.18), 0.2);
@@ -11737,10 +12075,10 @@ index 71393ecb..edffedee 100644
          -webkit-backdrop-filter: none !important;
        }
 diff --git a/src/styles/themes/glass.scss b/src/styles/themes/glass.scss
-index e7c0534b..7973d0a3 100644
+index e7c0534b..3d1293b8 100644
 --- a/src/styles/themes/glass.scss
 +++ b/src/styles/themes/glass.scss
-@@ -6,10 +6,15 @@
+@@ -6,10 +6,16 @@
  
  // 材质只覆盖统一表面 token；质量档只替换光学层，不改变业务组件契约。
  html[data-theme='glass'] {
@@ -11748,11 +12086,12 @@ index e7c0534b..7973d0a3 100644
 -  --glass-surface-soft: rgba(11, 19, 34, calc(0.13 + var(--glass-surface-density, 0.62) * 0.23));
 -  --glass-surface-raised: rgba(11, 19, 34, calc(0.07 + var(--glass-surface-density, 0.62) * 0.36));
 -  --glass-control: rgba(11, 19, 34, 52%);
-+  --glass-material-rgb: 28, 28, 30;
-+  --glass-popup-rgb: 44, 44, 46;
-+  --glass-shell-rgb: 28, 28, 30;
-+  --glass-frosted-rgb: 242, 242, 247;
-+  --glass-wallpaper-shade-rgb: 0, 0, 0;
++  --glass-material-rgb: 11, 19, 34;
++  --glass-card-rgb: 23, 27, 32;
++  --glass-popup-rgb: 31, 34, 39;
++  --glass-shell-rgb: 23, 27, 32;
++  --glass-frosted-rgb: 243, 246, 249;
++  --glass-wallpaper-shade-rgb: 6, 10, 19;
 +  --glass-surface: rgba(var(--glass-material-rgb), calc(0.12 + var(--glass-surface-density, 0.62) * 0.2));
 +  --glass-surface-soft: rgba(var(--glass-material-rgb), calc(0.13 + var(--glass-surface-density, 0.62) * 0.23));
 +  --glass-surface-raised: rgba(var(--glass-material-rgb), calc(0.07 + var(--glass-surface-density, 0.62) * 0.36));
@@ -11760,7 +12099,7 @@ index e7c0534b..7973d0a3 100644
    --glass-control-prominent: rgba(255, 255, 255, 7%);
    --glass-control-prominent-focus: color-mix(in srgb, rgba(255, 255, 255, 10%) 84%, rgba(var(--v-theme-primary), 24%));
    --glass-border: rgba(255, 255, 255, calc(0.04 + var(--glass-reflection, 0.5) * 0.12));
-@@ -26,25 +31,25 @@ html[data-theme='glass'] {
+@@ -26,25 +32,25 @@ html[data-theme='glass'] {
      transparent
    );
    --glass-shadow:
@@ -11797,7 +12136,7 @@ index e7c0534b..7973d0a3 100644
    --glass-native-surface-backdrop-filter: brightness(var(--glass-transmission-brightness));
    --glass-surface-backdrop-filter: var(--glass-native-surface-backdrop-filter);
    --glass-raised-backdrop-filter: brightness(var(--glass-transmission-brightness));
-@@ -57,21 +62,21 @@ html[data-theme='glass'] {
+@@ -57,21 +63,21 @@ html[data-theme='glass'] {
    --glass-navbar-live-filter: none;
    --glass-sidebar-live-filter: var(--glass-fixed-shell-backdrop-filter);
    // 清透弹层不散射背景，靠独立吸收层区分前后两组文字，不改变内容卡片的通透度。
@@ -11825,7 +12164,7 @@ index e7c0534b..7973d0a3 100644
    --glass-chip-tint-opacity: calc(0.22 + var(--glass-tint-density, 0.65) * 0.18);
    --glass-button-surface: rgba(255, 255, 255, 8%);
    --glass-button-surface-hover: rgba(255, 255, 255, 12%);
-@@ -111,39 +116,39 @@ html[data-theme='glass'] {
+@@ -111,39 +117,39 @@ html[data-theme='glass'] {
    --app-grouped-list-backdrop-filter: var(--glass-surface-backdrop-filter);
    --app-grouped-list-border: 1px solid var(--glass-border);
    --app-grouped-list-separator-color: rgba(255, 255, 255, 10%);
@@ -11873,7 +12212,7 @@ index e7c0534b..7973d0a3 100644
      --glass-control-prominent: color-mix(in srgb, rgba(255, 255, 255, 7%) 82%, rgba(var(--v-theme-primary), 24%));
      --glass-control-prominent-focus: color-mix(
        in srgb,
-@@ -184,12 +189,12 @@ html[data-theme='glass'] {
+@@ -184,12 +190,12 @@ html[data-theme='glass'] {
      );
      --glass-overlay-surface: color-mix(
        in srgb,
@@ -11888,7 +12227,7 @@ index e7c0534b..7973d0a3 100644
    }
  
    // 磨砂材质使用更亮的散射表面，但仍只让高价值层执行实时背景采样。
-@@ -212,10 +217,10 @@ html[data-theme='glass'] {
+@@ -212,10 +218,10 @@ html[data-theme='glass'] {
        rgba(255, 255, 255, 2%) 72%,
        transparent
      );
@@ -11901,7 +12240,7 @@ index e7c0534b..7973d0a3 100644
      --glass-native-surface-backdrop-filter: blur(var(--glass-blur-surface)) saturate(var(--glass-saturate))
        brightness(var(--glass-transmission-brightness));
      --glass-surface-backdrop-filter: var(--glass-native-surface-backdrop-filter);
-@@ -259,20 +264,20 @@ html[data-theme='glass'] {
+@@ -259,20 +265,20 @@ html[data-theme='glass'] {
      --glass-overlay-surface: rgba(var(--v-theme-background), calc(0.24 + var(--glass-surface-density, 0.86) * 0.12));
      --glass-overlay-blur: min(var(--glass-blur-raised), 36px);
      --glass-overlay-saturate: 135%;
@@ -11927,7 +12266,7 @@ index e7c0534b..7973d0a3 100644
      --glass-button-surface: rgba(255, 255, 255, 10%);
      --glass-button-surface-hover: rgba(255, 255, 255, 14%);
      --glass-dashboard-backdrop-filter: blur(var(--glass-blur-surface)) saturate(var(--glass-saturate))
-@@ -522,12 +527,12 @@ html[data-theme='glass'] {
+@@ -522,12 +528,12 @@ html[data-theme='glass'] {
          var(--glass-sheen),
          linear-gradient(
            90deg,
@@ -11943,7 +12282,7 @@ index e7c0534b..7973d0a3 100644
      }
  
      .layout-wrapper[data-shell-mode='desktop'] > .glass-fixed-shell-backplate--main {
-@@ -553,8 +558,8 @@ html[data-theme='glass'] {
+@@ -553,8 +559,8 @@ html[data-theme='glass'] {
        background:
          var(--glass-sheen),
          linear-gradient(
@@ -11954,7 +12293,7 @@ index e7c0534b..7973d0a3 100644
          ) !important;
      }
    }
-@@ -628,33 +633,6 @@ html[data-theme='glass'] {
+@@ -628,33 +634,6 @@ html[data-theme='glass'] {
      background-color: transparent !important;
    }
  
@@ -11988,7 +12327,7 @@ index e7c0534b..7973d0a3 100644
    .agent-assistant-shell {
      --agent-assistant-panel-bg: var(--glass-overlay-surface);
      --agent-assistant-panel-blur: var(--glass-overlay-blur);
-@@ -819,7 +797,7 @@ html[data-theme='glass'] {
+@@ -819,7 +798,7 @@ html[data-theme='glass'] {
  
    // Outlined 描边自身会为浮动标签留出缺口，移除贯穿整个顶部的 field 阴影线。
    .v-field.v-field--variant-outlined {
@@ -11997,7 +12336,7 @@ index e7c0534b..7973d0a3 100644
    }
  
    .v-field.v-field--variant-underlined,
-@@ -839,7 +817,7 @@ html[data-theme='glass'] {
+@@ -839,7 +818,7 @@ html[data-theme='glass'] {
  
    .v-field input::placeholder,
    .v-field textarea::placeholder {
@@ -12006,7 +12345,7 @@ index e7c0534b..7973d0a3 100644
      opacity: 1;
    }
  
-@@ -872,7 +850,7 @@ html[data-theme='glass'] {
+@@ -872,7 +851,7 @@ html[data-theme='glass'] {
    }
  
    .ace_editor .ace_gutter {
@@ -12015,7 +12354,7 @@ index e7c0534b..7973d0a3 100644
    }
  
    .ace_editor .ace_marker-layer .ace_active-line,
-@@ -1095,7 +1073,7 @@ html[data-theme='glass'] {
+@@ -1095,7 +1074,7 @@ html[data-theme='glass'] {
          rgba(var(--v-theme-background), calc(0.08 + var(--glass-surface-density, 0.62) * 0.08)),
          rgba(var(--v-theme-background), calc(0.14 + var(--glass-surface-density, 0.62) * 0.12))
        );
@@ -12024,7 +12363,7 @@ index e7c0534b..7973d0a3 100644
    }
  
    // 工作流编辑器组件选择栏
-@@ -1121,8 +1099,8 @@ html[data-theme='glass'] {
+@@ -1121,8 +1100,8 @@ html[data-theme='glass'] {
      --workflow-share-glass-start-opacity: calc(0.18 + var(--glass-tint-density, 0.65) * 0.38);
      --workflow-share-glass-end-opacity: calc(0.24 + var(--glass-tint-density, 0.65) * 0.42);
      --workflow-share-glass-scrim: linear-gradient(
@@ -12035,7 +12374,7 @@ index e7c0534b..7973d0a3 100644
      );
      // Glass V3 用更高优先级的整卡 background 覆盖普通卡片样式，这里把分享卡的色相接入同一材质 token。
      --workflow-share-glass-background:
-@@ -1143,8 +1121,8 @@ html[data-theme='glass'] {
+@@ -1143,8 +1122,8 @@ html[data-theme='glass'] {
      border-block-end: 1px solid var(--glass-border);
  
      --plugin-card-banner-scrim: linear-gradient(
@@ -12046,7 +12385,7 @@ index e7c0534b..7973d0a3 100644
      );
      --plugin-card-banner-tint: linear-gradient(
        135deg,
-@@ -1171,8 +1149,8 @@ html[data-theme='glass'] {
+@@ -1171,8 +1150,8 @@ html[data-theme='glass'] {
    // 磨砂材质透光更强，染色需要同步减弱以免头部压过卡片本体。
    &[data-glass-appearance='frosted'] .plugin-card__banner {
      --plugin-card-banner-scrim: linear-gradient(
@@ -12057,7 +12396,7 @@ index e7c0534b..7973d0a3 100644
      );
      --plugin-card-banner-tint: linear-gradient(
        135deg,
-@@ -1201,8 +1179,8 @@ html[data-theme='glass'] {
+@@ -1201,8 +1180,8 @@ html[data-theme='glass'] {
      --workflow-share-glass-start-opacity: calc(0.12 + var(--glass-tint-density, 0.65) * 0.28);
      --workflow-share-glass-end-opacity: calc(0.16 + var(--glass-tint-density, 0.65) * 0.34);
      --workflow-share-glass-scrim: linear-gradient(
@@ -12068,7 +12407,7 @@ index e7c0534b..7973d0a3 100644
      );
    }
  
-@@ -1255,8 +1233,8 @@ html[data-theme='glass'] {
+@@ -1255,8 +1234,8 @@ html[data-theme='glass'] {
      --workflow-share-glass-start-opacity: calc(0.16 + var(--glass-tint-density, 0.65) * 0.32);
      --workflow-share-glass-end-opacity: calc(0.21 + var(--glass-tint-density, 0.65) * 0.38);
      --workflow-share-glass-scrim: linear-gradient(
@@ -12079,7 +12418,7 @@ index e7c0534b..7973d0a3 100644
      );
    }
  
-@@ -1276,8 +1254,8 @@ html[data-theme='glass'] {
+@@ -1276,8 +1255,8 @@ html[data-theme='glass'] {
  
    .plugin-folder-card__overlay {
      background: linear-gradient(
@@ -12090,7 +12429,7 @@ index e7c0534b..7973d0a3 100644
      );
    }
  
-@@ -1475,7 +1453,7 @@ html[data-theme='glass'] {
+@@ -1475,7 +1454,7 @@ html[data-theme='glass'] {
        .theme-customizer-panel-host,
        .agent-assistant-panel
      ) {
@@ -12099,7 +12438,7 @@ index e7c0534b..7973d0a3 100644
      }
    }
  
-@@ -1492,19 +1470,19 @@ html[data-theme='glass'] {
+@@ -1492,19 +1471,19 @@ html[data-theme='glass'] {
      ) {
        -webkit-backdrop-filter: none !important;
        backdrop-filter: none !important;
@@ -12122,7 +12461,7 @@ index e7c0534b..7973d0a3 100644
      }
    }
  
-@@ -1648,7 +1626,7 @@ html[data-theme='glass'] body[data-theme='glass'] {
+@@ -1648,7 +1627,7 @@ html[data-theme='glass'] body[data-theme='glass'] {
      box-shadow:
        inset 0 0 0 1px rgba(255, 255, 255, 0.14),
        inset 0 1px 0 rgba(255, 255, 255, 0.18),
@@ -12131,7 +12470,7 @@ index e7c0534b..7973d0a3 100644
    }
  
    .login-card__surface {
-@@ -1656,12 +1634,12 @@ html[data-theme='glass'] body[data-theme='glass'] {
+@@ -1656,12 +1635,12 @@ html[data-theme='glass'] body[data-theme='glass'] {
      backdrop-filter: brightness(var(--glass-transmission-brightness));
      background:
        linear-gradient(145deg, rgba(255, 255, 255, 0.08), transparent 34%),
@@ -12146,7 +12485,7 @@ index e7c0534b..7973d0a3 100644
      -webkit-backdrop-filter: var(--glass-control-backdrop-filter);
      backdrop-filter: var(--glass-control-backdrop-filter);
    }
-@@ -1678,13 +1656,14 @@ html[data-theme='glass'][data-glass-appearance='tinted'] body[data-theme='glass'
+@@ -1678,13 +1657,14 @@ html[data-theme='glass'][data-glass-appearance='tinted'] body[data-theme='glass'
      background:
        linear-gradient(145deg, rgba(255, 255, 255, 0.1), transparent 36%),
        linear-gradient(rgba(var(--glass-material-accent-rgb), 0.08), rgba(var(--glass-material-accent-rgb), 0.03)),
@@ -12163,7 +12502,7 @@ index e7c0534b..7973d0a3 100644
    }
  }
  
-@@ -1698,7 +1677,8 @@ html[data-theme='glass'][data-glass-appearance='frosted'] body[data-theme='glass
+@@ -1698,7 +1678,8 @@ html[data-theme='glass'][data-glass-appearance='frosted'] body[data-theme='glass
        brightness(var(--glass-transmission-brightness));
      backdrop-filter: blur(var(--glass-blur-raised)) saturate(var(--glass-saturate))
        brightness(var(--glass-transmission-brightness));
@@ -12173,7 +12512,7 @@ index e7c0534b..7973d0a3 100644
    }
  
    .native-login-field {
-@@ -1853,15 +1833,15 @@ html[data-theme='glass']:is([data-glass-appearance='clear'], [data-glass-appeara
+@@ -1853,15 +1834,15 @@ html[data-theme='glass']:is([data-glass-appearance='clear'], [data-glass-appeara
    );
    --glass-navbar-rim: rgba(255, 255, 255, var(--glass-navbar-rim-opacity));
    --glass-navbar-scrim: linear-gradient(
@@ -12193,7 +12532,7 @@ index e7c0534b..7973d0a3 100644
    --glass-navbar-live-filter: var(--glass-navbar-reading-filter, saturate(100%))
      saturate(var(--glass-navbar-saturation)) brightness(var(--glass-navbar-brightness));
  
-@@ -1964,7 +1944,7 @@ html[data-theme='glass'][data-glass-appearance='tinted']
+@@ -1964,7 +1945,7 @@ html[data-theme='glass'][data-glass-appearance='tinted']
  
      -webkit-backdrop-filter: none !important;
      backdrop-filter: none !important;
@@ -12202,7 +12541,7 @@ index e7c0534b..7973d0a3 100644
      background-image: none !important;
    }
  }
-@@ -1983,3 +1963,52 @@ html[data-theme='glass'][data-glass-appearance='tinted']
+@@ -1983,3 +1964,53 @@ html[data-theme='glass'][data-glass-appearance='tinted']
  }
  
  @include glass-v3.surfaces;
@@ -12210,6 +12549,7 @@ index e7c0534b..7973d0a3 100644
 +/* 明暗仅更换材质色系，玻璃质量、光学参数及网页布局设置保持独立。*/
 +html[data-theme='glass'][data-glass-color-scheme='light'] {
 +  --glass-material-rgb: 255, 255, 255;
++  --glass-card-rgb: 255, 255, 255;
 +  --glass-popup-rgb: 255, 255, 255;
 +  --glass-shell-rgb: 242, 242, 247;
 +  --glass-frosted-rgb: 255, 255, 255;
@@ -12747,7 +13087,7 @@ index 8f2ba363..9aa7595b 100644
      expect(
        getLoginGlassOpticalSettings({
 diff --git a/src/utils/__tests__/themePalette.spec.ts b/src/utils/__tests__/themePalette.spec.ts
-index a809f0b2..e860d28e 100644
+index a809f0b2..99675763 100644
 --- a/src/utils/__tests__/themePalette.spec.ts
 +++ b/src/utils/__tests__/themePalette.spec.ts
 @@ -1,65 +1,77 @@
@@ -12815,8 +13155,8 @@ index a809f0b2..e860d28e 100644
 +      const expected = preference === 'auto' ? system : preference
 +      expect(getThemeColorScheme()).toBe(expected)
 +      expect(glass.dark).toBe(expected === 'dark')
-+      expect(glass.colors.background).toBe(expected === 'dark' ? '#000000' : '#F2F2F7')
-+      expect(glass.colors.surface).toBe(expected === 'dark' ? '#1C1C1E' : '#FFFFFF')
++      expect(glass.colors.background).toBe(expected === 'dark' ? '#0B1322' : '#F2F2F7')
++      expect(glass.colors.surface).toBe(expected === 'dark' ? '#182235' : '#FFFFFF')
 +      expect(glass.colors.primary).toBe('#00BCD4')
 +      expect(glass.colors['on-primary']).toBe('#000000')
 +      expect(chrome.background).toBe(glass.colors.background)
@@ -13360,7 +13700,7 @@ index fda0fa0d..00000000
 -// 导出类型
 -export type { ThemeManager }
 diff --git a/src/utils/themePalette.ts b/src/utils/themePalette.ts
-index 4a898993..9a545ab1 100644
+index 4a898993..541acd9a 100644
 --- a/src/utils/themePalette.ts
 +++ b/src/utils/themePalette.ts
 @@ -1,67 +1,158 @@
@@ -13438,7 +13778,7 @@ index 4a898993..9a545ab1 100644
 -export function resolveThemeName(themePreference: string | null | undefined): ResolvedThemeName {
 -  if (themePreference === 'auto') {
 -    return checkPrefersColorSchemeIsDark() ? 'dark' : 'light'
-+/** 玻璃主题的背景与语义色；系统变化时不修改用户的主题主色。 */
++/** 暗色沿用原玻璃色系，浅色使用独立语义色；系统变化时保留用户主色。 */
 +export function getGlassThemePalette(colorScheme: ThemeColorScheme = getThemeColorScheme()) {
 +  const darkPalette = {
 +    dark: true,
@@ -13453,31 +13793,30 @@ index 4a898993..9a545ab1 100644
 +      'on-primary': '#FFFFFF',
 +      'on-success': '#07150F',
 +      'on-warning': '#171106',
-+      // 对齐 iOS 暗色的基础、次级和三级背景；主题主色继续由用户选择。
-+      'background': '#000000',
-+      'on-background': '#F2F2F7',
-+      'surface': '#1C1C1E',
-+      'on-surface': '#F2F2F7',
-+      'surface-variant': '#2C2C2E',
-+      'on-surface-variant': 'rgba(242, 242, 247, 0.72)',
-+      'grey-50': '#1C1C1E',
-+      'grey-100': '#2C2C2E',
-+      'grey-200': '#3A3A3C',
-+      'grey-300': '#48484A',
-+      'grey-400': '#636366',
-+      'grey-500': '#8E8E93',
-+      'grey-600': '#AEAEB2',
-+      'grey-700': '#C7C7CC',
-+      'grey-800': '#D1D1D6',
-+      'grey-900': '#F2F2F7',
++      'background': '#0B1322',
++      'on-background': '#F2F5FA',
++      'surface': '#182235',
++      'on-surface': '#F2F5FA',
++      'surface-variant': '#202C42',
++      'on-surface-variant': 'rgba(242, 245, 250, 0.72)',
++      'grey-50': '#121D30',
++      'grey-100': '#18253A',
++      'grey-200': '#233149',
++      'grey-300': '#34435D',
++      'grey-400': '#8794A8',
++      'grey-500': '#A1ACBD',
++      'grey-600': '#BBC3D0',
++      'grey-700': '#CDD3DD',
++      'grey-800': '#E0E4EA',
++      'grey-900': '#F2F5FA',
 +      'perfect-scrollbar-thumb': 'rgba(255, 255, 255, 0.24)',
-+      'skin-bordered-background': '#000000',
-+      'skin-bordered-surface': '#1C1C1E',
-+      'card-background': '#1C1C1E',
++      'skin-bordered-background': '#111B2B',
++      'skin-bordered-surface': '#182235',
++      'card-background': '#182235',
 +    },
 +    variables: {
 +      'code-color': '#F3DCA8',
-+      'overlay-scrim-background': '#000000',
++      'overlay-scrim-background': '#030712',
 +      'overlay-scrim-opacity': 0.66,
 +      'hover-opacity': 0.08,
 +      'focus-opacity': 0.14,
@@ -13488,12 +13827,12 @@ index 4a898993..9a545ab1 100644
 +      'border-color': '#FFFFFF',
 +      'table-header-background': 'rgba(255, 255, 255, 0.06)',
 +      'custom-background': 'rgba(255, 255, 255, 0.06)',
-+      'card-background': '#1C1C1E',
++      'card-background': '#182235',
 +
 +      // Shadows
-+      'shadow-key-umbra-opacity': 'rgba(0, 0, 0, 0.34)',
-+      'shadow-key-penumbra-opacity': 'rgba(0, 0, 0, 0.24)',
-+      'shadow-key-ambient-opacity': 'rgba(0, 0, 0, 0.16)',
++      'shadow-key-umbra-opacity': 'rgba(3, 7, 18, 0.34)',
++      'shadow-key-penumbra-opacity': 'rgba(3, 7, 18, 0.24)',
++      'shadow-key-ambient-opacity': 'rgba(3, 7, 18, 0.16)',
 +    },
    }
 +  if (colorScheme === 'dark') return darkPalette
@@ -13535,6 +13874,7 @@ index 4a898993..9a545ab1 100644
 +    },
 +    variables: {
 +      ...darkPalette.variables,
++      'overlay-scrim-background': '#000000',
 +      'border-color': '#3C3C43',
 +      'card-background': '#FFFFFF',
 +      'shadow-key-umbra-opacity': 'rgba(0, 0, 0, 0.1)',
@@ -15281,7 +15621,7 @@ index a1b7b9e3..8cedf4ea 100644
    </div>
    <div class="card-list-container">
 diff --git a/tests/config/pwa-splash.spec.ts b/tests/config/pwa-splash.spec.ts
-index 924bfe60..0e70a459 100644
+index 924bfe60..84cb7ea3 100644
 --- a/tests/config/pwa-splash.spec.ts
 +++ b/tests/config/pwa-splash.spec.ts
 @@ -44,13 +44,13 @@ describe('PWA 启动屏资源', () => {
@@ -15289,7 +15629,7 @@ index 924bfe60..0e70a459 100644
  
    it('保持启动层背景、可见回退和动效降级配置一致', () => {
 -    expect(indexHtml.toLowerCase()).toContain('--initial-loader-bg: #0e1116')
-+    expect(indexHtml.toLowerCase()).toContain('--initial-loader-bg: #000000')
++    expect(indexHtml.toLowerCase()).toContain('--initial-loader-bg: #0b1322')
      expect(indexHtml).toContain('prefers-reduced-motion: reduce')
      expect(indexHtml).toContain('inset: 0;')
      expect(indexHtml).toContain('inset-block-end: calc(env(safe-area-inset-bottom, 0px) + 48px)')

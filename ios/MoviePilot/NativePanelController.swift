@@ -19,6 +19,95 @@ enum NativeModalAppearance {
   }
 }
 
+/// 用户二级菜单的头像只在当前文档内预取；菜单可立即展开，不等待图片网络请求。
+@MainActor
+final class NativeUserMenuAvatar {
+  private let images: NativePanelImageLoader
+  private var task: Task<Void, Never>?
+  private(set) var image: UIImage?
+
+  /// 使用既有有界图片读取器，业务身份和头像地址仍来自网页快照。
+  init(images: NativePanelImageLoader, reference: String?) {
+    self.images = images
+    if let reference {
+      task = Task { [weak self, images] in
+        let image = await images.image(reference)
+        images.stop()
+        guard !Task.isCancelled else { return }
+        self?.image = image
+      }
+    }
+  }
+
+  /// 文档或账号变化后释放头像、缓存和迟到任务，不跨会话保留用户信息。
+  func stop() {
+    task?.cancel()
+    task = nil
+    image = nil
+    images.stop()
+  }
+}
+
+/// 用户菜单复用 UIKit 二级菜单；账号摘要、分组、勾选和危险动作均来自同一网页声明。
+@MainActor
+enum NativeUserMenu {
+  /// 打开时读取最新快照，普通项目和重启、注销继续分组显示，不复制业务回调。
+  static func elements(
+    _ snapshot: NativePanelSnapshot, avatar: UIImage?, onSelect: @escaping (String) -> Void
+  ) -> [UIMenuElement] {
+    var groups: [UIMenuElement] = []
+    if let profile = snapshot.profile {
+      let summary = UIAction(
+        title: profile.name,
+        image: avatar.map(roundAvatar) ?? UIImage(systemName: "person.crop.circle"),
+        identifier: UIAction.Identifier("native-user-summary")
+      ) { _ in onSelect("profile") }
+      summary.subtitle = profile.detail
+      groups.append(UIMenu(options: .displayInline, children: [summary]))
+    }
+    for section in snapshot.sections where !section.items.isEmpty {
+      groups.append(
+        UIMenu(
+          title: section.title ?? "", options: .displayInline,
+          children: section.items.map { element($0, onSelect: onSelect) }))
+    }
+    return groups
+  }
+
+  /// 子选项保留原顺序与状态，只有当前网页声明的稳定项目 ID 能回传。
+  private static func element(
+    _ item: NativePanelItem, onSelect: @escaping (String) -> Void
+  ) -> UIMenuElement {
+    if item.enabled != false, let children = item.children, !children.isEmpty {
+      let menu = UIMenu(
+        title: item.title, image: item.icon.flatMap { NavigationSymbols.image($0) },
+        children: children.map { element($0, onSelect: onSelect) })
+      menu.subtitle = item.subtitle
+      return menu
+    }
+    var attributes: UIMenuElement.Attributes = []
+    if item.enabled == false { attributes.insert(.disabled) }
+    if item.destructive == true { attributes.insert(.destructive) }
+    if item.keepOpen == true { attributes.insert(.keepsMenuPresented) }
+    let action = UIAction(
+      title: item.title, image: item.icon.flatMap { NavigationSymbols.image($0) },
+      identifier: UIAction.Identifier("native-panel-item-\(item.id)"), attributes: attributes,
+      state: item.selected == true ? .on : .off
+    ) { _ in onSelect(item.id) }
+    action.subtitle = item.subtitle
+    return action
+  }
+
+  /// 头像采用有界圆形原色缩略图，不将上传图片转换为主题单色图标。
+  private static func roundAvatar(_ image: UIImage) -> UIImage {
+    let size = CGSize(width: 32, height: 32)
+    return UIGraphicsImageRenderer(size: size).image { _ in
+      UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).addClip()
+      image.draw(in: CGRect(origin: .zero, size: size))
+    }.withRenderingMode(.alwaysOriginal)
+  }
+}
+
 /// 海报读取只复用当前 WebView 的图片 Cookie，不接触业务令牌；关闭面板即清理内存和网络。
 @MainActor
 final class NativePanelImageLoader: NSObject, URLSessionTaskDelegate {
