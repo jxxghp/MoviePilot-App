@@ -145,6 +145,19 @@ index 1907fc17..65d94217 100644
  /** 对指定网盘存储执行管理动作，返回响应中的业务数据。 */
  export function manageStorage<T = Record<string, unknown>>(
    storage: string,
+diff --git a/src/api/types.ts b/src/api/types.ts
+index 7d872195..1e251545 100644
+--- a/src/api/types.ts
++++ b/src/api/types.ts
+@@ -2194,6 +2194,8 @@ export interface Message {
+   link?: string
+   // 消息图片
+   image?: string
++  // 独立媒体海报，旧通知为空；原生通知中心不回退到背景图
++  poster?: string | null
+   // 消息时间
+   date?: string
+   // 登记时间
 diff --git a/src/components/agent/AgentAssistantPanel.vue b/src/components/agent/AgentAssistantPanel.vue
 index 367c5a7d..e223015c 100644
 --- a/src/components/agent/AgentAssistantPanel.vue
@@ -374,8 +387,67 @@ index ee0d84cd..5d3ad5d9 100644
            <VRow v-else-if="notificationInfo.type == 'webpush'">
              <VCol cols="12" md="6">
                <VTextField
+diff --git a/src/components/dialog/PluginDataDialog.vue b/src/components/dialog/PluginDataDialog.vue
+index 442c8ae7..bed2c0a2 100644
+--- a/src/components/dialog/PluginDataDialog.vue
++++ b/src/components/dialog/PluginDataDialog.vue
+@@ -78,11 +78,12 @@ interface PluginDataLayout {
+ // 插件数据页面配置项
+ const pluginPageItems = ref<RenderProps[]>([])
+ 
++/** 只接受宿主支持的两种页面模式，非法响应保留错误与重试入口。 */
+ function isPluginRenderMode(value: unknown): value is PluginRenderMode {
+   return value === 'vue' || value === 'vuetify'
+ }
+ 
+-// 联邦数据页可声明更适合自身布局的宿主弹窗宽度。
++/** 联邦数据页可声明更适合自身布局的宿主弹窗宽度。 */
+ function handleVueComponentLayout(layout?: PluginDataLayout | null) {
+   const maxWidth = typeof layout?.maxWidth === 'string' ? layout.maxWidth.trim() : ''
+   dialogMaxWidth.value = maxWidth || '80rem'
+@@ -115,7 +116,7 @@ const dynamicComponent = defineAsyncComponent({
+   timeout: 20000,
+ })
+ 
+-// 调用API读取数据页面UI
++/** 读取当前插件实例的页面声明，加载状态和错误不替代业务内容。 */
+ async function loadPluginUIData() {
+   // 如果正在加载，则不重复加载
+   if (isLoading.value) return
+@@ -156,7 +157,7 @@ async function loadPluginUIData() {
+   }
+ }
+ 
+-// 重新加载数据（可由 PageRender 或 Vue component 触发）
++/** 原页面动作只重新加载当前插件；已加载的联邦组件继续持有其自身状态。 */
+ function handleAction() {
+   // 避免在组件已加载的情况下重复调用loadPluginUIData
+   if (renderMode.value === 'vue' && componentLoaded.value) {
+@@ -170,7 +171,12 @@ onMounted(() => {
+ })
+ </script>
+ <template>
+-  <VDialog scrollable :max-width="dialogMaxWidth" :fullscreen="!display.mdAndUp.value">
++  <VDialog
++    scrollable
++    :aria-label="props.plugin?.plugin_name"
++    :max-width="dialogMaxWidth"
++    :fullscreen="!display.mdAndUp.value"
++  >
+     <!-- Vuetify 渲染模式 -->
+     <VCard v-if="renderMode === 'vuetify'" :title="`${props.plugin?.plugin_name}`">
+       <VDialogCloseBtn @click="emit('close')" />
+@@ -201,6 +207,8 @@ onMounted(() => {
+     </VCard>
+     <!-- Vue 渲染模式 -->
+     <VCard v-else-if="renderMode === 'vue'">
++      <!-- 原生栏始终调用宿主的关闭事件，联邦内容加载或更换标题栏时也不能丢失关闭能力。 -->
++      <button hidden aria-hidden="true" type="button" data-native-dialog-close @click="emit('close')" />
+       <VCardText class="pa-0">
+         <component
+           :is="dynamicComponent"
 diff --git a/src/components/dialog/SearchBarDialog.vue b/src/components/dialog/SearchBarDialog.vue
-index 525096be..2bf3fb67 100644
+index 525096be..71da28b9 100644
 --- a/src/components/dialog/SearchBarDialog.vue
 +++ b/src/components/dialog/SearchBarDialog.vue
 @@ -10,6 +10,8 @@ import { useDisplay } from 'vuetify'
@@ -387,7 +459,7 @@ index 525096be..2bf3fb67 100644
  
  // 显示器宽度
  const display = useDisplay()
-@@ -615,7 +617,134 @@ watch(dialog, async isOpen => {
+@@ -615,7 +617,142 @@ watch(dialog, async isOpen => {
    focusSearchInput()
  })
  
@@ -406,8 +478,9 @@ index 525096be..2bf3fb67 100644
 +        children: [
 +          {
 +            id: `run-${action.type}`,
-+            title: `${t('common.search')} ${keyword}`,
++            title: t('common.search'),
 +            icon: 'search',
++            primary: true,
 +            invoke: () => searchMedia(action.type),
 +          },
 +          ...mediaSearchSourceOptions.value[action.type].map(source => ({
@@ -437,9 +510,16 @@ index 525096be..2bf3fb67 100644
 +      ...resources.map(item => ({
 +        id: `resource-${item.type}`,
 +        title: item.title,
++        subtitle: `${t('common.search')} ${keyword}`,
 +        icon: 'search',
 +        children: [
-+          { id: `run-resource-${item.type}`, title: `${t('common.search')} ${keyword}`, invoke: item.invoke },
++          {
++            id: `run-resource-${item.type}`,
++            title: t('common.search'),
++            icon: 'search',
++            primary: true,
++            invoke: item.invoke,
++          },
 +          {
 +            id: `sites-${item.type}`,
 +            title: t('dialog.searchBar.selectSites'),
@@ -914,6 +994,128 @@ index ec786852..5270ae0a 100644
    it('只在用户点击开启按钮时请求 WebPush 授权', async () => {
      const requestPermission = vi.fn<WebPushPermissionRequester>().mockResolvedValue('granted')
  
+diff --git a/src/components/dialog/__tests__/PluginDataDialog.spec.ts b/src/components/dialog/__tests__/PluginDataDialog.spec.ts
+index 21e74945..ef2325b3 100644
+--- a/src/components/dialog/__tests__/PluginDataDialog.spec.ts
++++ b/src/components/dialog/__tests__/PluginDataDialog.spec.ts
+@@ -1,5 +1,6 @@
+ import type { Plugin } from '@/api/types'
+ import PluginDataDialog from '@/components/dialog/PluginDataDialog.vue'
++import { NativeSheetAdapter } from '@/native/sheet'
+ import { renderWithProviders } from '@tests/support/render'
+ import { fireEvent, screen, waitFor } from '@testing-library/vue'
+ import { defineComponent, h, inject, type Component, type PropType } from 'vue'
+@@ -62,7 +63,11 @@ const DialogStub = defineComponent({
+   setup:
+     (props, { slots }) =>
+     () =>
+-      h('section', { 'data-max-width': props.maxWidth, role: 'dialog' }, slots.default?.()),
++      h(
++        'section',
++        { class: 'v-overlay--active v-dialog', 'data-max-width': props.maxWidth, role: 'dialog' },
++        slots.default?.(),
++      ),
+ })
+ 
+ const LoadingBannerStub = defineComponent({
+@@ -75,7 +80,7 @@ const CloseButtonStub = defineComponent({
+   setup:
+     (_, { attrs }) =>
+     () =>
+-      h('button', { ...attrs, 'aria-label': '关闭', type: 'button' }),
++      h('button', { ...attrs, 'aria-label': '关闭', type: 'button', 'data-native-dialog-close': '' }),
+ })
+ 
+ const FabStub = defineComponent({
+@@ -247,6 +252,25 @@ describe('PluginDataDialog', () => {
+     expect(await screen.findByText('无法加载组件，请稍后再试')).toBeInTheDocument()
+   })
+ 
++  it('preserves native title and host dismissal while the remote Page loads and replaces its content', async () => {
++    const remote = createDeferred<Component>()
++    mocks.apiGet.mockResolvedValue({ render_mode: 'vue' })
++    mocks.loadRemoteComponent.mockReturnValue(remote.promise)
++    const result = await renderDialog(false)
++    const sheets = new NativeSheetAdapter(document)
++
++    expect(await screen.findByTestId('remote-component-loading')).toBeInTheDocument()
++    const loading = sheets.read('仪表盘')
++    expect(loading).toMatchObject({ title: '演示插件', canDismiss: true })
++    expect(screen.queryByRole('button', { name: '关闭' })).not.toBeInTheDocument()
++    remote.resolve(createRemotePage([]))
++    expect(await screen.findByTestId('remote-page')).toBeInTheDocument()
++    const ready = sheets.read('仪表盘')
++    expect(ready).toMatchObject({ id: loading?.id, title: '演示插件', canDismiss: true })
++    expect(sheets.execute('presentation.dismiss', { id: ready?.id })).toBe(true)
++    expect(result.emitted().close).toHaveLength(1)
++  })
++
+   it('renders the precompiled loading state while the remote Page is pending', async () => {
+     const remote = createDeferred<Component>()
+     mocks.apiGet.mockResolvedValue({ render_mode: 'vue' })
+diff --git a/src/components/dialog/__tests__/SearchBarDialog.spec.ts b/src/components/dialog/__tests__/SearchBarDialog.spec.ts
+index 04d75484..54927136 100644
+--- a/src/components/dialog/__tests__/SearchBarDialog.spec.ts
++++ b/src/components/dialog/__tests__/SearchBarDialog.spec.ts
+@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
+ import { renderWithProviders } from '@tests/support/render'
+ import { seedMediaSourceCatalog } from '@tests/support/msw/handlers/catalog'
+ import { createSubscribe } from '@tests/support/factories/subscribe'
+-import { defineComponent } from 'vue'
++import { defineComponent, h, ref, type Component } from 'vue'
+ import { beforeEach, describe, expect, it, vi } from 'vitest'
+ 
+ const mocks = vi.hoisted(() => ({
+@@ -45,8 +45,9 @@ async function renderSearchBar(
+     subscribePermission?: boolean
+     superUser?: boolean
+   } = {},
++  component: Component = SearchBarDialog,
+ ) {
+-  return renderWithProviders(SearchBarDialog, {
++  return renderWithProviders(component, {
+     props: {
+       modelValue: true,
+       showActivator: true,
+@@ -111,6 +112,38 @@ describe('SearchBarDialog media source selection', () => {
+     })
+   })
+ 
++  it.each(['media', 'music', 'collection', 'person'] as const)(
++    '原生 %s 子菜单有明确搜索按钮，来源多选不执行搜索',
++    async type => {
++      const dialog = ref<InstanceType<typeof SearchBarDialog>>()
++      const host = defineComponent({
++        inheritAttrs: false,
++        setup: () => () => h(SearchBarDialog, { ref: dialog, modelValue: true, showActivator: true }),
++      })
++      const { router } = await renderSearchBar({}, host)
++      const panel = () => dialog.value!.nativePanel()
++      panel().onQuery?.('演示关键词')
++      const category = panel().sections[0].items.find(item => item.id === `media-${type}`)!
++      const search = category.children!.find(item => item.primary)!
++      expect(search.title).toBe('搜索')
++      expect(category.subtitle).toContain('演示关键词')
++      const source = category.children!.filter(item => item.id.startsWith(`source-${type}-`)).at(-1)!
++      await source.invoke?.()
++      expect(router.currentRoute.value.fullPath).toBe('/')
++      expect(
++        panel()
++          .sections[0].items.find(item => item.id === category.id)!
++          .children!.find(item => item.id === source.id)!.selected,
++      ).toBe(true)
++      await search.invoke?.()
++      await waitFor(() =>
++        expect(router.currentRoute.value.path).toBe(type === 'music' ? '/music' : '/browse/media/search'),
++      )
++      expect(router.currentRoute.value.query[type === 'music' ? 'query' : 'title']).toBe('演示关键词')
++      expect(router.currentRoute.value.query.media_source).toContain(source.id.slice(`source-${type}-`.length))
++    },
++  )
++
+   it.each([false, true])('keeps search entries visible with untitled subscriptions (superUser=%s)', async superUser => {
+     const subscriptions = [
+       ...[null, undefined, ''].map(name => ({ ...createSubscribe(), name })),
 diff --git a/src/components/dialog/__tests__/TransferQueueDialog.spec.ts b/src/components/dialog/__tests__/TransferQueueDialog.spec.ts
 index b55c544f..7364209a 100644
 --- a/src/components/dialog/__tests__/TransferQueueDialog.spec.ts
@@ -1051,7 +1253,7 @@ index 212f0e2d..37a3138a 100644
    </VDialog>
 diff --git a/src/components/native/NativeNavigationHost.vue b/src/components/native/NativeNavigationHost.vue
 new file mode 100644
-index 00000000..87890bf3
+index 00000000..f36632d4
 --- /dev/null
 +++ b/src/components/native/NativeNavigationHost.vue
 @@ -0,0 +1,480 @@
@@ -1352,10 +1554,10 @@ index 00000000..87890bf3
 +  if (message.type.startsWith('presentation.')) {
 +    if (window.MoviePilotNative?.sheetsVersion !== 1) return false
 +    sheetAdapter.read(pageTitle())
-+    const accepted = sheetAdapter.execute(message.type, payload)
-+    // 明确发布准备状态；原生保留底页后才搬走唯一 WebView，不等待无关 DOM 变更。
-+    if (accepted && message.type === 'presentation.prepare') sheet.value = sheetAdapter.read(pageTitle())
-+    return accepted
++    return sheetAdapter.executeWhenPainted(message.type, payload).then(accepted => {
++      if (accepted) sheet.value = sheetAdapter.read(pageTitle())
++      return accepted
++    })
 +  }
 +  if (message.type === 'navigation.selectRoot')
 +    return !overlayOpen.value && typeof payload.rootId === 'string' && history.selectRoot(payload.rootId)
@@ -1474,8 +1676,8 @@ index 00000000..87890bf3
 +      execute,
 +      setActive: async active => {
 +        layout.setActive(active)
++        sheetAdapter.setActive(active && transport.sheetsVersion === 1)
 +        if (!active) {
-+          sheetAdapter.reset()
 +          appActivityLifecycle.setHostLifecycle(undefined)
 +          activePanel.value = undefined
 +          const requested = nativeRequestedPanel.value
@@ -1530,7 +1732,7 @@ index 00000000..87890bf3
 +  history.stop()
 +  void bridge?.stop()
 +  layout.setActive(false)
-+  sheetAdapter.reset()
++  sheetAdapter.setActive(false)
 +})
 +</script>
 +
@@ -2174,7 +2376,7 @@ index 908be8b8..1918f538 100644
    if (
      !showDynamicButton.value ||
 diff --git a/src/layouts/default/components/QuickAccess.vue b/src/layouts/default/components/QuickAccess.vue
-index bf87edac..238d6c02 100644
+index bf87edac..af346ec8 100644
 --- a/src/layouts/default/components/QuickAccess.vue
 +++ b/src/layouts/default/components/QuickAccess.vue
 @@ -7,6 +7,8 @@ import { useRecentPlugins } from '@/composables/useRecentPlugins'
@@ -2288,7 +2490,7 @@ index bf87edac..238d6c02 100644
  function handleClose() {
    searchKeyword.value = ''
    isEditingFavorites.value = false
-@@ -222,6 +226,65 @@ watch(
+@@ -222,6 +226,69 @@ watch(
    },
    { immediate: true },
  )
@@ -2307,16 +2509,19 @@ index bf87edac..238d6c02 100644
 +      title: plugin.plugin_name || plugin.id || '',
 +      subtitle: plugin.plugin_desc,
 +      icon: 'mdi-puzzle-outline',
++      image: getPluginIcon(plugin),
 +      children: [
 +        {
 +          id: nativePanelId('open', plugin.id),
 +          title: t('common.viewDetails'),
 +          icon: 'mdi-puzzle-outline',
++          primary: true,
 +          invoke: () => handlePluginClick(plugin),
 +        },
 +        {
 +          id: nativePanelId('pin', plugin.id),
 +          title: t(isPinned(plugin) ? 'plugin.unpinPlugin' : 'plugin.pinPlugin', { name: plugin.plugin_name }),
++          icon: isPinned(plugin) ? 'mdi-pin-off-outline' : 'mdi-pin-outline',
 +          selected: isPinned(plugin),
 +          keepOpen: true,
 +          invoke: () => togglePluginPin(plugin),
@@ -2328,6 +2533,7 @@ index bf87edac..238d6c02 100644
 +    const used = new Set([...pinned, ...recent].map(plugin => plugin.id))
 +    return {
 +      title: t('plugin.quickAccess'),
++      layout: 'grid',
 +      loading: loading.value,
 +      emptyText: t(searchKeyword.value ? 'plugin.noMatchingContent' : 'plugin.noPluginsWithPage'),
 +      search: { text: searchKeyword.value, placeholder: t('common.search') },
@@ -2393,7 +2599,7 @@ index 1e986452..6642d906 100644
 +  <SearchBarDialog ref="searchBar" v-model="searchOpen" :show-activator="!nativeChromeActive" @close="closeSearch" />
  </template>
 diff --git a/src/layouts/default/components/ShortcutBar.vue b/src/layouts/default/components/ShortcutBar.vue
-index c71ff06a..748bf1b7 100644
+index c71ff06a..40fcb6e6 100644
 --- a/src/layouts/default/components/ShortcutBar.vue
 +++ b/src/layouts/default/components/ShortcutBar.vue
 @@ -2,6 +2,8 @@
@@ -2405,7 +2611,7 @@ index c71ff06a..748bf1b7 100644
  
  // 国际化
  const { t } = useI18n()
-@@ -9,6 +11,30 @@ const { visibleShortcuts, openShortcutDialog: openShortcutTool } = useShortcutTo
+@@ -9,6 +11,31 @@ const { visibleShortcuts, openShortcutDialog: openShortcutTool } = useShortcutTo
  
  // App捷径
  const appsMenu = ref(false)
@@ -2416,6 +2622,7 @@ index c71ff06a..748bf1b7 100644
 +  dataAttr: 'native-shortcuts',
 +  panel: () => ({
 +    title: t('shortcut.title'),
++    layout: 'grid',
 +    sections: [
 +      {
 +        id: 'tools',
@@ -2436,7 +2643,7 @@ index c71ff06a..748bf1b7 100644
  
  // 菜单最大宽度
  const menuMaxWidth = ref(420)
-@@ -33,6 +59,7 @@ onMounted(() => {
+@@ -33,6 +60,7 @@ onMounted(() => {
  <template>
    <VMenu
      v-model="appsMenu"
@@ -2444,7 +2651,7 @@ index c71ff06a..748bf1b7 100644
      :max-width="menuMaxWidth"
      width="100%"
      max-height="560"
-@@ -43,7 +70,7 @@ onMounted(() => {
+@@ -43,7 +71,7 @@ onMounted(() => {
      scrim
    >
      <!-- Menu Activator -->
@@ -2454,7 +2661,7 @@ index c71ff06a..748bf1b7 100644
          <VIcon icon="mdi-card-multiple-outline" />
        </IconBtn>
 diff --git a/src/layouts/default/components/UserNotification.vue b/src/layouts/default/components/UserNotification.vue
-index 9dfb07a3..d9e2bedf 100644
+index 9dfb07a3..8e1bd850 100644
 --- a/src/layouts/default/components/UserNotification.vue
 +++ b/src/layouts/default/components/UserNotification.vue
 @@ -8,6 +8,9 @@ import { useBackground } from '@/composables/useBackground'
@@ -2585,7 +2792,7 @@ index 9dfb07a3..d9e2bedf 100644
 +              .filter(Boolean)
 +              .join(' · '),
 +            icon: getNotificationIcon(item),
-+            image: item.image || undefined,
++            image: item.poster || undefined,
 +            keepOpen: true,
 +            invoke: () => toggleNotificationExpanded(item),
 +          })),
@@ -2946,6 +3153,68 @@ index 486f7d5a..dc34536c 100644
      )
      expect(profile).toMatch(/<VListItem v-if="community\.eligible\.value" link @click="showCommunityDialog\(\)"/)
    })
+diff --git a/src/layouts/default/components/__tests__/UserNotification.spec.ts b/src/layouts/default/components/__tests__/UserNotification.spec.ts
+index 73db3b3c..614f61aa 100644
+--- a/src/layouts/default/components/__tests__/UserNotification.spec.ts
++++ b/src/layouts/default/components/__tests__/UserNotification.spec.ts
+@@ -1,5 +1,6 @@
+ import UserNotification from '../UserNotification.vue'
+ import type { SystemNotification } from '@/api/types'
++import { nativeGlobalActions } from '@/native/registry'
+ import { renderWithProviders } from '@tests/support/render'
+ import { apiJson } from '@tests/support/msw/response'
+ import { server } from '@tests/support/msw/server'
+@@ -29,6 +30,50 @@ function deferNotifications() {
+ }
+ 
+ describe('UserNotification', () => {
++  it('原生通知只投影独立海报，旧消息不将背景图裁切成海报', async () => {
++    const pending = deferNotifications()
++    await renderWithProviders(UserNotification)
++    const action = nativeGlobalActions.value.get('notifications')!
++    const opened = action.panel!()!.onOpen!()
++    await waitFor(() => expect(pending.request).toHaveBeenCalledTimes(1))
++    pending.resolve([
++      {
++        id: 81,
++        title: '有独立海报',
++        image: 'https://images.example.com/backdrop.jpg',
++        poster: 'https://images.example.com/poster.jpg',
++      },
++      { id: 82, title: '旧背景图消息', image: 'https://images.example.com/legacy-backdrop.jpg', poster: null },
++    ])
++    await opened
++
++    const entries = action.panel!()!.sections.flatMap(section => section.items)
++    expect(entries.find(item => item.title === '有独立海报')?.image).toBe('https://images.example.com/poster.jpg')
++    expect(entries.find(item => item.title === '旧背景图消息')?.image).toBeUndefined()
++  })
++
++  it('普通网页通知继续展示原渠道图片', async () => {
++    const pending = deferNotifications()
++    const { container } = await renderWithProviders(UserNotification, {
++      global: { stubs: { VImg: { props: ['src'], template: '<img :src="src" />' } } },
++    })
++    await fireEvent.click(container.querySelector('button')!)
++    pending.resolve([
++      {
++        id: 83,
++        title: '网页媒体通知',
++        image: 'https://images.example.com/backdrop.jpg',
++        poster: 'https://images.example.com/poster.jpg',
++      },
++    ])
++    expect(await screen.findByText('网页媒体通知')).toBeInTheDocument()
++    await waitFor(() => {
++      expect(document.querySelector('.notification-panel img')?.getAttribute('src')).toBe(
++        'https://images.example.com/backdrop.jpg',
++      )
++    })
++  })
++
+   it.each([390, 1440])('在 %ipx 窗口首次打开时显示加载动画，响应后显示消息', async width => {
+     vi.stubGlobal('innerWidth', width)
+     const pending = deferNotifications()
 diff --git a/src/locales/en-US.ts b/src/locales/en-US.ts
 index 6af75c9c..70ecd512 100644
 --- a/src/locales/en-US.ts
@@ -3397,15 +3666,78 @@ index 00000000..b64de4ed
 +})
 diff --git a/src/native/__tests__/panel.spec.ts b/src/native/__tests__/panel.spec.ts
 new file mode 100644
-index 00000000..e56f4daf
+index 00000000..dae5d3fb
 --- /dev/null
 +++ b/src/native/__tests__/panel.spec.ts
-@@ -0,0 +1,121 @@
+@@ -0,0 +1,184 @@
 +import { describe, expect, it, vi } from 'vitest'
 +import { dispatchNativePanel, nativePanelId, projectNativePanel } from '../panel'
 +import type { NativePanelSource } from '../registry'
 +
 +describe('原生面板声明与当前业务回调隔离', () => {
++  it('网格保留插件实际图片及打开、固定回调，搜索移除后撤销旧项目', () => {
++    const open = vi.fn()
++    const pin = vi.fn()
++    const source: NativePanelSource = {
++      title: '插件面板',
++      layout: 'grid',
++      sections: [
++        {
++          id: 'all',
++          items: [
++            {
++              id: 'plugin-test',
++              title: '示例插件',
++              image: './plugin_icon/demo.png',
++              children: [
++                { id: 'open-test', title: '查看详情', primary: true, invoke: open },
++                { id: 'pin-test', title: '固定', keepOpen: true, invoke: pin },
++              ],
++            },
++          ],
++        },
++      ],
++    }
++    const current = projectNativePanel(source)
++    expect(current.panel.layout).toBe('grid')
++    expect(current.panel.sections[0].items[0].image).toBe(new URL('./plugin_icon/demo.png', document.baseURI).href)
++    expect(dispatchNativePanel(current, { panelEvent: 'select', itemId: 'open-test' })).toBe(true)
++    expect(dispatchNativePanel(current, { panelEvent: 'select', itemId: 'pin-test' })).toBe(true)
++    expect(open).toHaveBeenCalledOnce()
++    expect(pin).toHaveBeenCalledOnce()
++    source.sections[0].items = []
++    expect(dispatchNativePanel(projectNativePanel(source), { panelEvent: 'select', itemId: 'open-test' })).toBe(false)
++    expect(projectNativePanel({ ...source, layout: undefined }).panel.layout).toBeUndefined()
++  })
++
++  it('主要动作只投影为子菜单叶子按钮，执行仍复核最新权限和回调', () => {
++    const invoke = vi.fn()
++    const source: NativePanelSource = {
++      title: '搜索',
++      sections: [
++        {
++          id: 'actions',
++          items: [
++            {
++              id: 'media',
++              title: '电影、电视剧',
++              children: [
++                { id: 'run', title: '搜索', primary: true, invoke },
++                { id: 'source', title: 'TheMovieDb', keepOpen: true, primary: true, invoke },
++              ],
++            },
++          ],
++        },
++      ],
++    }
++    const current = projectNativePanel(source)
++    expect(current.panel.sections[0].items[0].children?.map(row => row.primary)).toEqual([true, undefined])
++    expect(dispatchNativePanel(current, { panelEvent: 'select', itemId: 'run' })).toBe(true)
++    source.sections[0].items[0].children![0].enabled = false
++    expect(dispatchNativePanel(projectNativePanel(source), { panelEvent: 'select', itemId: 'run' })).toBe(false)
++    expect(invoke).toHaveBeenCalledOnce()
++  })
++
 +  it('账号摘要保留有界昵称、身份和缩略图，拒绝内联文档、凭据 URL 和超大头像', () => {
 +    const images = [
 +      'data:image/jpeg;base64,/9j/2Q==',
@@ -3793,10 +4125,10 @@ index 00000000..572acf9f
 +})
 diff --git a/src/native/__tests__/sheet.spec.ts b/src/native/__tests__/sheet.spec.ts
 new file mode 100644
-index 00000000..ed002d40
+index 00000000..796fe825
 --- /dev/null
 +++ b/src/native/__tests__/sheet.spec.ts
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,197 @@
 +import { afterEach, describe, expect, it, vi } from 'vitest'
 +import { NativeSheetAdapter } from '../sheet'
 +
@@ -3812,12 +4144,63 @@ index 00000000..ed002d40
 +}
 +
 +afterEach(() => {
++  vi.restoreAllMocks()
 +  document.body.innerHTML = ''
 +  document.documentElement.removeAttribute('data-native-sheet')
 +  document.documentElement.removeAttribute('data-native-sheet-preparing')
++  document.documentElement.removeAttribute('data-native-sheets')
 +})
 +
 +describe('原生 Sheet 与原 Vue 内容交接', () => {
++  it('能力标记只在明确接管时启用，打开和归还均等待两次绘制机会才确认', async () => {
++    const frames: FrameRequestCallback[] = []
++    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => frames.push(callback))
++    const root = dialog('名称识别')
++    const adapter = new NativeSheetAdapter(document)
++    const sheet = adapter.read('页面')!
++    expect(document.documentElement.hasAttribute('data-native-sheets')).toBe(false)
++    adapter.setActive(true)
++    expect(document.documentElement.getAttribute('data-native-sheets')).toBe('active')
++    const done = vi.fn()
++    const attach = adapter.executeWhenPainted('presentation.attach', { id: sheet.id }).then(done)
++    expect(done).not.toHaveBeenCalled()
++    frames.shift()!(0)
++    await Promise.resolve()
++    expect(done).not.toHaveBeenCalled()
++    frames.shift()!(16)
++    await attach
++    expect(done).toHaveBeenCalledExactlyOnceWith(true)
++    expect(root.querySelector('input')!.value).toBe('尚未保存')
++    const detached = vi.fn()
++    const detach = adapter.executeWhenPainted('presentation.detach', { id: sheet.id }).then(detached)
++    expect(document.documentElement.hasAttribute('data-native-sheet')).toBe(false)
++    expect(detached).not.toHaveBeenCalled()
++    frames.shift()!(32)
++    frames.shift()!(48)
++    await detach
++    expect(detached).toHaveBeenCalledExactlyOnceWith(true)
++    adapter.setActive(false)
++    expect(document.documentElement.hasAttribute('data-native-sheets')).toBe(false)
++  })
++
++  it.each(['关闭根', '切换根', '退出宿主'])('绘制期间%s不能迟到确认原弹窗', async operation => {
++    const frames: FrameRequestCallback[] = []
++    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => frames.push(callback))
++    const root = dialog('父弹窗')
++    const adapter = new NativeSheetAdapter(document)
++    const sheet = adapter.read('页面')!
++    const waiting = adapter.executeWhenPainted('presentation.attach', { id: sheet.id })
++    if (operation === '关闭根') root.remove()
++    if (operation === '切换根') {
++      dialog('子弹窗', 2100)
++      adapter.read('页面')
++    }
++    if (operation === '退出宿主') adapter.setActive(false)
++    frames.shift()!(0)
++    frames.shift()!(16)
++    expect(await waiting).toBe(false)
++  })
++
 +  it('底页准备只响应当前原生请求，不触发业务按钮，接管或取消后立即清理', () => {
 +    const root = dialog('名称识别')
 +    const closed = vi.fn()
@@ -4277,10 +4660,10 @@ index 00000000..98648450
 +}
 diff --git a/src/native/native.scss b/src/native/native.scss
 new file mode 100644
-index 00000000..d3cb602e
+index 00000000..9eeba24b
 --- /dev/null
 +++ b/src/native/native.scss
-@@ -0,0 +1,218 @@
+@@ -0,0 +1,228 @@
 +// 只有双方事务提交后的文档才采用此布局；普通网页/PWA 不匹配选择器。
 +html[data-native-chrome='active'] {
 +  scroll-padding-block: var(--native-top) var(--native-bottom);
@@ -4387,6 +4770,16 @@ index 00000000..d3cb602e
 +  .v-dialog--fullscreen > .v-overlay__content > .v-card,
 +  .v-bottom-sheet > .v-bottom-sheet__content.v-overlay__content > .v-card {
 +    padding-block-end: var(--native-bottom);
++  }
++}
++
++// 能力协商后在首帧就等候系统接管，避免先闪出网页弹窗再变成原生 Sheet。
++html[data-native-chrome='active'][data-native-sheets='active']:not([data-native-sheet]) {
++  .v-overlay--active.v-dialog,
++  .theme-customizer-panel-host[role='dialog'],
++  .agent-assistant-panel.is-open[role='dialog'] {
++    visibility: hidden !important;
++    opacity: 0 !important;
 +  }
 +}
 +
@@ -4579,10 +4972,10 @@ index 00000000..20712f3d
 +}
 diff --git a/src/native/panel.ts b/src/native/panel.ts
 new file mode 100644
-index 00000000..a2c0acaa
+index 00000000..2dd5b849
 --- /dev/null
 +++ b/src/native/panel.ts
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,138 @@
 +import type { NativePanel, NativePanelItem } from './protocol'
 +import type { NativePanelEntry, NativePanelSource } from './registry'
 +
@@ -4644,6 +5037,9 @@ index 00000000..a2c0acaa
 +        selected: entry.selected === true,
 +        destructive: entry.destructive === true,
 +        keepOpen: entry.keepOpen === true,
++        ...(depth > 0 && entry.primary === true && !entry.children?.length && entry.keepOpen !== true
++          ? { primary: true }
++          : {}),
 +      }
 +      budget -= new TextEncoder().encode(JSON.stringify(row)).length
 +      if (entry.children?.length && depth < 2) row.children = items(entry.children, depth + 1)
@@ -4653,6 +5049,7 @@ index 00000000..a2c0acaa
 +  }
 +  const panel: NativePanel = {
 +    title: text(source.title) || 'MoviePilot',
++    ...(source.layout === 'grid' ? { layout: 'grid' } : {}),
 +    ...(text(source.subtitle) ? { subtitle: text(source.subtitle) } : {}),
 +    ...(source.profile && text(source.profile.name)
 +      ? {
@@ -4777,10 +5174,10 @@ index 00000000..3d1ff21b
 +}
 diff --git a/src/native/protocol.ts b/src/native/protocol.ts
 new file mode 100644
-index 00000000..f6083568
+index 00000000..5cb7907f
 --- /dev/null
 +++ b/src/native/protocol.ts
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,150 @@
 +/** 原生导航只接收声明；业务回调不参与 JSON 序列化。 */
 +export interface NativeAction {
 +  actionId: string
@@ -4809,12 +5206,16 @@ index 00000000..f6083568
 +  selected?: boolean
 +  destructive?: boolean
 +  keepOpen?: boolean
++  /** 当前层级唯一的主要动作；新容器固定显示为原生按钮，旧容器仍可作为列表项执行。 */
++  primary?: boolean
 +  children?: NativePanelItem[]
 +}
 +
 +/** 快捷入口共用系统列表与搜索控件，分组内容来自现有业务组件。 */
 +export interface NativePanel {
 +  title: string
++  /** 仅原生容器使用网格和半屏系统 Sheet，缺省仍为锚定列表。 */
++  layout?: 'grid'
 +  subtitle?: string
 +  profile?: { name: string; detail?: string; image?: string }
 +  search?: { text: string; placeholder: string }
@@ -5265,10 +5666,10 @@ index 00000000..1b459dae
 +}
 diff --git a/src/native/sheet.ts b/src/native/sheet.ts
 new file mode 100644
-index 00000000..adca6803
+index 00000000..ece24510
 --- /dev/null
 +++ b/src/native/sheet.ts
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,182 @@
 +import type { NativeSheet } from './protocol'
 +
 +/** 投影真实 Vue 弹窗及标题栏，持有 DOM 引用而不复制内容、事件或认证状态。 */
@@ -5281,9 +5682,38 @@ index 00000000..adca6803
 +  private buttons = new Map<string, HTMLButtonElement>()
 +  private attached?: string
 +  private prepared?: string
++  private transition = 0
 +
 +  /** 作用域限定当前文档；关闭文档或降级时必须调用 reset 恢复原页面。 */
 +  constructor(private document: Document) {}
++
++  /** 只有协商成功的 Sheet 宿主隐藏待接管弹窗，普通网页和降级页面保持原显示。 */
++  setActive(active: boolean) {
++    if (active) this.document.documentElement.setAttribute('data-native-sheets', 'active')
++    else {
++      this.document.documentElement.removeAttribute('data-native-sheets')
++      this.reset()
++    }
++  }
++
++  /** 布局交接确认等待真正的绘制机会；原生不能在旧标题或空白底页仍可见时启动转场。 */
++  async executeWhenPainted(type: string, payload: Record<string, unknown>): Promise<boolean> {
++    if (!this.execute(type, payload)) return false
++    if (!['presentation.prepare', 'presentation.attach', 'presentation.detach'].includes(type)) return true
++    const transition = ++this.transition
++    const root = this.root
++    const view = this.document.defaultView
++    if (!view) return false
++    await new Promise<void>(resolve => view.requestAnimationFrame(() => view.requestAnimationFrame(() => resolve())))
++    if (transition !== this.transition) return false
++    if (type === 'presentation.detach') return !this.attached
++    return Boolean(
++      root?.isConnected &&
++      root === this.root &&
++      this.ids.get(root) === payload.id &&
++      (type === 'presentation.prepare' ? this.prepared === payload.id : this.attached === payload.id),
++    )
++  }
 +
 +  /** 每次重新读取活动最上层，嵌套弹窗撤销旧按钮的执行权限。 */
 +  read(fallbackTitle: string): NativeSheet | undefined {
@@ -5377,6 +5807,7 @@ index 00000000..adca6803
 +
 +  /** 宿主退出或协商失效时立即恢复原来的网页弹窗标题、背景和布局。 */
 +  reset() {
++    this.transition++
 +    this.attached = undefined
 +    this.clearMarkers()
 +    for (const header of this.document.querySelectorAll('[data-native-sheet-header]'))

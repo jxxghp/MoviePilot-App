@@ -3,12 +3,24 @@ name: Release IPA
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '需要同版本重建的现有 Release 标签'
+        required: true
+        type: string
+        default: v1.0.1
+      rebuild_existing:
+        description: '确认更新该标签的源码、IPA 和校验文件'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -22,7 +34,8 @@ jobs:
     permissions:
       contents: write
     env:
-      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+      REBUILD_EXISTING: ${{ github.event_name == 'workflow_dispatch' && inputs.rebuild_existing }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -34,7 +47,22 @@ jobs:
             echo 'Release tags must use vMAJOR.MINOR.PATCH.' >&2
             exit 1
           fi
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] &&
+             [[ "$GITHUB_REF" != refs/heads/main || "$REBUILD_EXISTING" != true ]]; then
+            echo 'Same-version rebuilds require main and explicit confirmation.' >&2
+            exit 1
+          fi
           echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+      - name: Verify existing release for a same-version rebuild
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          gh release view "$RELEASE_TAG" > /dev/null
+          old_tag_object=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq .object.sha)
+          echo "OLD_TAG_OBJECT=$old_tag_object" >> "$GITHUB_ENV"
       - name: Build and verify unsigned device IPA
         run: bash scripts/build-ipa.sh "$RELEASE_VERSION"
       - uses: actions/upload-artifact@v7
@@ -52,13 +80,35 @@ jobs:
         shell: bash
         run: |
           if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
-            echo 'Release already exists; refusing to overwrite its assets.' >&2
+            if [[ "$REBUILD_EXISTING" != true ]]; then
+              echo 'Release already exists; refusing to overwrite its assets.' >&2
+              exit 1
+            fi
+            current_tag_object=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq .object.sha)
+            current_main=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+            if [[ "$current_tag_object" != "$OLD_TAG_OBJECT" || "$current_main" != "$GITHUB_SHA" ]]; then
+              echo 'The release tag or main changed during the build; rebuild the current source.' >&2
+              exit 1
+            fi
+            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$RELEASE_TAG" \
+              -f sha="$GITHUB_SHA" -F force=true > /dev/null
+            rebuilt_sha=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
+            test "$rebuilt_sha" = "$GITHUB_SHA"
+          elif [[ "$REBUILD_EXISTING" == true ]]; then
+            echo 'The release selected for rebuilding no longer exists.' >&2
             exit 1
           fi
           cp .github/RELEASE_NOTES.md "$RUNNER_TEMP/release-notes.md"
           printf '\n构建源码：[%s](https://github.com/%s/commit/%s)。\n' \
             "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_SHA" >> "$RUNNER_TEMP/release-notes.md"
-          gh release create "$RELEASE_TAG" --verify-tag \
-            --title "MoviePilot ${RELEASE_VERSION}" \
-            --notes-file "$RUNNER_TEMP/release-notes.md" \
-            "artifacts/MoviePilot-${RELEASE_VERSION}-unsigned.ipa" artifacts/SHA256SUMS
+          if [[ "$REBUILD_EXISTING" == true ]]; then
+            gh release upload "$RELEASE_TAG" \
+              "artifacts/MoviePilot-${RELEASE_VERSION}-unsigned.ipa" artifacts/SHA256SUMS --clobber
+            gh release edit "$RELEASE_TAG" --title "MoviePilot ${RELEASE_VERSION}" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
+          else
+            gh release create "$RELEASE_TAG" --verify-tag \
+              --title "MoviePilot ${RELEASE_VERSION}" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" \
+              "artifacts/MoviePilot-${RELEASE_VERSION}-unsigned.ipa" artifacts/SHA256SUMS
+          fi

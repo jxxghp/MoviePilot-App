@@ -5,6 +5,55 @@ import Testing
 
 /// 系统面板只接受有界展示声明，兼容旧网页且拒绝恶意层级与重复标识。
 struct NativePanelTests {
+  /// 旧面板省略布局仍可解码，未知布局不能成为原生容器的任意显示指令。
+  @Test func acceptsOptionalGridLayout() throws {
+    for layout in [nil, "grid"] as [String?] {
+      var panel: [String: Any] = ["title": "捷径", "sections": []]
+      panel["layout"] = layout
+      let value = try snapshot(panel: panel)
+      try value.validate()
+      #expect(value.actions[0].panel?.layout?.rawValue == layout)
+    }
+    #expect(throws: (any Error).self) {
+      try snapshot(panel: ["title": "捷径", "layout": "unknown", "sections": []])
+    }
+  }
+
+  /// 主要按钮只能引用本层唯一的叶子动作，旧版缺省声明继续保留原列表。
+  @Test func validatesPrimarySubmenuAction() throws {
+    let run: [String: Any] = ["id": "run", "title": "搜索", "primary": true]
+    let source: [String: Any] = ["id": "source", "title": "TheMovieDb", "keepOpen": true]
+    let rows: [[String: Any]] = [["id": "media", "title": "电影、电视剧", "children": [run, source]]]
+    let valid = try snapshot(panel: [
+      "title": "搜索", "sections": [["id": "actions", "items": rows]],
+    ])
+    try valid.validate()
+    #expect(valid.actions[0].panel?.sections[0].items[0].children?[0].primary == true)
+    let root = try snapshot(panel: [
+      "title": "搜索", "sections": [["id": "actions", "items": [run]]],
+    ])
+    #expect(throws: BridgeError.invalidMessage) { try root.validate() }
+    let invalid: [[[String: Any]]] = [
+      [run, ["id": "another", "title": "再次搜索", "primary": true]],
+      [["id": "run", "title": "搜索", "primary": true, "keepOpen": true]],
+      [["id": "run", "title": "搜索", "primary": true, "children": [source]]],
+    ]
+    for children in invalid {
+      let value = try snapshot(panel: [
+        "title": "搜索",
+        "sections": [
+          [
+            "id": "actions",
+            "items": [
+              ["id": "media", "title": "媒体", "children": children]
+            ],
+          ]
+        ],
+      ])
+      #expect(throws: BridgeError.invalidMessage) { try value.validate() }
+    }
+  }
+
   /// 账号信息有独立展示边界，大型或非栅格内联内容不能占满跨桥消息。
   @Test func validatesProfileSummaryAndThumbnail() throws {
     let accepted: [String] = [

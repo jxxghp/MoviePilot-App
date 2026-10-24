@@ -47,12 +47,14 @@ open ios/MoviePilot.xcodeproj
 ## 构建未签名 IPA
 
 ```sh
-bash scripts/build-ipa.sh 1.0.0
+bash scripts/build-ipa.sh 1.0.1
 ```
 
 从仓库根目录执行，产物位于 `artifacts/MoviePilot-1.0.0-unsigned.ipa`，同时生成 `SHA256SUMS`。脚本使用真机 iPhoneOS SDK 和 arm64 架构，校验版本、ZIP 及 Mach-O 平台；安装者仍须自行重签。
 
-工程初始版本为 1.0.0、构建号为 1。后续发布先更新 `ios/project.yml` 与已提交工程中的版本号，再将 `v主版本.次版本.修订版本` 标签推到 GitHub。`Release IPA` 会复用现有检查，成功后构建对应版本并发布 IPA 和校验文件；已存在的 Release 不覆盖。
+工程当前版本为 1.0.1、构建号为 1。发布新版本时先更新 `ios/project.yml` 与已提交工程中的版本号，再将 `v主版本.次版本.修订版本` 标签推到 GitHub。`Release IPA` 会复用现有检查，成功后构建对应版本并发布 IPA 和校验文件。
+
+同版本修复在 `main` 的 Actions → `Release IPA` → `Run workflow` 中操作：填写现有标签，勾选同版本重建确认。检查与打包通过后，工作流将该标签和 Release 资产更新为本次 `main` 源码；若构建期间主分支或标签变化则停止发布。普通标签发布仍拒绝覆盖已有 Release。用户从同一 Release 重新下载 IPA 后覆盖安装即可。
 
 ## 测试与目录
 

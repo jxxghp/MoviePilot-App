@@ -88,6 +88,22 @@ public struct ServerAddress: Codable, Equatable, Sendable {
   /// 精确比较浏览器来源，子域、不同协议或非默认端口均属于另一来源。
   public func contains(_ candidate: URL) -> Bool { WebOrigin(url: candidate) == origin }
 
+  /// 进程恢复只 GET 当前同源文档；Vue 确认的 hash 路由不会改写来源、文档路径或查询串。
+  public func recoveryURL(currentDocument: URL?, confirmedRoute: String? = nil) -> URL {
+    let document =
+      currentDocument.flatMap { candidate in
+        contains(candidate) && candidate.user == nil && candidate.password == nil ? candidate : nil
+      } ?? url
+    guard let confirmedRoute, NavigationSnapshot.isRoute(confirmedRoute) else { return document }
+    var base = URLComponents(url: document, resolvingAgainstBaseURL: true)
+    base?.fragment = nil
+    guard let reference = base?.url?.absoluteString,
+      let target = URL(string: "\(reference)#\(confirmedRoute)", encodingInvalidCharacters: false),
+      contains(target)
+    else { return document }
+    return target
+  }
+
   /// Foundation 可保存带网卡标识的 IPv6，但浏览器 URL 不支持；保留旧配置身份并阻止连接。
   public var webCompatibilityError: String? {
     guard origin.host.contains(":"), origin.host.contains("%") else { return nil }

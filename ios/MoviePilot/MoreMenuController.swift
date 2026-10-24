@@ -8,6 +8,8 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
   var onSelect: ((MoreMenuItem) -> Void)?
   private var sections: [MoreMenuSection] = []
   private var surface: UIColor = .secondarySystemGroupedBackground
+  private var accent: UIColor = .tintColor
+  private var shouldCollapseSearch = true
 
   /// 系统分组列表和搜索由 UIKit 提供，业务页面不进入此控制器。
   init() { super.init(style: .insetGrouped) }
@@ -43,18 +45,49 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
     tableView.tableHeaderView = header
   }
 
-  /// 搜索框与分组菜单共用系统列表边距，安全区或窗口宽度变化后保持两侧对齐。
+  /// 搜索区随列表自然下拉露出；首次进入只收起一次，不干预用户后续滚动与筛选。
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
     tableView.tableHeaderView?.directionalLayoutMargins = tableView.directionalLayoutMargins
+    if shouldCollapseSearch, !sections.isEmpty, let header = tableView.tableHeaderView,
+      tableView.bounds.height > 0, tableView.window != nil
+    {
+      shouldCollapseSearch = false
+      tableView.setContentOffset(
+        CGPoint(x: 0, y: header.bounds.height - tableView.adjustedContentInset.top), animated: false
+      )
+    }
+    updateSearchVisibility()
+  }
+
+  /// 完全收起的输入框不进入顶部玻璃的取样；下拉后仍由原列表自然露出。
+  override func scrollViewDidScroll(_ scrollView: UIScrollView) {
+    updateSearchVisibility()
+  }
+
+  /// 只改变搜索视图可见性，保留表头几何和滚动位置，避免收起状态残留模糊文字。
+  private func updateSearchVisibility() {
+    guard let header = tableView.tableHeaderView else { return }
+    search.isHidden =
+      tableView.contentOffset.y + tableView.adjustedContentInset.top >= header.bounds.height - 1
   }
 
   /// 每次已确认快照恢复可操作状态；权限目录变化即时替换原生列表。
-  func apply(_ sections: [MoreMenuSection], background: UIColor, surface: UIColor) {
+  func apply(_ sections: [MoreMenuSection], background: UIColor, surface: UIColor, accent: UIColor)
+  {
     loadViewIfNeeded()
     tableView.backgroundColor = background
     self.surface = surface
-    for cell in tableView.visibleCells { cell.backgroundColor = surface }
+    self.accent = accent
+    tableView.tintColor = accent
+    // 内容配置会保存创建时的颜色；目录不变时也刷新已显示行，避免复用产生两套主题色。
+    for cell in tableView.visibleCells {
+      cell.backgroundColor = surface
+      if var content = cell.contentConfiguration as? UIListContentConfiguration {
+        content.imageProperties.tintColor = accent
+        cell.contentConfiguration = content
+      }
+    }
     tableView.isUserInteractionEnabled = true
     if self.sections != sections {
       self.sections = sections
@@ -69,10 +102,11 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
 
   /// 主导航重新进入更多时恢复完整目录，逻辑返回仍可保留原搜索上下文。
   func resetSearch() {
+    endSearch()
     search.text = nil
+    shouldCollapseSearch = true
     tableView.reloadData()
-    tableView.setContentOffset(
-      CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
+    tableView.setNeedsLayout()
   }
 
   /// 系统搜索键结束输入，结果仍保留在当前原生列表中。
@@ -123,7 +157,7 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
     content.secondaryText = item.subtitle
     content.secondaryTextProperties.numberOfLines = 0
     content.image = NavigationSymbols.image(item.icon)
-    content.imageProperties.tintColor = view.tintColor
+    content.imageProperties.tintColor = accent
     cell.contentConfiguration = content
     cell.backgroundColor = surface
     cell.accessoryType = .disclosureIndicator

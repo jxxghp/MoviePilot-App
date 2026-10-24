@@ -36,8 +36,11 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   private var layoutScheduled = false
   private var keyboardFrame: CGRect?
   private var keyboardObserver: NSObjectProtocol?
-  private var disableNextTakeover = false
+  private var pendingProcessRecovery = false
+  private var automaticRecoveryAttempted = false
+  private var lastConfirmedURL: URL?
   private var pendingCommands: [String: Timer] = [:]
+  private var commandCompletions: [String: (Bool) -> Void] = [:]
   private var downloads: [ObjectIdentifier: URL] = [:]
   private var downloadReferences: [ObjectIdentifier: WKDownload] = [:]
   private var authentication: AuthenticationResult?
@@ -137,9 +140,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     timeout?.invalidate()
     startupTimeout?.invalidate()
     startupPending = false
+    pendingProcessRecovery = false
     documentID = UUID()
-    for timer in pendingCommands.values { timer.invalidate() }
-    pendingCommands.removeAll()
+    cancelCommands()
     if let keyboardObserver { NotificationCenter.default.removeObserver(keyboardObserver) }
     keyboardObserver = nil
     webView.stopLoading()
@@ -151,6 +154,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       forName: "moviepilotAuthentication")
     webView.configuration.userContentController.removeAllUserScripts()
     authentication = nil
+    lastConfirmedURL = nil
     relay.owner = nil
     content.onLayout = nil
     for download in downloadReferences.values { download.cancel { _ in } }
@@ -159,22 +163,65 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     session.beginDocument(allowTakeover: false)
   }
 
-  /// 恢复失败文档时只重载网页导航，不重放动作或未完成业务请求。
-  func reloadInWebMode() {
-    disableNextTakeover = true
-    session.beginDocument(allowTakeover: false)
+  /// 重试只 GET 当前同源文档并重新协商原生导航，绝不重发旧 POST 或未确认的业务命令。
+  func reload(automatically: Bool = false) {
+    let target = lastConfirmedURL ?? instance.address.recoveryURL(currentDocument: webView.url)
+    documentID = UUID()
+    timeout?.invalidate()
+    startupTimeout?.invalidate()
+    cancelCommands()
+    pendingProcessRecovery = false
+    automaticRecoveryAttempted = automatically
+    contentReady = false
+    startupPending = true
+    session.beginDocument()
     shell?.showWebNavigation()
-    start()
+    shell?.setLoading(true)
+    armStartupTimeout()
+    webView.stopLoading()
+    webView.load(URLRequest(url: target, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 30))
+  }
+
+  /// 系统回收文档时撤销旧代次；后台只记待恢复，前台周期最多自动载入一次。
+  private func recoverContentProcess() {
+    guard relay.owner != nil, !pendingProcessRecovery else { return }
+    documentID = UUID()
+    timeout?.invalidate()
+    startupTimeout?.invalidate()
+    cancelCommands()
+    session.failed()
+    pendingProcessRecovery = true
+    if lifecycle == "active" { resumeContentRecovery() }
+  }
+
+  /// 自动恢复失败保留明确重试出口，不能形成反复加载或业务操作重放。
+  private func resumeContentRecovery() {
+    guard pendingProcessRecovery else { return }
+    pendingProcessRecovery = false
+    guard !automaticRecoveryAttempted else {
+      fail("页面暂时无法恢复，请检查连接后重新打开。未确认的操作不会自动重试。")
+      return
+    }
+    reload(automatically: true)
   }
 
   /// 系统生命周期只同步给当前文档，后台暂停期间不进行超时恢复。
   func setLifecycle(_ value: String) {
+    if value == "background", lifecycle != value { automaticRecoveryAttempted = false }
     lifecycle = value
     timeout?.invalidate()
     startupTimeout?.invalidate()
+    if value == "active", pendingProcessRecovery {
+      resumeContentRecovery()
+      return
+    }
     if value == "active", startupPending { armStartupTimeout() }
     for timer in pendingCommands.values { timer.invalidate() }
-    pendingCommands.removeAll()
+    if value == "active" {
+      for request in Array(pendingCommands.keys) {
+        pendingCommands[request] = commandTimer(request)
+      }
+    }
     if session.sessionId != nil {
       send("host.lifecycle", payload: .object(["state": .string(value)]))
       if value == "active" {
@@ -228,20 +275,61 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       "navigation.open", payload: .object(["itemId": .string(item.id), "path": .string(item.path)]))
   }
 
-  /// 命令只等待本地分派确认；超时释放导航，绝不自动重复点击。
-  func command(_ type: String, payload: JSONValue) {
+  /// 可选完成回调用于绘制交接；命令始终只执行一次，超时按既有路径释放导航。
+  func command(_ type: String, payload: JSONValue, completion: ((Bool) -> Void)? = nil) {
     guard session.phase == .nativeNavigation, pendingCommands.count < 16, lifecycle == "active"
-    else { return }
+    else {
+      completion?(false)
+      return
+    }
     let request = UUID().uuidString
-    let timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { [weak self] _ in
+    pendingCommands[request] = commandTimer(request)
+    commandCompletions[request] = completion
+    send(type, requestId: request, payload: payload)
+  }
+
+  /// 后台只暂停确认期限，恢复后重新计时，不重发可能已执行的业务命令。
+  private func commandTimer(_ request: String) -> Timer {
+    Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { [weak self] _ in
       MainActor.assumeIsolated {
         guard let self else { return }
         self.pendingCommands.removeValue(forKey: request)
+        self.commandCompletions.removeValue(forKey: request)?(false)
         self.releaseChrome()
       }
     }
-    pendingCommands[request] = timer
-    send(type, requestId: request, payload: payload)
+  }
+
+  /// 文档、身份或宿主失效后静默撤销旧视图回调，后续 UI 由会话释放流程统一恢复。
+  private func cancelCommands() {
+    for timer in pendingCommands.values { timer.invalidate() }
+    pendingCommands.removeAll()
+    commandCompletions.removeAll()
+  }
+
+  /// 手势只绑定已接管的当前路由；HTML 弹窗优先使用原关闭回调。
+  func backGestureIdentity(sheetID: String? = nil) -> EdgeBackIdentity? {
+    guard lifecycle == "active", session.phase == .nativeNavigation,
+      let id = session.sessionId, let snapshot = session.snapshot
+    else { return nil }
+    if let sheetID {
+      guard snapshot.presentation?.sheet?.id == sheetID,
+        snapshot.presentation?.sheet?.canDismiss == true
+      else { return nil }
+    } else {
+      guard snapshot.route.canGoBack, snapshot.presentation?.sheet == nil else { return nil }
+    }
+    return EdgeBackIdentity(sessionID: id, routeRevision: session.routeRevision, sheetID: sheetID)
+  }
+
+  /// 完成时重新核对会话和路由，只发送一次原有返回或弹窗关闭意图。
+  func completeBackGesture(_ identity: EdgeBackIdentity) {
+    guard backGestureIdentity(sheetID: identity.sheetID) == identity else { return }
+    if let sheetID = identity.sheetID {
+      command("presentation.dismiss", payload: .object(["id": .string(sheetID)]))
+    } else {
+      command("navigation.back", payload: .object(["source": .string("gesture")]))
+    }
   }
 
   /// 固定通知端点复用当前 Web 认证，不向原生暴露 token 或提供通用网络代理。
@@ -326,9 +414,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 
   /// 释放事务先要求网页恢复布局，收到确认后才移除系统业务栏。
   func releaseChrome() {
-    guard session.sessionId != nil else { return }
-    for timer in pendingCommands.values { timer.invalidate() }
-    pendingCommands.removeAll()
+    guard session.sessionId != nil, session.phase != .releasing else { return }
+    cancelCommands()
     session.requestRelease()
     send("chrome.release", payload: .object(["reason": .string("host_request")]))
     armTimeout()
@@ -407,6 +494,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       }
       let snapshot = try message.decodePayload(NavigationSnapshot.self)
       try session.receive(snapshot, routeRevision: route, stateRevision: state)
+      lastConfirmedURL = instance.address.recoveryURL(
+        currentDocument: webView.url, confirmedRoute: snapshot.route.fullPath)
       if session.phase == .negotiating {
         shell?.prepare(snapshot)
         shell?.view.layoutIfNeeded()
@@ -436,19 +525,26 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       guard session.phase == .releasing else { throw BridgeError.busy }
       timeout?.invalidate()
       session.released()
-      for timer in pendingCommands.values { timer.invalidate() }
-      pendingCommands.removeAll()
+      cancelCommands()
       shell?.showWebNavigation()
       completeStartupIfReady()
     case "command.result":
       let result = try message.decodePayload(CommandResult.self)
-      pendingCommands.removeValue(forKey: result.requestId)?.invalidate()
+      guard let timer = pendingCommands.removeValue(forKey: result.requestId) else { return }
+      timer.invalidate()
+      let completion = commandCompletions.removeValue(forKey: result.requestId)
+      completion?(result.accepted)
+      if !result.accepted, completion != nil { releaseChrome() }
     case "session.state":
+      lastConfirmedURL = nil
       notificationLookupStarted = false
       NotificationService.shared.attach(self)
-      for timer in pendingCommands.values { timer.invalidate() }
-      pendingCommands.removeAll()
-      if session.phase == .nativeNavigation, let previousId = session.sessionId {
+      let interruptedHandoff = !commandCompletions.isEmpty
+      cancelCommands()
+      if interruptedHandoff {
+        // 身份变化不能继续呈现旧账号尚未绘制完成的弹窗，恢复网页后由原权限逻辑处理。
+        releaseChrome()
+      } else if session.phase == .nativeNavigation, let previousId = session.sessionId {
         let nextId = try session.rotateIdentity()
         send(
           "host.rekey", payload: .object(["sessionId": .string(nextId)]),
@@ -479,12 +575,14 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       data.count <= BridgeValidator.maximumMessageBytes,
       let object = try? JSONSerialization.jsonObject(with: data)
     else { return }
+    let currentDocument = documentID
     webView.callAsyncJavaScript(
       "window.dispatchEvent(new CustomEvent('moviepilot:native-message', {detail: message})); return true;",
       arguments: ["message": object], in: nil, in: .page
     ) { [weak self] result in
-      if case .failure = result, let self, self.session.phase == .nativeNavigation {
-        self.fail("页面通信已中断。请重新打开，未确认的操作不会自动重试。")
+      guard let self, self.documentID == currentDocument, self.relay.owner != nil else { return }
+      if case .failure = result, self.session.phase == .nativeNavigation {
+        self.recoverContentProcess()
       }
     }
   }
@@ -507,11 +605,12 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 
   /// 失去文档响应后不声称已恢复网页，直接展示独立恢复界面。
   private func fail(_ message: String) {
+    documentID = UUID()
+    pendingProcessRecovery = false
     timeout?.invalidate()
     startupTimeout?.invalidate()
     startupPending = false
-    for timer in pendingCommands.values { timer.invalidate() }
-    pendingCommands.removeAll()
+    cancelCommands()
     session.failed()
     shell?.setLoading(false)
     shell?.showRecovery(message: message)
@@ -520,16 +619,15 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   /// 顶层文档导航与 hash 路由区分；新文档总会撤销旧动作和会话。
   func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
     timeout?.invalidate()
+    lastConfirmedURL = nil
     documentID = UUID()
     contentReady = false
     notificationLookupStarted = false
     notificationNavigationAvailable = false
     NotificationService.shared.attach(self)
     startupPending = true
-    for timer in pendingCommands.values { timer.invalidate() }
-    pendingCommands.removeAll()
-    session.beginDocument(allowTakeover: !disableNextTakeover)
-    disableNextTakeover = false
+    cancelCommands()
+    session.beginDocument()
     shell?.showWebNavigation()
     shell?.setLoading(true)
     armStartupTimeout()
@@ -601,9 +699,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     if let message = ConnectionFailure(error).errorDescription { fail(message) }
   }
 
-  /// 系统回收内容进程后让用户明确恢复，避免重放进行中的写操作。
+  /// 内容进程在后台被系统回收后，回到前台重新载入文档并恢复原生接管。
   func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-    fail("系统已回收此页面。重新打开后会恢复网页，正在进行的操作请先核对结果。")
+    recoverContentProcess()
   }
 
   /// 只在配置的精确来源中加载应用，外部网页交给系统浏览器且不注入桥接。

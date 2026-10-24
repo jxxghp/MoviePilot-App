@@ -155,7 +155,7 @@ final class NativePanelImageLoader: NSObject, URLSessionTaskDelegate {
   }
 }
 
-/// 快捷入口使用系统列表、搜索和导航，所有业务意图通过当前网页声明返回。
+/// 快捷入口使用系统列表或图标网格，所有业务意图通过当前网页声明返回。
 @MainActor
 final class NativePanelController: UITableViewController, UISearchBarDelegate {
   private var snapshot: NativePanelSnapshot
@@ -167,11 +167,18 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
   private let search = UISearchBar()
   private let progress = UIActivityIndicatorView(style: .medium)
   private var sections: [(String?, [NativePanelItem])] = []
+  private var gridColumns = 3
+  private var primaryAction: NativePanelItem?
+  private var contextText: String?
   private var headerText: String?
   private var measuredWidth: CGFloat?
+  private var updatingPreferredSize = false
   private var profileImageTask: Task<Void, Never>?
   private var queryTask: Task<Void, Never>?
   private var imageTasks: [Task<Void, Never>] = []
+
+  /// 网格只作用于入口层，业务动作和其他子菜单仍使用原生导航栈。
+  private var usesGrid: Bool { path.isEmpty && snapshot.layout == .grid }
 
   /// 子菜单只保存稳定路径，更新时重新从最新快照查找内容。
   init(
@@ -219,6 +226,15 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
   /// 内容较少的子菜单缩短浮层高度，长列表限制在底栏上方，避免留下大块空白。
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
+    if usesGrid {
+      let columns =
+        traitCollection.preferredContentSizeCategory.isAccessibilityCategory
+        ? 2 : min(4, max(2, Int((tableView.bounds.width - 40) / 104)))
+      if gridColumns != columns {
+        gridColumns = columns
+        tableView.reloadData()
+      }
+    }
     updateHeaderHeight()
     updatePreferredSize()
   }
@@ -227,6 +243,12 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
     updatePreferredSize()
+  }
+
+  /// 每层导航自行声明工具栏；返回来源列表时不会遗留上一个分类的搜索按钮。
+  override func viewWillAppear(_ animated: Bool) {
+    super.viewWillAppear(animated)
+    configurePrimaryAction(animated: animated)
   }
 
   /// 离开搜索页即取消尚未发送的输入，旧控制器不能把查询发给后来打开的其他面板。
@@ -273,20 +295,25 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     return min(maximum, width)
   }
 
-  /// 只在当前面板完成过渡后更新尺寸，内容少时收窄缩短，长列表始终留在底栏上方。
+  /// 系统设置尺寸时会同步重排浮层，赋值期间屏蔽重入，避免布局回调递归耗尽栈。
   private func updatePreferredSize() {
-    guard let navigationController, navigationController.topViewController === self,
+    guard !updatingPreferredSize, let navigationController,
+      navigationController.topViewController === self,
+      navigationController.modalPresentationStyle == .popover,
       let host = navigationController.presentingViewController,
       !navigationController.isBeingPresented, navigationController.transitionCoordinator == nil,
       !snapshot.sections.isEmpty
     else { return }
+    updatingPreferredSize = true
+    defer { updatingPreferredSize = false }
     let maximum = min(
       580,
       max(
         280,
         host.view.bounds.height - host.view.safeAreaInsets.top - host.view.safeAreaInsets.bottom
           - 170))
-    let height = min(maximum, max(220, tableView.contentSize.height + 56))
+    let height = min(
+      maximum, max(220, tableView.contentSize.height + 56 + (primaryAction == nil ? 0 : 56)))
     let width = preferredPanelWidth(maximum: min(430, host.view.bounds.width - 40))
     if abs(navigationController.preferredContentSize.height - height) > 2
       || abs(navigationController.preferredContentSize.width - width) > 2
@@ -309,6 +336,9 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
       rows = current?.children ?? []
     }
     title = current?.title ?? snapshot.title
+    contextText = current?.subtitle
+    primaryAction = path.isEmpty ? nil : rows.first { $0.primary == true }
+    if let primaryAction { rows.removeAll { $0.id == primaryAction.id } }
     sections =
       path.isEmpty
       ? snapshot.sections.filter { !$0.items.isEmpty }.map { ($0.title, $0.items) }
@@ -319,12 +349,43 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     }
     configureHeader()
     configureFooter()
+    tableView.separatorStyle = usesGrid ? .none : .singleLine
+    if navigationController?.topViewController === self { configurePrimaryAction(animated: false) }
     tableView.reloadData()
+  }
+
+  /// 主要动作固定在系统底部工具栏，来源选择滚动时按钮仍可见；回调只引用最新声明。
+  private func configurePrimaryAction(animated: Bool) {
+    guard let navigationController else { return }
+    guard let item = primaryAction else {
+      toolbarItems = nil
+      navigationController.setToolbarHidden(true, animated: animated)
+      return
+    }
+    var configuration = UIButton.Configuration.filled()
+    configuration.title = item.title
+    configuration.image = item.icon.flatMap { NavigationSymbols.image($0) }
+    configuration.imagePadding = 8
+    configuration.cornerStyle = .capsule
+    configuration.contentInsets = NSDirectionalEdgeInsets(
+      top: 10, leading: 24, bottom: 10, trailing: 24)
+    let button = UIButton(
+      configuration: configuration,
+      primaryAction: UIAction { [weak self] _ in
+        guard let self, let current = self.primaryAction, current.enabled != false else { return }
+        self.tableView.endEditing(true)
+        self.onEvent("select", current.id, nil, false)
+      })
+    button.tintColor = view.tintColor
+    button.isEnabled = item.enabled != false && snapshot.loading != true
+    button.accessibilityIdentifier = "native-panel-primary-action"
+    toolbarItems = [.flexibleSpace(), UIBarButtonItem(customView: button), .flexibleSpace()]
+    navigationController.setToolbarHidden(false, animated: animated)
   }
 
   /// 账号摘要和搜索框使用系统字体与列表边距，头像仅存在于当前面板会话。
   private func configureHeader() {
-    let text = path.isEmpty ? snapshot.subtitle : nil
+    let text = path.isEmpty ? snapshot.subtitle : contextText
     let profile = path.isEmpty ? snapshot.profile : nil
     let hasSearch = path.isEmpty && snapshot.search != nil
     let identity =
@@ -478,7 +539,8 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
 
   /// 每组行数由当前权限投影决定。
   override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-    sections[section].1.count
+    let count = sections[section].1.count
+    return usesGrid ? (count + gridColumns - 1) / gridColumns : count
   }
 
   /// 分组名称保留前端本地化文案。
@@ -491,6 +553,7 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
   override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath)
     -> UITableViewCell
   {
+    if usesGrid { return gridCell(at: indexPath) }
     let item = sections[indexPath.section].1[indexPath.row]
     let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
     var content = cell.defaultContentConfiguration()
@@ -532,13 +595,118 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     return cell
   }
 
+  /// 等宽系统按钮按行排列，末行保留空位；动态字体和横屏变化会重新计算列数。
+  private func gridCell(at indexPath: IndexPath) -> UITableViewCell {
+    let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+    cell.backgroundConfiguration = .clear()
+    cell.selectionStyle = .none
+    let stack = UIStackView()
+    stack.axis = .horizontal
+    stack.alignment = .fill
+    stack.distribution = .fillEqually
+    stack.spacing = 8
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    let rows = sections[indexPath.section].1
+    for column in 0..<gridColumns {
+      let index = indexPath.row * gridColumns + column
+      stack.addArrangedSubview(index < rows.count ? gridButton(rows[index]) : UIView())
+    }
+    cell.contentView.addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 4),
+      stack.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -4),
+      stack.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 4),
+      stack.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -4),
+    ])
+    return cell
+  }
+
+  /// 图标与名称属于同一可访问按钮；普通点击打开功能，长按提供固定等次要动作。
+  private func gridButton(_ item: NativePanelItem) -> UIButton {
+    var configuration = UIButton.Configuration.plain()
+    configuration.title = item.title
+    configuration.image = item.icon.flatMap {
+      NavigationSymbols.image($0, configuration: UIImage.SymbolConfiguration(pointSize: 32))
+    }
+    configuration.imagePlacement = .top
+    configuration.imagePadding = 12
+    configuration.titleAlignment = .center
+    configuration.titleLineBreakMode = .byWordWrapping
+    configuration.contentInsets = NSDirectionalEdgeInsets(
+      top: 14, leading: 4, bottom: 14, trailing: 4)
+    configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
+      incoming in
+      var attributes = incoming
+      attributes.font = UIFont.preferredFont(forTextStyle: .subheadline)
+      return attributes
+    }
+    let button = UIButton(
+      configuration: configuration,
+      primaryAction: UIAction { [weak self] _ in self?.selectGridItem(item.id) })
+    button.titleLabel?.numberOfLines = 2
+    button.titleLabel?.adjustsFontForContentSizeCategory = true
+    button.imageView?.contentMode = .scaleAspectFit
+    button.imageView?.layer.cornerRadius = 10
+    button.imageView?.clipsToBounds = true
+    button.heightAnchor.constraint(greaterThanOrEqualToConstant: 112).isActive = true
+    button.isEnabled = item.enabled != false
+    button.accessibilityIdentifier = "native-panel-item-\(item.id)"
+    button.accessibilityHint = item.subtitle
+    if let children = item.children, !children.isEmpty {
+      button.menu = UIMenu(
+        children: children.map { child in
+          UIAction(
+            title: child.title, image: child.icon.flatMap { NavigationSymbols.image($0) },
+            attributes: child.enabled == false ? .disabled : [],
+            state: child.selected == true ? .on : .off
+          ) { [weak self] _ in self?.selectGridItem(item.id, childID: child.id) }
+        })
+      button.accessibilityHint = [item.subtitle, "长按可查看操作"].compactMap { $0 }.joined(separator: "，")
+    }
+    if let image = item.image {
+      button.accessibilityValue = "图标加载中"
+      imageTasks.append(
+        Task { [weak button, images] in
+          let loaded = await images.image(image)
+          guard !Task.isCancelled, let button else { return }
+          if let thumbnail = loaded?.preparingThumbnail(of: CGSize(width: 48, height: 48)) {
+            button.configuration?.image = thumbnail.withRenderingMode(.alwaysOriginal)
+            button.accessibilityValue = "插件图标已加载"
+          } else {
+            button.accessibilityValue = "默认图标"
+          }
+        })
+    }
+    return button
+  }
+
+  /// 点击时重新查找最新声明，避免搜索、固定或权限变化后执行已失效的网格动作。
+  private func selectGridItem(_ id: String, childID: String? = nil) {
+    guard let item = sections.flatMap(\.1).first(where: { $0.id == id }), item.enabled != false
+    else { return }
+    if let childID {
+      guard let child = item.children?.first(where: { $0.id == childID }), child.enabled != false
+      else { return }
+      onEvent("select", child.id, nil, child.keepOpen == true)
+    } else if let primary = item.children?.first(where: { $0.primary == true }) {
+      guard primary.enabled != false else { return }
+      onEvent("select", primary.id, nil, primary.keepOpen == true)
+    } else {
+      select(item)
+    }
+  }
+
   /// 子菜单由系统导航栈承载，业务动作只回传项目标识并由网页再次复核。
   override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
     tableView.deselectRow(at: indexPath, animated: true)
-    guard sections.indices.contains(indexPath.section),
+    guard !usesGrid, sections.indices.contains(indexPath.section),
       sections[indexPath.section].1.indices.contains(indexPath.row)
     else { return }
-    let item = sections[indexPath.section].1[indexPath.row]
+    select(sections[indexPath.section].1[indexPath.row])
+  }
+
+  /// 原生只选择当前网页声明，打开详情和执行权限检查仍由原 Vue 回调负责。
+  private func select(_ item: NativePanelItem) {
     guard item.enabled != false else { return }
     tableView.endEditing(true)
     if !(item.children ?? []).isEmpty {
