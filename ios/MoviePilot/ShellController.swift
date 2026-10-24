@@ -2,8 +2,63 @@ import MoviePilotCore
 import UIKit
 import WebKit
 
+/// 系统菜单展开期间保留其声明和锚点，异步状态在关闭动画完成后再更新下一次菜单。
+@MainActor
+private final class NativeMenuButton: UIButton {
+  private var pendingMenu: UIMenu?
+  private var presentingMenu = false
+  var onMenuClose: (() -> Void)?
+
+  /// UIKit 已展示的二级菜单不能被新的 menu 属性赋值打断，业务选择仍会复核最新快照。
+  func apply(menu: UIMenu) {
+    if presentingMenu || isHeld {
+      pendingMenu = menu
+    } else {
+      pendingMenu = nil
+      self.menu = menu
+    }
+  }
+
+  /// 在 UIKit 解析延迟子菜单之前锁定当前声明，避免首帧的异步结果重建菜单树。
+  override func contextMenuInteraction(
+    _ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint
+  ) -> UIContextMenuConfiguration? {
+    presentingMenu = true
+    let configuration = super.contextMenuInteraction(
+      interaction, configurationForMenuAtLocation: location)
+    if configuration == nil { presentingMenu = false }
+    return configuration
+  }
+
+  /// 等待系统菜单退出后消费最后一次声明，不添加定时器或改动系统转场。
+  override func contextMenuInteraction(
+    _ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration,
+    animator: (any UIContextMenuInteractionAnimating)?
+  ) {
+    super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
+    let update = { [weak self] in
+      guard let self else { return }
+      self.presentingMenu = false
+      self.onMenuClose?()
+      guard let menu = self.pendingMenu else { return }
+      self.pendingMenu = nil
+      self.menu = menu
+    }
+    if let animator { animator.addCompletion(update) } else { update() }
+  }
+}
+
+/// 用户菜单只等待当前网页面板的一次投影，超时或文档失效时必须完成 UIKit 的延迟回调。
+private struct NativeUserMenuRequest {
+  let token: UUID
+  let document: String
+  let action: ActionSnapshot
+  let completion: ([UIMenuElement]) -> Void
+}
+
 /// 顶栏只在其展示声明改变时更新，普通页面刷新不能打断正在操作的系统菜单。
 private struct NativeHeaderConfiguration: Equatable {
+  let session: String?
   let title: String
   let canGoBack: Bool
   let tabs: HeaderTabsSnapshot?
@@ -42,6 +97,11 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   private var panelNavigation: UINavigationController?
   private var panelImages: NativePanelImageLoader?
   private var panelAction: ActionSnapshot?
+  private var userMenuAvatar: NativeUserMenuAvatar?
+  private var userMenuAvatarContext: String?
+  private var userMenuRequest: NativeUserMenuRequest?
+  private var userMenuAction: ActionSnapshot?
+  private var userMenuTimeout: Timer?
   private var confirmationAlert: UIAlertController?
   private var confirmationSnapshot: NativeConfirmationSnapshot?
   private var answeringConfirmationID: String?
@@ -130,6 +190,10 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     edgeBackTarget = nil
     edgeBackAnimationFinished = false
     edgeBackPaintPending = false
+    userMenuAvatar?.stop()
+    userMenuAvatar = nil
+    userMenuAvatarContext = nil
+    closeUserMenu()
   }
 
   /// 首屏和静止页面补充预览；正常离页由显式握手采样，避免依赖异步业务加载时序。
@@ -332,6 +396,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       install(container)
     }
     configureHeader(host, snapshot: snapshot)
+    fulfillUserMenu()
     view.layoutIfNeeded()
     synchronizeWebSheet(snapshot)
     synchronizeNativePanel(snapshot)
@@ -514,6 +579,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       ? snapshot.route.canGoBack
       : (headerConfigurations[identity]?.canGoBack ?? snapshot.route.canGoBack)
     let configuration = NativeHeaderConfiguration(
+      session: coordinator.navigationPreviewSession,
       title: snapshot.route.title, canGoBack: canGoBack,
       tabs: snapshot.headerTabs, actions: trailing,
       overlayOpen: snapshot.presentation?.overlayOpen == true)
@@ -536,9 +602,11 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
           })
       ] : nil
     host.navigationItem.leftBarButtonItems?.first?.accessibilityLabel = "返回"
-    host.navigationItem.rightBarButtonItems = [
-      connectionItem(overflow: trailing, enabled: snapshot.presentation?.overlayOpen != true)
-    ]
+    let previousMenu = host.navigationItem.rightBarButtonItems?.first
+    let menu = connectionItem(
+      overflow: trailing, enabled: snapshot.presentation?.overlayOpen != true, reusing: previousMenu
+    )
+    if menu !== previousMenu { host.navigationItem.rightBarButtonItems = [menu] }
     host.navigationItem.titleView = nil
     host.navigationItem.searchController = nil
     if let tabs = snapshot.headerTabs {
@@ -631,17 +699,23 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   }
 
   /// 常用入口与页面注册动作使用带标题的独立系统分组；HTML 弹层期间禁用。
-  private func connectionItem(overflow: [ActionSnapshot] = [], enabled: Bool = true)
+  private func connectionItem(
+    overflow: [ActionSnapshot] = [], enabled: Bool = true, reusing item: UIBarButtonItem? = nil
+  )
     -> UIBarButtonItem
   {
     var configuration = UIButton.Configuration.plain()
     configuration.image = UIImage(systemName: "ellipsis")
-    let button = UIButton(configuration: configuration)
+    let existing = item?.customView as? NativeMenuButton
+    let button = existing ?? NativeMenuButton(configuration: configuration)
     button.accessibilityLabel = "操作菜单"
     button.accessibilityIdentifier = "native-top-actions"
     button.isEnabled = enabled
-    button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
-    button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+    if existing == nil {
+      button.onMenuClose = { [weak self] in self?.closeUserMenu() }
+      button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+      button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+    }
     let globalOrder = ["search", "shortcuts", "notifications", "plugins", "profile"]
     let globals = overflow.enumerated().filter { $0.element.isGlobal }.sorted { left, right in
       let leftRank =
@@ -655,6 +729,11 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     let pages = overflow.filter { !$0.isGlobal }
     /// 继续引用原网页动作，不因菜单分组复制业务或绕过禁用状态。
     func menuElement(_ action: ActionSnapshot) -> UIMenuElement {
+      if action.actionId.hasSuffix(":global:profile"), action.panel != nil,
+        action.enabled, !action.loading
+      {
+        return userSubmenu(action)
+      }
       if let menu = action.menu, !menu.isEmpty {
         return UIMenu(
           title: action.title, image: symbol(action.icon),
@@ -698,21 +777,120 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
           self?.coordinator.releaseChrome()
         },
       ])
+    let user = globals.filter { $0.actionId.hasSuffix(":global:profile") }
+    let common = globals.filter { !$0.actionId.hasSuffix(":global:profile") }
     var groups = [
       UIMenu(
-        title: "常用入口", options: .displayInline, children: globals.map(menuElement) + [connection])
+        title: "常用入口", options: .displayInline,
+        children: common.map(menuElement) + [connection] + user.map(menuElement))
     ]
     if !pages.isEmpty {
       groups.append(
         UIMenu(title: "当前页面", options: .displayInline, children: pages.map(menuElement)))
     }
     let menu = UIMenu(children: groups)
-    button.menu = menu
+    button.apply(menu: menu)
     button.showsMenuAsPrimaryAction = true
-    let item = UIBarButtonItem(customView: button)
+    // 异步用户资格或状态更新只能更新菜单，不能换掉正在承载二级菜单的系统按钮。
+    let item = item ?? UIBarButtonItem(customView: button)
     // UIBarButtonItem 会同步自定义按钮的启用状态，两层保持一致，避免安装时重新启用。
     item.isEnabled = enabled
     return item
+  }
+
+  /// 用户与连接设置同为系统二级菜单，账号摘要及危险动作保留网页声明的原顺序和样式。
+  private func userSubmenu(_ action: ActionSnapshot) -> UIMenu {
+    let document = coordinator.navigationPreviewSession
+    let image = action.panel?.profile?.image
+    let context = "\(document ?? "")|\(action.ownerId)|\(image ?? "")"
+    if userMenuAvatarContext != context {
+      userMenuAvatar?.stop()
+      userMenuAvatarContext = context
+      userMenuAvatar = NativeUserMenuAvatar(
+        images: NativePanelImageLoader(
+          store: coordinator.webView.configuration.websiteDataStore,
+          origin: coordinator.instance.address.origin), reference: image)
+    }
+    let content = UIDeferredMenuElement.uncached { [weak self] completion in
+      guard let self, self.nativeVisible, let document,
+        self.coordinator.navigationPreviewSession == document,
+        let current = self.latest?.actions.first(where: {
+          $0.actionId == action.actionId && $0.ownerId == action.ownerId && $0.enabled
+            && !$0.loading
+        }), current.panel != nil
+      else {
+        completion([])
+        return
+      }
+      self.requestUserMenu(current, document: document, completion: completion)
+    }
+    return UIMenu(title: action.title, image: symbol(action.icon), children: [content])
+  }
+
+  /// 未打开的面板只有摘要，先通知原网页打开，再等它发送包含最新权限项目的快照。
+  private func requestUserMenu(
+    _ action: ActionSnapshot, document: String,
+    completion: @escaping ([UIMenuElement]) -> Void
+  ) {
+    userMenuRequest?.completion([])
+    userMenuTimeout?.invalidate()
+    let request = NativeUserMenuRequest(
+      token: UUID(), document: document, action: action, completion: completion)
+    userMenuRequest = request
+    userMenuAction = action
+    let token = request.token
+    userMenuTimeout = Timer.scheduledTimer(withTimeInterval: 4, repeats: false) { [weak self] _ in
+      MainActor.assumeIsolated {
+        guard self?.userMenuRequest?.token == token else { return }
+        self?.closeUserMenu()
+      }
+    }
+    coordinator.invoke(action, panelEvent: "open")
+    fulfillUserMenu()
+  }
+
+  /// UIKit 在首次完整面板到达后才显示二级菜单，不把桥接前的空摘要当作可用内容。
+  private func fulfillUserMenu() {
+    guard let request = userMenuRequest else { return }
+    guard coordinator.navigationPreviewSession == request.document,
+      let current = latest?.actions.first(where: {
+        $0.actionId == request.action.actionId && $0.ownerId == request.action.ownerId && $0.enabled
+          && !$0.loading
+      }), let panel = current.panel
+    else {
+      closeUserMenu()
+      return
+    }
+    guard !panel.sections.isEmpty else { return }
+    userMenuRequest = nil
+    userMenuTimeout?.invalidate()
+    userMenuTimeout = nil
+    let document = request.document
+    let action = request.action
+    request.completion(
+      NativeUserMenu.elements(panel, avatar: userMenuAvatar?.image) { [weak self] id in
+        guard let self, self.coordinator.navigationPreviewSession == document,
+          let current = self.latest?.actions.first(where: {
+            $0.actionId == action.actionId && $0.ownerId == action.ownerId
+              && $0.enabled
+          })
+        else { return }
+        // 网页会在选择后释放本次面板；菜单关闭回调不能抢先撤销尚待执行的选择。
+        self.userMenuAction = nil
+        self.coordinator.invoke(current, panelEvent: "select", itemId: id)
+      })
+  }
+
+  /// 被动关闭、超时和会话释放都完成待处理回调，并归还网页原有面板状态。
+  private func closeUserMenu() {
+    let request = userMenuRequest
+    let action = userMenuAction
+    userMenuRequest = nil
+    userMenuAction = nil
+    userMenuTimeout?.invalidate()
+    userMenuTimeout = nil
+    request?.completion([])
+    if let action { coordinator.invoke(action, panelEvent: "close") }
   }
 
   /// 通知属于其他登录身份时给出系统提示，不自动切换账号或加载外部地址。
@@ -783,6 +961,11 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       return
     }
     if let controller = webSheet {
+      if sheetAttachedID != descriptor.id {
+        // 同一系统 Sheet 切回父弹窗时，旧子窗的透明退出截图不能叠在新的 HTML 内容上。
+        sheetExitPlaceholder?.removeFromSuperview()
+        sheetExitPlaceholder = nil
+      }
       sheetNavigation?.overrideUserInterfaceStyle = overrideUserInterfaceStyle
       controller.apply(descriptor, style: modalInterfaceStyle)
       if sheetAttachedID != descriptor.id {
@@ -1251,6 +1434,10 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     }
     moreMenu.apply(
       snapshot.moreMenu ?? [],
+      background: NavigationSymbols.color(snapshot.chrome.backgroundColor)
+        ?? .systemGroupedBackground,
+      surface: NavigationSymbols.color(snapshot.chrome.surfaceColor)
+        ?? .secondarySystemGroupedBackground,
       accent: NavigationSymbols.color(snapshot.chrome.accentColor) ?? AccountAppearance.accent)
     if moreMenu.parent !== host {
       removeMoreMenu()

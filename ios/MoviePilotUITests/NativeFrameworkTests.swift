@@ -545,6 +545,14 @@ final class NativeFrameworkTests: XCTestCase {
     attachScreen("页面-设定 · 系统", app: app)
   }
 
+  /// 按 UIKit 公开的标题及副标题查询系统菜单，动作标识不等同于辅助功能标识。
+  private func nativeUserItem(_ title: String, app: XCUIApplication) -> XCUIElement {
+    app.buttons.matching(
+      NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, title + ",")
+    )
+    .firstMatch
+  }
+
   /// 主题入口直接位于用户菜单内，设置业务仍交给原 HTML 弹窗。
   func testNativeHTMLPresentation() throws {
     let app = try signIn()
@@ -560,16 +568,23 @@ final class NativeFrameworkTests: XCTestCase {
     menu.cells.containing(.staticText, identifier: "插件").firstMatch.tap()
     XCTAssertTrue(app.buttons["插件，页内分类"].waitForExistence(timeout: 15))
     app.buttons["操作菜单"].tap()
-    app.buttons["用户菜单"].firstMatch.tap()
-    let panel = app.tables["native-quick-panel"]
-    XCTAssertTrue(panel.waitForExistence(timeout: 8), "用户入口必须使用 UIKit 列表")
-    XCTAssertGreaterThan(panel.frame.minY, app.navigationBars.firstMatch.frame.minY)
-    for item in ["ui", "css", "glass", "transparency", "theme"] {
-      XCTAssertFalse(panel.cells["native-panel-item-\(item)"].exists, "套壳仅开放主题定制，隐藏网页布局与材质菜单")
+    let user = app.buttons["用户"].firstMatch
+    let connection = app.buttons["连接与显示"].firstMatch
+    XCTAssertTrue(user.waitForExistence(timeout: 8))
+    XCTAssertGreaterThanOrEqual(user.frame.minY, connection.frame.maxY - 2)
+    attachScreen("交互-常用入口用户位于最后", app: app)
+    app.buttons["用户"].firstMatch.tap()
+    let theme = nativeUserItem("主题", app: app)
+    let language = nativeUserItem("语言", app: app)
+    XCTAssertTrue(theme.waitForExistence(timeout: 8), "用户入口必须进入系统二级菜单")
+    XCTAssertFalse(app.tables["native-quick-panel"].exists)
+    for item in ["附加样式", "界面布局"] {
+      XCTAssertFalse(app.buttons[item].exists)
     }
     attachScreen("交互-原生用户菜单", app: app)
-    attachScreen("交互-用户菜单内主题分组", app: app)
-    panel.cells["native-panel-item-customizer"].tap()
+    XCTAssertEqual(language.frame.minY, theme.frame.maxY, accuracy: 3, "主题和语言应相邻，不插入分类标题")
+    attachScreen("交互-用户菜单主题与语言相邻", app: app)
+    nativeUserItem("主题", app: app).tap()
     XCTAssertTrue(app.navigationBars["主题定制"].waitForExistence(timeout: 10))
     XCTAssertTrue(app.buttons["native-sheet-close"].exists)
     XCTAssertTrue(app.webViews.staticTexts["色调"].firstMatch.waitForExistence(timeout: 10))
@@ -594,10 +609,9 @@ final class NativeFrameworkTests: XCTestCase {
     let app = try signIn()
     settlePage(app)
     app.buttons["操作菜单"].tap()
-    app.buttons["用户菜单"].firstMatch.tap()
-    let panel = app.tables["native-quick-panel"]
-    XCTAssertTrue(panel.waitForExistence(timeout: 8))
-    panel.cells["native-panel-item-customizer"].tap()
+    app.buttons["用户"].firstMatch.tap()
+    XCTAssertTrue(nativeUserItem("主题", app: app).waitForExistence(timeout: 8))
+    nativeUserItem("主题", app: app).tap()
     XCTAssertTrue(app.navigationBars["主题定制"].waitForExistence(timeout: 10))
     for mode in ["浅色", "深色", "跟随系统"] {
       let choice = app.webViews.switches[mode].firstMatch
@@ -636,10 +650,10 @@ final class NativeFrameworkTests: XCTestCase {
       try await setSystemAppearance(appearance)
       settlePage(app)
       app.buttons["操作菜单"].tap()
-      app.buttons["用户菜单"].firstMatch.tap()
+      app.buttons["用户"].firstMatch.tap()
+      XCTAssertTrue(nativeUserItem("主题", app: app).waitForExistence(timeout: 8))
+      nativeUserItem("主题", app: app).tap()
       let panel = app.tables["native-quick-panel"]
-      XCTAssertTrue(panel.waitForExistence(timeout: 8))
-      panel.cells["native-panel-item-customizer"].tap()
       XCTAssertTrue(app.navigationBars["主题定制"].waitForExistence(timeout: 10))
       settlePage(app)
       attachScreen("交互-\(theme)主题系统磨砂 Sheet", app: app)
@@ -754,26 +768,16 @@ final class NativeFrameworkTests: XCTestCase {
       XCTAssertTrue(app.buttons["操作菜单"].waitForExistence(timeout: 5))
     }
     app.buttons["操作菜单"].tap()
-    app.buttons["用户菜单"].firstMatch.tap()
-    let userPanel = app.tables["native-quick-panel"]
-    XCTAssertTrue(userPanel.waitForExistence(timeout: 8))
-    settlePage(app)
-    XCTAssertTrue(app.staticTexts["native-profile-name"].exists)
-    XCTAssertTrue(app.staticTexts["native-profile-detail"].exists)
-    let avatar = app.images["native-profile-avatar"]
-    XCTAssertTrue(avatar.exists)
-    let avatarLoaded = XCTNSPredicateExpectation(
-      predicate: NSPredicate(format: "value == %@", "头像已加载"), object: avatar)
-    XCTAssertEqual(XCTWaiter.wait(for: [avatarLoaded], timeout: 15), .completed)
+    app.buttons["用户"].firstMatch.tap()
+    let username = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_USERNAME"] ?? ""
+    let summary = nativeUserItem(username, app: app)
+    XCTAssertTrue(summary.waitForExistence(timeout: 8))
+    XCTAssertFalse(app.tables["native-quick-panel"].exists)
+    XCTAssertTrue(nativeUserItem("重启", app: app).exists)
+    XCTAssertTrue(nativeUserItem("退出登录", app: app).exists)
     attachScreen("交互-原生用户信息与头像", app: app)
-    let medals = userPanel.cells["native-panel-item-medals"]
+    let medals = nativeUserItem("我的勋章", app: app)
     if medals.waitForExistence(timeout: 3) {
-      for _ in 0..<3 where !medals.isHittable {
-        // 系统浮层的表格框包含导航栏，用内容区中的明确触点执行真实滚动。
-        userPanel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).press(
-          forDuration: 0.05,
-          thenDragTo: userPanel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
-      }
       medals.tap()
       let close = app.buttons["native-sheet-close"]
       XCTAssertTrue(close.waitForExistence(timeout: 10))
@@ -785,7 +789,7 @@ final class NativeFrameworkTests: XCTestCase {
       XCTAssertTrue(
         app.tabBars["native-root-navigation"].buttons["更多"].waitForExistence(timeout: 8))
     } else {
-      app.buttons["native-panel-close"].tap()
+      dismissOverlays(app)
     }
   }
 
@@ -908,15 +912,9 @@ final class NativeFrameworkTests: XCTestCase {
     let app = try signIn()
     settlePage(app)
     app.buttons["操作菜单"].tap()
-    app.buttons["用户菜单"].firstMatch.tap()
-    let panel = app.tables["native-quick-panel"]
-    XCTAssertTrue(panel.waitForExistence(timeout: 8))
-    let restart = panel.cells["native-panel-item-restart"]
-    for _ in 0..<4 where !restart.isHittable {
-      panel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).press(
-        forDuration: 0.05,
-        thenDragTo: panel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
-    }
+    app.buttons["用户"].firstMatch.tap()
+    let restart = nativeUserItem("重启", app: app)
+    XCTAssertTrue(restart.waitForExistence(timeout: 8))
     restart.tap()
     let alert = app.alerts.firstMatch
     XCTAssertTrue(alert.waitForExistence(timeout: 10), "必须是系统确认框，不能再次打开 HTML Sheet")
@@ -957,6 +955,67 @@ final class NativeFrameworkTests: XCTestCase {
     settlePage(app)
     attachScreen("交互-订阅编辑无空闲加载线", app: app)
     app.buttons["native-sheet-close"].tap()
+    try await setUIScenario("default")
+  }
+
+  /// 多张真实进度卡片作为底页反复打开编辑，保留输入和返回位置，不保存订阅。
+  func testNativePopulatedSubscriptionSheet() async throws {
+    try await setUIScenario("subscription-grid")
+    let app = try signIn()
+    openMorePage("电视剧订阅", app: app)
+    let card = app.webViews.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "演示剧集 01")
+    ).firstMatch
+    XCTAssertTrue(card.waitForExistence(timeout: 15))
+    attachScreen("交互-多张订阅卡片与进度条底页", app: app)
+    for cycle in 0..<3 {
+      card.tap()
+      XCTAssertTrue(app.navigationBars["编辑订阅"].waitForExistence(timeout: 12))
+      XCTAssertTrue(app.webViews.staticTexts["总集数"].waitForExistence(timeout: 10))
+      XCTAssertTrue(app.webViews.staticTexts["质量"].waitForExistence(timeout: 8))
+      attachScreen("交互-多卡片订阅编辑-\(cycle)", app: app)
+      app.buttons["native-sheet-close"].tap()
+      XCTAssertTrue(app.navigationBars["电视剧订阅"].waitForExistence(timeout: 8))
+      XCTAssertTrue(card.isHittable)
+    }
+    attachScreen("交互-订阅编辑关闭保留底页", app: app)
+    try await setUIScenario("default")
+  }
+
+  /// 浏览父窗打开下载子窗并多次返回，验证只有当前内容可见且原列表不重载、不丢失。
+  func testNativeNestedSheetRestoresParent() async throws {
+    try await setUIScenario("nested")
+    let app = try signIn()
+    openMorePage("站点管理", app: app)
+    let site = app.webViews.staticTexts["演示站点"].firstMatch
+    XCTAssertTrue(site.waitForExistence(timeout: 15))
+    // 名称紧邻导航滚动边缘；使用同一卡片的统计区域，避开打开站点网页的独立地址操作。
+    let usage = app.webViews.staticTexts["0.00 B"].firstMatch
+    XCTAssertTrue(usage.waitForExistence(timeout: 8))
+    XCTAssertTrue(usage.isHittable)
+    usage.tap()
+    // WebKit 首次触控可能仅展开原卡片的悬停操作，等待后再点击同一入口，不注入弹窗状态。
+    if !app.navigationBars["浏览"].waitForExistence(timeout: 2) { usage.tap() }
+    let resource = app.webViews.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "MoviePilot Demo S01E01")
+    ).firstMatch
+    XCTAssertTrue(app.navigationBars["浏览"].waitForExistence(timeout: 12))
+    XCTAssertTrue(resource.waitForExistence(timeout: 12))
+    attachScreen("交互-嵌套弹窗浏览列表", app: app)
+    for cycle in 0..<3 {
+      resource.tap()
+      XCTAssertTrue(app.navigationBars["确认下载"].waitForExistence(timeout: 10))
+      XCTAssertTrue(app.webViews.buttons["开始下载"].exists)
+      attachScreen("交互-嵌套确认下载-\(cycle)", app: app)
+      app.buttons["native-sheet-close"].tap()
+      attachScreen("交互-嵌套关闭子窗首帧-\(cycle)", app: app)
+      XCTAssertTrue(app.navigationBars["浏览"].waitForExistence(timeout: 8))
+      XCTAssertFalse(app.webViews.buttons["开始下载"].exists)
+      XCTAssertTrue(resource.isHittable)
+      attachScreen("交互-嵌套返回浏览无旧内容-\(cycle)", app: app)
+    }
+    app.buttons["native-sheet-close"].tap()
+    XCTAssertTrue(site.waitForExistence(timeout: 8))
     try await setUIScenario("default")
   }
 
@@ -1071,6 +1130,38 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
     XCTAssertFalse(app.buttons["返回"].exists)
     assertBottomLayout(app)
+  }
+
+  /// 榜单与更多往返后逐项真实点击底栏，覆盖同项连点与恢复入口最近业务页面的命中。
+  func testRankingKeepsBottomNavigationResponsive() throws {
+    let app = try signIn()
+    let roots = app.tabBars["native-root-navigation"]
+    for cycle in 1...4 {
+      roots.buttons["推荐"].tap()
+      if app.buttons["返回"].exists { app.buttons["返回"].tap() }
+      XCTAssertTrue(app.navigationBars["推荐"].waitForExistence(timeout: 10))
+      settlePage(app)
+      let ranking = app.webViews.links["更多"].firstMatch
+      XCTAssertTrue(ranking.waitForExistence(timeout: 15))
+      ranking.tap()
+      XCTAssertTrue(app.buttons["返回"].waitForExistence(timeout: 10))
+      settlePage(app)
+      let rankingTitle = app.navigationBars.firstMatch.identifier
+      attachScreen("交互-榜单底栏连续切换-\(cycle)", app: app)
+      for title in ["更多", "更多", "探索", "仪表盘", "推荐", "仪表盘"] {
+        let button = roots.buttons[title]
+        XCTAssertTrue(button.isEnabled && button.isHittable, "榜单离开后底栏须可点击：\(title)")
+        button.tap()
+        if title == "更多" {
+          XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
+        } else {
+          let expected = title == "推荐" ? rankingTitle : title
+          XCTAssertTrue(app.navigationBars[expected].waitForExistence(timeout: 10))
+        }
+      }
+    }
+    assertBottomLayout(app)
+    attachScreen("交互-榜单多次往返后底栏可用", app: app)
   }
 
   /// 更多默认只显示目录，下拉露出搜索；重新点击更多会清除筛选并再次收起。
@@ -1371,17 +1462,9 @@ final class NativeFrameworkTests: XCTestCase {
     }
     let app = try signIn()
     app.buttons["操作菜单"].tap()
-    app.buttons["用户菜单"].firstMatch.tap()
-    let panel = app.tables["native-quick-panel"]
-    XCTAssertTrue(panel.waitForExistence(timeout: 8))
-    let medals = panel.cells["native-panel-item-medals"]
-    settlePage(app)
-    for _ in 0..<5 {
-      if medals.exists && medals.isHittable { break }
-      panel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).press(
-        forDuration: 0.05,
-        thenDragTo: panel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
-    }
+    app.buttons["用户"].firstMatch.tap()
+    let medals = nativeUserItem("我的勋章", app: app)
+    XCTAssertTrue(medals.waitForExistence(timeout: 8))
     XCTAssertTrue(medals.exists, "受控夹具必须实际展示社区勋章入口，不能跳过验收")
     medals.tap()
     let close = app.buttons["native-sheet-close"]
