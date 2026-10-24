@@ -5,6 +5,20 @@ import Testing
 
 /// 系统面板只接受有界展示声明，兼容旧网页且拒绝恶意层级与重复标识。
 struct NativePanelTests {
+  /// 宽度声明可选且仅接受已定义值，不依赖标题语言来判断通知面板。
+  @Test func acceptsExplicitFullWidth() throws {
+    for width in [nil, "full"] as [String?] {
+      var panel: [String: Any] = ["title": "消息", "sections": []]
+      panel["width"] = width
+      let value = try snapshot(panel: panel)
+      try value.validate()
+      #expect(value.actions[0].panel?.width?.rawValue == width)
+    }
+    #expect(throws: (any Error).self) {
+      try snapshot(panel: ["title": "消息", "width": "arbitrary", "sections": []])
+    }
+  }
+
   /// 旧面板省略布局仍可解码，未知布局不能成为原生容器的任意显示指令。
   @Test func acceptsOptionalGridLayout() throws {
     for layout in [nil, "grid"] as [String?] {
@@ -222,16 +236,21 @@ struct NativePanelTests {
       if valid {
         try value.validate()
         #expect(value.presentation?.sheet?.backdropReady == nil)
+        #expect(value.presentation?.sheet?.prefersMediumDetent == nil)
         var prepared = object
         var presentation = try #require(prepared["presentation"] as? [String: Any])
         var sheet = try #require(presentation["sheet"] as? [String: Any])
         sheet["backdropReady"] = true
+        sheet["prefersMediumDetent"] = true
+        sheet["fullscreen"] = false
         presentation["sheet"] = sheet
         prepared["presentation"] = presentation
         let ready = try JSONDecoder().decode(
           NavigationSnapshot.self, from: JSONSerialization.data(withJSONObject: prepared))
         try ready.validate()
         #expect(ready.presentation?.sheet?.backdropReady == true)
+        #expect(ready.presentation?.sheet?.prefersMediumDetent == true)
+        #expect(ready.presentation?.sheet?.fullscreen == false)
       } else {
         #expect(throws: BridgeError.invalidMessage) { try value.validate() }
       }

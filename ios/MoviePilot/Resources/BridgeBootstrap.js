@@ -8,6 +8,8 @@
       transportVersion: 1,
       panelsVersion: 1,
       sheetsVersion: 1,
+      confirmationsVersion: 1,
+      navigationPreviewVersion: 1,
       notificationInstallation: "__MOVIEPILOT_INSTALLATION__",
       postMessage: (message) => handler.postMessage(message),
       authenticationRequired: () => window.webkit.messageHandlers.moviepilotAuthentication.postMessage({version: 1, type: "required"}),

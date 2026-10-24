@@ -30,11 +30,21 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   private var startupView: StartupView?
   private var nativeVisible = false
   private var edgeBackIdentity: EdgeBackIdentity?
+  private let navigationPreviews = NavigationPreviewCache()
+  private var edgeBackTransition: NavigationBackTransition?
+  private var edgeBackTarget: String?
+  private var edgeBackAnimationFinished = false
+  private var edgeBackPaintPending = false
+  private var edgeBackTimeout: Timer?
+  private var previewCapture: DispatchWorkItem?
   private let moreMenu = MoreMenuController()
   private let bottomNavigation = BottomNavigationView()
   private var panelNavigation: UINavigationController?
   private var panelImages: NativePanelImageLoader?
   private var panelAction: ActionSnapshot?
+  private var confirmationAlert: UIAlertController?
+  private var confirmationSnapshot: NativeConfirmationSnapshot?
+  private var answeringConfirmationID: String?
   private var webSheet: NativeWebSheetController?
   private var sheetNavigation: UINavigationController?
   private var sheetAttachedID: String?
@@ -63,9 +73,11 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   /// 本地会话按实例重建，不支持 storyboard 初始化。
   required init?(coder: NSCoder) { fatalError("Use init(coordinator:onConnection:)") }
 
-  /// 启动画面固定使用深色背景，交接后恢复页面主题对应的系统状态栏颜色。
+  /// 启动和底页占位期间匹配可见背景，归位后按当前明暗更新状态栏。
   override var preferredStatusBarStyle: UIStatusBarStyle {
-    startupView == nil ? .default : .lightContent
+    guard startupView == nil else { return .lightContent }
+    let style = sheetPagePlaceholder?.overrideUserInterfaceStyle ?? modalInterfaceStyle
+    return style == .dark ? .lightContent : .darkContent
   }
 
   /// 首次进入延续静态启动画面，唯一 WebView 在覆盖层后完成加载和布局。
@@ -80,7 +92,56 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   /// 系统安全区改变后刷新当前布局，不修改业务路由。
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
+    synchronizeNavigationPreviewContext()
     coordinator.layoutChanged()
+  }
+
+  /// 预览只跨同一文档、主题与窗口保留，外观或身份变化不复用旧画面。
+  private func synchronizeNavigationPreviewContext() {
+    let context = coordinator.navigationPreviewSession.map { session in
+      [
+        session, latest?.chrome.theme.rawValue ?? "", latest?.chrome.accentColor ?? "",
+        latest?.chrome.backgroundColor ?? "", latest?.chrome.surfaceColor ?? "",
+      ].joined(separator: "|")
+    }
+    navigationPreviews.synchronize(context: context, size: view.bounds.size)
+  }
+
+  /// Vue 提交路由前保存原生导航和现有正文；浮层、交接或键盘覆盖时不保存错误画面。
+  func captureNavigationPreview() {
+    guard nativeVisible, startupView == nil, recoveryView == nil,
+      presentedViewController == nil, webSheet == nil, edgeBackTransition == nil,
+      latest?.presentation?.overlayOpen != true, let path = latest?.route.fullPath
+    else { return }
+    synchronizeNavigationPreviewContext()
+    navigationPreviews.capture(view, path: path)
+  }
+
+  /// 生命周期和会话释放时停止旧动画与延迟采样，画面不会跨账号或写入磁盘。
+  func clearNavigationPreviews() {
+    previewCapture?.cancel()
+    previewCapture = nil
+    navigationPreviews.clear()
+    edgeBackTimeout?.invalidate()
+    edgeBackTimeout = nil
+    edgeBackTransition?.remove()
+    edgeBackTransition = nil
+    edgeBackIdentity = nil
+    edgeBackTarget = nil
+    edgeBackAnimationFinished = false
+    edgeBackPaintPending = false
+  }
+
+  /// 首屏和静止页面补充预览；正常离页由显式握手采样，避免依赖异步业务加载时序。
+  private func scheduleNavigationPreview() {
+    previewCapture?.cancel()
+    let path = latest?.route.fullPath
+    let capture = DispatchWorkItem { [weak self] in
+      guard let self, self.latest?.route.fullPath == path else { return }
+      self.captureNavigationPreview()
+    }
+    previewCapture = capture
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: capture)
   }
 
   /// 使用系统左边缘识别器，普通横向列表和网页自身触摸不参与返回判定。
@@ -95,7 +156,8 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   /// 只有可返回的当前原生页面或可关闭的业务弹窗才能开始侧滑。
   func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
     guard let gesture = gestureRecognizer as? UIScreenEdgePanGestureRecognizer,
-      nativeVisible, recoveryView == nil, startupView == nil, !sheetDismissing
+      nativeVisible, recoveryView == nil, startupView == nil, !sheetDismissing,
+      edgeBackTransition == nil
     else { return false }
     let sheetID: String?
     if gesture.view === sheetNavigation?.view {
@@ -113,25 +175,102 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     return true
   }
 
-  /// 滑动结束才提交；取消、短滑或中途换页均不调用业务回调。
+  /// 当前卡片连续跟手；松手后才按有效身份提交一次返回，取消只回弹。
   @objc private func handleBackGesture(_ gesture: UIScreenEdgePanGestureRecognizer) {
-    guard [.ended, .cancelled, .failed].contains(gesture.state) else { return }
-    defer { edgeBackIdentity = nil }
     guard let identity = edgeBackIdentity else { return }
+    let distance = gesture.translation(in: gesture.view).x
+    if gesture.state == .began, identity.sheetID == nil {
+      synchronizeNavigationPreviewContext()
+      edgeBackTarget = latest?.route.backTarget
+      edgeBackTransition = NavigationBackTransition(
+        host: view, previous: navigationPreviews.image(for: edgeBackTarget))
+      edgeBackAnimationFinished = false
+      edgeBackPaintPending = false
+    }
+    if gesture.state == .began || gesture.state == .changed {
+      edgeBackTransition?.update(distance: distance)
+      return
+    }
+    guard [.ended, .cancelled, .failed].contains(gesture.state) else { return }
     let current = coordinator.backGestureIdentity(sheetID: identity.sheetID)
-    if EdgeBackGesture.shouldCommit(
-      distance: Double(gesture.translation(in: gesture.view).x),
+    let commit = EdgeBackGesture.shouldCommit(
+      distance: Double(distance),
       velocity: Double(gesture.velocity(in: gesture.view).x),
       width: Double(gesture.view?.bounds.width ?? 0),
       cancelled: gesture.state != .ended, began: identity, current: current)
-    {
-      if identity.sheetID != nil { preserveWebSheetExit() }
-      coordinator.completeBackGesture(identity)
+    guard identity.sheetID == nil, let transition = edgeBackTransition else {
+      edgeBackIdentity = nil
+      if commit {
+        if identity.sheetID != nil { preserveWebSheetExit() }
+        coordinator.completeBackGesture(identity)
+      }
+      return
     }
+    guard commit else {
+      cancelInteractiveBack(transition)
+      return
+    }
+    transition.animate(completed: true) { [weak self, weak transition] in
+      guard let self, self.edgeBackTransition === transition else { return }
+      self.edgeBackAnimationFinished = true
+      self.finishInteractiveBackIfReady()
+    }
+    edgeBackTimeout = Timer.scheduledTimer(withTimeInterval: 2, repeats: false) {
+      [weak self, weak transition] _ in
+      MainActor.assumeIsolated {
+        guard let self, let transition, self.edgeBackTransition === transition else { return }
+        self.cancelInteractiveBack(transition)
+      }
+    }
+    coordinator.completeBackGesture(identity) { [weak self, weak transition] accepted in
+      guard !accepted, let self, let transition, self.edgeBackTransition === transition else {
+        return
+      }
+      self.cancelInteractiveBack(transition)
+    }
+  }
+
+  /// 短滑、守卫拒绝和上下文失效都恢复当前页，不向 Router 发送第二次导航。
+  private func cancelInteractiveBack(_ transition: NavigationBackTransition) {
+    edgeBackTimeout?.invalidate()
+    edgeBackTimeout = nil
+    edgeBackTarget = nil
+    transition.animate(completed: false) { [weak self, weak transition] in
+      guard let self, self.edgeBackTransition === transition else { return }
+      self.clearInteractiveBack()
+    }
+  }
+
+  /// 动画和真实路由都完成后等待两次 Web 绘制，避免移开卡片时露出旧正文。
+  private func finishInteractiveBackIfReady() {
+    guard let transition = edgeBackTransition, let target = edgeBackTarget,
+      edgeBackAnimationFinished, latest?.route.fullPath == target, !edgeBackPaintPending
+    else { return }
+    edgeBackPaintPending = true
+    coordinator.command("navigation.waitForPaint", payload: .object([:])) {
+      [weak self, weak transition] _ in
+      guard let self, self.edgeBackTransition === transition else { return }
+      self.clearInteractiveBack()
+      self.scheduleNavigationPreview()
+    }
+  }
+
+  /// 只释放当前交互覆盖，不销毁其他路由的有限预览。
+  private func clearInteractiveBack() {
+    edgeBackTimeout?.invalidate()
+    edgeBackTimeout = nil
+    edgeBackTransition?.remove()
+    edgeBackTransition = nil
+    edgeBackIdentity = nil
+    edgeBackTarget = nil
+    edgeBackAnimationFinished = false
+    edgeBackPaintPending = false
   }
 
   /// 将网页默认模式放在独立导航容器内，避免隐藏 Tab 留下不可见占位。
   func showWebNavigation() {
+    clearNavigationPreviews()
+    clearNativeConfirmation()
     loadViewIfNeeded()
     headerConfigurations.removeAll()
     dismissNativePanel(notify: false)
@@ -173,6 +312,11 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
 
   /// 网页确认已消费同一布局后，转移唯一内容并提交原生控件。
   func apply(_ snapshot: NavigationSnapshot) {
+    if let identity = edgeBackIdentity, edgeBackTarget != snapshot.route.fullPath,
+      coordinator.backGestureIdentity(sheetID: identity.sheetID) != identity
+    {
+      clearInteractiveBack()
+    }
     latest = snapshot
     configureTabs(snapshot)
     nativeVisible = true
@@ -191,7 +335,11 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     view.layoutIfNeeded()
     synchronizeWebSheet(snapshot)
     synchronizeNativePanel(snapshot)
+    synchronizeNativeConfirmation()
     keepStartupInFront()
+    if let overlay = edgeBackTransition?.overlay { view.bringSubviewToFront(overlay) }
+    finishInteractiveBackIfReady()
+    scheduleNavigationPreview()
   }
 
   /// 返回当前最终宿主的 point 几何，正文和菜单锚点使用同一坐标原点。
@@ -257,6 +405,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
 
   /// 内容进程或连接失败时提供明确出口，绝不重放未确认的网页写操作。
   func showRecovery(message: String) {
+    clearNativeConfirmation()
     loadViewIfNeeded()
     setLoading(false)
     recoveryView?.removeFromSuperview()
@@ -342,6 +491,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       snapshot.chrome.theme == .dark
       ? .dark : (snapshot.chrome.theme == .light ? .light : .unspecified)
     overrideUserInterfaceStyle = style
+    setNeedsStatusBarAppearanceUpdate()
     if let color = snapshot.chrome.accentColor,
       let value = UInt32(color.dropFirst(), radix: 16)
     {
@@ -683,6 +833,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       page.autoresizingMask = [.flexibleWidth, .flexibleHeight]
       page.accessibilityElementsHidden = true
       page.isUserInteractionEnabled = false
+      page.overrideUserInterfaceStyle = modalInterfaceStyle
       selectedHost.view.addSubview(page)
       sheetPagePlaceholder = page
     }
@@ -747,7 +898,10 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
         self.latest?.presentation?.sheet?.id == descriptor.id
       else { return }
       self.removeSheetStaging(navigation)
-      self.present(navigation, animated: true) { [weak self] in self?.coordinator.layoutChanged() }
+      self.present(navigation, animated: true) { [weak self] in
+        self?.coordinator.layoutChanged()
+        self?.synchronizeNativeConfirmation()
+      }
     }
   }
 
@@ -897,7 +1051,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     }
     controller.loadViewIfNeeded()
     navigation.preferredContentSize = CGSize(
-      width: controller.preferredPanelWidth(maximum: min(view.bounds.width - 40, 430)),
+      width: controller.preferredPanelWidth(maximum: controller.maximumPanelWidth(in: view)),
       height: min(
         580,
         max(280, view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom - 170)))
@@ -916,6 +1070,89 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     present(navigation, animated: true)
     coordinator.invoke(action, panelEvent: "open")
     synchronizeNativePanel(latest)
+  }
+
+  /// 确认使用系统 alert；已有 HTML Sheet 保留唯一 WebView，在其上呈现而不重新搬运网页。
+  private func synchronizeNativeConfirmation() {
+    guard nativeVisible, let descriptor = latest?.presentation?.confirmation else {
+      clearNativeConfirmation()
+      return
+    }
+    if answeringConfirmationID == descriptor.id { return }
+    if let alert = confirmationAlert {
+      if confirmationSnapshot?.id == descriptor.id {
+        alert.title = descriptor.title
+        alert.message = descriptor.message
+        alert.actions.first?.isEnabled = descriptor.cancelEnabled
+        alert.actions.last?.isEnabled = descriptor.confirmEnabled
+        confirmationSnapshot = descriptor
+      } else {
+        clearNativeConfirmation { [weak self] in self?.synchronizeNativeConfirmation() }
+      }
+      return
+    }
+    if panelNavigation != nil {
+      dismissNativePanel(notify: false) { [weak self] in self?.synchronizeNativeConfirmation() }
+      return
+    }
+    guard !sheetDismissing, let documentSession = coordinator.navigationPreviewSession else {
+      return
+    }
+    let presenter: UIViewController
+    if let navigation = sheetNavigation {
+      guard navigation.presentingViewController != nil,
+        navigation.presentedViewController == nil, !navigation.isBeingPresented
+      else { return }
+      presenter = navigation
+    } else {
+      guard presentedViewController == nil else { return }
+      presenter = self
+    }
+    let alert = UIAlertController(
+      title: descriptor.title, message: descriptor.message, preferredStyle: .alert)
+    alert.overrideUserInterfaceStyle = modalInterfaceStyle
+    alert.view.accessibilityIdentifier = "native-confirmation"
+    /// 系统按钮只回传当前确认 ID；原 DOM 按钮最终结算业务 Promise。
+    func action(_ confirmed: Bool) -> UIAlertAction {
+      let action = UIAlertAction(
+        title: confirmed ? descriptor.confirmText : descriptor.cancelText,
+        style: confirmed ? (descriptor.destructive ? .destructive : .default) : .cancel
+      ) { [weak self, weak alert] _ in
+        guard let self, self.confirmationAlert === alert,
+          self.coordinator.navigationPreviewSession == documentSession,
+          let current = self.latest?.presentation?.confirmation, current.id == descriptor.id,
+          confirmed ? current.confirmEnabled : current.cancelEnabled
+        else { return }
+        self.answeringConfirmationID = descriptor.id
+        self.coordinator.command(
+          "confirmation.respond",
+          payload: .object(["id": .string(descriptor.id), "confirmed": .bool(confirmed)])
+        ) { [weak self] accepted in
+          if !accepted { self?.coordinator.releaseChrome() }
+        }
+      }
+      action.isEnabled = confirmed ? descriptor.confirmEnabled : descriptor.cancelEnabled
+      return action
+    }
+    alert.addAction(action(false))
+    alert.addAction(action(true))
+    confirmationAlert = alert
+    confirmationSnapshot = descriptor
+    answeringConfirmationID = nil
+    presenter.present(alert, animated: true)
+  }
+
+  /// 文档释放、身份变化或 Vue 关闭后撤销系统表现；不会合成确认或重复取消业务。
+  private func clearNativeConfirmation(completion: (() -> Void)? = nil) {
+    let alert = confirmationAlert
+    confirmationAlert = nil
+    confirmationSnapshot = nil
+    answeringConfirmationID = nil
+    if let alert, alert.presentingViewController != nil {
+      alert.dismiss(animated: false, completion: completion)
+    } else {
+      completion?()
+    }
   }
 
   /// 输入和勾选留在面板中，打开业务页面或 HTML 弹窗前先完成系统浮层关闭。
@@ -981,7 +1218,10 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       completion?()
       return
     }
-    navigation.dismiss(animated: true, completion: completion)
+    navigation.dismiss(animated: true) { [weak self] in
+      completion?()
+      self?.synchronizeNativeConfirmation()
+    }
   }
 
   /// iPhone 上也保留真正的系统浮层，避免自适应为遮住底栏的整页菜单。
@@ -1011,10 +1251,6 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     }
     moreMenu.apply(
       snapshot.moreMenu ?? [],
-      background: NavigationSymbols.color(snapshot.chrome.backgroundColor)
-        ?? .systemGroupedBackground,
-      surface: NavigationSymbols.color(snapshot.chrome.surfaceColor)
-        ?? .secondarySystemGroupedBackground,
       accent: NavigationSymbols.color(snapshot.chrome.accentColor) ?? AccountAppearance.accent)
     if moreMenu.parent !== host {
       removeMoreMenu()

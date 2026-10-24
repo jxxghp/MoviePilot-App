@@ -207,6 +207,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 
   /// 系统生命周期只同步给当前文档，后台暂停期间不进行超时恢复。
   func setLifecycle(_ value: String) {
+    if value != "active" { shell?.clearNavigationPreviews() }
     if value == "background", lifecycle != value { automaticRecoveryAttempted = false }
     lifecycle = value
     timeout?.invalidate()
@@ -317,19 +318,33 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
         snapshot.presentation?.sheet?.canDismiss == true
       else { return nil }
     } else {
-      guard snapshot.route.canGoBack, snapshot.presentation?.sheet == nil else { return nil }
+      guard snapshot.route.canGoBack, snapshot.presentation?.sheet == nil,
+        snapshot.presentation?.overlayOpen != true,
+        keyboardFrame.map({
+          webView.convert($0, from: nil).intersection(webView.bounds).height <= 0
+        }) ?? true
+      else { return nil }
     }
     return EdgeBackIdentity(sessionID: id, routeRevision: session.routeRevision, sheetID: sheetID)
   }
 
   /// 完成时重新核对会话和路由，只发送一次原有返回或弹窗关闭意图。
-  func completeBackGesture(_ identity: EdgeBackIdentity) {
-    guard backGestureIdentity(sheetID: identity.sheetID) == identity else { return }
+  func completeBackGesture(_ identity: EdgeBackIdentity, completion: ((Bool) -> Void)? = nil) {
+    guard backGestureIdentity(sheetID: identity.sheetID) == identity else {
+      completion?(false)
+      return
+    }
     if let sheetID = identity.sheetID {
       command("presentation.dismiss", payload: .object(["id": .string(sheetID)]))
     } else {
-      command("navigation.back", payload: .object(["source": .string("gesture")]))
+      command(
+        "navigation.back", payload: .object(["source": .string("gesture")]), completion: completion)
     }
+  }
+
+  /// 预览与当前已确认的文档会话绑定，不把关联标识用作认证或持久缓存。
+  var navigationPreviewSession: String? {
+    lifecycle == "active" && session.phase == .nativeNavigation ? session.sessionId : nil
   }
 
   /// 固定通知端点复用当前 Web 认证，不向原生暴露 token 或提供通用网络代理。
@@ -513,6 +528,14 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
         refreshNotificationContext()
         NotificationService.shared.resumePending()
       }
+    case "navigation.departing":
+      guard session.phase == .nativeNavigation, lifecycle == "active",
+        message.routeRevision == session.routeRevision,
+        case .object(let payload) = message.payload,
+        case .string(let id) = payload["id"], BridgeValidator.isIdentifier(id)
+      else { return }
+      shell?.captureNavigationPreview()
+      send("navigation.previewed", payload: .object(["id": .string(id)]))
     case "chrome.accepted":
       let accepted = try message.decodePayload(LayoutAcknowledgement.self)
       try session.accept(layoutRevision: accepted.layoutRevision)
@@ -536,6 +559,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       completion?(result.accepted)
       if !result.accepted, completion != nil { releaseChrome() }
     case "session.state":
+      shell?.clearNavigationPreviews()
       lastConfirmedURL = nil
       notificationLookupStarted = false
       NotificationService.shared.attach(self)

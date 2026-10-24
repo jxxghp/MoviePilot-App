@@ -45,6 +45,23 @@ struct AuthenticationTests {
     }
   }
 
+  /// 已认证用户重新打开 App 后保留签发等级，current 的最新权限仍覆盖令牌中的旧权限。
+  @Test func preservesVerifiedTokenLevelOnRestore() throws {
+    let claims = Data(#"{"level":2,"permissions":{"search":true}}"#.utf8)
+      .base64EncodedString().replacingOccurrences(of: "=", with: "")
+      .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+    let data = Data(
+      #"{"id":3,"name":"reader","is_superuser":false,"permissions":{"search":false}}"#.utf8)
+    let session = try AuthenticationSession(
+      accessToken: "header.\(claims).signature", currentUserData: data)
+    guard case .object(let user) = session.user else {
+      Issue.record("缺少恢复用户")
+      return
+    }
+    #expect(user["level"] == .number(2))
+    #expect(user["permissions"] == .object(["search": .bool(false)]))
+  }
+
   /// 表单中的特殊字符不会成为新的参数，验证码保持原值。
   @Test func encodesPasswordForm() {
     let body = AuthenticationSession.passwordForm(

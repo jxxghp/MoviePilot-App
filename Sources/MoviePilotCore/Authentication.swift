@@ -35,9 +35,26 @@ public struct AuthenticationSession: Sendable {
     self.accessToken = accessToken
     user = .object([
       "superUser": .bool(superUser), "userID": .number(userId), "userName": .string(name),
-      "avatar": Self.nonNull(payload["avatar"], fallback: .string("")), "level": .number(1),
+      "avatar": Self.nonNull(payload["avatar"], fallback: .string("")),
+      "level": Self.restoredLevel(payload: payload, token: accessToken),
       "permissions": Self.nonNull(payload["permissions"], fallback: .object([:])),
     ])
+  }
+
+  /// current 不返回站点等级时沿用已由服务器验证的令牌声明，与网页登录恢复一致；不据此授予权限。
+  private static func restoredLevel(payload: [String: JSONValue], token: String) -> JSONValue {
+    if let level = payload["level"], case .number = level { return level }
+    let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+    guard parts.count == 3 else { return .number(1) }
+    var encoded = String(parts[1]).replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+    encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+    guard let data = Data(base64Encoded: encoded),
+      case .object(let claims) = try? JSONDecoder().decode(JSONValue.self, from: data),
+      case .number(let level) = claims["level"], level.isFinite, level >= 0,
+      level.rounded() == level
+    else { return .number(1) }
+    return .number(level)
   }
 
   /// 与现有 Pinia 持久化字段一致；通过独立的受信启动入口交付，不进入导航消息。

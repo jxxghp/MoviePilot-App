@@ -57,14 +57,22 @@ final class NativeWebSheetController: UIViewController, UIAdaptivePresentationCo
       renderedStyle = style
     }
     if renderedSnapshot?.fullscreen != snapshot.fullscreen
+      || renderedSnapshot?.prefersMediumDetent != snapshot.prefersMediumDetent
       || renderedSnapshot?.canDismiss != snapshot.canDismiss,
       let sheet = navigationController?.sheetPresentationController
     {
       let detents: [UISheetPresentationController.Detent] =
         snapshot.fullscreen
         ? [.large()]
-        : [.custom(identifier: .init("content")) { $0.maximumDetentValue * 0.78 }, .large()]
+        : snapshot.prefersMediumDetent == true
+          ? [.medium(), .large()]
+          : [.custom(identifier: .init("content")) { $0.maximumDetentValue * 0.78 }, .large()]
       sheet.detents = detents
+      if snapshot.prefersMediumDetent == true,
+        renderedSnapshot?.prefersMediumDetent != snapshot.prefersMediumDetent
+      {
+        sheet.selectedDetentIdentifier = .medium
+      }
       sheet.prefersGrabberVisible = snapshot.canDismiss
       sheet.prefersScrollingExpandsWhenScrolledToEdge = true
     }
