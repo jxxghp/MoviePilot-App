@@ -13,13 +13,7 @@
 - 启动时显示深色背景、透明 Logo、无文字的静态画面，首屏资源与导航就绪后再显示网页。
 - HTML 菜单、筛选和设置弹窗保持原实现，与原生导航协调返回和安全区。
 
-![所有页面总览](screenshots/all-pages.png)
-
-![菜单与弹窗](screenshots/menus-and-dialogs.png)
-
-[全部截图及分类索引](screenshots/README.md) · [可离线筛选和放大的截图册](screenshots/index.html)
-
-截图册包含 68 张图：原生界面来自 **iPhone 17 Pro / iOS 27.0 模拟器**，原图为 1206 × 2622；另有主屏幕通知网页、自动接入设置及中心管理后台的浏览器截图。公开截图的配置密钥和实例地址使用演示值。GitHub 不直接运行 HTML，可下载仓库后在浏览器中打开截图册。
+页面、菜单与弹窗预览见 [界面截图](screenshots/README.md)，包含全部截图及离线截图册入口。
 
 ## 安装前准备
 
