@@ -259,6 +259,7 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
 
   /// 按当前可见内容量测宽度；同一次菜单不随搜索结果反复横向跳动，大字体保留可读空间。
   func preferredPanelWidth(maximum: CGFloat) -> CGFloat {
+    if path.isEmpty, snapshot.width == .full { return maximum }
     if traitCollection.preferredContentSizeCategory.isAccessibilityCategory { return maximum }
     if let measuredWidth { return min(maximum, measuredWidth) }
     let rows = sections.flatMap(\.1)
@@ -314,12 +315,20 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
           - 170))
     let height = min(
       maximum, max(220, tableView.contentSize.height + 56 + (primaryAction == nil ? 0 : 56)))
-    let width = preferredPanelWidth(maximum: min(430, host.view.bounds.width - 40))
+    let width = preferredPanelWidth(maximum: maximumPanelWidth(in: host.view))
     if abs(navigationController.preferredContentSize.height - height) > 2
       || abs(navigationController.preferredContentSize.width - width) > 2
     {
       navigationController.preferredContentSize = CGSize(width: width, height: height)
     }
+  }
+
+  /// 长正文保留两侧各八点边距，普通菜单继续收窄；安全区和宽窗口各自限制可读宽度。
+  func maximumPanelWidth(in host: UIView) -> CGFloat {
+    let full = path.isEmpty && snapshot.width == .full
+    let margins: CGFloat = full ? 16 : 40
+    let safeWidth = host.bounds.width - host.safeAreaInsets.left - host.safeAreaInsets.right
+    return max(0, min(full ? 600 : 430, safeWidth - margins))
   }
 
   /// 搜索与分组标题属于面板内部，永远不会放在宿主渐变导航栏后方。
@@ -624,6 +633,8 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
   /// 图标与名称属于同一可访问按钮；普通点击打开功能，长按提供固定等次要动作。
   private func gridButton(_ item: NativePanelItem) -> UIButton {
     var configuration = UIButton.Configuration.plain()
+    // Sheet 展开时底页会被系统 dim，前景控件不能继承底页 tint；禁用仍由按钮自身状态表达。
+    configuration.baseForegroundColor = .label
     configuration.title = item.title
     configuration.image = item.icon.flatMap {
       NavigationSymbols.image($0, configuration: UIImage.SymbolConfiguration(pointSize: 32))
@@ -643,6 +654,7 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     let button = UIButton(
       configuration: configuration,
       primaryAction: UIAction { [weak self] _ in self?.selectGridItem(item.id) })
+    button.tintAdjustmentMode = .normal
     button.titleLabel?.numberOfLines = 2
     button.titleLabel?.adjustsFontForContentSizeCategory = true
     button.imageView?.contentMode = .scaleAspectFit

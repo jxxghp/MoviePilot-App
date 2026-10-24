@@ -7,7 +7,6 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
   private let search = UISearchTextField()
   var onSelect: ((MoreMenuItem) -> Void)?
   private var sections: [MoreMenuSection] = []
-  private var surface: UIColor = .secondarySystemGroupedBackground
   private var accent: UIColor = .tintColor
   private var shouldCollapseSearch = true
 
@@ -72,17 +71,13 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
       tableView.contentOffset.y + tableView.adjustedContentInset.top >= header.bounds.height - 1
   }
 
-  /// 每次已确认快照恢复可操作状态；权限目录变化即时替换原生列表。
-  func apply(_ sections: [MoreMenuSection], background: UIColor, surface: UIColor, accent: UIColor)
-  {
+  /// 权限目录变化即时替换列表；背景保持 UIKit 默认分组样式，只同步入口的强调色。
+  func apply(_ sections: [MoreMenuSection], accent: UIColor) {
     loadViewIfNeeded()
-    tableView.backgroundColor = background
-    self.surface = surface
     self.accent = accent
     tableView.tintColor = accent
     // 内容配置会保存创建时的颜色；目录不变时也刷新已显示行，避免复用产生两套主题色。
     for cell in tableView.visibleCells {
-      cell.backgroundColor = surface
       if var content = cell.contentConfiguration as? UIListContentConfiguration {
         content.imageProperties.tintColor = accent
         cell.contentConfiguration = content
@@ -159,7 +154,6 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
     content.image = NavigationSymbols.image(item.icon)
     content.imageProperties.tintColor = accent
     cell.contentConfiguration = content
-    cell.backgroundColor = surface
     cell.accessoryType = .disclosureIndicator
     cell.accessibilityIdentifier = "more-entry-\(item.id)"
     return cell

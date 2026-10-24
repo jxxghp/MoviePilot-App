@@ -564,41 +564,23 @@ final class NativeFrameworkTests: XCTestCase {
     let panel = app.tables["native-quick-panel"]
     XCTAssertTrue(panel.waitForExistence(timeout: 8), "用户入口必须使用 UIKit 列表")
     XCTAssertGreaterThan(panel.frame.minY, app.navigationBars.firstMatch.frame.minY)
-    if !panel.cells["native-panel-item-glass"].exists {
-      // 主题偏好跨启动保留，测试经真实设置入口恢复前置条件，不依赖前一个用例。
-      panel.cells["native-panel-item-customizer"].tap()
-      XCTAssertTrue(app.navigationBars["主题定制"].waitForExistence(timeout: 10))
-      let glass = app.webViews.staticTexts["玻璃"].firstMatch
-      XCTAssertTrue(glass.waitForExistence(timeout: 8))
-      glass.tap()
-      settlePage(app)
-      dismissOverlays(app)
-      app.buttons["操作菜单"].tap()
-      XCTAssertTrue(app.buttons["用户菜单"].firstMatch.waitForExistence(timeout: 5))
-      app.buttons["用户菜单"].firstMatch.tap()
-      XCTAssertTrue(panel.waitForExistence(timeout: 8))
+    for item in ["ui", "css", "glass", "transparency", "theme"] {
+      XCTAssertFalse(panel.cells["native-panel-item-\(item)"].exists, "套壳仅开放主题定制，隐藏网页布局与材质菜单")
     }
     attachScreen("交互-原生用户菜单", app: app)
-    XCTAssertTrue(panel.cells["native-panel-item-glass"].waitForExistence(timeout: 5))
-    XCTAssertFalse(panel.cells["native-panel-item-theme"].exists, "三个主题入口不再另开二级浮层")
     attachScreen("交互-用户菜单内主题分组", app: app)
-    panel.cells["native-panel-item-glass"].tap()
-    XCTAssertFalse(panel.waitForExistence(timeout: 1), "打开业务弹窗前关闭系统面板")
-    XCTAssertTrue(app.navigationBars["玻璃设置"].waitForExistence(timeout: 10))
-    XCTAssertTrue(app.buttons["native-sheet-close"].exists)
-    XCTAssertFalse(app.webViews.staticTexts["玻璃设置"].exists, "HTML 标题由原生栏接管")
-    settlePage(app)
-    attachScreen("交互-HTML全屏设置与模糊背景", app: app)
-    XCTAssertFalse(app.tabBars["native-root-navigation"].exists, "只有全屏弹窗隐藏底栏")
-    dismissOverlays(app)
-    app.buttons["操作菜单"].tap()
-    app.buttons["用户菜单"].firstMatch.tap()
-    XCTAssertTrue(panel.waitForExistence(timeout: 8))
     panel.cells["native-panel-item-customizer"].tap()
     XCTAssertTrue(app.navigationBars["主题定制"].waitForExistence(timeout: 10))
     XCTAssertTrue(app.buttons["native-sheet-close"].exists)
     XCTAssertTrue(app.webViews.staticTexts["色调"].firstMatch.waitForExistence(timeout: 10))
-    XCTAssertFalse(app.tabBars["native-root-navigation"].exists, "自定义全屏设置也隐藏底栏")
+    XCTAssertFalse(app.webViews.staticTexts["圆角"].exists)
+    XCTAssertTrue(app.webViews.switches["浅色"].firstMatch.exists)
+    XCTAssertTrue(app.webViews.switches["深色"].firstMatch.exists)
+    XCTAssertTrue(app.webViews.switches["跟随系统"].firstMatch.exists)
+    settlePage(app)
+    XCTAssertGreaterThan(
+      app.navigationBars["主题定制"].frame.minY, app.frame.height * 0.35, "主题定制初次使用系统半屏 Sheet")
+    attachScreen("交互-主题明暗与主色半屏", app: app)
     attachScreen("交互-主题定制安全区", app: app)
     dismissOverlays(app)
     app.tabBars["native-root-navigation"].buttons["更多"].tap()
@@ -606,8 +588,38 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertFalse(app.buttons["返回"].exists, "回到目录后不能残留业务返回栈")
   }
 
-  /// 通过原主题控件切换明暗，验证系统浮层与 HTML Sheet 的自适应材质。
-  func testNativeMaterialsInLightAndDarkThemes() throws {
+  /// 手动明暗和跟随系统共用玻璃主题，并在系统半屏中即时同步原生与 HTML 外观。
+  func testNativeGlassAppearanceSelection() async throws {
+    try await setSystemAppearance("dark")
+    let app = try signIn()
+    settlePage(app)
+    app.buttons["操作菜单"].tap()
+    app.buttons["用户菜单"].firstMatch.tap()
+    let panel = app.tables["native-quick-panel"]
+    XCTAssertTrue(panel.waitForExistence(timeout: 8))
+    panel.cells["native-panel-item-customizer"].tap()
+    XCTAssertTrue(app.navigationBars["主题定制"].waitForExistence(timeout: 10))
+    for mode in ["浅色", "深色", "跟随系统"] {
+      let choice = app.webViews.switches[mode].firstMatch
+      XCTAssertTrue(choice.waitForExistence(timeout: 8))
+      choice.tap()
+      settlePage(app)
+      XCTAssertEqual(choice.value as? String, "1", "三项明暗选择应保持互斥的当前选中状态")
+      attachScreen("交互-主题手动选择-\(mode)", app: app)
+    }
+    try await setSystemAppearance("light")
+    settlePage(app)
+    attachScreen("交互-主题跟随系统浅色", app: app)
+    app.buttons["native-sheet-close"].tap()
+    settlePage(app)
+    app.buttons["操作菜单"].tap()
+    attachScreen("交互-跟随浅色的原生菜单", app: app)
+    dismissOverlays(app)
+    try await setSystemAppearance("dark")
+  }
+
+  /// 切换模拟器系统明暗，验证固定玻璃主题与系统浮层同步，而非修改网页主题偏好。
+  func testNativeMaterialsInLightAndDarkThemes() async throws {
     let app = try signIn()
     settlePage(app)
     let roots = app.tabBars["native-root-navigation"]
@@ -620,22 +632,20 @@ final class NativeFrameworkTests: XCTestCase {
     app.buttons["全部"].firstMatch.tap()
     roots.buttons["仪表盘"].tap()
     settlePage(app)
-    for theme in ["浅色", "深色", "玻璃"] {
+    for (theme, appearance) in [("浅色", "light"), ("深色", "dark")] {
+      try await setSystemAppearance(appearance)
+      settlePage(app)
       app.buttons["操作菜单"].tap()
       app.buttons["用户菜单"].firstMatch.tap()
       let panel = app.tables["native-quick-panel"]
       XCTAssertTrue(panel.waitForExistence(timeout: 8))
       panel.cells["native-panel-item-customizer"].tap()
       XCTAssertTrue(app.navigationBars["主题定制"].waitForExistence(timeout: 10))
-      let choice = app.webViews.staticTexts[theme].firstMatch
-      XCTAssertTrue(choice.waitForExistence(timeout: 8))
-      choice.tap()
       settlePage(app)
       attachScreen("交互-\(theme)主题系统磨砂 Sheet", app: app)
       app.buttons["native-sheet-close"].tap()
       XCTAssertFalse(app.buttons["native-sheet-close"].waitForExistence(timeout: 1))
       settlePage(app)
-      if theme == "玻璃" { continue }
       for title in ["搜索", "插件面板"] {
         app.buttons["操作菜单"].tap()
         XCTAssertTrue(app.buttons[title].firstMatch.waitForExistence(timeout: 5))
@@ -649,19 +659,12 @@ final class NativeFrameworkTests: XCTestCase {
   }
 
   /// 换主题、滚动复用和重新进入目录后保留统一图标，文件整理使用明确的文件夹符号。
-  func testMoreMenuSymbolsAfterThemeChanges() throws {
+  func testMoreMenuSymbolsAfterThemeChanges() async throws {
     let app = try signIn()
     let roots = app.tabBars["native-root-navigation"]
-    for theme in ["浅色", "深色", "玻璃"] {
-      app.buttons["操作菜单"].tap()
-      app.buttons["用户菜单"].firstMatch.tap()
-      let panel = app.tables["native-quick-panel"]
-      XCTAssertTrue(panel.waitForExistence(timeout: 8))
-      panel.cells["native-panel-item-customizer"].tap()
-      XCTAssertTrue(app.navigationBars["主题定制"].waitForExistence(timeout: 10))
-      app.webViews.staticTexts[theme].firstMatch.tap()
+    for (theme, appearance) in [("浅色", "light"), ("深色", "dark")] {
+      try await setSystemAppearance(appearance)
       settlePage(app)
-      app.buttons["native-sheet-close"].tap()
       roots.buttons["更多"].tap()
       let menu = app.tables["more-menu"]
       XCTAssertTrue(menu.waitForExistence(timeout: 10))
@@ -708,6 +711,9 @@ final class NativeFrameworkTests: XCTestCase {
         XCTAssertGreaterThan(panel.frame.width, app.frame.width - 50)
       } else {
         XCTAssertLessThan(panel.frame.maxY, app.frame.height - 75, "普通面板为底栏保留显示区域")
+        if title == "通知中心" {
+          XCTAssertGreaterThan(panel.frame.width, app.frame.width - 34, "长正文通知中心使用接近安全区全宽")
+        }
       }
       if title == "捷径" {
         let first = panel.buttons["native-panel-item-nameTest"]
@@ -783,6 +789,184 @@ final class NativeFrameworkTests: XCTestCase {
     }
   }
 
+  /// 系统半屏展开不会改变前景动作的可用状态，保留同一网格的两种高度截图供颜色验收。
+  func testNativeGridSheetExpansion() async throws {
+    try await setUIScenario("default")
+    let app = try signIn()
+    settlePage(app)
+    for title in ["捷径", "插件面板"] {
+      app.buttons["操作菜单"].tap()
+      app.buttons[title].firstMatch.tap()
+      let panel = app.tables["native-quick-panel"]
+      XCTAssertTrue(panel.waitForExistence(timeout: 8))
+      settlePage(app)
+      let first = panel.buttons.matching(
+        NSPredicate(format: "identifier BEGINSWITH %@", "native-panel-item-")
+      ).firstMatch
+      XCTAssertTrue(first.isEnabled)
+      let initialY = panel.frame.minY
+      XCTAssertGreaterThan(initialY, app.frame.height * 0.35)
+      attachScreen("交互-\(title)半屏文字亮度", app: app)
+      let origin = app.coordinate(withNormalizedOffset: .zero)
+      origin.withOffset(CGVector(dx: app.frame.width / 2, dy: initialY + 8)).press(
+        forDuration: 0.1,
+        thenDragTo: origin.withOffset(CGVector(dx: app.frame.width / 2, dy: 105)))
+      let expanded = XCTNSPredicateExpectation(
+        predicate: NSPredicate { _, _ in panel.frame.minY < initialY - 150 }, object: nil)
+      XCTAssertEqual(XCTWaiter.wait(for: [expanded], timeout: 8), .completed)
+      XCTAssertTrue(first.isEnabled)
+      XCTAssertTrue(first.isHittable)
+      attachScreen("交互-\(title)展开文字亮度", app: app)
+      app.buttons["native-panel-close"].tap()
+    }
+  }
+
+  /// 真实 Vue 重启确认由系统 alert 接管，验证完整正文和取消，不提交真实重启。
+  func testNativeConfirmationKeepsMessageAndCancellation() throws {
+    let app = try signIn()
+    settlePage(app)
+    app.buttons["操作菜单"].tap()
+    app.buttons["用户菜单"].firstMatch.tap()
+    let panel = app.tables["native-quick-panel"]
+    XCTAssertTrue(panel.waitForExistence(timeout: 8))
+    let restart = panel.cells["native-panel-item-restart"]
+    for _ in 0..<4 where !restart.isHittable {
+      panel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).press(
+        forDuration: 0.05,
+        thenDragTo: panel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+    }
+    restart.tap()
+    let alert = app.alerts.firstMatch
+    XCTAssertTrue(alert.waitForExistence(timeout: 10), "必须是系统确认框，不能再次打开 HTML Sheet")
+    XCTAssertGreaterThanOrEqual(alert.staticTexts.count, 2, "标题和完整提示正文都应可见")
+    XCTAssertTrue(alert.staticTexts["重启后，您将被注销并需要重新登录。"].exists)
+    XCTAssertFalse(app.otherElements["native-web-sheet"].exists)
+    attachScreen("交互-系统确认框完整正文", app: app)
+    alert.buttons["取消"].tap()
+    XCTAssertTrue(alert.waitForNonExistence(timeout: 8))
+    XCTAssertTrue(app.tabBars["native-root-navigation"].exists)
+    XCTAssertTrue(app.buttons["操作菜单"].isEnabled)
+    attachScreen("交互-系统确认取消返回主页面", app: app)
+  }
+
+  /// 实际订阅卡片进入批量选择并更新计数，再打开原编辑表单；不保存或删除订阅。
+  func testNativeSubscriptionBatchAndEditor() async throws {
+    try await setUIScenario("subscription")
+    let app = try signIn()
+    openMorePage("电视剧订阅", app: app)
+    let card = app.webViews.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "演示剧集")
+    ).firstMatch
+    XCTAssertTrue(card.waitForExistence(timeout: 15))
+    app.buttons["操作菜单"].tap()
+    XCTAssertTrue(app.buttons["批量操作"].waitForExistence(timeout: 5))
+    attachScreen("交互-订阅批量操作明确名称", app: app)
+    app.buttons["批量操作"].tap()
+    XCTAssertTrue(app.webViews.staticTexts["已选择 0/1 项"].waitForExistence(timeout: 8))
+    card.tap()
+    XCTAssertTrue(app.webViews.staticTexts["已选择 1/1 项"].waitForExistence(timeout: 8))
+    attachScreen("交互-订阅批量选择状态", app: app)
+    app.webViews.buttons["退出批量操作"].tap()
+    XCTAssertTrue(app.webViews.staticTexts["已选择 1/1 项"].waitForNonExistence(timeout: 8))
+    card.tap()
+    XCTAssertTrue(app.navigationBars["编辑订阅"].waitForExistence(timeout: 12))
+    XCTAssertTrue(app.buttons["native-sheet-close"].exists)
+    XCTAssertTrue(app.webViews.staticTexts["搜索关键词"].exists)
+    settlePage(app)
+    attachScreen("交互-订阅编辑无空闲加载线", app: app)
+    app.buttons["native-sheet-close"].tap()
+    try await setUIScenario("default")
+  }
+
+  /// 文件操作打开原详情组件，只有系统标题及关闭按钮，返回后目录保持原位。
+  func testNativeFileDetailsHeader() async throws {
+    try await setUIScenario("file")
+    let app = try signIn()
+    openMorePage("文件管理", app: app)
+    let action = app.webViews.buttons["操作 MoviePilot Demo.S01E01.2026.1080p.WEB-DL.mkv"]
+    XCTAssertTrue(action.waitForExistence(timeout: 15))
+    action.tap()
+    XCTAssertTrue(app.navigationBars["文件详情"].waitForExistence(timeout: 12))
+    XCTAssertTrue(app.buttons["native-sheet-close"].isHittable)
+    XCTAssertFalse(app.webViews.staticTexts["文件详情"].exists)
+    settlePage(app)
+    attachScreen("交互-文件详情单层标题与系统关闭", app: app)
+    app.buttons["native-sheet-close"].tap()
+    XCTAssertTrue(action.waitForExistence(timeout: 8))
+    try await setUIScenario("default")
+  }
+
+  /// 原版本历史的加载、空、短、长内容共用底部操作，不执行安装或更新。
+  func testNativeVersionHistoryFooter() async throws {
+    for scenario in ["history-loading", "history-empty", "history-short", "history-long"] {
+      try await setUIScenario(scenario)
+      let app = try signIn()
+      openMorePage("插件", app: app)
+      XCTAssertTrue(
+        app.webViews.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "演示插件"))
+          .firstMatch.waitForExistence(timeout: 15))
+      let menu = app.webViews.descendants(matching: .any).matching(identifier: "更多").firstMatch
+      XCTAssertTrue(menu.waitForExistence(timeout: 8))
+      menu.tap()
+      let history = app.descendants(matching: .any).matching(identifier: "版本历史").firstMatch
+      if history.waitForExistence(timeout: 2) {
+        history.tap()
+      } else {
+        // iOS 27 的 WebKit 不总向 XCTest 暴露此菜单；按已截图确认的只读夹具行位触控原按钮。
+        attachScreen("交互-版本历史原菜单", app: app)
+        app.coordinate(withNormalizedOffset: .zero).withOffset(
+          CGVector(dx: menu.frame.maxX - 74, dy: menu.frame.maxY + 8 + 48 * 6 + 24)
+        ).tap()
+      }
+      XCTAssertTrue(app.buttons["native-sheet-close"].waitForExistence(timeout: 12))
+      let update = app.webViews.buttons["更新到最新版本"]
+      XCTAssertTrue(update.waitForExistence(timeout: 8))
+      XCTAssertGreaterThan(update.frame.minY, app.frame.height - 160)
+      XCTAssertLessThan(update.frame.maxY, app.frame.height - 20)
+      attachScreen("交互-版本历史底部固定-\(scenario)", app: app)
+      if scenario != "history-loading" {
+        let close = app.buttons["native-sheet-close"]
+        let initial = close.frame.minY
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        origin.withOffset(CGVector(dx: app.frame.width / 2, dy: initial - 12)).press(
+          forDuration: 0.1,
+          thenDragTo: origin.withOffset(CGVector(dx: app.frame.width / 2, dy: 80)))
+        settlePage(app)
+        XCTAssertGreaterThan(update.frame.minY, app.frame.height - 160)
+        attachScreen("交互-版本历史展开底部固定-\(scenario)", app: app)
+      }
+      app.buttons["native-sheet-close"].tap()
+      app.terminate()
+    }
+    try await setUIScenario("default")
+  }
+
+  /// 仅显式启用的本机夹具可切换只读展示数据，不在产品桥或生产实例增加测试入口。
+  private func setUIScenario(_ scenario: String) async throws {
+    guard let value = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_PROCESS_FIXTURE"],
+      let fixture = URL(string: value), fixture.host == "127.0.0.1", fixture.scheme == "http"
+    else { throw XCTSkip("展示状态验收需要本机受控夹具。") }
+    var request = URLRequest(url: fixture.appendingPathComponent("__fixture/scenario"))
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: ["scenario": scenario])
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+  }
+
+  /// 系统配色只由专用模拟器夹具改变，不给产品桥增加测试或主题切换后门。
+  private func setSystemAppearance(_ appearance: String) async throws {
+    guard let value = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_PROCESS_FIXTURE"],
+      let fixture = URL(string: value), fixture.host == "127.0.0.1", fixture.scheme == "http"
+    else { throw XCTSkip("系统明暗验收需要本机受控夹具。") }
+    var request = URLRequest(url: fixture.appendingPathComponent("__fixture/appearance"))
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: ["appearance": appearance])
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+  }
+
   /// 推荐榜单返回与更多目录重复点击都以已确认 Router 位置为准。
   func testRankingBackAndMoreRoot() throws {
     let app = try signIn()
@@ -828,6 +1012,43 @@ final class NativeFrameworkTests: XCTestCase {
       app.tables["more-menu"].cells.containing(.staticText, identifier: "电影订阅").firstMatch.exists)
   }
 
+  /// 动态按钮出现与消失只平移整组导航，不重新压缩主按钮与选中反馈。
+  func testBottomNavigationKeepsItemGeometry() throws {
+    let app = try signIn()
+    app.tabBars["native-root-navigation"].buttons["更多"].tap()
+    XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
+    settlePage(app)
+    let bar = app.tabBars["native-root-navigation"]
+    let initial = bar.buttons.allElementsBoundByIndex.map(\.frame)
+    let width = bar.frame.width
+    XCTAssertFalse(app.buttons["native-bottom-action"].exists)
+    openMorePage("文件管理", app: app)
+    XCTAssertTrue(app.buttons["native-bottom-action"].waitForExistence(timeout: 12))
+    settlePage(app)
+    assertBottomLayout(app)
+    let dynamic = bar.buttons.allElementsBoundByIndex.map(\.frame)
+    let geometry = XCTAttachment(
+      string: "withoutAction=\(initial)\nwithAction=\(dynamic)\nbarWidth=\(width)")
+    geometry.name = "底栏按钮实际几何"
+    geometry.lifetime = .keepAlways
+    add(geometry)
+    XCTAssertEqual(bar.frame.width, width, accuracy: 1)
+    for i in 1..<initial.count {
+      XCTAssertEqual(
+        dynamic[i].midX - dynamic[i - 1].midX,
+        initial[i].midX - initial[i - 1].midX, accuracy: 1)
+      XCTAssertGreaterThanOrEqual(dynamic[i].midX - dynamic[i - 1].midX, 60)
+    }
+    attachScreen("交互-固定间距底栏含动态动作", app: app)
+    bar.buttons["更多"].tap()
+    XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
+    settlePage(app)
+    XCTAssertFalse(app.buttons["native-bottom-action"].exists)
+    XCTAssertEqual(bar.frame.width, width, accuracy: 1)
+    XCTAssertEqual(bar.frame.midX, app.frame.midX, accuracy: 1)
+    attachScreen("交互-固定间距底栏整组居中", app: app)
+  }
+
   /// 根页不响应侧滑，详情短滑不返回，完成侧滑只消费一次原路由返回。
   func testEdgeSwipeBackAndSheetDismissal() throws {
     let app = try signIn()
@@ -864,6 +1085,39 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertTrue(close.waitForNonExistence(timeout: 10), "业务弹窗优先消费侧滑关闭")
     XCTAssertTrue(app.navigationBars["推荐"].exists, "关闭弹窗不能跳过其下的页面")
     attachScreen("交互-左边缘侧滑关闭业务弹窗", app: app)
+  }
+
+  /// 慢速拖动并停留，视频可核对中间帧；短滑回弹后仍能连续完成同一页面的返回。
+  func testInteractiveBackCardCancellationAndCompletion() throws {
+    let app = try signIn()
+    app.tabBars["native-root-navigation"].buttons["推荐"].tap()
+    XCTAssertTrue(app.navigationBars["推荐"].waitForExistence(timeout: 10))
+    settlePage(app)
+    for cycle in 0..<2 {
+      let ranking = app.webViews.links["更多"].firstMatch
+      XCTAssertTrue(ranking.waitForExistence(timeout: 15))
+      ranking.tap()
+      XCTAssertTrue(app.buttons["返回"].waitForExistence(timeout: 10))
+      settlePage(app)
+      let title = app.navigationBars.firstMatch.identifier
+      let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.005, dy: 0.55))
+      edge.press(
+        forDuration: 0.1,
+        thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.24, dy: 0.55)),
+        withVelocity: .slow, thenHoldForDuration: 1.5)
+      XCTAssertTrue(app.navigationBars[title].exists, "松手位移不足时只回弹，不提前切换网页")
+      XCTAssertTrue(app.buttons["返回"].exists)
+      XCTAssertFalse(app.otherElements["native-back-transition"].exists)
+      attachScreen("交互-跟手卡片取消-\(cycle + 1)", app: app)
+      edge.press(
+        forDuration: 0.1,
+        thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.64, dy: 0.55)),
+        withVelocity: .slow, thenHoldForDuration: 1.5)
+      XCTAssertTrue(app.navigationBars["推荐"].waitForExistence(timeout: 10))
+      XCTAssertFalse(app.buttons["返回"].exists)
+      XCTAssertFalse(app.otherElements["native-back-transition"].exists)
+      attachScreen("交互-跟手卡片完成-\(cycle + 1)", app: app)
+    }
   }
 
   /// 系统搜索选择类型后仍使用前端既有路由和来源参数，捷径仍打开原业务弹窗。

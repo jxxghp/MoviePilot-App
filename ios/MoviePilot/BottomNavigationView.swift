@@ -1,18 +1,21 @@
 import MoviePilotCore
 import UIKit
 
-/// 单行底部框架：左侧系统 Tab Bar 承载主入口，右侧独立系统按钮承载当前页动作。
+/// 单行底部框架：系统 Tab Bar 保持固定按钮几何，动态动作只改变整组导航的位置。
 @MainActor
 final class BottomNavigationView: UIView, UITabBarDelegate {
   static let height: CGFloat = 64
   static let bottomSpacing: CGFloat = 8
   private let tabBar = UITabBar()
+  private let group = UIView()
+  private let navigationHost = UIView()
   private let actionHost = UIView()
   private var rootIds: [String] = []
   private var selectedRoot: String?
   private var onSelect: ((String) -> Void)?
   private var actionWidth: NSLayoutConstraint!
   private var actionSpacing: NSLayoutConstraint!
+  private var navigationWidth: NSLayoutConstraint!
 
   /// 固定主入口和动作的空间关系，玻璃材质、选中反馈与无障碍语义交由 UIKit。
   init() {
@@ -22,18 +25,33 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
     tabBar.delegate = self
     tabBar.itemPositioning = .fill
     tabBar.translatesAutoresizingMaskIntoConstraints = false
+    navigationHost.translatesAutoresizingMaskIntoConstraints = false
     actionHost.translatesAutoresizingMaskIntoConstraints = false
-    addSubview(tabBar)
-    addSubview(actionHost)
+    group.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(group)
+    group.addSubview(navigationHost)
+    navigationHost.addSubview(tabBar)
+    group.addSubview(actionHost)
+    navigationWidth = navigationHost.widthAnchor.constraint(equalToConstant: 294)
     actionWidth = actionHost.widthAnchor.constraint(equalToConstant: Self.height)
-    actionSpacing = tabBar.trailingAnchor.constraint(
+    actionSpacing = navigationHost.trailingAnchor.constraint(
       equalTo: actionHost.leadingAnchor, constant: -12)
+    // 浮动 Tab Bar 自带水平透明留白；允许其在宿主两侧延伸，避免与框架边距重复挤压入口。
+    let overflow: CGFloat = if #available(iOS 26, *) { 16 } else { 0 }
     NSLayoutConstraint.activate([
-      tabBar.leadingAnchor.constraint(equalTo: leadingAnchor),
-      tabBar.topAnchor.constraint(equalTo: topAnchor),
-      tabBar.bottomAnchor.constraint(equalTo: bottomAnchor),
+      group.centerXAnchor.constraint(equalTo: centerXAnchor),
+      group.topAnchor.constraint(equalTo: topAnchor),
+      group.bottomAnchor.constraint(equalTo: bottomAnchor),
+      navigationHost.leadingAnchor.constraint(equalTo: group.leadingAnchor),
+      navigationHost.topAnchor.constraint(equalTo: group.topAnchor),
+      navigationHost.bottomAnchor.constraint(equalTo: group.bottomAnchor),
+      tabBar.leadingAnchor.constraint(equalTo: navigationHost.leadingAnchor, constant: -overflow),
+      tabBar.trailingAnchor.constraint(equalTo: navigationHost.trailingAnchor, constant: overflow),
+      tabBar.topAnchor.constraint(equalTo: navigationHost.topAnchor),
+      tabBar.bottomAnchor.constraint(equalTo: navigationHost.bottomAnchor),
+      navigationWidth,
       actionSpacing,
-      actionHost.trailingAnchor.constraint(equalTo: trailingAnchor),
+      actionHost.trailingAnchor.constraint(equalTo: group.trailingAnchor),
       // Tab Bar 包含系统底部区域，动态按钮与整个栏的垂直中心对齐，避免比主入口高一层。
       actionHost.centerYAnchor.constraint(equalTo: tabBar.centerYAnchor),
       actionHost.heightAnchor.constraint(equalToConstant: Self.height),
@@ -43,6 +61,15 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
 
   /// 底栏由当前实例会话创建，不支持 storyboard 恢复。
   required init?(coder: NSCoder) { fatalError("Use init()") }
+
+  /// 总是按“有动态动作”的可用宽度计算一次按钮间距；隐藏动作不能触发主入口重新分配。
+  override func layoutSubviews() {
+    let count = CGFloat(max(1, rootIds.count))
+    let maximum = max(0, bounds.width - Self.height - 12)
+    let width = min(maximum, count * 72 + 8)
+    if abs(navigationWidth.constant - width) > 0.5 { navigationWidth.constant = width }
+    super.layoutSubviews()
+  }
 
   /// 快照确认后才更新选中项；动作控件使用与顶栏相同的 JS 回调和菜单声明。
   func apply(

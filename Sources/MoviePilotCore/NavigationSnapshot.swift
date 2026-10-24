@@ -62,6 +62,7 @@ public struct ActionSnapshot: Codable, Equatable, Sendable {
 public struct NativePanelSnapshot: Codable, Equatable, Sendable {
   public let title: String
   public let layout: NativePanelLayout?
+  public let width: NativePanelWidth?
   public let subtitle: String?
   public let profile: NativePanelProfile?
   public let search: NativePanelSearch?
@@ -73,6 +74,9 @@ public struct NativePanelSnapshot: Codable, Equatable, Sendable {
 
 /// 网格用于捷径和插件工具面板，旧版声明缺省时保持系统列表。
 public enum NativePanelLayout: String, Codable, Sendable { case grid }
+
+/// 通知等长正文面板明确请求全宽；缺省保留短菜单的内容宽度。
+public enum NativePanelWidth: String, Codable, Sendable { case full }
 
 /// 账号卡片只展示当前网页提供的昵称、身份与头像，不接触原生认证或复制用户 API。
 public struct NativePanelProfile: Codable, Equatable, Sendable {
@@ -157,6 +161,8 @@ public struct NativeSheetSnapshot: Codable, Equatable, Sendable {
   public let title: String
   public let fullscreen: Bool
   public let canDismiss: Bool
+  /// 主色等简短面板从系统 medium 开始，缺省时保留既有业务弹窗高度。
+  public let prefersMediumDetent: Bool?
   /// 旧前端缺省时直接接管；支持准备的前端先保留原底页，再移交唯一 WebView。
   public let backdropReady: Bool?
   public let actions: [NativeSheetAction]
@@ -169,12 +175,25 @@ public struct NativeSheetAction: Codable, Equatable, Sendable {
   public let enabled: Bool
 }
 
+/// 系统确认框只包含当前 Vue 提示文字和按钮状态，不能携带业务命令或脚本。
+public struct NativeConfirmationSnapshot: Codable, Equatable, Sendable {
+  public let id: String
+  public let title: String
+  public let message: String
+  public let confirmText: String
+  public let cancelText: String
+  public let confirmEnabled: Bool
+  public let cancelEnabled: Bool
+  public let destructive: Bool
+}
+
 /// 普通菜单保留底栏，业务弹窗可由具备可选能力的系统 Sheet 承载。
 public struct PresentationSnapshot: Codable, Equatable, Sendable {
   public let overlayOpen: Bool
   public let fullscreen: Bool?
   public let requestedPanel: String?
   public let sheet: NativeSheetSnapshot?
+  public let confirmation: NativeConfirmationSnapshot?
 }
 
 /// 原生显示所需的完整原子快照，受大小、数量及修订约束。
@@ -212,6 +231,17 @@ public struct NavigationSnapshot: Codable, Equatable, Sendable {
         Self.isLabel(sheet.title), sheet.actions.count <= 8,
         Set(sheet.actions.map(\.id)).count == sheet.actions.count,
         sheet.actions.allSatisfy({ BridgeValidator.isIdentifier($0.id) && Self.isLabel($0.title) })
+      else { throw BridgeError.invalidMessage }
+    }
+    if let confirmation = presentation?.confirmation {
+      let allowedBreaks = CharacterSet(charactersIn: "\n\r\t")
+      guard presentation?.overlayOpen == true,
+        BridgeValidator.isIdentifier(confirmation.id), Self.isLabel(confirmation.title),
+        Self.isLabel(confirmation.confirmText), Self.isLabel(confirmation.cancelText),
+        confirmation.message.utf8.count <= 8192,
+        !confirmation.message.unicodeScalars.contains(where: {
+          CharacterSet.controlCharacters.contains($0) && !allowedBreaks.contains($0)
+        })
       else { throw BridgeError.invalidMessage }
     }
     if let tabs = headerTabs {

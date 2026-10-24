@@ -2,7 +2,7 @@
 
 [返回首页](../README.md)
 
-普通用户可直接[下载 Release IPA 并安装](../README.md#下载-ipa-并安装)，无需编译。本页适用于需要修改源码或使用 Xcode 的开发者。
+普通用户可直接[下载 Release IPA 并安装](../guides/install.md)，无需编译。本页适用于需要修改源码或使用 Xcode 的开发者。
 
 需要 Mac、Xcode 26 或更新版本、Apple 账户和 iOS 17+ 设备。本地构建验证使用 Xcode 27.1 / iOS SDK 27.1。
 
@@ -37,7 +37,6 @@ open ios/MoviePilot.xcodeproj
 
 首次安装建议先通过数据线运行成功，再按 Xcode 的设备设置启用无线调试。开发者模式见 [Apple 官方指引](https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device)。
 
-
 ### 4. 导出安装包（可选）
 
 使用付费开发者团队时，可在 Xcode 中选择通用 iOS 设备，执行 **Product → Archive**，随后在 **Organizer → Distribute App** 中按账号和设备选择可用的开发、Ad Hoc 或 TestFlight 分发方式。接收设备必须满足所选签名方式的要求。
@@ -50,7 +49,7 @@ open ios/MoviePilot.xcodeproj
 bash scripts/build-ipa.sh 1.0.1
 ```
 
-从仓库根目录执行，产物位于 `artifacts/MoviePilot-1.0.0-unsigned.ipa`，同时生成 `SHA256SUMS`。脚本使用真机 iPhoneOS SDK 和 arm64 架构，校验版本、ZIP 及 Mach-O 平台；安装者仍须自行重签。
+从仓库根目录执行，产物位于 `artifacts/MoviePilot-1.0.1-unsigned.ipa`，同时生成 `SHA256SUMS`。脚本使用真机 iPhoneOS SDK 和 arm64 架构，校验版本、ZIP 及 Mach-O 平台；安装者仍须自行重签。
 
 工程当前版本为 1.0.1、构建号为 1。发布新版本时先更新 `ios/project.yml` 与已提交工程中的版本号，再将 `v主版本.次版本.修订版本` 标签推到 GitHub。`Release IPA` 会复用现有检查，成功后构建对应版本并发布 IPA 和校验文件。
 
