@@ -62,11 +62,19 @@ public struct ActionSnapshot: Codable, Equatable, Sendable {
 public struct NativePanelSnapshot: Codable, Equatable, Sendable {
   public let title: String
   public let subtitle: String?
+  public let profile: NativePanelProfile?
   public let search: NativePanelSearch?
   public let sections: [NativePanelSection]
   public let loading: Bool?
   public let hasMore: Bool?
   public let emptyText: String?
+}
+
+/// 账号卡片只展示当前网页提供的昵称、身份与头像，不接触原生认证或复制用户 API。
+public struct NativePanelProfile: Codable, Equatable, Sendable {
+  public let name: String
+  public let detail: String?
+  public let image: String?
 }
 
 /// 搜索词只由系统输入框和当前网页状态同步，不包含后端接口地址。
@@ -247,6 +255,11 @@ public struct NavigationSnapshot: Codable, Equatable, Sendable {
       panel.emptyText.map(isLabel) ?? true, panel.sections.count <= 16,
       Set(panel.sections.map(\.id)).count == panel.sections.count
     else { throw BridgeError.invalidMessage }
+    if let profile = panel.profile {
+      guard isLabel(profile.name), profile.detail.map(isLabel) ?? true,
+        profile.image.map(isProfileImageReference) ?? true
+      else { throw BridgeError.invalidMessage }
+    }
     if let search = panel.search {
       guard search.text.utf8.count <= 1024, isLabel(search.placeholder),
         !search.text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
@@ -283,6 +296,16 @@ public struct NavigationSnapshot: Codable, Equatable, Sendable {
       !value.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
       let url = URL(string: value), let scheme = url.scheme?.lowercased(),
       ["https", "http"].contains(scheme), url.host != nil, url.user == nil, url.password == nil
+    else { return false }
+    return true
+  }
+
+  /// 内联头像限定为前端生成的八 KiB JPEG，其他图片沿用无凭据的 HTTP(S) 资源规则。
+  public static func isProfileImageReference(_ value: String) -> Bool {
+    if isImageReference(value) { return true }
+    let prefix = "data:image/jpeg;base64,"
+    guard value.utf8.count <= 8192, value.hasPrefix(prefix),
+      let data = Data(base64Encoded: String(value.dropFirst(prefix.count))), !data.isEmpty
     else { return false }
     return true
   }

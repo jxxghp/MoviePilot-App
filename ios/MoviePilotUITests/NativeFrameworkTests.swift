@@ -607,6 +607,9 @@ final class NativeFrameworkTests: XCTestCase {
       let panel = app.tables["native-quick-panel"]
       XCTAssertTrue(panel.waitForExistence(timeout: 8))
       settlePage(app)
+      if title == "捷径" {
+        XCTAssertLessThan(panel.frame.width, app.frame.width - 80, "短菜单按内容收窄，不统一占满横向空间")
+      }
       XCTAssertGreaterThanOrEqual(panel.frame.minY, 100, "浮层不能藏在系统顶栏后")
       XCTAssertLessThan(panel.frame.maxY, app.frame.height - 75, "普通面板为底栏保留显示区域")
       if title == "搜索" {
@@ -633,9 +636,17 @@ final class NativeFrameworkTests: XCTestCase {
     let userPanel = app.tables["native-quick-panel"]
     XCTAssertTrue(userPanel.waitForExistence(timeout: 8))
     settlePage(app)
+    XCTAssertTrue(app.staticTexts["native-profile-name"].exists)
+    XCTAssertTrue(app.staticTexts["native-profile-detail"].exists)
+    let avatar = app.images["native-profile-avatar"]
+    XCTAssertTrue(avatar.exists)
+    let avatarLoaded = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "value == %@", "头像已加载"), object: avatar)
+    XCTAssertEqual(XCTWaiter.wait(for: [avatarLoaded], timeout: 15), .completed)
+    attachScreen("交互-原生用户信息与头像", app: app)
     let medals = userPanel.cells["native-panel-item-medals"]
     if medals.waitForExistence(timeout: 3) {
-      if !medals.isHittable {
+      for _ in 0..<3 where !medals.isHittable {
         // 系统浮层的表格框包含导航栏，用内容区中的明确触点执行真实滚动。
         userPanel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).press(
           forDuration: 0.05,

@@ -5,6 +5,30 @@ import Testing
 
 /// 系统面板只接受有界展示声明，兼容旧网页且拒绝恶意层级与重复标识。
 struct NativePanelTests {
+  /// 账号信息有独立展示边界，大型或非栅格内联内容不能占满跨桥消息。
+  @Test func validatesProfileSummaryAndThumbnail() throws {
+    let accepted: [String] = [
+      "https://image.example/avatar.png", "data:image/jpeg;base64,/9j/2Q==",
+    ]
+    let rejected = [
+      "data:image/svg+xml,<svg/>", "file:///tmp/avatar.png",
+      "https://user:pass@example/avatar.png", "data:image/jpeg;base64,not-a-base64",
+      "data:image/jpeg;base64," + String(repeating: "a", count: 8192),
+    ]
+    for image in accepted + rejected {
+      let value = try snapshot(panel: [
+        "title": "用户菜单", "profile": ["name": "MoviePilot", "detail": "管理员", "image": image],
+        "sections": [],
+      ])
+      if accepted.contains(image) {
+        try value.validate()
+        #expect(value.actions[0].panel?.profile?.name == "MoviePilot")
+      } else {
+        #expect(throws: BridgeError.invalidMessage) { try value.validate() }
+      }
+    }
+  }
+
   /// 新声明优先，旧全局标识保持兼容，相似的页面标识不能误入常用入口。
   @Test func separatesGlobalActionsFromPageRegistrations() throws {
     /// 从跨桥 JSON 解码，覆盖旧版省略范围字段的真实兼容路径。
