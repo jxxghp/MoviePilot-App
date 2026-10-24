@@ -17,42 +17,31 @@
 
 ## 安装前准备
 
-需要 Mac、**Xcode 26 或更新版本**、Apple 账户，以及运行 **iOS 17+** 的 iPhone。iOS 26+ 才会显示系统 Liquid Glass。本地构建验证使用 Xcode 27.1 / iOS SDK 27.1。
+- 一台运行 **iOS 17+** 的 iPhone，以及自己的 Apple 账户；iOS 26+ 可显示系统 Liquid Glass。
+- 自己的 MoviePilot 实例地址和登录账号。实例建议使用 [MoviePilot-Frontend v3.1.10](https://github.com/jxxghp/MoviePilot-Frontend/releases/tag/v3.1.10) 或更新的兼容前端，以启用完整原生导航。
+- 首次配置第三方安装工具时需要一台电脑；使用 SideStore 完成初始配置后，可在手机上安装和续签。
 
-App 连接你自己的 MoviePilot 实例，不内置后端或业务前端。完整原生导航需要实例使用支持容器桥接的 MoviePilot-Frontend；不支持的前端会保留网页导航。适配源码也通过本仓的 [前端补丁](integration/MoviePilot-Frontend-native.patch) 提供，构建方法见下文。
+## 下载 IPA 并安装
 
-## 个人打包并安装到 iPhone
+在 [最新 Release](https://github.com/jxxghp/MoviePilot-App/releases/latest) 下载 `MoviePilot-版本号-unsigned.ipa`，初始版本为 **1.0.0**。安装包由 GitHub Actions 构建，**需要使用自己的 Apple 账户重签安装，不能下载后直接点开安装**。免费账户即可，无需付费开发者账号或 Xcode。
 
-### 1. 下载并打开工程
+### 通过 SideStore 安装并自动续签
 
-```sh
-git clone https://github.com/jxxghp/MoviePilot-App.git
-cd MoviePilot-App
-open ios/MoviePilot.xcodeproj
-```
+1. 按 [SideStore 准备指南](https://docs.sidestore.io/docs/installation/prerequisites) 和 [安装指南](https://docs.sidestore.io/docs/installation/install) 完成首次设置。当前官方流程使用电脑上的 **iloader** 安装 SideStore，并在 iPhone 上配置 **LocalDevVPN**、信任个人签名和开启开发者模式。
+2. 在手机上打开 SideStore，使用首次配置时的同一 Apple 账户登录。在 **My Apps（我的 App）** 中先刷新 SideStore 自身一次，完成初始化。
+3. 将下载的 MoviePilot IPA 保存到 iPhone 的“文件”App，在 SideStore 的 **My Apps** 页面导入该文件，等待签名和安装完成。
+4. 安装、更新和续签时，连接 **Wi-Fi** 并开启 **LocalDevVPN**；在 iPhone **设置 → 通用 → 后台 App 刷新**中允许 SideStore 刷新。SideStore 会周期性在后台为自己和已安装的 App 续签，日常续签不需要连接电脑。
+5. 定期查看 **My Apps** 中的剩余有效天数。自动续签失败时，在到期前点击剩余天数或 **Refresh All（全部刷新）**手动续签。升级 MoviePilot 时，从 Release 下载新版 IPA，使用同一平台和 Apple 账户覆盖安装。
 
-工程和共享 Scheme 已提交，直接打开即可；Swift 核心包位于仓库内，不需要 CocoaPods。
+免费账户的签名通常有效 **7 天**，同时激活的 App 一般最多 **3 个（包含 SideStore 自身）**。具体限制、后台刷新和故障处理以 [SideStore 官方 FAQ](https://docs.sidestore.io/docs/faq) 为准。
 
-### 2. 配置个人签名
+### 其他安装工具
 
-1. 在 Xcode 的 **Settings → Accounts** 中添加 Apple 账户。
-2. 选择 `MoviePilot` 工程、`MoviePilot` Target，进入 **Signing & Capabilities**。
-3. 打开 **Automatically manage signing**，将 **Team** 选为自己的 Personal Team 或开发者团队。
-4. 将 **Bundle Identifier** 改为自己唯一的值，例如 `com.yourname.moviepilot`。只改本机配置，不提交团队信息、证书或描述文件。
+也可使用 [AltStore Classic](https://altstore.io/) 或 [Sideloadly](https://sideloadly.io/) 导入同一个 IPA。AltStore Classic 的日常刷新通常需要可连接的 AltServer；Sideloadly 的自动续签需要电脑上的刷新组件运行。按所选工具的官方指南完成签名、安装和自动刷新设置。
 
-免费 Apple 账户可通过 Personal Team 在自己的设备上运行。免费签名的描述文件通常 **7 天到期**，届时需重新连接 Xcode 构建安装；它不等于 TestFlight 或 App Store 分发资格。限制以 [Apple 个人团队说明](https://developer.apple.com/help/account/basics/about-your-developer-account#enable-a-personal-team-in-xcode) 为准。
+Release 同时提供 `SHA256SUMS`。将它与 IPA 放在同一目录，在 macOS 运行 `shasum -a 256 -c SHA256SUMS`；Windows 可用 `Get-FileHash .\MoviePilot-1.0.0-unsigned.ipa -Algorithm SHA256` 对照校验。
 
-### 3. 连接并安装
-
-1. 用数据线连接 iPhone，解锁并选择“信任这台电脑”。
-2. 按 Xcode 提示，在 iPhone 的 **设置 → 隐私与安全性 → 开发者模式**中启用开发者模式，并完成重启确认。
-3. Xcode 顶部选择 `MoviePilot` Scheme 和自己的 **真实 iPhone**，等待设备准备完成。
-4. 点击 **Run（⌘R）**。Xcode 会编译、签名、安装并启动 App。
-5. 若系统提示开发者不受信任，按提示在 **设置 → 通用 → VPN 与设备管理**中信任自己的开发者签名，再打开 App。
-
-首次安装建议先通过数据线运行成功，再按 Xcode 的设备设置启用无线调试。开发者模式见 [Apple 官方指引](https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device)。
-
-### 4. 连接 MoviePilot
+## 连接 MoviePilot
 
 输入手机能够访问的 MoviePilot 地址并登录。同一局域网可使用服务器的私网 IP；手机里的 `localhost` 指向手机自身，连接 Mac 上的前端时应填写 Mac 的局域网地址。访问本地服务时允许 App 的“本地网络”权限。
 
@@ -62,43 +51,7 @@ open ios/MoviePilot.xcodeproj
 
 IPv6 地址可使用 `http://[fd00::1234]:3000/` 这样的写法。带 `%en0` 等网卡标识的 IPv6 地址不受网页 URL 支持，请改用实例的 `.local` 主机名或其他可访问地址。
 
-### 5. 导出安装包（可选）
-
-使用付费开发者团队时，可在 Xcode 中选择通用 iOS 设备，执行 **Product → Archive**，随后在 **Organizer → Distribute App** 中按账号和设备选择可用的开发、Ad Hoc 或 TestFlight 分发方式。接收设备必须满足所选签名方式的要求。
-
-个人免费账户建议使用上面的 Xcode Run 安装。当前仓库不提供通用签名 IPA，也未提交 App Store；模拟器产物不能安装到真实 iPhone。
-
-## 构建兼容前端
-
-优先部署 [MoviePilot-Frontend v3.1.10](https://github.com/jxxghp/MoviePilot-Frontend/releases/tag/v3.1.10) 或更新的兼容版本。需要自行构建时，在 MoviePilot-Frontend 仓库应用以下补丁；补丁增加默认关闭的容器适配、标题/操作交接、私有通知配置和相关测试，继续复用原业务页面与认证接口。
-
-使用固定基线构建，避免直接套到不同版本：
-
-```sh
-# 与 MoviePilot-App 放在同一父目录
-git clone --branch v3 https://github.com/jxxghp/MoviePilot-Frontend.git
-cd MoviePilot-Frontend
-git switch -c native-ios 5a451cac
-git apply --check ../MoviePilot-App/integration/MoviePilot-Frontend-native.patch
-git apply ../MoviePilot-App/integration/MoviePilot-Frontend-native.patch
-
-# 使用项目支持的 Node.js 与 Yarn Classic
-yarn install --frozen-lockfile
-yarn build
-```
-
-将 `dist/` 部署为你的 MoviePilot 前端，并继续代理同一实例的 `/api/` 等后端接口。App 应连接完整前端地址。
-
-个人在局域网试用时，也可让 Mac 运行构建后的前端预览并代理现有实例：
-
-```sh
-MOVIEPILOT_DEV_PROXY_TARGET=https://your-moviepilot.example.com \
-  yarn preview --host 0.0.0.0 --port 5186 --strictPort
-```
-
-在 App 中连接 `http://Mac的局域网IP:5186`，Mac 与 iPhone 保持同一局域网。该预览进程需持续运行，仅用于受信任的本地测试。正式使用时请部署 `dist/` 并配置 HTTPS。
-
-补丁更新后应重新构建并部署前端。协议不兼容时会回退网页导航；这不表示原生导航已接管成功。
+完整原生导航需要兼容的前端。不支持容器桥接的旧前端会保留网页导航；需要自行适配时，见[前端兼容与构建说明](integration/README.md)。
 
 ## 消息通知
 
@@ -106,16 +59,16 @@ MOVIEPILOT_DEV_PROXY_TARGET=https://your-moviepilot.example.com \
 
 | 安装签名 | 使用方式 | 系统通知归属 |
 | --- | --- | --- |
-| 免费 Personal Team 自签 | 添加专用通知网页到主屏幕 | 主屏幕“MoviePilot 通知” |
+| 免费 Apple 账户自签 | 添加专用通知网页到主屏幕 | 主屏幕“MoviePilot 通知” |
 | 具备 Push Notifications 权限的开发者签名 | App 原生 APNs | MoviePilot App |
 
 免费签名没有原生 APNs 权限，Server 中转也不能补上该权限。主屏幕 Web Push 不需要付费开发者账号，不要求 App 常驻前台；通知由主屏幕网页接收，点击后可选择返回 App 或打开实例网页。WKWebView 不会继承 Safari/PWA 的订阅；原 PWA 的 Web Push 和其他通知渠道继续独立使用。[WebKit 平台说明](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/)
 
 ### 免费自签：配置私有 Server 和主屏幕通知
 
-1. 更新 MoviePilot 后端与兼容前端，使用运营者提供的 MoviePilot-Server 消息中心。中心统一维护 HTTPS、数据库、Redis 和 VAPID 私钥，并开启自动接入；个人也可按 [Server 部署说明](https://github.com/jxxghp/MoviePilot-Server#私有-app-消息推送) 自行部署，无需为每个用户另建一套服务。
+1. 更新 MoviePilot 后端与兼容前端。App 默认内置 `https://movie-pilot.org` 通知服务中心，通常无需自行部署 Server；使用自建中心时可参考 [Server 部署说明](https://github.com/jxxghp/MoviePilot-Server/blob/main/docs/PUSH.md)。
 2. 在 MoviePilot 的通知渠道中添加 **AppPush**，启用所需消息类型。消息中心地址留空使用 `MP_SERVER_HOST`，也可填写运营者提供的地址；后台自动创建并登记独立凭据，不需要向运营者索取密钥或在 Server 注册账号。已有手工接入保留在兼容设置中。默认通知路由使用管理员，需要其他本地用户接收时选择现有的用户路由。
-3. 在 App 登录该实例，打开右上角 **三点 → 连接与显示 → 通知**，点击“生成绑定码”。绑定码十分钟有效、只能使用一次。
+3. 在 App 登录该实例，打开右上角 **三点 → 连接与显示 → 通知**。服务中心默认内置为 `https://movie-pilot.org`，可修改并按实例保存；已有后台中心配置会自动沿用。更换时须与后台 AppPush 的消息中心地址一致。点击“生成绑定码”，绑定码十分钟有效、只能使用一次。
 4. 点击“打开通知网页”，在 Safari 中打开该地址，使用 **分享 → 添加到主屏幕**。再从主屏幕启动通知网页，粘贴绑定码并允许通知。
 5. 点击“发送测试通知”。之后下载、入库或订阅消息按已开启的通知类型经 Server 投递。点击通知后选择“在 App 中打开”，会返回当前实例原有的业务页面；默认进入现有 HTML 通知中心。
 
@@ -142,29 +95,8 @@ MOVIEPILOT_APNS_ENVIRONMENT = development
 
 实现参考了 [MoviePilotLite](https://github.com/singleton-altman/MoviePilotLite) 的中转与设备绑定思路和 [MoviePilotAppPush](https://github.com/buzhengg/MoviePilotAppPush) 的 APNs 链路。本项目独立实现，使用自己的 Server；两个参考项目的 iOS 原生通知同样依赖 APNs 权限。
 
-## 开发与验证
+## 开发
 
-```sh
-# 核心协议、认证、地址与会话边界测试
-zsh scripts/test-core.sh
-
-# 无签名模拟器构建，仅用于编译检查
-xcodebuild -project ios/MoviePilot.xcodeproj -scheme MoviePilot \
-  -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO build
-```
-
-UI 测试位于 `ios/MoviePilotUITests`，通过私有运行配置提供 `MOVIEPILOT_E2E_SERVER`、`MOVIEPILOT_E2E_USERNAME`、`MOVIEPILOT_E2E_PASSWORD`；未配置时跳过实例联调。凭据、签名材料、`DerivedData` 和结果包均不提交。
-
-```text
-ios/          UIKit / WKWebView App、资源与 UI 测试
-Sources/      可独立编译的 Swift 核心
-Tests/        核心边界测试
-integration/  MoviePilot-Frontend 容器适配源码补丁
-screenshots/  公开截图、索引和离线截图册
-scripts/      本地验证入口
-```
-
-仍需完成真实 iPhone、横屏/键盘完整矩阵、文件/外链、前后台与内容进程恢复、OTP/签名 Keychain 和 APNs 的完整验收。Android 延后规划。
+自行构建、Xcode 安装和测试见 [iOS 开发说明](ios/README.md)；前端源码适配见 [集成说明](integration/README.md)。
 
 MoviePilot-Frontend 及 Logo 来自 [MoviePilot-Frontend](https://github.com/jxxghp/MoviePilot-Frontend)，沿用其 MIT 许可。

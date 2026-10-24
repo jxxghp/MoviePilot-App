@@ -92,7 +92,32 @@ final class NativeFrameworkTests: XCTestCase {
       predicate: NSPredicate(format: "isEnabled == true"),
       object: settings.cells["notification-generate"])
     XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 15), .completed)
+    settings.cells["notification-center-reset"].tap()
+    let serviceCenter = settings.cells["notification-service-center"]
+    XCTAssertEqual(serviceCenter.value as? String, "https://movie-pilot.org")
     attachScreen("通知-免费自签与主屏幕入口", app: app)
+    serviceCenter.tap()
+    let centerEditor = app.alerts["通知服务中心"]
+    XCTAssertTrue(centerEditor.textFields["notification-center-address"].exists)
+    XCTAssertEqual(
+      centerEditor.textFields["notification-center-address"].value as? String,
+      "https://movie-pilot.org")
+    centerEditor.buttons["取消"].tap()
+    app.buttons["完成"].tap()
+    app.buttons["操作菜单"].tap()
+    app.buttons["连接与显示"].tap()
+    app.buttons["通知"].firstMatch.tap()
+    XCTAssertTrue(settings.waitForExistence(timeout: 10))
+    XCTAssertEqual(serviceCenter.value as? String, "https://movie-pilot.org")
+    let loaded = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "isEnabled == true"),
+      object: settings.cells["notification-generate"])
+    XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 15), .completed)
+    settings.cells["notification-generate"].tap()
+    XCTAssertTrue(app.alerts["通知"].waitForExistence(timeout: 15))
+    XCTAssertFalse(settings.cells["notification-copy-code"].exists)
+    app.alerts["通知"].buttons["好"].tap()
+    settings.cells["notification-center-instance"].tap()
     settings.cells["notification-generate"].tap()
     XCTAssertTrue(settings.cells["notification-copy-code"].waitForExistence(timeout: 15))
     attachScreen("通知-Server一次性绑定码", app: app)
