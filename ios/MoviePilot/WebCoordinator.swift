@@ -587,14 +587,12 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
     withError error: Error
   ) {
-    if (error as NSError).code != NSURLErrorCancelled {
-      fail("请检查服务地址、网络连接和局域网访问权限；HTTPS 证书需要受系统信任。")
-    }
+    if let message = ConnectionFailure(error).errorDescription { fail(message) }
   }
 
   /// 已提交文档的加载错误同样进入可操作的恢复状态。
   func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-    if (error as NSError).code != NSURLErrorCancelled { fail("页面加载中断，请检查连接后重试。") }
+    if let message = ConnectionFailure(error).errorDescription { fail(message) }
   }
 
   /// 系统回收内容进程后让用户明确恢复，避免重放进行中的写操作。

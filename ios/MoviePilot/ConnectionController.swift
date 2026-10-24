@@ -70,8 +70,9 @@ final class ConnectionController: UIViewController, UITextFieldDelegate {
       addressField.heightAnchor.constraint(greaterThanOrEqualToConstant: 56),
       connect.heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
     ])
-    if let previous = instances.instances.last {
+    if let previous = instances.selected ?? instances.instances.last {
       addressField.text = previous.address.url.absoluteString
+      _ = showCompatibilityError(previous.address)
     }
   }
 
@@ -85,6 +86,7 @@ final class ConnectionController: UIViewController, UITextFieldDelegate {
   private func submit() {
     do {
       let address = try ServerAddress(addressField.text ?? "")
+      guard !showCompatibilityError(address) else { return }
       let instance = try instances.select(address)
       view.endEditing(true)
       onConnect(instance)
@@ -101,5 +103,14 @@ final class ConnectionController: UIViewController, UITextFieldDelegate {
       errorLabel.isHidden = false
       UIAccessibility.post(notification: .announcement, argument: errorLabel.text)
     }
+  }
+
+  /// 浏览器不支持的地址停留在可编辑的配置页，不让原生 API 成功掩盖网页无法加载。
+  private func showCompatibilityError(_ address: ServerAddress) -> Bool {
+    guard let message = address.webCompatibilityError else { return false }
+    errorLabel.text = message
+    errorLabel.isHidden = false
+    UIAccessibility.post(notification: .announcement, argument: message)
+    return true
   }
 }

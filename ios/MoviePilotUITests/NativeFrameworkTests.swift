@@ -1,8 +1,79 @@
 import XCTest
 
+/// 隔离网络夹具只提供测试地址，不包含真实实例账号或凭据。
+private struct NetworkFixtures: Decodable {
+  let servers: [String]
+  let untrustedCertificate: String
+  let unavailable: String
+  let timedOut: String
+  let unsupportedScopedIPv6: String
+}
+
 /// 使用显式配置的测试实例验收原生框架与原业务 HTML 的真实交接，不写入业务数据。
 @MainActor
 final class NativeFrameworkTests: XCTestCase {
+  /// 同时验证原生初始化请求与真实 WKWebView 加载，不能用宿主进程请求代替 App 网络。
+  func testLocalNetworkTransports() async throws {
+    let fixtures = try await networkFixtures()
+    XCTAssertGreaterThanOrEqual(fixtures.servers.count, 4, "需覆盖 IPv4、IPv6、私网及本地名称")
+    for (index, server) in fixtures.servers.enumerated() {
+      let app = try launchLogin(server: server)
+      XCTAssertTrue(app.buttons["在网页初始化"].waitForExistence(timeout: 25), "原生请求须收到夹具的未初始化状态")
+      app.buttons["使用网页登录"].tap()
+      XCTAssertTrue(app.webViews.staticTexts["网络连接验收就绪"].waitForExistence(timeout: 20))
+      attachScreen("网络-原生请求与网页加载-\(index + 1)", app: app)
+      app.terminate()
+    }
+  }
+
+  /// 明确覆盖浏览器不支持的网卡标识地址，保留编辑入口并避免先进入一个无法工作的登录页。
+  func testScopedIPv6AddressRecovery() async throws {
+    let fixtures = try await networkFixtures()
+    let app = launchConnection(server: fixtures.unsupportedScopedIPv6)
+    XCTAssertTrue(
+      app.staticTexts["此 IPv6 地址包含网卡标识，网页无法使用。请改用 .local 主机名或其他可访问的地址。"]
+        .waitForExistence(timeout: 10))
+    XCTAssertTrue(app.textFields["MoviePilot 服务地址"].isEnabled)
+    XCTAssertTrue(app.buttons["连接"].isEnabled)
+    XCTAssertFalse(app.textFields["用户名"].exists)
+    attachScreen("网络-网卡标识地址兼容提示", app: app)
+  }
+
+  /// 证书错误、服务不可达及超时必须有具体提示，网页失败还须保留恢复入口。
+  func testNetworkFailureRecovery() async throws {
+    let fixtures = try await networkFixtures()
+    let cases = [
+      (fixtures.untrustedCertificate, "服务器的 HTTPS 证书未受系统信任或已失效。请修复证书后重试。"),
+      (fixtures.unavailable, "无法连接服务，请检查地址、端口和服务状态后重试。"),
+      (fixtures.timedOut, "连接超时，请检查网络及服务状态后重试。"),
+    ]
+    for (index, scenario) in cases.enumerated() {
+      let app = try launchLogin(server: scenario.0)
+      XCTAssertTrue(app.staticTexts[scenario.1].waitForExistence(timeout: 30))
+      XCTAssertTrue(app.buttons["更改地址"].isEnabled)
+      XCTAssertTrue(app.buttons["使用网页登录"].isEnabled)
+      attachScreen("网络-原生失败提示-\(index + 1)", app: app)
+      if index < 2 {
+        app.buttons["使用网页登录"].tap()
+        XCTAssertTrue(app.staticTexts[scenario.1].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["重新打开"].isEnabled)
+        app.buttons["更改服务地址"].tap()
+        XCTAssertTrue(app.textFields["MoviePilot 服务地址"].waitForExistence(timeout: 10))
+        attachScreen("网络-失败后更改地址-\(index + 1)", app: app)
+      }
+      app.terminate()
+    }
+  }
+
+  /// 网络验收仅使用显式指定的本机夹具；普通 CI 不访问用户实例或外部网络。
+  private func networkFixtures() async throws -> NetworkFixtures {
+    guard let value = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_NETWORK_FIXTURE"],
+      let url = URL(string: value), url.host == "127.0.0.1", url.scheme == "http"
+    else { throw XCTSkip("网络矩阵需要显式配置本机隔离夹具。") }
+    let (data, _) = try await URLSession.shared.data(from: url.appendingPathComponent("__cases"))
+    return try JSONDecoder().decode(NetworkFixtures.self, from: data)
+  }
+
   /// 隔离中转夹具验证原生设置、真实绑定码与主屏幕通知链接，不访问外部推送服务。
   func testNotificationSettingsAndHotLink() async throws {
     guard let fixture = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_NOTIFICATION_FIXTURE"],
@@ -395,7 +466,17 @@ final class NativeFrameworkTests: XCTestCase {
     app.secureTextFields["密码"].tap()
     XCUIDevice.shared.orientation = .landscapeLeft
     settlePage(app)
+    XCTAssertGreaterThan(app.frame.width, app.frame.height, "等待 App 完成横屏布局")
     attachScreen("框架-登录横屏与键盘", app: app)
+    let hierarchy = XCTAttachment(string: app.debugDescription)
+    hierarchy.name = "框架-空白横屏登录布局"
+    hierarchy.lifetime = .keepAlways
+    add(hierarchy)
+    let field = app.secureTextFields["密码"]
+    let viewport = app.scrollViews.firstMatch.frame
+    XCTAssertTrue(field.isHittable, "旋转后当前输入框仍可操作")
+    XCTAssertGreaterThanOrEqual(field.frame.minY, viewport.minY, "输入框上沿不能藏在导航栏后")
+    XCTAssertLessThanOrEqual(field.frame.maxY, viewport.maxY, "输入框下沿不能超出可见滚动区域")
     XCUIDevice.shared.orientation = .portrait
   }
 
@@ -423,9 +504,20 @@ final class NativeFrameworkTests: XCTestCase {
   }
 
   /// 从空白实例选择启动，连接后停在原生登录界面，不提交任何认证请求。
-  private func launchLogin() throws -> XCUIApplication {
-    guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_SERVER"], !server.isEmpty
+  private func launchLogin(server: String? = nil) throws -> XCUIApplication {
+    guard let server = server ?? ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_SERVER"],
+      !server.isEmpty
     else { throw XCTSkip("需要指定私有验收实例。") }
+    let app = launchConnection(server: server)
+    let account = app.textFields["用户名"]
+    XCTAssertTrue(account.waitForExistence(timeout: 15))
+    XCTAssertTrue(app.secureTextFields["密码"].exists)
+    attachScreen("框架-登录", app: app)
+    return app
+  }
+
+  /// 启动空白选择并通过真实地址输入提交连接，供成功路径与地址校验失败共用。
+  private func launchConnection(server: String) -> XCUIApplication {
     continueAfterFailure = false
     XCUIDevice.shared.orientation = .portrait
     let app = XCUIApplication()
@@ -438,15 +530,12 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertTrue(address.waitForExistence(timeout: 10))
     attachScreen("框架-连接", app: app)
     address.tap()
-    if let current = address.value as? String, current.hasPrefix("http") {
-      address.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
-    }
+    let clear = address.buttons.firstMatch
+    if clear.exists { clear.tap() }
+    address.typeText(server)
+    XCTAssertEqual(address.value as? String, server, "先确认地址已完整替换，再提交连接")
     // 使用 URL 键盘的前往键，避免自动滚动按钮时打断根控制器交接。
-    address.typeText(server + "\n")
-    let account = app.textFields["用户名"]
-    XCTAssertTrue(account.waitForExistence(timeout: 15))
-    XCTAssertTrue(app.secureTextFields["密码"].exists)
-    attachScreen("框架-登录", app: app)
+    address.typeText("\n")
     return app
   }
 
@@ -527,7 +616,7 @@ final class NativeFrameworkTests: XCTestCase {
   /// 将系统最终画面保存在测试结果包中，避免仅以节点查询替代外观验收。
   private func attachScreen(_ name: String, app: XCUIApplication) {
     dismissUpdateReminderIfVisible(app)
-    let attachment = XCTAttachment(screenshot: app.screenshot())
+    let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
     attachment.name = name
     attachment.lifetime = .keepAlways
     add(attachment)

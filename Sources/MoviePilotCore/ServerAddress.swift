@@ -88,6 +88,12 @@ public struct ServerAddress: Codable, Equatable, Sendable {
   /// 精确比较浏览器来源，子域、不同协议或非默认端口均属于另一来源。
   public func contains(_ candidate: URL) -> Bool { WebOrigin(url: candidate) == origin }
 
+  /// Foundation 可保存带网卡标识的 IPv6，但浏览器 URL 不支持；保留旧配置身份并阻止连接。
+  public var webCompatibilityError: String? {
+    guard origin.host.contains(":"), origin.host.contains("%") else { return nil }
+    return "此 IPv6 地址包含网卡标识，网页无法使用。请改用 .local 主机名或其他可访问的地址。"
+  }
+
   /// 允许私网、链路本地、回环和本地 DNS 的明文地址；ATS 仍由系统独立检查。
   public static func isLocalHost(_ host: String) -> Bool {
     let host = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))

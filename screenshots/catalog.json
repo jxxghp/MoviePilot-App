@@ -290,6 +290,11 @@
     "file": "screens/58.png"
   },
   {
+    "title": "HTTPS 证书错误提示",
+    "group": "连接与登录",
+    "file": "screens/69.png"
+  },
+  {
     "title": "免费自签通知设置",
     "group": "通知",
     "file": "screens/59.png"
