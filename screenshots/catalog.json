@@ -318,5 +318,25 @@
     "title": "通知网页返回 App",
     "group": "通知",
     "file": "screens/64.png"
+  },
+  {
+    "title": "自动接入通知渠道 · 手机浏览器",
+    "group": "中心接入",
+    "file": "screens/65.png"
+  },
+  {
+    "title": "中心推送实例 · 桌面浏览器",
+    "group": "中心接入",
+    "file": "screens/66.png"
+  },
+  {
+    "title": "中心推送实例 · 手机浏览器",
+    "group": "中心接入",
+    "file": "screens/67.png"
+  },
+  {
+    "title": "停用实例确认 · 手机浏览器",
+    "group": "中心接入",
+    "file": "screens/68.png"
   }
 ]

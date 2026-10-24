@@ -103,6 +103,63 @@ index bb3d4691..348b357a 100644
        <!-- 全局共享弹窗入口，列表与卡片按需在这里挂载业务弹窗。 -->
        <SharedDialogHost />
        <!-- PWA安装提示 -->
+diff --git a/src/api/manage.ts b/src/api/manage.ts
+index 1907fc17..65d94217 100644
+--- a/src/api/manage.ts
++++ b/src/api/manage.ts
+@@ -32,6 +32,11 @@ export function manageNotificationChannel<T = Record<string, unknown>>(
+   return manageTarget<T>('notification/manage', { target: channel, action, params }, config)
+ }
+ 
++/** 通过管理员专用入口轮换已保存渠道的自动接入凭据，不接收或返回密钥。 */
++export function rotateAppPushInstance(source: string): Promise<{ rotated: boolean }> {
++  return api.post('notification/app/instance', { action: 'rotate', source })
++}
++
+ /** 对指定网盘存储执行管理动作，返回响应中的业务数据。 */
+ export function manageStorage<T = Record<string, unknown>>(
+   storage: string,
+diff --git a/src/components/agent/AgentAssistantPanel.vue b/src/components/agent/AgentAssistantPanel.vue
+index 367c5a7d..15388364 100644
+--- a/src/components/agent/AgentAssistantPanel.vue
++++ b/src/components/agent/AgentAssistantPanel.vue
+@@ -2864,7 +2864,8 @@ async function handleChoiceClick(message: AgentChatMessage, choice: AgentChoiceC
+ }
+ 
+ // 中止当前流式回复。
+-function stopGeneration() {
++function stopGeneration(options: { stopRemote?: boolean } = {}) {
++  const { stopRemote = true } = options
+   userAbortRequested = true
+   runnerActive.value = false
+   clearSteeringDraftState()
+@@ -2884,7 +2885,7 @@ function stopGeneration() {
+     refreshMessageList()
+   }
+   persistState()
+-  if (sessionId.value) {
++  if (stopRemote && sessionId.value) {
+     api
+       .post<unknown>(`message/agent/sessions/${encodeURIComponent(sessionId.value)}/stop`, undefined, {
+         feedback: 'silent',
+@@ -2901,7 +2902,7 @@ function stopGeneration() {
+ function startNewSession() {
+   petPickerOpen.value = false
+   invalidateProtectedDeliveries()
+-  stopGeneration()
++  stopGeneration({ stopRemote: false })
+   sessionId.value = createSessionId()
+   messages.value = []
+   pendingSteeringDrafts.clear()
+@@ -2926,7 +2927,7 @@ async function loadHistorySession(targetSessionId: string) {
+ 
+   try {
+     invalidateProtectedDeliveries()
+-    stopGeneration()
++    stopGeneration({ stopRemote: false })
+     if (!historySession.messages.length) {
+       historySession = await loadServerHistorySession(targetSessionId)
+     }
 diff --git a/src/components/cards/NotificationChannelCard.vue b/src/components/cards/NotificationChannelCard.vue
 index 87f24a9a..ac0b1763 100644
 --- a/src/components/cards/NotificationChannelCard.vue
@@ -116,10 +173,61 @@ index 87f24a9a..ac0b1763 100644
  }
  
 diff --git a/src/components/dialog/NotificationChannelInfoDialog.vue b/src/components/dialog/NotificationChannelInfoDialog.vue
-index ee0d84cd..65c0f1a8 100644
+index ee0d84cd..5d3ad5d9 100644
 --- a/src/components/dialog/NotificationChannelInfoDialog.vue
 +++ b/src/components/dialog/NotificationChannelInfoDialog.vue
-@@ -1201,6 +1201,31 @@ onMounted(() => {
+@@ -1,5 +1,5 @@
+ <script setup lang="ts">
+-import { manageNotificationChannel } from '@/api/manage'
++import { manageNotificationChannel, rotateAppPushInstance } from '@/api/manage'
+ import { NotificationConf } from '@/api/types'
+ import { useToast } from 'vue-toastification'
+ import { cloneDeep } from 'lodash-es'
+@@ -69,6 +69,35 @@ const notificationInfo = ref<NotificationConf>({
+   config: {},
+ })
+ 
++const appPushManualPanel = ref<string>()
++const appPushRotating = ref(false)
++const appPushCanRotate = computed(() => {
++  const saved = props.notifications.find(item => item.id === notificationInfo.value.id)
++  return Boolean(
++    saved?.enabled &&
++    saved.type === 'apppush' &&
++    saved.name === notificationInfo.value.name &&
++    !saved.config?.PUSH_RELAY_KEY &&
++    !notificationInfo.value.config?.PUSH_RELAY_KEY &&
++    String(saved.config?.PUSH_SERVER_URL || '').trim() ===
++      String(notificationInfo.value.config?.PUSH_SERVER_URL || '').trim(),
++  )
++})
++
++/** 仅为已保存的渠道发起轮换，草稿地址和手工密钥不会进入此请求。 */
++async function rotateAppPush() {
++  if (!appPushCanRotate.value) return
++  appPushRotating.value = true
++  try {
++    await rotateAppPushInstance(notificationInfo.value.name)
++    $toast.success(t('notification.apppush.rotated'))
++  } catch (error) {
++    $toast.error(error instanceof Error ? error.message : t('notification.apppush.rotateFailed'))
++  } finally {
++    appPushRotating.value = false
++  }
++}
++
+ // 消息类型下拉字典
+ const notificationTypes = [
+   { value: '资源下载', title: t('notificationSwitch.resourceDownload') },
+@@ -230,6 +259,7 @@ const isWechatBotMode = computed({
+ function openNotificationInfoDialog() {
+   // 替换成深复制，避免修改时影响原数据
+   notificationInfo.value = cloneDeep(props.notification)
++  appPushManualPanel.value = notificationInfo.value.config?.PUSH_RELAY_KEY ? 'manual' : undefined
+   ensureWechatConfigDefaults(notificationInfo.value)
+   ensureWechatClawBotConfigDefaults(notificationInfo.value)
+   notificationInfoDialog.value = true
+@@ -1201,6 +1231,44 @@ onMounted(() => {
                />
              </VCol>
            </VRow>
@@ -132,25 +240,225 @@ index ee0d84cd..65c0f1a8 100644
 +                v-model="notificationInfo.config.PUSH_SERVER_URL"
 +                :label="t('notification.apppush.server')"
 +                placeholder="https://push.example.com"
++                :hint="t('notification.apppush.serverHint')"
++                persistent-hint
 +              />
 +            </VCol>
 +            <VCol cols="12">
-+              <VTextField
-+                v-model="notificationInfo.config.PUSH_RELAY_KEY"
-+                type="password"
-+                autocomplete="new-password"
-+                :label="t('notification.apppush.key')"
-+                :hint="t('notification.apppush.keyHint')"
-+                persistent-hint
-+              />
++              <VExpansionPanels v-model="appPushManualPanel" variant="accordion">
++                <VExpansionPanel value="manual" :title="t('notification.apppush.manual')">
++                  <VExpansionPanelText>
++                    <VTextField
++                      v-model="notificationInfo.config.PUSH_RELAY_KEY"
++                      type="password"
++                      autocomplete="new-password"
++                      :label="t('notification.apppush.key')"
++                      :hint="t('notification.apppush.keyHint')"
++                      persistent-hint
++                    />
++                  </VExpansionPanelText>
++                </VExpansionPanel>
++              </VExpansionPanels>
 +            </VCol>
 +            <VCol cols="12"
 +              ><VAlert type="info" variant="tonal">{{ t('notification.apppush.hint') }}</VAlert></VCol
 +            >
++            <VCol v-if="appPushCanRotate" cols="12">
++              <VBtn variant="tonal" :loading="appPushRotating" prepend-icon="mdi-key-change" @click="rotateAppPush">
++                {{ t('notification.apppush.rotate') }}
++              </VBtn>
++            </VCol>
 +          </VRow>
            <VRow v-else-if="notificationInfo.type == 'webpush'">
              <VCol cols="12" md="6">
                <VTextField
+diff --git a/src/components/dialog/TransferManualReviewDialog.vue b/src/components/dialog/TransferManualReviewDialog.vue
+index b68f3217..e4ee8510 100644
+--- a/src/components/dialog/TransferManualReviewDialog.vue
++++ b/src/components/dialog/TransferManualReviewDialog.vue
+@@ -13,6 +13,7 @@ const props = defineProps<{
+ const emit = defineEmits<{
+   close: []
+   resolved: [decision: TransferManualReviewDecision]
++  discarded: []
+ }>()
+ 
+ const { t } = useI18n()
+@@ -24,6 +25,7 @@ const reason = ref('')
+ const submitError = ref('')
+ const submittingDecision = ref<TransferManualReviewDecision | null>(null)
+ const sourceCleanupConfirmed = ref(false)
++const discardConfirmed = ref(false)
+ 
+ // 跨存储移动的上传已完成，此处判定的是源文件删除，不能复用目标落地证据。
+ const isMoveSourceCleanup = computed(() => props.review.step.kind === 'delete_move_source')
+@@ -39,6 +41,7 @@ watch(
+   () => [props.review.task_id, props.review.step.operation_id, props.review.review_revision],
+   () => {
+     sourceCleanupConfirmed.value = false
++    discardConfirmed.value = false
+   },
+ )
+ 
+@@ -114,6 +117,31 @@ async function resolveManualReview(decision: TransferManualReviewDecision) {
+     submittingDecision.value = null
+   }
+ }
++
++// 显式放弃只释放 durable 整理任务，后端不会移动、删除或回滚任何文件。
++async function discardManualReview() {
++  if (submittingDecision.value || !discardConfirmed.value) return
++  submitError.value = ''
++  submittingDecision.value = 'not_applied'
++  try {
++    await api.post(
++      `transfer/tasks/${encodeURIComponent(props.review.task_id)}/manual-review/discard`,
++      {
++        operation_id: props.review.step.operation_id,
++        reason: reason.value.trim(),
++      },
++      { feedback: 'silent' },
++    )
++    toast.success('已放弃整理任务，未修改任何文件')
++    emit('discarded')
++  } catch (error) {
++    console.error('放弃整理人工复核失败:', error)
++    submitError.value = error instanceof Error ? error.message : t('dialog.transferQueue.manualReviewSubmitFailed')
++    toast.error(submitError.value)
++  } finally {
++    submittingDecision.value = null
++  }
++}
+ </script>
+ 
+ <template>
+@@ -203,6 +231,13 @@ async function resolveManualReview(decision: TransferManualReviewDecision) {
+           hide-details
+         />
+ 
++        <VCheckbox
++          v-model="discardConfirmed"
++          label="我确认仅放弃本次整理任务，保留源文件和目标文件不变"
++          :disabled="isSubmitting"
++          hide-details
++        />
++
+         <VExpansionPanels v-if="evidenceSummary" variant="accordion" class="manual-review-dialog__evidence">
+           <VExpansionPanel>
+             <VExpansionPanelTitle>{{ t('dialog.transferQueue.manualReviewEvidence') }}</VExpansionPanelTitle>
+@@ -237,6 +272,15 @@ async function resolveManualReview(decision: TransferManualReviewDecision) {
+           {{ t('dialog.transferQueue.close') }}
+         </VBtn>
+         <VSpacer />
++        <VBtn
++          color="error"
++          variant="text"
++          :loading="isSubmitting && discardConfirmed"
++          :disabled="isSubmitting || !discardConfirmed"
++          @click="discardManualReview"
++        >
++          放弃任务
++        </VBtn>
+         <VBtn
+           color="warning"
+           variant="tonal"
+diff --git a/src/components/dialog/TransferQueueDialog.vue b/src/components/dialog/TransferQueueDialog.vue
+index 7baaa1ed..b985e00d 100644
+--- a/src/components/dialog/TransferQueueDialog.vue
++++ b/src/components/dialog/TransferQueueDialog.vue
+@@ -320,8 +320,11 @@ function openManualReview(review: TransferManualReviewTask) {
+       resolved: () => {
+         void refreshQueue()
+       },
++      discarded: () => {
++        void refreshQueue()
++      },
+     },
+-    { closeOn: ['close', 'resolved'] },
++    { closeOn: ['close', 'resolved', 'discarded'] },
+   )
+ }
+ 
+diff --git a/src/components/dialog/__tests__/NotificationChannelInfoDialog.spec.ts b/src/components/dialog/__tests__/NotificationChannelInfoDialog.spec.ts
+index ec786852..5270ae0a 100644
+--- a/src/components/dialog/__tests__/NotificationChannelInfoDialog.spec.ts
++++ b/src/components/dialog/__tests__/NotificationChannelInfoDialog.spec.ts
+@@ -7,6 +7,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
+ const mocks = vi.hoisted(() => ({
+   toastError: vi.fn(),
+   toastSuccess: vi.fn(),
++  rotateAppPush: vi.fn(),
++}))
++
++vi.mock('@/api/manage', async importOriginal => ({
++  ...(await importOriginal<typeof import('@/api/manage')>()),
++  rotateAppPushInstance: mocks.rotateAppPush,
+ }))
+ 
+ vi.mock('vue-toastification', () => ({
+@@ -25,6 +31,7 @@ describe('NotificationChannelInfoDialog', () => {
+   beforeEach(() => {
+     mocks.toastError.mockReset()
+     mocks.toastSuccess.mockReset()
++    mocks.rotateAppPush.mockReset().mockResolvedValue({ rotated: true })
+     vi.stubGlobal('PushManager', class PushManagerStub {})
+     vi.stubGlobal('navigator', { serviceWorker: {} })
+     vi.stubGlobal('Notification', {
+@@ -33,6 +40,39 @@ describe('NotificationChannelInfoDialog', () => {
+     })
+   })
+ 
++  it('自动接入不要求填写密钥，修改草稿地址后禁止轮换旧中心的凭据', async () => {
++    const notification = { id: 'app-auto', name: '手机通知', type: 'apppush', enabled: true, config: {} }
++    await renderWithProviders(NotificationChannelInfoDialog, {
++      props: { modelValue: true, notification, notifications: [notification] },
++      global: { stubs: { VDialogCloseBtn: true } },
++    })
++    const rotate = await screen.findByRole('button', { name: '轮换接入凭据' })
++    expect(screen.queryByLabelText('实例中转密钥')).not.toBeInTheDocument()
++    await fireEvent.click(rotate)
++    await waitFor(() => expect(mocks.rotateAppPush).toHaveBeenCalledWith('手机通知'))
++    await fireEvent.update(screen.getByLabelText('消息中心地址（可选）'), 'https://another.test')
++    expect(screen.queryByRole('button', { name: '轮换接入凭据' })).not.toBeInTheDocument()
++  })
++
++  it('编辑已有手工接入配置时保留密钥并显示兼容入口', async () => {
++    const notification = {
++      id: 'app-manual',
++      name: '旧手机通知',
++      type: 'apppush',
++      enabled: true,
++      config: { PUSH_SERVER_URL: 'https://relay.test', PUSH_RELAY_KEY: 'existing-private-relay-key-00000001' },
++    }
++    await renderWithProviders(NotificationChannelInfoDialog, {
++      props: { modelValue: true, notification, notifications: [notification] },
++      global: { stubs: { VDialogCloseBtn: true } },
++    })
++    const input = await screen.findByLabelText('实例中转密钥')
++    expect(input).toHaveValue(notification.config.PUSH_RELAY_KEY)
++    expect(input).toHaveAttribute('type', 'password')
++    expect(screen.queryByRole('button', { name: '轮换接入凭据' })).not.toBeInTheDocument()
++    expect(mocks.rotateAppPush).not.toHaveBeenCalled()
++  })
++
+   it('只在用户点击开启按钮时请求 WebPush 授权', async () => {
+     const requestPermission = vi.fn<WebPushPermissionRequester>().mockResolvedValue('granted')
+ 
+diff --git a/src/components/dialog/__tests__/TransferQueueDialog.spec.ts b/src/components/dialog/__tests__/TransferQueueDialog.spec.ts
+index b55c544f..7364209a 100644
+--- a/src/components/dialog/__tests__/TransferQueueDialog.spec.ts
++++ b/src/components/dialog/__tests__/TransferQueueDialog.spec.ts
+@@ -266,8 +266,8 @@ describe('TransferQueueDialog', () => {
+     expect(mocks.openSharedDialog).toHaveBeenCalledWith(
+       expect.anything(),
+       { review },
+-      { resolved: expect.any(Function) },
+-      { closeOn: ['close', 'resolved'] },
++      { resolved: expect.any(Function), discarded: expect.any(Function) },
++      { closeOn: ['close', 'resolved', 'discarded'] },
+     )
+   })
+ 
 diff --git a/src/components/filebrowser/FileBrowser.vue b/src/components/filebrowser/FileBrowser.vue
 index c0a34835..4a479c9f 100644
 --- a/src/components/filebrowser/FileBrowser.vue
@@ -1431,55 +1739,71 @@ index 204da634..93b2adfb 100644
        location="bottom end"
        offset="14px"
 diff --git a/src/locales/en-US.ts b/src/locales/en-US.ts
-index 6af75c9c..8f7863b3 100644
+index 6af75c9c..70ecd512 100644
 --- a/src/locales/en-US.ts
 +++ b/src/locales/en-US.ts
-@@ -1237,6 +1237,13 @@ export default {
+@@ -1237,6 +1237,19 @@ export default {
        adminsHint: 'User IDs that can use admin menu and commands, separated by commas',
        adminsPlaceholder: 'User IDs list, separated by commas',
      },
 +    apppush: {
 +      name: 'Private App Push',
-+      server: 'Private Server URL',
++      server: 'Notification service URL (optional)',
++      serverHint: 'Leave blank to use the configured MoviePilot service. The backend enrolls automatically.',
++      manual: 'Connect with an existing key',
 +      key: 'Instance relay key',
-+      keyHint: 'Match a PUSH_RELAY_KEYS value on Server, at least 32 characters. Stored only on the backend.',
-+      hint: 'Save and enable, then bind in the App under Connection and Display → Notifications. Free signing uses the Home Screen notification web app. APNs requires an eligible signing profile.',
++      keyHint:
++        'Usually unnecessary. Only for an existing manual Server key of at least 32 characters. Disables automatic enrollment.',
++      hint: 'Enable to enroll automatically, then bind your device in App → Connection & Display → Notifications. Free signing uses the Home Screen notification web app.',
++      rotate: 'Rotate access credentials',
++      rotated: 'Credentials rotated. Device bindings are preserved.',
++      rotateFailed: 'Could not rotate credentials. Try again later.',
 +    },
      webpush: {
        name: 'WebPush',
        username: 'Login Username',
 diff --git a/src/locales/zh-CN.ts b/src/locales/zh-CN.ts
-index 0f73920d..b3c0a7de 100644
+index 0f73920d..8d92251e 100644
 --- a/src/locales/zh-CN.ts
 +++ b/src/locales/zh-CN.ts
-@@ -1205,6 +1205,13 @@ export default {
+@@ -1205,6 +1205,18 @@ export default {
        adminsHint: '可使用管理菜单及命令的用户ID列表，多个ID使用,分隔',
        adminsPlaceholder: '用户ID列表，多个ID使用,分隔',
      },
 +    apppush: {
 +      name: 'App 私有推送',
-+      server: '私有 Server 地址',
++      server: '消息中心地址（可选）',
++      serverHint: '留空使用 MoviePilot 已配置的中心服务；接入凭据由后台自动登记。',
++      manual: '手动接入现有服务',
 +      key: '实例中转密钥',
-+      keyHint: '与 Server 的 PUSH_RELAY_KEYS 对应，至少 32 位；仅保存在后台。',
-+      hint: '保存并启用后，在 App 的“连接与显示 → 通知”中绑定。免费自签使用主屏幕通知网页；支持 APNs 的签名可开启原生通知。',
++      keyHint: '通常无需填写。仅兼容已有 Server 手工密钥，至少 32 位；填写后停用自动接入。',
++      hint: '启用后自动接入消息中心，无需索取实例密钥。在 App 的“连接与显示 → 通知”中绑定设备；免费自签使用主屏幕通知网页。',
++      rotate: '轮换接入凭据',
++      rotated: '接入凭据已轮换，设备绑定保留',
++      rotateFailed: '凭据轮换失败，请稍后重试',
 +    },
      webpush: {
        name: 'WebPush',
        username: '登录用户名',
 diff --git a/src/locales/zh-TW.ts b/src/locales/zh-TW.ts
-index a9f966ac..5e1eab84 100644
+index a9f966ac..d3331285 100644
 --- a/src/locales/zh-TW.ts
 +++ b/src/locales/zh-TW.ts
-@@ -1202,6 +1202,13 @@ export default {
+@@ -1202,6 +1202,18 @@ export default {
        adminsHint: '可使用管理菜單及命令的用戶ID列表，多個ID使用,分隔',
        adminsPlaceholder: '用戶ID列表，多個ID使用,分隔',
      },
 +    apppush: {
 +      name: 'App 私有推播',
-+      server: '私有 Server 位址',
++      server: '訊息中心位址（選填）',
++      serverHint: '留空使用 MoviePilot 已設定的中心服務；接入憑據由後台自動登記。',
++      manual: '手動接入既有服務',
 +      key: '實例中轉金鑰',
-+      keyHint: '與 Server 的 PUSH_RELAY_KEYS 對應，至少 32 位；僅保存在後台。',
-+      hint: '儲存並啟用後，在 App 的「連線與顯示 → 通知」中綁定。免費自簽使用主畫面通知網頁；支援 APNs 的簽章可啟用原生通知。',
++      keyHint: '通常不需填寫。僅相容既有 Server 手動金鑰，至少 32 位；填寫後停用自動接入。',
++      hint: '啟用後自動接入訊息中心，無需索取實例金鑰。在 App 的「連線與顯示 → 通知」中綁定裝置；免費自簽使用主畫面通知網頁。',
++      rotate: '輪換接入憑據',
++      rotated: '接入憑據已輪換，裝置綁定保留',
++      rotateFailed: '憑據輪換失敗，請稍後重試',
 +    },
      webpush: {
        name: 'WebPush',
