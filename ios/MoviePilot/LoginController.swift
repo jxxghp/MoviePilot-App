@@ -20,6 +20,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
   private var retryAt: Date?
   private var retryTimer: Timer?
   private var initialized = true
+  private var startupView: StartupView?
 
   /// 回调只交付认证结果，不将密码传给 Scene、导航桥或持久化层。
   init(
@@ -125,7 +126,39 @@ final class LoginController: UIViewController, UITextFieldDelegate {
       otp.heightAnchor.constraint(greaterThanOrEqualToConstant: 58),
       login.heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
     ])
+    showStartup()
     prepare()
+  }
+
+  /// 首次验证期间隐藏导航栏，避免启动屏上短暂出现登录标题和更改地址按钮。
+  override func viewWillAppear(_ animated: Bool) {
+    super.viewWillAppear(animated)
+    navigationController?.setNavigationBarHidden(startupView != nil, animated: false)
+  }
+
+  /// 使用与网页就绪等待相同的启动屏，在首次绘制前遮住尚未确定需要显示的表单。
+  private func showStartup() {
+    let startup = StartupView()
+    startup.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(startup)
+    NSLayoutConstraint.activate([
+      startup.topAnchor.constraint(equalTo: view.topAnchor),
+      startup.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      startup.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      startup.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+    ])
+    startupView = startup
+    view.accessibilityElements = [startup]
+    navigationController?.setNavigationBarHidden(true, animated: false)
+  }
+
+  /// 仅在需要用户登录、重试或处理初始化错误时展示表单；恢复成功直接交接应用外壳。
+  private func revealLogin() {
+    guard let startupView else { return }
+    startupView.removeFromSuperview()
+    self.startupView = nil
+    view.accessibilityElements = nil
+    navigationController?.setNavigationBarHidden(false, animated: false)
   }
 
   /// 离开后取消所有请求并擦除密码，迟到响应不得打开另一个实例。
@@ -175,9 +208,11 @@ final class LoginController: UIViewController, UITextFieldDelegate {
     setMessage("正在连接你的实例…")
     task = Task { [weak self] in
       guard let self else { return }
+      var restored = false
       defer {
         self.setBusy(false)
         self.task = nil
+        if !restored && !Task.isCancelled { self.revealLogin() }
       }
       do {
         self.initialized = try await self.client.isInitialized()
@@ -194,6 +229,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
           do {
             let result = try await self.client.restore(token: token)
             guard !Task.isCancelled else { return }
+            restored = true
             self.onAuthenticated(result, true)
             return
           } catch AuthenticationError.credentials { self.onExpired() }

@@ -12,6 +12,333 @@ private struct NetworkFixtures: Decodable {
 /// 使用显式配置的测试实例验收原生框架与原业务 HTML 的真实交接，不写入业务数据。
 @MainActor
 final class NativeFrameworkTests: XCTestCase {
+  /// 延迟初始化和令牌校验期间仅显示启动屏，成功恢复直接进入首页，过期后才出现登录。
+  func testNativeStartupWaitsForAuthentication() async throws {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_STARTUP"] == "1",
+      let base = URL(string: "http://127.0.0.1:5242")
+    else { throw XCTSkip("需要独立本机启动及认证恢复夹具。") }
+    try await configureStartupFixture(base, mode: "initial")
+    let app = launchConnection(server: base.absoluteString, captureScreens: false)
+    for mode in ["initial", "valid", "expired"] {
+      if mode != "initial" {
+        try await configureStartupFixture(base, mode: mode)
+        relaunchSavedLoginInstance(app)
+      }
+      XCTAssertTrue(app.otherElements["native-startup-screen"].waitForExistence(timeout: 5))
+      XCTAssertFalse(app.textFields["用户名"].isHittable)
+      XCTAssertFalse(app.navigationBars["登录"].exists)
+      if mode == "valid" {
+        XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 35))
+        XCTAssertFalse(app.textFields["用户名"].exists)
+      } else {
+        XCTAssertTrue(app.textFields["用户名"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.otherElements["native-startup-screen"].exists)
+        XCTAssertTrue(app.navigationBars["登录"].exists)
+        if mode == "initial" {
+          authenticateFixture(app)
+          XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 35))
+        }
+      }
+    }
+  }
+
+  /// 控制端点只改变本机合成响应的延迟与401状态，不向产品注入认证状态。
+  private func configureStartupFixture(_ base: URL, mode: String) async throws {
+    var request = URLRequest(url: base.appendingPathComponent("__startup/config"))
+    request.httpMethod = "POST"
+    request.httpBody = try JSONSerialization.data(withJSONObject: ["mode": mode])
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+  }
+
+  /// 原助手 HTML 在系统 Sheet 中保留收件图片、音频控件、文件分享及系统选取/录音入口。
+  func testNativeAgentMedia() async throws {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_AGENT_MEDIA"] == "1",
+      let base = URL(string: "http://127.0.0.1:5241")
+    else { throw XCTSkip("需要独立本机助手附件夹具与专用模拟器。") }
+    let app = launchConnection(server: base.absoluteString, captureScreens: false)
+    // 已签名模拟器会真实恢复 Keychain，会话有效时直接使用首页，避免强求重复登录。
+    let authenticatedOrForm = XCTNSPredicateExpectation(
+      predicate: NSPredicate { _, _ in
+        app.textFields["用户名"].exists || app.tabBars["native-root-navigation"].exists
+      }, object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [authenticatedOrForm], timeout: 30), .completed)
+    if app.textFields["用户名"].exists { authenticateFixture(app, remember: false) }
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+    let ready = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "exists == false"),
+      object: app.otherElements["native-startup-screen"])
+    XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 45), .completed, app.debugDescription)
+    app.tabBars["native-root-navigation"].buttons["仪表盘"].tap()
+    let trigger = app.webViews.buttons.matching(
+      NSPredicate(format: "label == %@ OR label == %@", "奶龙", "智能助手")
+    ).firstMatch
+    XCTAssertTrue(trigger.waitForExistence(timeout: 10), app.debugDescription)
+    trigger.tap()
+    XCTAssertTrue(app.buttons["native-sheet-close"].waitForExistence(timeout: 10))
+    let image = app.webViews.images["agent-image.png"].firstMatch
+    XCTAssertTrue(image.waitForExistence(timeout: 10), app.debugDescription)
+    image.tap()
+    let audio = app.webViews.buttons["播放"].firstMatch
+    XCTAssertTrue(audio.waitForExistence(timeout: 10), app.debugDescription)
+    audio.tap()
+    var state = try await agentMediaState(base, waitingFor: "played")
+    XCTAssertGreaterThan(state["images"] as? Int ?? 0, 0)
+    XCTAssertGreaterThan(state["played"] as? Int ?? 0, 0)
+    let download = try XCTUnwrap(
+      app.webViews.links.matching(identifier: "下载").allElementsBoundByIndex.last)
+    XCTAssertTrue(download.waitForExistence(timeout: 8), app.debugDescription)
+    download.tap()
+    let activity = app.otherElements["ActivityListView"]
+    XCTAssertTrue(activity.waitForExistence(timeout: 15))
+    state = try await agentMediaState(base)
+    XCTAssertEqual(state["fileMatches"] as? Bool, true)
+    activity.cells.matching(NSPredicate(format: "label == %@", "拷贝")).firstMatch.tap()
+    let attach = app.webViews.buttons["选择图片或文件"].firstMatch
+    XCTAssertTrue(attach.waitForExistence(timeout: 8))
+    attach.tap()
+    XCTAssertTrue(app.buttons["选取文件"].waitForExistence(timeout: 8), app.debugDescription)
+    app.buttons["选取文件"].tap()
+    let cancel = app.buttons["取消"].firstMatch
+    XCTAssertTrue(cancel.waitForExistence(timeout: 8))
+    cancel.tap()
+    XCTAssertTrue(attach.waitForExistence(timeout: 8))
+    let record = app.webViews.buttons["录制语音"].firstMatch
+    XCTAssertTrue(record.waitForExistence(timeout: 8))
+    record.tap()
+    if app.alerts.firstMatch.waitForExistence(timeout: 3) {
+      let allow = app.alerts.buttons.matching(
+        NSPredicate(format: "label == %@ OR label == %@ OR label == %@", "允许", "好", "Allow")
+      ).firstMatch
+      XCTAssertTrue(allow.exists, app.debugDescription)
+      allow.tap()
+    }
+    let stop = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "停止录音"))
+      .firstMatch
+    XCTAssertTrue(stop.waitForExistence(timeout: 15), app.debugDescription)
+    try await Task.sleep(for: .seconds(2))
+    stop.tap()
+    XCTAssertTrue(app.webViews.staticTexts["合成附件已接收"].firstMatch.waitForExistence(timeout: 15))
+    state = try await agentMediaState(base)
+    let uploads = try XCTUnwrap(state["uploads"] as? [[String: Any]])
+    let recording = try XCTUnwrap(uploads.last)
+    XCTAssertTrue((recording["mime"] as? String ?? "").hasPrefix("audio/"))
+    XCTAssertGreaterThan(recording["size"] as? Int ?? 0, 0)
+    let messages = try XCTUnwrap(state["messages"] as? [[String: Any]])
+    XCTAssertEqual((messages.last?["audio_refs"] as? [String])?.count, 1)
+    app.buttons["native-sheet-close"].tap()
+    app.tabBars["native-root-navigation"].buttons["更多"].tap()
+    XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists)
+  }
+
+  /// 控制夹具只回传合成附件字节校验及原 HTML 发出的媒体事件，不读取用户会话。
+  private func agentMediaState(_ base: URL, waitingFor counter: String? = nil) async throws
+    -> [String: Any]
+  {
+    var state: [String: Any] = [:]
+    for _ in 0..<20 {
+      let (data, _) = try await URLSession.shared.data(
+        from: base.appendingPathComponent("__agent/state"))
+      state = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+      if counter == nil || (state[counter!] as? Int ?? 0) > 0 { return state }
+      try await Task.sleep(for: .milliseconds(250))
+    }
+    return state
+  }
+
+  /// 使用实际媒体详情菜单启动独立播放器夹具，返回后主文档与导航会话必须保留。
+  func testNativeExternalPlayerKeepsDocument() async throws {
+    let base = try await configureSystemLinks(["page": "player", "mode": "healthy", "reset": true])
+    let app = try launchLogin(server: base.absoluteString, captureScreens: false)
+    authenticateFixture(app, remember: false)
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+    XCTAssertTrue(app.staticTexts["星际漫游"].firstMatch.waitForExistence(timeout: 15))
+    app.buttons["操作菜单"].tap()
+    let play = app.buttons["在线播放"].firstMatch
+    XCTAssertTrue(play.waitForExistence(timeout: 10))
+    play.tap()
+    let receiver = XCUIApplication(bundleIdentifier: "org.moviepilot.fixture.player")
+    let launched = XCTNSPredicateExpectation(
+      predicate: NSPredicate { _, _ in receiver.state == .runningForeground }, object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [launched], timeout: 15), .completed)
+    XCTAssertTrue(receiver.staticTexts["emby://items?serverId=server-456&itemId=item-123"].exists)
+    app.activate()
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 10))
+    app.tabBars["native-root-navigation"].buttons["更多"].tap()
+    XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
+    let state = try await systemLinksState(base)
+    XCTAssertEqual(state["documents"] as? Int, 1)
+    XCTAssertEqual(state["sessions"] as? Int, 1)
+    XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists)
+  }
+
+  /// 下载真实日志和同源/跨源种子字节，系统分享关闭后原生弹窗与主导航继续响应。
+  func testNativeFileDownloadsKeepDocument() async throws {
+    let base = try await configureSystemLinks(["page": "apps", "mode": "healthy", "reset": true])
+    let app = try launchLogin(server: base.absoluteString, captureScreens: false)
+    authenticateFixture(app, remember: false)
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+    app.buttons["操作菜单"].tap()
+    app.buttons["捷径"].firstMatch.tap()
+    let panel = app.tables["native-quick-panel"]
+    XCTAssertTrue(panel.waitForExistence(timeout: 8))
+    panel.buttons["native-panel-item-logging"].tap()
+    XCTAssertTrue(app.buttons["native-sheet-menu"].waitForExistence(timeout: 10))
+    app.buttons["native-sheet-menu"].tap()
+    app.buttons["下载"].firstMatch.tap()
+    try await verifySystemDownload("moviepilot.log", app: app, base: base)
+    XCTAssertTrue(app.buttons["native-sheet-close"].isHittable)
+    app.buttons["native-sheet-close"].tap()
+    openMorePage("站点管理", app: app)
+    let site = app.webViews.staticTexts["演示站点"].firstMatch
+    XCTAssertTrue(site.waitForExistence(timeout: 15))
+    site.tap()
+    if !app.navigationBars["浏览"].waitForExistence(timeout: 2) { site.tap() }
+    XCTAssertTrue(app.navigationBars["浏览"].waitForExistence(timeout: 10))
+    for (index, filename) in ["demo.torrent", "remote.torrent"].enumerated() {
+      let menu = app.webViews.otherElements.matching(identifier: "更多操作").element(boundBy: index)
+      XCTAssertTrue(menu.waitForExistence(timeout: 10), app.debugDescription)
+      // 卡片内图标在 WebKit 无障碍树中是容器，按其实际可见中心发送触摸。
+      menu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+      try await tapTorrentDownload(app: app, base: base)
+      try await verifySystemDownload(filename, app: app, base: base)
+      XCTAssertTrue(app.navigationBars["浏览"].exists)
+    }
+    app.buttons["native-sheet-close"].tap()
+    for title in ["推荐", "探索", "更多"] {
+      app.tabBars["native-root-navigation"].buttons[title].tap()
+      XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists)
+    }
+    let state = try await systemLinksState(base)
+    XCTAssertEqual(state["documents"] as? Int, 1)
+    XCTAssertEqual(state["sessions"] as? Int, 1)
+    let downloads = try XCTUnwrap(state["downloads"] as? [[String: Any]])
+    XCTAssertEqual(downloads.count, 3)
+    XCTAssertEqual(downloads.first?["cookie"] as? Bool, true)
+    XCTAssertEqual(downloads.last?["cookie"] as? Bool, false)
+  }
+
+  /// 真正中断通知 SSE 并返回503，服务恢复后401交回原生登录，无须重新启动 App。
+  func testBackendRestartReturnsToNativeLogin() async throws {
+    let base = try await configureSystemLinks(["page": "apps", "mode": "healthy", "reset": true])
+    let app = try launchLogin(server: base.absoluteString, captureScreens: false)
+    authenticateFixture(app, remember: false)
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+    try await Task.sleep(for: .seconds(4))
+    _ = try await configureSystemLinks(["mode": "down"])
+    try await Task.sleep(for: .seconds(3))
+    XCTAssertFalse(app.navigationBars["登录"].exists)
+    _ = try await configureSystemLinks(["mode": "expired"])
+    XCTAssertTrue(app.navigationBars["登录"].waitForExistence(timeout: 20))
+    XCTAssertEqual(app.state, .runningForeground)
+    XCTAssertFalse(app.webViews.firstMatch.exists)
+    let state = try await systemLinksState(base)
+    XCTAssertTrue((state["pings"] as? [String] ?? []).contains("down"))
+    _ = try await configureSystemLinks(["mode": "healthy"])
+    authenticateFixture(app, remember: false)
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+  }
+
+  /// 系统深色使用低曝光壁纸，浅色立即停用图片；实际 UIKit 材质保持系统行为。
+  func testNativeDimmedWallpaper() async throws {
+    let base = try await configureSystemLinks([
+      "page": "dashboard", "mode": "healthy", "reset": true, "appearance": "dark",
+    ])
+    let app = try launchLogin(server: base.absoluteString, captureScreens: false)
+    authenticateFixture(app, remember: false)
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+    for mode in ["dark", "light"] {
+      _ = try await configureSystemLinks(["appearance": mode])
+      XCTAssertTrue(app.webViews.staticTexts["存储空间"].waitForExistence(timeout: 15))
+      settlePage(app)
+      var visual: [String: Any] = [:]
+      for _ in 0..<20 {
+        visual = (try await systemLinksState(base))["visual"] as? [String: Any] ?? [:]
+        if visual["scheme"] as? String == mode { break }
+        try await Task.sleep(for: .milliseconds(250))
+      }
+      XCTAssertEqual(visual["scheme"] as? String, mode)
+      let wallpapers = visual["wallpapers"] as? Int ?? -1
+      if mode == "dark" {
+        XCTAssertGreaterThan(wallpapers, 0)
+      } else {
+        XCTAssertEqual(wallpapers, 0)
+        attachScreen("修复-浅色停用全局壁纸", app: app)
+      }
+    }
+    _ = try await configureSystemLinks(["appearance": "dark"])
+  }
+
+  /// 控制仅限显式本机夹具，产品不增加测试桥接或绕过认证的分支。
+  private func configureSystemLinks(_ value: [String: Any]) async throws -> URL {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_SYSTEM_LINKS"] == "1",
+      let base = URL(string: "http://127.0.0.1:5239")
+    else { throw XCTSkip("需要独立本机系统链接夹具与播放器接收 App。") }
+    var request = URLRequest(url: base.appendingPathComponent("__fixture/config"))
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: value)
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+    return base
+  }
+
+  /// 只读取合成文件校验和与文档/会话次数，不回传 App 数据或真实认证信息。
+  private func systemLinksState(_ base: URL) async throws -> [String: Any] {
+    let (data, _) = try await URLSession.shared.data(
+      from: base.appendingPathComponent("__fixture/config"))
+    return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+  }
+
+  /// WebKit 可能从模态无障碍树排除 Teleport 菜单；隔离夹具只回传真实菜单的渲染坐标。
+  private func tapTorrentDownload(app: XCUIApplication, base: URL) async throws {
+    let option = app.webViews.descendants(matching: .any)
+      .matching(identifier: "下载种子文件").firstMatch
+    if option.waitForExistence(timeout: 2) {
+      option.tap()
+      return
+    }
+    let state = try await systemLinksState(base)
+    let actions = try XCTUnwrap(state["menuActions"] as? [[String: Any]])
+    let action = try XCTUnwrap(actions.first { $0["title"] as? String == "下载种子文件" })
+    let x = try XCTUnwrap(action["x"] as? Double)
+    let y = try XCTUnwrap(action["y"] as? Double)
+    let width = try XCTUnwrap(action["width"] as? Double)
+    let height = try XCTUnwrap(action["height"] as? Double)
+    let viewport = app.otherElements["native-web-sheet"].webViews.firstMatch
+    XCTAssertGreaterThan(width, 0)
+    XCTAssertGreaterThan(height, 0)
+    XCTAssertGreaterThanOrEqual(x, 0)
+    XCTAssertGreaterThanOrEqual(y, 0)
+    XCTAssertLessThanOrEqual(x + width, viewport.frame.width)
+    XCTAssertLessThanOrEqual(y + height, viewport.frame.height)
+    viewport.coordinate(withNormalizedOffset: .zero)
+      .withOffset(CGVector(dx: x + width / 2, dy: y + height / 2)).tap()
+  }
+
+  /// 系统分享面板出现时验证实际落盘字节，关闭后不应进入导航恢复页。
+  private func verifySystemDownload(_ filename: String, app: XCUIApplication, base: URL)
+    async throws
+  {
+    let activity = app.otherElements["ActivityListView"]
+    XCTAssertTrue(activity.waitForExistence(timeout: 20), app.debugDescription)
+    let state = try await systemLinksState(base)
+    let saved = try XCTUnwrap(state["saved"] as? [[String: Any]])
+    XCTAssertTrue(
+      saved.contains { $0["file"] as? String == filename && $0["matches"] as? Bool == true })
+    // 完成系统提供的本机拷贝操作，不给任何联系人或外部服务发送文件。
+    let copy = activity.cells.matching(NSPredicate(format: "label == %@", "拷贝")).firstMatch
+    XCTAssertTrue(copy.waitForExistence(timeout: 5))
+    copy.tap()
+    let closed = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "exists == false"), object: activity)
+    XCTAssertEqual(XCTWaiter.wait(for: [closed], timeout: 5), .completed)
+    XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists)
+    XCTAssertEqual(app.state, .runningForeground)
+  }
+
   /// 独立合成实例记录首次与缓存后冷启动、前后台和导航成本；不采集界面截图。
   func testAppCachePerformanceBaseline() async throws {
     guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_CACHE_SERVER"],
@@ -2319,6 +2646,66 @@ final class NativeFrameworkTests: XCTestCase {
     try await setSystemAppearance("dark")
   }
 
+  /// 从真实捷径入口检查词表横向命中区域及日志标题/菜单，避免只检查页面的滚动宽度。
+  func testNativeWordsWidthAndLogTitle() async throws {
+    guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_TOOL_SERVER"],
+      server == "http://127.0.0.1:5237"
+    else { throw XCTSkip("工具布局回归验收需要独立本机合成夹具。") }
+    let app = try launchLogin(server: server)
+    authenticateFixture(app, remember: false)
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+    /// 仅通过注册的原生捷径动作打开原 Vue 内容，不增加测试专用页面入口。
+    func openShortcut(_ name: String) {
+      app.buttons["操作菜单"].tap()
+      app.buttons["捷径"].firstMatch.tap()
+      let panel = app.tables["native-quick-panel"]
+      XCTAssertTrue(panel.waitForExistence(timeout: 8))
+      panel.buttons["native-panel-item-\(name)"].tap()
+      XCTAssertTrue(app.buttons["native-sheet-close"].waitForExistence(timeout: 10))
+      settlePage(app)
+    }
+    for mode in ["dark", "light"] {
+      try await setSystemAppearance(mode)
+      openShortcut("words")
+      let web = app.webViews.firstMatch
+      let save = web.buttons["保存更改"]
+      XCTAssertTrue(save.waitForExistence(timeout: 10))
+      XCTAssertTrue(save.isHittable)
+      XCTAssertGreaterThanOrEqual(save.frame.minX, web.frame.minX)
+      XCTAssertLessThanOrEqual(save.frame.maxX, web.frame.maxX)
+      XCTAssertLessThan(save.frame.maxY, app.frame.maxY)
+      for title in ["识别词", "制作组", "占位符", "屏蔽词", "集数规则"] {
+        let tab = web.buttons[title]
+        XCTAssertTrue(tab.isHittable)
+        XCTAssertGreaterThanOrEqual(tab.frame.minX, web.frame.minX)
+        XCTAssertLessThanOrEqual(tab.frame.maxX, web.frame.maxX)
+      }
+      if mode == "dark" { attachScreen("修复-词表深色完整宽度", app: app) }
+      web.buttons["集数规则"].tap()
+      let add = web.buttons["新增规则"]
+      XCTAssertTrue(add.waitForExistence(timeout: 8))
+      XCTAssertTrue(add.isHittable)
+      XCTAssertLessThanOrEqual(add.frame.maxX, web.frame.maxX)
+      XCTAssertLessThanOrEqual(save.frame.maxX, web.frame.maxX)
+      if mode == "light" { attachScreen("修复-词表浅色集数规则", app: app) }
+      app.buttons["native-sheet-close"].tap()
+      XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 10))
+      openShortcut("logging")
+      XCTAssertTrue(app.staticTexts["实时日志"].firstMatch.waitForExistence(timeout: 8))
+      let menu = app.buttons["native-sheet-menu"]
+      XCTAssertTrue(menu.isHittable)
+      if mode == "dark" { attachScreen("修复-实时日志独立标题", app: app) }
+      menu.tap()
+      XCTAssertTrue(app.buttons["下载"].firstMatch.waitForExistence(timeout: 5))
+      XCTAssertTrue(app.buttons["在新窗口中打开"].firstMatch.exists)
+      if mode == "dark" { attachScreen("修复-实时日志原生操作菜单", app: app) }
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.88)).tap()
+      app.buttons["native-sheet-close"].tap()
+      XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 10))
+    }
+    try await setSystemAppearance("dark")
+  }
+
   /// 连续打开关闭原表单保留底页滚动位置，真实文档请求计数不能增加。
   func testWebSheetPreservesPageAcrossRepeatedTransitions() async throws {
     guard let value = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_PROCESS_FIXTURE"],
@@ -2538,20 +2925,22 @@ final class NativeFrameworkTests: XCTestCase {
   }
 
   /// 从空白实例选择启动，连接后停在原生登录界面，不提交任何认证请求。
-  private func launchLogin(server: String? = nil) throws -> XCUIApplication {
+  private func launchLogin(server: String? = nil, captureScreens: Bool = true) throws
+    -> XCUIApplication
+  {
     guard let server = server ?? ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_SERVER"],
       !server.isEmpty
     else { throw XCTSkip("需要指定私有验收实例。") }
-    let app = launchConnection(server: server)
+    let app = launchConnection(server: server, captureScreens: captureScreens)
     let account = app.textFields["用户名"]
     XCTAssertTrue(account.waitForExistence(timeout: 15))
     XCTAssertTrue(app.secureTextFields["密码"].exists)
-    attachScreen("框架-登录", app: app)
+    if captureScreens { attachScreen("框架-登录", app: app) }
     return app
   }
 
   /// 启动空白选择并通过真实地址输入提交连接，供成功路径与地址校验失败共用。
-  private func launchConnection(server: String) -> XCUIApplication {
+  private func launchConnection(server: String, captureScreens: Bool = true) -> XCUIApplication {
     continueAfterFailure = false
     XCUIDevice.shared.orientation = .portrait
     let app = XCUIApplication()
@@ -2562,7 +2951,7 @@ final class NativeFrameworkTests: XCTestCase {
     app.launch()
     let address = app.textFields["MoviePilot 服务地址"]
     XCTAssertTrue(address.waitForExistence(timeout: 10))
-    attachScreen("框架-连接", app: app)
+    if captureScreens { attachScreen("框架-连接", app: app) }
     address.tap()
     let clear = address.buttons.firstMatch
     if clear.exists { clear.tap() }

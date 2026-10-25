@@ -43,6 +43,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   private var commandCompletions: [String: (Bool) -> Void] = [:]
   private var downloads: [ObjectIdentifier: URL] = [:]
   private var downloadReferences: [ObjectIdentifier: WKDownload] = [:]
+  private var convertingDownloadWebViews: Set<ObjectIdentifier> = []
+  private var popupWebViews: [ObjectIdentifier: WKWebView] = [:]
+  private var downloadWebViews: [ObjectIdentifier: WKWebView] = [:]
   private var authentication: AuthenticationResult?
   private let onAuthenticationRequired: () -> Void
   private var notificationLookupStarted = false
@@ -70,7 +73,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     let configuration = WKWebViewConfiguration()
     configuration.websiteDataStore = WKWebsiteDataStore(forIdentifier: instance.id)
     configuration.allowsInlineMediaPlayback = true
-    configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+    // 原生菜单异步调用网页动作，没有浏览器手势标记；新窗口仍须经过来源与 URL 校验。
+    configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
     configuration.userContentController.add(relay, name: "moviepilotChrome")
     configuration.userContentController.add(relay, name: "moviepilotAuthentication")
     if let path = Bundle.main.url(forResource: "BridgeBootstrap", withExtension: "js"),
@@ -170,8 +174,18 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     lastConfirmedURL = nil
     relay.owner = nil
     content.onLayout = nil
+    for popup in popupWebViews.values {
+      popup.navigationDelegate = nil
+      popup.stopLoading()
+    }
+    popupWebViews.removeAll()
     for download in downloadReferences.values { download.cancel { _ in } }
     downloadReferences.removeAll()
+    convertingDownloadWebViews.removeAll()
+    downloadWebViews.removeAll()
+    for url in downloads.values {
+      try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+    }
     downloads.removeAll()
     session.beginDocument(allowTakeover: false)
   }
@@ -696,6 +710,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 
   /// 顶层文档导航与 hash 路由区分；新文档总会撤销旧动作和会话。
   func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+    guard webView === self.webView else { return }
     timeout?.invalidate()
     lastConfirmedURL = nil
     documentID = UUID()
@@ -715,6 +730,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 
   /// 文档下载完成后继续等待原前端首屏资源门、字体与最终绘制，不能提前透出 HTML 加载器。
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    guard webView === self.webView else { return }
     let currentDocument = documentID
     webView.callAsyncJavaScript(
       """
@@ -771,16 +787,34 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
     withError error: Error
   ) {
+    // WebKit 转交 WKDownload 时先报告导航取消，不能在下载代理接手前销毁文件窗口。
+    guard !convertingDownloadWebViews.contains(ObjectIdentifier(webView)) else { return }
+    guard webView === self.webView else {
+      finishPopup(webView)
+      if ConnectionFailure(error) != .cancelled { showDownloadFailure() }
+      return
+    }
     if let message = ConnectionFailure(error).errorDescription { fail(message) }
   }
 
   /// 已提交文档的加载错误同样进入可操作的恢复状态。
   func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+    guard !convertingDownloadWebViews.contains(ObjectIdentifier(webView)) else { return }
+    guard webView === self.webView else {
+      finishPopup(webView)
+      if ConnectionFailure(error) != .cancelled { showDownloadFailure() }
+      return
+    }
     if let message = ConnectionFailure(error).errorDescription { fail(message) }
   }
 
   /// 内容进程在后台被系统回收后，回到前台重新载入文档并恢复原生接管。
   func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+    guard webView === self.webView else {
+      finishPopup(webView)
+      showDownloadFailure()
+      return
+    }
     recoverContentProcess()
   }
 
@@ -793,7 +827,14 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       decisionHandler(.cancel)
       return
     }
+    if webView !== self.webView {
+      // 文件窗口不执行脚本或接入桥接，只允许 HTTP(S) 重定向和原页面生成的 blob。
+      decisionHandler(
+        WebLink.destination(for: url) == .browser || url.scheme == "blob" ? .allow : .cancel)
+      return
+    }
     if navigationAction.shouldPerformDownload {
+      convertingDownloadWebViews.insert(ObjectIdentifier(webView))
       decisionHandler(.download)
       return
     }
@@ -805,16 +846,31 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     }
     if instance.address.contains(url) {
       if navigationAction.targetFrame == nil {
-        webView.load(navigationAction.request)
-        decisionHandler(.cancel)
+        decisionHandler(isTrustedMainFrame(navigationAction.sourceFrame) ? .allow : .cancel)
       } else {
         decisionHandler(.allow)
       }
-    } else if navigationAction.targetFrame?.isMainFrame == false {
+    } else if navigationAction.targetFrame?.isMainFrame == false,
+      ["http", "https"].contains(url.scheme?.lowercased() ?? "")
+    {
       decisionHandler(.allow)  // 远程 HTML/插件 frame 无法通过主 frame 桥接校验。
     } else {
+      let trustedMainFrame = isTrustedMainFrame(navigationAction.sourceFrame)
+      if navigationAction.targetFrame == nil, trustedMainFrame,
+        WebLink.destination(for: url) == .browser
+      {
+        decisionHandler(.allow)
+        return
+      }
       decisionHandler(.cancel)
-      if navigationAction.navigationType == .linkActivated { openExternal(url) }
+      // 原生菜单异步调用原网页动作时，WebKit 将 location 跳转标为 other。
+      // 隐藏 iframe 不启动 App，避免前端 iframe + location 的兼容路径重复打开。
+      if trustedMainFrame && navigationAction.targetFrame?.isMainFrame != false
+        || navigationAction.navigationType == .linkActivated
+          && WebLink.destination(for: url) == .browser
+      {
+        openExternal(url)
+      }
     }
   }
 
@@ -826,24 +882,69 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     let disposition =
       (navigationResponse.response as? HTTPURLResponse)?.value(
         forHTTPHeaderField: "Content-Disposition") ?? ""
-    decisionHandler(
-      !navigationResponse.canShowMIMEType || disposition.lowercased().hasPrefix("attachment")
-        ? .download : .allow)
+    let isDownload =
+      !navigationResponse.canShowMIMEType
+      || disposition.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("attachment")
+    if webView !== self.webView, !isDownload {
+      decisionHandler(.cancel)
+      let url = navigationResponse.response.url
+      finishPopup(webView)
+      if let url { openExternal(url) }
+      return
+    }
+    if isDownload { convertingDownloadWebViews.insert(ObjectIdentifier(webView)) }
+    decisionHandler(isDownload ? .download : .allow)
   }
 
-  /// 同源新窗口沿用当前文档容器；外链使用独立系统浏览器。
+  /// 原网页的新窗口独立识别下载响应，不触发主文档导航或注入认证/原生桥脚本。
   func webView(
     _ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
     for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures
   ) -> WKWebView? {
-    if let url = navigationAction.request.url {
-      if instance.address.contains(url) {
-        webView.load(navigationAction.request)
-      } else {
-        openExternal(url)
-      }
+    guard webView === self.webView, isTrustedMainFrame(navigationAction.sourceFrame),
+      let url = navigationAction.request.url
+    else { return nil }
+    guard WebLink.destination(for: url) == .browser || url.scheme == "blob" else {
+      openExternal(url)
+      return nil
     }
-    return nil
+    configuration.userContentController = WKUserContentController()
+    let preferences = WKWebpagePreferences()
+    preferences.allowsContentJavaScript = false
+    configuration.defaultWebpagePreferences = preferences
+    let popup = WKWebView(frame: .zero, configuration: configuration)
+    popup.navigationDelegate = self
+    popupWebViews[ObjectIdentifier(popup)] = popup
+    return popup
+  }
+
+  /// 只有当前实例的主 frame 能创建文件窗口或触发脚本形式的外部 App 跳转。
+  private func isTrustedMainFrame(_ frame: WKFrameInfo) -> Bool {
+    frame.isMainFrame
+      && WebOrigin(
+        scheme: frame.securityOrigin.protocol, host: frame.securityOrigin.host,
+        port: frame.securityOrigin.port) == instance.address.origin
+  }
+
+  /// 录音与拍摄继续使用 WebKit 系统授权，仅允许当前实例的前台主文档发起请求。
+  func webView(
+    _ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+    initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
+    decisionHandler: @escaping @MainActor @Sendable (WKPermissionDecision) -> Void
+  ) {
+    let requested = WebOrigin(scheme: origin.protocol, host: origin.host, port: origin.port)
+    let permitted =
+      webView === self.webView && lifecycle == "active"
+      && session.phase == .nativeNavigation && isTrustedMainFrame(frame)
+      && requested == instance.address.origin
+    decisionHandler(permitted ? .prompt : .deny)
+  }
+
+  /// 仅销毁独立窗口，不修改主文档代次、桥会话、加载状态或已接管弹窗。
+  private func finishPopup(_ popup: WKWebView) {
+    guard popupWebViews.removeValue(forKey: ObjectIdentifier(popup)) != nil else { return }
+    popup.navigationDelegate = nil
+    popup.stopLoading()
   }
 
   /// 原页面的 JS alert 使用系统可访问弹窗，完成回调只执行一次。
@@ -897,12 +998,15 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     shell.present(alert, animated: true)
   }
 
-  /// 用户触发的网页或系统协议才交给操作系统，禁止任意脚本静默启动外部应用。
+  /// 经来源校验的原网页动作交给系统；播放器链接与参数直接复用前端结果。
   private func openExternal(_ url: URL) {
-    guard let scheme = url.scheme?.lowercased(), let shell else { return }
-    if ["http", "https"].contains(scheme), url.user == nil, url.password == nil {
-      shell.present(SFSafariViewController(url: url), animated: true)
-    } else if ["mailto", "tel", "magnet", "thunder"].contains(scheme) {
+    guard let destination = WebLink.destination(for: url), let shell else { return }
+    switch destination {
+    case .browser:
+      var presenter: UIViewController = shell
+      while let presented = presenter.presentedViewController { presenter = presented }
+      presenter.present(SFSafariViewController(url: url), animated: true)
+    case .application:
       UIApplication.shared.open(url, options: [:])
     }
   }
@@ -910,17 +1014,23 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   /// 导航动作转下载后保留下载对象至结束。
   func webView(
     _ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload
-  ) { begin(download) }
+  ) { begin(download, source: webView) }
 
   /// 响应头触发的下载与链接下载采用相同生命周期。
   func webView(
     _ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload
-  ) { begin(download) }
+  ) { begin(download, source: webView) }
 
   /// 绑定系统下载代理，不另写 URLSession 业务请求或复制认证状态。
-  private func begin(_ download: WKDownload) {
+  private func begin(_ download: WKDownload, source: WKWebView) {
+    convertingDownloadWebViews.remove(ObjectIdentifier(source))
     download.delegate = self
-    downloadReferences[ObjectIdentifier(download)] = download
+    let key = ObjectIdentifier(download)
+    downloadReferences[key] = download
+    if let popup = popupWebViews.removeValue(forKey: ObjectIdentifier(source)) {
+      popup.navigationDelegate = nil
+      downloadWebViews[key] = popup
+    }
   }
 
   /// 每次下载使用独立临时目录，文件名只能是末段，避免路径穿越和覆盖文件。
@@ -944,29 +1054,41 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   func downloadDidFinish(_ download: WKDownload) {
     let key = ObjectIdentifier(download)
     downloadReferences.removeValue(forKey: key)
+    downloadWebViews.removeValue(forKey: key)
     guard let url = downloads.removeValue(forKey: key), let shell else { return }
     let share = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-    share.popoverPresentationController?.sourceView = shell.view
+    var presenter: UIViewController = shell
+    while let presented = presenter.presentedViewController { presenter = presented }
+    share.popoverPresentationController?.sourceView = presenter.view
     share.popoverPresentationController?.sourceRect = CGRect(
-      x: shell.view.bounds.midX, y: shell.view.bounds.midY, width: 1, height: 1)
+      x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 1, height: 1)
     share.completionWithItemsHandler = { _, _, _, _ in
       try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
     }
-    shell.present(share, animated: true)
+    presenter.present(share, animated: true)
   }
 
   /// 下载失败只释放此次临时文件，不自动恢复写入或重复下载。
   func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
     let key = ObjectIdentifier(download)
     downloadReferences.removeValue(forKey: key)
+    downloadWebViews.removeValue(forKey: key)
     if let url = downloads.removeValue(forKey: key) {
       try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
     }
-    guard let shell, shell.presentedViewController == nil else { return }
+    showDownloadFailure()
+  }
+
+  /// 文件窗口与下载失败只提示当前操作，保留主页面和业务弹窗继续使用。
+  private func showDownloadFailure() {
+    guard let shell, relay.owner != nil, lifecycle == "active" else { return }
+    var presenter: UIViewController = shell
+    while let presented = presenter.presentedViewController { presenter = presented }
+    guard !(presenter is UIAlertController) else { return }
     let alert = UIAlertController(
       title: "下载未完成", message: "请检查网络后，在原页面重新选择下载。", preferredStyle: .alert)
     alert.addAction(UIAlertAction(title: "好", style: .default))
-    shell.present(alert, animated: true)
+    presenter.present(alert, animated: true)
   }
 }
 
