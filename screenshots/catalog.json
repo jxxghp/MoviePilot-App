@@ -1288,5 +1288,25 @@
     "title": "Agent · 原生弹窗与底部输入 · 浅色",
     "group": "导航与弹窗",
     "file": "screens/258.png"
+  },
+  {
+    "title": "词表 · 完整宽度 · 深色",
+    "group": "导航与弹窗",
+    "file": "screens/259.png"
+  },
+  {
+    "title": "词表 · 集数规则完整宽度 · 浅色",
+    "group": "导航与弹窗",
+    "file": "screens/260.png"
+  },
+  {
+    "title": "实时日志 · 独立原生标题",
+    "group": "导航与弹窗",
+    "file": "screens/261.png"
+  },
+  {
+    "title": "实时日志 · 原生操作菜单",
+    "group": "导航与弹窗",
+    "file": "screens/262.png"
   }
 ]
