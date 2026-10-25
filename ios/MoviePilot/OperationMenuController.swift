@@ -1,7 +1,7 @@
 import MoviePilotCore
 import UIKit
 
-/// VoiceOver 与键盘的卡片菜单入口；操作、分组与子菜单全部沿用网页声明。
+/// 独立菜单与卡片辅助入口共用系统列表；操作、分组与子菜单全部沿用网页声明。
 @MainActor
 final class OperationMenuController: UITableViewController, UISheetPresentationControllerDelegate {
   /// 原生分组只描述表格布局，不保存或复制业务行为。
@@ -16,6 +16,7 @@ final class OperationMenuController: UITableViewController, UISheetPresentationC
   private var ending = false
   private var selecting = false
   private var measuredHeight: CGFloat = 0
+  private var dismissalCompletions: [() -> Void] = []
   private let choose: (OperationMenuSnapshot, String) -> Void
   private let cancel: (String) -> Void
   var accent: UIColor = .systemBlue
@@ -59,16 +60,22 @@ final class OperationMenuController: UITableViewController, UISheetPresentationC
   }
 
   /// 短菜单贴合内容，长菜单在系统表格内滚动，禁止拖到全屏。
-  func configureSheet(_ navigation: UINavigationController) {
+  func configureSheet(_ navigation: UINavigationController, presentingView: UIView) {
     navigation.modalPresentationStyle = .pageSheet
     navigation.view.accessibilityIdentifier = "native-operation-menu-sheet"
     guard let sheet = navigation.sheetPresentationController else { return }
     sheet.detents = [
-      .custom(identifier: .init("operation-content")) { [weak self] context in
-        min(context.maximumDetentValue * 2 / 3, max(100, self?.measuredHeight ?? 240))
+      .custom(identifier: .init("operation-content")) { [weak self, weak presentingView] context in
+        // UIKit 会在 detent 之外加底部安全区，先限制总高度再扣回这部分。
+        let bottom =
+          presentingView?.window?.safeAreaInsets.bottom ?? presentingView?.safeAreaInsets.bottom
+          ?? 0
+        let maximum = (context.maximumDetentValue + bottom) * 2 / 3
+        return max(1, min(maximum, max(100, self?.measuredHeight ?? 240)) - bottom)
       }
     ]
     sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+    sheet.prefersEdgeAttachedInCompactHeight = true
     sheet.prefersGrabberVisible = true
     sheet.delegate = self
   }
@@ -82,13 +89,16 @@ final class OperationMenuController: UITableViewController, UISheetPresentationC
   }
 
   /// 文档、权限或来源失效时先禁止选择，再结束系统弹窗。
-  func invalidate() { end() }
+  func invalidate(completion: (() -> Void)? = nil) {
+    if let completion { dismissalCompletions.append(completion) }
+    end()
+  }
 
   /// 手动下拉结束只撤销当前票据，不执行业务。
   func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
     guard !ending else { return }
     ending = true
-    cancel(snapshot.presentationId)
+    finishDismissal { cancel(snapshot.presentationId) }
   }
 
   /// 表格按原菜单分组、分隔条和顺序呈现，不重排危险动作。
@@ -119,7 +129,9 @@ final class OperationMenuController: UITableViewController, UISheetPresentationC
     content.secondaryTextProperties.numberOfLines = 0
     content.image = NavigationSymbols.operationImage(row.icon)
     let enabled = record.enabled && !selecting
-    let color: UIColor = row.destructive == true || row.color == .error ? .systemRed : .label
+    let color: UIColor =
+      row.destructive == true || row.color == .error
+      ? .systemRed : row.color.map { NavigationSymbols.operationTint($0, accent: accent) } ?? .label
     content.textProperties.color = enabled ? color : .tertiaryLabel
     content.imageProperties.tintColor =
       enabled
@@ -129,11 +141,54 @@ final class OperationMenuController: UITableViewController, UISheetPresentationC
     cell.contentConfiguration = content
     cell.accessoryType =
       row.kind == .submenu ? .disclosureIndicator : row.selected == true ? .checkmark : .none
+    cell.accessoryView = statusAccessory(row, enabled: enabled)
+    cell.accessibilityValue = row.badge?.title
     cell.selectionStyle = enabled ? .default : .none
     cell.isUserInteractionEnabled = enabled
     cell.accessibilityIdentifier = "operation-\(row.id)"
     if !enabled { cell.accessibilityTraits.insert(.notEnabled) }
+    if row.selected == true { cell.accessibilityTraits.insert(.selected) }
     return cell
+  }
+
+  /// 状态徽标、加载和勾选/子菜单指示可同时存在，不让自定义徽标覆盖系统语义。
+  private func statusAccessory(_ row: OperationMenuItem, enabled: Bool) -> UIView? {
+    guard row.badge != nil || row.loading == true else { return nil }
+    let stack = UIStackView()
+    stack.axis = .horizontal
+    stack.alignment = .center
+    stack.spacing = 8
+    if let badge = row.badge {
+      let label = UILabel()
+      label.text = badge.title
+      label.font = .preferredFont(forTextStyle: .caption1)
+      label.adjustsFontForContentSizeCategory = true
+      label.textColor =
+        enabled ? NavigationSymbols.operationTint(badge.color, accent: accent) : .tertiaryLabel
+      label.numberOfLines = 0
+      label.textAlignment = .right
+      label.accessibilityIdentifier = "operation-badge-\(row.id)"
+      let maximum = max(60, tableView.bounds.width / 3)
+      label.preferredMaxLayoutWidth = maximum
+      label.widthAnchor.constraint(lessThanOrEqualToConstant: maximum).isActive = true
+      stack.addArrangedSubview(label)
+    }
+    if row.loading == true {
+      let progress = UIActivityIndicatorView(style: .medium)
+      progress.startAnimating()
+      stack.addArrangedSubview(progress)
+    }
+    if row.kind == .submenu || row.selected == true {
+      let icon = UIImageView(
+        image: UIImage(systemName: row.kind == .submenu ? "chevron.right" : "checkmark"))
+      icon.tintColor = enabled ? accent : .tertiaryLabel
+      icon.contentMode = .scaleAspectFit
+      icon.widthAnchor.constraint(equalToConstant: 20).isActive = true
+      icon.heightAnchor.constraint(equalToConstant: 20).isActive = true
+      stack.addArrangedSubview(icon)
+    }
+    stack.frame.size = stack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+    return stack
   }
 
   /// 正常动作等系统退出动画完成再回传；保留菜单动作等待网页的新票据。
@@ -154,7 +209,9 @@ final class OperationMenuController: UITableViewController, UISheetPresentationC
       } else {
         ending = true
         let menu = snapshot
-        navigationController?.dismiss(animated: true) { [choose] in choose(menu, row.id) }
+        navigationController?.dismiss(animated: true) { [weak self] in
+          self?.finishDismissal { self?.choose(menu, row.id) }
+        }
       }
     }
   }
@@ -229,6 +286,20 @@ final class OperationMenuController: UITableViewController, UISheetPresentationC
     guard !ending else { return }
     ending = true
     let id = snapshot.presentationId
-    navigationController?.dismiss(animated: true) { [cancel] in cancel(id) }
+    guard let navigation = navigationController, navigation.presentingViewController != nil else {
+      finishDismissal { cancel(id) }
+      return
+    }
+    navigation.dismiss(animated: true) { [weak self] in
+      self?.finishDismissal { self?.cancel(id) }
+    }
+  }
+
+  /// 撤销与正常选择共享动画完成点，避免新列表在旧控制器尚未退出时呈现。
+  private func finishDismissal(_ action: () -> Void) {
+    let completions = dismissalCompletions
+    dismissalCompletions.removeAll()
+    for completion in completions { completion() }
+    action()
   }
 }
