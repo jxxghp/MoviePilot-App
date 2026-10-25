@@ -3010,6 +3010,191 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertFalse(app.buttons["使用网页登录"].exists)
   }
 
+  /// 真实 WK 卡片长按触发系统上下文菜单，取消和打开文件统计不遗留 HTML 菜单。
+  func testNativeCardContextMenu() async throws {
+    guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_CARD_MENU_SERVER"],
+      server == "http://127.0.0.1:5247"
+    else { throw XCTSkip("卡片长按需要独立本机合成夹具。") }
+    try await cardMenuControl("reset")
+    let app = try launchCardMenuApp(server: server)
+    XCTAssertTrue(app.navigationBars["电视剧订阅"].waitForExistence(timeout: 30))
+    XCTAssertTrue(app.otherElements["native-startup-screen"].waitForNonExistence(timeout: 15))
+    let card = try await cardMenuPoint(app)
+    card.tap()
+    XCTAssertTrue(app.navigationBars["编辑订阅"].waitForExistence(timeout: 10), "短按保留原编辑动作")
+    app.buttons["native-sheet-close"].tap()
+    XCTAssertTrue(app.navigationBars["电视剧订阅"].waitForExistence(timeout: 8))
+    let first = try await cardMenuPoint(app)
+    first.press(forDuration: 1)
+    XCTAssertTrue(app.buttons["文件统计"].waitForExistence(timeout: 8), app.debugDescription)
+    XCTAssertTrue(app.buttons["取消订阅"].exists)
+    var state = try await cardMenuState()
+    let page = try XCTUnwrap(state["page"] as? [String: Any])
+    XCTAssertEqual(page["htmlMenus"] as? Int, 0)
+    XCTAssertEqual(page["selection"] as? String, "")
+    attachScreen("卡片-系统长按菜单与真实预览", app: app)
+    app.coordinate(withNormalizedOffset: .init(dx: 0.02, dy: 0.12)).tap()
+    XCTAssertTrue(app.buttons["文件统计"].waitForNonExistence(timeout: 8))
+    let second = try await cardMenuPoint(app)
+    second.press(forDuration: 1)
+    XCTAssertTrue(app.buttons["文件统计"].waitForExistence(timeout: 8))
+    app.buttons["文件统计"].tap()
+    XCTAssertTrue(app.navigationBars["文件统计"].waitForExistence(timeout: 12))
+    state = try await cardMenuState()
+    XCTAssertEqual(
+      (state["requests"] as? [String])?.filter { $0 == "/api/v1/subscribe/files/2501" }.count, 1)
+    attachScreen("卡片-长按动作交接文件统计", app: app)
+    app.buttons["native-sheet-close"].tap()
+    XCTAssertTrue(app.navigationBars["电视剧订阅"].waitForExistence(timeout: 8))
+    app.tabBars["native-root-navigation"].buttons["仪表盘"].tap()
+    XCTAssertTrue(app.navigationBars["仪表盘"].waitForExistence(timeout: 8))
+    XCTAssertFalse(app.buttons["文件统计"].exists)
+  }
+
+  /// 滚动、后台和旋转撤销系统菜单；辅助入口使用同一原生动作与受限高度。
+  func testNativeCardContextLifecycleAndAccessibleMenu() async throws {
+    guard
+      ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_CARD_MENU_SERVER"]
+        == "http://127.0.0.1:5247"
+    else { throw XCTSkip("卡片菜单生命周期需要独立本机夹具。") }
+    try await cardMenuControl("reset")
+    let app = try launchCardMenuApp(server: "http://127.0.0.1:5247")
+    XCTAssertTrue(app.navigationBars["电视剧订阅"].waitForExistence(timeout: 30))
+    XCTAssertTrue(app.otherElements["native-startup-screen"].waitForNonExistence(timeout: 15))
+    let initial = try await cardMenuPoint(app)
+    initial.press(forDuration: 0.1, thenDragTo: initial.withOffset(.init(dx: 0, dy: -200)))
+    XCTAssertFalse(app.buttons["文件统计"].exists, "拖动只滚动页面，不打开长按菜单")
+    let afterScroll = try await cardMenuPoint(app)
+    afterScroll.press(forDuration: 1)
+    XCTAssertTrue(app.buttons["文件统计"].waitForExistence(timeout: 8))
+    XCUIDevice.shared.press(.home)
+    app.activate()
+    XCTAssertTrue(app.buttons["文件统计"].waitForNonExistence(timeout: 8))
+    let resumed = try await cardMenuPoint(app)
+    resumed.press(forDuration: 1)
+    XCTAssertTrue(app.buttons["文件统计"].waitForExistence(timeout: 8))
+    XCUIDevice.shared.orientation = .landscapeLeft
+    XCTAssertTrue(app.buttons["文件统计"].waitForNonExistence(timeout: 8))
+    XCUIDevice.shared.orientation = .portrait
+    _ = try await cardMenuPoint(app)
+    // 夹具只激活页面中真实无障碍按钮的 DOM click；不冒充 VoiceOver 语音或硬件验收。
+    try await cardMenuControl("command", value: ["command": "accessible"])
+    let table = app.tables["nativeOperationMenu"]
+    XCTAssertTrue(table.waitForExistence(timeout: 8))
+    let sheet = app.otherElements["native-operation-menu-sheet"]
+    XCTAssertTrue(sheet.exists)
+    XCTAssertLessThanOrEqual(sheet.frame.height, app.frame.height * 2 / 3 + 2)
+    attachScreen("卡片-辅助操作原生列表与高度", app: app)
+    let statistics = table.cells.containing(.staticText, identifier: "文件统计").firstMatch
+    for _ in 0..<4 {
+      if statistics.isHittable { break }
+      table.swipeUp()
+    }
+    XCTAssertTrue(statistics.isHittable)
+    statistics.tap()
+    XCTAssertTrue(app.navigationBars["文件统计"].waitForExistence(timeout: 12))
+    XCTAssertFalse(table.exists, "业务弹窗出现时系统操作列表必须已退出")
+    app.buttons["native-sheet-close"].tap()
+    XCTAssertTrue(app.navigationBars["电视剧订阅"].waitForExistence(timeout: 8))
+  }
+
+  /// 插件高级操作保持原来的二级位置，系统菜单和辅助列表均不触发业务写入。
+  func testNativeCardNestedPluginMenu() async throws {
+    guard
+      ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_CARD_MENU_SERVER"]
+        == "http://127.0.0.1:5247"
+    else { throw XCTSkip("插件卡片菜单需要独立本机合成夹具。") }
+    try await cardMenuControl("reset")
+    let app = try launchCardMenuApp(server: "http://127.0.0.1:5247")
+    XCTAssertTrue(app.navigationBars["电视剧订阅"].waitForExistence(timeout: 30))
+    try await cardMenuControl("command", value: ["command": "plugins"])
+    XCTAssertTrue(app.navigationBars["插件"].waitForExistence(timeout: 12))
+    let card = try await cardMenuPoint(app)
+    card.press(forDuration: 1)
+    let advanced = app.buttons["高级操作"]
+    XCTAssertTrue(advanced.waitForExistence(timeout: 8), app.debugDescription)
+    XCTAssertLessThan(app.buttons["查看数据"].frame.minY, advanced.frame.minY)
+    XCTAssertLessThan(advanced.frame.minY, app.buttons["设置"].frame.minY)
+    advanced.tap()
+    for title in ["运行能力", "数据诊断", "实例管理", "重新加载"] {
+      XCTAssertTrue(app.buttons[title].waitForExistence(timeout: 5), title)
+    }
+    XCTAssertLessThan(app.buttons["运行能力"].frame.minY, app.buttons["重新加载"].frame.minY)
+    attachScreen("卡片-插件原生二级菜单", app: app)
+    app.coordinate(withNormalizedOffset: .init(dx: 0.02, dy: 0.12)).tap()
+    XCTAssertTrue(app.buttons["重新加载"].waitForNonExistence(timeout: 8))
+    try await cardMenuControl("command", value: ["command": "accessible"])
+    let table = app.tables["nativeOperationMenu"]
+    XCTAssertTrue(table.waitForExistence(timeout: 8))
+    table.cells.containing(.staticText, identifier: "高级操作").firstMatch.tap()
+    XCTAssertTrue(table.cells.containing(.staticText, identifier: "运行能力").firstMatch.exists)
+    XCTAssertTrue(table.cells.containing(.staticText, identifier: "重新加载").firstMatch.exists)
+    app.buttons["返回上一级菜单"].tap()
+    XCTAssertTrue(table.cells.containing(.staticText, identifier: "高级操作").firstMatch.exists)
+    app.buttons["native-operation-menu-close"].tap()
+    XCTAssertTrue(table.waitForNonExistence(timeout: 8))
+    let state = try await cardMenuState()
+    XCTAssertEqual((state["writes"] as? [String])?.filter { $0 != "/api/v1/notification/app" }, [])
+    XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists)
+  }
+
+  /// 合成实例允许首次登录或已保存会话恢复，不把后者误判成登录表单缺失。
+  private func launchCardMenuApp(server: String) throws -> XCUIApplication {
+    let app = launchConnection(server: server, captureScreens: false)
+    let account = app.textFields["用户名"]
+    let ready = XCTNSPredicateExpectation(
+      predicate: NSPredicate { _, _ in
+        account.exists || app.tabBars["native-root-navigation"].exists
+      }, object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 30), .completed)
+    if account.exists { authenticateFixture(app, remember: false) }
+    return app
+  }
+
+  /// 控制命令只发往本机固定夹具，不允许对真实 MoviePilot 执行测试写入。
+  private func cardMenuControl(_ path: String, value: [String: String] = [:]) async throws {
+    var request = URLRequest(url: URL(string: "http://127.0.0.1:5247/__menus/\(path)")!)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: value)
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+  }
+
+  /// 量测来自实际卡片 DOM 和当前 WebView frame，不按屏幕上固定列表下标猜触点。
+  private func cardMenuPoint(_ app: XCUIApplication) async throws -> XCUICoordinate {
+    for _ in 0..<80 {
+      let state = try await cardMenuState()
+      if let page = state["page"] as? [String: Any], let count = page["ready"] as? Int, count > 0,
+        let rectangles = page["rectangles"] as? [[String: Double]]
+      {
+        let web = app.webViews.firstMatch
+        let top = app.navigationBars.firstMatch.frame.maxY - web.frame.minY + 8
+        let bottom = app.tabBars["native-root-navigation"].frame.minY - web.frame.minY - 8
+        for rect in rectangles {
+          guard let x = rect["x"], let y = rect["y"], let width = rect["width"],
+            let height = rect["height"]
+          else { continue }
+          let visibleTop = max(top, y)
+          let visibleBottom = min(bottom, y + height)
+          guard visibleBottom - visibleTop > 48 else { continue }
+          return web.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: x + width / 2, dy: (visibleTop + visibleBottom) / 2))
+        }
+      }
+      try await Task.sleep(for: .milliseconds(150))
+    }
+    XCTFail("等待真实前端协商卡片菜单并完成 DOM 量测超时")
+    throw NSError(domain: "CardMenuFixture", code: 1)
+  }
+
+  /// 私有测试只读取本机合成请求和界面状态，不读取产品凭据或个人实例。
+  private func cardMenuState() async throws -> [String: Any] {
+    let url = URL(string: "http://127.0.0.1:5247/__menus/state")!
+    let (data, _) = try await URLSession.shared.data(from: url)
+    return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+  }
+
   /// 公共登录前置只读取私有运行参数，截图不包含账号输入或密码。
   private func signIn() throws -> XCUIApplication {
     let environment = ProcessInfo.processInfo.environment

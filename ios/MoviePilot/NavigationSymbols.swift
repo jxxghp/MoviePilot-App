@@ -1,14 +1,66 @@
+import MoviePilotCore
 import UIKit
 
 /// 导航图标使用公开 SF Symbols 映射，未知插件图标保留可访问文本并使用通用符号。
 @MainActor
 enum NavigationSymbols {
+  /// 操作菜单只保留已有语义色，标题与背景继续由 UIKit 按主题绘制。
+  static func operationTint(_ color: OperationMenuColor?, accent: UIColor) -> UIColor {
+    switch color {
+    case .primary: accent
+    case .secondary: .secondaryLabel
+    case .success: .systemGreen
+    case .info: .systemBlue
+    case .warning: .systemOrange
+    case .error: .systemRed
+    case nil: .label
+    }
+  }
   /// 底栏左右共用同一符号尺寸，动态动作保留大触点而不放大图标。
   static let bottomConfiguration = UIImage.SymbolConfiguration(
     pointSize: 22, weight: .regular, scale: .medium)
 
   /// 已知导航与注册动作的符号表只建立一次，通知列表复用时不反复构造整份映射。
   private static let names = [
+    // 卡片菜单与独立菜单共享原图标语义，含移动行、插件高级操作和历史记录。
+    "mdi-pencil": "pencil", "mdi-rename": "pencil", "mdi-redo": "arrow.uturn.right",
+    "mdi-sync": "arrow.triangle.2.circlepath", "mdi-reload": "arrow.clockwise",
+    "mdi-restart-alert": "arrow.clockwise.circle", "mdi-cancel": "xmark.circle",
+    "mdi-arrow-up-circle-outline": "arrow.up.circle", "mdi-database-eye-outline": "eye",
+    "mdi-database-clock-outline": "clock.arrow.circlepath",
+    "mdi-database-plus-outline": "plus.circle",
+    "mdi-database-off-outline": "externaldrive.badge.xmark",
+    "mdi-database-off": "externaldrive.badge.xmark",
+    "mdi-delete-sweep-outline": "trash", "mdi-delete-variant": "trash",
+    "mdi-download-off-outline": "arrow.down.circle",
+    "mdi-download-box-outline": "arrow.down.to.line",
+    "mdi-download-network-outline": "network", "mdi-movie-open": "film",
+    "mdi-movie-outline": "film",
+    "mdi-movie-search-outline": "film", "mdi-television-play": "play.tv",
+    "mdi-play-box-outline": "play.rectangle",
+    "mdi-drag-vertical": "line.3.horizontal",
+    "mdi-filter-plus-outline": "line.3.horizontal.decrease.circle",
+    "mdi-lock-outline": "lock", "mdi-github": "chevron.left.forwardslash.chevron.right",
+    "mdi-new-box": "sparkles", "mdi-puzzle-check-outline": "puzzlepiece.extension",
+    "mdi-shield-alert-outline": "exclamationmark.shield", "mdi-shield-lock-outline": "lock.shield",
+    "mdi-speedometer-slow": "speedometer", "mdi-speedometer": "speedometer",
+    "mdi-calendar-check-outline": "calendar.badge.checkmark",
+    "mdi-hand-pointing-up": "hand.point.up",
+    "mdi-pause-circle-outline": "pause.circle", "mdi-progress-check": "checkmark.circle",
+    "mdi-progress-clock": "clock", "mdi-pulse": "waveform.path.ecg",
+    "mdi-chart-bell-curve": "chart.bar.xaxis",
+    "mdi-filter-cog-outline": "line.3.horizontal.decrease",
+    "mdi-network-outline": "network", "mdi-calendar-clock-outline": "calendar.badge.clock",
+    "mdi-clock": "clock", "mdi-filter-search-outline": "line.3.horizontal.decrease",
+    "mdi-package-variant-closed": "shippingbox",
+    "mdi-progress-download": "arrow.down.circle.dotted",
+    "mdi-shimmer": "sparkles", "mdi-skip-next-circle-outline": "forward.end.circle",
+    "mdi-timer-sand": "hourglass", "mdi-timer-sync-outline": "timer",
+    "mdi-file-search-outline": "doc.text.magnifyingglass", "mdi-folder-outline": "folder",
+    "mdi-folder-arrow-right": "folder", "mdi-folder-open-outline": "folder",
+    "mdi-file-tree-outline": "list.bullet.indent", "mdi-format-letter-case": "textformat",
+    "mdi-harddisk": "internaldrive", "mdi-select": "checkmark.circle",
+    "mdi-selection-remove": "minus.circle",
     "dashboard": "house", "mdi-home-outline": "house", "tabler-smart-home": "house",
     "recommend": "sparkles", "mdi-star-outline": "sparkles", "tabler-device-tv": "tv",
     "discover": "safari", "mdi-apple-safari": "safari", "tabler-compass": "safari",
@@ -121,7 +173,21 @@ enum NavigationSymbols {
     "mdi-language-java": "curlybraces", "mdi-language-php": "curlybraces",
     "mdi-language-python": "curlybraces", "mdi-language-typescript": "curlybraces",
     "mdi-nodejs": "curlybraces", "mdi-vuejs": "chevron.left.forwardslash.chevron.right",
+    // 卡片操作沿用原网页图标语义，不将未登记的操作映射成应用网格。
+    "mdi-file-edit-outline": "square.and.pencil", "mdi-note-edit": "square.and.pencil",
+    "mdi-vector-polyline": "point.3.connected.trianglepath.dotted", "mdi-play-speed": "play",
+    "mdi-replay": "arrow.counterclockwise", "mdi-run": "play", "mdi-share": "square.and.arrow.up",
+    "mdi-restore-alert": "arrow.counterclockwise", "mdi-delete-outline": "trash",
+    "mdi-folder-move-outline": "folder", "mdi-arrow-up": "arrow.up", "mdi-arrow-down": "arrow.down",
+    "mdi-content-copy": "doc.on.doc", "mdi-shield-check-outline": "checkmark.shield",
+    "mdi-text-box-search-outline": "doc.text.magnifyingglass",
   ]
+
+  /// 操作菜单未识别的图标保留文字，不显示与功能无关的占位图形。
+  static func operationImage(_ key: String?) -> UIImage? {
+    guard let key, let name = names[key] else { return nil }
+    return UIImage(systemName: name)
+  }
 
   /// 只转换显示标识，不依据图标推断或执行业务行为。
   static func image(_ key: String, configuration: UIImage.SymbolConfiguration? = nil) -> UIImage? {
