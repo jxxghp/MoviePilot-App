@@ -568,12 +568,12 @@ final class NativeFrameworkTests: XCTestCase {
     menu.cells.containing(.staticText, identifier: "插件").firstMatch.tap()
     XCTAssertTrue(app.buttons["插件，页内分类"].waitForExistence(timeout: 15))
     app.buttons["操作菜单"].tap()
-    let user = app.buttons["用户"].firstMatch
+    let user = nativeUserItem("用户", app: app)
     let connection = app.buttons["连接与显示"].firstMatch
     XCTAssertTrue(user.waitForExistence(timeout: 8))
     XCTAssertGreaterThanOrEqual(user.frame.minY, connection.frame.maxY - 2)
     attachScreen("交互-常用入口用户位于最后", app: app)
-    app.buttons["用户"].firstMatch.tap()
+    nativeUserItem("用户", app: app).tap()
     let theme = nativeUserItem("主题", app: app)
     let language = nativeUserItem("语言", app: app)
     XCTAssertTrue(theme.waitForExistence(timeout: 8), "用户入口必须进入系统二级菜单")
@@ -609,7 +609,7 @@ final class NativeFrameworkTests: XCTestCase {
     let app = try signIn()
     settlePage(app)
     app.buttons["操作菜单"].tap()
-    app.buttons["用户"].firstMatch.tap()
+    nativeUserItem("用户", app: app).tap()
     XCTAssertTrue(nativeUserItem("主题", app: app).waitForExistence(timeout: 8))
     nativeUserItem("主题", app: app).tap()
     XCTAssertTrue(app.navigationBars["主题定制"].waitForExistence(timeout: 10))
@@ -650,7 +650,7 @@ final class NativeFrameworkTests: XCTestCase {
       try await setSystemAppearance(appearance)
       settlePage(app)
       app.buttons["操作菜单"].tap()
-      app.buttons["用户"].firstMatch.tap()
+      nativeUserItem("用户", app: app).tap()
       XCTAssertTrue(nativeUserItem("主题", app: app).waitForExistence(timeout: 8))
       nativeUserItem("主题", app: app).tap()
       let panel = app.tables["native-quick-panel"]
@@ -768,10 +768,11 @@ final class NativeFrameworkTests: XCTestCase {
       XCTAssertTrue(app.buttons["操作菜单"].waitForExistence(timeout: 5))
     }
     app.buttons["操作菜单"].tap()
-    app.buttons["用户"].firstMatch.tap()
+    nativeUserItem("用户", app: app).tap()
     let username = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_USERNAME"] ?? ""
-    let summary = nativeUserItem(username, app: app)
+    let summary = nativeUserItem("用户", app: app)
     XCTAssertTrue(summary.waitForExistence(timeout: 8))
+    XCTAssertTrue(summary.label.contains(username), "账号摘要由系统菜单头部完整显示")
     XCTAssertFalse(app.tables["native-quick-panel"].exists)
     XCTAssertTrue(nativeUserItem("重启", app: app).exists)
     XCTAssertTrue(nativeUserItem("退出登录", app: app).exists)
@@ -790,6 +791,35 @@ final class NativeFrameworkTests: XCTestCase {
         app.tabBars["native-root-navigation"].buttons["更多"].waitForExistence(timeout: 8))
     } else {
       dismissOverlays(app)
+    }
+  }
+
+  /// 首次展开必须完整显示常用设置；权限项目较多时，系统菜单仍能滚动操作底部账号动作。
+  func testNativeUserSubmenuInitialHeight() throws {
+    let app = try signIn()
+    settlePage(app)
+    for cycle in 1...2 {
+      app.buttons["操作菜单"].tap()
+      nativeUserItem("用户", app: app).tap()
+      let logout = nativeUserItem("退出登录", app: app)
+      XCTAssertTrue(logout.waitForExistence(timeout: 8))
+      settlePage(app)
+      attachScreen("交互-用户二级菜单初始高度-\(cycle)", app: app)
+      for title in ["个人信息", "系统设定", "主题", "语言"] {
+        let item = nativeUserItem(title, app: app)
+        XCTAssertTrue(item.isHittable, "用户菜单首屏应可直接操作\(title)，不能只存在于屏外")
+      }
+      if !logout.isHittable {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.72, dy: 0.5))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.72, dy: 0.25))
+        start.press(forDuration: 0.05, thenDragTo: end)
+      }
+      XCTAssertTrue(nativeUserItem("重启", app: app).isHittable)
+      XCTAssertTrue(logout.isHittable, "系统滚动不能将底部账号操作永久裁掉")
+      attachScreen("交互-用户菜单分组与底部操作-\(cycle)", app: app)
+      XCTAssertFalse(app.tables["native-quick-panel"].exists, "仍使用原生二级菜单")
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.78)).tap()
+      XCTAssertTrue(app.buttons["操作菜单"].waitForExistence(timeout: 5))
     }
   }
 
@@ -912,7 +942,7 @@ final class NativeFrameworkTests: XCTestCase {
     let app = try signIn()
     settlePage(app)
     app.buttons["操作菜单"].tap()
-    app.buttons["用户"].firstMatch.tap()
+    nativeUserItem("用户", app: app).tap()
     let restart = nativeUserItem("重启", app: app)
     XCTAssertTrue(restart.waitForExistence(timeout: 8))
     restart.tap()
@@ -1462,7 +1492,7 @@ final class NativeFrameworkTests: XCTestCase {
     }
     let app = try signIn()
     app.buttons["操作菜单"].tap()
-    app.buttons["用户"].firstMatch.tap()
+    nativeUserItem("用户", app: app).tap()
     let medals = nativeUserItem("我的勋章", app: app)
     XCTAssertTrue(medals.waitForExistence(timeout: 8))
     XCTAssertTrue(medals.exists, "受控夹具必须实际展示社区勋章入口，不能跳过验收")
