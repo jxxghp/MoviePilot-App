@@ -1218,5 +1218,65 @@
     "title": "账号主题-首次使用浅色连接",
     "group": "连接与登录",
     "file": "screens/244.png"
+  },
+  {
+    "title": "名称识别 · 统一结果布局 · 深色",
+    "group": "导航与弹窗",
+    "file": "screens/245.png"
+  },
+  {
+    "title": "规则测试 · 统一结果布局 · 深色",
+    "group": "导航与弹窗",
+    "file": "screens/246.png"
+  },
+  {
+    "title": "词表 · 分类与编辑 · 深色",
+    "group": "导航与弹窗",
+    "file": "screens/247.png"
+  },
+  {
+    "title": "词表 · 配置说明展开 · 深色",
+    "group": "导航与弹窗",
+    "file": "screens/248.png"
+  },
+  {
+    "title": "词表 · 集数规则 · 深色",
+    "group": "导航与弹窗",
+    "file": "screens/249.png"
+  },
+  {
+    "title": "名称识别 · 统一结果布局 · 浅色",
+    "group": "导航与弹窗",
+    "file": "screens/250.png"
+  },
+  {
+    "title": "规则测试 · 统一结果布局 · 浅色",
+    "group": "导航与弹窗",
+    "file": "screens/251.png"
+  },
+  {
+    "title": "词表 · 分类与编辑 · 浅色",
+    "group": "导航与弹窗",
+    "file": "screens/252.png"
+  },
+  {
+    "title": "词表 · 配置说明展开 · 浅色",
+    "group": "导航与弹窗",
+    "file": "screens/253.png"
+  },
+  {
+    "title": "词表 · 集数规则 · 浅色",
+    "group": "导航与弹窗",
+    "file": "screens/254.png"
+  },
+  {
+    "title": "原生登录 · 无网页登录入口",
+    "group": "连接与登录",
+    "file": "screens/255.png"
+  },
+  {
+    "title": "原生连接恢复 · 无网页导航回退",
+    "group": "连接与登录",
+    "file": "screens/256.png"
   }
 ]

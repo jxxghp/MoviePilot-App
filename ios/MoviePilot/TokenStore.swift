@@ -35,7 +35,7 @@ final class TokenStore {
     }
   }
 
-  /// 退出、过期或改用网页登录时撤销当前实例令牌，不影响其他实例。
+  /// 退出或会话过期时撤销当前实例令牌，不影响其他实例。
   func remove(_ instanceId: UUID) { SecItemDelete(key(instanceId) as CFDictionary) }
 
   /// Keychain 键只由稳定实例 UUID 组成，不使用用户输入作为访问组或共享标识。
