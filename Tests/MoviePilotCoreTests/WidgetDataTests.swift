@@ -123,7 +123,7 @@ struct WidgetDataTests {
       ("metrics", Array(repeating: Self.metric(), count: 2)),
       ("items", Array(repeating: Self.item(), count: 2)),
       ("items", (0..<7).map { Self.item(id: "item-\($0)") }),
-      ("metrics", (0..<7).map { Self.metric(id: "metric-\($0)") }),
+      ("metrics", (0..<9).map { Self.metric(id: "metric-\($0)") }),
       ("title", String(repeating: "中", count: 81)), ("title", "  "), ("title", "a\nb"),
     ]
     for (key, value) in changes {
@@ -137,6 +137,26 @@ struct WidgetDataTests {
     section["title"] = "👩🏽‍💻 e\u{301} 中文"
     section["items"] = [Self.item(title: String(repeating: "中", count: 80))]
     #expect(try Self.decode(Self.data { $0["sections"] = [section] }).sections.count == 1)
+  }
+
+  /// 合并订阅可携带总数、三类与四种状态的八项指标，系统符号不影响白名单重编码。
+  @Test func acceptsCombinedStatisticsAndSystemSymbols() throws {
+    let metrics = (0..<8).map { index in
+      [
+        "id": "metric-\(index)", "title": "统计", "value": "12",
+        "icon": index == 0 ? "cpu" : "memory",
+      ]
+    }
+    var section = Self.section(content: "subscriptions")
+    section["metrics"] = metrics
+    let snapshot = try Self.decode(
+      Self.data {
+        $0["availableContents"] = ["subscriptions"]
+        $0["sections"] = [section]
+      })
+    #expect(snapshot.sections[0].metrics.count == 8)
+    #expect(snapshot.availableContents == [.subscriptions])
+    #expect(try Self.decode(snapshot.encoded()) == snapshot)
   }
 
   /// 指标和条目不能注入路径、越界进度或未经限制的标题。

@@ -50,7 +50,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
       title: "更改地址", primaryAction: UIAction { [weak self] _ in self?.onConnection() })
     let header = AccountAppearance.header(title: "欢迎回来", subtitle: "登录你的服务，继续管理订阅与媒体。")
     let serverIcon = UIImageView(image: UIImage(systemName: "server.rack"))
-    serverIcon.tintColor = AccountAppearance.accent
+    serverIcon.tintColor = AccountAppearance.accent(for: instance.id)
     serverIcon.contentMode = .scaleAspectFit
     serverIcon.widthAnchor.constraint(equalToConstant: 20).isActive = true
     let address = UILabel()
@@ -89,12 +89,12 @@ final class LoginController: UIViewController, UITextFieldDelegate {
       true
     let fields = UIStackView(arrangedSubviews: [username, divider, password, otp])
     fields.axis = .vertical
-    fields.backgroundColor = .secondarySystemGroupedBackground
+    fields.backgroundColor = AccountAppearance.surface(for: instance.id)
     fields.layer.cornerRadius = 20
     fields.layer.cornerCurve = .continuous
     fields.clipsToBounds = true
     remember.isOn = true
-    remember.onTintColor = AccountAppearance.accent
+    remember.onTintColor = AccountAppearance.accent(for: instance.id)
     remember.accessibilityLabel = "保持登录"
     let rememberLabel = UILabel()
     rememberLabel.text = "保持登录"
@@ -124,7 +124,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
     form.axis = .vertical
     form.spacing = 16
     let stack = UIStackView(arrangedSubviews: [header, server, form, note])
-    AccountAppearance.install(stack, in: self)
+    AccountAppearance.install(stack, in: self, instance: instance.id)
     NSLayoutConstraint.activate([
       username.heightAnchor.constraint(greaterThanOrEqualToConstant: 58),
       password.heightAnchor.constraint(greaterThanOrEqualToConstant: 58),

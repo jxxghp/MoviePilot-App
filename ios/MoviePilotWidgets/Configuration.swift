@@ -32,23 +32,22 @@ struct WidgetAccountQuery: EntityQuery {
 
 /// 系统参数使用稳定有限枚举，展示名称与现有业务内容保持一致。
 enum WidgetSelectionContent: String, AppEnum {
-  case overview, downloads, imports, movieSubscriptions, tvSubscriptions, musicSubscriptions
+  case overview, downloads, imports, subscriptions, movieSubscriptions, tvSubscriptions,
+    musicSubscriptions
 
   static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "内容")
   static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-    .overview: "实例概览", .downloads: "下载状态", .imports: "近期入库",
+    .overview: "系统概览", .downloads: "下载状态", .imports: "近期入库", .subscriptions: "订阅",
     .movieSubscriptions: "电影订阅", .tvSubscriptions: "剧集订阅", .musicSubscriptions: "音乐订阅",
   ]
 
-  /// 同一组 case 在编译期列全，不从系统配置解析任意路由。
+  /// 旧分类配置迁移到合并订阅；权限与全量计数继续由当前服务快照决定。
   var content: WidgetContent {
     switch self {
     case .overview: .overview
     case .downloads: .downloads
     case .imports: .imports
-    case .movieSubscriptions: .movieSubscriptions
-    case .tvSubscriptions: .tvSubscriptions
-    case .musicSubscriptions: .musicSubscriptions
+    case .subscriptions, .movieSubscriptions, .tvSubscriptions, .musicSubscriptions: .subscriptions
     }
   }
 }
@@ -62,13 +61,13 @@ struct WidgetContentOptions: DynamicOptionsProvider {
     guard let value = configuration?.account, let id = UUID(uuidString: value.id),
       let snapshot = try await WidgetRepository.shared.cachedSnapshot(profileId: id)
     else { return [] }
-    return WidgetSelectionContent.allCases.filter {
+    return [WidgetSelectionContent.overview, .downloads, .subscriptions, .imports].filter {
       snapshot.availableContents.contains($0.content)
     }
   }
 }
 
-/// 桌面和锁屏均需显式选择资料；媒体名称默认关闭，不借编辑器自动授权账号。
+/// 桌面和锁屏均需显式选择资料；默认显示媒体名称，用户可主动关闭。
 struct MoviePilotConfiguration: WidgetConfigurationIntent {
   static let title: LocalizedStringResource = "MoviePilot 小组件"
   static let description = IntentDescription("选择已在 App 中启用的服务与只读内容。")
@@ -76,5 +75,5 @@ struct MoviePilotConfiguration: WidgetConfigurationIntent {
   @Parameter(title: "服务") var account: WidgetAccountEntity?
   @Parameter(title: "内容", optionsProvider: WidgetContentOptions()) var content:
     WidgetSelectionContent?
-  @Parameter(title: "显示媒体名称", default: false) var showMediaNames: Bool
+  @Parameter(title: "显示媒体名称", default: true) var showMediaNames: Bool
 }

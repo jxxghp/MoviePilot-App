@@ -12,7 +12,9 @@ public enum WidgetDataError: Error, Equatable, Sendable {
 
 /// 可选的只读内容；业务目的地固定，实际访问仍经过网页路由与后端授权。
 public enum WidgetContent: String, Codable, CaseIterable, Sendable {
-  case overview, downloads, imports, movieSubscriptions, tvSubscriptions, musicSubscriptions
+  case overview, downloads, imports, subscriptions
+  // 保留旧值读取已有配置和缓存，新配置只提供一个合并的订阅入口。
+  case movieSubscriptions, tvSubscriptions, musicSubscriptions
 
   /// 返回既有 HTML 页面路径，不接受服务器传入任意命令或 URL。
   public var route: String {
@@ -20,6 +22,7 @@ public enum WidgetContent: String, Codable, CaseIterable, Sendable {
     case .overview: "/dashboard"
     case .downloads: "/downloading"
     case .imports: "/history"
+    case .subscriptions: "/subscribe"
     case .movieSubscriptions: "/subscribe/movie"
     case .tvSubscriptions: "/subscribe/tv"
     case .musicSubscriptions: "/subscribe/music"
@@ -29,7 +32,7 @@ public enum WidgetContent: String, Codable, CaseIterable, Sendable {
 
 /// 图标使用有限的展示语义，由 WidgetKit 视图映射为系统符号。
 public enum WidgetMetricIcon: String, Codable, Sendable {
-  case movie, television, episodes, music, download, upload, storage, items, clock
+  case movie, television, episodes, music, download, upload, storage, items, clock, cpu, memory
 }
 
 /// 单个数据源的读取结果；空列表与读取失败不能互相冒充。
@@ -94,7 +97,7 @@ public struct WidgetSection: Codable, Equatable, Sendable {
   fileprivate func validate(generatedAt: TimeInterval) throws {
     try WidgetField.text(title, maximum: 240)
     if let message { try WidgetField.text(message, maximum: 240, empty: true) }
-    guard metrics.count <= 6, items.count <= 6,
+    guard metrics.count <= 8, items.count <= 6,
       Set(metrics.map(\.id)).count == metrics.count,
       Set(items.map(\.id)).count == items.count
     else { throw WidgetDataError.invalidData }

@@ -5,9 +5,15 @@ import UIKit
 @MainActor
 final class MoreMenuController: UITableViewController, UITextFieldDelegate {
   private let search = UISearchTextField()
+  // 深色使用与搜索控件接近的柔和灰填充，让网页底色自然透入；浅色保留清晰的系统白色分组。
+  private let rowBackground = UIColor { traits in
+    let fill: UIColor =
+      traits.userInterfaceStyle == .dark
+      ? .secondarySystemFill : .secondarySystemGroupedBackground
+    return fill.resolvedColor(with: traits)
+  }
   var onSelect: ((MoreMenuItem) -> Void)?
   private var sections: [MoreMenuSection] = []
-  private var surface: UIColor = .secondarySystemGroupedBackground
   private var accent: UIColor = .tintColor
   private var shouldCollapseSearch = true
 
@@ -72,17 +78,15 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
       tableView.contentOffset.y + tableView.adjustedContentInset.top >= header.bounds.height - 1
   }
 
-  /// 已确认的网页皮肤同步底色与强调色，权限目录变化时即时替换系统分组列表。
-  func apply(_ sections: [MoreMenuSection], background: UIColor, surface: UIColor, accent: UIColor)
-  {
+  /// 外页跟随网页皮肤；分组填充接近系统搜索框，避免暗色出现独立的黑色卡片。
+  func apply(_ sections: [MoreMenuSection], background: UIColor, accent: UIColor) {
     loadViewIfNeeded()
     tableView.backgroundColor = background
-    self.surface = surface
     self.accent = accent
     tableView.tintColor = accent
     // 内容配置会保存创建时的颜色；目录不变时也刷新已显示行，避免复用产生两套主题色。
     for cell in tableView.visibleCells {
-      cell.backgroundColor = surface
+      cell.backgroundColor = rowBackground
       if var content = cell.contentConfiguration as? UIListContentConfiguration {
         content.imageProperties.tintColor = accent
         cell.contentConfiguration = content
@@ -159,7 +163,7 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
     content.image = NavigationSymbols.image(item.icon)
     content.imageProperties.tintColor = accent
     cell.contentConfiguration = content
-    cell.backgroundColor = surface
+    cell.backgroundColor = rowBackground
     cell.accessoryType = .disclosureIndicator
     cell.accessibilityIdentifier = "more-entry-\(item.id)"
     return cell
