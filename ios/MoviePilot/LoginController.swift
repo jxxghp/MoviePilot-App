@@ -1,7 +1,7 @@
 import MoviePilotCore
 import UIKit
 
-/// 原生框架登录表单，只复用现有认证 API；业务页面与特殊认证继续使用原网页。
+/// 原生框架登录表单，只复用现有认证 API；认证失败保留原生输入和恢复入口。
 @MainActor
 final class LoginController: UIViewController, UITextFieldDelegate {
   private let instance: SavedInstance
@@ -9,7 +9,6 @@ final class LoginController: UIViewController, UITextFieldDelegate {
   private let savedToken: String?
   private let onExpired: () -> Void
   private let onAuthenticated: (AuthenticationResult, Bool) -> Void
-  private let onWebLogin: () -> Void
   private let onConnection: () -> Void
   private let username = UITextField()
   private let password = UITextField()
@@ -17,7 +16,6 @@ final class LoginController: UIViewController, UITextFieldDelegate {
   private let remember = UISwitch()
   private let message = UILabel()
   private let login = UIButton()
-  private let webLogin = UIButton()
   private var task: Task<Void, Never>?
   private var retryAt: Date?
   private var retryTimer: Timer?
@@ -27,13 +25,12 @@ final class LoginController: UIViewController, UITextFieldDelegate {
   init(
     instance: SavedInstance, savedToken: String?, onExpired: @escaping () -> Void,
     onAuthenticated: @escaping (AuthenticationResult, Bool) -> Void,
-    onWebLogin: @escaping () -> Void, onConnection: @escaping () -> Void
+    onConnection: @escaping () -> Void
   ) {
     self.instance = instance
     self.savedToken = savedToken
     self.onExpired = onExpired
     self.onAuthenticated = onAuthenticated
-    self.onWebLogin = onWebLogin
     self.onConnection = onConnection
     client = AuthenticationClient(address: instance.address)
     super.init(nibName: nil, bundle: nil)
@@ -110,9 +107,6 @@ final class LoginController: UIViewController, UITextFieldDelegate {
     login.configuration = AccountAppearance.primaryButton(title: "登录")
     login.accessibilityLabel = "登录"
     login.addAction(UIAction { [weak self] _ in self?.submit() }, for: .touchUpInside)
-    webLogin.configuration = .plain()
-    webLogin.configuration?.title = "使用网页登录"
-    webLogin.addAction(UIAction { [weak self] _ in self?.openWebLogin() }, for: .touchUpInside)
     let note = UILabel()
     note.text = "账号信息仅发送到当前 MoviePilot 服务。"
     note.font = .preferredFont(forTextStyle: .footnote)
@@ -120,7 +114,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
     note.textColor = .secondaryLabel
     note.textAlignment = .center
     note.numberOfLines = 0
-    let form = UIStackView(arrangedSubviews: [fields, rememberRow, message, login, webLogin])
+    let form = UIStackView(arrangedSubviews: [fields, rememberRow, message, login])
     form.axis = .vertical
     form.spacing = 16
     let stack = UIStackView(arrangedSubviews: [header, server, form, note])
@@ -130,7 +124,6 @@ final class LoginController: UIViewController, UITextFieldDelegate {
       password.heightAnchor.constraint(greaterThanOrEqualToConstant: 58),
       otp.heightAnchor.constraint(greaterThanOrEqualToConstant: 58),
       login.heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
-      webLogin.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
     ])
     prepare()
   }
@@ -176,7 +169,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
     field.delegate = self
   }
 
-  /// 初始化与令牌恢复只执行一次，服务器状态不明时保留明确重试/网页出口。
+  /// 初始化与令牌恢复先验证服务器；未知状态允许重试，不进入网页认证或初始化。
   private func prepare() {
     setBusy(true)
     setMessage("正在连接你的实例…")
@@ -191,10 +184,12 @@ final class LoginController: UIViewController, UITextFieldDelegate {
         guard !Task.isCancelled else { return }
         guard self.initialized else {
           self.show(AuthenticationError.notInitialized)
-          self.login.configuration?.title = "在网页初始化"
-          self.login.accessibilityLabel = "在网页初始化"
+          self.login.configuration?.title = "重新检查"
+          self.login.accessibilityLabel = "重新检查"
           return
         }
+        self.login.configuration?.title = "登录"
+        self.login.accessibilityLabel = "登录"
         if let token = self.savedToken {
           do {
             let result = try await self.client.restore(token: token)
@@ -212,7 +207,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
   private func submit() {
     guard task == nil, retryAt.map({ $0 <= Date() }) ?? true else { return }
     if !initialized {
-      openWebLogin()
+      prepare()
       return
     }
     let name = username.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -254,14 +249,6 @@ final class LoginController: UIViewController, UITextFieldDelegate {
         }
       } catch { if !Task.isCancelled { self.show(error) } }
     }
-  }
-
-  /// 特殊认证交给同一实例网页，不将密码复制到网页表单或重新发送。
-  private func openWebLogin() {
-    password.text = nil
-    otp.text = nil
-    view.endEditing(true)
-    onWebLogin()
   }
 
   /// 请求期间限制重复提交，系统加载状态与可访问状态保持一致。

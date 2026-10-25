@@ -96,7 +96,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     coordinator?.stop()
     coordinator = nil
     let controller = ConnectionController(instances: instances) { [weak self] instance in
-      // 显式重新连接恢复原生登录入口；特殊认证仍可由用户再次选择网页方式。
+      // 清除旧版本的网页偏好，重新连接始终走原生认证。
       UserDefaults.standard.removeObject(forKey: "moviepilot.web-login.\(instance.id)")
       self?.connect(instance)
     }
@@ -104,7 +104,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       root: controller, instance: (instances.selected ?? instances.instances.last)?.id)
   }
 
-  /// 恢复有效网页会话；旧网页登录选择不能让失效会话永久绕过原生登录。
+  /// 旧版本网页偏好不再参与连接；每次恢复都先由原生认证校验当前实例令牌。
   private func connect(_ instance: SavedInstance) {
     coordinator?.stop()
     coordinator = nil
@@ -112,10 +112,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       showConnection()
       return
     }
-    if UserDefaults.standard.bool(forKey: "moviepilot.web-login.\(instance.id)") {
-      openWeb(instance, authentication: nil)
-      return
-    }
+    UserDefaults.standard.removeObject(forKey: "moviepilot.web-login.\(instance.id)")
     showLogin(instance)
   }
 
@@ -149,36 +146,24 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
           self.window?.rootViewController?.present(alert, animated: true)
         }
       },
-      onWebLogin: { [weak self] in
-        self?.tokens.remove(instance.id)
-        UserDefaults.standard.set(true, forKey: "moviepilot.web-login.\(instance.id)")
-        self?.openWeb(instance, authentication: nil, allowsWebLogin: true)
-      },
       onConnection: { [weak self] in self?.showConnection() })
     window?.rootViewController = AccountAppearance.navigationController(
       root: login, instance: instance.id)
   }
 
-  /// 仅当前明确选择的网页尝试保留 HTML 登录；恢复到登录路由时重新交给原生表单。
+  /// 业务网页只在原生认证后创建；运行中失效通知始终撤销令牌并回到原生登录。
   private func openWeb(
-    _ instance: SavedInstance, authentication: AuthenticationResult?, allowsWebLogin: Bool = false
+    _ instance: SavedInstance, authentication: AuthenticationResult
   ) {
     coordinator?.stop()
     let coordinator = WebCoordinator(
       instance: instance, authentication: authentication,
-      onAuthenticationRequired: allowsWebLogin
-        ? nil
-        : { [weak self] in
-          self?.tokens.remove(instance.id)
-          self?.showLogin(instance)
-        })
+      onAuthenticationRequired: { [weak self] in
+        self?.tokens.remove(instance.id)
+        self?.showLogin(instance)
+      })
     let shell = ShellController(
       coordinator: coordinator,
-      onNativeLogin: allowsWebLogin
-        ? { [weak self] in
-          UserDefaults.standard.removeObject(forKey: "moviepilot.web-login.\(instance.id)")
-          self?.showLogin(instance)
-        } : nil,
       onConnection: { [weak self] in self?.showConnection() })
     coordinator.shell = shell
     self.coordinator = coordinator

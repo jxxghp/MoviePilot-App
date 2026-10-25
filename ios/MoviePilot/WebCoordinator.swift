@@ -44,7 +44,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   private var downloads: [ObjectIdentifier: URL] = [:]
   private var downloadReferences: [ObjectIdentifier: WKDownload] = [:]
   private var authentication: AuthenticationResult?
-  private let onAuthenticationRequired: (() -> Void)?
+  private let onAuthenticationRequired: () -> Void
   private var notificationLookupStarted = false
   private var notificationNavigationAvailable = false
   private var widgetsNegotiated = false
@@ -60,8 +60,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 
   /// 数据容器按实例 UUID 隔离；不将 Safari 或其他实例 Cookie 导入此会话。
   init(
-    instance: SavedInstance, authentication: AuthenticationResult? = nil,
-    onAuthenticationRequired: (() -> Void)? = nil
+    instance: SavedInstance, authentication: AuthenticationResult,
+    onAuthenticationRequired: @escaping () -> Void
   ) {
     self.instance = instance
     self.authentication = authentication
@@ -85,8 +85,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
             with: WidgetFeature.isEnabled ? "widgetsVersion: 1," : ""),
           injectionTime: .atDocumentStart, forMainFrameOnly: true))
     }
-    if let authentication,
-      let data = try? JSONEncoder().encode(authentication.session.browserStorage),
+    if let data = try? JSONEncoder().encode(authentication.session.browserStorage),
       let raw = String(data: data, encoding: .utf8),
       let literalData = try? JSONEncoder().encode(raw),
       let literal = String(data: literalData, encoding: .utf8),
@@ -190,8 +189,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     contentReady = false
     startupPending = true
     session.beginDocument()
-    shell?.showWebNavigation()
-    shell?.setLoading(true)
+    shell?.prepareDocumentHost()
     armStartupTimeout()
     webView.stopLoading()
     webView.load(URLRequest(url: target, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 30))
@@ -317,7 +315,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
         guard let self else { return }
         self.pendingCommands.removeValue(forKey: request)
         self.commandCompletions.removeValue(forKey: request)?(false)
-        self.releaseChrome()
+        self.recoverNavigation()
       }
     }
   }
@@ -479,13 +477,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     return true
   }
 
-  /// 释放事务先要求网页恢复布局，收到确认后才移除系统业务栏。
-  func releaseChrome() {
-    guard session.sessionId != nil, session.phase != .releasing else { return }
-    cancelCommands()
-    session.requestRelease()
-    send("chrome.release", payload: .object(["reason": .string("host_request")]))
-    armTimeout()
+  /// 失配立即由原生恢复页接管，不能把已失效控件或完整网页作为降级出口。
+  func recoverNavigation() {
+    fail("App 导航连接已中断。请确认实例前端已更新，再重新打开。")
   }
 
   /// 合并同一轮多次 UIKit 布局回调，只发送改变后的可见几何。
@@ -521,7 +515,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       NotificationService.shared.attach(nil)
       cancelWidgetRequest()
       WidgetService.shared.endSession(instanceId: instance.id, clear: true)
-      onAuthenticationRequired?()
+      onAuthenticationRequired()
       return
     }
     guard JSONSerialization.isValidJSONObject(message.body),
@@ -533,8 +527,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       do {
         try handle(envelope)
       } catch {
-        // 当前主文档的快照失配时释放接管，不能让旧标题和控件留在已经切换的 HTML 上。
-        if envelope.type == "navigation.state", session.sessionId != nil { releaseChrome() }
+        // 当前主文档快照失配时展示原生恢复页，不能保留旧标题或透出完整网页。
+        if envelope.type == "navigation.state", session.sessionId != nil { recoverNavigation() }
       }
     } catch {
       // 拒绝无效、过期或不受信消息，不回显正文、地址和认证信息。
@@ -606,20 +600,13 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       refreshNotificationContext()
       refreshWidgetContext()
       WidgetService.shared.resumePending(with: self)
-    case "chrome.released":
-      guard session.phase == .releasing else { throw BridgeError.busy }
-      timeout?.invalidate()
-      session.released()
-      cancelCommands()
-      shell?.showWebNavigation()
-      completeStartupIfReady()
     case "command.result":
       let result = try message.decodePayload(CommandResult.self)
       guard let timer = pendingCommands.removeValue(forKey: result.requestId) else { return }
       timer.invalidate()
       let completion = commandCompletions.removeValue(forKey: result.requestId)
       completion?(result.accepted)
-      if !result.accepted, completion != nil { releaseChrome() }
+      if !result.accepted, completion != nil { recoverNavigation() }
     case "session.state":
       widgetContextChecked = false
       WidgetService.shared.endSession(instanceId: instance.id, clear: true)
@@ -630,8 +617,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       let interruptedHandoff = !commandCompletions.isEmpty
       cancelCommands()
       if interruptedHandoff {
-        // 身份变化不能继续呈现旧账号尚未绘制完成的弹窗，恢复网页后由原权限逻辑处理。
-        releaseChrome()
+        // 身份变化不能继续呈现旧账号尚未绘制完成的弹窗，改由原生恢复页等待重新验证。
+        recoverNavigation()
       } else if session.phase == .nativeNavigation, let previousId = session.sessionId {
         let nextId = try session.rotateIdentity()
         send(
@@ -639,10 +626,10 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
           sessionOverride: previousId)
         armTimeout()
       } else {
-        releaseChrome()
+        recoverNavigation()
       }
     case "chrome.failed":
-      releaseChrome()
+      recoverNavigation()
     case "widget.result":
       receiveWidgetResult(message)
     case "widget.logout":
@@ -681,18 +668,14 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     }
   }
 
-  /// 本地协商按前台活动计时，释放无确认时转到原生恢复出口。
+  /// 本地协商只按前台活动计时；无确认时保留原生恢复出口，不切换网页导航。
   private func armTimeout() {
     timeout?.invalidate()
     guard lifecycle == "active" else { return }
     timeout = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { [weak self] _ in
       MainActor.assumeIsolated {
         guard let self else { return }
-        if self.session.phase == .releasing {
-          self.fail("页面没有确认恢复导航。请重新打开网页模式。")
-        } else {
-          self.releaseChrome()
-        }
+        self.recoverNavigation()
       }
     }
   }
@@ -726,8 +709,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     startupPending = true
     cancelCommands()
     session.beginDocument()
-    shell?.showWebNavigation()
-    shell?.setLoading(true)
+    shell?.prepareDocumentHost()
     armStartupTimeout()
   }
 
@@ -762,10 +744,10 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     }
   }
 
-  /// 同一文档的资源完成且原生接管或网页兼容导航稳定后，才结束启动页。
+  /// 同一文档资源和原生布局都确认完成后才显示正文；旧前端不能透出完整网页。
   private func completeStartupIfReady() {
     guard startupPending, contentReady,
-      session.phase == .nativeNavigation || session.phase == .webNavigation
+      session.phase == .nativeNavigation
     else { return }
     startupPending = false
     startupTimeout?.invalidate()
@@ -779,7 +761,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     startupTimeout = Timer.scheduledTimer(withTimeInterval: 45, repeats: false) { [weak self] _ in
       MainActor.assumeIsolated {
         guard let self, self.startupPending else { return }
-        self.fail("页面资源加载超时，请检查网络和服务状态后重试。")
+        self.fail("页面资源或 App 导航未能就绪。请检查网络，并确认实例前端已更新后重试。")
       }
     }
   }

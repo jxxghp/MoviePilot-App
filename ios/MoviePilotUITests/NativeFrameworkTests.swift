@@ -12,6 +12,98 @@ private struct NetworkFixtures: Decodable {
 /// 使用显式配置的测试实例验收原生框架与原业务 HTML 的真实交接，不写入业务数据。
 @MainActor
 final class NativeFrameworkTests: XCTestCase {
+  /// 独立合成实例记录首次与缓存后冷启动、前后台和导航成本；不采集界面截图。
+  func testAppCachePerformanceBaseline() async throws {
+    guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_CACHE_SERVER"],
+      server == "http://127.0.0.1:5235", let base = URL(string: server)
+    else { throw XCTSkip("需要独立本机缓存性能夹具。") }
+    continueAfterFailure = false
+    var samples: [[String: Any]] = []
+    let app = XCUIApplication()
+    for sample in 1...3 {
+      try await resetCacheMeasurement(base, phase: "first-\(sample)")
+      app.launchArguments = [
+        "-moviepilot.instance.selected.v1", "", "-AppleLanguages", "(zh-Hans)",
+      ]
+      app.launch()
+      let address = app.textFields["MoviePilot 服务地址"]
+      XCTAssertTrue(address.waitForExistence(timeout: 10))
+      address.tap()
+      if address.buttons.firstMatch.exists { address.buttons.firstMatch.tap() }
+      address.typeText("\(server)/bench-\(UUID().uuidString)/\n")
+      authenticateFixture(app)
+      XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+      samples.append(try await cacheMeasurement(base, phase: "first-\(sample)"))
+      app.terminate()
+    }
+    for sample in 1...3 {
+      try await resetCacheMeasurement(base, phase: "cached-\(sample)")
+      app.launchArguments = ["-AppleLanguages", "(zh-Hans)"]
+      let started = Date()
+      app.launch()
+      XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+      var result = try await cacheMeasurement(base, phase: "cached-\(sample)")
+      result["launchToNativeMs"] = Date().timeIntervalSince(started) * 1000
+      samples.append(result)
+      if sample != 3 { app.terminate() }
+    }
+    try await resetCacheMeasurement(base, phase: "navigation-and-resume")
+    for title in ["推荐", "探索", "更多", "推荐", "探索", "更多", "推荐", "探索", "更多", "推荐"] {
+      let button = app.tabBars["native-root-navigation"].buttons[title]
+      XCTAssertTrue(button.isHittable)
+      button.tap()
+      XCTAssertTrue(button.isEnabled)
+    }
+    for _ in 0..<3 {
+      XCUIDevice.shared.press(.home)
+      app.activate()
+      XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 10))
+    }
+    let (body, _) = try await URLSession.shared.data(
+      from: base.appendingPathComponent("__fixture/stats"))
+    let current = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    let requests = current["requests"] as? [[String: Any]] ?? []
+    XCTAssertFalse(
+      requests.contains {
+        ($0["path"] as? String)?.range(
+          of: "^/bench-[0-9A-Fa-f-]{36}/$", options: .regularExpression) != nil
+      }, "切换页面和恢复前台不能重新请求顶层 HTML 文档")
+    samples.append(current)
+    let attachment = XCTAttachment(
+      data: try JSONSerialization.data(withJSONObject: samples, options: [.sortedKeys]),
+      uniformTypeIdentifier: "public.json")
+    attachment.name = "App缓存性能基线"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+  }
+
+  /// 每段测量只重置夹具计数，不删除 App 实例、系统缓存或认证状态。
+  private func resetCacheMeasurement(_ base: URL, phase: String) async throws {
+    var request = URLRequest(url: base.appendingPathComponent("__fixture/reset"))
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: ["phase": phase])
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+  }
+
+  /// 等待真实页面的双绘制帧与原生接管标记；只读取脱敏性能数字和资源路径。
+  private func cacheMeasurement(_ base: URL, phase: String) async throws -> [String: Any] {
+    for _ in 0..<80 {
+      let (body, _) = try await URLSession.shared.data(
+        from: base.appendingPathComponent("__fixture/stats"))
+      if let value = try JSONSerialization.jsonObject(with: body) as? [String: Any],
+        let metrics = value["metrics"] as? [[String: Any]],
+        metrics.contains(where: { $0["native"] as? Bool == true })
+      {
+        return value
+      }
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    XCTFail("\(phase)没有收到完成原生接管后的性能采样")
+    return [:]
+  }
+
   /// 无实例历史的首屏与尚未登录的新实例直接使用预设玻璃底色，无需网页回传。
   func testAccountDefaultAppearanceBeforeFirstLogin() async throws {
     guard
@@ -57,7 +149,7 @@ final class NativeFrameworkTests: XCTestCase {
       let (_, response) = try await URLSession.shared.data(for: request)
       XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
       let app = try launchLogin(server: server)
-      app.buttons["使用网页登录"].tap()
+      authenticateFixture(app)
       XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 15))
       attachScreen("账号主题-\(title)主界面", app: app)
       app.buttons["操作菜单"].tap()
@@ -86,74 +178,136 @@ final class NativeFrameworkTests: XCTestCase {
     }
   }
 
-  /// 旧网页登录偏好只恢复有效会话；再次需要认证时必须回到原生输入框。
-  func testExpiredWebLoginReturnsToNativeForm() async throws {
-    let server = try await prepareLoginRecoveryFixture()
+  /// 原生表单和连接子菜单都不提供网页退路，桥断开后只能原生重试或更改地址。
+  func testNativeOnlyNavigationRecovery() async throws {
+    let server = try await prepareNativeOnlyFixture(mode: "healthy")
     let app = try launchLogin(server: server)
-    openLoginRecoveryWebPage(app)
-    attachScreen("登录-显式网页登录", app: app)
-    relaunchSavedLoginInstance(app)
-    XCTAssertTrue(app.navigationBars["登录"].waitForExistence(timeout: 15))
+    XCTAssertFalse(app.buttons["使用网页登录"].exists)
+    attachScreen("原生专用-登录", app: app)
+    authenticateFixture(app, remember: false)
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+    app.buttons["操作菜单"].tap()
+    app.buttons["连接与显示"].tap()
+    XCTAssertTrue(app.buttons["重新加载"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["更改服务地址"].exists)
+    XCTAssertFalse(app.buttons["使用网页导航"].exists)
+    attachScreen("原生专用-连接菜单", app: app)
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.28)).tap()
+    _ = try await prepareNativeOnlyFixture(mode: "bridge-failed")
+    XCTAssertTrue(app.staticTexts["暂时无法打开 MoviePilot"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.webViews.firstMatch.exists)
+    XCTAssertTrue(app.buttons["重新打开"].isHittable)
+    XCTAssertTrue(app.buttons["更改服务地址"].isHittable)
+    attachScreen("原生专用-导航恢复", app: app)
+    _ = try await prepareNativeOnlyFixture(mode: "healthy")
+    app.buttons["重新打开"].tap()
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+    XCTAssertFalse(app.otherElements["native-startup-screen"].exists)
+  }
+
+  /// 实际发布前端收到运行中 HTTP401 后由登录路由交回原生，不重启 App。
+  func testExpiredNativeSessionReturnsWithoutRelaunch() async throws {
+    let server = try await prepareNativeOnlyFixture(mode: "healthy")
+    let app = try launchLogin(server: server)
+    authenticateFixture(app, remember: false)
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+    _ = try await prepareNativeOnlyFixture(mode: "expired")
+    // 在途请求可能已先收到401；只有原生表单尚未出现时才触发新的业务读取。
+    let login = app.navigationBars["登录"]
+    if !login.waitForExistence(timeout: 2) {
+      let more = app.tabBars["native-root-navigation"].buttons["更多"]
+      if more.exists && more.isHittable { more.tap() }
+      let row = app.tables["more-menu"].cells.containing(.staticText, identifier: "电影订阅").firstMatch
+      if row.waitForExistence(timeout: 2), row.isHittable { row.tap() }
+    }
+    XCTAssertTrue(app.navigationBars["登录"].waitForExistence(timeout: 20))
     XCTAssertTrue(app.textFields["用户名"].exists)
     XCTAssertTrue(app.secureTextFields["密码"].exists)
-    XCTAssertFalse(app.webViews.firstMatch.exists, "旧网页选择不能永久占用登录界面")
-    attachScreen("登录-失效网页会话回到原生", app: app)
+    XCTAssertFalse(app.webViews.firstMatch.exists)
+    XCTAssertFalse(app.buttons["使用网页登录"].exists)
+    XCTAssertEqual(app.state, .runningForeground)
+    _ = try await prepareNativeOnlyFixture(mode: "healthy")
+    authenticateFixture(app, remember: false)
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
   }
 
-  /// 显式网页尝试提供返回原生入口，并清理该实例的旧网页选择。
-  func testExplicitWebLoginCanReturnToNativeForm() async throws {
-    let server = try await prepareLoginRecoveryFixture()
+  /// 历史网页偏好即便仍为真，也不能绕过原生认证恢复完整网页。
+  func testLegacyWebLoginPreferenceCannotBypassNativeLogin() async throws {
+    let server = try await prepareNativeOnlyFixture(mode: "healthy")
     let app = try launchLogin(server: server)
-    openLoginRecoveryWebPage(app)
-    let back = app.navigationBars["网页登录"].buttons["原生登录"]
-    XCTAssertTrue(back.waitForExistence(timeout: 5))
-    back.tap()
-    XCTAssertTrue(app.navigationBars["登录"].waitForExistence(timeout: 5))
-    XCTAssertFalse(app.webViews.firstMatch.exists)
-    relaunchSavedLoginInstance(app)
+    authenticateFixture(app, remember: false)
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+    let (data, _) = try await URLSession.shared.data(
+      from: try XCTUnwrap(URL(string: server + "/__fixture/context")))
+    let value = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let identifier = try XCTUnwrap(value["instanceId"] as? String)
+    XCTAssertNotNil(UUID(uuidString: identifier))
+    app.terminate()
+    app.launchArguments = [
+      "-AppleLanguages", "(zh-Hans)", "-moviepilot.web-login.\(identifier)", "YES",
+    ]
+    app.launch()
     XCTAssertTrue(app.navigationBars["登录"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.webViews.firstMatch.exists)
+    XCTAssertFalse(app.buttons["使用网页登录"].exists)
   }
 
-  /// 有效网页会话仍可恢复，随后失效的同源通知才触发原生重新登录。
-  func testValidWebLoginSessionRestores() async throws {
-    let server = try await prepareLoginRecoveryFixture()
+  /// 无桥的旧 HTML 即使下载完成也不展示，更新后原生重新打开能够恢复。
+  func testIncompatibleFrontendStaysBehindNativeRecovery() async throws {
+    let server = try await prepareNativeOnlyFixture(mode: "legacy")
     let app = try launchLogin(server: server)
-    openLoginRecoveryWebPage(app)
-    app.webViews.buttons["保存演示会话"].tap()
-    XCTAssertTrue(app.webViews.staticTexts["演示会话已登录"].waitForExistence(timeout: 10))
-    relaunchSavedLoginInstance(app)
-    XCTAssertTrue(app.webViews.staticTexts["演示会话已登录"].waitForExistence(timeout: 15))
-    XCTAssertFalse(app.navigationBars["登录"].exists)
-    app.webViews.buttons["模拟会话失效"].tap()
-    XCTAssertTrue(app.navigationBars["登录"].waitForExistence(timeout: 10))
+    authenticateFixture(app, remember: false)
+    XCTAssertTrue(app.otherElements["native-startup-screen"].waitForExistence(timeout: 10))
     XCTAssertFalse(app.webViews.firstMatch.exists)
+    XCTAssertTrue(app.staticTexts["暂时无法打开 MoviePilot"].waitForExistence(timeout: 55))
+    XCTAssertFalse(app.webViews.firstMatch.exists)
+    _ = try await prepareNativeOnlyFixture(mode: "healthy")
+    app.buttons["重新打开"].tap()
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
   }
 
-  /// 私有测试端点只准备合成认证状态，不读取或更改任何真实实例。
-  private func prepareLoginRecoveryFixture() async throws -> String {
-    guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_LOGIN_RECOVERY_SERVER"],
-      let base = URL(string: server), base.scheme == "http", base.host == "127.0.0.1"
-    else { throw XCTSkip("需要独立本机登录恢复夹具。") }
-    var request = URLRequest(url: base.appendingPathComponent("__fixture/session"))
+  /// 未初始化只给出浏览器准备说明和原生重新检查，不在 App 内打开网页初始化。
+  func testUninitializedInstanceKeepsNativeForm() async throws {
+    let server = try await prepareNativeOnlyFixture(mode: "uninitialized")
+    let app = try launchLogin(server: server)
+    XCTAssertTrue(app.buttons["重新检查"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["使用网页登录"].exists)
+    XCTAssertFalse(app.buttons["在网页初始化"].exists)
+    XCTAssertFalse(app.webViews.firstMatch.exists)
+    _ = try await prepareNativeOnlyFixture(mode: "healthy")
+    app.buttons["重新检查"].tap()
+    XCTAssertTrue(app.buttons["登录"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["重新检查"].exists)
+  }
+
+  /// 合成认证走实际原生表单；默认值仅供显式私有夹具，不写入产品或业务接口。
+  private func authenticateFixture(_ app: XCUIApplication, remember: Bool = true) {
+    let environment = ProcessInfo.processInfo.environment
+    let name = environment["MOVIEPILOT_E2E_USERNAME"] ?? "native-demo"
+    let secret = environment["MOVIEPILOT_E2E_PASSWORD"] ?? "fixture-only"
+    XCTAssertTrue(app.textFields["用户名"].waitForExistence(timeout: 15))
+    let keep = app.switches["保持登录"]
+    if (keep.value as? String == "1") != remember { keep.tap() }
+    app.textFields["用户名"].tap()
+    app.textFields["用户名"].typeText(name)
+    app.secureTextFields["密码"].tap()
+    app.secureTextFields["密码"].typeText(secret + "\n")
+    let prompt = app.alerts["已登录"]
+    if prompt.waitForExistence(timeout: 1) { prompt.buttons["好"].tap() }
+  }
+
+  /// 模式只传到显式本机夹具，HTTP401 和标准桥消息仍经真实产品代码处理。
+  private func prepareNativeOnlyFixture(mode: String) async throws -> String {
+    guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_NATIVE_ONLY_SERVER"],
+      server == "http://127.0.0.1:5236", let base = URL(string: server)
+    else { throw XCTSkip("需要独立本机原生专用导航夹具。") }
+    var request = URLRequest(url: base.appendingPathComponent("__fixture/state"))
     request.httpMethod = "POST"
-    request.httpBody = Data("{\"authenticated\":false}".utf8)
+    request.httpBody = try JSONSerialization.data(withJSONObject: ["mode": mode])
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     let (_, response) = try await URLSession.shared.data(for: request)
     XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
     return server
-  }
-
-  /// 通过真实原生按钮进入 WebView，不直接写入应用的网页登录偏好。
-  private func openLoginRecoveryWebPage(_ app: XCUIApplication) {
-    let webLogin = app.buttons["使用网页登录"]
-    for _ in 0..<4 {
-      if webLogin.isHittable { break }
-      app.scrollViews.firstMatch.swipeUp()
-    }
-    XCTAssertTrue(webLogin.isHittable)
-    webLogin.tap()
-    XCTAssertTrue(app.webViews.staticTexts["网页登录演示"].waitForExistence(timeout: 15))
   }
 
   /// 移除测试首次连接的空选择参数，让冷启动真正读取已经保存的实例和偏好。
@@ -658,16 +812,16 @@ final class NativeFrameworkTests: XCTestCase {
     attachScreen("Widget-锁屏行内已添加", app: poster)
   }
 
-  /// 同时验证原生初始化请求与真实 WKWebView 加载，不能用宿主进程请求代替 App 网络。
+  /// 初始化探测覆盖各本地地址形式；未初始化时仅保留原生重新检查，不暴露网页。
   func testLocalNetworkTransports() async throws {
     let fixtures = try await networkFixtures()
     XCTAssertGreaterThanOrEqual(fixtures.servers.count, 4, "需覆盖 IPv4、IPv6、私网及本地名称")
     for (index, server) in fixtures.servers.enumerated() {
       let app = try launchLogin(server: server)
-      XCTAssertTrue(app.buttons["在网页初始化"].waitForExistence(timeout: 25), "原生请求须收到夹具的未初始化状态")
-      app.buttons["使用网页登录"].tap()
-      XCTAssertTrue(app.webViews.staticTexts["网络连接验收就绪"].waitForExistence(timeout: 20))
-      attachScreen("网络-原生请求与网页加载-\(index + 1)", app: app)
+      XCTAssertTrue(app.buttons["重新检查"].waitForExistence(timeout: 25), "原生请求须收到夹具的未初始化状态")
+      XCTAssertFalse(app.buttons["使用网页登录"].exists)
+      XCTAssertFalse(app.webViews.firstMatch.exists)
+      attachScreen("网络-原生初始化检查-\(index + 1)", app: app)
       app.terminate()
     }
   }
@@ -697,16 +851,12 @@ final class NativeFrameworkTests: XCTestCase {
       let app = try launchLogin(server: scenario.0)
       XCTAssertTrue(app.staticTexts[scenario.1].waitForExistence(timeout: 30))
       XCTAssertTrue(app.buttons["更改地址"].isEnabled)
-      XCTAssertTrue(app.buttons["使用网页登录"].isEnabled)
+      XCTAssertFalse(app.buttons["使用网页登录"].exists)
+      XCTAssertFalse(app.webViews.firstMatch.exists)
       attachScreen("网络-原生失败提示-\(index + 1)", app: app)
-      if index < 2 {
-        app.buttons["使用网页登录"].tap()
-        XCTAssertTrue(app.staticTexts[scenario.1].waitForExistence(timeout: 20))
-        XCTAssertTrue(app.buttons["重新打开"].isEnabled)
-        app.buttons["更改服务地址"].tap()
-        XCTAssertTrue(app.textFields["MoviePilot 服务地址"].waitForExistence(timeout: 10))
-        attachScreen("网络-失败后更改地址-\(index + 1)", app: app)
-      }
+      app.buttons["更改地址"].tap()
+      XCTAssertTrue(app.textFields["MoviePilot 服务地址"].waitForExistence(timeout: 10))
+      attachScreen("网络-失败后更改地址-\(index + 1)", app: app)
       app.terminate()
     }
   }
@@ -879,23 +1029,18 @@ final class NativeFrameworkTests: XCTestCase {
     if open.waitForExistence(timeout: 3) { open.tap() }
   }
 
-  /// 受控首屏资源门关闭时只显示静态原生启动页，释放后才交接到可访问的真实 WebView。
+  /// 资源门和原生协商都完成前只展示静态启动页，内容不能提前露出。
   func testStaticStartupWaitsForContent() async throws {
-    guard let address = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_STARTUP_FIXTURE"],
-      let server = URL(string: address)
-    else { throw XCTSkip("仅在显式配置的本机启动资源夹具中执行。") }
-    _ = try await URLSession.shared.data(from: server.appendingPathComponent("__reset"))
-    let app = try launchLogin()
-    app.buttons["使用网页登录"].tap()
+    let server = try await prepareNativeOnlyFixture(mode: "delayed")
+    let app = try launchLogin(server: server)
+    authenticateFixture(app, remember: false)
     let startup = app.otherElements["native-startup-screen"]
     XCTAssertTrue(startup.waitForExistence(timeout: 10))
-    XCTAssertFalse(app.webViews.firstMatch.exists, "资源门未完成时不能提前访问网页")
-    XCTAssertFalse(app.navigationBars.firstMatch.exists, "静态启动页不露出中间态导航")
-    attachScreen("交互-静态启动画面", app: app)
-    _ = try await URLSession.shared.data(from: server.appendingPathComponent("__release"))
-    XCTAssertTrue(app.webViews.staticTexts["网页资源已就绪"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.webViews.firstMatch.exists)
+    XCTAssertFalse(app.navigationBars.firstMatch.exists)
+    _ = try await prepareNativeOnlyFixture(mode: "healthy")
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
     XCTAssertFalse(startup.exists)
-    attachScreen("验收-资源完成后显示受控网页", app: app)
   }
 
   /// 从连接、原生登录到原生菜单，再进入原 HTML 插件页并返回菜单。
@@ -1389,7 +1534,7 @@ final class NativeFrameworkTests: XCTestCase {
       server == "http://127.0.0.1:5232"
     else { throw XCTSkip("需要显式指定本机目录外观夹具。") }
     let app = try launchLogin(server: server)
-    app.buttons["使用网页登录"].tap()
+    authenticateFixture(app)
     let menu = app.tables["more-menu"]
     XCTAssertTrue(menu.waitForExistence(timeout: 15))
     for (theme, appearance) in [("深色", "dark"), ("浅色", "light")] {
@@ -2110,6 +2255,70 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertFalse(app.keyboards.firstMatch.exists, "原生关闭应结束原 HTML 输入并恢复原页面")
   }
 
+  /// 三个快捷工具复用真实 HTML 表单，验收明暗系统弹层中的输入、结果、分类和固定保存栏。
+  func testNativeToolSheetDesign() async throws {
+    guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_TOOL_SERVER"],
+      server == "http://127.0.0.1:5237"
+    else { throw XCTSkip("工具弹层验收需要独立本机合成夹具。") }
+    let app = try launchLogin(server: server)
+    authenticateFixture(app, remember: false)
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+    for mode in ["dark", "light"] {
+      try await setSystemAppearance(mode)
+      for tool in ["nameTest", "ruleTest", "words"] {
+        app.buttons["操作菜单"].tap()
+        app.buttons["捷径"].firstMatch.tap()
+        let panel = app.tables["native-quick-panel"]
+        XCTAssertTrue(panel.waitForExistence(timeout: 8))
+        panel.buttons["native-panel-item-\(tool)"].tap()
+        XCTAssertTrue(app.buttons["native-sheet-close"].waitForExistence(timeout: 10))
+        settlePage(app)
+        let web = app.webViews.firstMatch
+        if tool == "words" {
+          let save = web.buttons["保存更改"]
+          XCTAssertTrue(save.waitForExistence(timeout: 10))
+          XCTAssertLessThan(save.frame.maxY, app.frame.maxY, "保存操作必须保留在弹层底部安全区内")
+          attachScreen("交互-\(mode)词表分段与统一底色", app: app)
+          let format = web.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "支持的配置格式")
+          ).firstMatch
+          XCTAssertTrue(format.waitForExistence(timeout: 5))
+          format.tap()
+          settlePage(app)
+          attachScreen("交互-\(mode)词表配置说明展开", app: app)
+          web.buttons["集数规则"].tap()
+          XCTAssertTrue(
+            web.textFields.matching(NSPredicate(format: "value == %@", "标准集数"))
+              .firstMatch.waitForExistence(timeout: 8))
+          attachScreen("交互-\(mode)词表规则平面布局", app: app)
+        } else {
+          let input = tool == "nameTest" ? web.textViews.firstMatch : web.textFields.firstMatch
+          XCTAssertTrue(input.waitForExistence(timeout: 10))
+          input.tap()
+          if !app.keyboards.firstMatch.waitForExistence(timeout: 2) { input.tap() }
+          XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+          input.typeText("MoviePilot.Demo.S01E03.2160p.WEB-DL")
+          // 选择已有来源或规则组，按真实表单交互结束文本输入并继续提交。
+          let selected = tool == "nameTest" ? "TheMovieDB" : "请选择"
+          let choice = tool == "nameTest" ? "TheMovieDB" : "高清优先"
+          web.staticTexts[selected].firstMatch.tap()
+          let option = web.otherElements.matching(identifier: choice)
+          XCTAssertTrue(option.firstMatch.waitForExistence(timeout: 8))
+          option.allElementsBoundByIndex.last?.tap()
+          web.buttons[tool == "nameTest" ? "识别" : "测试"].tap()
+          let result = web.staticTexts[tool == "nameTest" ? "星际漫游" : "命中过滤规则"].firstMatch
+          XCTAssertTrue(result.waitForExistence(timeout: 15))
+          for _ in 0..<5 where !result.isHittable { web.swipeUp(velocity: .slow) }
+          XCTAssertTrue(result.isHittable)
+          attachScreen("交互-\(mode)\(tool)统一结果布局", app: app)
+        }
+        app.buttons["native-sheet-close"].tap()
+        XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 10))
+      }
+    }
+    try await setSystemAppearance("dark")
+  }
+
   /// 连续打开关闭原表单保留底页滚动位置，真实文档请求计数不能增加。
   func testWebSheetPreservesPageAcrossRepeatedTransitions() async throws {
     guard let value = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_PROCESS_FIXTURE"],
@@ -2288,25 +2497,21 @@ final class NativeFrameworkTests: XCTestCase {
     XCUIDevice.shared.orientation = .portrait
   }
 
-  /// 输入框避让只处理尺寸和焦点变化；用户仍能手动滚到下方操作并打开原网页。
+  /// 用户手动滚动仍能触达原生登录操作，键盘避让不能将滚动位置拉回。
   func testAccountKeyboardAllowsManualScroll() async throws {
-    let fixtures = try await networkFixtures()
-    let server = try XCTUnwrap(fixtures.servers.first, "网络夹具至少提供一个可连接地址")
+    let server = try await prepareNativeOnlyFixture(mode: "healthy")
     let app = try launchLogin(server: server)
     app.secureTextFields["密码"].tap()
     XCUIDevice.shared.orientation = .landscapeLeft
+    defer { XCUIDevice.shared.orientation = .portrait }
     settlePage(app)
-    let scroll = app.scrollViews.firstMatch
-    let webLogin = app.buttons["使用网页登录"]
+    let login = app.buttons["登录"]
     for _ in 0..<6 {
-      if webLogin.isHittable { break }
-      scroll.swipeUp()
+      if login.isHittable { break }
+      app.scrollViews.firstMatch.swipeUp()
     }
-    attachScreen("框架-横屏手动滚到登录操作", app: app)
-    XCTAssertTrue(webLogin.isHittable, "手动滚动不能被输入框自动定位拉回")
-    webLogin.tap()
-    XCTAssertTrue(app.webViews.staticTexts["网络连接验收就绪"].waitForExistence(timeout: 20))
-    XCUIDevice.shared.orientation = .portrait
+    XCTAssertTrue(login.isHittable, "手动滚动不能被输入框自动定位拉回")
+    XCTAssertFalse(app.buttons["使用网页登录"].exists)
   }
 
   /// 公共登录前置只读取私有运行参数，截图不包含账号输入或密码。

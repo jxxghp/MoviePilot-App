@@ -12,10 +12,10 @@ enum AuthenticationError: LocalizedError {
     switch self {
     case .credentials: "用户名、密码或验证码不正确。"
     case .otpRequired: "请输入身份验证器中的 6 位验证码。"
-    case .unsupportedVerification: "此实例需要其他验证方式，请使用网页登录。"
-    case .notInitialized: "此实例尚未初始化，请先通过网页创建管理员。"
+    case .unsupportedVerification: "当前 App 尚不支持此实例要求的验证方式，请检查账户验证设置。"
+    case .notInitialized: "此实例尚未初始化，请先在浏览器中创建管理员，再返回 App 重新检查。"
     case .unavailable: "无法连接此实例，请检查地址、网络和服务状态。"
-    case .invalidResponse: "认证接口返回了不支持的数据，请使用网页登录。"
+    case .invalidResponse: "认证接口返回了不支持的数据，请更新实例或检查服务后重试。"
     case .throttled(let seconds): "登录尝试过于频繁，请在 \(seconds) 秒后重试。"
     }
   }

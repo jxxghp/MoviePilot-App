@@ -73,7 +73,6 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
 {
   private let coordinator: WebCoordinator
   private let onConnection: () -> Void
-  private let onNativeLogin: (() -> Void)?
   private let compatibilityHost = ContentHostController(rootId: nil)
   private lazy var compatibilityNavigation = UINavigationController(
     rootViewController: compatibilityHost)
@@ -125,12 +124,11 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
 
   /// 容器保存协调器；协调器以弱引用回调 UI，避免脚本与视图形成环。
   init(
-    coordinator: WebCoordinator, onNativeLogin: (() -> Void)? = nil,
+    coordinator: WebCoordinator,
     onConnection: @escaping () -> Void
   ) {
     self.coordinator = coordinator
     self.onConnection = onConnection
-    self.onNativeLogin = onNativeLogin
     super.init(nibName: nil, bundle: nil)
     moreMenu.onSelect = { [weak self] item in self?.coordinator.openMenuItem(item) }
   }
@@ -150,8 +148,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     super.viewDidLoad()
     view.backgroundColor = .systemBackground
     installBackGesture(on: view)
-    showWebNavigation()
-    setLoading(true)
+    prepareDocumentHost()
   }
 
   /// 系统安全区改变后刷新当前布局，不修改业务路由。
@@ -336,11 +333,12 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     edgeBackPaintPending = false
   }
 
-  /// 将网页默认模式放在独立导航容器内，避免隐藏 Tab 留下不可见占位。
-  func showWebNavigation() {
+  /// 协商期间只在静态启动页后装载正文，未确认原生布局前不暴露完整网页。
+  func prepareDocumentHost() {
     clearNavigationPreviews()
     clearNativeConfirmation()
     loadViewIfNeeded()
+    setLoading(true)
     headerConfigurations.removeAll()
     dismissNativePanel(notify: false)
     nativeVisible = false
@@ -354,14 +352,8 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     recoveryView?.removeFromSuperview()
     recoveryView = nil
     compatibilityHost.edgesForExtendedLayout = []
-    compatibilityHost.title = onNativeLogin == nil ? "MoviePilot" : "网页登录"
-    compatibilityHost.navigationItem.leftBarButtonItems = onNativeLogin.map { _ in
-      [
-        UIBarButtonItem(
-          title: "原生登录",
-          primaryAction: UIAction { [weak self] _ in self?.onNativeLogin?() })
-      ]
-    }
+    compatibilityHost.title = "MoviePilot"
+    compatibilityHost.navigationItem.leftBarButtonItems = nil
     compatibilityHost.navigationItem.rightBarButtonItems = [connectionItem()]
     compatibilityHost.navigationItem.titleView = nil
     compatibilityHost.navigationItem.searchController = nil
@@ -481,8 +473,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
 
   /// 内容进程或连接失败时提供明确出口，绝不重放未确认的网页写操作。
   func showRecovery(message: String) {
-    clearNativeConfirmation()
-    loadViewIfNeeded()
+    prepareDocumentHost()
     setLoading(false)
     recoveryView?.removeFromSuperview()
     let panel = UIView()
@@ -529,10 +520,13 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       change.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
     ])
     recoveryView = panel
+    activeContainer?.view.accessibilityElementsHidden = true
+    bottomNavigation.accessibilityElementsHidden = true
+    view.accessibilityElements = [panel]
     UIAccessibility.post(notification: .screenChanged, argument: title)
   }
 
-  /// 当前快照决定选中宿主，找不到入口时使用网页兼容宿主。
+  /// 当前快照决定正文宿主，未就绪时只使用启动页后的文档暂存容器。
   private var selectedHost: ContentHostController {
     guard latest?.chrome.bottomVisible == true else { return compatibilityHost }
     if let id = latest?.route.rootId, let host = hosts.first(where: { $0.rootId == id }) {
@@ -801,9 +795,6 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
           },
           UIAction(title: "更改服务地址", image: UIImage(systemName: "server.rack")) { [weak self] _ in
             self?.onConnection()
-          },
-          UIAction(title: "使用网页导航", image: UIImage(systemName: "globe")) { [weak self] _ in
-            self?.coordinator.releaseChrome()
           },
         ])
     let user = globals.filter { $0.actionId.hasSuffix(":global:profile") }
@@ -1106,7 +1097,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
         self.sheetAttachedID == descriptor.id, !self.sheetDismissing
       else { return }
       guard accepted else {
-        self.coordinator.releaseChrome()
+        self.coordinator.recoverNavigation()
         return
       }
       guard let navigation = self.sheetNavigation, navigation.presentingViewController == nil,
@@ -1215,7 +1206,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
         "presentation.detach", payload: .object(["id": .string(id)])
       ) { [weak self] accepted in
         guard let self, self.sheetRestoreToken == token else { return }
-        if accepted { dismiss() } else { self.coordinator.releaseChrome() }
+        if accepted { dismiss() } else { self.coordinator.recoverNavigation() }
       }
     } else {
       dismiss()
@@ -1344,7 +1335,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
           "confirmation.respond",
           payload: .object(["id": .string(descriptor.id), "confirmed": .bool(confirmed)])
         ) { [weak self] accepted in
-          if !accepted { self?.coordinator.releaseChrome() }
+          if !accepted { self?.coordinator.recoverNavigation() }
         }
       }
       action.isEnabled = confirmed ? descriptor.confirmEnabled : descriptor.cancelEnabled
