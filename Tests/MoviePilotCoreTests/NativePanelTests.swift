@@ -5,6 +5,26 @@ import Testing
 
 /// 系统面板只接受有界展示声明，兼容旧网页且拒绝恶意层级与重复标识。
 struct NativePanelTests {
+  /// 正文只允许换行和有界纯文本；旧副标题仍采用原来的严格单行规则。
+  @Test func validatesMultilineNotificationBody() throws {
+    let body = "10 小时前\n站点：演示\n质量：WEB-DL 2160p\n大小：13.8 GB"
+    for candidate in [
+      nil, body, "正文\u{0}", "正文\r", "正文\t", "正文\u{202e}", "", String(repeating: "长", count: 683),
+    ] as [String?] {
+      var row: [String: Any] = ["id": "message", "title": "开始下载", "subtitle": "兼容旧版正文"]
+      row["body"] = candidate
+      let value = try snapshot(panel: [
+        "title": "通知中心", "sections": [["id": "messages", "items": [row]]],
+      ])
+      if candidate == nil || candidate == body {
+        try value.validate()
+        #expect(value.actions[0].panel?.sections[0].items[0].body == candidate)
+      } else {
+        #expect(throws: BridgeError.invalidMessage) { try value.validate() }
+      }
+    }
+  }
+
   /// 分片只引用当前声明内的唯一分组，拒绝负数、超界和任意布局组合。
   @Test func validatesContinuousFeed() throws {
     let valid: [String: Any] = [

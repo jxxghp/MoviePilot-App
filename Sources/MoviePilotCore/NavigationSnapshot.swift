@@ -113,6 +113,8 @@ public struct NativePanelItem: Codable, Equatable, Sendable {
   public let id: String
   public let title: String
   public let subtitle: String?
+  /// 有界纯文本正文允许换行，省略时继续使用旧副标题。
+  public let body: String?
   public let icon: String?
   public let image: String?
   public let enabled: Bool?
@@ -330,6 +332,12 @@ public struct NavigationSnapshot: Codable, Equatable, Sendable {
         guard ids.count < 96, BridgeValidator.isIdentifier(row.id), ids.insert(row.id).inserted,
           isLabel(row.title), row.icon.map(isLabel) ?? true,
           row.image.map(isImageReference) ?? true,
+          row.body.map({
+            !$0.isEmpty && $0.utf8.count <= 2048
+              && !$0.unicodeScalars.contains(where: {
+                CharacterSet.controlCharacters.contains($0) && $0.value != 10
+              })
+          }) ?? true,
           row.primary != true || depth > 0 && (row.children ?? []).isEmpty && row.keepOpen != true,
           row.subtitle.map({
             $0.utf8.count <= 2048 && !$0.isEmpty
