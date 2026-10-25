@@ -47,6 +47,16 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   private let onAuthenticationRequired: (() -> Void)?
   private var notificationLookupStarted = false
   private var notificationNavigationAvailable = false
+  private var widgetsNegotiated = false
+  private var widgetContextChecked = false
+  private lazy var widgetChannel = WidgetBridgeChannel(
+    context: { [weak self] in
+      guard let self, self.widgetsAvailable, let id = self.session.sessionId else { return nil }
+      return WidgetBridgeContext(document: self.documentID, session: id)
+    },
+    send: { [weak self] type, request, payload in
+      self?.send(type, requestId: request, payload: payload)
+    })
 
   /// 数据容器按实例 UUID 隔离；不将 Safari 或其他实例 Cookie 导入此会话。
   init(
@@ -69,7 +79,10 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       configuration.userContentController.addUserScript(
         WKUserScript(
           source: script.replacingOccurrences(
-            of: "__MOVIEPILOT_INSTALLATION__", with: NotificationService.installation),
+            of: "__MOVIEPILOT_INSTALLATION__", with: NotificationService.installation
+          ).replacingOccurrences(
+            of: "/*__MOVIEPILOT_WIDGETS_CAPABILITY__*/",
+            with: WidgetFeature.isEnabled ? "widgetsVersion: 1," : ""),
           injectionTime: .atDocumentStart, forMainFrameOnly: true))
     }
     if let authentication,
@@ -142,6 +155,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     startupPending = false
     pendingProcessRecovery = false
     documentID = UUID()
+    WidgetService.shared.endSession(instanceId: instance.id, clear: false)
     cancelCommands()
     if let keyboardObserver { NotificationCenter.default.removeObserver(keyboardObserver) }
     keyboardObserver = nil
@@ -167,6 +181,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   func reload(automatically: Bool = false) {
     let target = lastConfirmedURL ?? instance.address.recoveryURL(currentDocument: webView.url)
     documentID = UUID()
+    WidgetService.shared.endSession(instanceId: instance.id, clear: false)
     timeout?.invalidate()
     startupTimeout?.invalidate()
     cancelCommands()
@@ -186,6 +201,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   private func recoverContentProcess() {
     guard relay.owner != nil, !pendingProcessRecovery else { return }
     documentID = UUID()
+    WidgetService.shared.endSession(instanceId: instance.id, clear: false)
     timeout?.invalidate()
     startupTimeout?.invalidate()
     cancelCommands()
@@ -207,7 +223,12 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 
   /// 系统生命周期只同步给当前文档，后台暂停期间不进行超时恢复。
   func setLifecycle(_ value: String) {
-    if value != "active" { shell?.clearNavigationPreviews() }
+    if value != "active" {
+      shell?.clearNavigationPreviews()
+      cancelWidgetRequest()
+    } else if lifecycle != "active" {
+      widgetContextChecked = false
+    }
     if value == "background", lifecycle != value { automaticRecoveryAttempted = false }
     lifecycle = value
     timeout?.invalidate()
@@ -303,9 +324,40 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 
   /// 文档、身份或宿主失效后静默撤销旧视图回调，后续 UI 由会话释放流程统一恢复。
   private func cancelCommands() {
+    cancelWidgetRequest()
     for timer in pendingCommands.values { timer.invalidate() }
     pendingCommands.removeAll()
     commandCompletions.removeAll()
+  }
+
+  /// 只有产品开关及双方能力协商都成功后才提供设置和固定小组件意图。
+  var widgetsAvailable: Bool {
+    WidgetFeature.isEnabled && widgetsNegotiated && lifecycle == "active"
+      && session.phase == .nativeNavigation && relay.owner != nil
+  }
+
+  /// 小组件导航等待原有网页和原生弹层关闭，不将私有会话对象交给系统集成服务。
+  var widgetNavigationReady: Bool {
+    widgetsAvailable && session.snapshot?.presentation?.overlayOpen != true
+      && shell?.presentedViewController == nil
+  }
+
+  /// 专用请求最多一个在途，取消只作用于自己的 ID，绝不重发登记或保存普通命令结果。
+  func widgetRequest(_ operation: WidgetBridgeOperation) async throws -> WidgetBridgeResponse {
+    try await widgetChannel.request(operation)
+  }
+
+  /// 所有失效路径都结束同一等待，旧文档和后台不能收到专用结果。
+  private func cancelWidgetRequest() { widgetChannel.cancel() }
+
+  /// WK 来源与会话校验后，独立通道再核对相关 ID、文档及有界结果。
+  private func receiveWidgetResult(_ message: BridgeEnvelope) { widgetChannel.receive(message) }
+
+  /// 只在已有本机启用资料的文档或前台周期复核一次，不为普通浏览新增业务查询。
+  private func refreshWidgetContext() {
+    guard widgetsAvailable, !widgetContextChecked else { return }
+    widgetContextChecked = true
+    WidgetService.shared.reconcile(with: self)
   }
 
   /// 手势只绑定已接管的当前路由；HTML 弹窗优先使用原关闭回调。
@@ -467,6 +519,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       else { return }
       NotificationService.shared.disable()
       NotificationService.shared.attach(nil)
+      cancelWidgetRequest()
+      WidgetService.shared.endSession(instanceId: instance.id, clear: true)
       onAuthenticationRequired?()
       return
     }
@@ -493,6 +547,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     case "web.ready":
       let ready = try message.decodePayload(ReadyPayload.self)
       notificationNavigationAvailable = ready.capabilities.contains("notifications.v1")
+      widgetsNegotiated = WidgetFeature.isEnabled && ready.capabilities.contains("widgets.v1")
       let id = try session.negotiate(majors: ready.majors, capabilities: Set(ready.capabilities))
       lastLayout = nil
       send(
@@ -500,7 +555,10 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
         payload: .object([
           "sessionId": .string(id), "major": .number(1),
           "instanceId": .string(instance.id.uuidString),
-          "capabilities": .array(ChromeSession.requiredCapabilities.sorted().map(JSONValue.string)),
+          "capabilities": .array(
+            (ChromeSession.requiredCapabilities.sorted()
+              + (widgetsNegotiated ? ["widgets.v1"] : []))
+              .map(JSONValue.string)),
         ]))
       armTimeout()
     case "navigation.state":
@@ -526,6 +584,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
         shell?.apply(snapshot)
         layoutChanged()
         refreshNotificationContext()
+        refreshWidgetContext()
+        WidgetService.shared.resumePending(with: self)
         NotificationService.shared.resumePending()
       }
     case "navigation.departing":
@@ -544,6 +604,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       layoutChanged()
       completeStartupIfReady()
       refreshNotificationContext()
+      refreshWidgetContext()
+      WidgetService.shared.resumePending(with: self)
     case "chrome.released":
       guard session.phase == .releasing else { throw BridgeError.busy }
       timeout?.invalidate()
@@ -559,6 +621,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       completion?(result.accepted)
       if !result.accepted, completion != nil { releaseChrome() }
     case "session.state":
+      widgetContextChecked = false
+      WidgetService.shared.endSession(instanceId: instance.id, clear: true)
       shell?.clearNavigationPreviews()
       lastConfirmedURL = nil
       notificationLookupStarted = false
@@ -579,6 +643,12 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       }
     case "chrome.failed":
       releaseChrome()
+    case "widget.result":
+      receiveWidgetResult(message)
+    case "widget.logout":
+      guard widgetsNegotiated, message.payload == .object([:]) else { return }
+      cancelWidgetRequest()
+      WidgetService.shared.endSession(instanceId: instance.id, clear: true)
     case "presentation.state":
       break  // v1 返回由网页优先关闭其顶层弹层，原生不猜测 DOM 栈。
     default: throw BridgeError.invalidMessage
@@ -630,6 +700,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   /// 失去文档响应后不声称已恢复网页，直接展示独立恢复界面。
   private func fail(_ message: String) {
     documentID = UUID()
+    WidgetService.shared.endSession(instanceId: instance.id, clear: false)
     pendingProcessRecovery = false
     timeout?.invalidate()
     startupTimeout?.invalidate()
@@ -645,9 +716,12 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     timeout?.invalidate()
     lastConfirmedURL = nil
     documentID = UUID()
+    WidgetService.shared.endSession(instanceId: instance.id, clear: false)
     contentReady = false
     notificationLookupStarted = false
     notificationNavigationAvailable = false
+    widgetsNegotiated = false
+    widgetContextChecked = false
     NotificationService.shared.attach(self)
     startupPending = true
     cancelCommands()

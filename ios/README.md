@@ -21,9 +21,10 @@ open ios/MoviePilot.xcodeproj
 ### 2. 配置个人签名
 
 1. 在 Xcode 的 **Settings → Accounts** 中添加 Apple 账户。
-2. 选择 `MoviePilot` 工程、`MoviePilot` Target，进入 **Signing & Capabilities**。
+2. 选择 `MoviePilot` 工程，分别为 `MoviePilot` 和 `MoviePilotWidgets` Target 配置 **Signing & Capabilities**。
 3. 打开 **Automatically manage signing**，将 **Team** 选为自己的 Personal Team 或开发者团队。
-4. 将 **Bundle Identifier** 改为自己唯一的值，例如 `com.yourname.moviepilot`。只改本机配置，不提交团队信息、证书或描述文件。
+4. 将主 App 的 **Bundle Identifier** 改为自己唯一的值，例如 `com.yourname.moviepilot`，扩展使用相同前缀，例如 `com.yourname.moviepilot.widgets`。
+5. 两个 Target 使用同一个 **App Groups**。个人构建可在两份 `Widgets.entitlements` 中将组名改为 `group.org.moviepilot.widgets.你的10位TeamID`，并在两个 Target 的能力面板选中该组；不要只修改其中一个。小组件的启用与使用见[系统小组件](../guides/widgets.md)。只改本机签名配置，不提交团队信息、证书或描述文件。
 
 免费 Apple 账户可通过 Personal Team 在自己的设备上运行。免费签名的描述文件通常 **7 天到期**，届时需重新连接 Xcode 构建安装；它不等于 TestFlight 或 App Store 分发资格。限制以 [Apple 个人团队说明](https://developer.apple.com/help/account/basics/about-your-developer-account#enable-a-personal-team-in-xcode) 为准。
 

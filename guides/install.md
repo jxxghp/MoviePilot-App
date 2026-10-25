@@ -16,6 +16,8 @@
 
 免费账户的签名通常有效 **7 天**，同时激活的 App 一般最多 **3 个（包含 SideStore 自身）**。具体限制、后台刷新和故障处理以 [SideStore 官方 FAQ](https://docs.sidestore.io/docs/faq) 为准。
 
+使用小组件时，请保留 IPA 内的 `MoviePilotWidgets` 扩展，让安装工具同时重签扩展和共享组；不要选择移除扩展。添加与配置见[系统小组件](widgets.md)。
+
 ## 其他安装工具
 
 也可使用 [AltStore Classic](https://altstore.io/) 或 [Sideloadly](https://sideloadly.io/) 导入同一个 IPA。AltStore Classic 的日常刷新通常需要可连接的 AltServer；Sideloadly 的自动续签需要电脑上的刷新组件运行。按所选工具的官方指南完成签名、安装和自动刷新设置。

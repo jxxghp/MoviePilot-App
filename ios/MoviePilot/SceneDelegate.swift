@@ -9,6 +9,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
   private let instances = InstanceStore()
   private let tokens = TokenStore()
   private var coordinator: WebCoordinator?
+  private var widgetLinkTask: Task<Void, Never>?
 
   /// 创建窗口后恢复实例；没有配置时直接显示可操作的连接页。
   func scene(
@@ -25,25 +26,61 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     {
       NotificationService.shared.receive(intent)
     }
-    openNotificationURLs(connectionOptions.urlContexts)
+    openIncomingURLs(connectionOptions.urlContexts)
   }
 
   /// 主屏幕通知网页的显式链接与系统通知使用相同账号和实例校验。
   func scene(_ scene: UIScene, openURLContexts urlContexts: Set<UIOpenURLContext>) {
-    openNotificationURLs(urlContexts)
+    openIncomingURLs(urlContexts)
   }
 
-  /// 仅识别声明的通知 scheme，冷启动时保留导航意图直到登录完成。
-  private func openNotificationURLs(_ contexts: Set<UIOpenURLContext>) {
+  /// 仅识别通知与本机小组件白名单，外部 URL 不能选择服务器、凭据或任意网页路由。
+  private func openIncomingURLs(_ contexts: Set<UIOpenURLContext>) {
     for context in contexts {
-      if let intent = NotificationIntent(url: context.url) {
+      if let link = WidgetLink(url: context.url), WidgetFeature.isEnabled {
+        openWidget(link)
+      } else if let intent = NotificationIntent(url: context.url) {
         NotificationService.shared.receive(intent)
       }
     }
   }
 
+  /// 冷热启动都先找到资料原来的 SavedInstance，再用该实例既有登录流程恢复身份。
+  private func openWidget(_ link: WidgetLink) {
+    widgetLinkTask?.cancel()
+    widgetLinkTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        let profile = try await WidgetService.shared.receive(link)
+        try Task.checkCancellation()
+        guard
+          let instance = self.instances.instances.first(where: {
+            $0.id == profile.instanceId && $0.address == profile.address
+          })
+        else { throw WidgetBridgeError.invalidRequest }
+        if self.coordinator?.instance.id != instance.id {
+          _ = try self.instances.select(instance.address)
+          self.connect(instance)
+        }
+        if let coordinator = self.coordinator {
+          WidgetService.shared.resumePending(with: coordinator)
+        }
+      } catch {
+        guard !Task.isCancelled else { return }
+        WidgetService.shared.cancelOpen()
+        let alert = UIAlertController(
+          title: "小组件资料不可用", message: "请在对应服务登录后，重新启用小组件资料。", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "好", style: .default))
+        self.window?.rootViewController?.present(alert, animated: true)
+      }
+    }
+  }
+
   /// 恢复可交互状态后重新同步网页状态，不重放业务动作。
-  func sceneDidBecomeActive(_ scene: UIScene) { coordinator?.setLifecycle("active") }
+  func sceneDidBecomeActive(_ scene: UIScene) {
+    coordinator?.setLifecycle("active")
+    if let coordinator { WidgetService.shared.resumePending(with: coordinator) }
+  }
 
   /// 系统中断期间暂停本地协商超时，避免把后台暂停当成断链。
   func sceneWillResignActive(_ scene: UIScene) { coordinator?.setLifecycle("inactive") }
@@ -53,6 +90,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
   /// 断开旧会话后显示实例配置，旧脚本 handler 不得继续接收命令。
   private func showConnection() {
+    widgetLinkTask?.cancel()
+    widgetLinkTask = nil
+    WidgetService.shared.cancelOpen()
     coordinator?.stop()
     coordinator = nil
     let controller = ConnectionController(instances: instances) { [weak self] instance in
@@ -84,7 +124,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     coordinator = nil
     let login = LoginController(
       instance: instance, savedToken: tokens.read(instance.id),
-      onExpired: { [weak self] in self?.tokens.remove(instance.id) },
+      onExpired: { [weak self] in
+        self?.tokens.remove(instance.id)
+        WidgetService.shared.endSession(instanceId: instance.id, clear: true)
+      },
       onAuthenticated: { [weak self] result, remember in
         guard let self else { return }
         var storageFailed = false

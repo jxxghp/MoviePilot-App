@@ -766,17 +766,33 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
           navigation.sheetPresentationController?.detents = [.medium(), .large()]
           navigation.sheetPresentationController?.prefersGrabberVisible = true
           self.present(navigation, animated: true)
-        },
-        UIAction(title: "重新加载", image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in
-          self?.coordinator.reload()
-        },
-        UIAction(title: "更改服务地址", image: UIImage(systemName: "server.rack")) { [weak self] _ in
-          self?.onConnection()
-        },
-        UIAction(title: "使用网页导航", image: UIImage(systemName: "globe")) { [weak self] _ in
-          self?.coordinator.releaseChrome()
-        },
-      ])
+        }
+      ]
+        + (coordinator.widgetsAvailable
+          ? [
+            UIAction(title: "小组件", image: UIImage(systemName: "square.grid.2x2")) { [weak self] _ in
+              guard let self, self.coordinator.widgetsAvailable else { return }
+              let settings = WidgetController(coordinator: self.coordinator)
+              let navigation = UINavigationController(rootViewController: settings)
+              navigation.overrideUserInterfaceStyle = self.overrideUserInterfaceStyle
+              navigation.view.tintColor = self.view.tintColor
+              NativeModalAppearance.apply(
+                to: navigation.presentationController, style: self.modalInterfaceStyle)
+              navigation.sheetPresentationController?.detents = [.medium(), .large()]
+              navigation.sheetPresentationController?.prefersGrabberVisible = true
+              self.present(navigation, animated: true)
+            }
+          ] : []) + [
+          UIAction(title: "重新加载", image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in
+            self?.coordinator.reload()
+          },
+          UIAction(title: "更改服务地址", image: UIImage(systemName: "server.rack")) { [weak self] _ in
+            self?.onConnection()
+          },
+          UIAction(title: "使用网页导航", image: UIImage(systemName: "globe")) { [weak self] _ in
+            self?.coordinator.releaseChrome()
+          },
+        ])
     let user = globals.filter { $0.actionId.hasSuffix(":global:profile") }
     let common = globals.filter { !$0.actionId.hasSuffix(":global:profile") }
     var groups = [

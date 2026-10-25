@@ -12,6 +12,415 @@ private struct NetworkFixtures: Decodable {
 /// 使用显式配置的测试实例验收原生框架与原业务 HTML 的真实交接，不写入业务数据。
 @MainActor
 final class NativeFrameworkTests: XCTestCase {
+  /// 真实共享区域与系统 Keychain 启用测试资料，普通 CI 不登记用户服务。
+  func testWidgetEnableCurrentAccount() async throws {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_WIDGETS"] == "1" else {
+      throw XCTSkip("需要显式启用系统小组件验收。")
+    }
+    confirmNotificationAppOpening()
+    let environment = ProcessInfo.processInfo.environment
+    guard let server = environment["MOVIEPILOT_E2E_SERVER"],
+      let username = environment["MOVIEPILOT_E2E_USERNAME"],
+      let password = environment["MOVIEPILOT_E2E_PASSWORD"]
+    else { throw XCTSkip("需要私有本机夹具配置。") }
+    let app = launchConnection(server: server)
+    if app.textFields["用户名"].waitForExistence(timeout: 5) {
+      app.textFields["用户名"].tap()
+      app.textFields["用户名"].typeText(username)
+      app.secureTextFields["密码"].tap()
+      app.secureTextFields["密码"].typeText(password + "\n")
+      if app.alerts["已登录"].waitForExistence(timeout: 3) { app.alerts["已登录"].buttons["好"].tap() }
+    }
+    XCTAssertTrue(app.buttons["更多"].waitForExistence(timeout: 35))
+    settlePage(app)
+    app.buttons["操作菜单"].tap()
+    app.buttons["连接与显示"].tap()
+    let widgets = app.buttons["小组件"].firstMatch
+    XCTAssertTrue(widgets.waitForExistence(timeout: 10), app.debugDescription)
+    widgets.tap()
+    let enable = app.cells["widget-enable"].firstMatch
+    XCTAssertTrue(enable.waitForExistence(timeout: 15), app.debugDescription)
+    let ready = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "enabled == true"), object: enable)
+    XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 20), .completed, app.debugDescription)
+    if app.staticTexts["尚未启用"].exists {
+      XCTAssertFalse(app.cells["widget-refresh"].exists)
+    }
+    attachScreen("Widget-当前服务未启用", app: app)
+    enable.tap()
+    let alert = app.alerts["启用小组件"]
+    XCTAssertTrue(alert.waitForExistence(timeout: 5))
+    alert.buttons["确定"].tap()
+    XCTAssertTrue(
+      app.staticTexts["已启用，只读显示当前账号允许的内容。"].waitForExistence(timeout: 20), app.debugDescription)
+    XCTAssertTrue(app.cells["widget-refresh"].exists)
+    XCTAssertFalse(app.staticTexts["尚无数据"].exists, "实际共享 Keychain 读取后应保存受限快照")
+    attachScreen("Widget-当前服务已启用", app: app)
+    try await openWidgetFixture(content: "downloads")
+    XCTAssertTrue(app.navigationBars["小组件"].exists, "已有原生设置尚未关闭时应保留待处理的跳转")
+    app.navigationBars["小组件"].buttons.firstMatch.tap()
+    XCTAssertTrue(
+      app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS %@", "下载")).firstMatch
+        .waitForExistence(timeout: 20), app.debugDescription)
+    settlePage(app)
+    XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
+    attachScreen("Widget-热启动进入下载管理", app: app)
+    try await openWidgetFixture(content: "downloads")
+    settlePage(app)
+    XCTAssertFalse(app.alerts.firstMatch.exists, "已在目标页时重复点击组件也应成功")
+    app.terminate()
+    try await openWidgetFixture(content: "downloads")
+    XCTAssertTrue(
+      app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS %@", "下载")).firstMatch
+        .waitForExistence(timeout: 30), app.debugDescription)
+    settlePage(app)
+    XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
+    XCTAssertTrue(app.buttons["操作菜单"].exists)
+    attachScreen("Widget-冷启动恢复对应服务", app: app)
+  }
+
+  /// 仅本机显式夹具可通过系统 URL 打开已登记的合成资料；公开测试没有真实资料标识。
+  private func openWidgetFixture(content: String) async throws {
+    guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_SERVER"],
+      let base = URL(string: server), base.scheme == "http", base.host == "127.0.0.1",
+      base.port == 5230
+    else { throw XCTSkip("固定跳转验收需要独立本机 Widget 夹具。") }
+    var request = URLRequest(url: base.appendingPathComponent("__fixture/widget-open"))
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: ["content": content])
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+    confirmNotificationAppOpening()
+  }
+
+  /// 真实 SpringBoard 组件库验证三种桌面尺寸；普通 CI 不更改模拟器桌面。
+  func testWidgetSystemGallery() throws {
+    try addDesktopWidget()
+  }
+
+  /// 每次重新安装后独立添加组件，不假定上次 UI 验收的桌面或今天视图状态仍存在。
+  private func addDesktopWidget(onToday: Bool = false) throws {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_WIDGETS"] == "1" else {
+      throw XCTSkip("需要显式启用系统小组件验收。")
+    }
+    continueAfterFailure = false
+    XCUIDevice.shared.orientation = .portrait
+    let app = XCUIApplication()
+    app.launchArguments = ["-moviepilot.instance.selected.v1", "", "-AppleLanguages", "(zh-Hans)"]
+    app.launch()
+    XCUIDevice.shared.press(.home)
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    XCTAssertTrue(springboard.icons["MoviePilot"].firstMatch.waitForExistence(timeout: 15))
+    let candidates =
+      onToday
+      ? springboard.icons.matching(
+        NSPredicate(format: "value IN %@", ["小组件", "Widget"]))
+      : springboard.icons.matching(identifier: "MoviePilot")
+    if onToday {
+      enterToday(in: springboard)
+    }
+    guard
+      let icon = candidates.allElementsBoundByIndex.first(where: { $0.isHittable })
+    else {
+      XCTFail(springboard.debugDescription)
+      return
+    }
+    icon.press(forDuration: 1.2)
+    attachScreen("Widget-桌面图标菜单", app: springboard)
+    let edit = springboard.buttons.matching(
+      NSPredicate(format: "label IN %@", ["编辑主屏幕", "Edit Home Screen"])
+    ).firstMatch
+    XCTAssertTrue(edit.waitForExistence(timeout: 8), springboard.debugDescription)
+    edit.tap()
+    let editMenu = springboard.buttons.matching(NSPredicate(format: "label IN %@", ["编辑", "Edit"]))
+      .firstMatch
+    XCTAssertTrue(editMenu.waitForExistence(timeout: 8), springboard.debugDescription)
+    editMenu.tap()
+    let add = springboard.buttons.matching(
+      NSPredicate(format: "label IN %@", ["添加小组件", "Add Widget"])
+    ).firstMatch
+    XCTAssertTrue(add.waitForExistence(timeout: 8), springboard.debugDescription)
+    add.tap()
+    let search = springboard.searchFields.firstMatch
+    XCTAssertTrue(search.waitForExistence(timeout: 10), springboard.debugDescription)
+    search.tap()
+    search.typeText("MoviePilot")
+    let result = springboard.staticTexts["MoviePilot"].firstMatch
+    XCTAssertTrue(result.waitForExistence(timeout: 15), springboard.debugDescription)
+    result.tap()
+    let addWidget = springboard.buttons.matching(
+      NSPredicate(format: "label CONTAINS %@ OR label CONTAINS %@", "添加小组件", "Add Widget")
+    ).firstMatch
+    XCTAssertTrue(addWidget.waitForExistence(timeout: 15), springboard.debugDescription)
+    for index in 0..<3 {
+      attachScreen("Widget-系统组件库-桌面尺寸-\(index + 1)", app: springboard)
+      if index < 2 {
+        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.58))
+          .press(
+            forDuration: 0.05,
+            thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.58)))
+      }
+    }
+    addWidget.tap()
+    let done = springboard.buttons.matching(NSPredicate(format: "label IN %@", ["完成", "Done"]))
+      .firstMatch
+    if done.waitForExistence(timeout: 5) { done.tap() }
+    attachScreen("Widget-桌面未配置", app: springboard)
+    let hierarchy = XCTAttachment(string: springboard.debugDescription)
+    hierarchy.name = "Widget-桌面结构"
+    hierarchy.lifetime = .keepAlways
+    self.add(hierarchy)
+  }
+
+  /// 真实桌面组件显式选择夹具服务，核验扩展读取共享快照并通过系统点击进入原页面。
+  func testWidgetSystemConfiguration() throws {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_WIDGETS"] == "1" else {
+      throw XCTSkip("需要显式启用系统小组件验收。")
+    }
+    continueAfterFailure = false
+    XCUIDevice.shared.orientation = .portrait
+    try addDesktopWidget()
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    let widget = try configureDownloadWidget(in: springboard)
+    attachScreen("Widget-扩展读取共享下载快照", app: springboard)
+    widget.tap()
+    confirmNotificationAppOpening()
+    let app = XCUIApplication()
+    XCTAssertTrue(
+      app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS %@", "下载")).firstMatch
+        .waitForExistence(timeout: 35), app.debugDescription)
+    settlePage(app)
+    XCTAssertFalse(app.alerts.firstMatch.exists)
+    attachScreen("Widget-桌面点击进入下载管理", app: app)
+  }
+
+  /// 今天视图使用相同系统组件，实际添加、配置和只读渲染均需通过系统交互验证。
+  func testWidgetSystemTodayConfiguration() throws {
+    try addDesktopWidget(onToday: true)
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    let widget = try configureDownloadWidget(in: springboard)
+    revealWidget(widget, in: springboard)
+    attachScreen("Widget-今天视图下载状态", app: springboard)
+  }
+
+  /// 系统滚动容器可能只露出组件的一角，截图前必须让整个组件落在安全可见区域。
+  private func revealWidget(_ widget: XCUIElement, in springboard: XCUIApplication) {
+    let visible = springboard.frame.insetBy(dx: 0, dy: 44)
+    for _ in 0..<10 {
+      if widget.isHittable && visible.contains(widget.frame) { break }
+      if widget.frame.minY < visible.minY {
+        springboard.swipeDown(velocity: .slow)
+      } else {
+        springboard.swipeUp(velocity: .slow)
+      }
+    }
+    XCTAssertTrue(widget.isHittable && visible.contains(widget.frame), springboard.debugDescription)
+  }
+
+  /// 系统编辑器显式选择资料及内容，不通过测试启动参数为组件自动指定账号。
+  private func configureDownloadWidget(
+    in springboard: XCUIApplication, expected: String = "2.4 MB/s"
+  )
+    throws -> XCUIElement
+  {
+    let widgets = springboard.icons.matching(
+      NSPredicate(format: "label == %@ AND value IN %@", "MoviePilot", ["小组件", "Widget"])
+    )
+    XCTAssertTrue(widgets.firstMatch.waitForExistence(timeout: 15), springboard.debugDescription)
+    let widget = try XCTUnwrap(
+      widgets.allElementsBoundByIndex.first(where: { $0.isHittable }), springboard.debugDescription)
+    widget.press(forDuration: 1.2)
+    let edit = springboard.buttons.matching(
+      NSPredicate(format: "label IN %@", ["编辑小组件", "Edit Widget"])
+    ).firstMatch
+    XCTAssertTrue(edit.waitForExistence(timeout: 8), springboard.debugDescription)
+    edit.tap()
+    XCTAssertTrue(
+      springboard.staticTexts["服务"].waitForExistence(timeout: 10), springboard.debugDescription)
+    XCTAssertTrue(springboard.staticTexts["内容"].exists)
+    attachScreen("Widget-系统配置编辑器", app: springboard)
+    let hierarchy = XCTAttachment(string: springboard.debugDescription)
+    hierarchy.name = "Widget-配置结构"
+    hierarchy.lifetime = .keepAlways
+    self.add(hierarchy)
+    springboard.buttons.matching(NSPredicate(format: "label IN %@", ["服务", "MoviePilot"]))
+      .firstMatch.tap()
+    let service = springboard.buttons["MoviePilot"].firstMatch
+    XCTAssertTrue(service.waitForExistence(timeout: 15), springboard.debugDescription)
+    attachScreen("Widget-选择已启用服务", app: springboard)
+    service.tap()
+    springboard.buttons.matching(NSPredicate(format: "label IN %@", ["内容", "下载状态"]))
+      .firstMatch.tap()
+    let downloads = springboard.descendants(matching: .any).matching(identifier: "下载状态").firstMatch
+    XCTAssertTrue(downloads.waitForExistence(timeout: 15), springboard.debugDescription)
+    downloads.tap()
+    let names = springboard.switches["显示媒体名称"]
+    if names.value as? String == "1" { names.tap() }
+    XCTAssertEqual(names.value as? String, "0")
+    attachScreen("Widget-已选择服务与下载状态", app: springboard)
+    springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+    XCTAssertTrue(
+      widget.staticTexts[expected].waitForExistence(timeout: 40), springboard.debugDescription)
+    return widget
+  }
+
+  /// 各场景使用独立合成资料，经真实系统编辑与时间线验证空、旧及自然到期状态。
+  func testWidgetSystemStates() async throws {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_WIDGETS"] == "1" else {
+      throw XCTSkip("需要显式启用系统小组件验收。")
+    }
+    continueAfterFailure = false
+    let springboard = revealTodayDownloadWidget()
+    for (scenario, expected) in [
+      ("empty", "暂无内容"), ("stale", "数据待更新"),
+      ("expiring", "数据已过期，请打开 App 刷新"), ("ready", "2.4 MB/s"),
+    ] {
+      try await setWidgetFixtureScenario(scenario)
+      let widget = try configureDownloadWidget(in: springboard, expected: expected)
+      if scenario == "expiring" {
+        XCTAssertFalse(widget.staticTexts["2.4 MB/s"].exists)
+        XCTAssertFalse(widget.staticTexts["680 KB/s"].exists)
+      }
+      attachScreen("Widget-系统状态-\(scenario)", app: springboard)
+    }
+  }
+
+  /// 只允许显式隔离夹具切换有限合成场景，不能请求用户实例的任意写入端点。
+  private func setWidgetFixtureScenario(_ scenario: String) async throws {
+    guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_SERVER"],
+      let base = URL(string: server), base.scheme == "http", base.host == "127.0.0.1",
+      base.port == 5230, ["empty", "stale", "expiring", "ready"].contains(scenario)
+    else { throw XCTSkip("系统状态验收只允许本任务隔离夹具。") }
+    var request = URLRequest(url: base.appendingPathComponent("__fixture/widget-state"))
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: ["scenario": scenario])
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+  }
+
+  /// 主屏只做有界滑动和可见性核验，已配置的组件继续由 WidgetKit 读取自己的资料。
+  private func revealTodayDownloadWidget() -> XCUIApplication {
+    XCUIDevice.shared.press(.home)
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    enterToday(in: springboard)
+    let widgets = springboard.icons.matching(
+      NSPredicate(format: "label == %@ AND value IN %@", "MoviePilot", ["小组件", "Widget"])
+    )
+    XCTAssertTrue(widgets.firstMatch.waitForExistence(timeout: 15))
+    let widget =
+      widgets.allElementsBoundByIndex.first(where: {
+        $0.frame.width > 0 && $0.frame.minX >= 0 && $0.frame.minX < springboard.frame.width
+      }) ?? widgets.firstMatch
+    revealWidget(widget, in: springboard)
+    return springboard
+  }
+
+  /// 今天视图没有可操作的主屏聚焦页码，不能仅凭默认日历或地图组件推断所在页面。
+  private func enterToday(in springboard: XCUIApplication) {
+    let page = springboard.descendants(matching: .any).matching(identifier: "spotlight-pill")
+      .firstMatch
+    for _ in 0..<8 {
+      if !page.exists || !page.isHittable { break }
+      springboard.swipeRight()
+    }
+    XCTAssertFalse(page.exists && page.isHittable, springboard.debugDescription)
+  }
+
+  /// 系统墙纸编辑器验证圆形、矩形与行内图库，组件外观不由测试自行模拟。
+  func testWidgetSystemLockEditor() throws {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_WIDGETS"] == "1" else {
+      throw XCTSkip("需要显式启用系统小组件验收。")
+    }
+    continueAfterFailure = false
+    XCUIDevice.shared.orientation = .portrait
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    let poster = XCUIApplication(bundleIdentifier: "com.apple.PosterBoard")
+    let sheetHandle = poster.buttons["表单控制柄"]
+    if sheetHandle.exists { sheetHandle.tap() }
+    if !poster.buttons["editing-done"].exists {
+      XCUIDevice.shared.press(.home)
+      springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.005))
+        .press(
+          forDuration: 0.05,
+          thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.88)))
+      attachScreen("Widget-锁屏通知中心", app: springboard)
+      springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).press(
+        forDuration: 1.5)
+      let customize = springboard.buttons.matching(
+        NSPredicate(format: "label IN %@", ["自定", "自定义", "Customize", "Customise"])
+      ).firstMatch
+      XCTAssertTrue(customize.waitForExistence(timeout: 10), springboard.debugDescription)
+      customize.tap()
+    }
+    XCTAssertTrue(poster.buttons["完成"].waitForExistence(timeout: 20), poster.debugDescription)
+    attachScreen("Widget-系统墙纸编辑器", app: poster)
+    let editor = XCTAttachment(string: poster.debugDescription)
+    editor.name = "Widget-锁屏编辑结构"
+    editor.lifetime = .keepAlways
+    add(editor)
+    let widgets = try XCTUnwrap(
+      poster.buttons.matching(identifier: "grouped-widgets-reticle-view").allElementsBoundByIndex
+        .last)
+    XCTAssertTrue(widgets.waitForExistence(timeout: 10), poster.debugDescription)
+    widgets.tap()
+    XCTAssertTrue(
+      poster.navigationBars["PRComplicationGalleryView"].waitForExistence(timeout: 10),
+      poster.debugDescription)
+    attachScreen("Widget-锁屏组件库", app: poster)
+    let gallery = XCTAttachment(string: poster.debugDescription)
+    gallery.name = "Widget-锁屏组件库结构"
+    gallery.lifetime = .keepAlways
+    add(gallery)
+    let moviepilot = poster.cells.matching(NSPredicate(format: "label CONTAINS %@", "MoviePilot"))
+      .firstMatch
+    for _ in 0..<4 {
+      if moviepilot.exists && moviepilot.isHittable { break }
+      // 最后一个 collection 是当前图库；整屏坐标会命中后面的墙纸编辑滚动层。
+      try XCTUnwrap(poster.collectionViews.allElementsBoundByIndex.last).swipeUp()
+    }
+    XCTAssertTrue(moviepilot.exists && moviepilot.isHittable, poster.debugDescription)
+    moviepilot.tap()
+    XCTAssertTrue(
+      poster.descendants(matching: .any).matching(
+        NSPredicate(format: "label BEGINSWITH %@", "MoviePilot 状态")
+      ).firstMatch.waitForExistence(timeout: 15), poster.debugDescription)
+    attachScreen("Widget-锁屏圆形与矩形预览", app: poster)
+    let sizes = XCTAttachment(string: poster.debugDescription)
+    sizes.name = "Widget-锁屏尺寸结构"
+    sizes.lifetime = .keepAlways
+    add(sizes)
+    poster.buttons["关闭"].firstMatch.tap()
+    XCTAssertTrue(sheetHandle.waitForExistence(timeout: 5))
+    sheetHandle.tap()
+    let inline = try XCTUnwrap(
+      poster.buttons.matching(identifier: "inline-widget-reticle-view").allElementsBoundByIndex.last
+    )
+    XCTAssertTrue(inline.waitForExistence(timeout: 8))
+    inline.tap()
+    let inlineWidget = poster.cells.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "MoviePilot, MoviePilot 状态")
+    ).firstMatch
+    for _ in 0..<5 {
+      if inlineWidget.exists && inlineWidget.isHittable { break }
+      if poster.collectionViews.count > 1 {
+        try XCTUnwrap(poster.collectionViews.allElementsBoundByIndex.last).swipeUp()
+      } else if poster.tables.firstMatch.exists {
+        poster.tables.firstMatch.swipeUp()
+      } else {
+        try XCTUnwrap(poster.scrollViews.allElementsBoundByIndex.last).swipeUp()
+      }
+    }
+    XCTAssertTrue(inlineWidget.exists && inlineWidget.isHittable, poster.debugDescription)
+    attachScreen("Widget-锁屏行内预览", app: poster)
+    if !inlineWidget.isSelected { inlineWidget.tap() }
+    XCTAssertTrue(inlineWidget.isSelected, poster.debugDescription)
+    sheetHandle.tap()
+    XCTAssertTrue(poster.buttons["完成"].isHittable)
+    attachScreen("Widget-锁屏行内已添加", app: poster)
+  }
+
   /// 同时验证原生初始化请求与真实 WKWebView 加载，不能用宿主进程请求代替 App 网络。
   func testLocalNetworkTransports() async throws {
     let fixtures = try await networkFixtures()

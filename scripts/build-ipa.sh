@@ -35,6 +35,16 @@ app_path="$build_dir/MoviePilot.xcarchive/Products/Applications/MoviePilot.app"
 test -d "$app_path"
 mkdir -p "$build_dir/staging/Payload"
 ditto --norsrc --noextattr "$app_path" "$build_dir/staging/Payload/MoviePilot.app"
+staged_app="$build_dir/staging/Payload/MoviePilot.app"
+# 只保留重签器需要的共享组声明，不读取证书/团队，也不生成 Apple 可安装签名。
+if [[ -d "$staged_app/PlugIns/MoviePilotWidgets.appex" ]]; then
+  codesign --force --sign - --timestamp=none --generate-entitlement-der \
+    --entitlements "$source_root/ios/MoviePilotWidgets/Widgets.entitlements" \
+    "$staged_app/PlugIns/MoviePilotWidgets.appex"
+  codesign --force --sign - --timestamp=none --generate-entitlement-der \
+    --entitlements "$source_root/ios/MoviePilot/Resources/Widgets.entitlements" "$staged_app"
+  codesign --verify --deep --strict "$staged_app"
+fi
 ipa_path="$output_dir/MoviePilot-$release_version-unsigned.ipa"
 ditto -c -k --norsrc --noextattr --keepParent "$build_dir/staging/Payload" "$ipa_path"
 python3 "$source_root/scripts/verify-ipa.py" "$ipa_path" --version "$release_version" --build-number 1
