@@ -565,7 +565,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
           "instanceId": .string(instance.id.uuidString),
           "capabilities": .array(
             (ChromeSession.requiredCapabilities.sorted()
-              + (widgetsNegotiated ? ["widgets.v1"] : []))
+              + (widgetsNegotiated ? ["widgets.v1"] : [])
+              // 只启用网页已声明的内存缓存；旧前端不因新的可选能力失配。
+              + (ready.capabilities.contains("readonly-cache.v1") ? ["readonly-cache.v1"] : []))
               .map(JSONValue.string)),
         ]))
       armTimeout()
