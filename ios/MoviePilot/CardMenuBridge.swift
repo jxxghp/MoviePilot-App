@@ -2,8 +2,8 @@ import MoviePilotCore
 import UIKit
 import WebKit
 
-/// 卡片菜单只在同一个文档、身份会话和已确认路由范围内有效。
-struct CardMenuContext: Equatable {
+/// 操作菜单只在同一个文档、身份会话和已确认路由范围内有效。
+struct OperationMenuContext: Equatable {
   let document: UUID
   let session: String
   let route: Int
@@ -38,10 +38,10 @@ private struct CardMenuPreparation: Decodable {
 @MainActor
 final class CardMenuBridge {
   private weak var webView: WKWebView?
-  private let context: () -> CardMenuContext?
+  private let context: () -> OperationMenuContext?
   private let presenter: () -> UIViewController?
   private let send: (String, JSONValue) -> Void
-  private var preparedContext: CardMenuContext?
+  private var preparedContext: OperationMenuContext?
   private var current: OperationMenuSnapshot?
   private var accessibleMenu: OperationMenuController?
   private var interaction: CardMenuInteraction?
@@ -54,7 +54,7 @@ final class CardMenuBridge {
 
   /// 宿主提供当前状态读取器，每次选择都复核，不依赖最初快照中的权限。
   init(
-    webView: WKWebView, context: @escaping () -> CardMenuContext?,
+    webView: WKWebView, context: @escaping () -> OperationMenuContext?,
     presenter: @escaping () -> UIViewController?, send: @escaping (String, JSONValue) -> Void
   ) {
     self.webView = webView
@@ -179,7 +179,7 @@ final class CardMenuBridge {
     controller.accent = accent
     let navigation = UINavigationController(rootViewController: controller)
     navigation.overrideUserInterfaceStyle = host.traitCollection.userInterfaceStyle
-    controller.configureSheet(navigation)
+    controller.configureSheet(navigation, presentingView: host.view)
     accessibleMenu = controller
     host.present(navigation, animated: true) { [weak self] in self?.opened(menu.presentationId) }
   }

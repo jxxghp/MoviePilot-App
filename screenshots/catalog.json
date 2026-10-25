@@ -1333,5 +1333,20 @@
     "title": "卡片 · 插件原生二级菜单",
     "group": "导航与弹窗",
     "file": "screens/267.png"
+  },
+  {
+    "title": "独立菜单 · 短列表与原禁用状态",
+    "group": "导航与弹窗",
+    "file": "screens/268.png"
+  },
+  {
+    "title": "独立菜单 · 长列表受限高度",
+    "group": "导航与弹窗",
+    "file": "screens/269.png"
+  },
+  {
+    "title": "独立菜单 · 辅助字号与内部滚动",
+    "group": "导航与弹窗",
+    "file": "screens/270.png"
   }
 ]

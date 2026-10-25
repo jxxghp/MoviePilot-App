@@ -5,6 +5,42 @@ import Testing
 
 /// 从真实 JSON 边界验证原菜单树；不以直接构造对象绕过解码或大小约束。
 struct OperationMenuTests {
+  /// 独立菜单保留副标题与状态徽标，不能把数量状态丢弃或并入主标题。
+  @Test func preservesStandaloneBadges() throws {
+    let menu = try decode(
+      [
+        action(
+          "passkey", title: "通行密钥",
+          extra: [
+            "subtitle": "无密码登录", "badge": ["title": "2 个密钥", "color": "success"],
+          ])
+      ], extra: ["kind": "standalone"])
+    try menu.validate()
+    #expect(menu.kind == .standalone)
+    #expect(menu.items[0].title == "通行密钥")
+    #expect(menu.items[0].subtitle == "无密码登录")
+    #expect(menu.items[0].badge?.title == "2 个密钥")
+    #expect(menu.items[0].badge?.color == .success)
+    #expect(
+      try JSONDecoder().decode(OperationMenuSnapshot.self, from: JSONEncoder().encode(menu)) == menu
+    )
+  }
+
+  /// 空白、越界和控制字符状态整体拒绝；未知色也必须在 Codable 边界拒绝。
+  @Test func rejectsInvalidBadges() throws {
+    for title in ["", "  ", String(repeating: "a", count: 257), "启用\u{1}"] {
+      let menu = try decode([action("passkey", extra: ["badge": ["title": title]])])
+      #expect(throws: BridgeError.invalidMessage) { try menu.validate() }
+    }
+    #expect(throws: DecodingError.self) {
+      try decode([action("passkey", extra: ["badge": ["title": "启用", "color": "raw-css"]])])
+    }
+    let menu = try decode([
+      action("passkey"), ["id": "divider", "kind": "separator", "badge": ["title": "隐藏状态"]],
+    ])
+    #expect(throws: BridgeError.invalidMessage) { try menu.validate() }
+  }
+
   /// 子菜单、语义色、顺序、分隔、选中和保留菜单语义均保留在纯展示声明中。
   @Test func preservesMenuTreeAndStates() throws {
     let menu = try decode([

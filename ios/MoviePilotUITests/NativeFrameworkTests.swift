@@ -3138,9 +3138,230 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists)
   }
 
+  /// 点击真实文件存储激活器后用系统短列表呈现，关闭重开及原目录回调均只执行一次。
+  func testNativeStandaloneShortMenu() async throws {
+    try requireStandaloneFixture()
+    try await standaloneControl("reset", value: ["variant": "short"])
+    let app = try launchCardMenuApp(server: "http://127.0.0.1:5248")
+    XCTAssertTrue(app.navigationBars["文件管理"].waitForExistence(timeout: 30))
+    try await standalonePoint(app).tap()
+    let table = app.tables["nativeOperationMenu"]
+    XCTAssertTrue(table.waitForExistence(timeout: 8), app.debugDescription)
+    XCTAssertEqual(table.cells.count, 3)
+    XCTAssertFalse(table.cells.containing(.staticText, identifier: "本地").firstMatch.isEnabled)
+    XCTAssertLessThan(
+      table.cells.containing(.staticText, identifier: "本地").firstMatch.frame.minY,
+      table.cells.containing(.staticText, identifier: "合成云盘 01").firstMatch.frame.minY)
+    assertStandaloneHeight(app)
+    XCTAssertLessThan(
+      app.otherElements["native-operation-menu-sheet"].frame.height, app.frame.height * 0.55)
+    let before = try await standaloneState()
+    XCTAssertEqual((before["page"] as? [String: Any])?["htmlMenus"] as? Int, 0)
+    attachScreen("独立菜单-短列表与原禁用状态", app: app)
+    app.buttons["native-operation-menu-close"].tap()
+    XCTAssertTrue(table.waitForNonExistence(timeout: 8))
+    try await standalonePoint(app).tap()
+    XCTAssertTrue(table.waitForExistence(timeout: 8))
+    table.cells.containing(.staticText, identifier: "合成云盘 01").firstMatch.tap()
+    XCTAssertTrue(table.waitForNonExistence(timeout: 8))
+    _ = try await standalonePoint(app, title: "合成云盘 01")
+    let after = try await standaloneState()
+    XCTAssertEqual(
+      (after["lists"] as? [[String: Any]])?.filter { $0["storage"] as? String == "cloud01" }.count,
+      1)
+    XCTAssertEqual((after["page"] as? [String: Any])?["htmlMenus"] as? Int, 0)
+    XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists)
+  }
+
+  /// 长菜单最多三分之二屏并可滚动到底；旋转、后台、来源隐藏和导航不会留下旧票据。
+  func testNativeStandaloneLongMenuAndLifecycle() async throws {
+    try requireStandaloneFixture()
+    try await standaloneControl("reset", value: ["variant": "long"])
+    let app = try launchCardMenuApp(server: "http://127.0.0.1:5248")
+    XCTAssertTrue(app.navigationBars["文件管理"].waitForExistence(timeout: 30))
+    try await standalonePoint(app).tap()
+    let table = app.tables["nativeOperationMenu"]
+    XCTAssertTrue(table.waitForExistence(timeout: 8))
+    assertStandaloneHeight(app)
+    attachScreen("独立菜单-长列表受限高度", app: app)
+    let last = table.cells.containing(.staticText, identifier: "合成云盘 39").firstMatch
+    for _ in 0..<15 {
+      if last.isHittable { break }
+      table.swipeUp()
+    }
+    XCTAssertTrue(last.isHittable, "最高受限后末项仍须通过内部滚动可达")
+    last.tap()
+    XCTAssertTrue(table.waitForNonExistence(timeout: 8))
+    _ = try await standalonePoint(app, title: "合成云盘 39")
+    var state = try await standaloneState()
+    XCTAssertEqual(
+      (state["lists"] as? [[String: Any]])?.filter { $0["storage"] as? String == "cloud39" }.count,
+      1)
+    XCUIDevice.shared.orientation = .landscapeLeft
+    let landscapePoint = try await standalonePoint(app, title: "合成云盘 39")
+    let rotated = try await standaloneState()
+    let rotatedPage = try XCTUnwrap(rotated["page"] as? [String: Any])
+    let top = try XCTUnwrap(
+      Double((rotatedPage["nativeTop"] as? String ?? "").replacingOccurrences(of: "px", with: "")))
+    XCTAssertGreaterThanOrEqual(
+      top, app.navigationBars.firstMatch.frame.maxY - app.webViews.firstMatch.frame.minY - 2)
+    landscapePoint.tap()
+    XCTAssertTrue(table.waitForExistence(timeout: 8))
+    assertStandaloneHeight(app)
+    app.buttons["native-operation-menu-close"].tap()
+    XCTAssertTrue(table.waitForNonExistence(timeout: 8))
+    XCUIDevice.shared.orientation = .portrait
+    try await standalonePoint(app, title: "合成云盘 39").tap()
+    XCTAssertTrue(table.waitForExistence(timeout: 8))
+    XCUIDevice.shared.press(.home)
+    app.activate()
+    XCTAssertTrue(table.waitForNonExistence(timeout: 8))
+    try await standalonePoint(app, title: "合成云盘 39").tap()
+    XCTAssertTrue(table.waitForExistence(timeout: 8))
+    try await standaloneControl("command", value: ["command": "hide"])
+    XCTAssertTrue(table.waitForNonExistence(timeout: 8))
+    try await standaloneControl("command", value: ["command": "show"])
+    try await standalonePoint(app, title: "合成云盘 39").tap()
+    XCTAssertTrue(table.waitForExistence(timeout: 8))
+    try await standaloneControl("command", value: ["command": "dashboard"])
+    XCTAssertTrue(table.waitForNonExistence(timeout: 8))
+    XCTAssertTrue(app.navigationBars["仪表盘"].waitForExistence(timeout: 8))
+    state = try await standaloneState()
+    XCTAssertEqual((state["page"] as? [String: Any])?["htmlMenus"] as? Int, 0)
+    XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists)
+  }
+
+  /// 辅助字号使用真实系统字体重新量测，长列表受限后仍能选到最后一项。
+  func testNativeStandaloneAccessibilityTextSize() async throws {
+    try requireStandaloneFixture()
+    try await standaloneControl("reset", value: ["variant": "long"])
+    let app = try launchCardMenuApp(
+      server: "http://127.0.0.1:5248",
+      contentSizeCategory: "UICTContentSizeCategoryAccessibilityXXXL")
+    XCTAssertTrue(app.navigationBars["文件管理"].waitForExistence(timeout: 30))
+    try await standalonePoint(app).tap()
+    let table = app.tables["nativeOperationMenu"]
+    XCTAssertTrue(table.waitForExistence(timeout: 8))
+    assertStandaloneHeight(app)
+    XCTAssertGreaterThan(table.cells.element(boundBy: 0).frame.height, 60)
+    attachScreen("独立菜单-辅助字号受限高度", app: app)
+    let last = table.cells.containing(.staticText, identifier: "根目录").firstMatch
+    for _ in 0..<30 {
+      if last.isHittable { break }
+      table.swipeUp()
+    }
+    XCTAssertTrue(last.isHittable)
+    app.buttons["native-operation-menu-close"].tap()
+    XCTAssertTrue(table.waitForNonExistence(timeout: 8))
+  }
+
+  /// 纯协议夹具独立验证 UIKit 的副标题、旗帜、徽标、保留展开和嵌套；不冒充业务回调验收。
+  func testNativeStandaloneProtocolMenuTree() async throws {
+    try requireStandaloneFixture()
+    try await standaloneControl("reset", value: ["variant": "short"])
+    let app = try launchCardMenuApp(server: "http://127.0.0.1:5248")
+    XCTAssertTrue(app.navigationBars["文件管理"].waitForExistence(timeout: 30))
+    _ = try await standalonePoint(app)
+    try await standaloneControl("command", value: ["command": "tree"])
+    let table = app.tables["nativeOperationMenu"]
+    XCTAssertTrue(table.waitForExistence(timeout: 8))
+    assertStandaloneHeight(app)
+    let language = table.cells["operation-fixture-language"]
+    XCTAssertTrue(language.staticTexts["跟随原菜单名称"].exists)
+    XCTAssertTrue(language.isSelected)
+    XCTAssertFalse(table.cells["operation-fixture-disabled"].isEnabled)
+    XCTAssertFalse(table.cells["operation-fixture-loading"].isEnabled)
+    XCTAssertTrue(table.cells["operation-fixture-loading"].activityIndicators.firstMatch.exists)
+    table.cells["operation-fixture-toggle"].tap()
+    XCTAssertTrue(table.staticTexts["已启用"].waitForExistence(timeout: 8))
+    XCTAssertTrue(table.cells["operation-fixture-toggle"].isSelected)
+    attachScreen("独立菜单-徽标旗帜与保持展开", app: app)
+    let submenu = table.cells["operation-fixture-submenu"]
+    if !submenu.isHittable { table.swipeUp() }
+    submenu.tap()
+    XCTAssertTrue(table.cells["operation-fixture-detail"].waitForExistence(timeout: 8))
+    XCTAssertTrue(table.cells["operation-fixture-reset"].exists)
+    assertStandaloneHeight(app)
+    app.buttons["返回上一级菜单"].tap()
+    XCTAssertTrue(table.cells["operation-fixture-submenu"].waitForExistence(timeout: 8))
+    app.buttons["native-operation-menu-close"].tap()
+    XCTAssertTrue(table.waitForNonExistence(timeout: 8))
+    let state = try await standaloneState()
+    XCTAssertEqual(
+      (state["events"] as? [[String: Any]])?.filter {
+        $0["type"] as? String == "standaloneMenu.select"
+      }.count, 1)
+    XCTAssertEqual((state["lists"] as? [[String: Any]])?.count, 1, "纯协议场景不能执行文件业务")
+  }
+
+  /// 测试只能指向本机专用端口，不允许对真实实例注入来源隐藏或合成存储。
+  private func requireStandaloneFixture() throws {
+    guard
+      ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_STANDALONE_MENU_SERVER"]
+        == "http://127.0.0.1:5248"
+    else { throw XCTSkip("独立菜单需要本机 FileToolbar 合成夹具。") }
+  }
+
+  /// 系统 sheet 自身而非内部表格必须遵守可用屏幕上限。
+  private func assertStandaloneHeight(_ app: XCUIApplication) {
+    let sheet = app.otherElements["native-operation-menu-sheet"]
+    XCTAssertTrue(sheet.exists)
+    XCTAssertGreaterThan(sheet.frame.height, 100)
+    XCTAssertLessThanOrEqual(sheet.frame.height, app.frame.height * 2 / 3 + 2)
+  }
+
+  /// 私有控制仅选择固定合成场景，不传认证或真实文件路径。
+  private func standaloneControl(_ path: String, value: [String: String]) async throws {
+    var request = URLRequest(url: URL(string: "http://127.0.0.1:5248/__standalone/\(path)")!)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: value)
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+  }
+
+  /// 触点来自真实激活器的当前 DOM 量测，不通过固定坐标或菜单行位置匹配动作。
+  private func standalonePoint(_ app: XCUIApplication, title: String = "本地") async throws
+    -> XCUICoordinate
+  {
+    for _ in 0..<100 {
+      let state = try await standaloneState()
+      if let page = state["page"] as? [String: Any], page["active"] as? String == "active",
+        page["trigger"] as? String == title, let rect = page["rect"] as? [String: Double],
+        let x = rect["x"], let y = rect["y"], let width = rect["width"],
+        let height = rect["height"], width > 0, height > 0
+      {
+        let web = app.webViews.firstMatch
+        let top = app.navigationBars.firstMatch.frame.maxY - web.frame.minY + 4
+        let bottom = app.tabBars["native-root-navigation"].frame.minY - web.frame.minY - 4
+        let visibleTop = max(top, y)
+        let visibleBottom = min(bottom, y + height)
+        guard visibleBottom - visibleTop > 4 else {
+          web.swipeDown()
+          continue
+        }
+        return web.coordinate(withNormalizedOffset: .zero).withOffset(
+          .init(dx: x + width / 2, dy: (visibleTop + visibleBottom) / 2))
+      }
+      try await Task.sleep(for: .milliseconds(150))
+    }
+    XCTFail("真实存储菜单激活器未在当前前端就绪")
+    throw NSError(domain: "StandaloneMenuFixture", code: 1)
+  }
+
+  /// 读取的状态只含合成存储代码、HTML 菜单数和系统菜单回包。
+  private func standaloneState() async throws -> [String: Any] {
+    let (data, _) = try await URLSession.shared.data(
+      from: URL(string: "http://127.0.0.1:5248/__standalone/state")!)
+    return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+  }
+
   /// 合成实例允许首次登录或已保存会话恢复，不把后者误判成登录表单缺失。
-  private func launchCardMenuApp(server: String) throws -> XCUIApplication {
-    let app = launchConnection(server: server, captureScreens: false)
+  private func launchCardMenuApp(server: String, contentSizeCategory: String? = nil) throws
+    -> XCUIApplication
+  {
+    let app = launchConnection(
+      server: server, captureScreens: false, contentSizeCategory: contentSizeCategory)
     let account = app.textFields["用户名"]
     let ready = XCTNSPredicateExpectation(
       predicate: NSPredicate { _, _ in
@@ -3234,7 +3455,9 @@ final class NativeFrameworkTests: XCTestCase {
   }
 
   /// 启动空白选择并通过真实地址输入提交连接，供成功路径与地址校验失败共用。
-  private func launchConnection(server: String, captureScreens: Bool = true) -> XCUIApplication {
+  private func launchConnection(
+    server: String, captureScreens: Bool = true, contentSizeCategory: String? = nil
+  ) -> XCUIApplication {
     continueAfterFailure = false
     XCUIDevice.shared.orientation = .portrait
     let app = XCUIApplication()
@@ -3242,6 +3465,9 @@ final class NativeFrameworkTests: XCTestCase {
       "-moviepilot.instance.selected.v1", "", "-AppleLanguages", "(zh-Hans)",
       "-AppleLocale", "zh_CN",
     ]
+    if let contentSizeCategory {
+      app.launchArguments += ["-UIPreferredContentSizeCategoryName", contentSizeCategory]
+    }
     app.launch()
     let address = app.textFields["MoviePilot 服务地址"]
     XCTAssertTrue(address.waitForExistence(timeout: 10))
