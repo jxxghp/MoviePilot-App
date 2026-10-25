@@ -185,6 +185,8 @@ public struct NativeSheetAction: Codable, Equatable, Sendable {
   public let id: String
   public let title: String
   public let enabled: Bool
+  /// 既有图标标识只供原生映射显示，省略时仍显示文字动作。
+  public let icon: String?
 }
 
 /// 系统确认框只包含当前 Vue 提示文字和按钮状态，不能携带业务命令或脚本。
@@ -242,7 +244,10 @@ public struct NavigationSnapshot: Codable, Equatable, Sendable {
       guard presentation?.overlayOpen == true, BridgeValidator.isIdentifier(sheet.id),
         Self.isLabel(sheet.title), sheet.actions.count <= 8,
         Set(sheet.actions.map(\.id)).count == sheet.actions.count,
-        sheet.actions.allSatisfy({ BridgeValidator.isIdentifier($0.id) && Self.isLabel($0.title) })
+        sheet.actions.allSatisfy({
+          BridgeValidator.isIdentifier($0.id) && Self.isLabel($0.title)
+            && ($0.icon.map(Self.isLabel) ?? true)
+        })
       else { throw BridgeError.invalidMessage }
     }
     if let confirmation = presentation?.confirmation {
