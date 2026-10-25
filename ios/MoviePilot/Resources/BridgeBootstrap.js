@@ -9,6 +9,7 @@
       panelsVersion: 1,
       panelFeedsVersion: 1,
       sheetsVersion: 1,
+      progressSheetsVersion: 1,
       confirmationsVersion: 1,
       navigationPreviewVersion: 1,
       notificationInstallation: "__MOVIEPILOT_INSTALLATION__",

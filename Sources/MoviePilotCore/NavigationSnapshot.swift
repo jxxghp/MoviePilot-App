@@ -177,7 +177,15 @@ public struct NativeSheetSnapshot: Codable, Equatable, Sendable {
   public let prefersMediumDetent: Bool?
   /// 旧前端缺省时直接接管；支持准备的前端先保留原底页，再移交唯一 WebView。
   public let backdropReady: Bool?
+  /// 短暂处理任务使用原生状态弹层；旧声明省略时继续承载 HTML 内容。
+  public let progress: NativeProgressSnapshot?
   public let actions: [NativeSheetAction]
+}
+
+/// 有界的纯展示状态不携带任务命令，未知进度以系统加载指示器表示。
+public struct NativeProgressSnapshot: Codable, Equatable, Sendable {
+  public let message: String
+  public let value: Double?
 }
 
 /// 标题栏只引用当前 DOM 按钮，不携带脚本、选择器或业务接口。
@@ -249,6 +257,11 @@ public struct NavigationSnapshot: Codable, Equatable, Sendable {
             && ($0.icon.map(Self.isLabel) ?? true)
         })
       else { throw BridgeError.invalidMessage }
+      if let progress = sheet.progress {
+        guard !sheet.canDismiss, sheet.actions.isEmpty, Self.isLabel(progress.message),
+          progress.value.map({ $0.isFinite && (0...100).contains($0) }) ?? true
+        else { throw BridgeError.invalidMessage }
+      }
     }
     if let confirmation = presentation?.confirmation {
       let allowedBreaks = CharacterSet(charactersIn: "\n\r\t")

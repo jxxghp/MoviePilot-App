@@ -377,6 +377,7 @@ final class NativeFrameworkTests: XCTestCase {
     let trigger = app.webViews.buttons.matching(
       NSPredicate(format: "label == %@ OR label == %@", "奶龙", "智能助手")
     ).firstMatch
+    attachScreen("交互-Agent入口与页面", app: app)
     XCTAssertTrue(trigger.waitForExistence(timeout: 15))
     trigger.tap()
     let menu = app.buttons["native-sheet-menu"]
@@ -1103,7 +1104,7 @@ final class NativeFrameworkTests: XCTestCase {
     try await setUIScenario("default")
   }
 
-  /// 文件操作打开原详情组件，只有系统标题及关闭按钮，返回后目录保持原位。
+  /// 文件详情、处理中和识别结果连续使用原生弹层，关闭后目录保持原位。
   func testNativeFileDetailsHeader() async throws {
     try await setUIScenario("file")
     let app = try signIn()
@@ -1116,6 +1117,17 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertFalse(app.webViews.staticTexts["文件详情"].exists)
     settlePage(app)
     attachScreen("交互-文件详情单层标题与系统关闭", app: app)
+    app.webViews.staticTexts["识别"].tap()
+    let status = app.otherElements["native-progress-status"]
+    XCTAssertTrue(status.waitForExistence(timeout: 8))
+    XCTAssertFalse(app.buttons["native-sheet-close"].exists)
+    XCTAssertTrue(app.progressIndicators["native-progress-value"].exists)
+    attachScreen("交互-原生处理中紧凑弹层", app: app)
+    XCTAssertTrue(app.navigationBars["识别结果"].waitForExistence(timeout: 15))
+    XCTAssertTrue(
+      app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "MoviePilot Demo"))
+        .firstMatch.exists)
+    attachScreen("交互-媒体识别结果原生标题与关闭", app: app)
     app.buttons["native-sheet-close"].tap()
     XCTAssertTrue(action.waitForExistence(timeout: 8))
     try await setUIScenario("default")
