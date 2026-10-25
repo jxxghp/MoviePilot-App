@@ -52,6 +52,22 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   private var notificationNavigationAvailable = false
   private var widgetsNegotiated = false
   private var widgetContextChecked = false
+  private var cardMenusNegotiated = false
+  private lazy var cardMenus = CardMenuBridge(
+    webView: webView,
+    context: { [weak self] in
+      guard let self, self.cardMenusNegotiated, self.lifecycle == "active",
+        self.session.phase == .nativeNavigation, let id = self.session.sessionId
+      else { return nil }
+      return CardMenuContext(
+        document: self.documentID, session: id, route: self.session.routeRevision)
+    },
+    presenter: { [weak self] in
+      var host: UIViewController? = self?.shell
+      while let next = host?.presentedViewController, !next.isBeingDismissed { host = next }
+      return host is UIAlertController ? nil : host
+    },
+    send: { [weak self] type, payload in self?.send(type, payload: payload) })
   private lazy var widgetChannel = WidgetBridgeChannel(
     context: { [weak self] in
       guard let self, self.widgetsAvailable, let id = self.session.sessionId else { return nil }
@@ -152,6 +168,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 
   /// 切换实例时显式解绑脚本、计时器与通知，不让旧文档继续发送动作。
   func stop() {
+    cardMenusNegotiated = false
+    cardMenus.stop()
     if NotificationService.shared.coordinator === self { NotificationService.shared.attach(nil) }
     timeout?.invalidate()
     startupTimeout?.invalidate()
@@ -192,6 +210,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 
   /// 重试只 GET 当前同源文档并重新协商原生导航，绝不重发旧 POST 或未确认的业务命令。
   func reload(automatically: Bool = false) {
+    cardMenus.invalidate()
     let target = lastConfirmedURL ?? instance.address.recoveryURL(currentDocument: webView.url)
     documentID = UUID()
     WidgetService.shared.endSession(instanceId: instance.id, clear: false)
@@ -212,6 +231,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   /// 系统回收文档时撤销旧代次；后台只记待恢复，前台周期最多自动载入一次。
   private func recoverContentProcess() {
     guard relay.owner != nil, !pendingProcessRecovery else { return }
+    cardMenus.invalidate()
     documentID = UUID()
     WidgetService.shared.endSession(instanceId: instance.id, clear: false)
     timeout?.invalidate()
@@ -236,6 +256,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   /// 系统生命周期只同步给当前文档，后台暂停期间不进行超时恢复。
   func setLifecycle(_ value: String) {
     if value != "active" {
+      cardMenus.invalidate()
       shell?.clearNavigationPreviews()
       cancelWidgetRequest()
     } else if lifecycle != "active" {
@@ -506,6 +527,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       guard self.session.phase == .nativeNavigation, let shell = self.shell else { return }
       let candidate = shell.layoutPayload(revision: 0, keyboard: self.keyboardFrame)
       guard candidate != self.lastLayout else { return }
+      self.cardMenus.invalidate()
       self.lastLayout = candidate
       self.layoutRevision += 1
       self.send(
@@ -529,6 +551,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       NotificationService.shared.attach(nil)
       cancelWidgetRequest()
       WidgetService.shared.endSession(instanceId: instance.id, clear: true)
+      cardMenus.invalidate()
       onAuthenticationRequired()
       return
     }
@@ -556,6 +579,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       let ready = try message.decodePayload(ReadyPayload.self)
       notificationNavigationAvailable = ready.capabilities.contains("notifications.v1")
       widgetsNegotiated = WidgetFeature.isEnabled && ready.capabilities.contains("widgets.v1")
+      cardMenus.invalidate()
+      cardMenusNegotiated = ready.capabilities.contains("card-menus.v1")
       let id = try session.negotiate(majors: ready.majors, capabilities: Set(ready.capabilities))
       lastLayout = nil
       send(
@@ -568,7 +593,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
               + (widgetsNegotiated ? ["widgets.v1"] : [])
               // 只启用网页已声明的内存缓存；旧前端不因新的可选能力失配。
               + (ready.capabilities.contains("readonly-cache.v1") ? ["readonly-cache.v1"] : []))
-              .map(JSONValue.string)),
+              .map(JSONValue.string) + (cardMenusNegotiated ? [.string("card-menus.v1")] : [])),
         ]))
       armTimeout()
     case "navigation.state":
@@ -577,6 +602,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       }
       let snapshot = try message.decodePayload(NavigationSnapshot.self)
       try session.receive(snapshot, routeRevision: route, stateRevision: state)
+      cardMenus.accent =
+        NavigationSymbols.color(snapshot.chrome.accentColor) ?? AccountAppearance.accent
+      cardMenus.synchronize()
       lastConfirmedURL = instance.address.recoveryURL(
         currentDocument: webView.url, confirmedRoute: snapshot.route.fullPath)
       if session.phase == .negotiating {
@@ -609,6 +637,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     case "chrome.accepted":
       let accepted = try message.decodePayload(LayoutAcknowledgement.self)
       try session.accept(layoutRevision: accepted.layoutRevision)
+      if cardMenusNegotiated { cardMenus.start() }
       timeout?.invalidate()
       if let snapshot = session.snapshot { shell?.apply(snapshot) }
       layoutChanged()
@@ -624,6 +653,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       completion?(result.accepted)
       if !result.accepted, completion != nil { recoverNavigation() }
     case "session.state":
+      cardMenus.invalidate()
       widgetContextChecked = false
       WidgetService.shared.endSession(instanceId: instance.id, clear: true)
       shell?.clearNavigationPreviews()
@@ -646,6 +676,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       }
     case "chrome.failed":
       recoverNavigation()
+    case "cardMenu.prepare", "cardMenu.accessible", "cardMenu.invalidate", "cardMenu.refresh":
+      try cardMenus.receive(message)
     case "widget.result":
       receiveWidgetResult(message)
     case "widget.logout":
@@ -698,6 +730,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 
   /// 失去文档响应后不声称已恢复网页，直接展示独立恢复界面。
   private func fail(_ message: String) {
+    cardMenus.invalidate()
     documentID = UUID()
     WidgetService.shared.endSession(instanceId: instance.id, clear: false)
     pendingProcessRecovery = false
@@ -713,6 +746,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   /// 顶层文档导航与 hash 路由区分；新文档总会撤销旧动作和会话。
   func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
     guard webView === self.webView else { return }
+    cardMenus.invalidate()
+    cardMenusNegotiated = false
     timeout?.invalidate()
     lastConfirmedURL = nil
     documentID = UUID()

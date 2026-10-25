@@ -47,6 +47,7 @@ targets:
         excludes: [Info.plist, Widgets.entitlements]
     dependencies:
       - package: MoviePilotCore
+    scheme: {}
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.moviepilot.app.widgets

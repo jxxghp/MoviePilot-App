@@ -13,6 +13,7 @@
       confirmationsVersion: 1,
       navigationPreviewVersion: 1,
       readonlyCacheVersion: 1,
+      cardMenusVersion: 1,
       /*__MOVIEPILOT_WIDGETS_CAPABILITY__*/
       notificationInstallation: "__MOVIEPILOT_INSTALLATION__",
       postMessage: (message) => handler.postMessage(message),
