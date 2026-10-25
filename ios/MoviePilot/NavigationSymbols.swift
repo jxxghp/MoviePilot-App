@@ -47,7 +47,7 @@ enum NavigationSymbols {
     "mdi-web": "globe", "mdi-account-group-outline": "person.2", "mdi-cog-outline": "gearshape",
     "mdi-plus": "plus", "tabler-plus": "plus", "tabler-check": "checkmark",
     "mdi-check": "checkmark", "mdi-restore": "arrow.counterclockwise",
-    "mdi-view-dashboard-edit": "slider.horizontal.3", "mdi-tune": "slider.horizontal.3",
+    "mdi-view-dashboard-edit": "rectangle.3.group", "mdi-tune": "slider.horizontal.3",
     "mdi-checkbox-multiple-marked-outline": "checkmark.circle",
     "tabler-dots-vertical": "ellipsis", "mdi-dots-vertical": "ellipsis",
     // 维护、筛选和媒体详情继续使用网页声明的图标语义，不能退化为“应用网格”。

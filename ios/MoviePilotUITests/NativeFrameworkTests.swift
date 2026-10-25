@@ -996,7 +996,7 @@ final class NativeFrameworkTests: XCTestCase {
     attachScreen("交互-系统确认取消返回主页面", app: app)
   }
 
-  /// 实际订阅卡片进入批量选择并更新计数，再打开原编辑表单；不保存或删除订阅。
+  /// 实际订阅卡片进入批量选择、编辑与文件统计，保留原业务回调但不保存或删除订阅。
   func testNativeSubscriptionBatchAndEditor() async throws {
     try await setUIScenario("subscription")
     let app = try signIn()
@@ -1030,6 +1030,14 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertTrue(app.webViews.staticTexts["搜索关键词"].exists)
     settlePage(app)
     attachScreen("交互-订阅编辑无空闲加载线", app: app)
+    app.buttons["native-sheet-close"].tap()
+    app.webViews.buttons["更多"].firstMatch.tap()
+    XCTAssertTrue(app.webViews.staticTexts["文件统计"].waitForExistence(timeout: 8))
+    app.webViews.staticTexts["文件统计"].tap()
+    XCTAssertTrue(app.navigationBars["文件统计"].waitForExistence(timeout: 12))
+    XCTAssertTrue(app.buttons["native-sheet-close"].exists)
+    settlePage(app)
+    attachScreen("交互-订阅文件统计原生标题", app: app)
     app.buttons["native-sheet-close"].tap()
     try await setUIScenario("default")
   }
