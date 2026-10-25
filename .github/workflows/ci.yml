@@ -20,8 +20,18 @@ jobs:
         run: xcodebuild -version
       - name: Core tests
         run: zsh scripts/test-core.sh
+      - name: IPA verification boundaries
+        run: python3 -m unittest discover -s scripts/tests
       - name: Swift formatting
-        run: xcrun swift-format lint --strict --recursive Sources Tests ios/MoviePilot ios/MoviePilotUITests
+        run: xcrun swift-format lint --strict --recursive Sources Tests ios/MoviePilot ios/MoviePilotUITests ios/MoviePilotWidgets
+      - name: Build WidgetKit extension
+        run: >-
+          xcodebuild build
+          -project ios/MoviePilot.xcodeproj
+          -scheme MoviePilotWidgets
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath DerivedData
+          CODE_SIGNING_ALLOWED=NO
       - name: Build iOS simulator app and UI tests
         run: >-
           xcodebuild build-for-testing

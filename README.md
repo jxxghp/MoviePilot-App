@@ -16,6 +16,7 @@ iOS 26+ 支持系统 Liquid Glass；提供侧滑返回、原生弹窗及前后�
 | --- | --- |
 | [连接与兼容性](guides/connection.md) | 实例地址、登录、局域网与连接故障 |
 | [消息通知](guides/notifications.md) | 默认通知中心、免费自签 Web Push、可选 APNs |
+| [系统小组件](guides/widgets.md) | 桌面、锁屏与今天视图，实例选择与只读数据 |
 | [界面截图](screenshots/README.md) | 页面、菜单、弹窗及离线截图册 |
 | [自行构建与开发](ios/README.md) | Xcode 安装、签名、IPA 构建与测试 |
 | [前端集成](integration/README.md) | 兼容版本与本地联调 |

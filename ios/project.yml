@@ -26,16 +26,35 @@ targets:
         excludes: [Resources/Info.plist]
     dependencies:
       - package: MoviePilotCore
+      - target: MoviePilotWidgets
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.moviepilot.app
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_FILE: MoviePilot/Resources/Info.plist
         GENERATE_INFOPLIST_FILE: false
+        CODE_SIGN_ENTITLEMENTS: MoviePilot/Resources/Widgets.entitlements
     scheme:
       gatherCoverageData: true
       testTargets:
         - MoviePilotUITests
+  MoviePilotWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: MoviePilotWidgets
+        excludes: [Info.plist, Widgets.entitlements]
+    dependencies:
+      - package: MoviePilotCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.moviepilot.app.widgets
+        INFOPLIST_FILE: MoviePilotWidgets/Info.plist
+        GENERATE_INFOPLIST_FILE: false
+        CODE_SIGN_ENTITLEMENTS: MoviePilotWidgets/Widgets.entitlements
+        APPLICATION_EXTENSION_API_ONLY: true
+        SKIP_INSTALL: true
   MoviePilotUITests:
     type: bundle.ui-testing
     platform: iOS

@@ -14,7 +14,11 @@
   <key>CFBundleURLTypes</key><array><dict>
     <key>CFBundleURLName</key><string>org.moviepilot.app.notification</string>
     <key>CFBundleURLSchemes</key><array><string>moviepilot-app</string></array>
+  </dict><dict>
+    <key>CFBundleURLName</key><string>org.moviepilot.app.widget</string>
+    <key>CFBundleURLSchemes</key><array><string>moviepilot</string></array>
   </dict></array>
+  <key>MoviePilotWidgetsEnabled</key><true/>
   <key>LSRequiresIPhoneOS</key><true/>
   <key>UILaunchStoryboardName</key><string>LaunchScreen</string>
   <key>UIApplicationSceneManifest</key><dict>

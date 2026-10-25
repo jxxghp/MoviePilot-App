@@ -908,5 +908,80 @@
     "title": "网页手机通知海报与正文",
     "group": "网页兼容",
     "file": "screens/182.png"
+  },
+  {
+    "title": "桌面小尺寸双向速度",
+    "group": "小组件",
+    "file": "screens/183.png"
+  },
+  {
+    "title": "桌面中尺寸速度与剩余空间",
+    "group": "小组件",
+    "file": "screens/184.png"
+  },
+  {
+    "title": "桌面大尺寸与任务进度",
+    "group": "小组件",
+    "file": "screens/185.png"
+  },
+  {
+    "title": "桌面已配置下载状态",
+    "group": "小组件",
+    "file": "screens/186.png"
+  },
+  {
+    "title": "选择服务与下载内容",
+    "group": "小组件",
+    "file": "screens/187.png"
+  },
+  {
+    "title": "锁屏行内双向速度",
+    "group": "小组件",
+    "file": "screens/188.png"
+  },
+  {
+    "title": "锁屏圆形与矩形",
+    "group": "小组件",
+    "file": "screens/189.png"
+  },
+  {
+    "title": "实际锁屏紧凑布局",
+    "group": "小组件",
+    "file": "screens/190.png"
+  },
+  {
+    "title": "今天视图深色",
+    "group": "小组件",
+    "file": "screens/191.png"
+  },
+  {
+    "title": "今天视图浅色",
+    "group": "小组件",
+    "file": "screens/192.png"
+  },
+  {
+    "title": "今天视图辅助功能最大字号",
+    "group": "小组件",
+    "file": "screens/193.png"
+  },
+  {
+    "title": "系统色调小尺寸",
+    "group": "小组件",
+    "file": "screens/194.png"
+  },
+  {
+    "title": "系统色调中尺寸",
+    "group": "小组件",
+    "file": "screens/195.png"
+  },
+  {
+    "title": "今天视图中尺寸深色",
+    "group": "小组件",
+    "file": "screens/196.png"
+  },
+  {
+    "title": "今天视图中尺寸浅色",
+    "group": "小组件",
+    "file": "screens/197.png"
   }
 ]

@@ -48,5 +48,6 @@ final class InstanceStore {
     let wasSelected = selected?.id == instance.id
     defaults.set(try JSONEncoder().encode(instances.filter { $0.id != instance.id }), forKey: key)
     if wasSelected { deselect() }
+    WidgetService.shared.endSession(instanceId: instance.id, clear: true)
   }
 }
