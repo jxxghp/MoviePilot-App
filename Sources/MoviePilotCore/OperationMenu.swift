@@ -13,6 +13,12 @@ public enum OperationMenuColor: String, Codable, Sendable {
   case primary, secondary, success, info, warning, error
 }
 
+/// 原菜单的启用状态或数量徽标独立保留，不把状态拼入主标题。
+public struct OperationMenuBadge: Codable, Equatable, Sendable {
+  public let title: String
+  public let color: OperationMenuColor?
+}
+
 /// 单项只描述原菜单的外观和状态；选择时仍由网页复核并执行原业务方法。
 public struct OperationMenuItem: Codable, Equatable, Sendable {
   public let id: String
@@ -21,6 +27,7 @@ public struct OperationMenuItem: Codable, Equatable, Sendable {
   public let subtitle: String?
   public let icon: String?
   public let color: OperationMenuColor?
+  public let badge: OperationMenuBadge?
   public let enabled: Bool?
   public let selected: Bool?
   public let loading: Bool?
@@ -58,6 +65,7 @@ public struct OperationMenuSnapshot: Codable, Equatable, Sendable {
         else { throw BridgeError.invalidMessage }
         if row.kind == .separator {
           guard row.title == nil, row.subtitle == nil, row.icon == nil, row.color == nil,
+            row.badge == nil,
             row.enabled == nil, row.selected == nil, row.loading == nil,
             row.destructive == nil, row.keepOpen == nil, row.items == nil
           else { throw BridgeError.invalidMessage }
@@ -66,6 +74,9 @@ public struct OperationMenuSnapshot: Codable, Equatable, Sendable {
         try Self.validateText(row.title, required: row.kind != .group)
         try Self.validateText(row.subtitle)
         try Self.validateText(row.icon, maximumBytes: 256)
+        if let badge = row.badge {
+          try Self.validateText(badge.title, required: true, maximumBytes: 256)
+        }
         if row.kind == .action {
           guard row.items == nil else { throw BridgeError.invalidMessage }
           actions += 1

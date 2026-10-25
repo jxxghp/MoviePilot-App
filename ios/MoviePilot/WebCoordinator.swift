@@ -53,13 +53,14 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   private var widgetsNegotiated = false
   private var widgetContextChecked = false
   private var cardMenusNegotiated = false
+  private var standaloneMenusNegotiated = false
   private lazy var cardMenus = CardMenuBridge(
     webView: webView,
     context: { [weak self] in
       guard let self, self.cardMenusNegotiated, self.lifecycle == "active",
         self.session.phase == .nativeNavigation, let id = self.session.sessionId
       else { return nil }
-      return CardMenuContext(
+      return OperationMenuContext(
         document: self.documentID, session: id, route: self.session.routeRevision)
     },
     presenter: { [weak self] in
@@ -76,6 +77,21 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     send: { [weak self] type, request, payload in
       self?.send(type, requestId: request, payload: payload)
     })
+
+  private lazy var standaloneMenus = StandaloneMenuBridge(
+    context: { [weak self] in
+      guard let self, self.standaloneMenusNegotiated, self.lifecycle == "active",
+        self.session.phase == .nativeNavigation, let id = self.session.sessionId
+      else { return nil }
+      return OperationMenuContext(
+        document: self.documentID, session: id, route: self.session.routeRevision)
+    },
+    presenter: { [weak self] in
+      var host: UIViewController? = self?.shell
+      while let next = host?.presentedViewController, !next.isBeingDismissed { host = next }
+      return host is UIAlertController ? nil : host
+    },
+    send: { [weak self] type, payload in self?.send(type, payload: payload) })
 
   /// 数据容器按实例 UUID 隔离；不将 Safari 或其他实例 Cookie 导入此会话。
   init(
@@ -169,7 +185,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   /// 切换实例时显式解绑脚本、计时器与通知，不让旧文档继续发送动作。
   func stop() {
     cardMenusNegotiated = false
+    standaloneMenusNegotiated = false
     cardMenus.stop()
+    standaloneMenus.invalidate()
     if NotificationService.shared.coordinator === self { NotificationService.shared.attach(nil) }
     timeout?.invalidate()
     startupTimeout?.invalidate()
@@ -211,6 +229,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   /// 重试只 GET 当前同源文档并重新协商原生导航，绝不重发旧 POST 或未确认的业务命令。
   func reload(automatically: Bool = false) {
     cardMenus.invalidate()
+    standaloneMenus.invalidate()
     let target = lastConfirmedURL ?? instance.address.recoveryURL(currentDocument: webView.url)
     documentID = UUID()
     WidgetService.shared.endSession(instanceId: instance.id, clear: false)
@@ -232,6 +251,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   private func recoverContentProcess() {
     guard relay.owner != nil, !pendingProcessRecovery else { return }
     cardMenus.invalidate()
+    standaloneMenus.invalidate()
     documentID = UUID()
     WidgetService.shared.endSession(instanceId: instance.id, clear: false)
     timeout?.invalidate()
@@ -257,6 +277,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   func setLifecycle(_ value: String) {
     if value != "active" {
       cardMenus.invalidate()
+      standaloneMenus.invalidate()
       shell?.clearNavigationPreviews()
       cancelWidgetRequest()
     } else if lifecycle != "active" {
@@ -528,6 +549,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       let candidate = shell.layoutPayload(revision: 0, keyboard: self.keyboardFrame)
       guard candidate != self.lastLayout else { return }
       self.cardMenus.invalidate()
+      self.standaloneMenus.invalidate()
       self.lastLayout = candidate
       self.layoutRevision += 1
       self.send(
@@ -552,6 +574,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       cancelWidgetRequest()
       WidgetService.shared.endSession(instanceId: instance.id, clear: true)
       cardMenus.invalidate()
+      standaloneMenus.invalidate()
       onAuthenticationRequired()
       return
     }
@@ -580,7 +603,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       notificationNavigationAvailable = ready.capabilities.contains("notifications.v1")
       widgetsNegotiated = WidgetFeature.isEnabled && ready.capabilities.contains("widgets.v1")
       cardMenus.invalidate()
+      standaloneMenus.invalidate()
       cardMenusNegotiated = ready.capabilities.contains("card-menus.v1")
+      standaloneMenusNegotiated = ready.capabilities.contains("standalone-menus.v1")
       let id = try session.negotiate(majors: ready.majors, capabilities: Set(ready.capabilities))
       lastLayout = nil
       send(
@@ -593,7 +618,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
               + (widgetsNegotiated ? ["widgets.v1"] : [])
               // 只启用网页已声明的内存缓存；旧前端不因新的可选能力失配。
               + (ready.capabilities.contains("readonly-cache.v1") ? ["readonly-cache.v1"] : []))
-              .map(JSONValue.string) + (cardMenusNegotiated ? [.string("card-menus.v1")] : [])),
+              .map(JSONValue.string) + (cardMenusNegotiated ? [.string("card-menus.v1")] : [])
+              + (standaloneMenusNegotiated ? [.string("standalone-menus.v1")] : [])),
         ]))
       armTimeout()
     case "navigation.state":
@@ -605,6 +631,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       cardMenus.accent =
         NavigationSymbols.color(snapshot.chrome.accentColor) ?? AccountAppearance.accent
       cardMenus.synchronize()
+      standaloneMenus.accent =
+        NavigationSymbols.color(snapshot.chrome.accentColor) ?? AccountAppearance.accent
+      standaloneMenus.synchronize()
       lastConfirmedURL = instance.address.recoveryURL(
         currentDocument: webView.url, confirmedRoute: snapshot.route.fullPath)
       if session.phase == .negotiating {
@@ -654,6 +683,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       if !result.accepted, completion != nil { recoverNavigation() }
     case "session.state":
       cardMenus.invalidate()
+      standaloneMenus.invalidate()
       widgetContextChecked = false
       WidgetService.shared.endSession(instanceId: instance.id, clear: true)
       shell?.clearNavigationPreviews()
@@ -678,6 +708,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       recoverNavigation()
     case "cardMenu.prepare", "cardMenu.accessible", "cardMenu.invalidate", "cardMenu.refresh":
       try cardMenus.receive(message)
+    case "standaloneMenu.open", "standaloneMenu.invalidate", "standaloneMenu.refresh":
+      try standaloneMenus.receive(message)
     case "widget.result":
       receiveWidgetResult(message)
     case "widget.logout":
@@ -731,6 +763,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   /// 失去文档响应后不声称已恢复网页，直接展示独立恢复界面。
   private func fail(_ message: String) {
     cardMenus.invalidate()
+    standaloneMenus.invalidate()
     documentID = UUID()
     WidgetService.shared.endSession(instanceId: instance.id, clear: false)
     pendingProcessRecovery = false
@@ -747,7 +780,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
     guard webView === self.webView else { return }
     cardMenus.invalidate()
+    standaloneMenus.invalidate()
     cardMenusNegotiated = false
+    standaloneMenusNegotiated = false
     timeout?.invalidate()
     lastConfirmedURL = nil
     documentID = UUID()
