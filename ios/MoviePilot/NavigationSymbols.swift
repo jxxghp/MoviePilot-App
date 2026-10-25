@@ -22,6 +22,8 @@ enum NavigationSymbols {
 
   /// 已知导航与注册动作的符号表只建立一次，通知列表复用时不反复构造整份映射。
   private static let names = [
+    "mdi-cloud": "cloud", "mdi-cellphone-key": "lock.iphone",
+    "material-symbols:passkey": "person.badge.key",
     // 卡片菜单与独立菜单共享原图标语义，含移动行、插件高级操作和历史记录。
     "mdi-pencil": "pencil", "mdi-rename": "pencil", "mdi-redo": "arrow.uturn.right",
     "mdi-sync": "arrow.triangle.2.circlepath", "mdi-reload": "arrow.clockwise",
@@ -185,7 +187,18 @@ enum NavigationSymbols {
 
   /// 操作菜单未识别的图标保留文字，不显示与功能无关的占位图形。
   static func operationImage(_ key: String?) -> UIImage? {
-    guard let key, let name = names[key] else { return nil }
+    guard let key else { return nil }
+    if key.hasPrefix("emoji:") {
+      let flag = String(key.dropFirst(6))
+      guard flag.unicodeScalars.count == 2,
+        flag.unicodeScalars.allSatisfy({ (0x1F1E6...0x1F1FF).contains($0.value) })
+      else { return nil }
+      let font = UIFont.systemFont(ofSize: 22)
+      return UIGraphicsImageRenderer(size: CGSize(width: 28, height: 28)).image { _ in
+        (flag as NSString).draw(at: CGPoint(x: 0, y: 0), withAttributes: [.font: font])
+      }.withRenderingMode(.alwaysOriginal)
+    }
+    guard let name = names[key] else { return nil }
     return UIImage(systemName: name)
   }
 
