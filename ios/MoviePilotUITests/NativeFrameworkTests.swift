@@ -968,6 +968,15 @@ final class NativeFrameworkTests: XCTestCase {
       NSPredicate(format: "label BEGINSWITH %@", "演示剧集")
     ).firstMatch
     XCTAssertTrue(card.waitForExistence(timeout: 15))
+    let maintenance = app.buttons["native-bottom-action"]
+    XCTAssertTrue(maintenance.waitForExistence(timeout: 8))
+    attachScreen("交互-订阅动态按钮语义图标", app: app)
+    maintenance.tap()
+    XCTAssertTrue(app.buttons["更新订阅元数据"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["刷新订阅资源"].exists)
+    XCTAssertTrue(app.buttons["默认订阅规则"].exists)
+    attachScreen("交互-订阅维护菜单语义图标", app: app)
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.3)).tap()
     app.buttons["操作菜单"].tap()
     XCTAssertTrue(app.buttons["批量操作"].waitForExistence(timeout: 5))
     attachScreen("交互-订阅批量操作明确名称", app: app)
