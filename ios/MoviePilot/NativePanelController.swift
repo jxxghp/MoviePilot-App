@@ -48,30 +48,26 @@ final class NativeUserMenuAvatar {
   }
 }
 
-/// 用户菜单复用 UIKit 二级菜单；账号摘要、分组、勾选和危险动作均来自同一网页声明。
+/// 用户菜单复用 UIKit 二级菜单；账号摘要、顺序、勾选和危险动作均来自同一网页声明。
 @MainActor
 enum NativeUserMenu {
-  /// 打开时读取最新快照，普通项目和重启、注销继续分组显示，不复制业务回调。
-  static func elements(
-    _ snapshot: NativePanelSnapshot, avatar: UIImage?, onSelect: @escaping (String) -> Void
-  ) -> [UIMenuElement] {
-    var groups: [UIMenuElement] = []
-    if let profile = snapshot.profile {
-      let summary = UIAction(
-        title: profile.name,
-        image: avatar.map(roundAvatar) ?? UIImage(systemName: "person.crop.circle"),
-        identifier: UIAction.Identifier("native-user-summary")
-      ) { _ in onSelect("profile") }
-      summary.subtitle = profile.detail
-      groups.append(UIMenu(options: .displayInline, children: [summary]))
-    }
-    for section in snapshot.sections where !section.items.isEmpty {
-      groups.append(
-        UIMenu(
+  /// 身份摘要放入系统菜单头部，保留网页分组的原生分隔条，避免重复的账号行占用高度。
+  static func menu(
+    title: String, snapshot: NativePanelSnapshot, avatar: UIImage?, fallbackImage: UIImage?,
+    onSelect: @escaping (String) -> Void
+  ) -> UIMenu {
+    let menu = UIMenu(
+      title: title, image: avatar.map(roundAvatar) ?? fallbackImage,
+      children: snapshot.sections.compactMap { section in
+        guard !section.items.isEmpty else { return nil }
+        return UIMenu(
           title: section.title ?? "", options: .displayInline,
-          children: section.items.map { element($0, onSelect: onSelect) }))
+          children: section.items.map { element($0, onSelect: onSelect) })
+      })
+    if let profile = snapshot.profile {
+      menu.subtitle = [profile.name, profile.detail].compactMap { $0 }.joined(separator: " · ")
     }
-    return groups
+    return menu
   }
 
   /// 子选项保留原顺序与状态，只有当前网页声明的稳定项目 ID 能回传。

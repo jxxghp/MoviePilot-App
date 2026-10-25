@@ -798,8 +798,8 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     return item
   }
 
-  /// 用户与连接设置同为系统二级菜单，账号摘要及危险动作保留网页声明的原顺序和样式。
-  private func userSubmenu(_ action: ActionSnapshot) -> UIMenu {
+  /// 整个用户子菜单延迟到完整投影后再交给 UIKit，避免展开后仍沿用占位元素的高度。
+  private func userSubmenu(_ action: ActionSnapshot) -> UIMenuElement {
     let document = coordinator.navigationPreviewSession
     let image = action.panel?.profile?.image
     let context = "\(document ?? "")|\(action.ownerId)|\(image ?? "")"
@@ -811,7 +811,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
           store: coordinator.webView.configuration.websiteDataStore,
           origin: coordinator.instance.address.origin), reference: image)
     }
-    let content = UIDeferredMenuElement.uncached { [weak self] completion in
+    return UIDeferredMenuElement.uncached { [weak self] completion in
       guard let self, self.nativeVisible, let document,
         self.coordinator.navigationPreviewSession == document,
         let current = self.latest?.actions.first(where: {
@@ -824,7 +824,6 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       }
       self.requestUserMenu(current, document: document, completion: completion)
     }
-    return UIMenu(title: action.title, image: symbol(action.icon), children: [content])
   }
 
   /// 未打开的面板只有摘要，先通知原网页打开，再等它发送包含最新权限项目的快照。
@@ -868,17 +867,22 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     let document = request.document
     let action = request.action
     request.completion(
-      NativeUserMenu.elements(panel, avatar: userMenuAvatar?.image) { [weak self] id in
-        guard let self, self.coordinator.navigationPreviewSession == document,
-          let current = self.latest?.actions.first(where: {
-            $0.actionId == action.actionId && $0.ownerId == action.ownerId
-              && $0.enabled
-          })
-        else { return }
-        // 网页会在选择后释放本次面板；菜单关闭回调不能抢先撤销尚待执行的选择。
-        self.userMenuAction = nil
-        self.coordinator.invoke(current, panelEvent: "select", itemId: id)
-      })
+      [
+        NativeUserMenu.menu(
+          title: current.title, snapshot: panel, avatar: userMenuAvatar?.image,
+          fallbackImage: symbol(current.icon)
+        ) { [weak self] id in
+          guard let self, self.coordinator.navigationPreviewSession == document,
+            let current = self.latest?.actions.first(where: {
+              $0.actionId == action.actionId && $0.ownerId == action.ownerId
+                && $0.enabled
+            })
+          else { return }
+          // 网页会在选择后释放本次面板；菜单关闭回调不能抢先撤销尚待执行的选择。
+          self.userMenuAction = nil
+          self.coordinator.invoke(current, panelEvent: "select", itemId: id)
+        }
+      ])
   }
 
   /// 被动关闭、超时和会话释放都完成待处理回调，并归还网页原有面板状态。
