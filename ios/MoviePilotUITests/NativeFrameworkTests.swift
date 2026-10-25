@@ -12,6 +12,115 @@ private struct NetworkFixtures: Decodable {
 /// 使用显式配置的测试实例验收原生框架与原业务 HTML 的真实交接，不写入业务数据。
 @MainActor
 final class NativeFrameworkTests: XCTestCase {
+  /// 新容器在实际WKWebView中复用榜单，过期失败仍可重试，恢复前台不沿用旧快照。
+  func testNativeReadonlyListCache() async throws {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_READONLY_CACHE"] == "1",
+      let base = URL(string: "http://127.0.0.1:5245")
+    else { throw XCTSkip("需要独立本机只读缓存夹具。") }
+    continueAfterFailure = false
+    try await configureReadonlyCache(base, value: ["reset": true])
+    let app = launchConnection(server: base.absoluteString, captureScreens: false)
+    let authenticatedOrForm = XCTNSPredicateExpectation(
+      predicate: NSPredicate { _, _ in
+        app.textFields["用户名"].exists || app.tabBars["native-root-navigation"].exists
+      }, object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [authenticatedOrForm], timeout: 30), .completed)
+    if app.textFields["用户名"].exists { authenticateFixture(app, remember: false) }
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+    app.tabBars["native-root-navigation"].buttons["推荐"].tap()
+    var state = try await readonlyCacheState(
+      base, path: "/recommend", firstPages: 1, hasCards: true)
+    let ui = try XCTUnwrap(state["ui"] as? [String: Any])
+    XCTAssertEqual(ui["cacheVersion"] as? Int, 1)
+    XCTAssertEqual(ui["cacheNegotiated"] as? Bool, true)
+    let all = app.webViews.links["更多"].firstMatch
+    XCTAssertTrue(all.waitForExistence(timeout: 10), app.debugDescription)
+    all.tap()
+    state = try await readonlyCacheState(
+      base, path: "/browse/recommend/tmdb_trending", firstPages: 1, hasCards: true)
+    try await configureReadonlyCache(
+      base,
+      value: [
+        "mode": "offline", "navigate": "/browse/recommend/tmdb_trending?title=OfflineSnapshot",
+      ])
+    state = try await readonlyCacheState(
+      base, path: "title=OfflineSnapshot", firstPages: 1, hasCards: true)
+    try await configureReadonlyCache(
+      base,
+      value: [
+        "clockOffset": 61000, "navigate": "/browse/recommend/tmdb_trending?title=ExpiredSnapshot",
+      ])
+    let retry = app.webViews.buttons["重试"].firstMatch
+    XCTAssertTrue(retry.waitForExistence(timeout: 15), app.debugDescription)
+    state = try await readonlyCacheState(base, path: "title=ExpiredSnapshot", firstPages: 2)
+    try await configureReadonlyCache(base, value: ["mode": "healthy"])
+    retry.tap()
+    state = try await readonlyCacheState(
+      base, path: "title=ExpiredSnapshot", firstPages: 3, hasCards: true)
+    try await configureReadonlyCache(
+      base, value: ["navigate": "/browse/recommend/tmdb_trending?title=RecoveredSnapshot"])
+    state = try await readonlyCacheState(
+      base, path: "title=RecoveredSnapshot", firstPages: 3, hasCards: true)
+    XCUIDevice.shared.press(.home)
+    app.activate()
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 10))
+    try await configureReadonlyCache(
+      base, value: ["navigate": "/browse/recommend/tmdb_trending?title=ForegroundSnapshot"])
+    state = try await readonlyCacheState(
+      base, path: "title=ForegroundSnapshot", firstPages: 4, hasCards: true)
+    let requests = try XCTUnwrap(state["requests"] as? [[String: Any]])
+    for request in requests where request["page"] as? Int == 1 {
+      XCTAssertEqual(request["native"] as? String, "1")
+      XCTAssertEqual(request["cacheControl"] as? String, "no-store")
+    }
+    XCTAssertEqual(state["documents"] as? Int, 1)
+    app.tabBars["native-root-navigation"].buttons["更多"].tap()
+    XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists)
+    let attachment = XCTAttachment(
+      data: try JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]),
+      uniformTypeIdentifier: "public.json")
+    attachment.name = "原生只读缓存请求与生命周期"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+  }
+
+  /// 故障、时钟及唯一分页路由只发往白名单本机夹具，不存在产品调试入口。
+  private func configureReadonlyCache(_ base: URL, value: [String: Any]) async throws {
+    var request = URLRequest(url: base.appendingPathComponent("__fixture/config"))
+    request.httpMethod = "POST"
+    request.httpBody = try JSONSerialization.data(withJSONObject: value)
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+  }
+
+  /// 等待真实DOM和HTTP计数同时达到当前阶段，避免只根据导航标题判断缓存已命中。
+  private func readonlyCacheState(
+    _ base: URL, path: String, firstPages: Int, hasCards: Bool = false
+  ) async throws -> [String: Any] {
+    var last: [String: Any] = [:]
+    for _ in 0..<100 {
+      let (body, _) = try await URLSession.shared.data(
+        from: base.appendingPathComponent("__fixture/stats"))
+      if let value = try JSONSerialization.jsonObject(with: body) as? [String: Any],
+        let ui = value["ui"] as? [String: Any],
+        let requests = value["requests"] as? [[String: Any]]
+      {
+        last = value
+        if (ui["path"] as? String)?.contains(path) == true,
+          requests.filter({ $0["page"] as? Int == 1 }).count == firstPages,
+          !hasCards || (ui["cards"] as? Int ?? 0) > 0
+        {
+          return value
+        }
+      }
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    XCTFail("只读缓存未达到\(path)，实际阶段：\(last)")
+    return last
+  }
+
   /// 延迟初始化和令牌校验期间仅显示启动屏，成功恢复直接进入首页，过期后才出现登录。
   func testNativeStartupWaitsForAuthentication() async throws {
     guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_STARTUP"] == "1",
