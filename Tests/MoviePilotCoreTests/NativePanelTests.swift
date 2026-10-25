@@ -307,6 +307,7 @@ struct NativePanelTests {
       if valid {
         try value.validate()
         #expect(value.presentation?.sheet?.backdropReady == nil)
+        #expect(value.presentation?.sheet?.progress == nil)
         #expect(value.presentation?.sheet?.prefersMediumDetent == nil)
         var prepared = object
         var presentation = try #require(prepared["presentation"] as? [String: Any])
@@ -324,6 +325,39 @@ struct NativePanelTests {
         #expect(ready.presentation?.sheet?.fullscreen == false)
       } else {
         #expect(throws: BridgeError.invalidMessage) { try value.validate() }
+      }
+    }
+  }
+
+  /// 原生进度只能展示合法百分比与有界文本，不能声明关闭或业务按钮。
+  @Test func validatesNativeProgressState() throws {
+    let original = try snapshot(panel: ["title": "面板", "sections": []])
+    var object = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+    let invalid: [[String: Any]] = [
+      ["message": "处理中", "value": -1], ["message": "处理中", "value": 101],
+      ["message": ""], ["message": "异常\n文本"], ["message": String(repeating: "海", count: 200)],
+    ]
+    for progress in [
+      ["message": "处理中"], ["message": "识别文件", "value": 0], ["message": "识别文件", "value": 100],
+    ] + invalid {
+      let sheet: [String: Any] = [
+        "id": "progress-1", "title": "处理中", "fullscreen": false, "canDismiss": false,
+        "actions": [], "progress": progress,
+      ]
+      object["presentation"] = ["overlayOpen": true, "sheet": sheet]
+      let value = try JSONDecoder().decode(
+        NavigationSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+      if invalid.contains(where: { NSDictionary(dictionary: $0).isEqual(to: progress) }) {
+        #expect(throws: BridgeError.invalidMessage) { try value.validate() }
+      } else {
+        try value.validate()
+        var dismissible = sheet
+        dismissible["canDismiss"] = true
+        object["presentation"] = ["overlayOpen": true, "sheet": dismissible]
+        let unsafe = try JSONDecoder().decode(
+          NavigationSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(throws: BridgeError.invalidMessage) { try unsafe.validate() }
       }
     }
   }
