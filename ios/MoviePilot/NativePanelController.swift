@@ -849,9 +849,10 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
     var content = cell.defaultContentConfiguration()
     content.text = item.title
-    content.secondaryText = item.subtitle
+    content.secondaryText = item.body ?? item.subtitle
     content.textProperties.numberOfLines = 0
     content.secondaryTextProperties.numberOfLines = 0
+    content.secondaryTextProperties.lineBreakMode = .byWordWrapping
     content.image = item.icon.flatMap { NavigationSymbols.image($0) }
     content.imageProperties.maximumSize = CGSize(width: 24, height: 24)
     content.imageProperties.tintColor = item.destructive == true ? .systemRed : view.tintColor
@@ -868,7 +869,7 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
           let poster = await images.image(image)
           guard !Task.isCancelled, let cell else { return }
           var updated = cell.contentConfiguration as? UIListContentConfiguration
-          updated?.image = poster ?? UIImage(systemName: "photo")
+          updated?.image = poster.map(Self.portraitThumbnail) ?? UIImage(systemName: "photo")
           if poster != nil { updated?.imageProperties.tintColor = nil }
           cell.contentConfiguration = updated
           cell.accessibilityValue = poster == nil ? "海报暂不可用" : "含海报"
@@ -884,6 +885,18 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     cell.accessibilityIdentifier = "native-panel-item-\(item.id)"
     if item.selected == true { cell.accessibilityTraits.insert(.selected) }
     return cell
+  }
+
+  /// 与网页通知的 cover 一致，历史横图也居中裁切成固定竖版，不改变原始缓存图片。
+  private static func portraitThumbnail(_ image: UIImage) -> UIImage {
+    let size = CGSize(width: 56, height: 84)
+    guard image.size.width > 0, image.size.height > 0 else { return image }
+    let scale = max(size.width / image.size.width, size.height / image.size.height)
+    let rect = CGRect(
+      x: (size.width - image.size.width * scale) / 2,
+      y: (size.height - image.size.height * scale) / 2,
+      width: image.size.width * scale, height: image.size.height * scale)
+    return UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: rect) }
   }
 
   /// 等宽系统按钮按行排列，末行保留空位；动态字体和横屏变化会重新计算列数。
