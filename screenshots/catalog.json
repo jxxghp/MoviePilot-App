@@ -1318,5 +1318,20 @@
     "title": "仪表盘 · 浅色停用全局壁纸",
     "group": "页面",
     "file": "screens/264.png"
+  },
+  {
+    "title": "卡片 · 系统长按菜单与悬浮预览",
+    "group": "导航与弹窗",
+    "file": "screens/265.png"
+  },
+  {
+    "title": "卡片 · 辅助功能原生操作列表",
+    "group": "导航与弹窗",
+    "file": "screens/266.png"
+  },
+  {
+    "title": "卡片 · 插件原生二级菜单",
+    "group": "导航与弹窗",
+    "file": "screens/267.png"
   }
 ]

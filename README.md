@@ -2,7 +2,7 @@
 
 MoviePilot 的 iOS 客户端。使用系统原生导航、搜索和快捷面板，业务页面、弹窗内容和插件界面继续复用 MoviePilot-Frontend。
 
-iOS 26+ 支持系统 Liquid Glass；提供侧滑返回、原生弹窗及前后台恢复。[查看界面截图](screenshots/README.md)。
+iOS 26+ 支持系统 Liquid Glass；提供侧滑返回、卡片长按菜单、原生弹窗及前后台恢复。[查看界面截图](screenshots/README.md)。
 
 ## 下载与安装
 
