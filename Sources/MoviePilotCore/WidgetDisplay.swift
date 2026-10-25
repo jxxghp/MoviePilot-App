@@ -53,12 +53,22 @@ public struct WidgetDisplay: Sendable {
           } else if freshness == .expired {
             displayState = .expired
             note = "数据已过期，请打开 App 刷新"
+          } else if content == .overview
+            && !["cpu", "memory"].allSatisfy({ id in section.metrics.contains { $0.id == id } })
+          {
+            displayState = .unavailable
+            note = "请更新 MoviePilot 并刷新小组件"
           } else {
             displayState =
               freshness == .stale ? .stale : (section.state == .empty ? .empty : .ready)
             note = connectionFailed ? "暂时无法连接" : (freshness == .stale ? "数据待更新" : nil)
             date = section.updatedAt.map { Date(timeIntervalSince1970: $0) }
-            shownMetrics = section.metrics
+            shownMetrics =
+              content == .overview
+              ? section.metrics.filter {
+                ["cpu", "memory", "networkDownload", "networkUpload", "memoryUsed", "memoryTotal"]
+                  .contains($0.id)
+              } : section.metrics
             shownItems =
               showMediaNames
               ? section.items
@@ -107,9 +117,10 @@ extension WidgetContent {
   /// 配置项和视图只翻译有限内容枚举，不把业务路由或接口暴露为配置。
   public var title: String {
     switch self {
-    case .overview: "实例概览"
+    case .overview: "系统概览"
     case .downloads: "下载状态"
     case .imports: "近期入库"
+    case .subscriptions: "订阅"
     case .movieSubscriptions: "电影订阅"
     case .tvSubscriptions: "剧集订阅"
     case .musicSubscriptions: "音乐订阅"
@@ -119,9 +130,10 @@ extension WidgetContent {
   /// 使用系统符号表达当前内容，不依赖网页图标字体或外部图片。
   public var symbol: String {
     switch self {
-    case .overview: "chart.bar.xaxis"
+    case .overview: "cpu"
     case .downloads: "arrow.down.circle"
     case .imports: "tray.and.arrow.down"
+    case .subscriptions: "rectangle.stack"
     case .movieSubscriptions: "film"
     case .tvSubscriptions: "tv"
     case .musicSubscriptions: "music.note"
@@ -142,6 +154,8 @@ extension WidgetMetricIcon {
     case .storage: "internaldrive"
     case .items: "square.stack.3d.up"
     case .clock: "clock"
+    case .cpu: "cpu"
+    case .memory: "memorychip"
     }
   }
 }

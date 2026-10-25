@@ -12,6 +12,157 @@ private struct NetworkFixtures: Decodable {
 /// 使用显式配置的测试实例验收原生框架与原业务 HTML 的真实交接，不写入业务数据。
 @MainActor
 final class NativeFrameworkTests: XCTestCase {
+  /// 无实例历史的首屏与尚未登录的新实例直接使用预设玻璃底色，无需网页回传。
+  func testAccountDefaultAppearanceBeforeFirstLogin() async throws {
+    guard
+      ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_ACCOUNT_APPEARANCE"]
+        == "http://127.0.0.1:5234"
+    else { throw XCTSkip("需要独立本机账号外观夹具。") }
+    for (appearance, title) in [("light", "浅色"), ("dark", "深色")] {
+      try await setSystemAppearance(appearance)
+      let fresh = XCUIApplication()
+      // 参数域仅在此进程遮蔽历史；不提交连接，因此不会覆盖已保存的实例列表。
+      fresh.launchArguments = [
+        "-moviepilot.instance.selected.v1", "", "-moviepilot.instances.v1", "",
+        "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+      ]
+      fresh.launch()
+      let address = fresh.textFields["MoviePilot 服务地址"]
+      XCTAssertTrue(address.waitForExistence(timeout: 10))
+      XCTAssertEqual(address.value as? String, "https://moviepilot.example.com")
+      attachScreen("账号主题-首次使用\(title)连接", app: fresh)
+      fresh.terminate()
+      // 独立别名没有收到过网页主题，也不提交账号密码。
+      let app = try launchLogin(server: "http://localhost:5234")
+      XCTAssertFalse(app.webViews.firstMatch.exists)
+      attachScreen("账号主题-首次使用\(title)登录", app: app)
+      app.terminate()
+    }
+  }
+
+  /// 网页确认的手动明暗与系统偏好跨更改地址、原生登录及冷启动保持一致。
+  func testAccountThemeMatchesLastWebAppearance() async throws {
+    guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_ACCOUNT_APPEARANCE"],
+      server == "http://127.0.0.1:5234", let base = URL(string: server)
+    else { throw XCTSkip("需要独立本机账号外观夹具。") }
+    for (theme, system, title) in [
+      ("dark", "light", "手动深色"), ("light", "dark", "手动浅色"),
+      ("system", "dark", "跟随系统深色"),
+    ] {
+      try await setSystemAppearance(system)
+      var request = URLRequest(url: base.appendingPathComponent("__fixture/theme"))
+      request.httpMethod = "POST"
+      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      request.httpBody = try JSONSerialization.data(withJSONObject: ["theme": theme])
+      let (_, response) = try await URLSession.shared.data(for: request)
+      XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+      let app = try launchLogin(server: server)
+      app.buttons["使用网页登录"].tap()
+      XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 15))
+      attachScreen("账号主题-\(title)主界面", app: app)
+      app.buttons["操作菜单"].tap()
+      app.buttons["连接与显示"].tap()
+      app.buttons["更改服务地址"].tap()
+      let address = app.textFields["MoviePilot 服务地址"]
+      XCTAssertTrue(address.waitForExistence(timeout: 10))
+      attachScreen("账号主题-\(title)连接", app: app)
+      address.tap()
+      address.typeText("\n")
+      XCTAssertTrue(app.textFields["用户名"].waitForExistence(timeout: 10))
+      attachScreen("账号主题-\(title)登录", app: app)
+      relaunchSavedLoginInstance(app)
+      XCTAssertTrue(app.textFields["用户名"].waitForExistence(timeout: 15))
+      XCTAssertFalse(app.webViews.firstMatch.exists)
+      attachScreen("账号主题-\(title)冷启动登录", app: app)
+      if theme == "system" {
+        try await setSystemAppearance("light")
+        settlePage(app)
+        attachScreen("账号主题-跟随系统浅色登录", app: app)
+        app.buttons["更改地址"].tap()
+        XCTAssertTrue(address.waitForExistence(timeout: 10))
+        attachScreen("账号主题-跟随系统浅色连接", app: app)
+      }
+      app.terminate()
+    }
+  }
+
+  /// 旧网页登录偏好只恢复有效会话；再次需要认证时必须回到原生输入框。
+  func testExpiredWebLoginReturnsToNativeForm() async throws {
+    let server = try await prepareLoginRecoveryFixture()
+    let app = try launchLogin(server: server)
+    openLoginRecoveryWebPage(app)
+    attachScreen("登录-显式网页登录", app: app)
+    relaunchSavedLoginInstance(app)
+    XCTAssertTrue(app.navigationBars["登录"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.textFields["用户名"].exists)
+    XCTAssertTrue(app.secureTextFields["密码"].exists)
+    XCTAssertFalse(app.webViews.firstMatch.exists, "旧网页选择不能永久占用登录界面")
+    attachScreen("登录-失效网页会话回到原生", app: app)
+  }
+
+  /// 显式网页尝试提供返回原生入口，并清理该实例的旧网页选择。
+  func testExplicitWebLoginCanReturnToNativeForm() async throws {
+    let server = try await prepareLoginRecoveryFixture()
+    let app = try launchLogin(server: server)
+    openLoginRecoveryWebPage(app)
+    let back = app.navigationBars["网页登录"].buttons["原生登录"]
+    XCTAssertTrue(back.waitForExistence(timeout: 5))
+    back.tap()
+    XCTAssertTrue(app.navigationBars["登录"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.webViews.firstMatch.exists)
+    relaunchSavedLoginInstance(app)
+    XCTAssertTrue(app.navigationBars["登录"].waitForExistence(timeout: 15))
+    XCTAssertFalse(app.webViews.firstMatch.exists)
+  }
+
+  /// 有效网页会话仍可恢复，随后失效的同源通知才触发原生重新登录。
+  func testValidWebLoginSessionRestores() async throws {
+    let server = try await prepareLoginRecoveryFixture()
+    let app = try launchLogin(server: server)
+    openLoginRecoveryWebPage(app)
+    app.webViews.buttons["保存演示会话"].tap()
+    XCTAssertTrue(app.webViews.staticTexts["演示会话已登录"].waitForExistence(timeout: 10))
+    relaunchSavedLoginInstance(app)
+    XCTAssertTrue(app.webViews.staticTexts["演示会话已登录"].waitForExistence(timeout: 15))
+    XCTAssertFalse(app.navigationBars["登录"].exists)
+    app.webViews.buttons["模拟会话失效"].tap()
+    XCTAssertTrue(app.navigationBars["登录"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.webViews.firstMatch.exists)
+  }
+
+  /// 私有测试端点只准备合成认证状态，不读取或更改任何真实实例。
+  private func prepareLoginRecoveryFixture() async throws -> String {
+    guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_LOGIN_RECOVERY_SERVER"],
+      let base = URL(string: server), base.scheme == "http", base.host == "127.0.0.1"
+    else { throw XCTSkip("需要独立本机登录恢复夹具。") }
+    var request = URLRequest(url: base.appendingPathComponent("__fixture/session"))
+    request.httpMethod = "POST"
+    request.httpBody = Data("{\"authenticated\":false}".utf8)
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+    return server
+  }
+
+  /// 通过真实原生按钮进入 WebView，不直接写入应用的网页登录偏好。
+  private func openLoginRecoveryWebPage(_ app: XCUIApplication) {
+    let webLogin = app.buttons["使用网页登录"]
+    for _ in 0..<4 {
+      if webLogin.isHittable { break }
+      app.scrollViews.firstMatch.swipeUp()
+    }
+    XCTAssertTrue(webLogin.isHittable)
+    webLogin.tap()
+    XCTAssertTrue(app.webViews.staticTexts["网页登录演示"].waitForExistence(timeout: 15))
+  }
+
+  /// 移除测试首次连接的空选择参数，让冷启动真正读取已经保存的实例和偏好。
+  private func relaunchSavedLoginInstance(_ app: XCUIApplication) {
+    app.terminate()
+    app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+    app.launch()
+  }
+
   /// 真实共享区域与系统 Keychain 启用测试资料，普通 CI 不登记用户服务。
   func testWidgetEnableCurrentAccount() async throws {
     guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_WIDGETS"] == "1" else {
@@ -100,7 +251,7 @@ final class NativeFrameworkTests: XCTestCase {
   }
 
   /// 每次重新安装后独立添加组件，不假定上次 UI 验收的桌面或今天视图状态仍存在。
-  private func addDesktopWidget(onToday: Bool = false) throws {
+  private func addDesktopWidget(onToday: Bool = false, sizeIndex: Int = 2) throws {
     guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_WIDGETS"] == "1" else {
       throw XCTSkip("需要显式启用系统小组件验收。")
     }
@@ -162,6 +313,12 @@ final class NativeFrameworkTests: XCTestCase {
             thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.58)))
       }
     }
+    for _ in sizeIndex..<2 {
+      springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.58))
+        .press(
+          forDuration: 0.05,
+          thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.58)))
+    }
     addWidget.tap()
     let done = springboard.buttons.matching(NSPredicate(format: "label IN %@", ["完成", "Done"]))
       .firstMatch
@@ -182,7 +339,7 @@ final class NativeFrameworkTests: XCTestCase {
     XCUIDevice.shared.orientation = .portrait
     try addDesktopWidget()
     let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-    let widget = try configureDownloadWidget(in: springboard)
+    let widget = try configureWidget(in: springboard)
     attachScreen("Widget-扩展读取共享下载快照", app: springboard)
     widget.tap()
     confirmNotificationAppOpening()
@@ -199,7 +356,7 @@ final class NativeFrameworkTests: XCTestCase {
   func testWidgetSystemTodayConfiguration() throws {
     try addDesktopWidget(onToday: true)
     let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-    let widget = try configureDownloadWidget(in: springboard)
+    let widget = try configureWidget(in: springboard)
     revealWidget(widget, in: springboard)
     attachScreen("Widget-今天视图下载状态", app: springboard)
   }
@@ -219,8 +376,9 @@ final class NativeFrameworkTests: XCTestCase {
   }
 
   /// 系统编辑器显式选择资料及内容，不通过测试启动参数为组件自动指定账号。
-  private func configureDownloadWidget(
-    in springboard: XCUIApplication, expected: String = "2.4 MB/s"
+  private func configureWidget(
+    in springboard: XCUIApplication, expected: String = "2.4 MB/s", content: String = "下载状态",
+    target: XCUIElement? = nil, hideMediaNames: Bool = true
   )
     throws -> XCUIElement
   {
@@ -229,7 +387,9 @@ final class NativeFrameworkTests: XCTestCase {
     )
     XCTAssertTrue(widgets.firstMatch.waitForExistence(timeout: 15), springboard.debugDescription)
     let widget = try XCTUnwrap(
-      widgets.allElementsBoundByIndex.first(where: { $0.isHittable }), springboard.debugDescription)
+      target ?? widgets.allElementsBoundByIndex.first(where: { $0.isHittable }),
+      springboard.debugDescription)
+    let size = widget.frame.size
     widget.press(forDuration: 1.2)
     let edit = springboard.buttons.matching(
       NSPredicate(format: "label IN %@", ["编辑小组件", "Edit Widget"])
@@ -250,19 +410,96 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertTrue(service.waitForExistence(timeout: 15), springboard.debugDescription)
     attachScreen("Widget-选择已启用服务", app: springboard)
     service.tap()
-    springboard.buttons.matching(NSPredicate(format: "label IN %@", ["内容", "下载状态"]))
-      .firstMatch.tap()
-    let downloads = springboard.descendants(matching: .any).matching(identifier: "下载状态").firstMatch
+    springboard.buttons.matching(
+      NSPredicate(format: "label IN %@", ["内容", "下载状态", "订阅", "近期入库", "系统概览"])
+    )
+    .firstMatch.tap()
+    let downloads = springboard.descendants(matching: .any).matching(identifier: content).firstMatch
     XCTAssertTrue(downloads.waitForExistence(timeout: 15), springboard.debugDescription)
     downloads.tap()
     let names = springboard.switches["显示媒体名称"]
-    if names.value as? String == "1" { names.tap() }
-    XCTAssertEqual(names.value as? String, "0")
+    if hideMediaNames {
+      if names.value as? String == "1" { names.tap() }
+      XCTAssertEqual(names.value as? String, "0")
+    } else {
+      XCTAssertEqual(names.value as? String, "1", "新组件默认显示媒体名称")
+    }
     attachScreen("Widget-已选择服务与下载状态", app: springboard)
     springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
-    XCTAssertTrue(
-      widget.staticTexts[expected].waitForExistence(timeout: 40), springboard.debugDescription)
-    return widget
+    // 桌面在编辑完成后会重新排列图标，原 boundByIndex 不能继续代表刚才的组件。
+    let configured = widgets.containing(NSPredicate(format: "label ENDSWITH %@", expected))
+    let rendered = XCTNSPredicateExpectation(
+      predicate: NSPredicate { _, _ in
+        configured.allElementsBoundByIndex.contains {
+          $0.isHittable && abs($0.frame.width - size.width) < 8
+            && abs($0.frame.height - size.height) < 8
+        }
+      }, object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [rendered], timeout: 40), .completed)
+    return try XCTUnwrap(
+      configured.allElementsBoundByIndex.first {
+        $0.isHittable && abs($0.frame.width - size.width) < 8
+          && abs($0.frame.height - size.height) < 8
+      }, springboard.debugDescription)
+  }
+
+  /// 四类内容实际配置三种桌面尺寸，核验总数/统计与大卡片名称并保留系统截图。
+  func testWidgetRichContentSizes() async throws {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_WIDGETS"] == "1" else {
+      throw XCTSkip("需要显式启用系统小组件验收。")
+    }
+    continueAfterFailure = false
+    try await setWidgetFixtureScenario("ready")
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    let contents = [("下载状态", "2.4 MB/s"), ("订阅", "42"), ("近期入库", "3,428"), ("系统概览", "24.5%")]
+    for size in 0..<3 {
+      try addDesktopWidget(sizeIndex: size)
+      let widgets = springboard.icons.matching(
+        NSPredicate(format: "label == %@ AND value IN %@", "MoviePilot", ["小组件", "Widget"]))
+      var widget = try XCTUnwrap(
+        widgets.allElementsBoundByIndex.first { element in
+          guard element.isHittable else { return false }
+          if size == 0 { return element.frame.width < 240 && element.frame.height < 240 }
+          if size == 1 { return element.frame.width > 240 && element.frame.height < 240 }
+          return element.frame.height > 240
+        }, springboard.debugDescription)
+      for (content, expected) in contents {
+        widget = try configureWidget(
+          in: springboard, expected: expected, content: content, target: widget,
+          hideMediaNames: false)
+        revealWidget(widget, in: springboard)
+        if content == "系统概览" {
+          XCTAssertTrue(widget.staticTexts["62.8%"].exists, springboard.debugDescription)
+          XCTAssertFalse(widget.staticTexts["电影"].exists)
+        } else if size == 2 {
+          XCTAssertTrue(
+            widget.staticTexts["人生切割术"].waitForExistence(timeout: 15), springboard.debugDescription)
+        } else {
+          XCTAssertFalse(widget.staticTexts["人生切割术"].exists)
+        }
+        if size > 0 && content == "订阅" {
+          XCTAssertTrue(widget.staticTexts["28"].exists)
+          XCTAssertTrue(widget.staticTexts["12"].exists)
+        }
+        if size > 0 && content == "近期入库" {
+          XCTAssertTrue(widget.staticTexts["1,280"].exists)
+          XCTAssertTrue(widget.staticTexts["2,080"].exists)
+          XCTAssertTrue(widget.staticTexts["68"].exists)
+        }
+        attachScreen("Widget-丰富内容-\(content)-尺寸\(size + 1)", app: springboard)
+      }
+      widget.press(forDuration: 1.2)
+      let remove = springboard.buttons.matching(
+        NSPredicate(format: "label IN %@", ["移除小组件", "Remove Widget"])
+      ).firstMatch
+      XCTAssertTrue(remove.waitForExistence(timeout: 8), springboard.debugDescription)
+      remove.tap()
+      let confirm = springboard.alerts.buttons.matching(
+        NSPredicate(format: "label IN %@", ["移除", "Remove"])
+      ).firstMatch
+      XCTAssertTrue(confirm.waitForExistence(timeout: 8), springboard.debugDescription)
+      confirm.tap()
+    }
   }
 
   /// 各场景使用独立合成资料，经真实系统编辑与时间线验证空、旧及自然到期状态。
@@ -277,7 +514,7 @@ final class NativeFrameworkTests: XCTestCase {
       ("expiring", "数据已过期，请打开 App 刷新"), ("ready", "2.4 MB/s"),
     ] {
       try await setWidgetFixtureScenario(scenario)
-      let widget = try configureDownloadWidget(in: springboard, expected: expected)
+      let widget = try configureWidget(in: springboard, expected: expected)
       if scenario == "expiring" {
         XCTAssertFalse(widget.staticTexts["2.4 MB/s"].exists)
         XCTAssertFalse(widget.staticTexts["680 KB/s"].exists)
@@ -1143,6 +1380,27 @@ final class NativeFrameworkTests: XCTestCase {
       roots.buttons["更多"].tap()
       XCTAssertTrue(menu.waitForExistence(timeout: 10))
       attachScreen("交互-\(theme)更多菜单重新进入", app: app)
+    }
+  }
+
+  /// 受控目录经真实网页桥接显示，保留明暗模式下分组卡片与搜索框的实际截图。
+  func testMoreMenuNeutralSurfaces() async throws {
+    guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_MENU_FIXTURE"],
+      server == "http://127.0.0.1:5232"
+    else { throw XCTSkip("需要显式指定本机目录外观夹具。") }
+    let app = try launchLogin(server: server)
+    app.buttons["使用网页登录"].tap()
+    let menu = app.tables["more-menu"]
+    XCTAssertTrue(menu.waitForExistence(timeout: 15))
+    for (theme, appearance) in [("深色", "dark"), ("浅色", "light")] {
+      try await setSystemAppearance(appearance)
+      _ = revealMoreSearch(app)
+      settlePage(app)
+      XCTAssertTrue(menu.cells.containing(.staticText, identifier: "电影订阅").firstMatch.exists)
+      attachScreen("更多-\(theme)系统中性灰分组", app: app)
+      menu.swipeUp()
+      XCTAssertTrue(menu.cells.containing(.staticText, identifier: "媒体整理").firstMatch.exists)
+      attachScreen("更多-\(theme)系统中性灰滚动", app: app)
     }
   }
 

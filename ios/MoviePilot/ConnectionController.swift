@@ -22,6 +22,7 @@ final class ConnectionController: UIViewController, UITextFieldDelegate {
   /// 建立支持动态字体和键盘避让的简洁连接表单。
   override func viewDidLoad() {
     super.viewDidLoad()
+    let previous = instances.selected ?? instances.instances.last
     title = "连接 MoviePilot"
     let header = AccountAppearance.header(
       title: "连接你的服务", subtitle: "输入 MoviePilot 地址，开启熟悉的媒体管理体验。")
@@ -32,7 +33,7 @@ final class ConnectionController: UIViewController, UITextFieldDelegate {
     addressField.placeholder = "https://moviepilot.example.com"
     addressField.accessibilityLabel = "MoviePilot 服务地址"
     addressField.borderStyle = .none
-    addressField.backgroundColor = .secondarySystemGroupedBackground
+    addressField.backgroundColor = AccountAppearance.surface(for: previous?.id)
     addressField.layer.cornerRadius = 16
     addressField.layer.cornerCurve = .continuous
     addressField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 16, height: 48))
@@ -65,12 +66,12 @@ final class ConnectionController: UIViewController, UITextFieldDelegate {
     field.axis = .vertical
     field.spacing = 10
     let stack = UIStackView(arrangedSubviews: [header, field, errorLabel, connect, note])
-    AccountAppearance.install(stack, in: self)
+    AccountAppearance.install(stack, in: self, instance: previous?.id)
     NSLayoutConstraint.activate([
       addressField.heightAnchor.constraint(greaterThanOrEqualToConstant: 56),
       connect.heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
     ])
-    if let previous = instances.selected ?? instances.instances.last {
+    if let previous {
       addressField.text = previous.address.url.absoluteString
       _ = showCompatibilityError(previous.address)
     }

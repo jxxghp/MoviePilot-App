@@ -74,8 +74,8 @@ struct WidgetDisplayTests {
     #expect(value.link == nil && value.metrics.isEmpty)
   }
 
-  /// 锁屏默认投影移除媒体名称、副标题和时间，只留下已有的自然进度。
-  @Test func removesMediaNamesUntilExplicitlyEnabled() throws {
+  /// 用户关闭名称时移除名称、副标题和时间，开启时保留来源名称。
+  @Test func removesMediaNamesWhenExplicitlyDisabled() throws {
     let profile = try WidgetTestData.profile(now: now)
     var json = try #require(
       JSONSerialization.jsonObject(with: WidgetTestData.data(profile, at: now)) as? [String: Any])
@@ -97,6 +97,34 @@ struct WidgetDisplayTests {
     #expect(hidden.items.first?.subtitle == nil && hidden.items.first?.timestamp == nil)
     #expect(hidden.items.first?.progress == 0.4)
     #expect(visible.items.first?.title == "合成电影")
+  }
+
+  /// 升级前媒体库统计缓存不能冒充系统概览，新系统指标才可展示。
+  @Test func rejectsLegacyMediaCountsInSystemOverview() throws {
+    let profile = try WidgetTestData.profile(now: now)
+    var json = try #require(
+      JSONSerialization.jsonObject(with: WidgetTestData.data(profile, at: now)) as? [String: Any])
+    var section = try #require((json["sections"] as? [[String: Any]])?.first)
+    section["content"] = "overview"
+    section["items"] = []
+    section["metrics"] = [["id": "movies", "title": "电影", "value": "128", "icon": "movie"]]
+    json["availableContents"] = ["overview"]
+    json["sections"] = [section]
+    let old = try WidgetSnapshot.decode(
+      JSONSerialization.data(withJSONObject: json), owner: profile.owner, now: now)
+    let hidden = WidgetDisplay(
+      profile: profile, snapshot: old, content: .overview, showMediaNames: true, at: now)
+    #expect(hidden.state == .unavailable && hidden.metrics.isEmpty && hidden.updatedAt == nil)
+    section["metrics"] = [
+      ["id": "cpu", "title": "CPU 占用", "value": "24.5%", "icon": "cpu"],
+      ["id": "memory", "title": "内存占用", "value": "62.8%", "icon": "memory"],
+    ]
+    json["sections"] = [section]
+    let fresh = try WidgetSnapshot.decode(
+      JSONSerialization.data(withJSONObject: json), owner: profile.owner, now: now)
+    let visible = WidgetDisplay(
+      profile: profile, snapshot: fresh, content: .overview, showMediaNames: true, at: now)
+    #expect(visible.state == .ready && visible.metrics.map(\.id) == ["cpu", "memory"])
   }
 
   /// 时间线精确包含失效边界并去重排序，系统推迟联网也能及时隐藏本地数据。

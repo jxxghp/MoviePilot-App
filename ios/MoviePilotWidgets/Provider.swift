@@ -112,37 +112,56 @@ struct MoviePilotProvider: AppIntentTimelineProvider {
 
 /// 固定合成组件库内容，不能从真实 Keychain、实例或历史快照生成预览。
 enum WidgetSample {
-  /// 不同内容使用自己的合成指标，不把上传速度与空间套用到订阅或入库。
+  /// 组件库使用与后台相同的有限指标标识，预览不会读取真实服务。
   private static func metrics(content: WidgetContent) -> [[String: String]] {
-    if content == .downloads {
-      return [
-        ["id": "downloadSpeed", "title": "下载速度", "value": "2.4 MB/s", "icon": "download"],
-        ["id": "uploadSpeed", "title": "上传速度", "value": "680 KB/s", "icon": "upload"],
-        ["id": "freeSpace", "title": "剩余空间", "value": "2.8 TB", "icon": "storage"],
-        ["id": "count", "title": "数量", "value": "6", "icon": "items"],
+    let values: [(String, String, String, String)]
+    switch content {
+    case .downloads:
+      values = [
+        ("downloadSpeed", "下载速度", "2.4 MB/s", "download"),
+        ("uploadSpeed", "上传速度", "680 KB/s", "upload"),
+        ("freeSpace", "剩余空间", "2.8 TB", "storage"),
+        ("count", "数量", "6", "items"),
+        ("statedownloading", "下载中", "4", "download"), ("statepaused", "已暂停", "2", "clock"),
+      ]
+    case .overview:
+      values = [
+        ("cpu", "CPU 占用", "24.5%", "cpu"), ("memory", "内存占用", "62.8%", "memory"),
+        ("networkDownload", "网络接收", "2.4 MB/s", "download"),
+        ("networkUpload", "网络发送", "680 KB/s", "upload"),
+        ("memoryUsed", "已用内存", "10.0 GB", "memory"), ("memoryTotal", "总内存", "16.0 GB", "memory"),
+      ]
+    case .imports:
+      values = [
+        ("count", "数量", "3,428", "items"), ("typeMOVIE", "电影", "1,280", "movie"),
+        ("typeTV", "电视剧", "2,080", "television"), ("typeMUSIC", "音乐", "68", "music"),
+      ]
+    default:
+      values = [
+        ("count", "数量", "42", "items"), ("typeMOVIE", "电影", "12", "movie"),
+        ("typeTV", "电视剧", "24", "television"), ("typeMUSIC", "音乐", "6", "music"),
+        ("stateN", "未开始", "6", "clock"), ("stateR", "订阅中", "28", "download"),
+        ("stateS", "已暂停", "6", "clock"), ("stateP", "待定", "2", "clock"),
       ]
     }
-    if content == .overview {
-      return [
-        ["id": "movies", "title": "电影", "value": "128", "icon": "movie"],
-        ["id": "tv", "title": "电视剧", "value": "64", "icon": "television"],
-        ["id": "episodes", "title": "单集", "value": "936", "icon": "episodes"],
-        ["id": "music", "title": "音乐", "value": "210", "icon": "music"],
-        ["id": "used", "title": "已用空间", "value": "12 TB", "icon": "storage"],
-        ["id": "total", "title": "总空间", "value": "16 TB", "icon": "storage"],
-      ]
-    }
-    return [["id": "count", "title": "数量", "value": "128", "icon": "items"]]
+    return values.map { ["id": $0.0, "title": $0.1, "value": $0.2, "icon": $0.3] }
   }
 
-  /// 概览没有媒体行；只有下载样例含自然进度，其他内容保留对应的纯文字摘要。
+  /// 仅在大卡片展示示例名称和来源进度，概览没有媒体明细。
   private static func items(content: WidgetContent) -> [[String: Any]] {
     guard content != .overview else { return [] }
-    return (1...6).map { index in
-      var item: [String: Any] = [
-        "id": "sample-\(index)", "title": "示例媒体 \(index)", "subtitle": "仅用于组件预览",
-      ]
-      if content == .downloads { item["progress"] = Double(index) / 7 }
+    let titles = ["人生切割术", "地球脉动", "星际穿越", "蓝色星球", "流浪地球 2", "随机存取记忆"]
+    return titles.enumerated().map { index, title in
+      var item: [String: Any] = ["id": "sample-\(index)", "title": title]
+      if content == .downloads {
+        item["subtitle"] = index == 0 ? "S02E07 · 1.2 MB/s · 剩余 14 分钟" : "680 KB/s · 剩余 26 分钟"
+        item["progress"] = Double(index + 1) / 7
+      } else if content == .imports {
+        item["subtitle"] = index == 0 ? "2025 · 电视剧 · S02 · E07 · 今天 09:30" : "电影 · 今天 08:20"
+      } else {
+        item["subtitle"] = index < 2 ? "电视剧 · S02 · 7/10 集 · WEB-DL · 2160p" : "电影 · 2160p · 订阅中"
+        if index < 2 { item["progress"] = 0.7 }
+      }
       return item
     }
   }

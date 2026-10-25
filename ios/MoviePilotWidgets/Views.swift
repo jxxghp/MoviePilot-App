@@ -37,7 +37,7 @@ struct MoviePilotWidgetView: View {
 
   /// 高度不足时保留主指标和更新时间，避免大字体把必要信息推到容器外。
   private var home: some View {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: family == .systemMedium ? 4 : 8) {
       header
       if entry.display.metrics.isEmpty && entry.display.items.isEmpty {
         Spacer(minLength: 0)
@@ -46,61 +46,71 @@ struct MoviePilotWidgetView: View {
             horizontal: false, vertical: true)
         Spacer(minLength: 0)
       } else {
-        ViewThatFits(in: .vertical) {
-          VStack(alignment: .leading, spacing: 6) { details }
-          compactMetrics
-        }
+        details
         Spacer(minLength: 0)
       }
       footer
     }
   }
 
-  /// 概览用四项指标，其余内容展示主指标和有限媒体摘要，数量不从采样列表推算。
+  /// 小、中尺寸只展示统计；大尺寸按可用高度减少明细条数，不挤掉分类总数。
   @ViewBuilder private var details: some View {
-    if entry.content == .overview && family != .systemSmall {
-      LazyVGrid(
-        columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 12
-      ) {
-        ForEach(entry.display.metrics.prefix(family == .systemLarge ? 6 : 4), id: \.id) { metric in
-          metricView(metric)
-        }
+    if family == .systemSmall {
+      compactMetrics
+    } else if family == .systemLarge && entry.content != .overview && !entry.display.items.isEmpty {
+      ViewThatFits(in: .vertical) {
+        largeDetails(limit: 6)
+        largeDetails(limit: 4)
+        largeDetails(limit: 2)
+        statistics
+      }
+    } else if family == .systemMedium {
+      ViewThatFits(in: .vertical) {
+        statistics
+        compactMetrics
       }
     } else {
-      compactMetrics
-      if family == .systemSmall {
-        if !hasTransferMetrics {
-          HStack(spacing: 12) {
-            ForEach(entry.display.metrics.dropFirst().prefix(2), id: \.id) { metric in
-              VStack(alignment: .leading, spacing: 2) {
-                Text(metric.value).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(
-                  0.7)
-                Text(metric.title).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-              }
-            }
-          }
-        }
-      } else if !entry.display.items.isEmpty {
-        VStack(alignment: .leading, spacing: family == .systemLarge ? 8 : 6) {
-          ForEach(
-            entry.display.items.prefix(
-              family == .systemLarge ? 6 : (entry.content == .downloads ? 2 : 3)), id: \.id
-          ) { item in
-            if let url = entry.display.link {
-              Link(destination: url) { itemView(item) }.buttonStyle(.plain)
-            } else {
-              itemView(item)
-            }
-          }
-        }
-      } else if !hasTransferMetrics {
-        HStack(alignment: .top, spacing: 16) {
-          ForEach(entry.display.metrics.dropFirst().prefix(3), id: \.id) { metric in
-            metricView(metric)
+      statistics
+    }
+  }
+
+  /// 大卡片先显示全量统计，再显示服务提供的近期明细和自然进度。
+  private func largeDetails(limit: Int) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      statistics
+      Divider()
+      VStack(alignment: .leading, spacing: 6) {
+        ForEach(entry.display.items.prefix(limit), id: \.id) { item in
+          if let url = entry.display.link {
+            Link(destination: url) { itemView(item) }.buttonStyle(.plain)
+          } else {
+            itemView(item)
           }
         }
       }
-    }
+    }.fixedSize(horizontal: false, vertical: true)
+  }
+
+  /// 分类与状态使用独立格子，数量沿用后台全范围计数，不从六条明细重算。
+  private var statistics: some View {
+    let columns = entry.content == .subscriptions ? 4 : (entry.content == .downloads ? 3 : 2)
+    let metrics =
+      entry.content == .overview && family == .systemMedium
+      ? Array(entry.display.metrics.prefix(4)) : entry.display.metrics
+    // 有限指标直接排版，避免惰性网格在 ViewThatFits 中高估高度并退回总数。
+    return VStack(alignment: .leading, spacing: family == .systemLarge ? 12 : 6) {
+      ForEach(Array(stride(from: 0, to: metrics.count, by: columns)), id: \.self) { row in
+        HStack(alignment: .top, spacing: 8) {
+          ForEach(0..<columns, id: \.self) { column in
+            if metrics.indices.contains(row + column) {
+              metricView(metrics[row + column])
+            } else {
+              Color.clear.frame(maxWidth: .infinity)
+            }
+          }
+        }
+      }
+    }.fixedSize(horizontal: false, vertical: true)
   }
 
   /// 只识别明确的速度指标，不把旧服务的任务总数当作下载速度。
@@ -110,30 +120,40 @@ struct MoviePilotWidgetView: View {
       && entry.display.metrics.contains { $0.id == "uploadSpeed" }
   }
 
-  /// 小尺寸保证两种速度可读；其余尺寸追加实际下载目录剩余空间，缺失时不伪造零值。
+  /// 小尺寸保留双向速度或 CPU/内存；订阅和入库只显示总数。
   @ViewBuilder private var compactMetrics: some View {
-    if hasTransferMetrics {
+    if hasTransferMetrics || entry.content == .overview {
       let metrics = entry.display.metrics.filter {
-        $0.id == "downloadSpeed" || $0.id == "uploadSpeed"
-          || (family != .systemSmall && $0.id == "freeSpace")
+        entry.content == .overview
+          ? ["cpu", "memory"].contains($0.id)
+          : ["downloadSpeed", "uploadSpeed"].contains($0.id)
       }
-      if family == .systemSmall {
-        VStack(alignment: .leading, spacing: 8) {
-          ForEach(metrics, id: \.id) { metric in
+      VStack(alignment: .leading, spacing: 8) {
+        ForEach(metrics, id: \.id) { metric in
+          if entry.content == .overview {
+            metricView(metric)
+          } else {
             HStack(spacing: 5) {
               Image(systemName: metric.icon.symbol).foregroundStyle(.tint).widgetAccentable()
               Text(metric.value).font(.headline).monospacedDigit().lineLimit(1).minimumScaleFactor(
-                0.6)
+                0.7)
             }.accessibilityLabel("\(metric.title) \(metric.value)")
           }
-        }
-      } else {
-        HStack(alignment: .top, spacing: 8) {
-          ForEach(metrics, id: \.id) { metric in metricView(metric) }
         }
       }
     } else {
       primaryMetric
+    }
+  }
+
+  /// 总数标签按内容表达用途，不改变服务端计数或将未授权分类显示为零。
+  private func metricTitle(_ metric: WidgetMetric) -> String {
+    guard metric.id == "count" else { return metric.title }
+    switch entry.content {
+    case .imports: return "总入库"
+    case .subscriptions: return "总订阅"
+    case .downloads: return "下载任务"
+    default: return metric.title
     }
   }
 
@@ -147,7 +167,7 @@ struct MoviePilotWidgetView: View {
               .semibold)
           )
           .lineLimit(1).minimumScaleFactor(0.6).monospacedDigit()
-        Text(metric.title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        Text(metricTitle(metric)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
       }
     } else {
       Text(entry.display.title).font(.headline).lineLimit(1)
@@ -156,10 +176,12 @@ struct MoviePilotWidgetView: View {
 
   /// 辅助指标使用语义符号及二级标题，兼容系统深浅色和桌面着色。
   private func metricView(_ metric: WidgetMetric) -> some View {
-    VStack(alignment: .leading, spacing: 3) {
-      Label(metric.title, systemImage: metric.icon.symbol)
+    VStack(alignment: .leading, spacing: 2) {
+      Label(metricTitle(metric), systemImage: metric.icon.symbol)
         .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-      Text(metric.value).font(.headline).lineLimit(1).minimumScaleFactor(0.65).monospacedDigit()
+      Text(metric.value)
+        .font(family == .systemMedium ? .subheadline.weight(.semibold) : .headline)
+        .lineLimit(1).minimumScaleFactor(0.65).monospacedDigit()
     }
     .frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -175,9 +197,7 @@ struct MoviePilotWidgetView: View {
             .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
         }
       }
-      if family == .systemLarge, entry.content != .downloads, let subtitle = item.subtitle,
-        !subtitle.isEmpty
-      {
+      if let subtitle = item.subtitle, !subtitle.isEmpty {
         Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
       }
       if let progress = item.progress { ProgressView(value: progress).accessibilityLabel("进度") }

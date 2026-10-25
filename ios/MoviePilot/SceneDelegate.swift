@@ -100,10 +100,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       UserDefaults.standard.removeObject(forKey: "moviepilot.web-login.\(instance.id)")
       self?.connect(instance)
     }
-    window?.rootViewController = UINavigationController(rootViewController: controller)
+    window?.rootViewController = AccountAppearance.navigationController(
+      root: controller, instance: (instances.selected ?? instances.instances.last)?.id)
   }
 
-  /// 已选择的实例先进入原生登录；用户明确选择的特殊网页登录方式单独保留。
+  /// 恢复有效网页会话；旧网页登录选择不能让失效会话永久绕过原生登录。
   private func connect(_ instance: SavedInstance) {
     coordinator?.stop()
     coordinator = nil
@@ -112,7 +113,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       return
     }
     if UserDefaults.standard.bool(forKey: "moviepilot.web-login.\(instance.id)") {
-      openWeb(instance, authentication: nil, nativeAuthentication: false)
+      openWeb(instance, authentication: nil)
       return
     }
     showLogin(instance)
@@ -130,6 +131,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       },
       onAuthenticated: { [weak self] result, remember in
         guard let self else { return }
+        UserDefaults.standard.removeObject(forKey: "moviepilot.web-login.\(instance.id)")
         var storageFailed = false
         if remember {
           do { try self.tokens.save(result.session.accessToken, for: instance.id) } catch {
@@ -139,7 +141,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         } else {
           self.tokens.remove(instance.id)
         }
-        self.openWeb(instance, authentication: result, nativeAuthentication: true)
+        self.openWeb(instance, authentication: result)
         if storageFailed {
           let alert = UIAlertController(
             title: "已登录", message: "此设备未能安全保存登录状态，下次打开需要重新登录。", preferredStyle: .alert)
@@ -150,25 +152,34 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       onWebLogin: { [weak self] in
         self?.tokens.remove(instance.id)
         UserDefaults.standard.set(true, forKey: "moviepilot.web-login.\(instance.id)")
-        self?.openWeb(instance, authentication: nil, nativeAuthentication: false)
+        self?.openWeb(instance, authentication: nil, allowsWebLogin: true)
       },
       onConnection: { [weak self] in self?.showConnection() })
-    window?.rootViewController = UINavigationController(rootViewController: login)
+    window?.rootViewController = AccountAppearance.navigationController(
+      root: login, instance: instance.id)
   }
 
-  /// 认证结果仅注入精确实例的首次主文档，全部业务与导航仍在唯一 WebView 中运行。
+  /// 仅当前明确选择的网页尝试保留 HTML 登录；恢复到登录路由时重新交给原生表单。
   private func openWeb(
-    _ instance: SavedInstance, authentication: AuthenticationResult?, nativeAuthentication: Bool
+    _ instance: SavedInstance, authentication: AuthenticationResult?, allowsWebLogin: Bool = false
   ) {
     coordinator?.stop()
     let coordinator = WebCoordinator(
       instance: instance, authentication: authentication,
-      onAuthenticationRequired: nativeAuthentication
-        ? { [weak self] in
+      onAuthenticationRequired: allowsWebLogin
+        ? nil
+        : { [weak self] in
           self?.tokens.remove(instance.id)
           self?.showLogin(instance)
-        } : nil)
-    let shell = ShellController(coordinator: coordinator) { [weak self] in self?.showConnection() }
+        })
+    let shell = ShellController(
+      coordinator: coordinator,
+      onNativeLogin: allowsWebLogin
+        ? { [weak self] in
+          UserDefaults.standard.removeObject(forKey: "moviepilot.web-login.\(instance.id)")
+          self?.showLogin(instance)
+        } : nil,
+      onConnection: { [weak self] in self?.showConnection() })
     coordinator.shell = shell
     self.coordinator = coordinator
     NotificationService.shared.attach(coordinator)

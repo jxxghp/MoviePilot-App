@@ -1,12 +1,97 @@
+import MoviePilotCore
 import UIKit
 
-/// 连接与登录共享的品牌层级；正文使用系统语义颜色，材质交给当前 iOS。
+/// 连接与登录复用当前实例的玻璃主题；正文与导航材质仍使用系统语义。
 @MainActor
 enum AccountAppearance {
+  /// 只保存有界的外观值，不包含实例地址、账号或认证数据。
+  private struct Preferences: Codable, Equatable {
+    var theme: ChromeTheme = .system
+    var accent: String?
+    var lightBackground = "#F2F2F7"
+    var darkBackground = "#0B1322"
+    var lightSurface = "#FFFFFF"
+    var darkSurface = "#182235"
+  }
+
   static let accent = UIColor { traits in
     traits.userInterfaceStyle == .dark
       ? UIColor(red: 0.72, green: 0.57, blue: 1, alpha: 1)
       : UIColor(red: 0.47, green: 0.25, blue: 0.84, alpha: 1)
+  }
+
+  /// 已确认的网页主题按实例保存；跟随系统保留两套底色，避免冷启动锁定旧的明暗。
+  static func remember(_ chrome: ChromeSnapshot, for instance: UUID, traits: UITraitCollection) {
+    let previous = preferences(for: instance)
+    var value = previous
+    value.theme = chrome.theme
+    value.accent = NavigationSymbols.color(chrome.accentColor) == nil ? nil : chrome.accentColor
+    let dark =
+      chrome.theme == .dark
+      || (chrome.theme == .system && traits.userInterfaceStyle == .dark)
+    if let background = chrome.backgroundColor, NavigationSymbols.color(background) != nil {
+      if dark { value.darkBackground = background } else { value.lightBackground = background }
+    }
+    if let surface = chrome.surfaceColor, NavigationSymbols.color(surface) != nil {
+      if dark { value.darkSurface = surface } else { value.lightSurface = surface }
+    }
+    guard value != previous, let data = try? JSONEncoder().encode(value) else { return }
+    UserDefaults.standard.set(data, forKey: key(instance))
+  }
+
+  /// 忘记实例时同步移除其外观，其他实例的主题不受影响。
+  static func forget(_ instance: UUID) {
+    UserDefaults.standard.removeObject(forKey: key(instance))
+  }
+
+  /// 在首帧之前设置整个导航容器的明暗，表单、状态栏和导航按钮共同继承。
+  static func navigationController(
+    root: UIViewController, instance: UUID?
+  ) -> UINavigationController {
+    let value = preferences(for: instance)
+    let navigation = UINavigationController(rootViewController: root)
+    navigation.overrideUserInterfaceStyle =
+      value.theme == .dark ? .dark : (value.theme == .light ? .light : .unspecified)
+    navigation.view.backgroundColor = background(value)
+    navigation.view.tintColor = NavigationSymbols.color(value.accent) ?? accent
+    return navigation
+  }
+
+  /// 输入面板与网页的 surface 色一致，不把系统黑色卡片放在深蓝背景上。
+  static func surface(for instance: UUID?) -> UIColor {
+    let value = preferences(for: instance)
+    let light = NavigationSymbols.color(value.lightSurface) ?? .secondarySystemGroupedBackground
+    let dark = NavigationSymbols.color(value.darkSurface) ?? .secondarySystemGroupedBackground
+    return UIColor { traits in
+      traits.userInterfaceStyle == .dark ? dark : light
+    }
+  }
+
+  /// 表单强调色沿用网页最近选择，尚未连接时使用品牌动态色。
+  static func accent(for instance: UUID?) -> UIColor {
+    NavigationSymbols.color(preferences(for: instance).accent) ?? accent
+  }
+
+  /// 无历史外观时采用现有玻璃主题的明暗底色，之后使用网页实际投影的颜色。
+  private static func background(_ value: Preferences) -> UIColor {
+    let light = NavigationSymbols.color(value.lightBackground) ?? .systemGroupedBackground
+    let dark = NavigationSymbols.color(value.darkBackground) ?? .systemGroupedBackground
+    return UIColor { traits in
+      traits.userInterfaceStyle == .dark ? dark : light
+    }
+  }
+
+  /// 损坏或超长的展示偏好回到默认玻璃主题，不影响实例和认证恢复。
+  private static func preferences(for instance: UUID?) -> Preferences {
+    guard let instance, let data = UserDefaults.standard.data(forKey: key(instance)),
+      data.count <= 2048, let value = try? JSONDecoder().decode(Preferences.self, from: data)
+    else { return Preferences() }
+    return value
+  }
+
+  /// 外观仅以本地实例 UUID 隔离，用户输入和服务地址不进入键名。
+  private static func key(_ instance: UUID) -> String {
+    "moviepilot.appearance.\(instance.uuidString).v1"
   }
 
   /// 使用现有品牌图标与系统动态字体，横屏和大字体时由外层滚动布局承载。
@@ -73,10 +158,12 @@ enum AccountAppearance {
   }
 
   /// 表单限宽并跟随系统键盘收缩；滚动容器在旋转后仍保持当前输入可见。
-  static func install(_ stack: UIStackView, in controller: UIViewController) {
+  static func install(
+    _ stack: UIStackView, in controller: UIViewController, instance: UUID?
+  ) {
     let view = controller.view!
-    view.backgroundColor = .systemGroupedBackground
-    view.tintColor = accent
+    view.backgroundColor = background(preferences(for: instance))
+    view.tintColor = accent(for: instance)
     stack.axis = .vertical
     stack.spacing = 24
     stack.translatesAutoresizingMaskIntoConstraints = false

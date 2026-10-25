@@ -73,6 +73,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
 {
   private let coordinator: WebCoordinator
   private let onConnection: () -> Void
+  private let onNativeLogin: (() -> Void)?
   private let compatibilityHost = ContentHostController(rootId: nil)
   private lazy var compatibilityNavigation = UINavigationController(
     rootViewController: compatibilityHost)
@@ -123,9 +124,13 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   }
 
   /// 容器保存协调器；协调器以弱引用回调 UI，避免脚本与视图形成环。
-  init(coordinator: WebCoordinator, onConnection: @escaping () -> Void) {
+  init(
+    coordinator: WebCoordinator, onNativeLogin: (() -> Void)? = nil,
+    onConnection: @escaping () -> Void
+  ) {
     self.coordinator = coordinator
     self.onConnection = onConnection
+    self.onNativeLogin = onNativeLogin
     super.init(nibName: nil, bundle: nil)
     moreMenu.onSelect = { [weak self] item in self?.coordinator.openMenuItem(item) }
   }
@@ -349,8 +354,14 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     recoveryView?.removeFromSuperview()
     recoveryView = nil
     compatibilityHost.edgesForExtendedLayout = []
-    compatibilityHost.title = "MoviePilot"
-    compatibilityHost.navigationItem.leftBarButtonItems = nil
+    compatibilityHost.title = onNativeLogin == nil ? "MoviePilot" : "网页登录"
+    compatibilityHost.navigationItem.leftBarButtonItems = onNativeLogin.map { _ in
+      [
+        UIBarButtonItem(
+          title: "原生登录",
+          primaryAction: UIAction { [weak self] _ in self?.onNativeLogin?() })
+      ]
+    }
     compatibilityHost.navigationItem.rightBarButtonItems = [connectionItem()]
     compatibilityHost.navigationItem.titleView = nil
     compatibilityHost.navigationItem.searchController = nil
@@ -556,6 +567,8 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       snapshot.chrome.theme == .dark
       ? .dark : (snapshot.chrome.theme == .light ? .light : .unspecified)
     overrideUserInterfaceStyle = style
+    AccountAppearance.remember(
+      snapshot.chrome, for: coordinator.instance.id, traits: traitCollection)
     setNeedsStatusBarAppearanceUpdate()
     if let color = snapshot.chrome.accentColor,
       let value = UInt32(color.dropFirst(), radix: 16)
@@ -1456,8 +1469,6 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       snapshot.moreMenu ?? [],
       background: NavigationSymbols.color(snapshot.chrome.backgroundColor)
         ?? .systemGroupedBackground,
-      surface: NavigationSymbols.color(snapshot.chrome.surfaceColor)
-        ?? .secondarySystemGroupedBackground,
       accent: NavigationSymbols.color(snapshot.chrome.accentColor) ?? AccountAppearance.accent)
     if moreMenu.parent !== host {
       removeMoreMenu()
