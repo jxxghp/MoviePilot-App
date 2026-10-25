@@ -1032,9 +1032,17 @@ final class NativeFrameworkTests: XCTestCase {
     settlePage(app)
     attachScreen("交互-订阅编辑无空闲加载线", app: app)
     app.buttons["native-sheet-close"].tap()
-    app.webViews.buttons["更多"].firstMatch.tap()
-    XCTAssertTrue(app.webViews.staticTexts["文件统计"].waitForExistence(timeout: 8))
-    app.webViews.staticTexts["文件统计"].tap()
+    let cardMenu = app.webViews.descendants(matching: .any).matching(identifier: "更多").firstMatch
+    XCTAssertTrue(cardMenu.waitForExistence(timeout: 8))
+    cardMenu.tap()
+    attachScreen("交互-订阅卡片原菜单", app: app)
+    let statistics = app.webViews.staticTexts["文件统计"]
+    if statistics.waitForExistence(timeout: 2) {
+      statistics.tap()
+    } else {
+      // WebKit 返回同一 WebView 后偶尔不刷新传送菜单的无障碍树，按已核对的实际菜单行触控。
+      app.webViews.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.63, dy: 0.716)).tap()
+    }
     XCTAssertTrue(app.navigationBars["文件统计"].waitForExistence(timeout: 12))
     XCTAssertTrue(app.buttons["native-sheet-close"].exists)
     settlePage(app)
@@ -1117,7 +1125,7 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertFalse(app.webViews.staticTexts["文件详情"].exists)
     settlePage(app)
     attachScreen("交互-文件详情单层标题与系统关闭", app: app)
-    app.webViews.staticTexts["识别"].tap()
+    app.webViews.buttons["识别"].tap()
     let status = app.otherElements["native-progress-status"]
     XCTAssertTrue(status.waitForExistence(timeout: 8))
     XCTAssertFalse(app.buttons["native-sheet-close"].exists)
@@ -1127,6 +1135,7 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertTrue(
       app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "MoviePilot Demo"))
         .firstMatch.exists)
+    settlePage(app)
     attachScreen("交互-媒体识别结果原生标题与关闭", app: app)
     app.buttons["native-sheet-close"].tap()
     XCTAssertTrue(action.waitForExistence(timeout: 8))
