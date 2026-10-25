@@ -5,6 +5,34 @@ import Testing
 
 /// 系统面板只接受有界展示声明，兼容旧网页且拒绝恶意层级与重复标识。
 struct NativePanelTests {
+  /// 原生弹窗动作的可选图标向后兼容，不能用控制字符或无限文案污染导航栏。
+  @Test func validatesOptionalSheetActionIcons() throws {
+    let base = try snapshot(panel: ["title": "空菜单", "sections": []])
+    for icon in [nil, "mdi-history", "mdi-history\n", String(repeating: "a", count: 513)]
+      as [String?]
+    {
+      var object = try #require(
+        JSONSerialization.jsonObject(with: JSONEncoder().encode(base)) as? [String: Any])
+      var action: [String: Any] = ["id": "history", "title": "历史会话", "enabled": true]
+      action["icon"] = icon
+      object["presentation"] = [
+        "overlayOpen": true,
+        "sheet": [
+          "id": "agent", "title": "助手", "fullscreen": true, "canDismiss": true,
+          "actions": [action],
+        ],
+      ]
+      let value = try JSONDecoder().decode(
+        NavigationSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+      if icon == nil || icon == "mdi-history" {
+        try value.validate()
+        #expect(value.presentation?.sheet?.actions[0].icon == icon)
+      } else {
+        #expect(throws: BridgeError.invalidMessage) { try value.validate() }
+      }
+    }
+  }
+
   /// 正文只允许换行和有界纯文本；旧副标题仍采用原来的严格单行规则。
   @Test func validatesMultilineNotificationBody() throws {
     let body = "10 小时前\n站点：演示\n质量：WEB-DL 2160p\n大小：13.8 GB"

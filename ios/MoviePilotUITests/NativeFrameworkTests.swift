@@ -370,6 +370,43 @@ final class NativeFrameworkTests: XCTestCase {
     }
   }
 
+  /// 助手三个标题动作由原生菜单接管；历史子窗返回后保留父窗和原始 HTML 输入区。
+  func testNativeAgentSheetMenu() async throws {
+    try await setUIScenario("agent")
+    let app = try signIn()
+    let trigger = app.webViews.buttons.matching(
+      NSPredicate(format: "label == %@ OR label == %@", "奶龙", "智能助手")
+    ).firstMatch
+    XCTAssertTrue(trigger.waitForExistence(timeout: 15))
+    trigger.tap()
+    let menu = app.buttons["native-sheet-menu"]
+    XCTAssertTrue(menu.waitForExistence(timeout: 12))
+    XCTAssertFalse(app.webViews.buttons["历史会话"].firstMatch.isHittable)
+    XCTAssertFalse(app.webViews.buttons["新会话"].firstMatch.isHittable)
+    attachScreen("交互-Agent原生标题栏", app: app)
+    menu.tap()
+    for title in ["历史会话", "更换形象", "新会话"] {
+      XCTAssertTrue(app.buttons[title].waitForExistence(timeout: 5))
+    }
+    attachScreen("交互-Agent原生三点菜单", app: app)
+    app.buttons["历史会话"].tap()
+    XCTAssertTrue(app.navigationBars["历史会话"].waitForExistence(timeout: 8))
+    attachScreen("交互-Agent历史会话原生弹窗", app: app)
+    app.buttons["native-sheet-close"].tap()
+    XCTAssertTrue(menu.waitForExistence(timeout: 8))
+    menu.tap()
+    app.buttons["更换形象"].tap()
+    XCTAssertTrue(app.webViews.buttons["返回对话"].waitForExistence(timeout: 10))
+    attachScreen("交互-Agent原有形象选择", app: app)
+    app.webViews.buttons["返回对话"].tap()
+    menu.tap()
+    app.buttons["新会话"].tap()
+    XCTAssertTrue(app.webViews.staticTexts["今天想处理什么？"].waitForExistence(timeout: 8))
+    app.buttons["native-sheet-close"].tap()
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 8))
+    try await setUIScenario("default")
+  }
+
   /// 页面标题栏筛选也使用原生列表，选择继续更新已有 Vue 筛选条件。
   func testNativePageHeaderActions() throws {
     let app = try signIn()

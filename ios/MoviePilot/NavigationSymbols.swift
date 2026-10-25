@@ -23,6 +23,8 @@ enum NavigationSymbols {
     "mdi-sort-variant": "arrow.up.arrow.down", "tabler-sort-descending": "arrow.up.arrow.down",
     "notifications": "bell", "profile": "person.crop.circle",
     "mdi-account-outline": "person.crop.circle", "mdi-lock-check-outline": "lock.shield",
+    "mdi-account-convert-outline": "person.crop.circle",
+    "mdi-message-plus-outline": "square.and.pencil",
     "mdi-medal-outline": "medal", "mdi-information-outline": "info.circle",
     "mdi-help-circle-outline": "questionmark.circle", "mdi-translate": "globe",
     "mdi-restart": "arrow.clockwise.circle", "mdi-logout": "rectangle.portrait.and.arrow.right",

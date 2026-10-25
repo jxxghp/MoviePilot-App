@@ -97,13 +97,17 @@ final class NativeWebSheetController: UIViewController, UIAdaptivePresentationCo
     }
     if !snapshot.actions.isEmpty {
       let actions = snapshot.actions.map { action in
-        UIAction(title: action.title, attributes: action.enabled ? [] : .disabled) {
+        UIAction(
+          title: action.title, image: action.icon.flatMap { NavigationSymbols.image($0) },
+          attributes: action.enabled ? [] : .disabled
+        ) {
           [weak self] _ in self?.onCommand("presentation.action", action.id)
         }
       }
       let more = UIBarButtonItem(
         image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: actions))
       more.accessibilityLabel = "弹窗操作"
+      more.accessibilityIdentifier = "native-sheet-menu"
       navigationItem.leftBarButtonItem = more
     }
   }
