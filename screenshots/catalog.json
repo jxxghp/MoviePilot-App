@@ -798,5 +798,115 @@
     "title": "嵌套关闭子窗首帧-0",
     "group": "导航与弹窗",
     "file": "screens/160.png"
+  },
+  {
+    "title": "订阅维护菜单语义图标",
+    "group": "导航与弹窗",
+    "file": "screens/161.png"
+  },
+  {
+    "title": "订阅动态按钮语义图标",
+    "group": "导航与弹窗",
+    "file": "screens/162.png"
+  },
+  {
+    "title": "用户菜单分组与底部操作-2",
+    "group": "导航与弹窗",
+    "file": "screens/163.png"
+  },
+  {
+    "title": "用户二级菜单初始高度-2",
+    "group": "导航与弹窗",
+    "file": "screens/164.png"
+  },
+  {
+    "title": "用户菜单分组与底部操作-1",
+    "group": "导航与弹窗",
+    "file": "screens/165.png"
+  },
+  {
+    "title": "用户二级菜单初始高度-1",
+    "group": "导航与弹窗",
+    "file": "screens/166.png"
+  },
+  {
+    "title": "Agent原有形象选择",
+    "group": "导航与弹窗",
+    "file": "screens/167.png"
+  },
+  {
+    "title": "Agent历史会话原生弹窗",
+    "group": "导航与弹窗",
+    "file": "screens/168.png"
+  },
+  {
+    "title": "Agent原生三点菜单",
+    "group": "导航与弹窗",
+    "file": "screens/169.png"
+  },
+  {
+    "title": "Agent原生标题栏",
+    "group": "导航与弹窗",
+    "file": "screens/170.png"
+  },
+  {
+    "title": "媒体识别结果原生标题与关闭",
+    "group": "导航与弹窗",
+    "file": "screens/171.png"
+  },
+  {
+    "title": "原生处理中紧凑弹层",
+    "group": "导航与弹窗",
+    "file": "screens/172.png"
+  },
+  {
+    "title": "订阅文件统计原生标题",
+    "group": "导航与弹窗",
+    "file": "screens/173.png"
+  },
+  {
+    "title": "订阅卡片原菜单",
+    "group": "导航与弹窗",
+    "file": "screens/174.png"
+  },
+  {
+    "title": "网页桌面浅色已安装插件可读性",
+    "group": "网页兼容",
+    "file": "screens/175.png"
+  },
+  {
+    "title": "网页桌面浅色插件市场可读性",
+    "group": "网页兼容",
+    "file": "screens/176.png"
+  },
+  {
+    "title": "网页桌面浅色资源标签可读性",
+    "group": "网页兼容",
+    "file": "screens/177.png"
+  },
+  {
+    "title": "网页桌面通知海报与正文",
+    "group": "网页兼容",
+    "file": "screens/178.png"
+  },
+  {
+    "title": "网页手机浅色已安装插件可读性",
+    "group": "网页兼容",
+    "file": "screens/179.png"
+  },
+  {
+    "title": "网页手机浅色插件市场可读性",
+    "group": "网页兼容",
+    "file": "screens/180.png"
+  },
+  {
+    "title": "网页手机浅色资源标签可读性",
+    "group": "网页兼容",
+    "file": "screens/181.png"
+  },
+  {
+    "title": "网页手机通知海报与正文",
+    "group": "网页兼容",
+    "file": "screens/182.png"
   }
 ]

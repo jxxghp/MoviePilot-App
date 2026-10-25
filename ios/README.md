@@ -73,7 +73,7 @@ UI 测试位于 `ios/MoviePilotUITests`，通过私有运行配置提供 `MOVIEP
 ios/          UIKit / WKWebView App、资源与 UI 测试
 Sources/      可独立编译的 Swift 核心
 Tests/        核心边界测试
-integration/  MoviePilot-Frontend 容器适配源码补丁
+integration/  前端兼容说明与本地联调
 screenshots/  公开截图、索引和离线截图册
 scripts/      本地验证入口
 ```
