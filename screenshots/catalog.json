@@ -1278,5 +1278,15 @@
     "title": "原生连接恢复 · 无网页导航回退",
     "group": "连接与登录",
     "file": "screens/256.png"
+  },
+  {
+    "title": "Agent · 原生弹窗与底部输入 · 深色",
+    "group": "导航与弹窗",
+    "file": "screens/257.png"
+  },
+  {
+    "title": "Agent · 原生弹窗与底部输入 · 浅色",
+    "group": "导航与弹窗",
+    "file": "screens/258.png"
   }
 ]
