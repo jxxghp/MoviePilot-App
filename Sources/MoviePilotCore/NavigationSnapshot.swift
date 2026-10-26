@@ -132,6 +132,10 @@ public struct ActionMenuItem: Codable, Equatable, Sendable {
   public let title: String
   public let icon: String
   public let enabled: Bool
+  /// 可选勾选状态，旧前端省略时保持普通命令样式。
+  public let selected: Bool?
+  /// 相邻同组命令内联展示，组间使用系统分隔线。
+  public let group: String?
 }
 
 /// 容器界面的主题偏好。

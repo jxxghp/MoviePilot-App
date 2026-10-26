@@ -17,6 +17,44 @@ struct ChromeSessionTests {
     return try JSONDecoder().decode(NavigationSnapshot.self, from: Data(json.utf8))
   }
 
+  /// 排序菜单兼容旧声明，勾选与分组不能使禁用子项绕过当前文档的权限复核。
+  @Test func commandMenuSelectionPreservesActionValidation() throws {
+    let old = try JSONDecoder().decode(
+      ActionMenuItem.self,
+      from: Data(#"{"actionId":"old","title":"旧命令","icon":"refresh","enabled":true}"#.utf8))
+    #expect(old.selected == nil && old.group == nil)
+    var object =
+      try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot()))
+      as! [String: Any]
+    var actions = object["actions"] as! [[String: Any]]
+    actions[0]["menu"] = [
+      [
+        "actionId": "sort-asc", "title": "升序", "icon": "sort", "enabled": true,
+        "selected": true, "group": "direction",
+      ],
+      [
+        "actionId": "sort-size", "title": "大小", "icon": "sort", "enabled": false,
+        "selected": true, "group": "field",
+      ],
+    ]
+    object["actions"] = actions
+    let value = try JSONDecoder().decode(
+      NavigationSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+    #expect(value.actions[0].menu?[0].selected == true)
+    #expect(value.actions[0].menu?[1].group == "field")
+    var session = ChromeSession()
+    let id = try session.negotiate(majors: [1], capabilities: ChromeSession.requiredCapabilities)
+    try session.receive(value, routeRevision: 1, stateRevision: 1)
+    try session.prepare(layoutRevision: 1)
+    try session.accept(layoutRevision: 1)
+    try session.validateAction(
+      sessionId: id, routeRevision: 1, actionId: "sort-asc", ownerId: "page1")
+    #expect(throws: BridgeError.actionNotAvailable) {
+      try session.validateAction(
+        sessionId: id, routeRevision: 1, actionId: "sort-size", ownerId: "page1")
+    }
+  }
+
   /// 事务不能跳过快照或确认；退出必须等网页已恢复后再隐藏原生导航。
   @Test func takeoverAndReleaseAreTransactional() throws {
     var session = ChromeSession()

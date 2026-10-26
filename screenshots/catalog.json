@@ -585,6 +585,11 @@
     "file": "screens/106.png"
   },
   {
+    "group": "菜单与弹窗",
+    "title": "资源排序 · 当前页面二级菜单",
+    "file": "screens/285.png"
+  },
+  {
     "title": "下载状态 · 中组件",
     "group": "小组件",
     "file": "screens/273.png"

@@ -953,14 +953,27 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
 
   /// 纯命令菜单只传稳定动作标识，回调及权限复核留在网页。
   private func actionMenu(_ parent: ActionSnapshot, items: [ActionMenuItem]) -> UIMenu {
-    UIMenu(
-      children: items.map { item in
+    var groups: [[ActionMenuItem]] = []
+    for item in items {
+      if let last = groups.last, last.first?.group == item.group {
+        groups[groups.count - 1].append(item)
+      } else {
+        groups.append([item])
+      }
+    }
+    let children = groups.flatMap { group -> [UIMenuElement] in
+      let actions: [UIMenuElement] = group.map { item in
         UIAction(
-          title: item.title, image: symbol(item.icon), attributes: item.enabled ? [] : [.disabled]
+          title: item.title, image: symbol(item.icon), attributes: item.enabled ? [] : [.disabled],
+          state: item.selected == true ? .on : .off
         ) { [weak self] _ in
           self?.coordinator.invoke(parent, menuActionId: item.actionId)
         }
-      })
+      }
+      return group.first?.group == nil
+        ? actions : [UIMenu(options: .displayInline, children: actions)]
+    }
+    return UIMenu(children: children)
   }
 
   /// 显式图标映射只决定显示，未知插件图标采用通用符号与文字标签。
