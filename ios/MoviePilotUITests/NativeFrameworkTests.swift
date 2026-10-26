@@ -53,20 +53,29 @@ final class NativeFrameworkTests: XCTestCase {
   ) {
     XCUIDevice.shared.press(.home)
     let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-    var icon: XCUIElement?
-    // 组件验收可能停留在后面的主屏幕页；小组件里的微型图标不是真正的 App 图标。
-    for _ in 0..<8 {
-      icon = springboard.icons.matching(identifier: "MoviePilot").allElementsBoundByIndex.first {
-        $0.isHittable && $0.frame.width >= 44 && $0.frame.height >= 44
+    var iconFrame: CGRect?
+    // 组件与 App 同名；排除组件本体及其微型图标，再从主屏幕各页寻找实际 App。
+    for index in 0..<16 {
+      for icon in springboard.icons.matching(identifier: "MoviePilot").allElementsBoundByIndex {
+        let frame = icon.frame
+        if icon.isHittable && (44...140).contains(frame.width)
+          && (44...140).contains(frame.height)
+          && !["小组件", "Widget"].contains(icon.value as? String ?? "")
+        {
+          iconFrame = frame
+          break
+        }
       }
-      if icon != nil { break }
-      springboard.swipeRight()
+      if iconFrame != nil { break }
+      if index < 7 { springboard.swipeRight() } else { springboard.swipeLeft() }
     }
-    guard let icon else {
+    guard let iconFrame else {
       XCTFail(springboard.debugDescription)
       return
     }
-    icon.press(forDuration: 1.2)
+    // 关闭 App 后虚拟图标的 AX 索引可能重排，使用刚确认可见的实际图标位置。
+    springboard.coordinate(withNormalizedOffset: .zero)
+      .withOffset(CGVector(dx: iconFrame.midX, dy: iconFrame.midY)).press(forDuration: 1.2)
     for name in ["搜索", "通知中心", "插件面板"] {
       XCTAssertTrue(
         springboard.buttons[name].waitForExistence(timeout: 8), springboard.debugDescription)
