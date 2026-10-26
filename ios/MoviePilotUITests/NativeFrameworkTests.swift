@@ -3302,6 +3302,237 @@ final class NativeFrameworkTests: XCTestCase {
     else { throw XCTSkip("独立菜单需要本机 FileToolbar 合成夹具。") }
   }
 
+  /// 复杂筛选继续在系统 Sheet 中显示原 HTML，选择与全选清空仍刷新原资源结果。
+  func testNativeTorrentFilterHTMLSheets() async throws {
+    try requireTorrentFilterFixture()
+    continueAfterFailure = false
+    try await torrentFilterControl("reset")
+    let app = try launchCardMenuApp(server: "http://127.0.0.1:5250")
+    try await waitForTorrentCards(4)
+    try await torrentFilterPoint(app, title: "站点").tap()
+    let sheet = app.otherElements["native-web-sheet"]
+    XCTAssertTrue(sheet.waitForExistence(timeout: 8), app.debugDescription)
+    XCTAssertFalse(app.tables["nativeOperationMenu"].exists)
+    let dialog = app.webViews.otherElements.matching(
+      NSPredicate(format: "label CONTAINS %@", "网页对话框")
+    ).firstMatch
+    let siteA = dialog.staticTexts["合成站点 A"]
+    let siteB = dialog.staticTexts["合成站点 B"]
+    XCTAssertTrue(siteA.waitForExistence(timeout: 8), app.debugDescription)
+    siteA.tap()
+    try await waitForTorrentCards(2)
+    siteB.tap()
+    try await waitForTorrentCards(4)
+    let more = app.buttons["native-sheet-menu"]
+    XCTAssertTrue(more.waitForExistence(timeout: 8))
+    more.tap()
+    nativeUserItem("清除", app: app).tap()
+    try await waitForTorrentCards(4)
+    more.tap()
+    nativeUserItem("全选", app: app).tap()
+    try await waitForTorrentCards(4)
+    app.webViews.buttons["确定"].tap()
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 8))
+    try await torrentFilterPoint(app, title: "综合筛选").tap()
+    XCTAssertTrue(sheet.waitForExistence(timeout: 8))
+    XCTAssertFalse(app.tables["nativeOperationMenu"].exists)
+    XCTAssertTrue(app.webViews.staticTexts["分辨率"].waitForExistence(timeout: 8))
+    more.tap()
+    nativeUserItem("清除全部", app: app).tap()
+    try await waitForTorrentCards(4)
+    dialog.staticTexts["合成站点 A"].tap()
+    try await waitForTorrentCards(2)
+    dialog.staticTexts["S01"].tap()
+    try await waitForTorrentCards(1)
+    app.buttons["native-sheet-close"].tap()
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 8))
+    XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists)
+  }
+
+  /// 设置添加与个人资料认证沿用网页原顺序、状态和业务回调，不转换框架用户菜单。
+  func testNativeSettingsAndAccountSecurityMenus() async throws {
+    try requireTorrentFilterFixture()
+    continueAfterFailure = false
+    try await torrentFilterControl("reset")
+    let app = try launchCardMenuApp(server: "http://127.0.0.1:5250")
+    try await waitForTorrentCards(4)
+    let table = app.tables["nativeOperationMenu"]
+    for (route, title, items) in [
+      ("directory", "添加存储", ["本地", "合成云盘", "自定义"]),
+      ("system", "添加下载器", ["qBittorrent", "Transmission", "自定义"]),
+      ("system", "添加媒体服务器", ["Emby", "Jellyfin", "自定义"]),
+      ("notification", "添加通知渠道", ["Telegram", "Slack", "自定义"]),
+    ] {
+      try await torrentFilterControl("command", value: ["route": route])
+      try await torrentFilterPoint(app, title: title).tap()
+      XCTAssertTrue(table.waitForExistence(timeout: 8), title)
+      XCTAssertEqual(table.cells.count, items.count, title)
+      for item in items {
+        XCTAssertTrue(
+          table.cells.containing(.staticText, identifier: item).firstMatch.exists, title)
+      }
+      for (first, second) in zip(items, items.dropFirst()) {
+        XCTAssertLessThan(
+          table.cells.containing(.staticText, identifier: first).firstMatch.frame.minY,
+          table.cells.containing(.staticText, identifier: second).firstMatch.frame.minY)
+      }
+      assertStandaloneHeight(app)
+      app.buttons["native-operation-menu-close"].tap()
+      XCTAssertTrue(table.waitForNonExistence(timeout: 8))
+    }
+    try await torrentFilterControl("command", value: ["route": "profile"])
+    try await torrentFilterPoint(app, title: "账号安全").tap()
+    XCTAssertTrue(table.waitForExistence(timeout: 8))
+    XCTAssertEqual(table.cells.count, 2)
+    let otp = table.cells.containing(.staticText, identifier: "二次验证").firstMatch
+    let passkey = table.cells.containing(.staticText, identifier: "通行密钥管理").firstMatch
+    XCTAssertLessThan(otp.frame.minY, passkey.frame.minY)
+    XCTAssertEqual(otp.value as? String, "已启用")
+    XCTAssertTrue(otp.staticTexts["密码登录需二次验证"].exists)
+    otp.tap()
+    XCTAssertTrue(table.waitForNonExistence(timeout: 8))
+    XCTAssertTrue(app.buttons["native-sheet-close"].waitForExistence(timeout: 8))
+    var state = try await torrentFilterState()
+    XCTAssertEqual((state["page"] as? [String: Any])?["htmlMenus"] as? Int, 0)
+    app.buttons["native-sheet-close"].tap()
+    try await torrentFilterPoint(app, title: "账号安全").tap()
+    XCTAssertTrue(table.waitForExistence(timeout: 8))
+    passkey.tap()
+    XCTAssertTrue(table.waitForNonExistence(timeout: 8))
+    XCTAssertTrue(app.buttons["native-sheet-close"].waitForExistence(timeout: 8))
+    state = try await torrentFilterState()
+    XCTAssertEqual((state["page"] as? [String: Any])?["htmlMenus"] as? Int, 0)
+    XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists)
+  }
+
+  /// MediaCard 长按复用原搜索和季订阅，原按钮仍可操作，无菜单卡片也不选中文字。
+  func testNativeMediaCardSearchAndSubscribe() async throws {
+    try requireTorrentFilterFixture()
+    continueAfterFailure = false
+    try await torrentFilterControl("reset")
+    let app = try launchCardMenuApp(server: "http://127.0.0.1:5250")
+    try await waitForTorrentCards(4)
+    try await torrentFilterControl("command", value: ["route": "media"])
+    try await torrentFilterPoint(app, title: "媒体卡片").press(forDuration: 1)
+    let subscribe = app.buttons["订阅"]
+    let search = app.buttons["搜索"]
+    XCTAssertTrue(subscribe.waitForExistence(timeout: 8), app.debugDescription)
+    XCTAssertTrue(search.exists)
+    XCTAssertLessThan(search.frame.minY, subscribe.frame.minY)
+    var state = try await torrentFilterState()
+    var page = try XCTUnwrap(state["page"] as? [String: Any])
+    XCTAssertEqual(page["mediaReady"] as? Bool, true)
+    XCTAssertEqual(page["mediaSelect"] as? String, "none")
+    XCTAssertEqual(page["selection"] as? String, "")
+    XCTAssertEqual(page["htmlMenus"] as? Int, 0)
+    attachScreen("媒体卡片-原生搜索订阅长按菜单", app: app)
+    subscribe.tap()
+    XCTAssertTrue(app.navigationBars["请选择订阅季"].waitForExistence(timeout: 10))
+    app.buttons["native-sheet-close"].tap()
+    try await torrentFilterPoint(app, title: "媒体卡片").tap()
+    _ = try await torrentFilterPoint(app, title: "媒体搜索")
+    try await torrentFilterPoint(app, title: "媒体订阅").tap()
+    XCTAssertTrue(app.navigationBars["请选择订阅季"].waitForExistence(timeout: 10))
+    app.buttons["native-sheet-close"].tap()
+    try await torrentFilterPoint(app, title: "媒体卡片").press(forDuration: 1)
+    XCTAssertTrue(search.waitForExistence(timeout: 8))
+    search.tap()
+    try await waitForTorrentCards(4)
+    state = try await torrentFilterState()
+    page = try XCTUnwrap(state["page"] as? [String: Any])
+    // 原页面完成搜索后会主动清理 URL 查询，使用原业务保存的搜索身份核对回调。
+    XCTAssertEqual(page["searchMediaId"] as? String, "1001")
+    try await torrentFilterControl("command", value: ["route": "system"])
+    try await torrentFilterPoint(app, title: "无菜单卡片").press(forDuration: 1)
+    state = try await torrentFilterState()
+    page = try XCTUnwrap(state["page"] as? [String: Any])
+    XCTAssertEqual(page["noMenuSelect"] as? String, "none")
+    XCTAssertEqual(page["selection"] as? String, "")
+    XCTAssertFalse(app.buttons["复制"].exists)
+    XCTAssertFalse(app.tables["nativeOperationMenu"].exists)
+    XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists)
+  }
+
+  /// 小幅按方向滚动到目标，避免整屏快速滑动跳过相邻分类。
+  private func scrollOperationCell(_ cell: XCUIElement, in table: XCUIElement) {
+    for _ in 0..<12 {
+      if cell.isHittable { return }
+      let below = cell.frame.midY > table.frame.midY
+      let start = table.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: below ? 0.7 : 0.4))
+      let end = table.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: below ? 0.4 : 0.7))
+      start.press(forDuration: 0.05, thenDragTo: end)
+    }
+    XCTAssertTrue(cell.isHittable, table.debugDescription)
+  }
+
+  /// 新验收只访问固定本机数据，缺少显式环境变量时不连接任何业务实例。
+  private func requireTorrentFilterFixture() throws {
+    guard
+      ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_TORRENT_FILTER_SERVER"]
+        == "http://127.0.0.1:5250"
+    else { throw XCTSkip("资源筛选需要本机隔离夹具。") }
+  }
+
+  /// 通过有限命令切换真实业务路由，不从测试端直接调用网页菜单业务函数。
+  private func torrentFilterControl(_ path: String, value: [String: String] = [:]) async throws {
+    var request = URLRequest(url: URL(string: "http://127.0.0.1:5250/__filters/\(path)")!)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: value)
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+  }
+
+  /// 只读取合成页面的可见控件尺寸、结果数与菜单残留数。
+  private func torrentFilterState() async throws -> [String: Any] {
+    let (data, _) = try await URLSession.shared.data(
+      from: URL(string: "http://127.0.0.1:5250/__filters/state")!)
+    return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+  }
+
+  /// 等待原 Vue 筛选回调真实改变资源结果，避免只核对系统行勾选外观。
+  private func waitForTorrentCards(_ count: Int) async throws {
+    for _ in 0..<100 {
+      let state = try await torrentFilterState()
+      if let page = state["page"] as? [String: Any], page["active"] as? String == "active",
+        page["cards"] as? Int == count
+      {
+        return
+      }
+      try await Task.sleep(for: .milliseconds(150))
+    }
+    XCTFail("原页面筛选结果未变为 \(count) 项")
+    throw NSError(domain: "TorrentFilterFixture", code: 1)
+  }
+
+  /// 实际按钮不足一屏时滚动至当前量测位置，不按列表下标猜测可点击区域。
+  private func torrentFilterPoint(_ app: XCUIApplication, title: String) async throws
+    -> XCUICoordinate
+  {
+    for _ in 0..<100 {
+      let state = try await torrentFilterState()
+      if let page = state["page"] as? [String: Any], page["active"] as? String == "active",
+        let points = page["points"] as? [String: [String: Double]], let rect = points[title],
+        let x = rect["x"], let y = rect["y"], let width = rect["width"], let height = rect["height"]
+      {
+        let web = app.webViews.firstMatch
+        let top = app.navigationBars.firstMatch.frame.maxY - web.frame.minY + 4
+        let bottom = app.tabBars["native-root-navigation"].frame.minY - web.frame.minY - 4
+        if y < top {
+          web.swipeDown()
+        } else if y + height > bottom {
+          web.swipeUp()
+        } else {
+          return web.coordinate(withNormalizedOffset: .zero).withOffset(
+            .init(dx: x + width / 2, dy: y + height / 2))
+        }
+      }
+      try await Task.sleep(for: .milliseconds(150))
+    }
+    XCTFail("真实网页菜单入口不可达：\(title)")
+    throw NSError(domain: "TorrentFilterFixture", code: 2)
+  }
+
   /// 系统 sheet 自身而非内部表格必须遵守可用屏幕上限。
   private func assertStandaloneHeight(_ app: XCUIApplication) {
     let sheet = app.otherElements["native-operation-menu-sheet"]
