@@ -23,6 +23,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   let webView: WKWebView
   let content: WebContentController
   weak var shell: ShellController?
+  var onNavigationReady: (() -> Void)?
   private let relay: ScriptRelay
   private var session = ChromeSession()
   private var timeout: Timer?
@@ -184,6 +185,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 
   /// 切换实例时显式解绑脚本、计时器与通知，不让旧文档继续发送动作。
   func stop() {
+    onNavigationReady = nil
     cardMenusNegotiated = false
     standaloneMenusNegotiated = false
     cardMenus.stop()
@@ -338,6 +340,14 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       if let value { payload["value"] = .string(value) }
       command("action.invoke", payload: .object(payload))
     } catch { command("state.request", payload: .object(["reason": .string("stale_action")])) }
+  }
+
+  /// 桌面入口只在当前已认证文档、前台生命周期与原生接管均有效时打开。
+  func openHomeShortcut(_ shortcut: HomeShortcut) -> Bool {
+    guard lifecycle == "active", session.phase == .nativeNavigation,
+      let snapshot = session.snapshot, let action = shortcut.action(in: snapshot.actions)
+    else { return false }
+    return shell?.openHomeShortcut(action) == true
   }
 
   /// 更多菜单的入口在当前快照中再次匹配，网页还会执行现有权限与 Router 守卫。
@@ -654,6 +664,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
         refreshWidgetContext()
         WidgetService.shared.resumePending(with: self)
         NotificationService.shared.resumePending()
+        onNavigationReady?()
       }
     case "navigation.departing":
       guard session.phase == .nativeNavigation, lifecycle == "active",
@@ -674,6 +685,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       refreshNotificationContext()
       refreshWidgetContext()
       WidgetService.shared.resumePending(with: self)
+      onNavigationReady?()
     case "command.result":
       let result = try message.decodePayload(CommandResult.self)
       guard let timer = pendingCommands.removeValue(forKey: result.requestId) else { return }

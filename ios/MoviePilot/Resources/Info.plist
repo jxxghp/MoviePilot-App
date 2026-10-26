@@ -19,6 +19,23 @@
     <key>CFBundleURLSchemes</key><array><string>moviepilot</string></array>
   </dict></array>
   <key>MoviePilotWidgetsEnabled</key><true/>
+  <key>UIApplicationShortcutItems</key><array>
+    <dict>
+      <key>UIApplicationShortcutItemType</key><string>org.moviepilot.app.search</string>
+      <key>UIApplicationShortcutItemTitle</key><string>搜索</string>
+      <key>UIApplicationShortcutItemIconSymbolName</key><string>magnifyingglass</string>
+    </dict>
+    <dict>
+      <key>UIApplicationShortcutItemType</key><string>org.moviepilot.app.notifications</string>
+      <key>UIApplicationShortcutItemTitle</key><string>通知中心</string>
+      <key>UIApplicationShortcutItemIconSymbolName</key><string>bell</string>
+    </dict>
+    <dict>
+      <key>UIApplicationShortcutItemType</key><string>org.moviepilot.app.plugins</string>
+      <key>UIApplicationShortcutItemTitle</key><string>插件面板</string>
+      <key>UIApplicationShortcutItemIconSymbolName</key><string>puzzlepiece.extension</string>
+    </dict>
+  </array>
   <key>LSRequiresIPhoneOS</key><true/>
   <key>UILaunchStoryboardName</key><string>LaunchScreen</string>
   <key>UIApplicationSceneManifest</key><dict>

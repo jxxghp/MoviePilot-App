@@ -12,6 +12,79 @@ private struct NetworkFixtures: Decodable {
 /// 使用显式配置的测试实例验收原生框架与原业务 HTML 的真实交接，不写入业务数据。
 @MainActor
 final class NativeFrameworkTests: XCTestCase {
+  /// 真实主屏幕快捷菜单复用三个现有面板，重复选择和后台切换都不叠加弹层。
+  func testHomeScreenShortcuts() throws {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_HOME_SHORTCUTS"] == "1" else {
+      throw XCTSkip("需要显式启用真实主屏幕快捷操作验收。")
+    }
+    let app = try signIn(captureScreens: false, remember: false)
+    for (index, title) in ["搜索", "搜索", "通知中心", "插件面板"].enumerated() {
+      openHomeScreenShortcut(title, app: app, captureMenu: index == 0)
+      XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 15), app.debugDescription)
+      XCTAssertTrue(app.tables["native-quick-panel"].exists)
+      XCTAssertEqual(app.tables.matching(identifier: "native-quick-panel").count, 1)
+      XCTAssertFalse(app.otherElements["native-web-sheet"].exists)
+      if index != 1 { attachScreen("桌面快捷操作-\(title)", app: app) }
+    }
+    app.buttons["native-panel-close"].tap()
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 8))
+    app.terminate()
+    openHomeScreenShortcut("通知中心", app: app)
+    let username = app.textFields["用户名"]
+    XCTAssertTrue(username.waitForExistence(timeout: 20), "冷启动未保存身份时先显示原生登录")
+    XCTAssertFalse(app.tables["native-quick-panel"].exists)
+    let environment = ProcessInfo.processInfo.environment
+    app.switches["保持登录"].tap()
+    username.tap()
+    username.typeText(try XCTUnwrap(environment["MOVIEPILOT_E2E_USERNAME"]))
+    app.secureTextFields["密码"].tap()
+    app.secureTextFields["密码"].typeText(
+      try XCTUnwrap(environment["MOVIEPILOT_E2E_PASSWORD"]) + "\n")
+    XCTAssertTrue(app.navigationBars["通知中心"].waitForExistence(timeout: 45))
+    XCTAssertTrue(app.tables["native-quick-panel"].exists)
+    app.buttons["native-panel-close"].tap()
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 8))
+    XCTAssertFalse(app.tables["native-quick-panel"].exists, "已消费的冷启动意图不能重复打开")
+  }
+
+  /// 通过真实 SpringBoard 图标长按触发系统快捷项，不用启动参数冒充系统入口。
+  private func openHomeScreenShortcut(
+    _ title: String, app: XCUIApplication, captureMenu: Bool = false
+  ) {
+    XCUIDevice.shared.press(.home)
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    var iconFrame: CGRect?
+    // 组件与 App 同名；排除组件本体及其微型图标，再从主屏幕各页寻找实际 App。
+    for index in 0..<16 {
+      for icon in springboard.icons.matching(identifier: "MoviePilot").allElementsBoundByIndex {
+        let frame = icon.frame
+        if icon.isHittable && (44...140).contains(frame.width)
+          && (44...140).contains(frame.height)
+          && !["小组件", "Widget"].contains(icon.value as? String ?? "")
+        {
+          iconFrame = frame
+          break
+        }
+      }
+      if iconFrame != nil { break }
+      if index < 7 { springboard.swipeRight() } else { springboard.swipeLeft() }
+    }
+    guard let iconFrame else {
+      XCTFail(springboard.debugDescription)
+      return
+    }
+    // 关闭 App 后虚拟图标的 AX 索引可能重排，使用刚确认可见的实际图标位置。
+    springboard.coordinate(withNormalizedOffset: .zero)
+      .withOffset(CGVector(dx: iconFrame.midX, dy: iconFrame.midY)).press(forDuration: 1.2)
+    for name in ["搜索", "通知中心", "插件面板"] {
+      XCTAssertTrue(
+        springboard.buttons[name].waitForExistence(timeout: 8), springboard.debugDescription)
+    }
+    if captureMenu { attachScreen("桌面快捷操作-系统菜单", app: springboard) }
+    springboard.buttons[title].tap()
+    XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
+  }
+
   /// 资源排序直接在当前页面的系统子菜单执行；重复打开保留方向和字段的独立勾选。
   func testNativeResourceSortingMenu() throws {
     let app = try signIn(captureScreens: false)
@@ -3681,13 +3754,15 @@ final class NativeFrameworkTests: XCTestCase {
   }
 
   /// 公共登录前置只读取私有运行参数，截图不包含账号输入或密码。
-  private func signIn(captureScreens: Bool = true) throws -> XCUIApplication {
+  private func signIn(captureScreens: Bool = true, remember: Bool = true) throws -> XCUIApplication
+  {
     let environment = ProcessInfo.processInfo.environment
     guard let username = environment["MOVIEPILOT_E2E_USERNAME"],
       let password = environment["MOVIEPILOT_E2E_PASSWORD"],
       !username.isEmpty, !password.isEmpty
     else { throw XCTSkip("需要通过私有测试运行配置指定实例和账号。") }
     let app = try launchLogin(captureScreens: captureScreens)
+    if !remember { app.switches["保持登录"].tap() }
     let account = app.textFields["用户名"]
     account.tap()
     if captureScreens { attachScreen("框架-登录键盘", app: app) }
