@@ -927,16 +927,18 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     present(alert, animated: true)
   }
 
-  /// 底部大按钮独立使用系统玻璃，并将可量测的位置提供给原 HTML 菜单。
+  /// 菜单入口统一使用省略号，单一动作保留业务图标；位置仍提供给原 HTML 回调。
   private func bottomActionButton(_ action: ActionSnapshot) -> UIButton {
     var configuration: UIButton.Configuration = .tinted()
     if #available(iOS 26.0, *) { configuration = .glass() }
     configuration.cornerStyle = .capsule
     configuration.preferredSymbolConfigurationForImage = NavigationSymbols.bottomConfiguration
-    configuration.image = symbol(action.icon)
+    let hasMenu = !(action.menu?.isEmpty ?? true)
+    configuration.image = symbol(hasMenu ? "more" : action.icon)
     configuration.showsActivityIndicator = action.loading
     let button = UIButton(configuration: configuration)
     button.accessibilityLabel = action.title
+    button.accessibilityHint = hasMenu ? "显示操作菜单" : nil
     button.isEnabled = action.enabled && !action.loading
     button.addAction(
       UIAction { [weak self, weak button] _ in
