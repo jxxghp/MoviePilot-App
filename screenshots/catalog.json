@@ -590,6 +590,11 @@
     "file": "screens/285.png"
   },
   {
+    "group": "菜单与弹窗",
+    "title": "桌面图标 · 常用操作",
+    "file": "screens/286.png"
+  },
+  {
     "title": "下载状态 · 中组件",
     "group": "小组件",
     "file": "screens/273.png"

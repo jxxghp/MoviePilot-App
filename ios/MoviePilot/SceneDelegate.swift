@@ -10,6 +10,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
   private let tokens = TokenStore()
   private var coordinator: WebCoordinator?
   private var widgetLinkTask: Task<Void, Never>?
+  private var homeShortcut = PendingHomeShortcut()
 
   /// 创建窗口后恢复实例；没有配置时直接显示可操作的连接页。
   func scene(
@@ -19,6 +20,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     guard let scene = scene as? UIWindowScene else { return }
     let window = UIWindow(windowScene: scene)
     self.window = window
+    if let item = connectionOptions.shortcutItem { _ = receiveHomeShortcut(item) }
     if let instance = instances.selected { connect(instance) } else { showConnection() }
     window.makeKeyAndVisible()
     if let response = connectionOptions.notificationResponse,
@@ -27,6 +29,31 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       NotificationService.shared.receive(intent)
     }
     openIncomingURLs(connectionOptions.urlContexts)
+  }
+
+  /// 运行中的图标快捷项与冷启动共用白名单和待处理意图，不跳过当前认证。
+  func windowScene(
+    _ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem,
+    completionHandler: @escaping (Bool) -> Void
+  ) {
+    completionHandler(receiveHomeShortcut(shortcutItem))
+  }
+
+  /// 系统载荷只决定固定入口，实例来自用户当前选择，未知类型不能替换旧意图。
+  private func receiveHomeShortcut(_ item: UIApplicationShortcutItem) -> Bool {
+    guard let value = HomeShortcut(type: item.type) else { return false }
+    homeShortcut.receive(value, instanceID: instances.selected?.id.uuidString)
+    resumeHomeShortcut()
+    return true
+  }
+
+  /// 当前原生导航及面板已经可用才消费，成功一次后立即清空内存意图。
+  private func resumeHomeShortcut() {
+    guard let coordinator,
+      let shortcut = homeShortcut.resolve(for: coordinator.instance.id.uuidString),
+      coordinator.openHomeShortcut(shortcut)
+    else { return }
+    homeShortcut.clear()
   }
 
   /// 主屏幕通知网页的显式链接与系统通知使用相同账号和实例校验。
@@ -80,6 +107,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
   func sceneDidBecomeActive(_ scene: UIScene) {
     coordinator?.setLifecycle("active")
     if let coordinator { WidgetService.shared.resumePending(with: coordinator) }
+    resumeHomeShortcut()
   }
 
   /// 系统中断期间暂停本地协商超时，避免把后台暂停当成断链。
@@ -90,6 +118,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
   /// 断开旧会话后显示实例配置，旧脚本 handler 不得继续接收命令。
   private func showConnection() {
+    if instances.selected != nil { homeShortcut.clear() }
     widgetLinkTask?.cancel()
     widgetLinkTask = nil
     WidgetService.shared.cancelOpen()
@@ -166,6 +195,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       coordinator: coordinator,
       onConnection: { [weak self] in self?.showConnection() })
     coordinator.shell = shell
+    coordinator.onNavigationReady = { [weak self, weak coordinator] in
+      guard let self, self.coordinator === coordinator else { return }
+      self.resumeHomeShortcut()
+    }
     self.coordinator = coordinator
     NotificationService.shared.attach(coordinator)
     window?.rootViewController = shell
