@@ -3802,6 +3802,64 @@ final class NativeFrameworkTests: XCTestCase {
     return app
   }
 
+  /// 实际原生登录按服务开关显示入口，旧前端和限流均保留可恢复的原生表单。
+  func testNativePasskeyCapabilitiesAndFailures() async throws {
+    let server = try await preparePasskeyFixture(mode: "disabled")
+    var app = try launchLogin(server: server, captureScreens: false)
+    XCTAssertFalse(app.buttons["native-passkey-login"].exists)
+    _ = try await preparePasskeyFixture(mode: "legacy")
+    app = try launchLogin(server: server, captureScreens: false)
+    app.buttons["native-passkey-login"].tap()
+    XCTAssertTrue(app.staticTexts["请更新实例的前端资源后，再使用 App 通行密钥登录。"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.textFields["用户名"].isHittable)
+    _ = try await preparePasskeyFixture(mode: "throttled")
+    app = try launchLogin(server: server, captureScreens: false)
+    app.buttons["native-passkey-login"].tap()
+    XCTAssertTrue(app.staticTexts["登录尝试过于频繁，请在 4 秒后重试。"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["native-passkey-login"].isEnabled)
+    XCTAssertFalse(app.buttons["登录"].isEnabled)
+    let enabled = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "enabled == true"), object: app.buttons["native-passkey-login"]
+    )
+    XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 7), .completed)
+    _ = try await preparePasskeyFixture(mode: "rejected")
+    app.buttons["native-passkey-login"].tap()
+    XCTAssertTrue(app.staticTexts["未能完成通行密钥验证，请重新尝试。"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.textFields["用户名"].isHittable)
+    XCTAssertTrue(app.buttons["native-passkey-login"].isEnabled)
+  }
+
+  /// 系统认证窗口真实打开并取消，不用伪造成功回调代替系统验证。
+  func testNativePasskeySystemSessionCancellation() async throws {
+    let server = try await preparePasskeyFixture(mode: "healthy")
+    let app = try launchLogin(server: server, captureScreens: false)
+    let passkey = app.buttons["native-passkey-login"]
+    XCTAssertTrue(passkey.isHittable)
+    passkey.tap()
+    let cancel = app.buttons["取消"].firstMatch
+    XCTAssertTrue(cancel.waitForExistence(timeout: 15))
+    cancel.tap()
+    XCTAssertTrue(app.textFields["用户名"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.textFields["用户名"].isHittable)
+    XCTAssertTrue(passkey.isEnabled)
+    XCTAssertTrue(app.buttons["登录"].isEnabled)
+    XCTAssertFalse(app.staticTexts["未能完成通行密钥验证，请重新尝试。"].exists)
+  }
+
+  /// 独立本机认证夹具只提供开关和协议失败，不修改真实实例或登记生产凭据。
+  private func preparePasskeyFixture(mode: String) async throws -> String {
+    guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_PASSKEY_SERVER"],
+      server == "http://localhost:5246", let base = URL(string: server)
+    else { throw XCTSkip("需要独立本机通行密钥验收夹具。") }
+    var request = URLRequest(url: base.appendingPathComponent("__fixture/state"))
+    request.httpMethod = "POST"
+    request.httpBody = try JSONSerialization.data(withJSONObject: ["mode": mode])
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+    return server
+  }
+
   /// 从空白实例选择启动，连接后停在原生登录界面，不提交任何认证请求。
   private func launchLogin(server: String? = nil, captureScreens: Bool = true) throws
     -> XCUIApplication

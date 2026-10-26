@@ -16,6 +16,8 @@ final class LoginController: UIViewController, UITextFieldDelegate {
   private let remember = UISwitch()
   private let message = UILabel()
   private let login = UIButton()
+  private let passkey = UIButton()
+  private var passkeyAuthenticator: PasskeyAuthenticator?
   private var task: Task<Void, Never>?
   private var retryAt: Date?
   private var retryTimer: Timer?
@@ -108,6 +110,16 @@ final class LoginController: UIViewController, UITextFieldDelegate {
     login.configuration = AccountAppearance.primaryButton(title: "登录")
     login.accessibilityLabel = "登录"
     login.addAction(UIAction { [weak self] _ in self?.submit() }, for: .touchUpInside)
+    var passkeyStyle = UIButton.Configuration.tinted()
+    passkeyStyle.title = "使用通行密钥登录"
+    passkeyStyle.image = UIImage(systemName: "person.badge.key")
+    passkeyStyle.imagePadding = 8
+    passkeyStyle.baseForegroundColor = AccountAppearance.accent(for: instance.id)
+    passkeyStyle.cornerStyle = .large
+    passkey.configuration = passkeyStyle
+    passkey.accessibilityIdentifier = "native-passkey-login"
+    passkey.isHidden = true
+    passkey.addAction(UIAction { [weak self] _ in self?.submitPasskey() }, for: .touchUpInside)
     let note = UILabel()
     note.text = "账号信息仅发送到当前 MoviePilot 服务。"
     note.font = .preferredFont(forTextStyle: .footnote)
@@ -115,7 +127,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
     note.textColor = .secondaryLabel
     note.textAlignment = .center
     note.numberOfLines = 0
-    let form = UIStackView(arrangedSubviews: [fields, rememberRow, message, login])
+    let form = UIStackView(arrangedSubviews: [fields, rememberRow, message, login, passkey])
     form.axis = .vertical
     form.spacing = 16
     let stack = UIStackView(arrangedSubviews: [header, server, form, note])
@@ -125,6 +137,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
       password.heightAnchor.constraint(greaterThanOrEqualToConstant: 58),
       otp.heightAnchor.constraint(greaterThanOrEqualToConstant: 58),
       login.heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
+      passkey.heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
     ])
     showStartup()
     prepare()
@@ -164,10 +177,18 @@ final class LoginController: UIViewController, UITextFieldDelegate {
   /// 离开后取消所有请求并擦除密码，迟到响应不得打开另一个实例。
   override func viewDidDisappear(_ animated: Bool) {
     super.viewDidDisappear(animated)
+    // 系统认证窗口可能覆盖登录；只有实际移出当前根容器时才撤销这次认证。
+    if passkeyAuthenticator != nil, navigationController?.view.window != nil,
+      !isMovingFromParent, !isBeingDismissed, navigationController?.isBeingDismissed != true
+    {
+      return
+    }
     task?.cancel()
     task = nil
     retryTimer?.invalidate()
     client.cancel()
+    passkeyAuthenticator?.cancel()
+    passkeyAuthenticator = nil
     password.text = nil
     otp.text = nil
   }
@@ -215,6 +236,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
         if !restored && !Task.isCancelled { self.revealLogin() }
       }
       do {
+        async let enabled = try? self.client.passkeyEnabled()
         self.initialized = try await self.client.isInitialized()
         guard !Task.isCancelled else { return }
         guard self.initialized else {
@@ -234,6 +256,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
             return
           } catch AuthenticationError.credentials { self.onExpired() }
         }
+        self.passkey.isHidden = await enabled != true
         self.setMessage(nil)
       } catch { if !Task.isCancelled { self.show(error) } }
     }
@@ -273,24 +296,70 @@ final class LoginController: UIViewController, UITextFieldDelegate {
         self.otp.becomeFirstResponder()
         self.show(AuthenticationError.otpRequired)
       } catch AuthenticationError.throttled(let seconds) {
-        self.retryAt = Date().addingTimeInterval(Double(seconds))
-        self.show(AuthenticationError.throttled(seconds))
-        self.retryTimer?.invalidate()
-        self.retryTimer = Timer.scheduledTimer(withTimeInterval: Double(seconds), repeats: false) {
-          [weak self] _ in
-          MainActor.assumeIsolated {
-            self?.retryAt = nil
-            self?.setBusy(false)
-          }
-        }
+        self.throttle(seconds: seconds)
       } catch { if !Task.isCancelled { self.show(error) } }
     }
   }
 
+  /// 原生按钮只发起当前实例的一次事务，系统验证成功后直接交接现有登录会话。
+  private func submitPasskey() {
+    guard task == nil, !passkey.isHidden, retryAt.map({ $0 <= Date() }) ?? true,
+      let window = view.window
+    else { return }
+    let name = username.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    view.endEditing(true)
+    password.text = nil
+    otp.text = nil
+    setBusy(true, usingPasskey: true)
+    setMessage(nil)
+    task = Task { [weak self] in
+      guard let self else { return }
+      defer {
+        self.passkeyAuthenticator?.cancel()
+        self.passkeyAuthenticator = nil
+        self.setBusy(false)
+        self.task = nil
+      }
+      do {
+        var transaction = try await self.client.beginPasskey(username: name)
+        try Task.checkCancellation()
+        let authenticator = PasskeyAuthenticator(anchor: window)
+        self.passkeyAuthenticator = authenticator
+        let callback = try await authenticator.authenticate(url: transaction.authorizationURL)
+        try Task.checkCancellation()
+        let body = try transaction.finishBody(callback: callback, address: self.instance.address)
+        let result = try await self.client.finishPasskey(body: body)
+        try Task.checkCancellation()
+        self.passkeyAuthenticator = nil
+        self.onAuthenticated(result, self.remember.isOn)
+      } catch PasskeyFailure.canceled {
+        self.setMessage(nil)
+      } catch AuthenticationError.throttled(let seconds) {
+        self.throttle(seconds: seconds)
+      } catch { if !Task.isCancelled { self.show(error) } }
+    }
+  }
+
+  /// 密码和通行密钥共用后端限流时间，不自动重发或清除服务器的等待要求。
+  private func throttle(seconds: Int) {
+    retryAt = Date().addingTimeInterval(Double(seconds))
+    show(AuthenticationError.throttled(seconds))
+    retryTimer?.invalidate()
+    retryTimer = Timer.scheduledTimer(withTimeInterval: Double(seconds), repeats: false) {
+      [weak self] _ in
+      MainActor.assumeIsolated {
+        self?.retryAt = nil
+        self?.setBusy(false)
+      }
+    }
+  }
+
   /// 请求期间限制重复提交，系统加载状态与可访问状态保持一致。
-  private func setBusy(_ busy: Bool) {
-    login.configuration?.showsActivityIndicator = busy
+  private func setBusy(_ busy: Bool, usingPasskey: Bool = false) {
+    login.configuration?.showsActivityIndicator = busy && !usingPasskey
     login.isEnabled = !busy && (retryAt.map { $0 <= Date() } ?? true)
+    passkey.configuration?.showsActivityIndicator = busy && usingPasskey
+    passkey.isEnabled = login.isEnabled
     username.isEnabled = !busy
     password.isEnabled = !busy
     otp.isEnabled = !busy
@@ -301,6 +370,8 @@ final class LoginController: UIViewController, UITextFieldDelegate {
   private func show(_ error: Error) {
     let description: String?
     if let error = error as? AuthenticationError {
+      description = error.errorDescription
+    } else if let error = error as? PasskeyFailure {
       description = error.errorDescription
     } else {
       description = ConnectionFailure(error).errorDescription
