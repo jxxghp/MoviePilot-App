@@ -1,25 +1,17 @@
-MoviePilot iOS 1.0.1，同版本更新；支持 iOS 17+，iOS 26+ 使用系统 Liquid Glass。
+MoviePilot iOS 1.0.2，汇总近期导航、登录与弹窗修复。支持 iOS 17+，iOS 26+ 使用系统 Liquid Glass。
 
-### 本次更新
+### 更新内容
 
-- 底部导航采用系统实际推荐高度，修复 iOS 26 下的拉伸与独立操作按钮错位，并同步横屏安全区。
-- 插件搜索使用共享前端的独立标题、紧凑搜索框和结果滚动区，修复窄屏、横屏与键盘下的安全边距。
-- 文件工具栏、排序、添加服务等独立菜单使用 iOS 原生列表，按内容自适应高度、最高三分之二屏；支持系统大字体、子菜单、状态与原操作，修复横屏安全区同步。
-- 内置卡片支持 iOS 长按菜单与当前卡片悬浮预览，隐藏原菜单三点按钮；保留原操作顺序、图标、分隔和插件二级菜单，并提供辅助功能操作列表。需要同时更新兼容的 3.2.0 前端。
-- 内置推荐榜单支持短时内存缓存，推荐页与分页列表共享已读内容；过期可重试，后台、退出和权限变化时清理。系统静态资源缓存继续加速冷启动。
-- 丰富系统小组件：概览显示 CPU、内存和网络；下载显示双向速度、剩余空间与任务状态。订阅合并电影、电视剧和音乐，入库按类型统计；大尺寸增加真实名称及明细，名称默认显示。
-- 中、小组件保留统计，大组件按空间显示列表和进度；锁屏维持紧凑排版。每个组件可选择服务与内容，点击进入对应原页面。
-- 登录会话失效后回到原生表单；连接与登录沿用实例主题，“更多”分组填充调整为接近搜索框的灰色。
-- 修复媒体详情“在线播放”无法打开外部播放器，以及日志、种子下载误触发主界面恢复页；文件下载使用系统分享面板，保留原页面。
-- 智能助手支持系统附件选择、音频播放和麦克风录音；关闭面板或进入后台及时释放录音。冷启动先展示启动屏，验证会话后再进入登录或首页。
-- 配合 MoviePilot-Frontend **3.2.0**，仅在深色主题使用低亮度壁纸，保存配置立即生效；减轻网页导航阴影，并在后台重启后检查会话、恢复连接或返回原生登录。
+- 顶栏保留系统滚动边缘效果，移除下沿形成横向亮带的额外模糊层。
+- 包含 iOS 26 底部导航布局、后台恢复、插件搜索与卸载等近期修复。
+- 通行密钥登录复用系统认证。配合最新前端，登录图标置顶，避免被系统凭证面板遮挡。
 
 ### 安装
 
-下载 `MoviePilot-1.0.1-unsigned.ipa`，通过 SideStore、AltStore Classic 或 Sideloadly，使用自己的 Apple 账户重签后覆盖安装。免费签名通常 7 天有效；免费自签的消息通知使用主屏幕 Web Push，默认中心为 `https://movie-pilot.org`。
+下载 `MoviePilot-1.0.2-unsigned.ipa`，使用自己的 Apple 账户通过 SideStore、AltStore Classic 或 Sideloadly 重签后覆盖安装。小组件需要同时重签扩展并保留共享组。免费签名通常 7 天有效。
 
-使用小组件时，请保留并同时重签 `MoviePilotWidgets` 扩展与共享组。
+建议同步更新至 MoviePilot-Frontend **3.2.1** 或更新的兼容前端，前端页面修复在实例资源同步后生效。
 
-[安装与续签](https://github.com/jxxghp/MoviePilot-App/blob/main/guides/install.md) · [小组件](https://github.com/jxxghp/MoviePilot-App/blob/main/guides/widgets.md) · [通知配置](https://github.com/jxxghp/MoviePilot-App/blob/main/guides/notifications.md) · [界面截图](https://github.com/jxxghp/MoviePilot-App/blob/main/screenshots/README.md)
+[安装与续签](https://github.com/jxxghp/MoviePilot-App/blob/main/guides/install.md) · [小组件](https://github.com/jxxghp/MoviePilot-App/blob/main/guides/widgets.md) · [通知配置](https://github.com/jxxghp/MoviePilot-App/blob/main/guides/notifications.md)
 
-同时下载 `SHA256SUMS`，在下载目录运行 `shasum -a 256 -c SHA256SUMS` 校验。本包由 GitHub Actions 构建并校验版本、真机平台与 arm64 架构；iPhone 的完整系统集成验收仍在进行。
+Release 同时提供 `SHA256SUMS`。本包使用 iPhoneOS SDK 和 arm64 架构构建；iPhone 完整系统集成验收仍在进行。
