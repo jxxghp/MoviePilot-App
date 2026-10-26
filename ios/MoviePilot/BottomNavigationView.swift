@@ -5,7 +5,6 @@ import UIKit
 @MainActor
 final class BottomNavigationView: UIView, UITabBarDelegate {
   static let height: CGFloat = 64
-  static let bottomSpacing: CGFloat = 8
   private let tabBar = UITabBar()
   private let group = UIView()
   private let navigationHost = UIView()
@@ -14,6 +13,7 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
   private var selectedRoot: String?
   private var onSelect: ((String) -> Void)?
   private var actionWidth: NSLayoutConstraint!
+  private var actionHeight: NSLayoutConstraint!
   private var actionSpacing: NSLayoutConstraint!
   private var navigationWidth: NSLayoutConstraint!
 
@@ -34,6 +34,7 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
     group.addSubview(actionHost)
     navigationWidth = navigationHost.widthAnchor.constraint(equalToConstant: 294)
     actionWidth = actionHost.widthAnchor.constraint(equalToConstant: Self.height)
+    actionHeight = actionHost.heightAnchor.constraint(equalToConstant: Self.height)
     actionSpacing = navigationHost.trailingAnchor.constraint(
       equalTo: actionHost.leadingAnchor, constant: -12)
     // 浮动 Tab Bar 自带水平透明留白；允许其在宿主两侧延伸，避免与框架边距重复挤压入口。
@@ -52,9 +53,9 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
       navigationWidth,
       actionSpacing,
       actionHost.trailingAnchor.constraint(equalTo: group.trailingAnchor),
-      // Tab Bar 包含系统底部区域，动态按钮与整个栏的垂直中心对齐，避免比主入口高一层。
-      actionHost.centerYAnchor.constraint(equalTo: tabBar.centerYAnchor),
-      actionHost.heightAnchor.constraint(equalToConstant: Self.height),
+      // 原生栏的总高度包含底部留白；独立动作对齐上方导航内容，不对齐整个栏的中心。
+      actionHost.topAnchor.constraint(equalTo: tabBar.topAnchor),
+      actionHeight,
       actionWidth,
     ])
   }
@@ -62,8 +63,23 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
   /// 底栏由当前实例会话创建，不支持 storyboard 恢复。
   required init?(coder: NSCoder) { fatalError("Use init()") }
 
+  /// 总高度采用 UIKit 的实际量测，避免把按钮高度与 Home Indicator 区域重复计入。
+  override var intrinsicContentSize: CGSize {
+    let measured = tabBar.sizeThatFits(
+      CGSize(width: max(0, bounds.width), height: CGFloat.greatestFiniteMagnitude)
+    ).height
+    return CGSize(width: UIView.noIntrinsicMetric, height: measured)
+  }
+
+  /// 入窗或旋转会改变系统栏的安全区和推荐高度，重新交给 Auto Layout 量测。
+  override func safeAreaInsetsDidChange() {
+    super.safeAreaInsetsDidChange()
+    invalidateIntrinsicContentSize()
+  }
+
   /// 总是按“有动态动作”的可用宽度计算一次按钮间距；隐藏动作不能触发主入口重新分配。
   override func layoutSubviews() {
+    actionHeight.constant = min(Self.height, intrinsicContentSize.height)
     let count = CGFloat(max(1, rootIds.count))
     let maximum = max(0, bounds.width - Self.height - 12)
     let width = min(maximum, count * 72 + 8)
