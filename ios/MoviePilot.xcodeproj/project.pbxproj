@@ -10,6 +10,7 @@
 		0B79AFE6E3E507A780FAEDAB /* LoginController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8072C0F89DB70887DB4A4AEC /* LoginController.swift */; };
 		1239E3EF7CE49B9F5D5C757C /* WidgetService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA1934688E4D109E194DB96 /* WidgetService.swift */; };
 		1A0A64BFB15E9E666C46208E /* AuthenticationClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ED77660949143CE0F66ABB7 /* AuthenticationClient.swift */; };
+		23BBAF0215F3751EC4AAD19E /* PasskeyAuthenticator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C29904E9FE025E2D1F22E12 /* PasskeyAuthenticator.swift */; };
 		23E731081F1C8B9393CDE436 /* MoviePilotWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A53F32D403882DC68D3CE17 /* MoviePilotWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		26EA21BAF0EB0F9D663FE97F /* MoviePilotWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E9D58111CB3F6D0CC5F8EB /* MoviePilotWidgets.swift */; };
 		2BD57F8FAA89B6CE62520CDF /* CardMenuInteraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32C08F097B084258A76DECD1 /* CardMenuInteraction.swift */; };
@@ -86,6 +87,7 @@
 		274895617146E30E9DDE5876 /* AccountAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountAppearance.swift; sourceTree = "<group>"; };
 		2A663A5F20E9060A67A02499 /* APNs.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = APNs.entitlements; sourceTree = "<group>"; };
 		2ED77660949143CE0F66ABB7 /* AuthenticationClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationClient.swift; sourceTree = "<group>"; };
+		6C29904E9FE025E2D1F22E12 /* PasskeyAuthenticator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasskeyAuthenticator.swift; sourceTree = "<group>"; };
 		2F09ECDFCEB53CD2E95A1404 /* NativeWebSheetController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWebSheetController.swift; sourceTree = "<group>"; };
 		32C08F097B084258A76DECD1 /* CardMenuInteraction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardMenuInteraction.swift; sourceTree = "<group>"; };
 		3C5522D23DCCE1A49988D78B /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
@@ -144,6 +146,7 @@
 				274895617146E30E9DDE5876 /* AccountAppearance.swift */,
 				16DC09F74832A0B86B73E0DB /* AppDelegate.swift */,
 				2ED77660949143CE0F66ABB7 /* AuthenticationClient.swift */,
+				6C29904E9FE025E2D1F22E12 /* PasskeyAuthenticator.swift */,
 				EC6B4DF852680FFE4FCB4A47 /* BottomNavigationView.swift */,
 				D64A494ED8149ABF1DECA7A0 /* CardMenuBridge.swift */,
 				32C08F097B084258A76DECD1 /* CardMenuInteraction.swift */,
@@ -373,6 +376,7 @@
 				A0AB51CE161F94808B6EE599 /* AccountAppearance.swift in Sources */,
 				8464FBB90159A6B122B561E9 /* AppDelegate.swift in Sources */,
 				1A0A64BFB15E9E666C46208E /* AuthenticationClient.swift in Sources */,
+				23BBAF0215F3751EC4AAD19E /* PasskeyAuthenticator.swift in Sources */,
 				C4059A8F886BC8E2B08268BA /* BottomNavigationView.swift in Sources */,
 				F3E60D44BADCE6B6319247DB /* CardMenuBridge.swift in Sources */,
 				2BD57F8FAA89B6CE62520CDF /* CardMenuInteraction.swift in Sources */,
