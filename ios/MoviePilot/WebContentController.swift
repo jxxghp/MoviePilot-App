@@ -146,7 +146,7 @@ final class NavigationPreviewCache {
   }
 }
 
-/// UIKit 交互卡片只承载转场画面；手指松开前不改变实际路由、WebView 或业务组件。
+/// UIKit 交互卡片只承载转场画面；缺少上一页预览时保留当前页，直到目标完成绘制。
 @MainActor
 final class NavigationBackTransition {
   let overlay: UIView
@@ -156,7 +156,7 @@ final class NavigationBackTransition {
   private let clipping = UIView()
   private var animator: UIViewPropertyAnimator?
 
-  /// 前景使用当前系统视图快照，背景来自同一会话的已访问页面，不模拟玻璃材质。
+  /// 前景使用当前系统视图快照；只有同一会话的目标预览存在时才允许滑开前景。
   init?(host: UIView, previous image: UIImage?) {
     guard let current = host.snapshotView(afterScreenUpdates: false) else { return nil }
     overlay = UIView(frame: host.bounds)
@@ -172,6 +172,7 @@ final class NavigationBackTransition {
     overlay.addSubview(previous)
     shade.frame = overlay.bounds
     shade.backgroundColor = .black
+    shade.isHidden = image == nil
     overlay.addSubview(shade)
     card.frame = overlay.bounds
     card.accessibilityIdentifier = "native-back-card"
@@ -193,8 +194,9 @@ final class NavigationBackTransition {
     update(distance: 0)
   }
 
-  /// 连续位移直接跟随手指，上一页保留系统导航常见的轻微视差与遮阴。
+  /// 有目标预览时连续跟手；后台清理或未采样时保持本页全幅，避免露出空背景。
   func update(distance: CGFloat) {
+    guard previous.image != nil else { return }
     let width = max(1, overlay.bounds.width)
     let x = min(width, max(0, distance))
     let progress = x / width
@@ -206,8 +208,12 @@ final class NavigationBackTransition {
     shade.alpha = 0.16 * (1 - progress)
   }
 
-  /// 取消回弹、完成移出都由 UIKit 动画接续当前手指位置，不重新开始一段网页转场。
+  /// 目标预览存在时接续跟手动画；缺失时交由原路由与绘制握手完成静止交接。
   func animate(completed: Bool, completion: @escaping () -> Void) {
+    guard previous.image != nil else {
+      completion()
+      return
+    }
     animator?.stopAnimation(true)
     let animation = UIViewPropertyAnimator(
       duration: UIAccessibility.isReduceMotionEnabled ? 0.12 : 0.28, dampingRatio: 1
