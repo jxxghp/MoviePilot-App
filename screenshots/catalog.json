@@ -783,5 +783,15 @@
     "group": "网页",
     "title": "网页桌面深色页面",
     "file": "screens/134.png"
+  },
+  {
+    "title": "启动画面 · 浅色",
+    "group": "菜单与弹窗",
+    "file": "screens/287.png"
+  },
+  {
+    "title": "启动画面 · 深色",
+    "group": "菜单与弹窗",
+    "file": "screens/288.png"
   }
 ]
