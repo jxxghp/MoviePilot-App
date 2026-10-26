@@ -62,6 +62,8 @@
 
 ## 导航与弹窗
 
+- [媒体卡片 · 原生长按搜索与订阅](screens/271.png)
+
 - [HTML页面跳转与导航联动](screens/35.png)
 - [中文分类联动](screens/36.png)
 - [主题定制安全区](screens/37.png)
