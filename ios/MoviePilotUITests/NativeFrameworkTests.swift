@@ -9,9 +9,57 @@ private struct NetworkFixtures: Decodable {
   let unsupportedScopedIPv6: String
 }
 
-/// 使用显式配置的测试实例验收原生框架与原业务 HTML 的真实交接，不写入业务数据。
+/// 使用显式配置的实例验收原生框架与原业务 HTML；真实写入须另行开启并限定临时插件。
 @MainActor
 final class NativeFrameworkTests: XCTestCase {
+  /// 经用户授权才安装指定临时插件，并通过真实卡片菜单卸载，验证进度交接后导航仍可用。
+  func testNativeTemporaryPluginInstallAndUninstall() throws {
+    guard
+      ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_TEMPORARY_PLUGIN"]
+        == "ShortCutModified"
+    else { throw XCTSkip("需要用户授权并指定尚未安装的临时测试插件。") }
+    continueAfterFailure = false
+    let name = "修改版快捷指令"
+    let app = try signIn(captureScreens: false, remember: false)
+    openMorePage("插件", app: app)
+    let action = app.buttons["native-bottom-action"]
+    XCTAssertTrue(action.waitForExistence(timeout: 15))
+    action.tap()
+    let search = app.buttons["搜索插件"].firstMatch
+    if search.waitForExistence(timeout: 3) { search.tap() }
+    let field = app.webViews.textFields.firstMatch
+    XCTAssertTrue(field.waitForExistence(timeout: 15))
+    field.tap()
+    field.typeText(name)
+    let result = app.webViews.staticTexts[name].firstMatch
+    XCTAssertTrue(result.waitForExistence(timeout: 15))
+    result.tap()
+    let install = app.webViews.buttons["安装到本地"].firstMatch
+    XCTAssertTrue(install.waitForExistence(timeout: 20), app.debugDescription)
+    XCTAssertTrue(install.isEnabled)
+    install.tap()
+    let card = app.webViews.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", name)
+    ).firstMatch
+    XCTAssertTrue(card.waitForExistence(timeout: 45), app.debugDescription)
+    XCTAssertTrue(app.buttons["native-sheet-close"].waitForNonExistence(timeout: 30))
+    card.press(forDuration: 1)
+    let uninstall = app.buttons["卸载"]
+    XCTAssertTrue(uninstall.waitForExistence(timeout: 8), app.debugDescription)
+    uninstall.tap()
+    let alert = app.alerts.firstMatch
+    XCTAssertTrue(alert.waitForExistence(timeout: 10))
+    XCTAssertTrue(
+      alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch.exists)
+    alert.buttons["确认"].tap()
+    XCTAssertTrue(card.waitForNonExistence(timeout: 30), app.debugDescription)
+    XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists, app.debugDescription)
+    let roots = app.tabBars["native-root-navigation"]
+    XCTAssertTrue(roots.waitForExistence(timeout: 10), app.debugDescription)
+    roots.buttons["仪表盘"].tap()
+    XCTAssertTrue(app.navigationBars["仪表盘"].waitForExistence(timeout: 10), app.debugDescription)
+  }
+
   /// 真实主屏幕快捷菜单复用三个现有面板，重复选择和后台切换都不叠加弹层。
   func testHomeScreenShortcuts() throws {
     guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_HOME_SHORTCUTS"] == "1" else {
@@ -4012,6 +4060,9 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertEqual(button.label, "使用通行密钥登录")
     XCTAssertGreaterThan(button.frame.minY, app.buttons["登录"].frame.maxY)
     XCTAssertFalse(app.webViews.firstMatch.exists)
+    if ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_CAPTURE"] == "1" {
+      attachScreen("预览-通行密钥与登录按钮圆角", app: app)
+    }
   }
 
   /// 实际原生登录按服务开关显示入口，旧前端和限流均保留可恢复的原生表单。

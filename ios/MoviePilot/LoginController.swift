@@ -115,7 +115,8 @@ final class LoginController: UIViewController, UITextFieldDelegate {
     passkeyStyle.image = UIImage(systemName: "person.badge.key")
     passkeyStyle.imagePadding = 8
     passkeyStyle.baseForegroundColor = AccountAppearance.accent(for: instance.id)
-    passkeyStyle.cornerStyle = .large
+    passkeyStyle.cornerStyle = .capsule
+    passkeyStyle.buttonSize = .large
     passkey.configuration = passkeyStyle
     passkey.accessibilityIdentifier = "native-passkey-login"
     passkey.isHidden = true

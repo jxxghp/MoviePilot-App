@@ -343,7 +343,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     guard let token = content.resumePreviewToken else { return }
     let document = documentID
     command("navigation.waitForPaint", payload: .object([:])) { [weak self] accepted in
-      guard let self, self.documentID == document, self.lifecycle == "active" else { return }
+      guard let self, self.documentID == document, self.lifecycle == "active",
+        self.content.resumePreviewToken == token
+      else { return }
       if accepted {
         self.content.completeResumePreview(token: token) { [weak self] in
           guard let self, self.documentID == document, self.lifecycle == "active",
@@ -351,6 +353,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
           else { return }
           self.fail("页面尚未恢复绘制，请重新打开。未确认的操作不会自动重试。")
         }
+      } else {
+        self.recoverNavigation()
       }
     }
   }
@@ -734,8 +738,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       guard let timer = pendingCommands.removeValue(forKey: result.requestId) else { return }
       timer.invalidate()
       let completion = commandCompletions.removeValue(forKey: result.requestId)
+      // 拒绝也证明网页仍有响应；由调用者核对交接是否仍有效，已关闭弹窗的迟到结果不应中断导航。
       completion?(result.accepted)
-      if !result.accepted, completion != nil { recoverNavigation() }
     case "session.state":
       cardMenus.invalidate()
       standaloneMenus.invalidate()

@@ -168,6 +168,7 @@ final class WebContentController: UIViewController {
 @MainActor
 final class ContentHostController: UIViewController {
   let rootId: String?
+  private let headerFade = NavigationHeaderFadeView()
 
   /// rootId 仅用于与网页确认的主入口对应。
   init(rootId: String?) {
@@ -183,6 +184,21 @@ final class ContentHostController: UIViewController {
     super.viewDidLoad()
     view.backgroundColor = .systemBackground
     definesPresentationContext = true
+    guard rootId != nil else { return }
+    headerFade.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(headerFade)
+    NSLayoutConstraint.activate([
+      headerFade.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: -12),
+      headerFade.heightAnchor.constraint(equalToConstant: 32),
+      headerFade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      headerFade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+    ])
+  }
+
+  /// 只将顶部材质向正文延伸 20pt，不改变安全区、导航栏高度或底栏几何。
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    if headerFade.superview != nil { view.bringSubviewToFront(headerFade) }
   }
 
   /// 正确解除旧父子关系，再将同一内容控制器归属到当前入口。
@@ -210,6 +226,39 @@ final class ContentHostController: UIViewController {
   func trackContentScrollView(_ scrollView: UIScrollView) {
     if #available(iOS 26.0, *) { scrollView.topEdgeEffect.style = .soft }
     setContentScrollView(scrollView, for: .all)
+    if headerFade.superview != nil { view.bringSubviewToFront(headerFade) }
+  }
+}
+
+/// 系统薄材质的短渐变尾部；不额外叠加色块，也不接收正文或导航手势。
+@MainActor
+private final class NavigationHeaderFadeView: UIVisualEffectView {
+  private let fade = CAGradientLayer()
+
+  /// 使用系统动态材质保留明暗与辅助功能适配，渐变只控制向下延伸的范围。
+  init() {
+    super.init(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+    isUserInteractionEnabled = false
+    isAccessibilityElement = false
+    fade.colors = [
+      UIColor.clear.cgColor,
+      UIColor.black.withAlphaComponent(0.40).cgColor,
+      UIColor.clear.cgColor,
+    ]
+    fade.locations = [0, 0.375, 1]
+    layer.mask = fade
+  }
+
+  /// 材质随宿主创建，不从归档恢复额外布局。
+  required init?(coder: NSCoder) { fatalError("Use init()") }
+
+  /// 横竖屏只更新渐变遮罩尺寸，避免隐式动画留下旧的边界。
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    fade.frame = bounds
+    CATransaction.commit()
   }
 }
 
