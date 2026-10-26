@@ -73,7 +73,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
 {
   private let coordinator: WebCoordinator
   private let onConnection: () -> Void
-  private let compatibilityHost = ContentHostController(rootId: nil)
+  private let compatibilityHost = ContentHostController(rootId: nil, protectsNavigationTitle: true)
   private lazy var compatibilityNavigation = UINavigationController(
     rootViewController: compatibilityHost)
   private var rootNavigations: [UINavigationController] = []
@@ -554,7 +554,9 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     let ids = snapshot.roots.map(\.id)
     if rootIds != ids || rootNavigations.isEmpty {
       headerConfigurations.removeAll()
-      hosts = snapshot.roots.map { ContentHostController(rootId: $0.id) }
+      hosts = snapshot.roots.map {
+        ContentHostController(rootId: $0.id, protectsNavigationTitle: true)
+      }
       rootNavigations = hosts.map { UINavigationController(rootViewController: $0) }
       rootIds = ids
     }

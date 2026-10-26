@@ -168,10 +168,14 @@ final class WebContentController: UIViewController {
 @MainActor
 final class ContentHostController: UIViewController {
   let rootId: String?
+  private let protectsNavigationTitle: Bool
+  private var navigationBackdrop: UIVisualEffectView?
+  private let navigationFade = CAGradientLayer()
 
-  /// rootId 仅用于与网页确认的主入口对应。
-  init(rootId: String?) {
+  /// 主页面为标题提供材质保护，业务 Sheet 继续使用系统默认背景。
+  init(rootId: String?, protectsNavigationTitle: Bool = false) {
     self.rootId = rootId
+    self.protectsNavigationTitle = protectsNavigationTitle
     super.init(nibName: nil, bundle: nil)
   }
 
@@ -183,6 +187,39 @@ final class ContentHostController: UIViewController {
     super.viewDidLoad()
     view.backgroundColor = .systemBackground
     definesPresentationContext = true
+    if protectsNavigationTitle {
+      let backdrop = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+      backdrop.isUserInteractionEnabled = false
+      backdrop.accessibilityElementsHidden = true
+      navigationFade.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
+      navigationFade.startPoint = CGPoint(x: 0.5, y: 0)
+      navigationFade.endPoint = CGPoint(x: 0.5, y: 1)
+      backdrop.layer.mask = navigationFade
+      view.addSubview(backdrop)
+      navigationBackdrop = backdrop
+    }
+  }
+
+  /// 材质保护整个系统导航区，再向正文柔和淡出；内部 HTML 滚动也不会让海报直接压住标题。
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    updateNavigationBackdrop()
+  }
+
+  /// 安全区随旋转、状态栏及导航栏改变，装饰层始终不占布局和点击区域。
+  private func updateNavigationBackdrop() {
+    guard let backdrop = navigationBackdrop else { return }
+    let top = view.safeAreaInsets.top
+    let height = min(view.bounds.height, top + 32)
+    backdrop.isHidden = top <= 0 || height <= 0
+    guard !backdrop.isHidden else { return }
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    backdrop.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: height)
+    navigationFade.frame = backdrop.bounds
+    navigationFade.locations = [0, NSNumber(value: Double(top / height)), 1]
+    CATransaction.commit()
+    view.bringSubviewToFront(backdrop)
   }
 
   /// 正确解除旧父子关系，再将同一内容控制器归属到当前入口。
@@ -206,10 +243,14 @@ final class ContentHostController: UIViewController {
     trackContentScrollView(content.webView.scrollView)
   }
 
-  /// 由 UIKit 根据真实滚动内容绘制柔和渐变边缘，避免给顶栏叠加固定色块或自制材质。
+  /// 主页面的系统材质兼容 HTML 内滚动，Sheet 沿用 UIKit 的滚动边缘效果，避免重复模糊。
   func trackContentScrollView(_ scrollView: UIScrollView) {
-    if #available(iOS 26.0, *) { scrollView.topEdgeEffect.style = .soft }
+    if #available(iOS 26.0, *) {
+      scrollView.topEdgeEffect.style = .soft
+      scrollView.topEdgeEffect.isHidden = protectsNavigationTitle
+    }
     setContentScrollView(scrollView, for: .all)
+    updateNavigationBackdrop()
   }
 }
 

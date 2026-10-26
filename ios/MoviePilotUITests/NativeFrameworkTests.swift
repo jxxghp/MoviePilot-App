@@ -1920,6 +1920,52 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertTrue(app.buttons["操作菜单"].waitForExistence(timeout: 8))
   }
 
+  /// 真实海报滚入顶栏时核对明暗材质，并确认装饰层没有挡住菜单、返回和底部导航。
+  func testNativeHeaderOverPosters() throws {
+    let app = try signIn(captureScreens: false, remember: false)
+    let roots = app.tabBars["native-root-navigation"]
+    roots.buttons["推荐"].tap()
+    let category = app.buttons["推荐，页内分类"]
+    XCTAssertTrue(category.waitForExistence(timeout: 10))
+    category.tap()
+    app.buttons["音乐"].firstMatch.tap()
+    let ranking = app.webViews.links["更多"].firstMatch
+    XCTAssertTrue(ranking.waitForExistence(timeout: 20))
+    ranking.tap()
+    XCTAssertTrue(app.buttons["返回"].waitForExistence(timeout: 10))
+    settlePage(app)
+    app.webViews.firstMatch.swipeUp()
+    for theme in ["深色", "浅色"] {
+      selectTheme(theme, app: app)
+      settlePage(app)
+      XCTAssertTrue(app.buttons["操作菜单"].isHittable)
+      XCTAssertTrue(app.buttons["返回"].isHittable)
+      attachScreen("顶栏-\(theme)真实音乐海报滚动", app: app)
+    }
+    selectTheme("跟随系统", app: app)
+    app.buttons["返回"].tap()
+    XCTAssertTrue(category.waitForExistence(timeout: 10))
+    roots.buttons["更多"].tap()
+    XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.descendants(matching: .any)["more-menu-search"].exists)
+    attachScreen("顶栏-更多目录渐变", app: app)
+    roots.buttons["仪表盘"].tap()
+    XCTAssertTrue(app.navigationBars["仪表盘"].waitForExistence(timeout: 10))
+  }
+
+  /// 只操作已有用户主题面板，恢复时选回跟随系统，不改服务端业务设置。
+  private func selectTheme(_ title: String, app: XCUIApplication) {
+    app.buttons["操作菜单"].tap()
+    nativeUserItem("用户", app: app).tap()
+    nativeUserItem("主题", app: app).tap()
+    XCTAssertTrue(app.navigationBars["主题定制"].waitForExistence(timeout: 10))
+    let option = app.webViews.switches[title].firstMatch
+    XCTAssertTrue(option.waitForExistence(timeout: 10))
+    option.tap()
+    app.buttons["native-sheet-close"].tap()
+    XCTAssertFalse(app.buttons["native-sheet-close"].waitForExistence(timeout: 1))
+  }
+
   /// 订阅状态、排序和分享关键字都在系统面板输入，原网页 watcher 消费同一状态。
   func testNativeSubscriptionAndShareFilters() throws {
     let app = try signIn()
