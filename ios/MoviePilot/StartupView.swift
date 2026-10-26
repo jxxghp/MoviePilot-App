@@ -3,10 +3,11 @@ import UIKit
 /// 延续系统启动页的静态品牌画面；网页资源和导航就绪前覆盖整个容器，不呈现网页加载器。
 @MainActor
 final class StartupView: UIView {
-  /// 透明品牌图形和整屏深色背景与系统启动页一致，不附加文字或进度动画。
-  init() {
+  /// 图形始终来自本地资源；首帧按实例偏好选择底色，无历史时跟随系统明暗。
+  init(instance: UUID) {
     super.init(frame: .zero)
-    backgroundColor = UIColor(named: "LaunchBackground")
+    overrideUserInterfaceStyle = AccountAppearance.interfaceStyle(for: instance)
+    backgroundColor = AccountAppearance.background(for: instance)
     accessibilityIdentifier = "native-startup-screen"
     isAccessibilityElement = true
     accessibilityLabel = "MoviePilot 正在准备页面"
@@ -24,5 +25,5 @@ final class StartupView: UIView {
   }
 
   /// 此视图仅由原生宿主创建，系统启动页使用独立的静态 storyboard。
-  required init?(coder: NSCoder) { fatalError("Use init()") }
+  required init?(coder: NSCoder) { fatalError("Use init(instance:)") }
 }

@@ -138,7 +138,9 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
 
   /// 启动和底页占位期间匹配可见背景，归位后按当前明暗更新状态栏。
   override var preferredStatusBarStyle: UIStatusBarStyle {
-    guard startupView == nil else { return .lightContent }
+    if let startupView {
+      return startupView.traitCollection.userInterfaceStyle == .dark ? .lightContent : .darkContent
+    }
     let style = sheetPagePlaceholder?.overrideUserInterfaceStyle ?? modalInterfaceStyle
     return style == .dark ? .lightContent : .darkContent
   }
@@ -440,7 +442,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     loadViewIfNeeded()
     if loading {
       if startupView == nil {
-        let startup = StartupView()
+        let startup = StartupView(instance: coordinator.instance.id)
         startup.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(startup)
         NSLayoutConstraint.activate([

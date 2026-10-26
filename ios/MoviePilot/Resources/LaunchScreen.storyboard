@@ -37,6 +37,6 @@
     </scenes>
     <resources>
         <image name="LaunchMark" width="192" height="192"/>
-        <namedColor name="LaunchBackground"><color red="0.055" green="0.051" blue="0.110" alpha="1" colorSpace="custom" customColorSpace="sRGB"/></namedColor>
+        <namedColor name="LaunchBackground"><color red="0.949019608" green="0.949019608" blue="0.968627451" alpha="1" colorSpace="custom" customColorSpace="sRGB"/></namedColor>
     </resources>
 </document>

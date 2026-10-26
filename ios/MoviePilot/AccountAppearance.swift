@@ -50,11 +50,24 @@ enum AccountAppearance {
   ) -> UINavigationController {
     let value = preferences(for: instance)
     let navigation = UINavigationController(rootViewController: root)
-    navigation.overrideUserInterfaceStyle =
-      value.theme == .dark ? .dark : (value.theme == .light ? .light : .unspecified)
+    navigation.overrideUserInterfaceStyle = interfaceStyle(for: instance)
     navigation.view.backgroundColor = background(value)
     navigation.view.tintColor = NavigationSymbols.color(value.accent) ?? accent
     return navigation
+  }
+
+  /// 原生启动画面与账号页读取相同的实例主题，手动明暗不受当前系统外观覆盖。
+  static func interfaceStyle(for instance: UUID?) -> UIUserInterfaceStyle {
+    switch preferences(for: instance).theme {
+    case .light: .light
+    case .dark: .dark
+    case .system: .unspecified
+    }
+  }
+
+  /// 启动阶段不等待网络或网页脚本，直接使用已保存底色或内置的玻璃主题底色。
+  static func background(for instance: UUID?) -> UIColor {
+    background(preferences(for: instance))
   }
 
   /// 输入面板与网页的 surface 色一致，不把系统黑色卡片放在深蓝背景上。

@@ -667,7 +667,9 @@ final class NativeFrameworkTests: XCTestCase {
       attachScreen("账号主题-首次使用\(title)连接", app: fresh)
       fresh.terminate()
       // 独立别名没有收到过网页主题，也不提交账号密码。
-      let app = try launchLogin(server: "http://localhost:5234")
+      let app = launchConnection(server: "http://localhost:5234", captureScreens: false)
+      assertStartupVisible(app, name: "启动屏-无历史\(title)")
+      XCTAssertTrue(app.textFields["用户名"].waitForExistence(timeout: 15))
       XCTAssertFalse(app.webViews.firstMatch.exists)
       attachScreen("账号主题-首次使用\(title)登录", app: app)
       app.terminate()
@@ -705,6 +707,7 @@ final class NativeFrameworkTests: XCTestCase {
       XCTAssertTrue(app.textFields["用户名"].waitForExistence(timeout: 10))
       attachScreen("账号主题-\(title)登录", app: app)
       relaunchSavedLoginInstance(app)
+      assertStartupVisible(app, name: "启动屏-\(title)")
       XCTAssertTrue(app.textFields["用户名"].waitForExistence(timeout: 15))
       XCTAssertFalse(app.webViews.firstMatch.exists)
       attachScreen("账号主题-\(title)冷启动登录", app: app)
@@ -715,9 +718,24 @@ final class NativeFrameworkTests: XCTestCase {
         app.buttons["更改地址"].tap()
         XCTAssertTrue(address.waitForExistence(timeout: 10))
         attachScreen("账号主题-跟随系统浅色连接", app: app)
+        address.tap()
+        address.typeText("\n")
+        XCTAssertTrue(app.textFields["用户名"].waitForExistence(timeout: 15))
+        relaunchSavedLoginInstance(app)
+        assertStartupVisible(app, name: "启动屏-跟随系统浅色")
+        XCTAssertTrue(app.textFields["用户名"].waitForExistence(timeout: 15))
       }
       app.terminate()
     }
+  }
+
+  /// 在受控初始化等待期间采集真正的原生首屏，不能提前露出登录表单或网页。
+  private func assertStartupVisible(_ app: XCUIApplication, name: String) {
+    XCTAssertTrue(app.otherElements["native-startup-screen"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.textFields["用户名"].isHittable)
+    XCTAssertFalse(app.navigationBars["登录"].exists)
+    XCTAssertFalse(app.webViews.firstMatch.exists)
+    attachScreen(name, app: app)
   }
 
   /// 原生表单和连接子菜单都不提供网页退路，桥断开后只能原生重试或更改地址。
