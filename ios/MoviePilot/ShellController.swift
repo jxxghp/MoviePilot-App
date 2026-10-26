@@ -925,14 +925,14 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     present(alert, animated: true)
   }
 
-  /// 多动作入口使用三横线区别底栏更多，单一动作保留业务图标及原 HTML 回调位置。
+  /// 多动作入口使用上箭头提示展开，单一动作保留业务图标及原 HTML 回调位置。
   private func bottomActionButton(_ action: ActionSnapshot) -> UIButton {
     var configuration: UIButton.Configuration = .tinted()
     if #available(iOS 26.0, *) { configuration = .glass() }
     configuration.cornerStyle = .capsule
     configuration.preferredSymbolConfigurationForImage = NavigationSymbols.bottomConfiguration
     let hasMenu = !(action.menu?.isEmpty ?? true)
-    configuration.image = symbol(hasMenu ? "mdi-menu" : action.icon)
+    configuration.image = hasMenu ? UIImage(systemName: "chevron.up") : symbol(action.icon)
     configuration.showsActivityIndicator = action.loading
     let button = UIButton(configuration: configuration)
     button.accessibilityLabel = action.title
@@ -1109,7 +1109,8 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       "presentation.attach", payload: .object(["id": .string(descriptor.id)])
     ) { [weak self, weak controller] accepted in
       guard let self, let controller, self.webSheet === controller,
-        self.sheetAttachedID == descriptor.id, !self.sheetDismissing
+        self.sheetAttachedID == descriptor.id, !self.sheetDismissing,
+        self.latest?.presentation?.sheet?.id == descriptor.id
       else { return }
       guard accepted else {
         self.coordinator.recoverNavigation()
