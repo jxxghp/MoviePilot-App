@@ -3859,6 +3859,20 @@ final class NativeFrameworkTests: XCTestCase {
     return app
   }
 
+  /// 真实实例只读查询也能显示入口，不提交账号、挑战或登录请求。
+  func testNativePasskeyEntryFromInstance() throws {
+    guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_PASSKEY_ENTRY_SERVER"]
+    else { throw XCTSkip("需要显式指定已开启通行密钥的验收实例。") }
+    let app = try launchLogin(server: server, captureScreens: false)
+    let button = app.buttons["native-passkey-login"]
+    XCTAssertTrue(button.waitForExistence(timeout: 10))
+    XCTAssertTrue(button.isHittable)
+    XCTAssertTrue(button.isEnabled)
+    XCTAssertEqual(button.label, "使用通行密钥登录")
+    XCTAssertGreaterThan(button.frame.minY, app.buttons["登录"].frame.maxY)
+    XCTAssertFalse(app.webViews.firstMatch.exists)
+  }
+
   /// 实际原生登录按服务开关显示入口，旧前端和限流均保留可恢复的原生表单。
   func testNativePasskeyCapabilitiesAndFailures() async throws {
     let server = try await preparePasskeyFixture(mode: "disabled")
