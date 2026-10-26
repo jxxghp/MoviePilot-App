@@ -103,12 +103,22 @@ public struct PasskeyTransaction: Sendable {
       ]))
   }
 
-  /// 只有既有服务明确启用的系统通行密钥方式才能显示原生入口。
+  /// 兼容统一成功响应和旧版裸数组；只有服务明确启用的系统通行密钥才显示入口。
   public static func providerEnabled(_ data: Data) throws -> Bool {
     guard data.count <= 65_536,
-      case .array(let providers) = try JSONDecoder().decode(JSONValue.self, from: data),
-      providers.count <= 128
+      let root = try? JSONDecoder().decode(JSONValue.self, from: data)
     else { throw PasskeyFailure.invalid }
+    let providers: [JSONValue]
+    switch root {
+    case .array(let values): providers = values
+    case .object(let fields):
+      guard fields["success"] == .bool(true), case .array(let values) = fields["data"] else {
+        throw PasskeyFailure.invalid
+      }
+      providers = values
+    default: throw PasskeyFailure.invalid
+    }
+    guard providers.count <= 128 else { throw PasskeyFailure.invalid }
     return providers.contains { provider in
       guard case .object(let value) = provider else { return false }
       return value["type"] == .string("system") && value["method"] == .string("passkey")

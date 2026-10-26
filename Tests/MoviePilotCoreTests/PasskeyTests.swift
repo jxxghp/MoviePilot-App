@@ -195,6 +195,32 @@ struct PasskeyTests {
     }
   }
 
+  /// 当前后端统一响应与旧版裸数组都按服务端的显式开关显示入口。
+  @Test(arguments: [false, true]) func acceptsProviderResponseFormats(enveloped: Bool) throws {
+    for (body, enabled) in [
+      (#"[{"type":"system","method":"passkey","enabled":true}]"#, true),
+      (#"[{"type":"system","method":"passkey","enabled":false}]"#, false),
+      (#"[{"type":"oidc","method":"passkey","enabled":true}]"#, false),
+      (#"[{"type":"system","method":"passkey","enabled":"true"}]"#, false),
+      ("[]", false),
+    ] {
+      let response = enveloped ? #"{"success":true,"message":"","data":\#(body)}"# : body
+      #expect(try PasskeyTransaction.providerEnabled(Data(response.utf8)) == enabled)
+    }
+  }
+
+  /// 失败或损坏的统一响应不能把其中的认证方式误当作已启用。
+  @Test(arguments: [
+    #"{"success":false,"data":[{"type":"system","method":"passkey","enabled":true}]}"#,
+    #"{"data":[{"type":"system","method":"passkey","enabled":true}]}"#,
+    #"{"success":"true","data":[]}"#, #"{"success":true,"data":{}}"#,
+    #"{"success":true}"#, "null",
+  ]) func rejectsInvalidProviderResponse(body: String) {
+    #expect(throws: PasskeyFailure.invalid) {
+      try PasskeyTransaction.providerEnabled(Data(body.utf8))
+    }
+  }
+
   /// 系统开关和静态协议必须显式匹配，不能从 HTML 或相似第三方 provider 推测。
   @Test func requiresExplicitCapabilities() throws {
     #expect(
