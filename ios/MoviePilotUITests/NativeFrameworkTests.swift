@@ -2719,9 +2719,9 @@ final class NativeFrameworkTests: XCTestCase {
     attachScreen("交互-左边缘侧滑关闭业务弹窗", app: app)
   }
 
-  /// 慢速拖动并停留，视频可核对中间帧；短滑回弹后仍能连续完成同一页面的返回。
+  /// 慢拖覆盖正常预览和后台清空预览；取消不改页面，完成仍返回真实目标。
   func testInteractiveBackCardCancellationAndCompletion() throws {
-    let app = try signIn()
+    let app = try signIn(captureScreens: false)
     app.tabBars["native-root-navigation"].buttons["推荐"].tap()
     XCTAssertTrue(app.navigationBars["推荐"].waitForExistence(timeout: 10))
     settlePage(app)
@@ -2732,6 +2732,12 @@ final class NativeFrameworkTests: XCTestCase {
       XCTAssertTrue(app.buttons["返回"].waitForExistence(timeout: 10))
       settlePage(app)
       let title = app.navigationBars.firstMatch.identifier
+      if cycle == 1 {
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 10))
+        settlePage(app)
+      }
       let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.005, dy: 0.55))
       edge.press(
         forDuration: 0.1,
