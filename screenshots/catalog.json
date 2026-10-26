@@ -75,9 +75,9 @@
     "file": "screens/15.png"
   },
   {
-    "title": "设定",
+    "title": "设定 · 存储与目录",
     "group": "页面",
-    "file": "screens/16.png"
+    "file": "screens/27.png"
   },
   {
     "title": "音乐订阅",
@@ -130,24 +130,9 @@
     "file": "screens/26.png"
   },
   {
-    "title": "设定 · 存储 & 目录",
-    "group": "页内分类",
-    "file": "screens/27.png"
-  },
-  {
     "title": "设定 · 搜索 & 下载",
     "group": "页内分类",
     "file": "screens/28.png"
-  },
-  {
-    "title": "设定 · 站点",
-    "group": "页内分类",
-    "file": "screens/29.png"
-  },
-  {
-    "title": "设定 · 系统",
-    "group": "页内分类",
-    "file": "screens/30.png"
   },
   {
     "title": "设定 · 规则",
@@ -170,1188 +155,623 @@
     "file": "screens/34.png"
   },
   {
-    "title": "HTML页面跳转与导航联动",
-    "group": "导航与弹窗",
-    "file": "screens/35.png"
-  },
-  {
-    "title": "中文分类联动",
-    "group": "导航与弹窗",
-    "file": "screens/36.png"
-  },
-  {
-    "title": "主题定制安全区",
-    "group": "导航与弹窗",
-    "file": "screens/37.png"
-  },
-  {
-    "title": "主题手动选择-浅色",
-    "group": "导航与弹窗",
-    "file": "screens/38.png"
-  },
-  {
-    "title": "主题手动选择-深色",
-    "group": "导航与弹窗",
-    "file": "screens/39.png"
-  },
-  {
-    "title": "主题手动选择-跟随系统",
-    "group": "导航与弹窗",
-    "file": "screens/40.png"
-  },
-  {
-    "title": "主题明暗与主色半屏",
-    "group": "导航与弹窗",
-    "file": "screens/41.png"
-  },
-  {
-    "title": "主题跟随系统浅色",
-    "group": "导航与弹窗",
-    "file": "screens/42.png"
-  },
-  {
-    "title": "单行原生导航",
-    "group": "导航与弹窗",
-    "file": "screens/43.png"
-  },
-  {
-    "title": "原生中文分类菜单",
-    "group": "导航与弹窗",
-    "file": "screens/44.png"
-  },
-  {
-    "title": "原生全局搜索",
-    "group": "导航与弹窗",
-    "file": "screens/45.png"
-  },
-  {
-    "title": "原生工作流分享搜索",
-    "group": "导航与弹窗",
-    "file": "screens/46.png"
-  },
-  {
-    "title": "原生已安装插件筛选",
-    "group": "导航与弹窗",
-    "file": "screens/47.png"
-  },
-  {
-    "title": "原生捷径面板",
-    "group": "导航与弹窗",
-    "file": "screens/48.png"
-  },
-  {
-    "title": "原生插件市场筛选与排序",
-    "group": "导航与弹窗",
-    "file": "screens/49.png"
-  },
-  {
-    "title": "原生插件面板",
-    "group": "导航与弹窗",
-    "file": "screens/50.png"
-  },
-  {
-    "title": "原生整理历史状态筛选",
-    "group": "导航与弹窗",
-    "file": "screens/51.png"
-  },
-  {
-    "title": "原生消息中心",
-    "group": "导航与弹窗",
-    "file": "screens/52.png"
-  },
-  {
-    "title": "原生用户菜单",
-    "group": "导航与弹窗",
-    "file": "screens/53.png"
-  },
-  {
-    "title": "原生站点筛选菜单",
-    "group": "导航与弹窗",
-    "file": "screens/54.png"
-  },
-  {
-    "title": "原生订阅分享搜索",
-    "group": "导航与弹窗",
-    "file": "screens/55.png"
-  },
-  {
-    "title": "原生订阅状态与排序筛选",
-    "group": "导航与弹窗",
-    "file": "screens/56.png"
-  },
-  {
-    "title": "原生页内分类菜单",
-    "group": "导航与弹窗",
-    "file": "screens/57.png"
-  },
-  {
-    "title": "固定间距底栏含动态动作",
-    "group": "导航与弹窗",
-    "file": "screens/58.png"
-  },
-  {
-    "title": "固定间距底栏整组居中",
-    "group": "导航与弹窗",
-    "file": "screens/59.png"
-  },
-  {
-    "title": "捷径半屏文字亮度",
-    "group": "导航与弹窗",
-    "file": "screens/60.png"
-  },
-  {
-    "title": "捷径展开文字亮度",
-    "group": "导航与弹窗",
-    "file": "screens/61.png"
-  },
-  {
-    "title": "插件面板半屏文字亮度",
-    "group": "导航与弹窗",
-    "file": "screens/62.png"
-  },
-  {
-    "title": "插件面板展开文字亮度",
-    "group": "导航与弹窗",
-    "file": "screens/63.png"
-  },
-  {
-    "title": "文件管理刷新菜单",
-    "group": "导航与弹窗",
-    "file": "screens/64.png"
-  },
-  {
-    "title": "文件详情单层标题与系统关闭",
-    "group": "导航与弹窗",
-    "file": "screens/65.png"
-  },
-  {
-    "title": "更多下拉显示搜索",
-    "group": "导航与弹窗",
-    "file": "screens/66.png"
-  },
-  {
-    "title": "更多主题与居中底栏",
-    "group": "导航与弹窗",
-    "file": "screens/67.png"
-  },
-  {
-    "title": "更多菜单搜索",
-    "group": "导航与弹窗",
-    "file": "screens/68.png"
-  },
-  {
-    "title": "更多默认收起搜索",
-    "group": "导航与弹窗",
-    "file": "screens/69.png"
-  },
-  {
-    "title": "浅色主题原生插件面板",
-    "group": "导航与弹窗",
-    "file": "screens/70.png"
-  },
-  {
-    "title": "浅色主题原生搜索",
-    "group": "导航与弹窗",
-    "file": "screens/71.png"
-  },
-  {
-    "title": "浅色主题系统磨砂 Sheet",
-    "group": "导航与弹窗",
-    "file": "screens/72.png"
-  },
-  {
-    "title": "浅色更多菜单文件整理图标",
-    "group": "导航与弹窗",
-    "file": "screens/73.png"
-  },
-  {
-    "title": "浅色更多菜单滚动复用",
-    "group": "导航与弹窗",
-    "file": "screens/74.png"
-  },
-  {
-    "title": "浅色更多菜单统一图标-顶部",
-    "group": "导航与弹窗",
-    "file": "screens/75.png"
-  },
-  {
-    "title": "浅色更多菜单重新进入",
-    "group": "导航与弹窗",
-    "file": "screens/76.png"
-  },
-  {
-    "title": "深色主题原生插件面板",
-    "group": "导航与弹窗",
-    "file": "screens/77.png"
-  },
-  {
-    "title": "深色主题原生搜索",
-    "group": "导航与弹窗",
-    "file": "screens/78.png"
-  },
-  {
-    "title": "深色主题系统磨砂 Sheet",
-    "group": "导航与弹窗",
-    "file": "screens/79.png"
-  },
-  {
-    "title": "深色更多菜单文件整理图标",
-    "group": "导航与弹窗",
-    "file": "screens/80.png"
-  },
-  {
-    "title": "深色更多菜单滚动复用",
-    "group": "导航与弹窗",
-    "file": "screens/81.png"
-  },
-  {
-    "title": "深色更多菜单统一图标-顶部",
-    "group": "导航与弹窗",
-    "file": "screens/82.png"
-  },
-  {
-    "title": "深色更多菜单重新进入",
-    "group": "导航与弹窗",
-    "file": "screens/83.png"
-  },
-  {
-    "title": "版本历史原菜单",
-    "group": "导航与弹窗",
-    "file": "screens/84.png"
-  },
-  {
-    "title": "版本历史展开底部固定-history-empty",
-    "group": "导航与弹窗",
-    "file": "screens/85.png"
-  },
-  {
-    "title": "版本历史展开底部固定-history-long",
-    "group": "导航与弹窗",
-    "file": "screens/86.png"
-  },
-  {
-    "title": "版本历史展开底部固定-history-short",
-    "group": "导航与弹窗",
-    "file": "screens/87.png"
-  },
-  {
-    "title": "版本历史底部固定-history-empty",
-    "group": "导航与弹窗",
-    "file": "screens/88.png"
-  },
-  {
-    "title": "版本历史底部固定-history-loading",
-    "group": "导航与弹窗",
-    "file": "screens/89.png"
-  },
-  {
-    "title": "版本历史底部固定-history-long",
-    "group": "导航与弹窗",
-    "file": "screens/90.png"
-  },
-  {
-    "title": "版本历史底部固定-history-short",
-    "group": "导航与弹窗",
-    "file": "screens/91.png"
-  },
-  {
-    "title": "用户菜单主题与语言相邻",
-    "group": "导航与弹窗",
-    "file": "screens/92.png"
-  },
-  {
-    "title": "社区勋章关闭位置",
-    "group": "导航与弹窗",
-    "file": "screens/93.png"
-  },
-  {
-    "title": "站点标题操作进入三点菜单",
-    "group": "导航与弹窗",
-    "file": "screens/94.png"
-  },
-  {
-    "title": "站点统一标题与渐变顶栏",
-    "group": "导航与弹窗",
-    "file": "screens/95.png"
-  },
-  {
-    "title": "系统确认取消返回主页面",
-    "group": "导航与弹窗",
-    "file": "screens/96.png"
-  },
-  {
-    "title": "系统确认框完整正文",
-    "group": "导航与弹窗",
-    "file": "screens/97.png"
-  },
-  {
-    "title": "订阅批量操作明确名称",
-    "group": "导航与弹窗",
-    "file": "screens/98.png"
-  },
-  {
-    "title": "订阅批量选择状态",
-    "group": "导航与弹窗",
-    "file": "screens/99.png"
-  },
-  {
-    "title": "订阅编辑无空闲加载线",
-    "group": "导航与弹窗",
-    "file": "screens/100.png"
-  },
-  {
-    "title": "跟手卡片取消-1",
-    "group": "导航与弹窗",
-    "file": "screens/101.png"
-  },
-  {
-    "title": "跟手卡片取消-2",
-    "group": "导航与弹窗",
-    "file": "screens/102.png"
-  },
-  {
-    "title": "跟手卡片完成-1",
-    "group": "导航与弹窗",
-    "file": "screens/103.png"
-  },
-  {
-    "title": "跟手卡片完成-2",
-    "group": "导航与弹窗",
-    "file": "screens/104.png"
-  },
-  {
-    "title": "跟随浅色的原生菜单",
-    "group": "导航与弹窗",
-    "file": "screens/105.png"
-  },
-  {
-    "title": "顶部常用入口与页面操作分组",
-    "group": "导航与弹窗",
-    "file": "screens/106.png"
-  },
-  {
-    "title": "HTTPS 证书错误提示",
-    "group": "连接与登录",
-    "file": "screens/107.png"
-  },
-  {
-    "title": "密码可见切换",
-    "group": "连接与登录",
-    "file": "screens/108.png"
-  },
-  {
-    "title": "密码可见切换 · 深色",
-    "group": "连接与登录",
-    "file": "screens/109.png"
-  },
-  {
-    "title": "登录",
-    "group": "连接与登录",
-    "file": "screens/110.png"
-  },
-  {
-    "title": "登录 · 深色",
-    "group": "连接与登录",
-    "file": "screens/111.png"
-  },
-  {
-    "title": "登录键盘",
-    "group": "连接与登录",
-    "file": "screens/112.png"
-  },
-  {
-    "title": "空白登录键盘",
-    "group": "连接与登录",
-    "file": "screens/113.png"
-  },
-  {
-    "title": "空白登录键盘 · 深色",
-    "group": "连接与登录",
-    "file": "screens/114.png"
-  },
-  {
-    "title": "连接",
-    "group": "连接与登录",
-    "file": "screens/115.png"
-  },
-  {
-    "title": "连接 · 深色",
-    "group": "连接与登录",
-    "file": "screens/116.png"
-  },
-  {
-    "title": "一次性绑定码",
-    "group": "通知",
-    "file": "screens/117.png"
-  },
-  {
-    "title": "主屏幕通知网页绑定",
-    "group": "通知",
-    "file": "screens/118.png"
-  },
-  {
-    "title": "免费自签通知设置",
-    "group": "通知",
-    "file": "screens/119.png"
-  },
-  {
-    "title": "冷启动打开通知中心",
-    "group": "通知",
-    "file": "screens/120.png"
-  },
-  {
-    "title": "热启动打开通知中心",
-    "group": "通知",
-    "file": "screens/121.png"
-  },
-  {
-    "title": "通知网页返回 App",
-    "group": "通知",
-    "file": "screens/122.png"
-  },
-  {
-    "title": "中心推送实例 · 手机浏览器",
-    "group": "中心接入",
-    "file": "screens/123.png"
-  },
-  {
-    "title": "中心推送实例 · 桌面浏览器",
-    "group": "中心接入",
-    "file": "screens/124.png"
-  },
-  {
-    "title": "停用实例确认 · 手机浏览器",
-    "group": "中心接入",
-    "file": "screens/125.png"
-  },
-  {
-    "title": "自动接入通知渠道 · 手机浏览器",
-    "group": "中心接入",
-    "file": "screens/126.png"
-  },
-  {
-    "group": "网页兼容",
-    "title": "网页手机浅色主题设置",
-    "file": "screens/127.png"
-  },
-  {
-    "group": "网页兼容",
-    "title": "网页手机浅色页面",
-    "file": "screens/128.png"
-  },
-  {
-    "group": "网页兼容",
-    "title": "网页手机深色主题设置",
-    "file": "screens/129.png"
-  },
-  {
-    "group": "网页兼容",
-    "title": "网页手机深色页面",
-    "file": "screens/130.png"
-  },
-  {
-    "group": "网页兼容",
-    "title": "网页桌面浅色主题设置",
-    "file": "screens/131.png"
-  },
-  {
-    "group": "网页兼容",
-    "title": "网页桌面浅色页面",
-    "file": "screens/132.png"
-  },
-  {
-    "group": "网页兼容",
-    "title": "网页桌面深色主题设置",
-    "file": "screens/133.png"
-  },
-  {
-    "group": "网页兼容",
-    "title": "网页桌面深色页面",
-    "file": "screens/134.png"
-  },
-  {
-    "title": "回看与展开旧消息",
-    "group": "通知",
-    "file": "screens/135.png"
-  },
-  {
-    "title": "连续加载末尾",
-    "group": "通知",
-    "file": "screens/136.png"
-  },
-  {
-    "title": "触底连续追加",
-    "group": "通知",
-    "file": "screens/137.png"
-  },
-  {
-    "title": "重试后连续加载完成",
-    "group": "通知",
-    "file": "screens/138.png"
-  },
-  {
-    "title": "加载失败保留列表与重试",
-    "group": "通知",
-    "file": "screens/139.png"
-  },
-  {
-    "title": "订阅编辑关闭保留底页",
-    "group": "导航与弹窗",
-    "file": "screens/140.png"
-  },
-  {
-    "title": "多卡片订阅编辑-2",
-    "group": "导航与弹窗",
-    "file": "screens/141.png"
-  },
-  {
-    "title": "多卡片订阅编辑-1",
-    "group": "导航与弹窗",
-    "file": "screens/142.png"
-  },
-  {
-    "title": "多卡片订阅编辑-0",
-    "group": "导航与弹窗",
-    "file": "screens/143.png"
-  },
-  {
-    "title": "多张订阅卡片与进度条底页",
-    "group": "导航与弹窗",
-    "file": "screens/144.png"
-  },
-  {
-    "title": "榜单多次往返后底栏可用",
-    "group": "导航与弹窗",
-    "file": "screens/145.png"
-  },
-  {
-    "title": "榜单底栏连续切换-4",
-    "group": "导航与弹窗",
-    "file": "screens/146.png"
-  },
-  {
-    "title": "榜单底栏连续切换-3",
-    "group": "导航与弹窗",
-    "file": "screens/147.png"
-  },
-  {
-    "title": "榜单底栏连续切换-2",
-    "group": "导航与弹窗",
-    "file": "screens/148.png"
-  },
-  {
-    "title": "榜单底栏连续切换-1",
-    "group": "导航与弹窗",
-    "file": "screens/149.png"
-  },
-  {
-    "title": "常用入口用户位于最后",
-    "group": "导航与弹窗",
-    "file": "screens/150.png"
-  },
-  {
-    "title": "嵌套返回浏览无旧内容-2",
-    "group": "导航与弹窗",
-    "file": "screens/151.png"
-  },
-  {
-    "title": "嵌套确认下载-2",
-    "group": "导航与弹窗",
-    "file": "screens/152.png"
-  },
-  {
-    "title": "嵌套返回浏览无旧内容-1",
-    "group": "导航与弹窗",
-    "file": "screens/153.png"
-  },
-  {
-    "title": "嵌套确认下载-1",
-    "group": "导航与弹窗",
-    "file": "screens/154.png"
-  },
-  {
-    "title": "嵌套返回浏览无旧内容-0",
-    "group": "导航与弹窗",
-    "file": "screens/155.png"
-  },
-  {
-    "title": "嵌套确认下载-0",
-    "group": "导航与弹窗",
-    "file": "screens/156.png"
-  },
-  {
-    "title": "嵌套弹窗浏览列表",
-    "group": "导航与弹窗",
-    "file": "screens/157.png"
-  },
-  {
-    "title": "嵌套关闭子窗首帧-2",
-    "group": "导航与弹窗",
-    "file": "screens/158.png"
-  },
-  {
-    "title": "嵌套关闭子窗首帧-1",
-    "group": "导航与弹窗",
-    "file": "screens/159.png"
-  },
-  {
-    "title": "嵌套关闭子窗首帧-0",
-    "group": "导航与弹窗",
-    "file": "screens/160.png"
-  },
-  {
-    "title": "订阅维护菜单语义图标",
-    "group": "导航与弹窗",
-    "file": "screens/161.png"
-  },
-  {
-    "title": "订阅动态按钮语义图标",
-    "group": "导航与弹窗",
-    "file": "screens/162.png"
-  },
-  {
-    "title": "用户菜单分组与底部操作-2",
-    "group": "导航与弹窗",
-    "file": "screens/163.png"
-  },
-  {
-    "title": "用户二级菜单初始高度-2",
-    "group": "导航与弹窗",
-    "file": "screens/164.png"
-  },
-  {
-    "title": "用户菜单分组与底部操作-1",
-    "group": "导航与弹窗",
-    "file": "screens/165.png"
-  },
-  {
-    "title": "用户二级菜单初始高度-1",
-    "group": "导航与弹窗",
-    "file": "screens/166.png"
-  },
-  {
-    "title": "Agent原有形象选择",
-    "group": "导航与弹窗",
-    "file": "screens/167.png"
-  },
-  {
-    "title": "Agent历史会话原生弹窗",
-    "group": "导航与弹窗",
+    "title": "Agent · 历史会话",
+    "group": "菜单与弹窗",
     "file": "screens/168.png"
   },
   {
+    "title": "Agent · 原生弹窗与底部输入 · 浅色",
+    "group": "菜单与弹窗",
+    "file": "screens/258.png"
+  },
+  {
+    "title": "Agent · 原生弹窗与底部输入 · 深色",
+    "group": "菜单与弹窗",
+    "file": "screens/257.png"
+  },
+  {
+    "title": "Agent原有形象选择",
+    "group": "菜单与弹窗",
+    "file": "screens/167.png"
+  },
+  {
     "title": "Agent原生三点菜单",
-    "group": "导航与弹窗",
+    "group": "菜单与弹窗",
     "file": "screens/169.png"
   },
   {
     "title": "Agent原生标题栏",
-    "group": "导航与弹窗",
+    "group": "菜单与弹窗",
     "file": "screens/170.png"
   },
   {
-    "title": "媒体识别结果原生标题与关闭",
-    "group": "导航与弹窗",
-    "file": "screens/171.png"
+    "title": "HTML页面跳转与导航联动",
+    "group": "菜单与弹窗",
+    "file": "screens/35.png"
   },
   {
-    "title": "原生处理中紧凑弹层",
-    "group": "导航与弹窗",
-    "file": "screens/172.png"
+    "title": "下载管理卡片长按菜单",
+    "group": "菜单与弹窗",
+    "file": "screens/272.png"
   },
   {
-    "title": "订阅文件统计原生标题",
-    "group": "导航与弹窗",
+    "title": "中文分类联动",
+    "group": "菜单与弹窗",
+    "file": "screens/36.png"
+  },
+  {
+    "title": "主题定制安全区",
+    "group": "菜单与弹窗",
+    "file": "screens/37.png"
+  },
+  {
+    "title": "主题手动选择-浅色",
+    "group": "菜单与弹窗",
+    "file": "screens/38.png"
+  },
+  {
+    "title": "主题手动选择-深色",
+    "group": "菜单与弹窗",
+    "file": "screens/39.png"
+  },
+  {
+    "title": "主题手动选择-跟随系统",
+    "group": "菜单与弹窗",
+    "file": "screens/40.png"
+  },
+  {
+    "title": "主题明暗与主色半屏",
+    "group": "菜单与弹窗",
+    "file": "screens/41.png"
+  },
+  {
+    "title": "主题跟随系统浅色",
+    "group": "菜单与弹窗",
+    "file": "screens/42.png"
+  },
+  {
+    "title": "冷启动打开通知中心",
+    "group": "菜单与弹窗",
+    "file": "screens/120.png"
+  },
+  {
+    "title": "单行原生导航",
+    "group": "菜单与弹窗",
+    "file": "screens/43.png"
+  },
+  {
+    "title": "原生中文分类菜单",
+    "group": "菜单与弹窗",
+    "file": "screens/44.png"
+  },
+  {
+    "title": "原生全局搜索",
+    "group": "菜单与弹窗",
+    "file": "screens/45.png"
+  },
+  {
+    "title": "原生工作流分享搜索",
+    "group": "菜单与弹窗",
+    "file": "screens/46.png"
+  },
+  {
+    "title": "原生已安装插件筛选",
+    "group": "菜单与弹窗",
+    "file": "screens/47.png"
+  },
+  {
+    "title": "原生插件市场筛选与排序",
+    "group": "菜单与弹窗",
+    "file": "screens/49.png"
+  },
+  {
+    "title": "原生插件面板",
+    "group": "菜单与弹窗",
+    "file": "screens/50.png"
+  },
+  {
+    "title": "原生整理历史状态筛选",
+    "group": "菜单与弹窗",
+    "file": "screens/51.png"
+  },
+  {
+    "title": "原生站点筛选菜单",
+    "group": "菜单与弹窗",
+    "file": "screens/54.png"
+  },
+  {
+    "title": "原生订阅分享搜索",
+    "group": "菜单与弹窗",
+    "file": "screens/55.png"
+  },
+  {
+    "title": "原生订阅状态与排序筛选",
+    "group": "菜单与弹窗",
+    "file": "screens/56.png"
+  },
+  {
+    "title": "原生页内分类菜单",
+    "group": "菜单与弹窗",
+    "file": "screens/57.png"
+  },
+  {
+    "title": "固定间距底栏含动态动作",
+    "group": "菜单与弹窗",
+    "file": "screens/58.png"
+  },
+  {
+    "title": "固定间距底栏整组居中",
+    "group": "菜单与弹窗",
+    "file": "screens/59.png"
+  },
+  {
+    "title": "媒体卡片 · 长按搜索与订阅",
+    "group": "菜单与弹窗",
+    "file": "screens/271.png"
+  },
+  {
+    "title": "媒体识别",
+    "group": "菜单与弹窗",
+    "file": "screens/245.png"
+  },
+  {
+    "title": "常用入口用户位于最后",
+    "group": "菜单与弹窗",
+    "file": "screens/150.png"
+  },
+  {
+    "title": "捷径半屏文字亮度",
+    "group": "菜单与弹窗",
+    "file": "screens/60.png"
+  },
+  {
+    "title": "捷径展开文字亮度",
+    "group": "菜单与弹窗",
+    "file": "screens/61.png"
+  },
+  {
+    "title": "插件面板半屏文字亮度",
+    "group": "菜单与弹窗",
+    "file": "screens/62.png"
+  },
+  {
+    "title": "插件面板展开文字亮度",
+    "group": "菜单与弹窗",
+    "file": "screens/63.png"
+  },
+  {
+    "title": "文件管理刷新菜单",
+    "group": "菜单与弹窗",
+    "file": "screens/64.png"
+  },
+  {
+    "title": "更多-浅色搜索框同系灰分组",
+    "group": "菜单与弹窗",
+    "file": "screens/211.png"
+  },
+  {
+    "title": "更多-浅色搜索框同系灰滚动",
+    "group": "菜单与弹窗",
+    "file": "screens/210.png"
+  },
+  {
+    "title": "更多-深色搜索框同系灰分组",
+    "group": "菜单与弹窗",
+    "file": "screens/213.png"
+  },
+  {
+    "title": "更多-深色搜索框同系灰滚动",
+    "group": "菜单与弹窗",
+    "file": "screens/212.png"
+  },
+  {
+    "title": "更多下拉显示搜索",
+    "group": "菜单与弹窗",
+    "file": "screens/66.png"
+  },
+  {
+    "title": "更多主题与居中底栏",
+    "group": "菜单与弹窗",
+    "file": "screens/67.png"
+  },
+  {
+    "title": "更多菜单搜索",
+    "group": "菜单与弹窗",
+    "file": "screens/68.png"
+  },
+  {
+    "title": "更多默认收起搜索",
+    "group": "菜单与弹窗",
+    "file": "screens/69.png"
+  },
+  {
+    "title": "榜单多次往返后底栏可用",
+    "group": "菜单与弹窗",
+    "file": "screens/145.png"
+  },
+  {
+    "title": "榜单底栏连续切换-1",
+    "group": "菜单与弹窗",
+    "file": "screens/149.png"
+  },
+  {
+    "title": "榜单底栏连续切换-2",
+    "group": "菜单与弹窗",
+    "file": "screens/148.png"
+  },
+  {
+    "title": "榜单底栏连续切换-3",
+    "group": "菜单与弹窗",
+    "file": "screens/147.png"
+  },
+  {
+    "title": "榜单底栏连续切换-4",
+    "group": "菜单与弹窗",
+    "file": "screens/146.png"
+  },
+  {
+    "title": "浅色主题原生插件面板",
+    "group": "菜单与弹窗",
+    "file": "screens/70.png"
+  },
+  {
+    "title": "浅色主题原生搜索",
+    "group": "菜单与弹窗",
+    "file": "screens/71.png"
+  },
+  {
+    "title": "浅色主题系统磨砂 Sheet",
+    "group": "菜单与弹窗",
+    "file": "screens/72.png"
+  },
+  {
+    "title": "浅色更多菜单文件整理图标",
+    "group": "菜单与弹窗",
+    "file": "screens/73.png"
+  },
+  {
+    "title": "浅色更多菜单滚动复用",
+    "group": "菜单与弹窗",
+    "file": "screens/74.png"
+  },
+  {
+    "title": "浅色更多菜单统一图标-顶部",
+    "group": "菜单与弹窗",
+    "file": "screens/75.png"
+  },
+  {
+    "title": "浅色更多菜单重新进入",
+    "group": "菜单与弹窗",
+    "file": "screens/76.png"
+  },
+  {
+    "title": "深色主题原生插件面板",
+    "group": "菜单与弹窗",
+    "file": "screens/77.png"
+  },
+  {
+    "title": "深色主题原生搜索",
+    "group": "菜单与弹窗",
+    "file": "screens/78.png"
+  },
+  {
+    "title": "深色主题系统磨砂 Sheet",
+    "group": "菜单与弹窗",
+    "file": "screens/79.png"
+  },
+  {
+    "title": "深色更多菜单文件整理图标",
+    "group": "菜单与弹窗",
+    "file": "screens/80.png"
+  },
+  {
+    "title": "深色更多菜单滚动复用",
+    "group": "菜单与弹窗",
+    "file": "screens/81.png"
+  },
+  {
+    "title": "深色更多菜单统一图标-顶部",
+    "group": "菜单与弹窗",
+    "file": "screens/82.png"
+  },
+  {
+    "title": "深色更多菜单重新进入",
+    "group": "菜单与弹窗",
+    "file": "screens/83.png"
+  },
+  {
+    "title": "热启动打开通知中心",
+    "group": "菜单与弹窗",
+    "file": "screens/121.png"
+  },
+  {
+    "title": "用户二级菜单",
+    "group": "菜单与弹窗",
+    "file": "screens/166.png"
+  },
+  {
+    "title": "电视剧订阅卡片长按菜单",
+    "group": "菜单与弹窗",
+    "file": "screens/265.png"
+  },
+  {
+    "title": "站点标题操作进入三点菜单",
+    "group": "菜单与弹窗",
+    "file": "screens/94.png"
+  },
+  {
+    "title": "站点统一标题与渐变顶栏",
+    "group": "菜单与弹窗",
+    "file": "screens/95.png"
+  },
+  {
+    "title": "系统确认取消返回主页面",
+    "group": "菜单与弹窗",
+    "file": "screens/96.png"
+  },
+  {
+    "title": "系统确认框完整正文",
+    "group": "菜单与弹窗",
+    "file": "screens/97.png"
+  },
+  {
+    "title": "规则测试",
+    "group": "菜单与弹窗",
+    "file": "screens/246.png"
+  },
+  {
+    "title": "订阅文件统计",
+    "group": "菜单与弹窗",
     "file": "screens/173.png"
   },
   {
-    "title": "订阅卡片原菜单",
-    "group": "导航与弹窗",
-    "file": "screens/174.png"
+    "title": "词表设置",
+    "group": "菜单与弹窗",
+    "file": "screens/259.png"
   },
   {
-    "title": "网页桌面浅色已安装插件可读性",
-    "group": "网页兼容",
-    "file": "screens/175.png"
+    "title": "词表集数规则",
+    "group": "菜单与弹窗",
+    "file": "screens/260.png"
   },
   {
-    "title": "网页桌面浅色插件市场可读性",
-    "group": "网页兼容",
-    "file": "screens/176.png"
+    "title": "账号主题-手动浅色主界面",
+    "group": "菜单与弹窗",
+    "file": "screens/236.png"
   },
   {
-    "title": "网页桌面浅色资源标签可读性",
-    "group": "网页兼容",
+    "title": "账号主题-手动深色主界面",
+    "group": "菜单与弹窗",
+    "file": "screens/240.png"
+  },
+  {
+    "title": "账号主题-跟随系统深色主界面",
+    "group": "菜单与弹窗",
+    "file": "screens/232.png"
+  },
+  {
+    "title": "跟手卡片取消-1",
+    "group": "菜单与弹窗",
+    "file": "screens/101.png"
+  },
+  {
+    "title": "跟手卡片取消-2",
+    "group": "菜单与弹窗",
+    "file": "screens/102.png"
+  },
+  {
+    "title": "跟手卡片完成-1",
+    "group": "菜单与弹窗",
+    "file": "screens/103.png"
+  },
+  {
+    "title": "跟手卡片完成-2",
+    "group": "菜单与弹窗",
+    "file": "screens/104.png"
+  },
+  {
+    "title": "跟随浅色的原生菜单",
+    "group": "菜单与弹窗",
+    "file": "screens/105.png"
+  },
+  {
+    "title": "通知中心",
+    "group": "菜单与弹窗",
+    "file": "screens/52.png"
+  },
+  {
+    "title": "顶部常用入口与页面操作分组",
+    "group": "菜单与弹窗",
+    "file": "screens/106.png"
+  },
+  {
+    "title": "下载状态 · 中组件",
+    "group": "小组件",
+    "file": "screens/273.png"
+  },
+  {
+    "title": "下载状态 · 大组件",
+    "group": "小组件",
+    "file": "screens/274.png"
+  },
+  {
+    "title": "下载状态 · 小组件",
+    "group": "小组件",
+    "file": "screens/275.png"
+  },
+  {
+    "title": "系统概览 · 中组件",
+    "group": "小组件",
+    "file": "screens/276.png"
+  },
+  {
+    "title": "系统概览 · 大组件",
+    "group": "小组件",
+    "file": "screens/277.png"
+  },
+  {
+    "title": "系统概览 · 小组件",
+    "group": "小组件",
+    "file": "screens/278.png"
+  },
+  {
+    "title": "订阅 · 中组件",
+    "group": "小组件",
+    "file": "screens/279.png"
+  },
+  {
+    "title": "订阅 · 大组件",
+    "group": "小组件",
+    "file": "screens/280.png"
+  },
+  {
+    "title": "订阅 · 小组件",
+    "group": "小组件",
+    "file": "screens/281.png"
+  },
+  {
+    "title": "近期入库 · 中组件",
+    "group": "小组件",
+    "file": "screens/282.png"
+  },
+  {
+    "title": "近期入库 · 大组件",
+    "group": "小组件",
+    "file": "screens/283.png"
+  },
+  {
+    "title": "近期入库 · 小组件",
+    "group": "小组件",
+    "file": "screens/284.png"
+  },
+  {
+    "title": "搜索结果 · 浅色网页",
+    "group": "网页",
+    "file": "screens/181.png"
+  },
+  {
+    "title": "搜索结果 · 深色网页",
+    "group": "网页",
     "file": "screens/177.png"
   },
   {
-    "title": "网页桌面通知海报与正文",
-    "group": "网页兼容",
-    "file": "screens/178.png"
+    "title": "桌面水平导航 · 浅色滚动后轻投影",
+    "group": "网页",
+    "file": "screens/224.png"
+  },
+  {
+    "title": "桌面水平导航 · 浅色顶部轻投影",
+    "group": "网页",
+    "file": "screens/223.png"
+  },
+  {
+    "title": "桌面水平导航 · 深色滚动后轻投影",
+    "group": "网页",
+    "file": "screens/226.png"
+  },
+  {
+    "title": "桌面水平导航 · 深色顶部轻投影",
+    "group": "网页",
+    "file": "screens/225.png"
+  },
+  {
+    "title": "桌面网页 · 浅色滚动后轻投影",
+    "group": "网页",
+    "file": "screens/220.png"
+  },
+  {
+    "title": "桌面网页 · 浅色顶部轻投影",
+    "group": "网页",
+    "file": "screens/219.png"
+  },
+  {
+    "title": "桌面网页 · 深色滚动后轻投影",
+    "group": "网页",
+    "file": "screens/222.png"
+  },
+  {
+    "title": "桌面网页 · 深色顶部轻投影",
+    "group": "网页",
+    "file": "screens/221.png"
+  },
+  {
+    "title": "移动网页 · 浅色滚动后轻投影",
+    "group": "网页",
+    "file": "screens/216.png"
+  },
+  {
+    "title": "移动网页 · 浅色顶部轻投影",
+    "group": "网页",
+    "file": "screens/215.png"
+  },
+  {
+    "title": "移动网页 · 深色滚动后轻投影",
+    "group": "网页",
+    "file": "screens/218.png"
+  },
+  {
+    "title": "移动网页 · 深色顶部轻投影",
+    "group": "网页",
+    "file": "screens/217.png"
+  },
+  {
+    "group": "网页",
+    "title": "网页手机浅色主题设置",
+    "file": "screens/127.png"
   },
   {
     "title": "网页手机浅色已安装插件可读性",
-    "group": "网页兼容",
+    "group": "网页",
     "file": "screens/179.png"
   },
   {
     "title": "网页手机浅色插件市场可读性",
-    "group": "网页兼容",
+    "group": "网页",
     "file": "screens/180.png"
   },
   {
-    "title": "网页手机浅色资源标签可读性",
-    "group": "网页兼容",
-    "file": "screens/181.png"
+    "group": "网页",
+    "title": "网页手机浅色页面",
+    "file": "screens/128.png"
   },
   {
-    "title": "网页手机通知海报与正文",
-    "group": "网页兼容",
-    "file": "screens/182.png"
+    "group": "网页",
+    "title": "网页手机深色主题设置",
+    "file": "screens/129.png"
   },
   {
-    "title": "桌面小尺寸双向速度",
-    "group": "小组件",
-    "file": "screens/183.png"
+    "group": "网页",
+    "title": "网页手机深色页面",
+    "file": "screens/130.png"
   },
   {
-    "title": "桌面中尺寸速度与剩余空间",
-    "group": "小组件",
-    "file": "screens/184.png"
+    "group": "网页",
+    "title": "网页桌面浅色主题设置",
+    "file": "screens/131.png"
   },
   {
-    "title": "桌面大尺寸与任务进度",
-    "group": "小组件",
-    "file": "screens/185.png"
+    "title": "网页桌面浅色已安装插件可读性",
+    "group": "网页",
+    "file": "screens/175.png"
   },
   {
-    "title": "桌面已配置下载状态",
-    "group": "小组件",
-    "file": "screens/186.png"
+    "title": "网页桌面浅色插件市场可读性",
+    "group": "网页",
+    "file": "screens/176.png"
   },
   {
-    "title": "选择服务与下载内容",
-    "group": "小组件",
-    "file": "screens/187.png"
+    "group": "网页",
+    "title": "网页桌面浅色页面",
+    "file": "screens/132.png"
   },
   {
-    "title": "锁屏行内双向速度",
-    "group": "小组件",
-    "file": "screens/188.png"
+    "group": "网页",
+    "title": "网页桌面深色主题设置",
+    "file": "screens/133.png"
   },
   {
-    "title": "锁屏圆形与矩形",
-    "group": "小组件",
-    "file": "screens/189.png"
-  },
-  {
-    "title": "实际锁屏紧凑布局",
-    "group": "小组件",
-    "file": "screens/190.png"
-  },
-  {
-    "title": "今天视图深色",
-    "group": "小组件",
-    "file": "screens/191.png"
-  },
-  {
-    "title": "今天视图浅色",
-    "group": "小组件",
-    "file": "screens/192.png"
-  },
-  {
-    "title": "今天视图辅助功能最大字号",
-    "group": "小组件",
-    "file": "screens/193.png"
-  },
-  {
-    "title": "系统色调小尺寸",
-    "group": "小组件",
-    "file": "screens/194.png"
-  },
-  {
-    "title": "系统色调中尺寸",
-    "group": "小组件",
-    "file": "screens/195.png"
-  },
-  {
-    "title": "今天视图中尺寸深色",
-    "group": "小组件",
-    "file": "screens/196.png"
-  },
-  {
-    "title": "今天视图中尺寸浅色",
-    "group": "小组件",
-    "file": "screens/197.png"
-  },
-  {
-    "title": "下载状态 · 小尺寸丰富内容",
-    "group": "小组件",
-    "file": "screens/198.png"
-  },
-  {
-    "title": "系统概览 · 小尺寸丰富内容",
-    "group": "小组件",
-    "file": "screens/199.png"
-  },
-  {
-    "title": "订阅 · 小尺寸丰富内容",
-    "group": "小组件",
-    "file": "screens/200.png"
-  },
-  {
-    "title": "近期入库 · 小尺寸丰富内容",
-    "group": "小组件",
-    "file": "screens/201.png"
-  },
-  {
-    "title": "下载状态 · 中尺寸丰富内容",
-    "group": "小组件",
-    "file": "screens/202.png"
-  },
-  {
-    "title": "系统概览 · 中尺寸丰富内容",
-    "group": "小组件",
-    "file": "screens/203.png"
-  },
-  {
-    "title": "订阅 · 中尺寸丰富内容",
-    "group": "小组件",
-    "file": "screens/204.png"
-  },
-  {
-    "title": "近期入库 · 中尺寸丰富内容",
-    "group": "小组件",
-    "file": "screens/205.png"
-  },
-  {
-    "title": "下载状态 · 大尺寸丰富内容",
-    "group": "小组件",
-    "file": "screens/206.png"
-  },
-  {
-    "title": "系统概览 · 大尺寸丰富内容",
-    "group": "小组件",
-    "file": "screens/207.png"
-  },
-  {
-    "title": "订阅 · 大尺寸丰富内容",
-    "group": "小组件",
-    "file": "screens/208.png"
-  },
-  {
-    "title": "近期入库 · 大尺寸丰富内容",
-    "group": "小组件",
-    "file": "screens/209.png"
-  },
-  {
-    "title": "更多-浅色搜索框同系灰滚动",
-    "group": "导航与弹窗",
-    "file": "screens/210.png"
-  },
-  {
-    "title": "更多-浅色搜索框同系灰分组",
-    "group": "导航与弹窗",
-    "file": "screens/211.png"
-  },
-  {
-    "title": "更多-深色搜索框同系灰滚动",
-    "group": "导航与弹窗",
-    "file": "screens/212.png"
-  },
-  {
-    "title": "更多-深色搜索框同系灰分组",
-    "group": "导航与弹窗",
-    "file": "screens/213.png"
-  },
-  {
-    "title": "失效网页会话回到原生登录",
-    "group": "连接与登录",
-    "file": "screens/214.png"
-  },
-  {
-    "title": "移动网页 · 浅色顶部轻投影",
-    "group": "网页兼容",
-    "file": "screens/215.png"
-  },
-  {
-    "title": "移动网页 · 浅色滚动后轻投影",
-    "group": "网页兼容",
-    "file": "screens/216.png"
-  },
-  {
-    "title": "移动网页 · 深色顶部轻投影",
-    "group": "网页兼容",
-    "file": "screens/217.png"
-  },
-  {
-    "title": "移动网页 · 深色滚动后轻投影",
-    "group": "网页兼容",
-    "file": "screens/218.png"
-  },
-  {
-    "title": "桌面网页 · 浅色顶部轻投影",
-    "group": "网页兼容",
-    "file": "screens/219.png"
-  },
-  {
-    "title": "桌面网页 · 浅色滚动后轻投影",
-    "group": "网页兼容",
-    "file": "screens/220.png"
-  },
-  {
-    "title": "桌面网页 · 深色顶部轻投影",
-    "group": "网页兼容",
-    "file": "screens/221.png"
-  },
-  {
-    "title": "桌面网页 · 深色滚动后轻投影",
-    "group": "网页兼容",
-    "file": "screens/222.png"
-  },
-  {
-    "title": "桌面水平导航 · 浅色顶部轻投影",
-    "group": "网页兼容",
-    "file": "screens/223.png"
-  },
-  {
-    "title": "桌面水平导航 · 浅色滚动后轻投影",
-    "group": "网页兼容",
-    "file": "screens/224.png"
-  },
-  {
-    "title": "桌面水平导航 · 深色顶部轻投影",
-    "group": "网页兼容",
-    "file": "screens/225.png"
-  },
-  {
-    "title": "桌面水平导航 · 深色滚动后轻投影",
-    "group": "网页兼容",
-    "file": "screens/226.png"
-  },
-  {
-    "title": "账号主题-跟随系统浅色连接",
-    "group": "连接与登录",
-    "file": "screens/227.png"
-  },
-  {
-    "title": "账号主题-跟随系统浅色登录",
-    "group": "连接与登录",
-    "file": "screens/228.png"
-  },
-  {
-    "title": "账号主题-跟随系统深色冷启动登录",
-    "group": "连接与登录",
-    "file": "screens/229.png"
-  },
-  {
-    "title": "账号主题-跟随系统深色登录",
-    "group": "连接与登录",
-    "file": "screens/230.png"
-  },
-  {
-    "title": "账号主题-跟随系统深色连接",
-    "group": "连接与登录",
-    "file": "screens/231.png"
-  },
-  {
-    "title": "账号主题-跟随系统深色主界面",
-    "group": "连接与登录",
-    "file": "screens/232.png"
-  },
-  {
-    "title": "账号主题-手动浅色冷启动登录",
-    "group": "连接与登录",
-    "file": "screens/233.png"
-  },
-  {
-    "title": "账号主题-手动浅色登录",
-    "group": "连接与登录",
-    "file": "screens/234.png"
-  },
-  {
-    "title": "账号主题-手动浅色连接",
-    "group": "连接与登录",
-    "file": "screens/235.png"
-  },
-  {
-    "title": "账号主题-手动浅色主界面",
-    "group": "连接与登录",
-    "file": "screens/236.png"
-  },
-  {
-    "title": "账号主题-手动深色冷启动登录",
-    "group": "连接与登录",
-    "file": "screens/237.png"
-  },
-  {
-    "title": "账号主题-手动深色登录",
-    "group": "连接与登录",
-    "file": "screens/238.png"
-  },
-  {
-    "title": "账号主题-手动深色连接",
-    "group": "连接与登录",
-    "file": "screens/239.png"
-  },
-  {
-    "title": "账号主题-手动深色主界面",
-    "group": "连接与登录",
-    "file": "screens/240.png"
-  },
-  {
-    "title": "账号主题-首次使用深色登录",
-    "group": "连接与登录",
-    "file": "screens/241.png"
-  },
-  {
-    "title": "账号主题-首次使用深色连接",
-    "group": "连接与登录",
-    "file": "screens/242.png"
-  },
-  {
-    "title": "账号主题-首次使用浅色登录",
-    "group": "连接与登录",
-    "file": "screens/243.png"
-  },
-  {
-    "title": "账号主题-首次使用浅色连接",
-    "group": "连接与登录",
-    "file": "screens/244.png"
-  },
-  {
-    "title": "名称识别 · 统一结果布局 · 深色",
-    "group": "导航与弹窗",
-    "file": "screens/245.png"
-  },
-  {
-    "title": "规则测试 · 统一结果布局 · 深色",
-    "group": "导航与弹窗",
-    "file": "screens/246.png"
-  },
-  {
-    "title": "词表 · 分类与编辑 · 深色",
-    "group": "导航与弹窗",
-    "file": "screens/247.png"
-  },
-  {
-    "title": "词表 · 配置说明展开 · 深色",
-    "group": "导航与弹窗",
-    "file": "screens/248.png"
-  },
-  {
-    "title": "词表 · 集数规则 · 深色",
-    "group": "导航与弹窗",
-    "file": "screens/249.png"
-  },
-  {
-    "title": "名称识别 · 统一结果布局 · 浅色",
-    "group": "导航与弹窗",
-    "file": "screens/250.png"
-  },
-  {
-    "title": "规则测试 · 统一结果布局 · 浅色",
-    "group": "导航与弹窗",
-    "file": "screens/251.png"
-  },
-  {
-    "title": "词表 · 分类与编辑 · 浅色",
-    "group": "导航与弹窗",
-    "file": "screens/252.png"
-  },
-  {
-    "title": "词表 · 配置说明展开 · 浅色",
-    "group": "导航与弹窗",
-    "file": "screens/253.png"
-  },
-  {
-    "title": "词表 · 集数规则 · 浅色",
-    "group": "导航与弹窗",
-    "file": "screens/254.png"
-  },
-  {
-    "title": "原生登录 · 无网页登录入口",
-    "group": "连接与登录",
-    "file": "screens/255.png"
-  },
-  {
-    "title": "原生连接恢复 · 无网页导航回退",
-    "group": "连接与登录",
-    "file": "screens/256.png"
-  },
-  {
-    "title": "Agent · 原生弹窗与底部输入 · 深色",
-    "group": "导航与弹窗",
-    "file": "screens/257.png"
-  },
-  {
-    "title": "Agent · 原生弹窗与底部输入 · 浅色",
-    "group": "导航与弹窗",
-    "file": "screens/258.png"
-  },
-  {
-    "title": "词表 · 完整宽度 · 深色",
-    "group": "导航与弹窗",
-    "file": "screens/259.png"
-  },
-  {
-    "title": "词表 · 集数规则完整宽度 · 浅色",
-    "group": "导航与弹窗",
-    "file": "screens/260.png"
-  },
-  {
-    "title": "实时日志 · 独立原生标题",
-    "group": "导航与弹窗",
-    "file": "screens/261.png"
-  },
-  {
-    "title": "实时日志 · 原生操作菜单",
-    "group": "导航与弹窗",
-    "file": "screens/262.png"
-  },
-  {
-    "title": "仪表盘 · 降低壁纸曝光 · 深色",
-    "group": "页面",
-    "file": "screens/263.png"
-  },
-  {
-    "title": "仪表盘 · 浅色停用全局壁纸",
-    "group": "页面",
-    "file": "screens/264.png"
-  },
-  {
-    "title": "卡片 · 系统长按菜单与悬浮预览",
-    "group": "导航与弹窗",
-    "file": "screens/265.png"
-  },
-  {
-    "title": "卡片 · 辅助功能原生操作列表",
-    "group": "导航与弹窗",
-    "file": "screens/266.png"
-  },
-  {
-    "title": "卡片 · 插件原生二级菜单",
-    "group": "导航与弹窗",
-    "file": "screens/267.png"
-  },
-  {
-    "title": "独立菜单 · 短列表与原禁用状态",
-    "group": "导航与弹窗",
-    "file": "screens/268.png"
-  },
-  {
-    "title": "独立菜单 · 长列表受限高度",
-    "group": "导航与弹窗",
-    "file": "screens/269.png"
-  },
-  {
-    "title": "独立菜单 · 辅助字号与内部滚动",
-    "group": "导航与弹窗",
-    "file": "screens/270.png"
-  },
-  {
-    "title": "媒体卡片 · 原生长按搜索与订阅",
-    "group": "导航与弹窗",
-    "file": "screens/271.png"
+    "group": "网页",
+    "title": "网页桌面深色页面",
+    "file": "screens/134.png"
   }
 ]
