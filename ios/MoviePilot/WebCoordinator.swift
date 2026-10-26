@@ -143,7 +143,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
         WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
     }
     webView = WKWebView(frame: .zero, configuration: configuration)
-    content = WebContentController(webView: webView)
+    content = WebContentController(webView: webView, instanceID: instance.id)
     super.init()
     relay.owner = self
     webView.navigationDelegate = self
@@ -277,7 +277,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 
   /// 系统生命周期只同步给当前文档；正常后台恢复保留 DOM 并等待绘制后交回正文。
   func setLifecycle(_ value: String) {
-    let returningFromBackground = value == "active" && lifecycle == "background"
+    let returningToForeground = value == "active" && lifecycle != "active"
     if value == "inactive", lifecycle == "active", !startupPending,
       let context = resumePreviewContext
     {
@@ -293,7 +293,6 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     }
     if value == "background", lifecycle != value { automaticRecoveryAttempted = false }
     lifecycle = value
-    if value == "active", !returningFromBackground { content.clearResumePreview() }
     timeout?.invalidate()
     startupTimeout?.invalidate()
     if value == "active", pendingProcessRecovery {
@@ -313,7 +312,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
         NotificationService.shared.resumePending()
         if session.phase == .nativeNavigation {
           command("state.request", payload: .object(["reason": .string("foreground")]))
-          if returningFromBackground { resumeAfterPaint() }
+          if returningToForeground { resumeAfterPaint() }
         } else if session.phase != .webNavigation {
           armTimeout()
         }
@@ -336,15 +335,22 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 
   /// 沿用已有只读绘制握手与命令期限，不通过刷新页面或重放业务动作消除空白。
   private func resumeAfterPaint() {
-    content.synchronizeResumePreview(context: resumePreviewContext)
+    guard let context = resumePreviewContext else {
+      content.clearResumePreview()
+      return
+    }
+    content.ensureResumePreview(context: context)
     guard let token = content.resumePreviewToken else { return }
     let document = documentID
     command("navigation.waitForPaint", payload: .object([:])) { [weak self] accepted in
       guard let self, self.documentID == document, self.lifecycle == "active" else { return }
       if accepted {
-        self.content.completeResumePreview(token: token)
-      } else {
-        self.content.clearResumePreview(token: token)
+        self.content.completeResumePreview(token: token) { [weak self] in
+          guard let self, self.documentID == document, self.lifecycle == "active",
+            self.content.resumePreviewToken == token
+          else { return }
+          self.fail("页面尚未恢复绘制，请重新打开。未确认的操作不会自动重试。")
+        }
       }
     }
   }
