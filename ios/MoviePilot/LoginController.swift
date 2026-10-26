@@ -138,7 +138,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
 
   /// 使用与网页就绪等待相同的启动屏，在首次绘制前遮住尚未确定需要显示的表单。
   private func showStartup() {
-    let startup = StartupView()
+    let startup = StartupView(instance: instance.id)
     startup.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(startup)
     NSLayoutConstraint.activate([
