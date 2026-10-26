@@ -1963,6 +1963,10 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
     XCTAssertFalse(app.descendants(matching: .any)["more-menu-search"].exists)
     attachScreen("兼容性-更多目录渐变", app: app)
+    XCUIDevice.shared.orientation = .landscapeLeft
+    settlePage(app)
+    attachScreen("兼容性-横屏更多目录", app: app)
+    XCUIDevice.shared.orientation = .portrait
     roots.buttons["仪表盘"].tap()
     XCTAssertTrue(app.navigationBars["仪表盘"].waitForExistence(timeout: 10))
   }
@@ -2025,6 +2029,58 @@ final class NativeFrameworkTests: XCTestCase {
     attachScreen("交互-原生工作流分享搜索", app: app)
     app.buttons["native-panel-close"].tap()
     XCTAssertTrue(app.tabBars["native-root-navigation"].exists)
+  }
+
+  /// 真实插件搜索在横竖屏和键盘状态下保留安全边距，关闭后文件详情按钮仍可点击。
+  func testNativePluginSearchAndFileRows() throws {
+    defer { XCUIDevice.shared.orientation = .portrait }
+    let app = try signIn(captureScreens: false, remember: false)
+    selectTheme("深色", app: app)
+    openMorePage("插件", app: app)
+    let action = app.buttons["native-bottom-action"]
+    XCTAssertTrue(action.waitForExistence(timeout: 15))
+    action.tap()
+    let search = app.buttons["搜索插件"].firstMatch
+    if search.waitForExistence(timeout: 3) { search.tap() }
+    let field = app.webViews.textFields.firstMatch
+    XCTAssertTrue(field.waitForExistence(timeout: 15), app.debugDescription)
+    XCTAssertTrue(field.isHittable)
+    XCTAssertTrue(app.navigationBars["搜索插件"].exists)
+    let webView = app.webViews.firstMatch
+    XCTAssertGreaterThanOrEqual(field.frame.minX, webView.frame.minX + 12)
+    XCTAssertLessThanOrEqual(field.frame.maxX, webView.frame.maxX - 12)
+    attachScreen("交互-插件搜索原生紧凑控件", app: app)
+    XCUIDevice.shared.orientation = .landscapeLeft
+    XCTAssertTrue(field.isHittable)
+    XCTAssertGreaterThanOrEqual(field.frame.minX, webView.frame.minX + 12)
+    XCTAssertLessThanOrEqual(field.frame.maxX, webView.frame.maxX - 12)
+    attachScreen("交互-插件搜索横屏安全区", app: app)
+    XCUIDevice.shared.orientation = .portrait
+    field.tap()
+    field.typeText("站点")
+    XCTAssertEqual(field.value as? String, "站点")
+    if app.keyboards.firstMatch.exists {
+      XCTAssertLessThanOrEqual(field.frame.maxY, app.keyboards.firstMatch.frame.minY)
+      attachScreen("交互-插件搜索键盘安全区", app: app)
+    }
+    app.buttons["native-sheet-close"].tap()
+    XCTAssertFalse(app.buttons["native-sheet-close"].waitForExistence(timeout: 1))
+    openMorePage("文件管理", app: app)
+    let details = app.webViews.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "操作 ")
+    ).firstMatch
+    XCTAssertTrue(details.waitForExistence(timeout: 15), app.debugDescription)
+    XCTAssertGreaterThanOrEqual(details.frame.width, 44)
+    XCTAssertGreaterThanOrEqual(details.frame.height, 44)
+    XCTAssertLessThanOrEqual(details.frame.maxX, app.frame.maxX)
+    details.tap()
+    let detailsTitle = app.navigationBars.matching(
+      NSPredicate(format: "identifier IN %@", ["文件详情", "文件夹详情"])
+    ).firstMatch
+    XCTAssertTrue(detailsTitle.waitForExistence(timeout: 10))
+    app.buttons["native-sheet-close"].tap()
+    XCTAssertTrue(details.waitForExistence(timeout: 10))
+    selectTheme("跟随系统", app: app)
   }
 
   /// 目录滚动打开文件页，文件刷新仍通过原生菜单触发同一 HTML 列表更新。
@@ -2825,6 +2881,13 @@ final class NativeFrameworkTests: XCTestCase {
       XCTAssertGreaterThanOrEqual(dynamic[i].midX - dynamic[i - 1].midX, 60)
     }
     attachScreen("交互-固定间距底栏含动态动作", app: app)
+    XCUIDevice.shared.orientation = .landscapeLeft
+    settlePage(app)
+    assertBottomLayout(app)
+    attachScreen("交互-横屏底栏含动态动作", app: app)
+    XCUIDevice.shared.orientation = .portrait
+    settlePage(app)
+    assertBottomLayout(app)
     bar.buttons["更多"].tap()
     XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
     settlePage(app)
