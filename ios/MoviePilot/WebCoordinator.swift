@@ -275,8 +275,14 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     reload(automatically: true)
   }
 
-  /// 系统生命周期只同步给当前文档，后台暂停期间不进行超时恢复。
+  /// 系统生命周期只同步给当前文档；正常后台恢复保留 DOM 并等待绘制后交回正文。
   func setLifecycle(_ value: String) {
+    let returningFromBackground = value == "active" && lifecycle == "background"
+    if value == "inactive", lifecycle == "active", !startupPending,
+      let context = resumePreviewContext
+    {
+      content.preserveResumePreview(context: context)
+    }
     if value != "active" {
       cardMenus.invalidate()
       standaloneMenus.invalidate()
@@ -287,6 +293,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     }
     if value == "background", lifecycle != value { automaticRecoveryAttempted = false }
     lifecycle = value
+    if value == "active", !returningFromBackground { content.clearResumePreview() }
     timeout?.invalidate()
     startupTimeout?.invalidate()
     if value == "active", pendingProcessRecovery {
@@ -306,10 +313,38 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
         NotificationService.shared.resumePending()
         if session.phase == .nativeNavigation {
           command("state.request", payload: .object(["reason": .string("foreground")]))
+          if returningFromBackground { resumeAfterPaint() }
         } else if session.phase != .webNavigation {
           armTimeout()
         }
         layoutChanged()
+      }
+    }
+  }
+
+  /// 画面身份包含精确路由和主题；不同文档、账号或弹层之间不复用上一帧。
+  private var resumePreviewContext: String? {
+    guard session.phase == .nativeNavigation, let id = session.sessionId,
+      let snapshot = session.snapshot, snapshot.chrome.content != .menu
+    else { return nil }
+    return [
+      documentID.uuidString, id, snapshot.route.fullPath, snapshot.chrome.theme.rawValue,
+      snapshot.chrome.accentColor ?? "", snapshot.chrome.backgroundColor ?? "",
+      snapshot.chrome.surfaceColor ?? "", snapshot.presentation?.sheet?.id ?? "",
+    ].joined(separator: "|")
+  }
+
+  /// 沿用已有只读绘制握手与命令期限，不通过刷新页面或重放业务动作消除空白。
+  private func resumeAfterPaint() {
+    content.synchronizeResumePreview(context: resumePreviewContext)
+    guard let token = content.resumePreviewToken else { return }
+    let document = documentID
+    command("navigation.waitForPaint", payload: .object([:])) { [weak self] accepted in
+      guard let self, self.documentID == document, self.lifecycle == "active" else { return }
+      if accepted {
+        self.content.completeResumePreview(token: token)
+      } else {
+        self.content.clearResumePreview(token: token)
       }
     }
   }
@@ -386,8 +421,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     }
   }
 
-  /// 文档、身份或宿主失效后静默撤销旧视图回调，后续 UI 由会话释放流程统一恢复。
+  /// 文档、身份或宿主失效后撤销旧视图与恢复画面，后续 UI 由会话释放流程统一恢复。
   private func cancelCommands() {
+    content.clearResumePreview()
     cancelWidgetRequest()
     for timer in pendingCommands.values { timer.invalidate() }
     pendingCommands.removeAll()
@@ -638,6 +674,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       }
       let snapshot = try message.decodePayload(NavigationSnapshot.self)
       try session.receive(snapshot, routeRevision: route, stateRevision: state)
+      content.synchronizeResumePreview(context: resumePreviewContext)
       cardMenus.accent =
         NavigationSymbols.color(snapshot.chrome.accentColor) ?? AccountAppearance.accent
       cardMenus.synchronize()

@@ -619,6 +619,63 @@ final class NativeFrameworkTests: XCTestCase {
     add(attachment)
   }
 
+  /// 受控延迟真实 Vue 绘制确认，验证后台恢复期间保留画面、DOM 和表单，不生成业务截图。
+  func testForegroundPaintPreservesDocument() async throws {
+    guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_RESUME_SERVER"],
+      server == "http://127.0.0.1:5271", let base = URL(string: server)
+    else { throw XCTSkip("需要独立本机绘制时序夹具。") }
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = [
+      "-moviepilot.instance.selected.v1", "", "-AppleLanguages", "(zh-Hans)",
+    ]
+    app.launch()
+    let address = app.textFields["MoviePilot 服务地址"]
+    XCTAssertTrue(address.waitForExistence(timeout: 10))
+    address.tap()
+    if address.buttons.firstMatch.exists { address.buttons.firstMatch.tap() }
+    address.typeText(server + "\n")
+    authenticateFixture(app, remember: false)
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+    let initial = try await foregroundFixture(base)
+    XCTAssertEqual(initial["value"] as? String, "保留输入")
+    XCTAssertEqual(initial["scroll"] as? Int, 73)
+    let documents = try XCTUnwrap(initial["documents"] as? Int)
+    let boot = try XCTUnwrap(initial["boot"] as? String)
+    for _ in 0..<3 {
+      _ = try await foregroundFixture(base, control: "hold")
+      XCUIDevice.shared.press(.home)
+      app.activate()
+      let preview = app.images["native-resume-preview"]
+      XCTAssertTrue(preview.waitForExistence(timeout: 1))
+      _ = try await foregroundFixture(base, control: "release")
+      XCTAssertTrue(
+        NSPredicate(format: "exists == false").evaluate(with: preview)
+          || XCTWaiter.wait(
+            for: [
+              XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "exists == false"), object: preview)
+            ],
+            timeout: 5) == .completed
+      )
+      let resumed = try await foregroundFixture(base)
+      XCTAssertEqual(resumed["documents"] as? Int, documents)
+      XCTAssertEqual(resumed["boot"] as? String, boot)
+      XCTAssertEqual(resumed["value"] as? String, "保留输入")
+      XCTAssertEqual(resumed["scroll"] as? Int, 73)
+      XCTAssertTrue(app.tabBars["native-root-navigation"].buttons["推荐"].isEnabled)
+    }
+  }
+
+  /// 时序控制只访问固定本机测试端点，不注入产品命令或访问用户服务。
+  private func foregroundFixture(_ base: URL, control: String? = nil) async throws -> [String: Any]
+  {
+    let endpoint = base.appendingPathComponent("__fixture/" + (control ?? "stats"))
+    let (body, response) = try await URLSession.shared.data(from: endpoint)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+    return try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+  }
+
   /// 每段测量只重置夹具计数，不删除 App 实例、系统缓存或认证状态。
   private func resetCacheMeasurement(_ base: URL, phase: String) async throws {
     var request = URLRequest(url: base.appendingPathComponent("__fixture/reset"))
