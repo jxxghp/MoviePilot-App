@@ -12,6 +12,39 @@ private struct NetworkFixtures: Decodable {
 /// 使用显式配置的测试实例验收原生框架与原业务 HTML 的真实交接，不写入业务数据。
 @MainActor
 final class NativeFrameworkTests: XCTestCase {
+  /// 资源排序直接在当前页面的系统子菜单执行；重复打开保留方向和字段的独立勾选。
+  func testNativeResourceSortingMenu() throws {
+    let app = try signIn(captureScreens: false)
+    openMorePage("搜索结果", app: app)
+    XCTAssertTrue(app.navigationBars["搜索结果"].waitForExistence(timeout: 15))
+    settlePage(app)
+    let top = app.buttons["native-top-actions"]
+    top.tap()
+    let sort = nativeUserItem("排序", app: app)
+    XCTAssertTrue(sort.waitForExistence(timeout: 8), app.debugDescription)
+    sort.tap()
+    for title in ["升序", "降序", "默认", "站点", "大小", "做种数", "发布时间"] {
+      XCTAssertTrue(nativeUserItem(title, app: app).waitForExistence(timeout: 8), title)
+    }
+    XCTAssertFalse(app.tables["nativeOperationMenu"].exists)
+    XCTAssertFalse(app.otherElements["native-web-sheet"].exists)
+    nativeUserItem("升序", app: app).tap()
+    top.tap()
+    nativeUserItem("排序", app: app).tap()
+    XCTAssertTrue(nativeUserItem("升序", app: app).isSelected)
+    nativeUserItem("大小", app: app).tap()
+    top.tap()
+    nativeUserItem("排序", app: app).tap()
+    XCTAssertTrue(nativeUserItem("升序", app: app).isSelected)
+    XCTAssertTrue(nativeUserItem("大小", app: app).isSelected)
+    attachScreen("资源排序-当前页面二级菜单", app: app)
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.85)).tap()
+    app.tabBars["native-root-navigation"].buttons["仪表盘"].tap()
+    XCTAssertTrue(app.navigationBars["仪表盘"].waitForExistence(timeout: 10))
+    top.tap()
+    XCTAssertFalse(nativeUserItem("排序", app: app).exists, "离开资源页面撤销排序 owner")
+  }
+
   /// 新容器在实际WKWebView中复用榜单，过期失败仍可重试，恢复前台不沿用旧快照。
   func testNativeReadonlyListCache() async throws {
     guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_READONLY_CACHE"] == "1",
@@ -3648,16 +3681,16 @@ final class NativeFrameworkTests: XCTestCase {
   }
 
   /// 公共登录前置只读取私有运行参数，截图不包含账号输入或密码。
-  private func signIn() throws -> XCUIApplication {
+  private func signIn(captureScreens: Bool = true) throws -> XCUIApplication {
     let environment = ProcessInfo.processInfo.environment
     guard let username = environment["MOVIEPILOT_E2E_USERNAME"],
       let password = environment["MOVIEPILOT_E2E_PASSWORD"],
       !username.isEmpty, !password.isEmpty
     else { throw XCTSkip("需要通过私有测试运行配置指定实例和账号。") }
-    let app = try launchLogin()
+    let app = try launchLogin(captureScreens: captureScreens)
     let account = app.textFields["用户名"]
     account.tap()
-    attachScreen("框架-登录键盘", app: app)
+    if captureScreens { attachScreen("框架-登录键盘", app: app) }
     account.typeText(username)
     app.secureTextFields["密码"].tap()
     app.secureTextFields["密码"].typeText(password + "\n")
