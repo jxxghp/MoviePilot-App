@@ -1241,6 +1241,19 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     coordinator.layoutChanged()
   }
 
+  /// 图标快捷入口复用当前面板；业务表单保留，其他原生面板关闭后再重试最新意图。
+  func openHomeShortcut(_ action: ActionSnapshot) -> Bool {
+    guard nativeVisible, latest?.presentation?.overlayOpen != true else { return false }
+    if let current = panelAction {
+      if current.actionId == action.actionId && current.ownerId == action.ownerId { return true }
+      dismissNativePanel { [weak self] in self?.coordinator.onNavigationReady?() }
+      return false
+    }
+    guard presentedViewController == nil else { return false }
+    openNativePanel(action)
+    return panelAction?.actionId == action.actionId && panelAction?.ownerId == action.ownerId
+  }
+
   /// 快捷入口在系统浮层内使用独立导航，锚点位于宿主顶栏下方，底部导航继续显示。
   private func openNativePanel(_ action: ActionSnapshot) {
     guard panelNavigation == nil, presentedViewController == nil, let snapshot = action.panel,
