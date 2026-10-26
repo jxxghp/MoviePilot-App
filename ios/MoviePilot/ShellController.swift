@@ -676,7 +676,8 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     let visible =
       snapshot.chrome.bottomVisible && (systemSheet || snapshot.presentation?.fullscreen != true)
     host.additionalSafeAreaInsets.bottom =
-      visible ? BottomNavigationView.height + BottomNavigationView.bottomSpacing : 0
+      visible
+      ? max(0, bottomNavigation.intrinsicContentSize.height - view.safeAreaInsets.bottom) : 0
     if bottomNavigation.superview == nil {
       bottomNavigation.translatesAutoresizingMaskIntoConstraints = false
       view.addSubview(bottomNavigation)
@@ -685,10 +686,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
           equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
         bottomNavigation.trailingAnchor.constraint(
           equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-        // 系统 Tab Bar 自己消费 Home Indicator 区域，不能把它压进仅容纳图标的紧凑高度。
-        bottomNavigation.topAnchor.constraint(
-          equalTo: view.safeAreaLayoutGuide.bottomAnchor,
-          constant: -(BottomNavigationView.height + BottomNavigationView.bottomSpacing)),
+        // 底栏用自身的系统推荐高度；按钮的 64pt 不是原生栏总高度。
         bottomNavigation.bottomAnchor.constraint(equalTo: view.bottomAnchor),
       ])
     }
