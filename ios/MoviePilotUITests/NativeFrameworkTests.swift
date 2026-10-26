@@ -676,6 +676,51 @@ final class NativeFrameworkTests: XCTestCase {
     return try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
   }
 
+  /// 系统控制中心只中断前台而不切换文档，恢复仍须等待真实 Vue 绘制完成。
+  func testForegroundPaintAfterSystemInterruption() async throws {
+    guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_RESUME_SERVER"],
+      server == "http://127.0.0.1:5271", let base = URL(string: server)
+    else { throw XCTSkip("需要独立本机绘制时序夹具。") }
+    continueAfterFailure = false
+    _ = try await foregroundFixture(base, control: "release")
+    let app = XCUIApplication()
+    app.launchArguments = [
+      "-moviepilot.instance.selected.v1", "", "-AppleLanguages", "(zh-Hans)",
+    ]
+    app.launch()
+    let address = app.textFields["MoviePilot 服务地址"]
+    XCTAssertTrue(address.waitForExistence(timeout: 10))
+    address.tap()
+    if address.buttons.firstMatch.exists { address.buttons.firstMatch.tap() }
+    address.typeText(server + "\n")
+    authenticateFixture(app, remember: false)
+    XCTAssertTrue(app.tabBars["native-root-navigation"].waitForExistence(timeout: 30))
+    let initial = try await foregroundFixture(base)
+    _ = try await foregroundFixture(base, control: "hold")
+    app.coordinate(withNormalizedOffset: .init(dx: 0.95, dy: 0.005)).press(
+      forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: .init(dx: 0.95, dy: 0.6)))
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    springboard.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.99)).press(
+      forDuration: 0.05,
+      thenDragTo: springboard.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.3)))
+    app.activate()
+    let preview = app.images["native-resume-preview"]
+    XCTAssertTrue(preview.waitForExistence(timeout: 1), "系统中断恢复也要保护未完成绘制的正文")
+    let interrupted = try await foregroundFixture(base)
+    let states = try XCTUnwrap(interrupted["lifecycle"] as? [String])
+    XCTAssertTrue(states.contains("inactive"))
+    XCTAssertFalse(states.contains("background"), "此用例必须覆盖仅 inactive 的恢复路径")
+    _ = try await foregroundFixture(base, control: "release")
+    let removed = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "exists == false"), object: preview)
+    XCTAssertEqual(XCTWaiter.wait(for: [removed], timeout: 5), .completed)
+    let resumed = try await foregroundFixture(base)
+    XCTAssertEqual(resumed["boot"] as? String, initial["boot"] as? String)
+    XCTAssertEqual(resumed["documents"] as? Int, initial["documents"] as? Int)
+    XCTAssertEqual(resumed["value"] as? String, "保留输入")
+    XCTAssertEqual(resumed["scroll"] as? Int, 73)
+  }
+
   /// 每段测量只重置夹具计数，不删除 App 实例、系统缓存或认证状态。
   private func resetCacheMeasurement(_ base: URL, phase: String) async throws {
     var request = URLRequest(url: base.appendingPathComponent("__fixture/reset"))
