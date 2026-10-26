@@ -5,6 +5,7 @@ import WebKit
 @MainActor
 final class WebContentController: UIViewController {
   let webView: WKWebView
+  private let instanceID: UUID
   var onLayout: (() -> Void)?
   private var resumePreview: UIImageView?
   private var resumeContext: String?
@@ -12,14 +13,15 @@ final class WebContentController: UIViewController {
   private var resumePaintTimeout: Timer?
   private(set) var resumePreviewToken: UUID?
 
-  /// 使用协调器唯一持有的 WebView，不在导航切换时创建新实例。
-  init(webView: WKWebView) {
+  /// 使用唯一 WebView，并以当前实例主题提供无位图恢复占位。
+  init(webView: WKWebView, instanceID: UUID) {
     self.webView = webView
+    self.instanceID = instanceID
     super.init(nibName: nil, bundle: nil)
   }
 
   /// 内容会话只能通过指定 WebView 建立。
-  required init?(coder: NSCoder) { fatalError("Use init(webView:)") }
+  required init?(coder: NSCoder) { fatalError("Use init(webView:instanceID:)") }
 
   /// 页面背景可延伸至系统导航后方，正文避让统一交给协商布局。
   override func loadView() {
@@ -45,7 +47,13 @@ final class WebContentController: UIViewController {
 
   /// WebKit 暂停前只保留一张当前正文的内存画面，原 DOM、滚动和表单继续由同一 WebView 持有。
   func preserveResumePreview(context: String) {
-    if resumePreview != nil, resumeContext == context { return }
+    if resumePreview != nil, resumeContext == context {
+      // 连续中断复用同一张图，但上一轮 WebKit 回调和期限不能移除下一轮的保护画面。
+      resumePaintTimeout?.invalidate()
+      resumePaintTimeout = nil
+      resumePreviewToken = UUID()
+      return
+    }
     clearResumePreview()
     guard isViewLoaded, view.window != nil, !view.isHidden,
       view.bounds.width > 0, view.bounds.height > 0
@@ -58,7 +66,18 @@ final class WebContentController: UIViewController {
     let image = UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { _ in
       painted = view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
     }
-    guard painted else { return }
+    installResumePreview(image: painted ? image : nil, context: context)
+  }
+
+  /// 内存回收或系统未能留下快照时，以当前主题的本地启动画面保护尚未重绘的正文。
+  func ensureResumePreview(context: String) {
+    synchronizeResumePreview(context: context)
+    guard resumePreview == nil, isViewLoaded, view.window != nil, !view.isHidden else { return }
+    installResumePreview(image: nil, context: context)
+  }
+
+  /// 同一张受限快照与无位图占位共用交接代次和触摸隔离，不另建 WebView。
+  private func installResumePreview(image: UIImage?, context: String) {
     let preview = UIImageView(image: image)
     preview.frame = view.bounds
     preview.contentMode = .scaleToFill
@@ -70,8 +89,19 @@ final class WebContentController: UIViewController {
     resumeSize = view.bounds.size
     resumePreviewToken = UUID()
     resumePreview = preview
+    if image == nil { addResumePlaceholder(to: preview) }
     webView.accessibilityElementsHidden = true
     view.addSubview(preview)
+  }
+
+  /// 只使用内置主题启动视图，画面不可用时不会露出黑色的 WebKit 表面。
+  private func addResumePlaceholder(to preview: UIImageView) {
+    guard preview.subviews.isEmpty else { return }
+    let placeholder = StartupView(instance: instanceID)
+    placeholder.frame = preview.bounds
+    placeholder.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    placeholder.accessibilityElementsHidden = true
+    preview.addSubview(placeholder)
   }
 
   /// 后台期间路由、主题或身份改变时不把旧正文盖在新的页面上。
@@ -79,19 +109,35 @@ final class WebContentController: UIViewController {
     if resumeContext != context { clearResumePreview() }
   }
 
-  /// Vue 已确认双帧绘制后，再等 WebKit 提交待更新画面；图像接口不响应也不能永久遮住正文。
-  func completeResumePreview(token: UUID) {
+  /// Vue 绘制后仍须等 WebKit 成功提交画面；超时交给明确恢复出口，不提前暴露未绘制正文。
+  func completeResumePreview(token: UUID, onFailure: @escaping @MainActor @Sendable () -> Void) {
     guard resumePreviewToken == token else { return }
     resumePaintTimeout?.invalidate()
-    resumePaintTimeout = Timer.scheduledTimer(withTimeInterval: 1, repeats: false) {
+    resumePaintTimeout = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) {
       [weak self] _ in
-      MainActor.assumeIsolated { self?.clearResumePreview(token: token) }
+      MainActor.assumeIsolated {
+        guard self?.resumePreviewToken == token else { return }
+        onFailure()
+      }
     }
+    requestResumeSnapshot(token: token)
+  }
+
+  /// 解锁时暂不可用的渲染结果不会被视为成功；只在本轮有界期限内重试只读快照。
+  private func requestResumeSnapshot(token: UUID) {
+    guard resumePreviewToken == token, resumePaintTimeout != nil else { return }
     let configuration = WKSnapshotConfiguration()
     configuration.afterScreenUpdates = true
     configuration.snapshotWidth = NSNumber(value: 1)
-    webView.takeSnapshot(with: configuration) { [weak self] _, _ in
-      self?.clearResumePreview(token: token)
+    webView.takeSnapshot(with: configuration) { [weak self] image, error in
+      guard let self, self.resumePreviewToken == token else { return }
+      if image != nil, error == nil {
+        self.clearResumePreview(token: token)
+      } else {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+          self?.requestResumeSnapshot(token: token)
+        }
+      }
     }
   }
 
@@ -108,10 +154,13 @@ final class WebContentController: UIViewController {
     webView.accessibilityElementsHidden = false
   }
 
-  /// 可重建的展示画面不能与 WebKit 竞争后台内存，收到系统警告立即丢弃。
+  /// 系统内存警告立即释放位图，轻量主题占位继续保护未完成的同一轮绘制。
   override func didReceiveMemoryWarning() {
     super.didReceiveMemoryWarning()
-    clearResumePreview()
+    if let preview = resumePreview {
+      preview.image = nil
+      addResumePlaceholder(to: preview)
+    }
   }
 }
 
