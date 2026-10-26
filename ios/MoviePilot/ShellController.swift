@@ -697,7 +697,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     }
     bottomNavigation.apply(snapshot, action: accessory) { [weak self] rootId in
       if self?.latest?.roots.first(where: { $0.id == rootId })?.path == "/apps" {
-        self?.moreMenu.resetSearch()
+        self?.moreMenu.scrollToBeginning()
       }
       self?.coordinator.command(
         "navigation.selectRoot", payload: .object(["rootId": .string(rootId)]))
@@ -927,14 +927,14 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     present(alert, animated: true)
   }
 
-  /// 菜单入口统一使用省略号，单一动作保留业务图标；位置仍提供给原 HTML 回调。
+  /// 多动作入口使用三横线区别底栏更多，单一动作保留业务图标及原 HTML 回调位置。
   private func bottomActionButton(_ action: ActionSnapshot) -> UIButton {
     var configuration: UIButton.Configuration = .tinted()
     if #available(iOS 26.0, *) { configuration = .glass() }
     configuration.cornerStyle = .capsule
     configuration.preferredSymbolConfigurationForImage = NavigationSymbols.bottomConfiguration
     let hasMenu = !(action.menu?.isEmpty ?? true)
-    configuration.image = symbol(hasMenu ? "more" : action.icon)
+    configuration.image = symbol(hasMenu ? "mdi-menu" : action.icon)
     configuration.showsActivityIndicator = action.loading
     let button = UIButton(configuration: configuration)
     button.accessibilityLabel = action.title
@@ -1510,7 +1510,6 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   /// 切换正文时解除原生菜单的标准父子关系，不销毁网页或路由状态。
   private func removeMoreMenu() {
     guard moreMenu.parent != nil else { return }
-    moreMenu.endSearch()
     moreMenu.willMove(toParent: nil)
     moreMenu.view.removeFromSuperview()
     moreMenu.removeFromParent()

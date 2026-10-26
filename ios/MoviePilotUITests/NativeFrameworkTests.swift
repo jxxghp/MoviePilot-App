@@ -1670,11 +1670,7 @@ final class NativeFrameworkTests: XCTestCase {
     let menu = app.tables["more-menu"]
     XCTAssertTrue(menu.waitForExistence(timeout: 10), "更多页应由 UIKit 表格接管")
     attachScreen("原生更多菜单", app: app)
-    let search = revealMoreSearch(app)
-    XCTAssertTrue(search.exists)
-    search.tap()
-    search.typeText("插件")
-    let plugin = menu.cells.containing(.staticText, identifier: "插件").firstMatch
+    let plugin = moreItem("插件", app: app)
     XCTAssertTrue(plugin.waitForExistence(timeout: 5))
     plugin.tap()
     let classification = app.buttons["插件，页内分类"]
@@ -1749,14 +1745,7 @@ final class NativeFrameworkTests: XCTestCase {
     catalog.lifetime = .keepAlways
     add(catalog)
     for title in names {
-      let search = revealMoreSearch(app)
-      XCTAssertTrue(search.waitForExistence(timeout: 10))
-      search.tap()
-      if let value = search.value as? String, value != search.placeholderValue {
-        search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count))
-      }
-      search.typeText(title)
-      let item = menu.cells.containing(.staticText, identifier: title).firstMatch
+      let item = moreItem(title, app: app)
       XCTAssertTrue(item.waitForExistence(timeout: 5))
       item.tap()
       XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 15))
@@ -1822,10 +1811,7 @@ final class NativeFrameworkTests: XCTestCase {
     app.tabBars["native-root-navigation"].buttons["更多"].tap()
     let menu = app.tables["more-menu"]
     XCTAssertTrue(menu.waitForExistence(timeout: 10))
-    let search = revealMoreSearch(app)
-    search.tap()
-    search.typeText("站点管理")
-    menu.cells.containing(.staticText, identifier: "站点管理").firstMatch.tap()
+    moreItem("站点管理", app: app).tap()
     XCTAssertTrue(app.navigationBars["站点管理"].waitForExistence(timeout: 15))
     settlePage(app)
     XCTAssertFalse(app.webViews.staticTexts["站点管理"].exists, "正文不再重复页面标题")
@@ -1936,22 +1922,15 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertTrue(app.tabBars["native-root-navigation"].exists)
   }
 
-  /// 搜索框与菜单项对齐，文件刷新只通过原生菜单触发同一 HTML 列表更新。
-  func testMoreSearchAndFileActions() throws {
+  /// 目录滚动打开文件页，文件刷新仍通过原生菜单触发同一 HTML 列表更新。
+  func testMoreDirectoryAndFileActions() throws {
     let app = try signIn()
     app.tabBars["native-root-navigation"].buttons["更多"].tap()
     let menu = app.tables["more-menu"]
     XCTAssertTrue(menu.waitForExistence(timeout: 10))
-    let search = revealMoreSearch(app)
-    XCTAssertTrue(search.exists)
-    let firstRow = menu.cells.firstMatch
-    XCTAssertEqual(search.frame.minX, firstRow.frame.minX, accuracy: 1)
-    XCTAssertEqual(search.frame.maxX, firstRow.frame.maxX, accuracy: 1)
+    XCTAssertFalse(app.descendants(matching: .any)["more-menu-search"].exists)
     attachScreen("页面-更多", app: app)
-    search.tap()
-    search.typeText("文件管理")
-    attachScreen("交互-更多菜单搜索", app: app)
-    menu.cells.containing(.staticText, identifier: "文件管理").firstMatch.tap()
+    moreItem("文件管理", app: app).tap()
     XCTAssertTrue(app.navigationBars["文件管理"].waitForExistence(timeout: 15))
     settlePage(app)
     XCTAssertFalse(app.webViews.staticTexts["文件管理"].exists, "正文不保留重复标题")
@@ -1980,10 +1959,7 @@ final class NativeFrameworkTests: XCTestCase {
     app.tabBars["native-root-navigation"].buttons["更多"].tap()
     let menu = app.tables["more-menu"]
     XCTAssertTrue(menu.waitForExistence(timeout: 10))
-    let search = revealMoreSearch(app)
-    search.tap()
-    search.typeText("设定")
-    menu.cells.containing(.staticText, identifier: "设定").firstMatch.tap()
+    moreItem("设定", app: app).tap()
     XCTAssertTrue(app.buttons["设定，页内分类"].waitForExistence(timeout: 15))
     settlePage(app)
     XCTAssertFalse(app.webViews.staticTexts["API Token不得低于16位"].exists)
@@ -2008,10 +1984,7 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertTrue(menu.waitForExistence(timeout: 10))
     assertBottomLayout(app)
     attachScreen("页面-更多主题与居中底栏", app: app)
-    let search = revealMoreSearch(app)
-    search.tap()
-    search.typeText("插件")
-    menu.cells.containing(.staticText, identifier: "插件").firstMatch.tap()
+    moreItem("插件", app: app).tap()
     XCTAssertTrue(app.buttons["插件，页内分类"].waitForExistence(timeout: 15))
     app.buttons["操作菜单"].tap()
     let user = nativeUserItem("用户", app: app)
@@ -2145,7 +2118,7 @@ final class NativeFrameworkTests: XCTestCase {
     }
   }
 
-  /// 受控目录经真实网页桥接显示，保留明暗模式下分组卡片与搜索框的实际截图。
+  /// 受控目录经真实网页桥接显示，保留明暗模式下分组卡片的实际截图。
   func testMoreMenuNeutralSurfaces() async throws {
     guard let server = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_MENU_FIXTURE"],
       server == "http://127.0.0.1:5232"
@@ -2156,7 +2129,7 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertTrue(menu.waitForExistence(timeout: 15))
     for (theme, appearance) in [("深色", "dark"), ("浅色", "light")] {
       try await setSystemAppearance(appearance)
-      _ = revealMoreSearch(app)
+      app.tabBars["native-root-navigation"].buttons["更多"].tap()
       settlePage(app)
       XCTAssertTrue(menu.cells.containing(.staticText, identifier: "电影订阅").firstMatch.exists)
       attachScreen("更多-\(theme)系统中性灰分组", app: app)
@@ -2698,23 +2671,23 @@ final class NativeFrameworkTests: XCTestCase {
     attachScreen("交互-榜单多次往返后底栏可用", app: app)
   }
 
-  /// 更多默认只显示目录，下拉露出搜索；重新点击更多会清除筛选并再次收起。
-  func testMoreSearchRevealsOnPullDown() throws {
-    let app = try signIn()
+  /// 目录没有搜索表头，下拉及横竖屏切换后也不会侵入导航标题。
+  func testMoreDirectoryWithoutSearch() throws {
+    let app = try signIn(captureScreens: false, remember: false)
     let more = app.tabBars["native-root-navigation"].buttons["更多"]
     more.tap()
     XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
     let field = app.descendants(matching: .any)["more-menu-search"]
-    XCTAssertFalse(field.isHittable, "默认不占用目录首屏")
-    attachScreen("交互-更多默认收起搜索", app: app)
-    let search = revealMoreSearch(app)
-    attachScreen("交互-更多下拉显示搜索", app: app)
-    search.tap()
-    search.typeText("插件\n")
-    XCTAssertTrue(
-      app.tables["more-menu"].cells.containing(.staticText, identifier: "插件").firstMatch.exists)
+    XCTAssertFalse(field.exists)
+    app.tables["more-menu"].swipeDown()
+    XCTAssertFalse(field.exists)
+    XCUIDevice.shared.orientation = .landscapeLeft
+    XCTAssertFalse(field.exists)
+    XCTAssertTrue(app.navigationBars["更多"].exists)
+    XCUIDevice.shared.orientation = .portrait
+    moreItem("插件", app: app).tap()
     more.tap()
-    XCTAssertFalse(field.isHittable, "再次进入更多恢复目录并收起搜索")
+    XCTAssertFalse(field.exists)
     XCTAssertTrue(
       app.tables["more-menu"].cells.containing(.staticText, identifier: "电影订阅").firstMatch.exists)
   }
@@ -4023,16 +3996,20 @@ final class NativeFrameworkTests: XCTestCase {
     }
   }
 
-  /// 使用真实列表下拉露出搜索，不通过点击屏幕外元素绕过默认收起的交互。
-  private func revealMoreSearch(_ app: XCUIApplication) -> XCUIElement {
-    let search = app.descendants(matching: .any)["more-menu-search"]
+  /// 通过真实目录滚动找到授权入口，避免点击底部导航覆盖的行。
+  private func moreItem(_ title: String, app: XCUIApplication) -> XCUIElement {
     let menu = app.tables["more-menu"]
-    for _ in 0..<3 {
-      if search.exists && search.isHittable { break }
-      menu.swipeDown()
+    let item = menu.cells.containing(.staticText, identifier: title).firstMatch
+    for _ in 0..<12 {
+      if item.exists, item.isHittable,
+        item.frame.maxY < app.tabBars["native-root-navigation"].frame.minY
+      {
+        return item
+      }
+      menu.swipeUp()
     }
-    XCTAssertTrue(search.isHittable)
-    return search
+    XCTFail("当前目录找不到可点击入口：\(title)")
+    return item
   }
 
   /// 从任意业务页重置更多目录，再按原目录标题打开页面，不直接操纵 Web 路由。
@@ -4040,13 +4017,7 @@ final class NativeFrameworkTests: XCTestCase {
     app.tabBars["native-root-navigation"].buttons["更多"].tap()
     let menu = app.tables["more-menu"]
     XCTAssertTrue(menu.waitForExistence(timeout: 10))
-    let search = revealMoreSearch(app)
-    search.tap()
-    if let value = search.value as? String, value != search.placeholderValue {
-      search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count))
-    }
-    search.typeText(title)
-    menu.cells.containing(.staticText, identifier: title).firstMatch.tap()
+    moreItem(title, app: app).tap()
     XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 15))
   }
 

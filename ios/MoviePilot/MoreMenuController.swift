@@ -3,8 +3,7 @@ import UIKit
 
 /// 原生更多菜单只呈现前端当前目录，选中行仍由 Vue Router 处理授权和页面加载。
 @MainActor
-final class MoreMenuController: UITableViewController, UITextFieldDelegate {
-  private let search = UISearchTextField()
+final class MoreMenuController: UITableViewController {
   // 深色使用与搜索控件接近的柔和灰填充，让网页底色自然透入；浅色保留清晰的系统白色分组。
   private let rowBackground = UIColor { traits in
     let fill: UIColor =
@@ -15,9 +14,8 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
   var onSelect: ((MoreMenuItem) -> Void)?
   private var sections: [MoreMenuSection] = []
   private var accent: UIColor = .tintColor
-  private var shouldCollapseSearch = true
 
-  /// 系统分组列表和搜索由 UIKit 提供，业务页面不进入此控制器。
+  /// 目录使用系统分组列表，业务页面不进入此控制器。
   init() { super.init(style: .insetGrouped) }
 
   /// 菜单依赖当前会话的目录，不支持 storyboard 初始化。
@@ -29,53 +27,6 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
     tableView.accessibilityIdentifier = "more-menu"
     tableView.rowHeight = UITableView.automaticDimension
     tableView.estimatedRowHeight = 60
-    tableView.keyboardDismissMode = .onDrag
-    search.delegate = self
-    search.placeholder = "搜索菜单"
-    search.accessibilityLabel = "搜索菜单"
-    search.accessibilityIdentifier = "more-menu-search"
-    search.returnKeyType = .search
-    search.clearButtonMode = .whileEditing
-    search.addAction(
-      UIAction { [weak self] _ in self?.tableView.reloadData() }, for: .editingChanged)
-    let header = UIView(frame: CGRect(x: 0, y: 0, width: tableView.bounds.width, height: 60))
-    header.directionalLayoutMargins = tableView.directionalLayoutMargins
-    search.translatesAutoresizingMaskIntoConstraints = false
-    header.addSubview(search)
-    NSLayoutConstraint.activate([
-      search.leadingAnchor.constraint(equalTo: header.layoutMarginsGuide.leadingAnchor),
-      search.trailingAnchor.constraint(equalTo: header.layoutMarginsGuide.trailingAnchor),
-      search.topAnchor.constraint(equalTo: header.topAnchor, constant: 8),
-      search.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -8),
-    ])
-    tableView.tableHeaderView = header
-  }
-
-  /// 搜索区随列表自然下拉露出；首次进入只收起一次，不干预用户后续滚动与筛选。
-  override func viewDidLayoutSubviews() {
-    super.viewDidLayoutSubviews()
-    tableView.tableHeaderView?.directionalLayoutMargins = tableView.directionalLayoutMargins
-    if shouldCollapseSearch, !sections.isEmpty, let header = tableView.tableHeaderView,
-      tableView.bounds.height > 0, tableView.window != nil
-    {
-      shouldCollapseSearch = false
-      tableView.setContentOffset(
-        CGPoint(x: 0, y: header.bounds.height - tableView.adjustedContentInset.top), animated: false
-      )
-    }
-    updateSearchVisibility()
-  }
-
-  /// 完全收起的输入框不进入顶部玻璃的取样；下拉后仍由原列表自然露出。
-  override func scrollViewDidScroll(_ scrollView: UIScrollView) {
-    updateSearchVisibility()
-  }
-
-  /// 只改变搜索视图可见性，保留表头几何和滚动位置，避免收起状态残留模糊文字。
-  private func updateSearchVisibility() {
-    guard let header = tableView.tableHeaderView else { return }
-    search.isHidden =
-      tableView.contentOffset.y + tableView.adjustedContentInset.top >= header.bounds.height - 1
   }
 
   /// 外页跟随网页皮肤；分组填充接近系统搜索框，避免暗色出现独立的黑色卡片。
@@ -93,66 +44,40 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
       }
     }
     tableView.isUserInteractionEnabled = true
-    if self.sections != sections {
-      self.sections = sections
+    let available = sections.filter { !$0.items.isEmpty }
+    if self.sections != available {
+      self.sections = available
       tableView.reloadData()
     }
   }
 
-  /// 离开菜单时收起搜索键盘，搜索框属于列表正文，不占用第二层导航栏。
-  func endSearch() {
-    tableView.endEditing(true)
-  }
-
-  /// 主导航重新进入更多时恢复完整目录，逻辑返回仍可保留原搜索上下文。
-  func resetSearch() {
-    endSearch()
-    search.text = nil
-    shouldCollapseSearch = true
-    tableView.reloadData()
-    tableView.setNeedsLayout()
-  }
-
-  /// 系统搜索键结束输入，结果仍保留在当前原生列表中。
-  func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-    endSearch()
-    return true
-  }
-
-  /// 根据当前搜索保留非空分组，匹配本地化菜单名称与说明。
-  private var filtered: [(String, [MoreMenuItem])] {
-    let query = search.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    return sections.compactMap { section in
-      let items =
-        query.isEmpty
-        ? section.items
-        : section.items.filter {
-          $0.title.localizedStandardContains(query)
-            || ($0.subtitle?.localizedStandardContains(query) ?? false)
-        }
-      return items.isEmpty ? nil : (section.title, items)
-    }
+  /// 点击主导航重新进入目录时从首组开始，逻辑返回仍保留原列表位置。
+  func scrollToBeginning() {
+    loadViewIfNeeded()
+    tableView.setContentOffset(
+      CGPoint(x: -tableView.adjustedContentInset.left, y: -tableView.adjustedContentInset.top),
+      animated: false)
   }
 
   /// UITableView 的分组来自当前前端目录，不写死管理员或插件入口。
-  override func numberOfSections(in tableView: UITableView) -> Int { filtered.count }
+  override func numberOfSections(in tableView: UITableView) -> Int { sections.count }
 
-  /// 每组行数跟随当前搜索，过期的 indexPath 不作为导航依据。
+  /// 每组行数来自当前已授权目录，过期的 indexPath 不作为导航依据。
   override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-    filtered[section].1.count
+    sections[section].items.count
   }
 
   /// 分组标题保持前端本地化文案。
   override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String?
   {
-    filtered[section].0
+    sections[section].title
   }
 
   /// 使用系统列表内容布局，菜单只负责显示入口名称、说明和符号。
   override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath)
     -> UITableViewCell
   {
-    let item = filtered[indexPath.section].1[indexPath.row]
+    let item = sections[indexPath.section].items[indexPath.row]
     let cell =
       tableView.dequeueReusableCell(withIdentifier: "entry")
       ?? UITableViewCell(style: .subtitle, reuseIdentifier: "entry")
@@ -172,12 +97,11 @@ final class MoreMenuController: UITableViewController, UITextFieldDelegate {
   /// 首次点击等待网页确认，取消或新状态通过下一快照恢复，避免连续重复导航。
   override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
     tableView.deselectRow(at: indexPath, animated: true)
-    let current = filtered
+    let current = sections
     guard current.indices.contains(indexPath.section),
-      current[indexPath.section].1.indices.contains(indexPath.row)
+      current[indexPath.section].items.indices.contains(indexPath.row)
     else { return }
-    let item = current[indexPath.section].1[indexPath.row]
-    endSearch()
+    let item = current[indexPath.section].items[indexPath.row]
     tableView.isUserInteractionEnabled = false
     onSelect?(item)
   }
