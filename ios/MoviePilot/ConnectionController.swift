@@ -56,7 +56,7 @@ final class ConnectionController: UIViewController, UITextFieldDelegate {
     let connect = UIButton(
       configuration: configuration, primaryAction: UIAction { [weak self] _ in self?.submit() })
     let note = UILabel()
-    note.text = "推荐使用 HTTPS；局域网地址也支持 HTTP。账号信息仅由你的 MoviePilot 服务处理。"
+    note.text = "支持 HTTP 和 HTTPS。账号信息仅由你的 MoviePilot 服务处理。"
     note.font = .preferredFont(forTextStyle: .footnote)
     note.adjustsFontForContentSizeCategory = true
     note.textColor = .secondaryLabel
@@ -93,13 +93,11 @@ final class ConnectionController: UIViewController, UITextFieldDelegate {
       onConnect(instance)
     } catch {
       switch error {
-      case ServerAddressError.insecureRemoteServer:
-        errorLabel.text = "外网连接请使用 HTTPS。HTTP 仅用于局域网或本机服务。"
       case ServerAddressError.credentialsNotAllowed:
         errorLabel.text = "地址中不要包含账号或密码。连接后再安全登录。"
       case ServerAddressError.queryOrFragmentNotAllowed:
         errorLabel.text = "请输入服务根地址，不要包含查询参数或 # 后的页面路径。"
-      default: errorLabel.text = "请输入完整有效的服务地址，例如 https://moviepilot.example.com。"
+      default: errorLabel.text = "请输入包含 http:// 或 https:// 的完整服务地址。"
       }
       errorLabel.isHidden = false
       UIAccessibility.post(notification: .announcement, argument: errorLabel.text)

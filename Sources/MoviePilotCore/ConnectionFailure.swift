@@ -50,7 +50,7 @@ public enum ConnectionFailure: Error, Equatable, LocalizedError, Sendable {
     case .certificate: "服务器的 HTTPS 证书未受系统信任或已失效。请修复证书后重试。"
     case .secureConnection: "无法建立安全的 HTTPS 连接，请检查服务器的 TLS 配置。"
     case .clientCertificate: "此实例要求客户端证书，请使用网页登录。"
-    case .transportSecurity: "系统阻止了不安全连接，请使用 HTTPS 或受支持的局域网地址。"
+    case .transportSecurity: "系统阻止了此连接，请检查服务地址及设备的网络访问限制。"
     case .unavailable: "无法连接服务，请检查地址、端口和服务状态后重试。"
     }
   }

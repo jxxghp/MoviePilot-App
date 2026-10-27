@@ -219,21 +219,22 @@ struct WidgetDataTests {
     }
   }
 
-  /// 共享资料仅保存精确实例和不可变用户身份，不包含登录凭据。
-  @Test func validatesProfilesOnCreationAndRestore() throws {
+  /// HTTP/HTTPS 共享资料均保留精确实例与不可变用户身份，不包含登录凭据。
+  @Test(arguments: ["http", "https"])
+  func validatesProfilesOnCreationAndRestore(scheme: String) throws {
     let profile = try WidgetProfile(
       id: UUID(), instanceId: UUID(), owner: Self.owner, name: "家中 🎬",
-      address: ServerAddress("https://MP.EXAMPLE.TEST:443/moviepilot"),
+      address: ServerAddress("\(scheme)://MP.EXAMPLE.TEST/moviepilot"),
       registrationId: UUID(), credentialExpiresAt: Self.epoch + 3600)
     #expect(
       profile.snapshotURL.absoluteString
-        == "https://mp.example.test/moviepilot/api/v1/widget/snapshot")
+        == "\(scheme)://mp.example.test/moviepilot/api/v1/widget/snapshot")
     let data = try JSONEncoder().encode(profile)
     #expect(try JSONDecoder().decode(WidgetProfile.self, from: data) == profile)
     let fields = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     let invalid: [(String, Any)] = [
       ("owner", "reuseable-user-name"), ("name", String(repeating: "a", count: 81)),
-      ("address", "https://user:secret@mp.test"), ("address", "http://public.example.test"),
+      ("address", "https://user:secret@mp.test"), ("address", "http://user:secret@mp.test"),
       ("address", "http://[fe80::1%25en0]:3000/"), ("credentialExpiresAt", -1),
     ]
     for (key, value) in invalid {
