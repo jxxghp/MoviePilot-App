@@ -64,16 +64,7 @@
   <key>NSPhotoLibraryUsageDescription</key><string>在 MoviePilot 网页中选择要上传的照片。</string>
   <key>NSPhotoLibraryAddUsageDescription</key><string>将你选择保存的智能助手图片存入照片图库。</string>
   <key>NSAppTransportSecurity</key><dict>
-    <key>NSAllowsLocalNetworking</key><true/>
-    <key>NSExceptionDomains</key><dict>
-      <key>10.0.0.0/8</key><dict><key>NSExceptionAllowsInsecureHTTPLoads</key><true/></dict>
-      <key>172.16.0.0/12</key><dict><key>NSExceptionAllowsInsecureHTTPLoads</key><true/></dict>
-      <key>192.168.0.0/16</key><dict><key>NSExceptionAllowsInsecureHTTPLoads</key><true/></dict>
-      <key>169.254.0.0/16</key><dict><key>NSExceptionAllowsInsecureHTTPLoads</key><true/></dict>
-      <key>127.0.0.0/8</key><dict><key>NSExceptionAllowsInsecureHTTPLoads</key><true/></dict>
-      <key>::1</key><dict><key>NSExceptionAllowsInsecureHTTPLoads</key><true/></dict>
-      <key>fc00::/7</key><dict><key>NSExceptionAllowsInsecureHTTPLoads</key><true/></dict>
-      <key>fe80::/10</key><dict><key>NSExceptionAllowsInsecureHTTPLoads</key><true/></dict>
-    </dict>
+    <!-- 用户可配置任意 HTTP 实例；本地或 WebContent 例外会覆盖此全局设置。 -->
+    <key>NSAllowsArbitraryLoads</key><true/>
   </dict>
 </dict></plist>
