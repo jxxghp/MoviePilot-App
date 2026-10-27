@@ -47,12 +47,12 @@ open ios/MoviePilot.xcodeproj
 ## 构建未签名 IPA
 
 ```sh
-bash scripts/build-ipa.sh 1.0.2
+bash scripts/build-ipa.sh 1.0.3
 ```
 
-从仓库根目录执行，产物位于 `artifacts/MoviePilot-1.0.2-unsigned.ipa`，同时生成 `SHA256SUMS`。脚本使用真机 iPhoneOS SDK 和 arm64 架构，校验版本、ZIP 及 Mach-O 平台；安装者仍须自行重签。
+从仓库根目录执行，产物位于 `artifacts/MoviePilot-1.0.3-unsigned.ipa`，同时生成 `SHA256SUMS`。脚本使用真机 iPhoneOS SDK 和 arm64 架构，校验版本、ZIP 及 Mach-O 平台；安装者仍须自行重签。
 
-工程当前版本为 1.0.2、构建号为 1。发布新版本时先更新 `ios/project.yml` 与已提交工程中的版本号，再将 `v主版本.次版本.修订版本` 标签推到 GitHub。`Release IPA` 会复用现有检查，成功后构建对应版本并发布 IPA 和校验文件。
+工程当前版本为 1.0.3、构建号为 1。发布新版本时先更新 `ios/project.yml` 与已提交工程中的版本号，再将 `v主版本.次版本.修订版本` 标签推到 GitHub。`Release IPA` 会复用现有检查，成功后构建对应版本并发布 IPA 和校验文件。
 
 同版本修复在 `main` 的 Actions → `Release IPA` → `Run workflow` 中操作：填写现有标签，勾选同版本重建确认。检查与打包通过后，工作流将该标签和 Release 资产更新为本次 `main` 源码；若构建期间主分支或标签变化则停止发布。普通标签发布仍拒绝覆盖已有 Release。用户从同一 Release 重新下载 IPA 后覆盖安装即可。
 
@@ -69,6 +69,19 @@ xcodebuild -project ios/MoviePilot.xcodeproj -scheme MoviePilot \
 ```
 
 UI 测试位于 `ios/MoviePilotUITests`，通过私有运行配置提供 `MOVIEPILOT_E2E_SERVER`、`MOVIEPILOT_E2E_USERNAME`、`MOVIEPILOT_E2E_PASSWORD`；未配置时跳过实例联调。凭据、签名材料、`DerivedData` 和结果包均不提交。
+
+启动等待回归使用独立的本机合成服务，静态页面可复用已经下载的兼容前端，无需重新构建：
+
+```sh
+python3 scripts/service-startup-fixture.py --frontend /path/to/frontend/dist
+# 服务仅监听 127.0.0.1:5244；另开终端，在已启动的模拟器运行。
+TEST_RUNNER_MOVIEPILOT_E2E_SERVICE_WAIT=1 xcodebuild test \
+  -project ios/MoviePilot.xcodeproj -scheme MoviePilot \
+  -destination 'platform=iOS Simulator,id=你的模拟器UUID' \
+  -only-testing:MoviePilotUITests/ServiceStartupTests CODE_SIGN_IDENTITY=-
+```
+
+该验收覆盖 HTTP 暂不可用、连接中断、自动恢复登录与 Keychain 会话、后台暂停、手动重试、切换地址、初始化与损坏响应，以及密码不自动重发。合成服务不连接真实后端。
 
 ```text
 ios/          UIKit / WKWebView App、资源与 UI 测试

@@ -38,4 +38,24 @@ struct ConnectionFailureTests {
       ConnectionFailure(NSError(domain: "MoviePilot", code: NSURLErrorCancelled)) == .unavailable)
     #expect(ConnectionFailure(NSError(domain: NSURLErrorDomain, code: -12345)) == .unavailable)
   }
+
+  /// 自动探测仅重试可恢复网络错误，不把证书、取消或错误地址伪装成服务启动。
+  @Test(arguments: [
+    (URLError.cannotConnectToHost, true), (.networkConnectionLost, true),
+    (.notConnectedToInternet, true), (.internationalRoamingOff, true), (.dataNotAllowed, true),
+    (.timedOut, true), (.cannotFindHost, true), (.dnsLookupFailed, true),
+    (.cancelled, false), (.badURL, false), (.unsupportedURL, false),
+    (.serverCertificateUntrusted, false), (.secureConnectionFailed, false),
+    (.clientCertificateRequired, false), (.appTransportSecurityRequiresSecureConnection, false),
+  ])
+  func limitsServiceProbeRetries(code: URLError.Code, expected: Bool) {
+    #expect(ConnectionFailure.shouldRetryServiceProbe(URLError(code)) == expected)
+  }
+
+  /// 业务错误和未知系统错误没有自动重试授权，即使复用了连接失败的数字也不得重试。
+  @Test func rejectsUnknownServiceProbeErrors() {
+    #expect(!ConnectionFailure.shouldRetryServiceProbe(NSError(domain: "MoviePilot", code: -1004)))
+    #expect(
+      !ConnectionFailure.shouldRetryServiceProbe(NSError(domain: NSURLErrorDomain, code: -12345)))
+  }
 }

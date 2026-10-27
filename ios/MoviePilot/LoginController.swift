@@ -23,6 +23,8 @@ final class LoginController: UIViewController, UITextFieldDelegate {
   private var retryTimer: Timer?
   private var initialized = true
   private var startupView: StartupView?
+  private var preparationID: UUID?
+  private var preparationSuspended = false
 
   /// 回调只交付认证结果，不将密码传给 Scene、导航桥或持久化层。
   init(
@@ -141,6 +143,13 @@ final class LoginController: UIViewController, UITextFieldDelegate {
       passkey.heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
     ])
     showStartup()
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(pausePreparation),
+      name: UIApplication.didEnterBackgroundNotification,
+      object: nil)
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(resumePreparation), name: UIApplication.didBecomeActiveNotification,
+      object: nil)
     prepare()
   }
 
@@ -152,6 +161,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
 
   /// 使用与网页就绪等待相同的启动屏，在首次绘制前遮住尚未确定需要显示的表单。
   private func showStartup() {
+    guard startupView == nil else { return }
     let startup = StartupView(instance: instance.id)
     startup.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(startup)
@@ -184,6 +194,8 @@ final class LoginController: UIViewController, UITextFieldDelegate {
     {
       return
     }
+    preparationID = nil
+    preparationSuspended = false
     task?.cancel()
     task = nil
     retryTimer?.invalidate()
@@ -226,19 +238,25 @@ final class LoginController: UIViewController, UITextFieldDelegate {
 
   /// 初始化与令牌恢复先验证服务器；未知状态允许重试，不进入网页认证或初始化。
   private func prepare() {
+    let identifier = UUID()
+    preparationID = identifier
     setBusy(true)
     setMessage("正在连接你的实例…")
     task = Task { [weak self] in
       guard let self else { return }
       var restored = false
       defer {
-        self.setBusy(false)
-        self.task = nil
-        if !restored && !Task.isCancelled { self.revealLogin() }
+        if self.preparationID == identifier {
+          self.preparationID = nil
+          self.setBusy(false)
+          self.task = nil
+          if !restored && !Task.isCancelled { self.revealLogin() }
+        }
       }
       do {
-        async let enabled = try? self.client.passkeyEnabled()
-        self.initialized = try await self.client.isInitialized()
+        self.initialized = try await self.whenServiceAvailable {
+          try await self.client.isInitialized()
+        }
         guard !Task.isCancelled else { return }
         guard self.initialized else {
           self.show(AuthenticationError.notInitialized)
@@ -250,17 +268,73 @@ final class LoginController: UIViewController, UITextFieldDelegate {
         self.login.accessibilityLabel = "登录"
         if let token = self.savedToken {
           do {
-            let result = try await self.client.restore(token: token)
+            let result = try await self.whenServiceAvailable {
+              try await self.client.restore(token: token)
+            }
             guard !Task.isCancelled else { return }
             restored = true
             self.onAuthenticated(result, true)
             return
           } catch AuthenticationError.credentials { self.onExpired() }
         }
-        self.passkey.isHidden = await enabled != true
+        let enabled = try? await self.client.passkeyEnabled()
+        guard !Task.isCancelled else { return }
+        self.passkey.isHidden = enabled != true
         self.setMessage(nil)
       } catch { if !Task.isCancelled { self.show(error) } }
     }
+  }
+
+  /// 只重试初始化查询和已保存令牌的只读校验；密码、OTP 和通行密钥提交不自动重放。
+  private func whenServiceAvailable<Value>(_ operation: () async throws -> Value) async throws
+    -> Value
+  {
+    while true {
+      try Task.checkCancellation()
+      do {
+        let result = try await operation()
+        try Task.checkCancellation()
+        return result
+      } catch {
+        try Task.checkCancellation()
+        let description: String
+        if case AuthenticationError.unavailable = error {
+          description = "服务暂时不可用，正在自动重试…"
+        } else if ConnectionFailure.shouldRetryServiceProbe(error) {
+          description = ConnectionFailure(error).errorDescription ?? "正在检测服务连接…"
+        } else {
+          throw error
+        }
+        showStartup()
+        startupView?.showServiceWait(
+          message: description, retry: { [weak self] in self?.retryPreparation() },
+          changeAddress: { [weak self] in self?.onConnection() })
+        try await Task.sleep(for: .milliseconds(1500))
+      }
+    }
+  }
+
+  /// 手动重试立即撤销旧探测，旧任务的清理不能覆盖新一轮等待状态。
+  private func retryPreparation() {
+    preparationID = nil
+    task?.cancel()
+    prepare()
+  }
+
+  /// 进入后台时暂停只读探测，避免持续轮询；当前实例和令牌保留在原有边界内。
+  @objc private func pausePreparation() {
+    guard preparationID != nil else { return }
+    preparationSuspended = true
+    preparationID = nil
+    task?.cancel()
+    task = nil
+  }
+
+  /// 只有仍在窗口内的当前登录页能够恢复后台暂停的探测。
+  @objc private func resumePreparation() {
+    guard preparationSuspended, viewIfLoaded?.window != nil else { return }
+    preparationSuspended = false
+    prepare()
   }
 
   /// 用户明确提交后调用既有认证接口，OTP 挑战只展开输入，不自动重发密码。
