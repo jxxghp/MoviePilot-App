@@ -38,7 +38,7 @@ public struct ServerAddress: Codable, Equatable, Sendable {
   public let url: URL
   public let origin: WebOrigin
 
-  /// 解析完整服务器 URL，禁止凭据、查询串及外网明文连接。
+  /// 解析完整 HTTP 或 HTTPS 服务地址，禁止 URL 内嵌凭据、查询串和页面片段。
   public init(_ input: String) throws {
     let input = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !input.contains(where: { $0.isWhitespace || $0.isNewline }),
@@ -65,9 +65,6 @@ public struct ServerAddress: Codable, Equatable, Sendable {
     if !components.path.hasSuffix("/") { components.path += "/" }
     guard let url = components.url, let origin = WebOrigin(url: url) else {
       throw ServerAddressError.invalidURL
-    }
-    if scheme == "http", !Self.isLocalHost(origin.host) {
-      throw ServerAddressError.insecureRemoteServer
     }
     self.url = url
     self.origin = origin
@@ -110,7 +107,7 @@ public struct ServerAddress: Codable, Equatable, Sendable {
     return "此 IPv6 地址包含网卡标识，网页无法使用。请改用 .local 主机名或其他可访问的地址。"
   }
 
-  /// 允许私网、链路本地、回环和本地 DNS 的明文地址；ATS 仍由系统独立检查。
+  /// 判断主机是否属于私网、链路本地、回环或本地 DNS。
   public static func isLocalHost(_ host: String) -> Bool {
     let host = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
     if host == "localhost" || host.hasSuffix(".local") { return true }
