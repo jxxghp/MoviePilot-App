@@ -27,6 +27,18 @@ public enum ConnectionFailure: Error, Equatable, LocalizedError, Sendable {
     }
   }
 
+  /// 仅对只读服务探测重试暂时性网络故障；证书、地址、取消及未知错误仍交给用户处理。
+  public static func shouldRetryServiceProbe(_ error: Error) -> Bool {
+    let error = error as NSError
+    guard error.domain == NSURLErrorDomain else { return false }
+    switch URLError.Code(rawValue: error.code) {
+    case .cannotConnectToHost, .networkConnectionLost, .notConnectedToInternet,
+      .internationalRoamingOff, .dataNotAllowed, .timedOut, .cannotFindHost, .dnsLookupFailed:
+      return true
+    default: return false
+    }
+  }
+
   /// 取消无需提示；其他错误只给出用户可处理的原因，不推断局域网权限已经被拒绝。
   public var errorDescription: String? {
     switch self {
