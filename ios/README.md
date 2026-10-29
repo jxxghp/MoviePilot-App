@@ -47,12 +47,12 @@ open ios/MoviePilot.xcodeproj
 ## 构建未签名 IPA
 
 ```sh
-bash scripts/build-ipa.sh 1.0.4
+bash scripts/build-ipa.sh 1.0.5
 ```
 
-从仓库根目录执行，产物位于 `artifacts/MoviePilot-1.0.4-unsigned.ipa`，同时生成 `SHA256SUMS`。脚本使用真机 iPhoneOS SDK 和 arm64 架构，校验版本、ZIP 及 Mach-O 平台；安装者仍须自行重签。
+从仓库根目录执行，产物位于 `artifacts/MoviePilot-1.0.5-unsigned.ipa`，同时生成 `SHA256SUMS`。脚本使用真机 iPhoneOS SDK 和 arm64 架构，校验版本、ZIP 及 Mach-O 平台；安装者仍须自行重签。
 
-工程当前版本为 1.0.4、构建号为 1。发布新版本时先更新 `ios/project.yml` 与已提交工程中的版本号，再将 `v主版本.次版本.修订版本` 标签推到 GitHub。`Release IPA` 会复用现有检查，成功后构建对应版本并发布 IPA 和校验文件。
+工程当前版本为 1.0.5、构建号为 1。发布新版本时先更新 `ios/project.yml` 与已提交工程中的版本号，再将 `v主版本.次版本.修订版本` 标签推到 GitHub。`Release IPA` 会复用现有检查，成功后构建对应版本并发布 IPA 和校验文件。
 
 同版本修复在 `main` 的 Actions → `Release IPA` → `Run workflow` 中操作：填写现有标签，勾选同版本重建确认。检查与打包通过后，工作流将该标签和 Release 资产更新为本次 `main` 源码；若构建期间主分支或标签变化则停止发布。普通标签发布仍拒绝覆盖已有 Release。用户从同一 Release 重新下载 IPA 后覆盖安装即可。
 
@@ -82,6 +82,24 @@ TEST_RUNNER_MOVIEPILOT_E2E_SERVICE_WAIT=1 xcodebuild test \
 ```
 
 该验收覆盖 HTTP 暂不可用、连接中断、自动恢复登录与 Keychain 会话、后台暂停、手动重试、切换地址、初始化与损坏响应，以及密码不自动重发。合成服务不连接真实后端。
+
+顶栏渐变的系统明暗回归可复用此服务，将端口设为 `5283`，并通过 `--appearance-simulator 模拟器UUID` 明确允许改变专用模拟器的系统外观。该参数仅启用回环测试端点，不改变 App 桥接协议。运行前设置 `DEVELOPER_DIR` 指向完整 Xcode：
+
+```sh
+python3 scripts/service-startup-fixture.py --frontend /path/to/frontend/dist \
+  --port 5283 --appearance-simulator 你的模拟器UUID
+# 另开终端运行；使用合成账号，不连接真实实例。
+TEST_RUNNER_MOVIEPILOT_E2E_SERVER=http://127.0.0.1:5283 \
+TEST_RUNNER_MOVIEPILOT_E2E_PROCESS_FIXTURE=http://127.0.0.1:5283 \
+TEST_RUNNER_MOVIEPILOT_E2E_USERNAME=startup-fixture \
+TEST_RUNNER_MOVIEPILOT_E2E_PASSWORD=fixture-only \
+xcodebuild test -project ios/MoviePilot.xcodeproj -scheme MoviePilot \
+  -destination 'platform=iOS Simulator,id=你的模拟器UUID' \
+  -only-testing:MoviePilotUITests/NativeFrameworkTests/testTopScrollEdgeTracksSystemAppearanceAfterSheet \
+  CODE_SIGN_IDENTITY=-
+```
+
+此用例在真实主题 Sheet 归还 WebView 后检查顶栏截图像素，覆盖前台浅深切换、后台切换后恢复、原生更多目录和手动主题优先。测试结束后按需恢复专用模拟器原来的系统外观。
 
 ```text
 ios/          UIKit / WKWebView App、资源与 UI 测试
