@@ -5,7 +5,9 @@
 import argparse
 import json
 import socket
+import subprocess
 import threading
+import uuid
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -16,7 +18,7 @@ class StartupServer(ThreadingHTTPServer):
     持有当前故障场景与请求计数，静态页面来自显式指定的兼容前端目录。
     """
 
-    def __init__(self, port, frontend):
+    def __init__(self, port, frontend, appearance_simulator=None):
         """
         仅绑定本机地址，保留请求统计供 UI 测试确认没有提交或重放密码。
         """
@@ -25,6 +27,7 @@ class StartupServer(ThreadingHTTPServer):
         self.status = 503
         self.guard = threading.Lock()
         self.counts = {}
+        self.appearance_simulator = appearance_simulator
         super().__init__(("127.0.0.1", port), StartupHandler)
 
 
@@ -124,7 +127,18 @@ class StartupHandler(SimpleHTTPRequestHandler):
             self.reply(413, {})
             return
         body = self.rfile.read(length)
-        if path == "/__service/config":
+        if path == "/__fixture/appearance" and self.server.appearance_simulator:
+            data = json.loads(body)
+            appearance = data.get("appearance")
+            if appearance not in ("light", "dark"):
+                self.reply(400, {})
+                return
+            result = subprocess.run(
+                ["xcrun", "simctl", "ui", self.server.appearance_simulator, "appearance", appearance],
+                capture_output=True, timeout=10, check=False,
+            )
+            self.reply(200 if result.returncode == 0 else 503, {})
+        elif path == "/__service/config":
             data = json.loads(body)
             with self.server.guard:
                 self.server.mode = data["mode"]
@@ -154,10 +168,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--frontend", type=Path, required=True)
     parser.add_argument("--port", type=int, default=5244)
+    parser.add_argument(
+        "--appearance-simulator", type=lambda value: str(uuid.UUID(value)),
+        help="仅允许外观回归改变此模拟器的系统明暗，须传入明确的设备 UUID",
+    )
     args = parser.parse_args()
     if not (args.frontend / "index.html").is_file():
         parser.error("前端目录缺少 index.html")
-    with StartupServer(args.port, args.frontend.resolve()) as server:
+    with StartupServer(args.port, args.frontend.resolve(), args.appearance_simulator) as server:
         server.serve_forever()
 
 

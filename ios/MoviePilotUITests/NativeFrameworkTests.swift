@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// 隔离网络夹具只提供测试地址，不包含真实实例账号或凭据。
@@ -2258,6 +2259,75 @@ final class NativeFrameworkTests: XCTestCase {
     attachScreen("交互-跟随浅色的原生菜单", app: app)
     dismissOverlays(app)
     try await setSystemAppearance("dark")
+  }
+
+  /// 弹窗归还 WebView 后，前台及后台系统明暗切换都必须同步顶栏的真实滚动渐变。
+  func testTopScrollEdgeTracksSystemAppearanceAfterSheet() async throws {
+    guard
+      ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_PROCESS_FIXTURE"]
+        == "http://127.0.0.1:5283"
+    else { throw XCTSkip("需要在专用模拟器启动带外观控制的本机合成服务。") }
+    var request = URLRequest(url: URL(string: "http://127.0.0.1:5283/__service/config")!)
+    request.httpMethod = "POST"
+    request.httpBody = try JSONSerialization.data(withJSONObject: ["mode": "ready", "reset": true])
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+    try await setSystemAppearance("light")
+    let app = try signIn(captureScreens: false, remember: false)
+    defer { app.terminate() }
+    app.tabBars["native-root-navigation"].buttons["仪表盘"].tap()
+    // 真实打开再关闭主题 Sheet，覆盖旧实现将 underPageBackgroundColor 固定为浅色的路径。
+    selectTheme("跟随系统", app: app)
+    assertTopEdgeAppearance(app, dark: false, name: "顶栏渐变-初始浅色")
+    try await setSystemAppearance("dark")
+    assertTopEdgeAppearance(app, dark: true, name: "顶栏渐变-前台浅转深")
+    try await setSystemAppearance("light")
+    assertTopEdgeAppearance(app, dark: false, name: "顶栏渐变-前台深转浅")
+    XCUIDevice.shared.press(.home)
+    try await setSystemAppearance("dark")
+    app.activate()
+    assertTopEdgeAppearance(app, dark: true, name: "顶栏渐变-后台切深色后恢复")
+    app.tabBars["native-root-navigation"].buttons["更多"].tap()
+    try await setSystemAppearance("light")
+    assertTopEdgeAppearance(app, dark: false, name: "顶栏渐变-原生更多跟随浅色")
+    // 手动浅色仍以网页偏好为准，系统切深色不能覆盖用户选择。
+    selectTheme("浅色", app: app)
+    try await setSystemAppearance("dark")
+    assertTopEdgeAppearance(app, dark: false, name: "顶栏渐变-手动浅色优先")
+    selectTheme("跟随系统", app: app)
+    assertTopEdgeAppearance(app, dark: true, name: "顶栏渐变-恢复跟随系统")
+  }
+
+  /// 从标题左侧无文字区域读取最终画面；只约束明显明暗差异，保留系统材质的色彩变化。
+  private func assertTopEdgeAppearance(_ app: XCUIApplication, dark: Bool, name: String) {
+    settlePage(app)
+    let screenshot = XCUIScreen.main.screenshot()
+    let attachment = XCTAttachment(screenshot: screenshot)
+    attachment.name = name
+    attachment.lifetime = .keepAlways
+    add(attachment)
+    guard let image = screenshot.image.cgImage else {
+      XCTFail("无法读取系统截图")
+      return
+    }
+    let scale = CGFloat(image.width) / app.frame.width
+    let bar = app.navigationBars.firstMatch.frame
+    let area = CGRect(x: 24 * scale, y: bar.midY * scale, width: 8 * scale, height: 8 * scale)
+    guard let sample = image.cropping(to: area) else {
+      XCTFail("顶栏采样区域必须位于系统截图内")
+      return
+    }
+    var pixel = [UInt8](repeating: 0, count: 4)
+    let context = CGContext(
+      data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    context?.draw(sample, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+    let brightness = pixel.prefix(3).reduce(0) { $0 + Double($1) } / (3 * 255)
+    if dark {
+      XCTAssertLessThan(brightness, 0.35, "\(name)：顶栏仍保留浅色底，RGB=\(pixel)")
+    } else {
+      XCTAssertGreaterThan(brightness, 0.65, "\(name)：顶栏仍保留深色底，RGB=\(pixel)")
+    }
   }
 
   /// 切换模拟器系统明暗，验证固定玻璃主题与系统浮层同步，而非修改网页主题偏好。

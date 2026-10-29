@@ -149,6 +149,11 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   override func viewDidLoad() {
     super.viewDidLoad()
     view.backgroundColor = .systemBackground
+    registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+      (controller: ShellController, _: UITraitCollection) in
+      controller.synchronizeContentBackground()
+      controller.setNeedsStatusBarAppearanceUpdate()
+    }
     installBackGesture(on: view)
     prepareDocumentHost()
   }
@@ -565,6 +570,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     overrideUserInterfaceStyle = style
     AccountAppearance.remember(
       snapshot.chrome, for: coordinator.instance.id, traits: traitCollection)
+    synchronizeContentBackground()
     setNeedsStatusBarAppearanceUpdate()
     if let color = snapshot.chrome.accentColor,
       let value = UInt32(color.dropFirst(), radix: 16)
@@ -576,6 +582,19 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     } else {
       view.tintColor = AccountAppearance.accent
     }
+  }
+
+  /// 系统滚动渐变采样 WebView 的底色；主题切换后重新解析，Sheet 承载期间保持透明。
+  private func synchronizeContentBackground() {
+    let transparent = webSheet != nil && !sheetDismissing
+    let background: UIColor =
+      transparent ? .clear : AccountAppearance.background(for: coordinator.instance.id)
+    coordinator.content.view.backgroundColor = background
+    coordinator.webView.isOpaque = !transparent
+    coordinator.webView.backgroundColor = background
+    // WebKit 的页面底色会保留显式覆盖值，需要按当前 trait 更新，不能停留在弹窗归还时的颜色。
+    coordinator.webView.underPageBackgroundColor = background.resolvedColor(with: traitCollection)
+    coordinator.webView.scrollView.backgroundColor = background
   }
 
   /// 顶栏只使用原生导航语义；动作仍回到网页注册的回调。
@@ -1088,11 +1107,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     navigation.didMove(toParent: self)
     controller.contentHost.attach(coordinator.content)
     coordinator.content.view.isHidden = false
-    coordinator.content.view.backgroundColor = .clear
-    coordinator.webView.isOpaque = false
-    coordinator.webView.backgroundColor = .clear
-    coordinator.webView.underPageBackgroundColor = .clear
-    coordinator.webView.scrollView.backgroundColor = .clear
+    synchronizeContentBackground()
     controller.apply(descriptor, style: modalInterfaceStyle)
     navigation.presentationController?.delegate = controller
     navigation.view.layoutIfNeeded()
@@ -1209,12 +1224,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     let host = nativeVisible ? selectedHost : compatibilityHost
     host.attach(coordinator.content)
     if let placeholder = sheetPagePlaceholder { host.view.bringSubviewToFront(placeholder) }
-    let background = NavigationSymbols.color(latest?.chrome.backgroundColor) ?? .systemBackground
-    coordinator.content.view.backgroundColor = background
-    coordinator.webView.isOpaque = true
-    coordinator.webView.backgroundColor = background
-    coordinator.webView.underPageBackgroundColor = background
-    coordinator.webView.scrollView.backgroundColor = background
+    synchronizeContentBackground()
     host.view.layoutIfNeeded()
     coordinator.layoutChanged()
     if let id, nativeVisible {
@@ -1487,8 +1497,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     }
     moreMenu.apply(
       snapshot.moreMenu ?? [],
-      background: NavigationSymbols.color(snapshot.chrome.backgroundColor)
-        ?? .systemGroupedBackground,
+      background: AccountAppearance.background(for: coordinator.instance.id),
       accent: NavigationSymbols.color(snapshot.chrome.accentColor) ?? AccountAppearance.accent)
     if moreMenu.parent !== host {
       removeMoreMenu()
