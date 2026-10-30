@@ -849,7 +849,7 @@ final class NativeFrameworkTests: XCTestCase {
       attachScreen("账号主题-\(title)主界面", app: app)
       app.buttons["操作菜单"].tap()
       app.buttons["连接与显示"].tap()
-      app.buttons["更改服务地址"].tap()
+      app.buttons["切换服务"].tap()
       let address = app.textFields["MoviePilot 服务地址"]
       XCTAssertTrue(address.waitForExistence(timeout: 10))
       attachScreen("账号主题-\(title)连接", app: app)
@@ -900,7 +900,7 @@ final class NativeFrameworkTests: XCTestCase {
     app.buttons["操作菜单"].tap()
     app.buttons["连接与显示"].tap()
     XCTAssertTrue(app.buttons["重新加载"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.buttons["更改服务地址"].exists)
+    XCTAssertTrue(app.buttons["切换服务"].exists)
     XCTAssertFalse(app.buttons["使用网页导航"].exists)
     attachScreen("原生专用-连接菜单", app: app)
     app.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.28)).tap()
