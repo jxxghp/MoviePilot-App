@@ -9,7 +9,8 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
   private let onConnect: (SavedInstance) -> Void
   private let addressField = UITextField()
   private var savedInstances: [SavedInstance] = []
-  private var errorMessage: String?
+  private let errorLabel = UILabel()
+  /// 有历史记录时将添加表单置于服务分组之后。
   private var addressSection: Int { savedInstances.isEmpty ? 0 : 1 }
 
   /// 接收实例存储与连接结果，不把账号数据引入原生配置。
@@ -28,15 +29,15 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
     let previous = instances.selected ?? instances.instances.last
     savedInstances = Array(instances.instances.reversed())
     title = "连接服务"
-    navigationController?.navigationBar.prefersLargeTitles = true
-    navigationItem.largeTitleDisplayMode = .always
+    navigationController?.navigationBar.prefersLargeTitles = false
+    navigationItem.largeTitleDisplayMode = .never
     tableView.accessibilityIdentifier = "server-connections"
     tableView.backgroundColor = AccountAppearance.background(for: previous?.id)
     tableView.tintColor = AccountAppearance.accent(for: previous?.id)
     tableView.keyboardDismissMode = .interactive
     tableView.rowHeight = UITableView.automaticDimension
     tableView.estimatedRowHeight = 64
-    tableView.sectionHeaderTopPadding = 12
+    tableView.sectionHeaderTopPadding = 8
     addressField.placeholder = "https://moviepilot.example.com"
     addressField.accessibilityLabel = "MoviePilot 服务地址"
     addressField.keyboardType = .URL
@@ -48,6 +49,7 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
     addressField.delegate = self
     addressField.font = .preferredFont(forTextStyle: .body)
     addressField.adjustsFontForContentSizeCategory = true
+    installConnectionFooter()
     if let previous {
       addressField.text = previous.address.url.absoluteString
       _ = showCompatibilityError(previous.address)
@@ -57,9 +59,9 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
   /// 尚无历史时仅展示添加服务，已有记录时在上方增加服务分组。
   override func numberOfSections(in tableView: UITableView) -> Int { addressSection + 1 }
 
-  /// 地址输入和连接操作各占一行，已保存服务保持整行可点选。
+  /// 添加地址使用单独输入行，已保存服务保持整行可点选。
   override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-    section == addressSection ? 2 : savedInstances.count
+    section == addressSection ? 1 : savedInstances.count
   }
 
   /// 使用系统分组标题，避免重复品牌和大段介绍挤占服务列表。
@@ -68,20 +70,64 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
     section == addressSection ? "添加服务" : "已保存的服务"
   }
 
-  /// 手势提示与地址反馈跟随各自分组，大字体时可完整换行。
+  /// 手势提示随列表分组显示，输入说明集中在独立的连接按钮下方。
   override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String?
   {
-    if section != addressSection { return "点按服务切换，向左滑动可删除。" }
-    return errorMessage ?? "支持 HTTP 和 HTTPS。账号信息仅由你的 MoviePilot 服务处理。"
+    section == addressSection ? nil : "点按切换 · 左滑删除"
   }
 
-  /// 地址校验错误沿用系统页脚布局，以颜色和朗读同时反馈。
-  override func tableView(
-    _ tableView: UITableView, willDisplayFooterView view: UIView, forSection section: Int
-  ) {
-    guard let footer = view as? UITableViewHeaderFooterView else { return }
-    footer.textLabel?.textColor =
-      section == addressSection && errorMessage != nil ? .systemRed : .secondaryLabel
+  /// 表格页尾按实际宽度和动态字号测量，横屏与键盘出现后仍可滚动访问。
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    guard let footer = tableView.tableFooterView else { return }
+    footer.directionalLayoutMargins = NSDirectionalEdgeInsets(
+      top: 16, leading: max(20, tableView.layoutMargins.left), bottom: 28,
+      trailing: max(20, tableView.layoutMargins.right))
+    let width = tableView.bounds.width
+    let height = footer.systemLayoutSizeFitting(
+      CGSize(width: width, height: 0), withHorizontalFittingPriority: .required,
+      verticalFittingPriority: .fittingSizeLevel
+    ).height
+    guard abs(footer.frame.width - width) > 0.5 || abs(footer.frame.height - height) > 0.5 else {
+      return
+    }
+    footer.frame.size = CGSize(width: width, height: height)
+    tableView.tableFooterView = footer
+  }
+
+  /// 将连接操作与地址输入分开，保留原生胶囊按钮和可完整换行的反馈说明。
+  private func installConnectionFooter() {
+    let connect = UIButton(
+      configuration: AccountAppearance.primaryButton(title: "连接"),
+      primaryAction: UIAction { [weak self] _ in self?.submit() })
+    connect.accessibilityLabel = "连接"
+    errorLabel.textColor = .systemRed
+    errorLabel.font = .preferredFont(forTextStyle: .footnote)
+    errorLabel.adjustsFontForContentSizeCategory = true
+    errorLabel.numberOfLines = 0
+    errorLabel.isHidden = true
+    let note = UILabel()
+    note.text = "支持 HTTP 和 HTTPS。登录信息按服务分别保存。"
+    note.font = .preferredFont(forTextStyle: .footnote)
+    note.adjustsFontForContentSizeCategory = true
+    note.textColor = .secondaryLabel
+    note.numberOfLines = 0
+    note.textAlignment = .center
+    let stack = UIStackView(arrangedSubviews: [errorLabel, connect, note])
+    stack.axis = .vertical
+    stack.spacing = 16
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    let footer = UIView()
+    footer.addSubview(stack)
+    let margins = footer.layoutMarginsGuide
+    NSLayoutConstraint.activate([
+      stack.leadingAnchor.constraint(equalTo: margins.leadingAnchor),
+      stack.trailingAnchor.constraint(equalTo: margins.trailingAnchor),
+      stack.topAnchor.constraint(equalTo: margins.topAnchor),
+      stack.bottomAnchor.constraint(equalTo: margins.bottomAnchor),
+      connect.heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
+    ])
+    tableView.tableFooterView = footer
   }
 
   /// 列表统一沿用当前服务的外观；完整 URL 和勾选标记清楚区分各地址。
@@ -95,9 +141,11 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
       let instance = savedInstances[indexPath.row]
       var content = cell.defaultContentConfiguration()
       content.text = instance.address.url.absoluteString
+      content.textProperties.font = .preferredFont(forTextStyle: .callout)
       content.textProperties.numberOfLines = 0
       content.textProperties.lineBreakMode = .byCharWrapping
-      content.image = UIImage(systemName: "server.rack")
+      content.image = UIImage(
+        systemName: "server.rack", withConfiguration: UIImage.SymbolConfiguration(pointSize: 19))
       content.imageProperties.tintColor = tableView.tintColor
       if instance.id == instances.selected?.id {
         content.secondaryText = "当前服务"
@@ -107,32 +155,24 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
       }
       cell.contentConfiguration = content
       cell.accessibilityIdentifier = "saved-service-\(instance.address.url.absoluteString)"
+      cell.accessibilityCustomActions = [
+        UIAccessibilityCustomAction(name: "删除服务") { [weak self] _ in
+          self?.confirmForget(instance)
+          return self != nil
+        }
+      ]
       return cell
     }
     cell.selectionStyle = .none
-    let control: UIView
-    if indexPath.row == 0 {
-      control = addressField
-    } else {
-      var configuration = UIButton.Configuration.plain()
-      configuration.title = "连接"
-      configuration.image = UIImage(systemName: "arrow.right")
-      configuration.imagePlacement = .trailing
-      configuration.imagePadding = 8
-      let button = UIButton(
-        configuration: configuration, primaryAction: UIAction { [weak self] _ in self?.submit() })
-      button.accessibilityLabel = "连接"
-      control = button
-    }
-    control.translatesAutoresizingMaskIntoConstraints = false
-    cell.contentView.addSubview(control)
+    addressField.translatesAutoresizingMaskIntoConstraints = false
+    cell.contentView.addSubview(addressField)
     let margins = cell.contentView.layoutMarginsGuide
     NSLayoutConstraint.activate([
-      control.leadingAnchor.constraint(equalTo: margins.leadingAnchor),
-      control.trailingAnchor.constraint(equalTo: margins.trailingAnchor),
-      control.topAnchor.constraint(equalTo: margins.topAnchor, constant: 4),
-      control.bottomAnchor.constraint(equalTo: margins.bottomAnchor, constant: -4),
-      control.heightAnchor.constraint(greaterThanOrEqualToConstant: 36),
+      addressField.leadingAnchor.constraint(equalTo: margins.leadingAnchor),
+      addressField.trailingAnchor.constraint(equalTo: margins.trailingAnchor),
+      addressField.topAnchor.constraint(equalTo: margins.topAnchor, constant: 4),
+      addressField.bottomAnchor.constraint(equalTo: margins.bottomAnchor, constant: -4),
+      addressField.heightAnchor.constraint(greaterThanOrEqualToConstant: 36),
     ])
     return cell
   }
@@ -149,13 +189,13 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
     indexPath.section != addressSection
   }
 
-  /// 左滑才显示系统删除按钮；禁用整行滑到底即执行，仍需明确确认清理。
+  /// 透明动作背景搭配双色圆形系统图标，保留系统左滑、读屏和删除确认。
   override func tableView(
     _ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
   ) -> UISwipeActionsConfiguration? {
     guard indexPath.section != addressSection else { return nil }
     let instance = savedInstances[indexPath.row]
-    let remove = UIContextualAction(style: .destructive, title: "删除") {
+    let remove = UIContextualAction(style: .destructive, title: nil) {
       [weak self] _, _, complete in
       guard let self else {
         complete(false)
@@ -164,6 +204,13 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
       complete(true)
       self.confirmForget(instance)
     }
+    let symbol = UIImage.SymbolConfiguration(pointSize: 44).applying(
+      UIImage.SymbolConfiguration(paletteColors: [.white, .systemRed]))
+    let image = UIImage(systemName: "trash.circle.fill", withConfiguration: symbol)?
+      .withRenderingMode(.alwaysOriginal)
+    image?.accessibilityLabel = "删除"
+    remove.image = image
+    remove.backgroundColor = .clear
     let configuration = UISwipeActionsConfiguration(actions: [remove])
     configuration.performsFirstActionWithFullSwipe = false
     return configuration
@@ -231,7 +278,7 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
         if (try? ServerAddress(self.addressField.text ?? "")) == instance.address {
           self.addressField.text = nil
         }
-        self.errorMessage = nil
+        self.errorLabel.isHidden = true
         self.savedInstances = Array(self.instances.instances.reversed())
         self.tableView.reloadData()
       } catch { self.showStorageError() }
@@ -245,8 +292,10 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
 
   /// 页脚保持输入值，更新错误后为 VoiceOver 朗读具体原因。
   private func showError(_ message: String) {
-    errorMessage = message
-    tableView.reloadSections(IndexSet(integer: addressSection), with: .none)
+    errorLabel.text = message
+    errorLabel.isHidden = false
+    view.endEditing(true)
+    view.setNeedsLayout()
     UIAccessibility.post(notification: .announcement, argument: message)
   }
 
