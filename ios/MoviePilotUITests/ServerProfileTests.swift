@@ -19,7 +19,12 @@ final class ServerProfileTests: XCTestCase {
     XCTAssertEqual(app.switches["native-remember-credentials"].value as? String, "0")
     authenticate("b", app: app)
     openPicker(app)
+    XCTAssertFalse(app.buttons["删除"].exists)
     capture("多服务-已保存地址")
+    _ = revealDelete(0, app: app)
+    capture("多服务-左滑删除")
+    saved(0, app: app).swipeRight()
+    XCTAssertFalse(app.buttons["删除"].exists)
     selectSaved(0, app: app)
     assertHome(app)
     XCTAssertFalse(app.textFields["用户名"].exists)
@@ -111,11 +116,10 @@ final class ServerProfileTests: XCTestCase {
     app.buttons["登录"].tap()
     assertHome(app)
     openPicker(app)
-    let remove = app.buttons["删除服务 \(servers[0])"]
-    remove.tap()
+    revealDelete(0, app: app).tap()
     app.alerts.buttons["取消"].tap()
     XCTAssertTrue(saved(0, app: app).exists)
-    remove.tap()
+    revealDelete(0, app: app).tap()
     app.alerts.buttons["删除"].tap()
     let removed = XCTNSPredicateExpectation(
       predicate: NSPredicate(format: "exists == false"), object: saved(0, app: app))
@@ -126,7 +130,7 @@ final class ServerProfileTests: XCTestCase {
     app.terminate()
   }
 
-  /// 最大辅助功能字号和横屏下，完整地址、删除按钮与新增表单仍可通过滚动访问。
+  /// 最大辅助功能字号和横屏下，完整地址和左滑操作仍可通过系统列表滚动访问。
   func testSavedServicesRemainUsableWithLargeText() async throws {
     try await configure(0, mode: "expired")
     try await configure(1, mode: "expired")
@@ -146,14 +150,16 @@ final class ServerProfileTests: XCTestCase {
     let rotated = XCTNSPredicateExpectation(
       predicate: NSPredicate { _, _ in app.frame.width > app.frame.height }, object: nil)
     XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 10), .completed)
-    app.swipeUp()
+    let row = saved(0, app: app)
+    for _ in 0..<5 where !row.isHittable { app.tables["server-connections"].swipeUp() }
+    XCTAssertTrue(row.isHittable)
     capture("多服务-横屏最大字号")
     selectSaved(0, app: app)
     XCTAssertTrue(app.textFields["用户名"].waitForExistence(timeout: 15))
     app.terminate()
   }
 
-  /// 只在显式启用专用回环夹具时运行，通过删除按钮清理这两个测试服务。
+  /// 只在显式启用专用回环夹具时运行，通过真实左滑手势清理这两个测试服务。
   private func launchCleanPicker() throws -> XCUIApplication {
     guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_SERVER_PROFILES"] == "1" else {
       throw XCTSkip("需要两个独立的本机多服务回归夹具。")
@@ -164,13 +170,13 @@ final class ServerProfileTests: XCTestCase {
     app.launchArguments = ["-moviepilot.instance.selected.v1", ""] + language
     app.launch()
     XCTAssertTrue(app.textFields["MoviePilot 服务地址"].waitForExistence(timeout: 10))
-    for server in servers {
-      let remove = app.buttons["删除服务 \(server)"]
-      if remove.exists {
-        remove.tap()
+    for index in servers.indices {
+      let row = saved(index, app: app)
+      if row.exists {
+        revealDelete(index, app: app).tap()
         app.alerts.buttons["删除"].tap()
         let removed = XCTNSPredicateExpectation(
-          predicate: NSPredicate(format: "exists == false"), object: remove)
+          predicate: NSPredicate(format: "exists == false"), object: row)
         XCTAssertEqual(XCTWaiter.wait(for: [removed], timeout: 15), .completed)
       }
     }
@@ -197,7 +203,17 @@ final class ServerProfileTests: XCTestCase {
 
   /// 唯一标准地址也是可访问性标识，列表选择无需重填 URL。
   private func saved(_ index: Int, app: XCUIApplication) -> XCUIElement {
-    app.buttons["saved-service-\(servers[index])"]
+    app.cells["saved-service-\(servers[index])"]
+  }
+
+  /// 列表平时没有常驻删除按钮，向左滑动后才出现系统删除动作。
+  private func revealDelete(_ index: Int, app: XCUIApplication) -> XCUIElement {
+    let row = saved(index, app: app)
+    XCTAssertTrue(row.waitForExistence(timeout: 10))
+    row.swipeLeft()
+    let remove = app.buttons["删除"]
+    XCTAssertTrue(remove.waitForExistence(timeout: 5))
+    return remove
   }
 
   /// 直接点选已保存服务，后续由其独立令牌或登录表单接续。
