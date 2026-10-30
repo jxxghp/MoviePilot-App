@@ -2,47 +2,44 @@ import MoviePilotCore
 import UIKit
 import WebKit
 
-/// 管理已保存的服务与新增地址，切换后使用各实例独立的原生认证和网页容器。
+/// 用原生分组列表管理服务，切换后使用各实例独立的认证和网页容器。
 @MainActor
-final class ConnectionController: UIViewController, UITextFieldDelegate {
+final class ConnectionController: UITableViewController, UITextFieldDelegate {
   private let instances: InstanceStore
   private let onConnect: (SavedInstance) -> Void
   private let addressField = UITextField()
+  private var savedInstances: [SavedInstance] = []
   private let errorLabel = UILabel()
-  private let savedServices = UIStackView()
+  /// 有历史记录时将添加表单置于服务分组之后。
+  private var addressSection: Int { savedInstances.isEmpty ? 0 : 1 }
 
   /// 接收实例存储与连接结果，不把账号数据引入原生配置。
   init(instances: InstanceStore, onConnect: @escaping (SavedInstance) -> Void) {
     self.instances = instances
     self.onConnect = onConnect
-    super.init(nibName: nil, bundle: nil)
+    super.init(style: .insetGrouped)
   }
 
   /// 此控制器由代码建立，不支持 storyboard 恢复。
   required init?(coder: NSCoder) { fatalError("Use init(instances:onConnect:)") }
 
-  /// 历史服务可直接连接；新增地址仍走原有校验和键盘避让路径。
+  /// 服务、输入与连接均使用系统列表布局，键盘和大字体由表格滚动承载。
   override func viewDidLoad() {
     super.viewDidLoad()
     let previous = instances.selected ?? instances.instances.last
-    title = "连接 MoviePilot"
-    let header = AccountAppearance.header(
-      title: "连接你的服务", subtitle: "选择已保存的服务，或添加新的 MoviePilot 地址。")
-    savedServices.axis = .vertical
-    savedServices.spacing = 12
-    refreshSavedServices()
-    let addressLabel = UILabel()
-    addressLabel.text = "添加服务地址"
-    addressLabel.font = .preferredFont(forTextStyle: .subheadline)
-    addressLabel.adjustsFontForContentSizeCategory = true
+    savedInstances = Array(instances.instances.reversed())
+    title = "连接服务"
+    navigationController?.navigationBar.prefersLargeTitles = false
+    navigationItem.largeTitleDisplayMode = .never
+    tableView.accessibilityIdentifier = "server-connections"
+    tableView.backgroundColor = AccountAppearance.background(for: previous?.id)
+    tableView.tintColor = AccountAppearance.accent(for: previous?.id)
+    tableView.keyboardDismissMode = .interactive
+    tableView.rowHeight = UITableView.automaticDimension
+    tableView.estimatedRowHeight = 64
+    tableView.sectionHeaderTopPadding = 8
     addressField.placeholder = "https://moviepilot.example.com"
     addressField.accessibilityLabel = "MoviePilot 服务地址"
-    addressField.borderStyle = .none
-    addressField.backgroundColor = AccountAppearance.surface(for: previous?.id)
-    addressField.layer.cornerRadius = 16
-    addressField.layer.cornerCurve = .continuous
-    addressField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 16, height: 48))
-    addressField.leftViewMode = .always
     addressField.keyboardType = .URL
     addressField.textContentType = .URL
     addressField.autocorrectionType = .no
@@ -52,35 +49,171 @@ final class ConnectionController: UIViewController, UITextFieldDelegate {
     addressField.delegate = self
     addressField.font = .preferredFont(forTextStyle: .body)
     addressField.adjustsFontForContentSizeCategory = true
-    errorLabel.numberOfLines = 0
-    errorLabel.textColor = .systemRed
-    errorLabel.font = .preferredFont(forTextStyle: .footnote)
-    errorLabel.adjustsFontForContentSizeCategory = true
-    errorLabel.isHidden = true
-    let configuration = AccountAppearance.primaryButton(title: "连接")
-    let connect = UIButton(
-      configuration: configuration, primaryAction: UIAction { [weak self] _ in self?.submit() })
-    let note = UILabel()
-    note.text = "支持 HTTP 和 HTTPS。账号信息仅由你的 MoviePilot 服务处理。"
-    note.font = .preferredFont(forTextStyle: .footnote)
-    note.adjustsFontForContentSizeCategory = true
-    note.textColor = .secondaryLabel
-    note.numberOfLines = 0
-    connect.accessibilityLabel = "连接"
-    let field = UIStackView(arrangedSubviews: [addressLabel, addressField])
-    field.axis = .vertical
-    field.spacing = 10
-    let stack = UIStackView(
-      arrangedSubviews: [header, savedServices, field, errorLabel, connect, note])
-    AccountAppearance.install(stack, in: self, instance: previous?.id)
-    NSLayoutConstraint.activate([
-      addressField.heightAnchor.constraint(greaterThanOrEqualToConstant: 56),
-      connect.heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
-    ])
+    installConnectionFooter()
     if let previous {
       addressField.text = previous.address.url.absoluteString
       _ = showCompatibilityError(previous.address)
     }
+  }
+
+  /// 尚无历史时仅展示添加服务，已有记录时在上方增加服务分组。
+  override func numberOfSections(in tableView: UITableView) -> Int { addressSection + 1 }
+
+  /// 添加地址使用单独输入行，已保存服务保持整行可点选。
+  override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    section == addressSection ? 1 : savedInstances.count
+  }
+
+  /// 使用系统分组标题，避免重复品牌和大段介绍挤占服务列表。
+  override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String?
+  {
+    section == addressSection ? "添加服务" : "已保存的服务"
+  }
+
+  /// 手势提示随列表分组显示，输入说明集中在独立的连接按钮下方。
+  override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String?
+  {
+    section == addressSection ? nil : "点按切换 · 左滑删除"
+  }
+
+  /// 表格页尾按实际宽度和动态字号测量，横屏与键盘出现后仍可滚动访问。
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    guard let footer = tableView.tableFooterView else { return }
+    footer.directionalLayoutMargins = NSDirectionalEdgeInsets(
+      top: 16, leading: max(20, tableView.layoutMargins.left), bottom: 28,
+      trailing: max(20, tableView.layoutMargins.right))
+    let width = tableView.bounds.width
+    let height = footer.systemLayoutSizeFitting(
+      CGSize(width: width, height: 0), withHorizontalFittingPriority: .required,
+      verticalFittingPriority: .fittingSizeLevel
+    ).height
+    guard abs(footer.frame.width - width) > 0.5 || abs(footer.frame.height - height) > 0.5 else {
+      return
+    }
+    footer.frame.size = CGSize(width: width, height: height)
+    tableView.tableFooterView = footer
+  }
+
+  /// 将连接操作与地址输入分开，保留原生胶囊按钮和可完整换行的反馈说明。
+  private func installConnectionFooter() {
+    let connect = UIButton(
+      configuration: AccountAppearance.primaryButton(title: "连接"),
+      primaryAction: UIAction { [weak self] _ in self?.submit() })
+    connect.accessibilityLabel = "连接"
+    errorLabel.textColor = .systemRed
+    errorLabel.font = .preferredFont(forTextStyle: .footnote)
+    errorLabel.adjustsFontForContentSizeCategory = true
+    errorLabel.numberOfLines = 0
+    errorLabel.isHidden = true
+    let note = UILabel()
+    note.text = "支持 HTTP 和 HTTPS。登录信息按服务分别保存。"
+    note.font = .preferredFont(forTextStyle: .footnote)
+    note.adjustsFontForContentSizeCategory = true
+    note.textColor = .secondaryLabel
+    note.numberOfLines = 0
+    note.textAlignment = .center
+    let stack = UIStackView(arrangedSubviews: [errorLabel, connect, note])
+    stack.axis = .vertical
+    stack.spacing = 16
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    let footer = UIView()
+    footer.addSubview(stack)
+    let margins = footer.layoutMarginsGuide
+    NSLayoutConstraint.activate([
+      stack.leadingAnchor.constraint(equalTo: margins.leadingAnchor),
+      stack.trailingAnchor.constraint(equalTo: margins.trailingAnchor),
+      stack.topAnchor.constraint(equalTo: margins.topAnchor),
+      stack.bottomAnchor.constraint(equalTo: margins.bottomAnchor),
+      connect.heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
+    ])
+    tableView.tableFooterView = footer
+  }
+
+  /// 列表统一沿用当前服务的外观；完整 URL 和勾选标记清楚区分各地址。
+  override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath)
+    -> UITableViewCell
+  {
+    let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+    let previous = instances.selected ?? instances.instances.last
+    cell.backgroundColor = AccountAppearance.surface(for: previous?.id)
+    if indexPath.section != addressSection {
+      let instance = savedInstances[indexPath.row]
+      var content = cell.defaultContentConfiguration()
+      content.text = instance.address.url.absoluteString
+      content.textProperties.font = .preferredFont(forTextStyle: .callout)
+      content.textProperties.numberOfLines = 0
+      content.textProperties.lineBreakMode = .byCharWrapping
+      content.image = UIImage(
+        systemName: "server.rack", withConfiguration: UIImage.SymbolConfiguration(pointSize: 19))
+      content.imageProperties.tintColor = tableView.tintColor
+      if instance.id == instances.selected?.id {
+        content.secondaryText = "当前服务"
+        cell.accessoryType = .checkmark
+      } else {
+        cell.accessoryType = .disclosureIndicator
+      }
+      cell.contentConfiguration = content
+      cell.accessibilityIdentifier = "saved-service-\(instance.address.url.absoluteString)"
+      cell.accessibilityCustomActions = [
+        UIAccessibilityCustomAction(name: "删除服务") { [weak self] _ in
+          self?.confirmForget(instance)
+          return self != nil
+        }
+      ]
+      return cell
+    }
+    cell.selectionStyle = .none
+    addressField.translatesAutoresizingMaskIntoConstraints = false
+    cell.contentView.addSubview(addressField)
+    let margins = cell.contentView.layoutMarginsGuide
+    NSLayoutConstraint.activate([
+      addressField.leadingAnchor.constraint(equalTo: margins.leadingAnchor),
+      addressField.trailingAnchor.constraint(equalTo: margins.trailingAnchor),
+      addressField.topAnchor.constraint(equalTo: margins.topAnchor, constant: 4),
+      addressField.bottomAnchor.constraint(equalTo: margins.bottomAnchor, constant: -4),
+      addressField.heightAnchor.constraint(greaterThanOrEqualToConstant: 36),
+    ])
+    return cell
+  }
+
+  /// 点选历史地址与手动输入共用校验，始终复用该地址原来的实例标识。
+  override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+    tableView.deselectRow(at: indexPath, animated: true)
+    guard indexPath.section != addressSection else { return }
+    do { try connect(savedInstances[indexPath.row].address) } catch { showStorageError() }
+  }
+
+  /// 只有已保存服务提供编辑手势，输入表单不出现删除操作。
+  override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
+    indexPath.section != addressSection
+  }
+
+  /// 透明动作背景搭配双色圆形系统图标，保留系统左滑、读屏和删除确认。
+  override func tableView(
+    _ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
+  ) -> UISwipeActionsConfiguration? {
+    guard indexPath.section != addressSection else { return nil }
+    let instance = savedInstances[indexPath.row]
+    let remove = UIContextualAction(style: .destructive, title: nil) {
+      [weak self] _, _, complete in
+      guard let self else {
+        complete(false)
+        return
+      }
+      complete(true)
+      self.confirmForget(instance)
+    }
+    let symbol = UIImage.SymbolConfiguration(pointSize: 44).applying(
+      UIImage.SymbolConfiguration(paletteColors: [.white, .systemRed]))
+    let image = UIImage(systemName: "trash.circle.fill", withConfiguration: symbol)?
+      .withRenderingMode(.alwaysOriginal)
+    image?.accessibilityLabel = "删除"
+    remove.image = image
+    remove.backgroundColor = .clear
+    let configuration = UISwipeActionsConfiguration(actions: [remove])
+    configuration.performsFirstActionWithFullSwipe = false
+    return configuration
   }
 
   /// URL 键盘的前往键与连接按钮采用相同校验路径。
@@ -97,82 +230,23 @@ final class ConnectionController: UIViewController, UITextFieldDelegate {
     } catch {
       switch error {
       case ServerAddressError.credentialsNotAllowed:
-        errorLabel.text = "地址中不要包含账号或密码。连接后再安全登录。"
+        showError("地址中不要包含账号或密码。连接后再安全登录。")
       case ServerAddressError.queryOrFragmentNotAllowed:
-        errorLabel.text = "请输入服务根地址，不要包含查询参数或 # 后的页面路径。"
+        showError("请输入服务根地址，不要包含查询参数或 # 后的页面路径。")
       case is ServerAddressError:
-        errorLabel.text = "请输入包含 http:// 或 https:// 的完整服务地址。"
+        showError("请输入包含 http:// 或 https:// 的完整服务地址。")
       default:
         showStorageError()
-        return
       }
-      errorLabel.isHidden = false
-      UIAccessibility.post(notification: .announcement, argument: errorLabel.text)
     }
   }
 
-  /// 历史选择与手动输入共用地址校验，始终复用该地址原来的实例标识。
+  /// 历史选择与手动输入使用同一入口，确认可展示网页后才保存选择。
   private func connect(_ address: ServerAddress) throws {
     guard !showCompatibilityError(address) else { return }
     let instance = try instances.select(address)
     view.endEditing(true)
     onConnect(instance)
-  }
-
-  /// 使用可换行的原生按钮列出完整地址，端口和子路径可区分内外网或开发实例。
-  private func refreshSavedServices() {
-    for view in savedServices.arrangedSubviews {
-      savedServices.removeArrangedSubview(view)
-      view.removeFromSuperview()
-    }
-    let values = instances.instances
-    savedServices.isHidden = values.isEmpty
-    guard !values.isEmpty else { return }
-    let title = UILabel()
-    title.text = "已保存的服务"
-    title.font = .preferredFont(forTextStyle: .headline)
-    title.adjustsFontForContentSizeCategory = true
-    title.accessibilityTraits = .header
-    savedServices.addArrangedSubview(title)
-    for instance in values.reversed() {
-      let address = instance.address.url.absoluteString
-      var configuration = UIButton.Configuration.tinted()
-      configuration.title = address
-      configuration.subtitle = instance.id == instances.selected?.id ? "当前服务" : "点按切换"
-      configuration.image = UIImage(systemName: "server.rack")
-      configuration.imagePadding = 12
-      configuration.titleAlignment = .leading
-      configuration.titleLineBreakMode = .byCharWrapping
-      configuration.baseForegroundColor = AccountAppearance.accent(for: instance.id)
-      configuration.background.backgroundColor = AccountAppearance.surface(for: instance.id)
-      configuration.cornerStyle = .large
-      configuration.contentInsets = NSDirectionalEdgeInsets(
-        top: 14, leading: 14, bottom: 14, trailing: 14)
-      let button = UIButton(
-        configuration: configuration,
-        primaryAction: UIAction { [weak self] _ in
-          guard let self else { return }
-          do { try self.connect(instance.address) } catch { self.showStorageError() }
-        })
-      button.contentHorizontalAlignment = .leading
-      button.titleLabel?.numberOfLines = 0
-      button.accessibilityIdentifier = "saved-service-\(address)"
-      let remove = UIButton(
-        type: .system,
-        primaryAction: UIAction { [weak self] _ in self?.confirmForget(instance) })
-      remove.setImage(UIImage(systemName: "trash"), for: .normal)
-      remove.tintColor = .secondaryLabel
-      remove.accessibilityLabel = "删除服务 \(address)"
-      let row = UIStackView(arrangedSubviews: [button, remove])
-      row.spacing = 8
-      row.alignment = .center
-      NSLayoutConstraint.activate([
-        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 64),
-        remove.widthAnchor.constraint(equalToConstant: 44),
-        remove.heightAnchor.constraint(equalToConstant: 44),
-      ])
-      savedServices.addArrangedSubview(row)
-    }
   }
 
   /// 删除需明确确认，避免切换服务时误清除该地址的账号与会话。
@@ -205,24 +279,30 @@ final class ConnectionController: UIViewController, UITextFieldDelegate {
           self.addressField.text = nil
         }
         self.errorLabel.isHidden = true
-        self.refreshSavedServices()
+        self.savedInstances = Array(self.instances.instances.reversed())
+        self.tableView.reloadData()
       } catch { self.showStorageError() }
     }
   }
 
   /// 本地持久化失败不误报地址错误，也不回显底层系统信息。
   private func showStorageError() {
-    errorLabel.text = "未能更新已保存的服务，请重试。"
+    showError("未能更新已保存的服务，请重试。")
+  }
+
+  /// 页脚保持输入值，更新错误后为 VoiceOver 朗读具体原因。
+  private func showError(_ message: String) {
+    errorLabel.text = message
     errorLabel.isHidden = false
-    UIAccessibility.post(notification: .announcement, argument: errorLabel.text)
+    view.endEditing(true)
+    view.setNeedsLayout()
+    UIAccessibility.post(notification: .announcement, argument: message)
   }
 
   /// 浏览器不支持的地址停留在可编辑的配置页，不让原生 API 成功掩盖网页无法加载。
   private func showCompatibilityError(_ address: ServerAddress) -> Bool {
     guard let message = address.webCompatibilityError else { return false }
-    errorLabel.text = message
-    errorLabel.isHidden = false
-    UIAccessibility.post(notification: .announcement, argument: message)
+    showError(message)
     return true
   }
 }
