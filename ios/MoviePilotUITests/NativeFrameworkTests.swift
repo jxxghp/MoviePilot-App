@@ -4033,6 +4033,77 @@ final class NativeFrameworkTests: XCTestCase {
     return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
   }
 
+  /// 真实卡片选站搜索覆盖不同所属入口，归还绘制与路由切换交错也不能进入恢复页。
+  func testMediaSearchSheetRouteRace() async throws {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_SHEET_RACE"] == "1" else {
+      throw XCTSkip("仅运行显式本机搜索回归夹具")
+    }
+    let base = URL(string: "http://127.0.0.1:5256")!
+    /// 状态仅来自本机合成页面的 DOM 几何与搜索请求计数。
+    func state() async throws -> [String: Any] {
+      let (data, _) = try await URLSession.shared.data(
+        from: base.appendingPathComponent("__sheet/state"))
+      return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+    let app = try launchCardMenuApp(server: base.absoluteString)
+    XCTAssertTrue(
+      app.tabBars["native-root-navigation"].waitForExistence(timeout: 45), app.debugDescription)
+    /// 等待当前可见卡片及其原始搜索按钮，坐标使用真实 DOM 与当前 WebView frame。
+    func point(_ key: String) async throws -> XCUICoordinate {
+      for _ in 0..<100 {
+        let page = try await state()["page"] as? [String: Any]
+        if (page?["hash"] as? String)?.contains("/browse/") == true,
+          let rect = page?[key] as? [String: Double], let x = rect["x"], let y = rect["y"],
+          let width = rect["width"], let height = rect["height"], width > 0, height > 0
+        {
+          return app.webViews.firstMatch.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: x + width / 2, dy: y + height / 2))
+        }
+        try await Task.sleep(for: .milliseconds(150))
+      }
+      let last = try await state()
+      XCTFail("真实媒体卡片未就绪: \(last)\n\(app.debugDescription)")
+      throw NSError(domain: "SheetRace", code: 1)
+    }
+    let sources = ["/recommend", "/discover", "/apps"]
+    let titles = ["推荐", "探索", "更多"]
+    for index in 0..<12 {
+      var request = URLRequest(url: base.appendingPathComponent("__sheet/route"))
+      request.httpMethod = "POST"
+      request.httpBody = try JSONSerialization.data(withJSONObject: [
+        "source": sources[index % sources.count], "delay": index >= 6,
+      ])
+      _ = try await URLSession.shared.data(for: request)
+      let card = try await point("card")
+      XCTAssertTrue(
+        app.tabBars["native-root-navigation"].buttons[titles[index % titles.count]].isSelected)
+      if index.isMultiple(of: 2) {
+        card.tap()
+        try await point("search").tap()
+      } else {
+        card.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["搜索"].waitForExistence(timeout: 8), app.debugDescription)
+        app.buttons["搜索"].tap()
+      }
+      let sheet = app.otherElements["native-web-sheet"]
+      XCTAssertTrue(sheet.waitForExistence(timeout: 10), app.debugDescription)
+      app.webViews.staticTexts["合成站点 2"].tap()
+      app.webViews.buttons["搜索"].tap()
+      XCTAssertTrue(sheet.waitForNonExistence(timeout: 10), app.debugDescription)
+      XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists, app.debugDescription)
+      let current = try await state()
+      let searches = try XCTUnwrap(current["searches"] as? [[String: Any]])
+      XCTAssertEqual(searches.count, index + 1)
+      XCTAssertEqual(searches.last?["sites"] as? [String], ["1"])
+      let page = try XCTUnwrap(current["page"] as? [String: Any])
+      XCTAssertEqual(page["hash"] as? String, "#/resource")
+      XCTAssertEqual(page["sheet"] as? Bool, false)
+      XCTAssertTrue(app.tabBars["native-root-navigation"].buttons["更多"].isSelected)
+      XCTAssertGreaterThanOrEqual(current["delayed"] as? Int ?? 0, max(0, index - 5))
+    }
+    attachScreen("媒体卡片搜索-连续导航归还", app: app)
+  }
+
   /// 合成实例允许首次登录或已保存会话恢复，不把后者误判成登录表单缺失。
   private func launchCardMenuApp(server: String, contentSizeCategory: String? = nil) throws
     -> XCUIApplication
