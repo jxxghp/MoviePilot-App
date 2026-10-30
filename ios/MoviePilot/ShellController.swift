@@ -398,7 +398,8 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     recoveryView = nil
     let host = selectedHost
     host.edgesForExtendedLayout = .all
-    if webSheet == nil { host.attach(coordinator.content) }
+    // 归还期间网页已离开 Sheet，后续路由仍须跟随当前入口；留在离屏旧宿主会阻塞绘制确认。
+    if webSheet == nil || sheetDismissing { host.attach(coordinator.content) }
     configureMoreMenu(host, snapshot: snapshot)
     if let container = nativeContainer {
       container.view.alpha = 1
