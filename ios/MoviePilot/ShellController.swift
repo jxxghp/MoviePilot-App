@@ -813,7 +813,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
           UIAction(title: "重新加载", image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in
             self?.coordinator.reload()
           },
-          UIAction(title: "更改服务地址", image: UIImage(systemName: "server.rack")) { [weak self] _ in
+          UIAction(title: "切换服务", image: UIImage(systemName: "server.rack")) { [weak self] _ in
             self?.onConnection()
           },
         ])

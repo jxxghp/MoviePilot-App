@@ -155,10 +155,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         self?.tokens.remove(instance.id)
         WidgetService.shared.endSession(instanceId: instance.id, clear: true)
       },
-      onAuthenticated: { [weak self] result, remember in
+      onAuthenticated: { [weak self] result, remember, credentialsFailed in
         guard let self else { return }
         UserDefaults.standard.removeObject(forKey: "moviepilot.web-login.\(instance.id)")
-        var storageFailed = false
+        var storageFailed = credentialsFailed
         if remember {
           do { try self.tokens.save(result.session.accessToken, for: instance.id) } catch {
             storageFailed = true
@@ -170,7 +170,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         self.openWeb(instance, authentication: result)
         if storageFailed {
           let alert = UIAlertController(
-            title: "已登录", message: "此设备未能安全保存登录状态，下次打开需要重新登录。", preferredStyle: .alert)
+            title: "已登录", message: "此设备未能安全保存部分登录信息，下次可能需要重新输入。", preferredStyle: .alert)
           alert.addAction(UIAlertAction(title: "好", style: .default))
           self.window?.rootViewController?.present(alert, animated: true)
         }
