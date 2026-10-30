@@ -8,12 +8,14 @@ final class LoginController: UIViewController, UITextFieldDelegate {
   private let client: AuthenticationClient
   private let savedToken: String?
   private let onExpired: () -> Void
-  private let onAuthenticated: (AuthenticationResult, Bool) -> Void
+  private let onAuthenticated: (AuthenticationResult, Bool, Bool) -> Void
   private let onConnection: () -> Void
+  private let credentials = LoginCredentialStore()
   private let username = UITextField()
   private let password = UITextField()
   private let otp = UITextField()
   private let remember = UISwitch()
+  private let rememberCredentials = UISwitch()
   private let message = UILabel()
   private let login = UIButton()
   private let passkey = UIButton()
@@ -26,10 +28,10 @@ final class LoginController: UIViewController, UITextFieldDelegate {
   private var preparationID: UUID?
   private var preparationSuspended = false
 
-  /// 回调只交付认证结果，不将密码传给 Scene、导航桥或持久化层。
+  /// 回调只交付认证结果与保存状态，密码仅由本控制器按用户选择交给私有钥匙串。
   init(
     instance: SavedInstance, savedToken: String?, onExpired: @escaping () -> Void,
-    onAuthenticated: @escaping (AuthenticationResult, Bool) -> Void,
+    onAuthenticated: @escaping (AuthenticationResult, Bool, Bool) -> Void,
     onConnection: @escaping () -> Void
   ) {
     self.instance = instance
@@ -105,6 +107,19 @@ final class LoginController: UIViewController, UITextFieldDelegate {
     let rememberRow = UIStackView(arrangedSubviews: [rememberLabel, remember])
     rememberRow.distribution = .equalSpacing
     rememberRow.alignment = .center
+    rememberCredentials.onTintColor = AccountAppearance.accent(for: instance.id)
+    rememberCredentials.accessibilityLabel = "记住账号密码"
+    rememberCredentials.accessibilityIdentifier = "native-remember-credentials"
+    rememberCredentials.addAction(
+      UIAction { [weak self] _ in self?.updateCredentialPreference() }, for: .valueChanged)
+    let credentialsLabel = UILabel()
+    credentialsLabel.text = "记住账号密码"
+    credentialsLabel.font = .preferredFont(forTextStyle: .subheadline)
+    credentialsLabel.adjustsFontForContentSizeCategory = true
+    credentialsLabel.numberOfLines = 0
+    let credentialsRow = UIStackView(arrangedSubviews: [credentialsLabel, rememberCredentials])
+    credentialsRow.distribution = .equalSpacing
+    credentialsRow.alignment = .center
     message.font = .preferredFont(forTextStyle: .footnote)
     message.adjustsFontForContentSizeCategory = true
     message.numberOfLines = 0
@@ -124,13 +139,14 @@ final class LoginController: UIViewController, UITextFieldDelegate {
     passkey.isHidden = true
     passkey.addAction(UIAction { [weak self] _ in self?.submitPasskey() }, for: .touchUpInside)
     let note = UILabel()
-    note.text = "账号信息仅发送到当前 MoviePilot 服务。"
+    note.text = "账号信息仅发送到当前服务。记住的账号密码仅保存在本机，验证码不会保存。"
     note.font = .preferredFont(forTextStyle: .footnote)
     note.adjustsFontForContentSizeCategory = true
     note.textColor = .secondaryLabel
     note.textAlignment = .center
     note.numberOfLines = 0
-    let form = UIStackView(arrangedSubviews: [fields, rememberRow, message, login, passkey])
+    let form = UIStackView(
+      arrangedSubviews: [fields, rememberRow, credentialsRow, message, login, passkey])
     form.axis = .vertical
     form.spacing = 16
     let stack = UIStackView(arrangedSubviews: [header, server, form, note])
@@ -142,6 +158,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
       login.heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
       passkey.heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
     ])
+    restoreCredentials()
     showStartup()
     NotificationCenter.default.addObserver(
       self, selector: #selector(pausePreparation),
@@ -236,6 +253,27 @@ final class LoginController: UIViewController, UITextFieldDelegate {
     field.delegate = self
   }
 
+  /// 保存过的密码只回填表单，令牌失效后仍由用户点击登录并输入当次验证码。
+  private func restoreCredentials() {
+    guard let saved = try? credentials.read(for: instance.id, address: instance.address) else {
+      return
+    }
+    username.text = saved.username
+    password.text = saved.password
+    rememberCredentials.isOn = true
+  }
+
+  /// 关闭记忆立即清除旧密码，无需再次登录；系统拒绝时保留开关并明确提示。
+  private func updateCredentialPreference() {
+    guard !rememberCredentials.isOn else { return }
+    do {
+      try credentials.remove(for: instance.id)
+    } catch {
+      rememberCredentials.isOn = true
+      setMessage("未能清除已保存的账号密码，请重试。", error: true)
+    }
+  }
+
   /// 初始化与令牌恢复先验证服务器；未知状态允许重试，不进入网页认证或初始化。
   private func prepare() {
     let identifier = UUID()
@@ -273,7 +311,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
             }
             guard !Task.isCancelled else { return }
             restored = true
-            self.onAuthenticated(result, true)
+            self.onAuthenticated(result, true, false)
             return
           } catch AuthenticationError.credentials { self.onExpired() }
         }
@@ -362,10 +400,18 @@ final class LoginController: UIViewController, UITextFieldDelegate {
       do {
         let result = try await self.client.login(username: name, password: secret, otp: code)
         guard !Task.isCancelled else { return }
+        var storageFailed = false
+        if self.rememberCredentials.isOn {
+          do {
+            try self.credentials.save(
+              LoginCredentials(username: name, password: secret), for: self.instance.id,
+              address: self.instance.address)
+          } catch { storageFailed = true }
+        }
         self.password.text = nil
         self.otp.text = nil
         self.view.endEditing(true)
-        self.onAuthenticated(result, self.remember.isOn)
+        self.onAuthenticated(result, self.remember.isOn, storageFailed)
       } catch AuthenticationError.otpRequired {
         self.otp.isHidden = false
         self.otp.becomeFirstResponder()
@@ -406,7 +452,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
         let result = try await self.client.finishPasskey(body: body)
         try Task.checkCancellation()
         self.passkeyAuthenticator = nil
-        self.onAuthenticated(result, self.remember.isOn)
+        self.onAuthenticated(result, self.remember.isOn, false)
       } catch PasskeyFailure.canceled {
         self.setMessage(nil)
       } catch AuthenticationError.throttled(let seconds) {
@@ -439,6 +485,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
     password.isEnabled = !busy
     otp.isEnabled = !busy
     remember.isEnabled = !busy
+    rememberCredentials.isEnabled = !busy
   }
 
   /// 已知失败保持准确文案，未知网络错误不泄露服务器原文。

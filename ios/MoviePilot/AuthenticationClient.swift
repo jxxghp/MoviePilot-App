@@ -61,7 +61,7 @@ final class AuthenticationClient: NSObject, URLSessionTaskDelegate {
     return value
   }
 
-  /// 密码与 OTP 只存在于此次请求内存中，不记录、保存或自动重试。
+  /// 此客户端只在内存中发送密码与 OTP，不记录或自动重试；密码记忆由表单单独管理。
   func login(username: String, password: String, otp: String?) async throws -> AuthenticationResult
   {
     let body = AuthenticationSession.passwordForm(username: username, password: password, otp: otp)

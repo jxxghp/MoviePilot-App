@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// 每个实例仅在本机 Keychain 保存已签发令牌，密码与 OTP 不持久化，也不同步到 iCloud。
+/// 每个实例仅在本机 Keychain 保存已签发令牌；可选密码使用独立存储，OTP 不持久化。
 @MainActor
 final class TokenStore {
   private let service = "org.moviepilot.authentication.v1"
@@ -36,7 +36,11 @@ final class TokenStore {
   }
 
   /// 退出或会话过期时撤销当前实例令牌，不影响其他实例。
-  func remove(_ instanceId: UUID) { SecItemDelete(key(instanceId) as CFDictionary) }
+  @discardableResult
+  func remove(_ instanceId: UUID) -> Bool {
+    let status = SecItemDelete(key(instanceId) as CFDictionary)
+    return status == errSecSuccess || status == errSecItemNotFound
+  }
 
   /// Keychain 键只由稳定实例 UUID 组成，不使用用户输入作为访问组或共享标识。
   private func key(_ instanceId: UUID) -> [String: Any] {

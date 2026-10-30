@@ -7,7 +7,7 @@ struct SavedInstance: Codable, Equatable {
   let address: ServerAddress
 }
 
-/// 在应用沙箱内保存实例地址与容器标识，不读写网页密码、token 或 Cookie。
+/// 在沙箱内保存非敏感实例配置；忘记实例时协调清理其安全存储与外观。
 @MainActor
 final class InstanceStore {
   private let defaults: UserDefaults
@@ -43,9 +43,11 @@ final class InstanceStore {
   /// 仅清除当前选择，历史实例容器留存直到用户明确选择忘记。
   func deselect() { defaults.removeObject(forKey: selectedKey) }
 
-  /// 与 WebKit 容器删除配合使用，移除指定实例的非敏感配置。
+  /// 与 WebKit 容器删除配合使用，移除指定实例的密码、令牌和配置。
   func forget(_ instance: SavedInstance) throws {
     let wasSelected = selected?.id == instance.id
+    try LoginCredentialStore().remove(for: instance.id)
+    guard TokenStore().remove(instance.id) else { throw LoginCredentialError.unavailable }
     defaults.set(try JSONEncoder().encode(instances.filter { $0.id != instance.id }), forKey: key)
     if wasSelected { deselect() }
     AccountAppearance.forget(instance.id)

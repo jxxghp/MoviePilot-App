@@ -9,7 +9,7 @@ on:
         description: '需要同版本重建的现有 Release 标签'
         required: true
         type: string
-        default: v1.0.6
+        default: v1.0.7
       rebuild_existing:
         description: '确认更新该标签的源码、IPA 和校验文件'
         required: true
