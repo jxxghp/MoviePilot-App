@@ -1,14 +1,14 @@
-MoviePilot iOS 1.0.7，新增多服务切换与账号密码记忆。支持 iOS 17+，iOS 26+ 使用系统 Liquid Glass。
+MoviePilot iOS 1.0.8，新增匿名安装版本统计。支持 iOS 17+，iOS 26+ 使用系统 Liquid Glass。
 
 ### 更新内容
 
-- 新增已保存的服务列表，支持内网、外网与开发实例点选切换，各地址分别保留登录状态，并兼容旧版记录。
-- 新增可选的“记住账号密码”，成功登录后保存在本机钥匙串，重新登录时自动回填；验证码仍需每次输入。
-- 使用更紧凑的原生分组列表，左滑显示垃圾桶按钮，可删除服务，同时清除该地址保存的账号密码、登录状态和网页数据。
+- 新增 iOS App 版本安装统计，按匿名安装标识去重，升级后更新为当前版本，连接多个实例不重复计数。
+- 遵守实例的“分享使用统计”开关；管理员登录并开启开关后，每个版本每天最多成功上报一次，仅发送随机安装标识和 App 版本。
+- 配合新版 MoviePilot-Server 和 MoviePilot-Frontend 3.2.2，在安装版本统计中查看 iOS App 版本分布；不影响原有后端实例与活跃用户计数。
 
 ### 安装
 
-下载 `MoviePilot-1.0.7-unsigned.ipa`，使用自己的 Apple 账户通过 SideStore、AltStore Classic 或 Sideloadly 重签后覆盖安装。小组件需要同时重签扩展并保留共享组。免费签名通常 7 天有效。
+下载 `MoviePilot-1.0.8-unsigned.ipa`，使用自己的 Apple 账户通过 SideStore、AltStore Classic 或 Sideloadly 重签后覆盖安装。小组件需要同时重签扩展并保留共享组。免费签名通常 7 天有效。
 
 建议同步更新至 MoviePilot-Frontend **3.2.2** 或更新的兼容前端，前端页面修复在实例资源同步后生效。
 

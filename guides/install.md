@@ -4,7 +4,7 @@
 
 需要 iOS 17+ 的 iPhone、自己的 Apple 账户和 MoviePilot 实例。首次配置 SideStore 等工具通常需要一台电脑。
 
-在 [最新 Release](https://github.com/jxxghp/MoviePilot-App/releases/latest) 下载 `MoviePilot-版本号-unsigned.ipa`，当前版本为 **1.0.7**。安装包由 GitHub Actions 构建，**需要使用自己的 Apple 账户重签安装，不能下载后直接点开安装**。免费账户即可，无需付费开发者账号或 Xcode。
+在 [最新 Release](https://github.com/jxxghp/MoviePilot-App/releases/latest) 下载 `MoviePilot-版本号-unsigned.ipa`，当前版本为 **1.0.8**。安装包由 GitHub Actions 构建，**需要使用自己的 Apple 账户重签安装，不能下载后直接点开安装**。免费账户即可，无需付费开发者账号或 Xcode。
 
 ## 通过 SideStore 安装并自动续签
 
@@ -22,6 +22,6 @@
 
 也可使用 [AltStore Classic](https://altstore.io/) 或 [Sideloadly](https://sideloadly.io/) 导入同一个 IPA。AltStore Classic 的日常刷新通常需要可连接的 AltServer；Sideloadly 的自动续签需要电脑上的刷新组件运行。按所选工具的官方指南完成签名、安装和自动刷新设置。
 
-Release 同时提供 `SHA256SUMS`。将它与 IPA 放在同一目录，在 macOS 运行 `shasum -a 256 -c SHA256SUMS`；Windows 可用 `Get-FileHash .\MoviePilot-1.0.7-unsigned.ipa -Algorithm SHA256` 对照校验。
+Release 同时提供 `SHA256SUMS`。将它与 IPA 放在同一目录，在 macOS 运行 `shasum -a 256 -c SHA256SUMS`；Windows 可用 `Get-FileHash .\MoviePilot-1.0.8-unsigned.ipa -Algorithm SHA256` 对照校验。
 
 若希望通过 Xcode 安装或修改源码，见 [自行构建与开发](../ios/README.md)。安装后按照[连接说明](connection.md)登录实例。
