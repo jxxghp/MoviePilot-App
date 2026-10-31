@@ -49,6 +49,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   private var downloadWebViews: [ObjectIdentifier: WKWebView] = [:]
   private var authentication: AuthenticationResult?
   private let onAuthenticationRequired: () -> Void
+  private var usageLookupStarted = false
   private var notificationLookupStarted = false
   private var notificationNavigationAvailable = false
   private var widgetsNegotiated = false
@@ -563,6 +564,46 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     return reply.data ?? [:]
   }
 
+  /// 在已认证文档中读取管理员统计开关；拒绝、缺失和旧后端均不触发上报。
+  private func reportUsageIfEnabled() {
+    guard !usageLookupStarted, lifecycle == "active", let url = webView.url,
+      instance.address.contains(url), session.phase == .nativeNavigation
+    else { return }
+    usageLookupStarted = true
+    let document = documentID
+    let endpoint = instance.address.url.appendingPathComponent("api/v1/system/env").absoluteString
+    Task { [weak self] in
+      guard let self else { return }
+      let script = """
+        if (location.origin !== new URL(endpoint).origin) return null;
+        const auth = JSON.parse(localStorage.getItem('auth') || 'null');
+        if (!auth?.token) return null;
+        const response = await fetch(endpoint, {
+          headers: {Authorization: 'Bearer ' + auth.token}, credentials: 'same-origin',
+          cache: 'no-store', signal: AbortSignal.timeout(15000)
+        });
+        if (!response.ok) return null;
+        const body = await response.json();
+        if (body.success !== true || body.data?.USAGE_STATISTIC_SHARE !== true) return null;
+        return body.data.MP_SERVER_HOST || 'https://movie-pilot.org';
+        """
+      let host: String? = await withCheckedContinuation { continuation in
+        self.webView.callAsyncJavaScript(
+          script, arguments: ["endpoint": endpoint],
+          in: nil, in: .page
+        ) { result in
+          continuation.resume(returning: (try? result.get()) as? String)
+        }
+      }
+      guard let host, self.documentID == document, self.lifecycle == "active",
+        self.session.phase == .nativeNavigation,
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
+          as? String
+      else { return }
+      await UsageReporting.shared.report(enabled: true, host: host, version: version)
+    }
+  }
+
   /// 绑定状态查询只在每次已认证文档中尝试一次，旧后端不会被不断重试。
   private func refreshNotificationContext() {
     guard !notificationLookupStarted else { return }
@@ -707,6 +748,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
         timeout?.invalidate()
         shell?.apply(snapshot)
         layoutChanged()
+        reportUsageIfEnabled()
         refreshNotificationContext()
         refreshWidgetContext()
         WidgetService.shared.resumePending(with: self)
@@ -747,6 +789,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       WidgetService.shared.endSession(instanceId: instance.id, clear: true)
       shell?.clearNavigationPreviews()
       lastConfirmedURL = nil
+      usageLookupStarted = false
       notificationLookupStarted = false
       NotificationService.shared.attach(self)
       let interruptedHandoff = !commandCompletions.isEmpty
@@ -847,6 +890,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     documentID = UUID()
     WidgetService.shared.endSession(instanceId: instance.id, clear: false)
     contentReady = false
+    usageLookupStarted = false
     notificationLookupStarted = false
     notificationNavigationAvailable = false
     widgetsNegotiated = false
