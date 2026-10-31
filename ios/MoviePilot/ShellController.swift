@@ -470,6 +470,17 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     setNeedsStatusBarAppearanceUpdate()
   }
 
+  /// 等待较久后显示安全恢复入口；重试仅重新加载当前文档，不重放业务动作。
+  func showStartupWait() {
+    startupView?.showPageWait(
+      message: "页面仍在加载，正在等待连接和页面资源就绪。",
+      retry: { [weak self] in
+        guard let self, self.startupView != nil else { return }
+        self.coordinator.reload()
+      },
+      changeAddress: { [weak self] in self?.onConnection() })
+  }
+
   /// 布局量测和导航容器切换仍在覆盖层后执行，后台网页也不能被辅助功能提前访问。
   private func keepStartupInFront() {
     guard let startupView else { return }
