@@ -26,3 +26,7 @@ iOS 26+ 支持系统 Liquid Glass；提供侧滑返回、卡片长按菜单、�
 MoviePilot-App 采用 [GNU General Public License v3.0（GPL-3.0-only）](LICENSE)。
 
 MoviePilot-Frontend 与 Logo 来自 [MoviePilot-Frontend](https://github.com/jxxghp/MoviePilot-Frontend)，沿用其 MIT 许可。
+
+### 匿名 iOS 版本统计
+
+登录管理员账号并完成页面连接后，App 读取实例的“分享使用统计”开关。仅开关开启时向实例配置的 HTTPS `MP_SERVER_HOST` 上报独立随机安装 UUID 和 App 发布版本；不上传实例地址、账号、认证令牌或推送标识。每个版本每天最多成功上报一次，升级后更新最新版本；多个实例共用同一安装标识。普通账号无权读取该配置时不报告，未连接或失败也不报告。统计独立于后端实例数，重装清除偏好后视为新安装。
