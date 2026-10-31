@@ -67,7 +67,10 @@ class StartupHandler(SimpleHTTPRequestHandler):
         各用例使用独立实例前缀隔离 Keychain，接口与静态资源仍来自同一合成服务。
         """
         path = urlsplit(self.path).path
-        for prefix in ("/automatic", "/cancel", "/background", "/saved", "/response", "/submit", "/layout"):
+        for prefix in (
+            "/automatic", "/cancel", "/background", "/saved", "/response", "/submit", "/layout",
+            "/page-transient", "/page-retry", "/page-switch",
+        ):
             if path.startswith(prefix + "/"):
                 self.path = self.path[len(prefix):]
                 return path[len(prefix):]
@@ -114,6 +117,13 @@ class StartupHandler(SimpleHTTPRequestHandler):
                 }})
         elif path == "/api/v1/system/global":
             self.reply(200, {"success": True, "data": {"APP_VERSION": "v3.2.1"}})
+        elif path == "/api/v1/system/module-catalog":
+            if mode == "catalog-unavailable" or (
+                mode == "catalog-transient" and counts.get(path, 0) == 1
+            ):
+                self.reply(503, {})
+            else:
+                self.reply(200, {"success": True, "data": {"modules": []}})
         elif path.startswith("/api/"):
             self.reply(200, {"success": True, "data": []})
         else:

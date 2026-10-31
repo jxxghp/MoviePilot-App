@@ -142,7 +142,15 @@ final class ServiceStartupTests: XCTestCase {
   /// 横屏和最大辅助功能字号保留可滚动的状态及操作，深色资源不依赖网络。
   func testServiceWaitingLayout() async throws {
     try await configure("unavailable", reset: true)
-    let app = try launch("layout", largeText: true)
+    let app = try launch("layout")
+    assertWaiting(app)
+    // 地址输入先以普通字号完成，再用已保存实例和最大字号重启，验收等待页本身。
+    app.terminate()
+    app.launchArguments = [
+      "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+      "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
+    ]
+    app.launch()
     XCTAssertTrue(app.otherElements["native-service-status"].waitForExistence(timeout: 10))
     XCUIDevice.shared.orientation = .landscapeLeft
     defer { XCUIDevice.shared.orientation = .portrait }
@@ -156,8 +164,68 @@ final class ServiceStartupTests: XCTestCase {
     XCTAssertTrue(app.textFields["MoviePilot 服务地址"].waitForExistence(timeout: 10))
   }
 
+  /// 目录接口首次失败后自动恢复首页，不重复提交密码或保留启动状态提示。
+  func testTransientCatalogFailureRecoversStartup() async throws {
+    try await configure("catalog-transient", reset: true)
+    let app = try launch("page-transient")
+    authenticate(app)
+    XCTAssertTrue(
+      app.tabBars["native-root-navigation"].waitForExistence(timeout: 35), app.debugDescription)
+    let requests = try await stats()
+    XCTAssertGreaterThanOrEqual(requests["/api/v1/system/module-catalog", default: 0], 2)
+    XCTAssertEqual(requests[login, default: 0], 1)
+    try await Task.sleep(for: .seconds(11))
+    XCTAssertFalse(app.otherElements["native-page-status"].exists)
+    XCTAssertFalse(app.otherElements["native-startup-screen"].exists)
+    capture("页面等待-目录自动恢复")
+  }
+
+  /// 持续目录失败时十秒后提供可交互重试；服务恢复后只重新打开文档。
+  func testPageWaitOffersRetryBeforeDeadline() async throws {
+    try await configure("catalog-unavailable", reset: true)
+    let app = try launch("page-retry")
+    authenticate(app)
+    XCTAssertTrue(
+      app.otherElements["native-page-status"].waitForExistence(timeout: 20), app.debugDescription)
+    XCTAssertTrue(app.buttons["native-page-retry"].isHittable)
+    XCTAssertTrue(app.buttons["native-page-change-address"].isHittable)
+    XCTAssertFalse(app.tabBars["native-root-navigation"].isHittable)
+    capture("页面等待-重试入口")
+    try await configure("ready")
+    app.buttons["native-page-retry"].tap()
+    XCTAssertTrue(
+      app.tabBars["native-root-navigation"].waitForExistence(timeout: 35), app.debugDescription)
+    XCTAssertFalse(app.otherElements["native-page-status"].exists)
+    let requests = try await stats()
+    XCTAssertEqual(requests[login, default: 0], 1)
+  }
+
+  /// 页面准备期间可以回到地址列表，旧文档的就绪和定时器不能重新接管界面。
+  func testPageWaitCanChangeAddress() async throws {
+    try await configure("catalog-unavailable", reset: true)
+    let app = try launch("page-switch")
+    authenticate(app)
+    XCTAssertTrue(app.otherElements["native-page-status"].waitForExistence(timeout: 20))
+    app.buttons["native-page-change-address"].tap()
+    XCTAssertTrue(app.textFields["MoviePilot 服务地址"].waitForExistence(timeout: 10))
+    try await configure("ready")
+    try await Task.sleep(for: .seconds(2))
+    XCTAssertTrue(app.textFields["MoviePilot 服务地址"].isHittable)
+    XCTAssertFalse(app.otherElements["native-page-status"].exists)
+  }
+
+  /// 使用合成服务账号完成一次真实原生登录，不向产品注入认证状态。
+  private func authenticate(_ app: XCUIApplication) {
+    XCTAssertTrue(app.textFields["用户名"].waitForExistence(timeout: 15), app.debugDescription)
+    app.textFields["用户名"].tap()
+    app.textFields["用户名"].typeText("startup-fixture")
+    app.secureTextFields["密码"].tap()
+    app.secureTextFields["密码"].typeText("fixture-only\n")
+    XCTAssertFalse(app.alerts["已登录"].waitForExistence(timeout: 1), "模拟器必须能保存 Keychain")
+  }
+
   /// 各用例只通过真实地址输入连接独立实例，不向产品注入网络或认证状态。
-  private func launch(_ scenario: String, largeText: Bool = false) throws -> XCUIApplication {
+  private func launch(_ scenario: String) throws -> XCUIApplication {
     guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_SERVICE_WAIT"] == "1" else {
       throw XCTSkip("需要显式启动 scripts/service-startup-fixture.py 本机隔离服务。")
     }
@@ -168,18 +236,18 @@ final class ServiceStartupTests: XCTestCase {
       "-moviepilot.instance.selected.v1", "", "-AppleLanguages", "(zh-Hans)", "-AppleLocale",
       "zh_CN",
     ]
-    if largeText {
-      app.launchArguments += [
-        "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
-      ]
-    }
     app.launch()
     let field = app.textFields["MoviePilot 服务地址"]
     XCTAssertTrue(field.waitForExistence(timeout: 10))
     field.tap()
     let clear = field.buttons.firstMatch
     if clear.exists { clear.tap() }
-    field.typeText(base.appendingPathComponent(scenario, isDirectory: true).absoluteString + "\n")
+    let address = base.appendingPathComponent(scenario, isDirectory: true).absoluteString
+    field.typeText(address)
+    XCTAssertEqual(field.value as? String, address)
+    // 大字号输入时表单可能滚动，重新确认焦点后再提交，避免将键盘失焦误判为连接故障。
+    field.tap()
+    field.typeText("\n")
     return app
   }
 

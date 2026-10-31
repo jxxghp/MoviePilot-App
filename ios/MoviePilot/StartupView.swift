@@ -4,7 +4,7 @@ import UIKit
 @MainActor
 final class StartupView: UIView {
   private let instance: UUID
-  private var serviceMessage: UILabel?
+  private var statusMessage: UILabel?
 
   /// 图形始终来自本地资源；首帧按实例偏好选择底色，无历史时跟随系统明暗。
   init(instance: UUID) {
@@ -35,8 +35,29 @@ final class StartupView: UIView {
   func showServiceWait(
     message: String, retry: @escaping () -> Void, changeAddress: @escaping () -> Void
   ) {
-    if let serviceMessage {
-      serviceMessage.text = message
+    showWait(
+      message: message, kicker: "服务状态", heading: "正在等待 MoviePilot",
+      detail: "后端服务就绪后，将自动继续登录或进入首页。", identifier: "native-service",
+      retry: retry, changeAddress: changeAddress)
+  }
+
+  /// 网页准备较久时提供可操作的等待页，不提前展示尚未完成原生接管的页面。
+  func showPageWait(
+    message: String, retry: @escaping () -> Void, changeAddress: @escaping () -> Void
+  ) {
+    showWait(
+      message: message, kicker: "页面状态", heading: "正在打开 MoviePilot",
+      detail: "页面准备完成后会自动进入，也可以立即重试或切换服务地址。", identifier: "native-page",
+      retry: retry, changeAddress: changeAddress)
+  }
+
+  /// 两个启动阶段复用可滚动的状态卡片，重复更新只替换文案并保留按钮焦点。
+  private func showWait(
+    message: String, kicker: String, heading: String, detail: String, identifier: String,
+    retry: @escaping () -> Void, changeAddress: @escaping () -> Void
+  ) {
+    if let statusMessage {
+      statusMessage.text = message
       return
     }
     for view in subviews { view.removeFromSuperview() }
@@ -48,7 +69,7 @@ final class StartupView: UIView {
     content.translatesAutoresizingMaskIntoConstraints = false
     scroll.addSubview(content)
     let card = UIView()
-    card.accessibilityIdentifier = "native-service-status"
+    card.accessibilityIdentifier = "\(identifier)-status"
     card.backgroundColor = AccountAppearance.surface(for: instance)
     card.layer.cornerRadius = 28
     card.layer.cornerCurve = .continuous
@@ -60,19 +81,19 @@ final class StartupView: UIView {
     let mark = UIView()
     icon.translatesAutoresizingMaskIntoConstraints = false
     mark.addSubview(icon)
-    let kicker = label("服务状态", style: .caption1)
+    let kicker = label(kicker, style: .caption1)
     kicker.textColor = AccountAppearance.accent(for: instance)
-    let heading = label("正在等待 MoviePilot", style: .title2)
+    let heading = label(heading, style: .title2)
     if let descriptor = heading.font.fontDescriptor.withSymbolicTraits(.traitBold) {
       heading.font = UIFont(descriptor: descriptor, size: 0)
     }
     heading.accessibilityTraits = .header
-    let detail = label("后端服务就绪后，将自动继续登录或进入首页。", style: .body)
+    let detail = label(detail, style: .body)
     detail.textColor = .secondaryLabel
     let status = label(message, style: .footnote)
     status.textAlignment = .natural
-    status.accessibilityIdentifier = "native-service-status-message"
-    serviceMessage = status
+    status.accessibilityIdentifier = "\(identifier)-status-message"
+    statusMessage = status
     let spinner = UIActivityIndicatorView(style: .medium)
     spinner.color = AccountAppearance.accent(for: instance)
     spinner.startAnimating()
@@ -81,13 +102,13 @@ final class StartupView: UIView {
     progress.spacing = 12
     progress.alignment = .center
     let again = UIButton(configuration: AccountAppearance.primaryButton(title: "立即重试"))
-    again.accessibilityIdentifier = "native-service-retry"
+    again.accessibilityIdentifier = "\(identifier)-retry"
     again.addAction(UIAction { _ in retry() }, for: .touchUpInside)
     var changeStyle = UIButton.Configuration.plain()
     changeStyle.title = "更改地址"
     changeStyle.baseForegroundColor = AccountAppearance.accent(for: instance)
     let change = UIButton(configuration: changeStyle)
-    change.accessibilityIdentifier = "native-service-change-address"
+    change.accessibilityIdentifier = "\(identifier)-change-address"
     change.addAction(UIAction { _ in changeAddress() }, for: .touchUpInside)
     let stack = UIStackView(arrangedSubviews: [
       mark, kicker, heading, detail, progress, again, change,

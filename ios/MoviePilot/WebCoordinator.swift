@@ -28,6 +28,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   private var session = ChromeSession()
   private var timeout: Timer?
   private var startupTimeout: Timer?
+  private var startupHint: Timer?
   private var documentID = UUID()
   private var contentReady = false
   private var startupPending = true
@@ -193,7 +194,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     standaloneMenus.invalidate()
     if NotificationService.shared.coordinator === self { NotificationService.shared.attach(nil) }
     timeout?.invalidate()
-    startupTimeout?.invalidate()
+    cancelStartupTimers()
     startupPending = false
     pendingProcessRecovery = false
     documentID = UUID()
@@ -237,7 +238,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     documentID = UUID()
     WidgetService.shared.endSession(instanceId: instance.id, clear: false)
     timeout?.invalidate()
-    startupTimeout?.invalidate()
+    cancelStartupTimers()
     cancelCommands()
     pendingProcessRecovery = false
     automaticRecoveryAttempted = automatically
@@ -258,7 +259,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     documentID = UUID()
     WidgetService.shared.endSession(instanceId: instance.id, clear: false)
     timeout?.invalidate()
-    startupTimeout?.invalidate()
+    cancelStartupTimers()
     cancelCommands()
     session.failed()
     pendingProcessRecovery = true
@@ -295,7 +296,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     if value == "background", lifecycle != value { automaticRecoveryAttempted = false }
     lifecycle = value
     timeout?.invalidate()
-    startupTimeout?.invalidate()
+    cancelStartupTimers()
     if value == "active", pendingProcessRecovery {
       resumeContentRecovery()
       return
@@ -870,7 +871,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     WidgetService.shared.endSession(instanceId: instance.id, clear: false)
     pendingProcessRecovery = false
     timeout?.invalidate()
-    startupTimeout?.invalidate()
+    cancelStartupTimers()
     startupPending = false
     cancelCommands()
     session.failed()
@@ -941,14 +942,28 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       session.phase == .nativeNavigation
     else { return }
     startupPending = false
-    startupTimeout?.invalidate()
+    cancelStartupTimers()
     shell?.setLoading(false)
   }
 
-  /// 只累计本次前台启动的等待，加载失败保留明确出口，不让静态画面永久遮住应用。
-  private func armStartupTimeout() {
+  /// 文档结束、启动完成或退到后台时同时撤销状态提示和最终期限。
+  private func cancelStartupTimers() {
     startupTimeout?.invalidate()
+    startupTimeout = nil
+    startupHint?.invalidate()
+    startupHint = nil
+  }
+
+  /// 前台等待十秒后提供重试入口，四十五秒后仍未就绪则转入明确的恢复页。
+  private func armStartupTimeout() {
+    cancelStartupTimers()
     guard lifecycle == "active", startupPending else { return }
+    startupHint = Timer.scheduledTimer(withTimeInterval: 10, repeats: false) { [weak self] _ in
+      MainActor.assumeIsolated {
+        guard let self, self.startupPending, self.lifecycle == "active" else { return }
+        self.shell?.showStartupWait()
+      }
+    }
     startupTimeout = Timer.scheduledTimer(withTimeInterval: 45, repeats: false) { [weak self] _ in
       MainActor.assumeIsolated {
         guard let self, self.startupPending else { return }
