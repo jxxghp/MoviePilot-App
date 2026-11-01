@@ -3,6 +3,29 @@
   if (window.top !== window || window.MoviePilotNative) return;
   const handler = window.webkit?.messageHandlers?.moviepilotChrome;
   if (!handler) return;
+  // Keep the existing wallpaper renderer alive beneath the native directory. The
+  // active-chrome guard also restores HTML content if negotiation falls back.
+  function postMessage(message) {
+    if (message.type === "navigation.state" && document.documentElement) {
+      document.documentElement.dataset.nativeContent =
+        message.payload?.chrome?.content === "menu" ? "menu" : "web";
+    }
+    handler.postMessage(message);
+  }
+  // Hide only the replaced HTML directory; global wallpaper and Sheet layers
+  // keep their original rendering, timers, theme treatment and viewport.
+  function installMenuBackdropStyle() {
+    const style = document.createElement("style");
+    style.textContent = `
+      html[data-native-chrome="active"][data-native-content="menu"]:not([data-native-sheet]) .layout-page-content {
+        visibility: hidden !important;
+        pointer-events: none !important;
+      }
+    `;
+    document.documentElement.appendChild(style);
+  }
+  if (document.documentElement) installMenuBackdropStyle();
+  else document.addEventListener("DOMContentLoaded", installMenuBackdropStyle, { once: true });
   Object.defineProperty(window, "MoviePilotNative", {
     value: Object.freeze({
       transportVersion: 1,
@@ -17,7 +40,7 @@
       standaloneMenusVersion: 1,
       /*__MOVIEPILOT_WIDGETS_CAPABILITY__*/
       notificationInstallation: "__MOVIEPILOT_INSTALLATION__",
-      postMessage: (message) => handler.postMessage(message),
+      postMessage,
       authenticationRequired: () => window.webkit.messageHandlers.moviepilotAuthentication.postMessage({version: 1, type: "required"}),
     }),
     configurable: false,

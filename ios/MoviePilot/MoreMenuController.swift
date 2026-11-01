@@ -4,16 +4,11 @@ import UIKit
 /// 原生更多菜单只呈现前端当前目录，选中行仍由 Vue Router 处理授权和页面加载。
 @MainActor
 final class MoreMenuController: UITableViewController {
-  // 深色使用与搜索控件接近的柔和灰填充，让网页底色自然透入；浅色保留清晰的系统白色分组。
-  private let rowBackground = UIColor { traits in
-    let fill: UIColor =
-      traits.userInterfaceStyle == .dark
-      ? .secondarySystemFill : .secondarySystemGroupedBackground
-    return fill.resolvedColor(with: traits)
-  }
   var onSelect: ((MoreMenuItem) -> Void)?
   private var sections: [MoreMenuSection] = []
   private var accent: UIColor = .tintColor
+  private let backdrop = UIView()
+  private var sectionGlass: [UIVisualEffectView] = []
 
   /// 目录使用系统分组列表，业务页面不进入此控制器。
   init() { super.init(style: .insetGrouped) }
@@ -27,17 +22,30 @@ final class MoreMenuController: UITableViewController {
     tableView.accessibilityIdentifier = "more-menu"
     tableView.rowHeight = UITableView.automaticDimension
     tableView.estimatedRowHeight = 60
+    backdrop.isUserInteractionEnabled = false
+    tableView.backgroundView = backdrop
   }
 
-  /// 外页跟随网页皮肤；分组填充接近系统搜索框，避免暗色出现独立的黑色卡片。
-  func apply(_ sections: [MoreMenuSection], background: UIColor, accent: UIColor) {
+  /// 分组玻璃随实际行高与滚动位置布局；整组共用一块材质，避免行间产生折射接缝。
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    layoutSectionGlass()
+  }
+
+  /// backgroundView 固定在视口内，滚动时将分组的内容坐标转换到背景坐标。
+  override func scrollViewDidScroll(_ scrollView: UIScrollView) {
+    layoutSectionGlass()
+  }
+
+  /// 透明目录直接透出同一 WebView 的实时壁纸，明暗、轮播与渐变继续由前端统一渲染。
+  func apply(_ sections: [MoreMenuSection], accent: UIColor) {
     loadViewIfNeeded()
-    tableView.backgroundColor = background
+    tableView.backgroundColor = .clear
     self.accent = accent
     tableView.tintColor = accent
     // 内容配置会保存创建时的颜色；目录不变时也刷新已显示行，避免复用产生两套主题色。
     for cell in tableView.visibleCells {
-      cell.backgroundColor = rowBackground
+      cell.backgroundConfiguration = .clear()
       if var content = cell.contentConfiguration as? UIListContentConfiguration {
         content.imageProperties.tintColor = accent
         cell.contentConfiguration = content
@@ -49,6 +57,7 @@ final class MoreMenuController: UITableViewController {
       self.sections = available
       tableView.reloadData()
     }
+    layoutSectionGlass()
   }
 
   /// 点击主导航重新进入目录时从首组开始，逻辑返回仍保留原列表位置。
@@ -88,10 +97,48 @@ final class MoreMenuController: UITableViewController {
     content.image = NavigationSymbols.image(item.icon)
     content.imageProperties.tintColor = accent
     cell.contentConfiguration = content
-    cell.backgroundColor = rowBackground
+    cell.backgroundColor = .clear
+    cell.backgroundConfiguration = .clear()
     cell.accessoryType = .disclosureIndicator
     cell.accessibilityIdentifier = "more-entry-\(item.id)"
     return cell
+  }
+
+  /// 系统玻璃实时采样下方壁纸，旧版 iOS 使用系统超薄材质，均遵循辅助功能设置。
+  private func makeSectionGlass() -> UIVisualEffectView {
+    let effect: UIVisualEffect
+    if #available(iOS 26.0, *) {
+      effect = UIGlassEffect(style: .regular)
+    } else {
+      effect = UIBlurEffect(style: .systemUltraThinMaterial)
+    }
+    let glass = UIVisualEffectView(effect: effect)
+    glass.layer.cornerRadius = 26
+    glass.clipsToBounds = true
+    glass.isUserInteractionEnabled = false
+    return glass
+  }
+
+  /// 只维护当前目录所需的分组材质，不为复用单元格反复创建或叠加玻璃层。
+  private func layoutSectionGlass() {
+    guard isViewLoaded else { return }
+    while sectionGlass.count > sections.count { sectionGlass.removeLast().removeFromSuperview() }
+    while sectionGlass.count < sections.count {
+      let glass = makeSectionGlass()
+      backdrop.addSubview(glass)
+      sectionGlass.append(glass)
+    }
+    for (section, glass) in sectionGlass.enumerated() {
+      let count = tableView.numberOfRows(inSection: section)
+      guard count > 0 else {
+        glass.isHidden = true
+        continue
+      }
+      glass.isHidden = false
+      let first = tableView.rectForRow(at: IndexPath(row: 0, section: section))
+      let last = tableView.rectForRow(at: IndexPath(row: count - 1, section: section))
+      glass.frame = tableView.convert(first.union(last), to: backdrop)
+    }
   }
 
   /// 首次点击等待网页确认，取消或新状态通过下一快照恢复，避免连续重复导航。
