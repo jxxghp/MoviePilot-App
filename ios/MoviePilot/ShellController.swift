@@ -1065,10 +1065,6 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     let token = UUID()
     sheetSnapshotToken = token
     preparingSheetID = descriptor.id
-    if latest?.chrome.content == .menu {
-      finishWebSheetPreparation(id: descriptor.id, token: token, page: nil)
-      return
-    }
     let page = selectedHost.view.snapshotView(afterScreenUpdates: false)
     finishWebSheetPreparation(id: descriptor.id, token: token, page: page)
   }
@@ -1498,10 +1494,10 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     dismissNativePanel()
   }
 
-  /// 更多目录在 Sheet 下保留真实原生视图，唯一 WebView 进入弹窗后仍保持可见。
+  /// 原生目录叠在实时网页背景上；Sheet 搬走 WebView 时由底页快照保持相同壁纸。
   private func configureMoreMenu(_ host: ContentHostController, snapshot: NavigationSnapshot) {
     let visible = snapshot.chrome.content == .menu
-    coordinator.content.view.isHidden = visible && webSheet == nil
+    coordinator.content.view.isHidden = false
     guard visible else {
       removeMoreMenu()
       host.trackContentScrollView(coordinator.webView.scrollView)
@@ -1509,7 +1505,6 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     }
     moreMenu.apply(
       snapshot.moreMenu ?? [],
-      background: AccountAppearance.background(for: coordinator.instance.id),
       accent: NavigationSymbols.color(snapshot.chrome.accentColor) ?? AccountAppearance.accent)
     if moreMenu.parent !== host {
       removeMoreMenu()
@@ -1524,6 +1519,8 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       ])
       moreMenu.didMove(toParent: host)
     }
+    // Sheet 关闭时 WebView 会重新加入宿主，透明原生目录仍须位于它上方。
+    host.view.bringSubviewToFront(moreMenu.view)
     host.trackContentScrollView(moreMenu.tableView)
   }
 

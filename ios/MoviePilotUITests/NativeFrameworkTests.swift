@@ -13,6 +13,54 @@ private struct NetworkFixtures: Decodable {
 /// 使用显式配置的实例验收原生框架与原业务 HTML；真实写入须另行开启并限定临时插件。
 @MainActor
 final class NativeFrameworkTests: XCTestCase {
+  /// 真实账号在同一文档中验收明暗壁纸、目录滚动、Sheet 归还与连续主入口切换。
+  func testMoreWallpaperContinuity() throws {
+    let app = try signIn(captureScreens: false, remember: false)
+    let roots = app.tabBars["native-root-navigation"]
+    settlePage(app)
+    app.buttons["操作菜单"].tap()
+    nativeUserItem("用户", app: app).tap()
+    nativeUserItem("主题", app: app).tap()
+    XCTAssertTrue(app.navigationBars["主题定制"].waitForExistence(timeout: 10))
+    let modes = ["浅色", "深色", "跟随系统"]
+    let original = modes.first { app.webViews.switches[$0].firstMatch.value as? String == "1" }
+    app.buttons["native-sheet-close"].tap()
+    defer { if let original { selectTheme(original, app: app) } }
+    for mode in ["深色", "浅色"] {
+      selectTheme(mode, app: app)
+      roots.buttons["仪表盘"].tap()
+      settlePage(app)
+      attachScreen("壁纸-\(mode)-仪表盘", app: app)
+      roots.buttons["更多"].tap()
+      XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
+      settlePage(app)
+      attachScreen("壁纸-\(mode)-更多", app: app)
+      if mode == "深色" {
+        // 沿用真实实例的默认轮播时钟，不改服务端壁纸设置或另行驱动图片切换。
+        for index in 1...2 {
+          RunLoop.current.run(until: Date().addingTimeInterval(16))
+          attachScreen("壁纸-原生玻璃目录自动轮播-\(index)", app: app)
+        }
+      }
+      // 在目录上开启真实主题 Sheet，再将唯一 WebView 归还底页。
+      selectTheme(mode, app: app)
+      XCTAssertTrue(app.tables["more-menu"].cells.firstMatch.isHittable)
+      attachScreen("壁纸-\(mode)-Sheet归还", app: app)
+      app.tables["more-menu"].swipeUp()
+      attachScreen("壁纸-\(mode)-目录滚动", app: app)
+      for title in ["推荐", "更多", "探索", "更多", "仪表盘", "更多"] {
+        roots.buttons[title].tap()
+        XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 10))
+      }
+      settlePage(app)
+      attachScreen("壁纸-\(mode)-连续切换后", app: app)
+    }
+    XCUIDevice.shared.orientation = .landscapeLeft
+    settlePage(app)
+    attachScreen("壁纸-横屏更多", app: app)
+    XCUIDevice.shared.orientation = .portrait
+  }
+
   /// 经用户授权才安装指定临时插件，并通过真实卡片菜单卸载，验证进度交接后导航仍可用。
   func testNativeTemporaryPluginInstallAndUninstall() throws {
     guard
