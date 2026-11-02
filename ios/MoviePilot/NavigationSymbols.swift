@@ -124,6 +124,7 @@ enum NavigationSymbols {
     "mdi-pause-circle": "pause.circle", "mdi-timer-sand-paused": "hourglass",
     "mdi-rss": "dot.radiowaves.left.and.right", "mdi-movie": "film",
     "mdi-television-classic": "tv", "mdi-album": "opticaldisc",
+    "mdi-music-note-outline": "music.note", "mdi-share-variant": "square.and.arrow.up",
     "mdi-music": "music.note", "mdi-music-note-search-outline": "magnifyingglass",
     "mdi-account-music": "music.mic", "mdi-account-music-outline": "music.mic",
     "mdi-account-plus": "person.badge.plus", "mdi-robot-outline": "cpu",

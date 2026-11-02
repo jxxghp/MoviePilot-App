@@ -19,6 +19,10 @@ final class MoreMenuController: UITableViewController {
   /// 保留 Dynamic Type、VoiceOver、滚动和键盘的系统行为。
   override func viewDidLoad() {
     super.viewDidLoad()
+    registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+      (controller: MoreMenuController, _: UITraitCollection) in
+      controller.refreshGlass()
+    }
     tableView.accessibilityIdentifier = "more-menu"
     tableView.rowHeight = UITableView.automaticDimension
     tableView.estimatedRowHeight = 60
@@ -102,6 +106,13 @@ final class MoreMenuController: UITableViewController {
     cell.accessoryType = .disclosureIndicator
     cell.accessibilityIdentifier = "more-entry-\(item.id)"
     return cell
+  }
+
+  /// 明暗切换重新创建材质，防止离屏分组在 Sheet 归还后继续显示旧主题采样。
+  private func refreshGlass() {
+    for glass in sectionGlass { glass.removeFromSuperview() }
+    sectionGlass.removeAll()
+    layoutSectionGlass()
   }
 
   /// 系统玻璃实时采样下方壁纸，旧版 iOS 使用系统超薄材质，均遵循辅助功能设置。

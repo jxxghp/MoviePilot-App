@@ -326,7 +326,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   /// 画面身份包含精确路由和主题；不同文档、账号或弹层之间不复用上一帧。
   private var resumePreviewContext: String? {
     guard session.phase == .nativeNavigation, let id = session.sessionId,
-      let snapshot = session.snapshot, snapshot.chrome.content != .menu
+      let snapshot = session.snapshot, snapshot.chrome.content != .menu,
+      snapshot.chrome.content != .search
     else { return nil }
     return [
       documentID.uuidString, id, snapshot.route.fullPath, snapshot.chrome.theme.rawValue,
