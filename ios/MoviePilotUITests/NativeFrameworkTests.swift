@@ -60,6 +60,7 @@ final class NativeFrameworkTests: XCTestCase {
     app.buttons["native-search-type-media-person"].tap()
     XCTAssertTrue(app.cells["native-search-item-source-person-musicbrainz"].exists)
     page.buttons["资源"].tap()
+    XCTAssertEqual(app.buttons["native-search-type-resource-torrent"].label, "影视资源")
     XCTAssertTrue(
       app.cells["native-search-item-native-sites-select-torrent"].waitForExistence(timeout: 15))
     app.buttons["native-search-type-resource-music"].tap()
