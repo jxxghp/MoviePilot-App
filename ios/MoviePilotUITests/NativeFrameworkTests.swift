@@ -192,7 +192,10 @@ final class NativeFrameworkTests: XCTestCase {
     let roots = app.tabBars["native-root-navigation"]
     for (page, action) in [("推荐", "自定义推荐"), ("探索", "自定义探索标签")] {
       roots.buttons[page].tap()
-      app.buttons["操作菜单"].tap()
+      let menuButton = app.buttons["native-top-actions"]
+      XCTAssertEqual(menuButton.frame.width, menuButton.frame.height, accuracy: 1)
+      attachScreen("\(page)-圆形操作按钮", app: app)
+      menuButton.tap()
       XCTAssertTrue(app.buttons[action].waitForExistence(timeout: 8), app.debugDescription)
       attachScreen("\(page)-真实功能菜单名称", app: app)
       app.buttons[action].tap()
