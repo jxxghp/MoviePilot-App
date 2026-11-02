@@ -286,14 +286,17 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
     content.text = item.title
     content.secondaryText = item.subtitle
     // 已选站点以摘要呈现，较多名称截为两行，完整目录在选择弹窗中查看。
-    content.secondaryTextProperties.numberOfLines =
-      item.id.hasPrefix("native-sites-select-") ? 2 : 0
+    content.textProperties.numberOfLines = item.id.hasPrefix("native-sites-select-") ? 2 : 0
+    content.secondaryTextProperties.numberOfLines = 0
     content.image = item.icon.flatMap { NavigationSymbols.image($0) }
     content.imageProperties.tintColor = tableView.tintColor
     cell.contentConfiguration = content
     cell.backgroundConfiguration = .clear()
     cell.accessoryType =
-      item.selected == true ? .checkmark : (item.keepOpen == true ? .none : .disclosureIndicator)
+      item.selected == true
+      ? .checkmark
+      : (item.keepOpen == true && !item.id.hasPrefix("native-sites-select-")
+        ? .none : .disclosureIndicator)
     cell.accessibilityIdentifier = "native-search-item-\(item.id)"
     cell.accessibilityTraits = item.selected == true ? [.button, .selected] : .button
     cell.isUserInteractionEnabled = item.enabled != false
