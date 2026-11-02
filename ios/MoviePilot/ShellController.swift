@@ -9,6 +9,12 @@ private final class NativeMenuButton: UIButton {
   private var presentingMenu = false
   var onMenuClose: (() -> Void)?
 
+  /// 导航栏按控件的固有尺寸量测，不能按省略号图形高度压缩圆形背景。
+  override var intrinsicContentSize: CGSize { CGSize(width: 44, height: 44) }
+
+  /// UIKit 的手动适配路径与 Auto Layout 使用相同的圆形按钮尺寸。
+  override func sizeThatFits(_ size: CGSize) -> CGSize { intrinsicContentSize }
+
   /// UIKit 已展示的二级菜单不能被新的 menu 属性赋值打断，业务选择仍会复核最新快照。
   func apply(menu: UIMenu) {
     if presentingMenu || isHeld {
@@ -762,6 +768,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     button.accessibilityIdentifier = "native-top-actions"
     button.isEnabled = enabled
     if existing == nil {
+      button.translatesAutoresizingMaskIntoConstraints = false
       button.onMenuClose = { [weak self] in self?.closeUserMenu() }
       // 图标菜单固定等宽等高，避免导航栏按内边距扩展为椭圆。
       button.widthAnchor.constraint(equalToConstant: 44).isActive = true
