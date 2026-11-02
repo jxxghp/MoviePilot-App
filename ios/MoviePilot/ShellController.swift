@@ -760,8 +760,10 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
       button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
     }
-    let globalOrder = ["search", "shortcuts", "notifications", "plugins", "profile"]
-    let globals = overflow.enumerated().filter { $0.element.isGlobal }.sorted { left, right in
+    // 搜索固定由右下角进入，操作菜单不重复列出该全局动作。
+    let menuActions = overflow.filter { !$0.actionId.hasSuffix(":global:search") }
+    let globalOrder = ["shortcuts", "notifications", "plugins", "profile"]
+    let globals = menuActions.enumerated().filter { $0.element.isGlobal }.sorted { left, right in
       let leftRank =
         globalOrder.firstIndex(of: String(left.element.actionId.split(separator: ":").last ?? ""))
         ?? globalOrder.count
@@ -770,7 +772,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
         ?? globalOrder.count
       return leftRank == rightRank ? left.offset < right.offset : leftRank < rightRank
     }.map(\.element)
-    let pages = overflow.filter { !$0.isGlobal }
+    let pages = menuActions.filter { !$0.isGlobal }
     /// 继续引用原网页动作，不因菜单分组复制业务或绕过禁用状态。
     func menuElement(_ action: ActionSnapshot) -> UIMenuElement {
       if action.actionId.hasSuffix(":global:profile"), action.panel != nil,
@@ -788,14 +790,6 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
         attributes: action.enabled && !action.loading ? [] : [.disabled]
       ) { [weak self, weak button] _ in
         guard let self else { return }
-        if action.actionId.hasSuffix(":global:search"), self.latest?.chrome.content == .search {
-          self.searchPage?.tableView.setContentOffset(.zero, animated: true)
-          return
-        }
-        if action.actionId.hasSuffix(":global:search"), action.dataAttr == "native-search-page" {
-          self.coordinator.invoke(action)
-          return
-        }
         if action.panel != nil {
           self.openNativePanel(action)
           return
