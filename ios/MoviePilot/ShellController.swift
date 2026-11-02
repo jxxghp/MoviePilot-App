@@ -54,6 +54,36 @@ private final class NativeMenuButton: UIButton {
   }
 }
 
+/// 为导航栏自定义菜单按钮提供固定的正方形外框，避免系统栏按内容压缩玻璃背景。
+@MainActor
+private final class NativeMenuButtonContainer: UIView {
+  let button: NativeMenuButton
+
+  /// 创建等宽等高的菜单外框，并让按钮填满整个命中区域。
+  init(button: NativeMenuButton) {
+    self.button = button
+    super.init(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
+    button.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(button)
+    NSLayoutConstraint.activate([
+      button.leadingAnchor.constraint(equalTo: leadingAnchor),
+      button.trailingAnchor.constraint(equalTo: trailingAnchor),
+      button.topAnchor.constraint(equalTo: topAnchor),
+      button.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
+  }
+
+  /// 故事板不创建导航栏按钮，保留 UIKit 所需的初始化入口。
+  @available(*, unavailable)
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  /// 导航栏量测外框时始终返回正方形尺寸。
+  override var intrinsicContentSize: CGSize { CGSize(width: 44, height: 44) }
+
+  /// 手动布局路径与 Auto Layout 使用相同的固定尺寸。
+  override func sizeThatFits(_ size: CGSize) -> CGSize { intrinsicContentSize }
+}
+
 /// 用户菜单只等待当前网页面板的一次投影，超时或文档失效时必须完成 UIKit 的延迟回调。
 private struct NativeUserMenuRequest {
   let token: UUID
@@ -762,17 +792,14 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     configuration.cornerStyle = .capsule
     configuration.contentInsets = .zero
     configuration.image = UIImage(systemName: "ellipsis")
-    let existing = item?.customView as? NativeMenuButton
+    let existingContainer = item?.customView as? NativeMenuButtonContainer
+    let existing = existingContainer?.button ?? (item?.customView as? NativeMenuButton)
     let button = existing ?? NativeMenuButton(configuration: configuration)
     button.accessibilityLabel = "操作菜单"
     button.accessibilityIdentifier = "native-top-actions"
     button.isEnabled = enabled
     if existing == nil {
-      button.translatesAutoresizingMaskIntoConstraints = false
       button.onMenuClose = { [weak self] in self?.closeUserMenu() }
-      // 图标菜单固定等宽等高，避免导航栏按内边距扩展为椭圆。
-      button.widthAnchor.constraint(equalToConstant: 44).isActive = true
-      button.heightAnchor.constraint(equalToConstant: 44).isActive = true
       button.setContentHuggingPriority(.required, for: .horizontal)
       button.setContentHuggingPriority(.required, for: .vertical)
       button.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -890,7 +917,9 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     button.apply(menu: menu)
     button.showsMenuAsPrimaryAction = true
     // 异步用户资格或状态更新只能更新菜单，不能换掉正在承载二级菜单的系统按钮。
-    let item = item ?? UIBarButtonItem(customView: button)
+    let customView = existingContainer ?? NativeMenuButtonContainer(button: button)
+    let item = item ?? UIBarButtonItem(customView: customView)
+    item.width = 44
     // 使用按钮自身的圆形玻璃，系统共享背景会额外增加横向留白。
     if #available(iOS 26.0, *) { item.hidesSharedBackground = true }
     // UIBarButtonItem 会同步自定义按钮的启用状态，两层保持一致，避免安装时重新启用。
