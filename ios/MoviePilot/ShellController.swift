@@ -785,7 +785,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       }
       if let menu = action.menu, !menu.isEmpty {
         if self.latest?.route.fullPath.components(separatedBy: "?")[0] == "/dashboard",
-          action.position == .accessory
+          !action.isGlobal
         {
           return UIMenu(options: .displayInline, children: actionMenu(action, items: menu).children)
         }
