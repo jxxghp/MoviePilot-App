@@ -752,6 +752,9 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     -> UIBarButtonItem
   {
     var configuration = UIButton.Configuration.plain()
+    if #available(iOS 26.0, *) { configuration = .glass() }
+    configuration.cornerStyle = .capsule
+    configuration.contentInsets = .zero
     configuration.image = UIImage(systemName: "ellipsis")
     let existing = item?.customView as? NativeMenuButton
     let button = existing ?? NativeMenuButton(configuration: configuration)
@@ -760,8 +763,9 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     button.isEnabled = enabled
     if existing == nil {
       button.onMenuClose = { [weak self] in self?.closeUserMenu() }
-      button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
-      button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+      // 图标菜单固定等宽等高，避免导航栏按内边距扩展为椭圆。
+      button.widthAnchor.constraint(equalToConstant: 44).isActive = true
+      button.heightAnchor.constraint(equalToConstant: 44).isActive = true
     }
     // 搜索固定由右下角进入，操作菜单不重复列出该全局动作。
     let menuActions = overflow.filter { !$0.actionId.hasSuffix(":global:search") }
@@ -867,6 +871,8 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     button.showsMenuAsPrimaryAction = true
     // 异步用户资格或状态更新只能更新菜单，不能换掉正在承载二级菜单的系统按钮。
     let item = item ?? UIBarButtonItem(customView: button)
+    // 使用按钮自身的圆形玻璃，系统共享背景会额外增加横向留白。
+    if #available(iOS 26.0, *) { item.hidesSharedBackground = true }
     // UIBarButtonItem 会同步自定义按钮的启用状态，两层保持一致，避免安装时重新启用。
     item.isEnabled = enabled
     return item
