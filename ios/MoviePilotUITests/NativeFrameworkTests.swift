@@ -146,6 +146,38 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
   }
 
+  /// 独立搜索不能截住当前栏目重选或用户菜单导航，搜索入口只保留底栏一处。
+  func testSearchDoesNotCaptureRootNavigation() throws {
+    let app = try signIn(captureScreens: false, remember: false)
+    let roots = app.tabBars["native-root-navigation"]
+    let page = app.tables["native-search-page"]
+    for title in ["仪表盘", "推荐", "探索", "更多"] {
+      roots.buttons[title].tap()
+      app.buttons["native-bottom-action"].tap()
+      XCTAssertTrue(page.waitForExistence(timeout: 15))
+      app.buttons["操作菜单"].tap()
+      XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "搜索")).count, 1)
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.35)).tap()
+      let field = app.searchFields["native-search-field"]
+      field.tap()
+      field.typeText("导航")
+      app.buttons["native-search-type-media-media"].tap()
+      roots.buttons[title].tap()
+      XCTAssertTrue(page.waitForNonExistence(timeout: 10), "重选当前栏目必须退出搜索")
+    }
+    roots.buttons["仪表盘"].tap()
+    app.buttons["native-bottom-action"].tap()
+    XCTAssertTrue(page.waitForExistence(timeout: 10))
+    app.buttons["操作菜单"].tap()
+    nativeUserItem("用户", app: app).tap()
+    nativeUserItem("设置", app: app).tap()
+    XCTAssertTrue(page.waitForNonExistence(timeout: 10))
+    roots.buttons["仪表盘"].tap()
+    XCTAssertTrue(page.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(app.navigationBars["仪表盘"].waitForExistence(timeout: 10))
+    attachScreen("搜索-栏目与菜单导航独立", app: app)
+  }
+
   /// 真实账号在同一文档中验收明暗壁纸、目录滚动、Sheet 归还与连续主入口切换。
   func testMoreWallpaperContinuity() throws {
     let app = try signIn(captureScreens: false, remember: false)
