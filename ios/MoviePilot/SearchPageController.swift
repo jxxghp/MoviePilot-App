@@ -10,7 +10,6 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
   private let scope = UISegmentedControl(items: [])
   private let types = UIStackView()
   private let queryTitle = UILabel()
-  private let queryDetail = UILabel()
   private let header = UIStackView()
   private let backdrop = UIView()
   private var glasses: [UIVisualEffectView] = []
@@ -72,12 +71,7 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
       for: .systemFont(ofSize: 28, weight: .bold))
     queryTitle.adjustsFontForContentSizeCategory = true
     queryTitle.numberOfLines = 0
-    queryDetail.font = .preferredFont(forTextStyle: .subheadline)
-    queryDetail.adjustsFontForContentSizeCategory = true
-    queryDetail.textColor = .secondaryLabel
-    queryDetail.numberOfLines = 0
     header.addArrangedSubview(queryTitle)
-    header.addArrangedSubview(queryDetail)
     tableView.tableHeaderView = header
   }
 
@@ -176,7 +170,7 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
         if #available(iOS 26.0, *) { config = .glass() }
         let labels = [
           "media-media": "影视", "media-music": "音乐", "media-collection": "合集", "media-person": "人物",
-          "resource-torrent": "资源", "resource-music": "音乐资源", "resource-subtitle": "字幕",
+          "resource-torrent": "影视资源", "resource-music": "音乐资源", "resource-subtitle": "字幕",
         ]
         config.title = labels[item.id] ?? item.title
         config.image = item.icon.flatMap { NavigationSymbols.image($0) }
@@ -193,7 +187,7 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
         let button = UIButton(
           configuration: config,
           primaryAction: UIAction { [weak self] _ in self?.selectType(item.id) })
-        button.accessibilityLabel = item.title
+        button.accessibilityLabel = config.title
         button.accessibilityIdentifier = "native-search-type-\(item.id)"
         button.isSelected = item.id == selected?.id
         button.titleLabel?.numberOfLines = 2
@@ -205,16 +199,14 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
     var next: [Group] = []
     let keyword = snapshot.search?.text ?? ""
     queryTitle.text = keyword.isEmpty ? "搜索" : "搜索“\(keyword)”"
-    queryDetail.text = selected?.title
     queryTitle.isHidden = selectedScope == "local" && keyword.isEmpty
-    queryDetail.isHidden = selected == nil
     if let selected {
       let choices = (selected.children ?? []).filter { $0.primary != true }
       let run = (selected.children ?? []).filter { $0.primary == true }
       if !choices.isEmpty {
         next.append(
           Group(
-            id: "choices", title: selectedScope == "resources" ? "选择站点" : "数据源 · 可多选",
+            id: "choices", title: selectedScope == "resources" ? "选择站点" : "数据源",
             items: choices))
       }
       if !run.isEmpty {
