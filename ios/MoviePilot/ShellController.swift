@@ -93,6 +93,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   private var edgeBackTimeout: Timer?
   private var previewCapture: DispatchWorkItem?
   private let moreMenu = MoreMenuController()
+  private var searchPage: SearchPageController?
   private let bottomNavigation = BottomNavigationView()
   private var panelNavigation: UINavigationController?
   private var panelImages: NativePanelImageLoader?
@@ -354,6 +355,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     bottomNavigation.isHidden = true
     compatibilityHost.additionalSafeAreaInsets.bottom = 0
     removeMoreMenu()
+    removeSearchPage(resetState: true)
     coordinator.content.view.isHidden = false
     latest = nil
     recoveryView?.removeFromSuperview()
@@ -611,7 +613,9 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
 
   /// 顶栏只使用原生导航语义；动作仍回到网页注册的回调。
   private func configureHeader(_ host: ContentHostController, snapshot: NavigationSnapshot) {
-    let trailing = snapshot.actions.filter { $0.position != .accessory }
+    let moveAccessory = ["/dashboard", "/recommend", "/discover"].contains(
+      snapshot.route.fullPath.components(separatedBy: "?")[0])
+    let trailing = snapshot.actions.filter { $0.position != .accessory || moveAccessory }
     let identity = ObjectIdentifier(host)
     // Sheet 自己承载关闭；页面返回状态在系统动画开始前不能因网页弹层先闪出一个箭头。
     let canGoBack =
@@ -721,9 +725,11 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
         bottomNavigation.bottomAnchor.constraint(equalTo: view.bottomAnchor),
       ])
     }
-    let accessory = snapshot.actions.first { $0.position == .accessory }.map { action in
-      bottomActionButton(action)
-    }
+    let moveAccessory = ["/dashboard", "/recommend", "/discover"].contains(
+      snapshot.route.fullPath.components(separatedBy: "?")[0])
+    let accessory =
+      (!moveAccessory ? snapshot.actions.first { $0.position == .accessory } : nil)
+      .map { bottomActionButton($0) } ?? searchButton(snapshot)
     bottomNavigation.apply(snapshot, action: accessory) { [weak self] rootId in
       if self?.latest?.roots.first(where: { $0.id == rootId })?.path == "/apps" {
         self?.moreMenu.scrollToBeginning()
@@ -782,6 +788,14 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
         attributes: action.enabled && !action.loading ? [] : [.disabled]
       ) { [weak self, weak button] _ in
         guard let self else { return }
+        if action.actionId.hasSuffix(":global:search"), self.latest?.chrome.content == .search {
+          self.searchPage?.tableView.setContentOffset(.zero, animated: true)
+          return
+        }
+        if action.actionId.hasSuffix(":global:search"), action.dataAttr == "native-search-page" {
+          self.coordinator.invoke(action)
+          return
+        }
         if action.panel != nil {
           self.openNativePanel(action)
           return
@@ -1271,6 +1285,10 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       return false
     }
     guard presentedViewController == nil else { return false }
+    if action.actionId.hasSuffix(":global:search"), action.dataAttr == "native-search-page" {
+      coordinator.invoke(action)
+      return true
+    }
     openNativePanel(action)
     return panelAction?.actionId == action.actionId && panelAction?.ownerId == action.ownerId
   }
@@ -1494,13 +1512,97 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     dismissNativePanel()
   }
 
+  /// 搜索作为透明原生正文嵌入当前导航宿主，动态壁纸继续由唯一 WebView 渲染。
+  private func configureSearchPage(_ host: ContentHostController, snapshot: NavigationSnapshot) {
+    guard snapshot.chrome.content == .search,
+      let action = snapshot.actions.first(where: { $0.actionId.hasSuffix(":global:search") }),
+      let panel = action.panel
+    else {
+      removeSearchPage()
+      return
+    }
+    let controller = searchPage ?? SearchPageController()
+    searchPage = controller
+    controller.onEvent = { [weak self] event, item, value in
+      guard let self, self.latest?.chrome.content == .search,
+        let current = self.latest?.actions.first(where: {
+          $0.actionId == action.actionId && $0.ownerId == action.ownerId
+        }),
+        current.enabled, !current.loading
+      else { return }
+      self.coordinator.invoke(current, panelEvent: event, itemId: item, value: value)
+    }
+    controller.apply(
+      panel,
+      accent: NavigationSymbols.color(snapshot.chrome.accentColor) ?? AccountAppearance.accent)
+    if controller.parent !== host {
+      controller.willMove(toParent: nil)
+      controller.view.removeFromSuperview()
+      controller.removeFromParent()
+      host.addChild(controller)
+      controller.view.translatesAutoresizingMaskIntoConstraints = false
+      host.view.addSubview(controller.view)
+      NSLayoutConstraint.activate([
+        controller.view.topAnchor.constraint(equalTo: host.view.topAnchor),
+        controller.view.bottomAnchor.constraint(equalTo: host.view.bottomAnchor),
+        controller.view.leadingAnchor.constraint(equalTo: host.view.leadingAnchor),
+        controller.view.trailingAnchor.constraint(equalTo: host.view.trailingAnchor),
+      ])
+      controller.didMove(toParent: host)
+    }
+    host.view.bringSubviewToFront(controller.view)
+    host.trackContentScrollView(controller.tableView)
+  }
+
+  /// 离开搜索先解除输入和旧回调；结果页返回保留类型，切换身份则丢弃全部展示状态。
+  private func removeSearchPage(resetState: Bool = false) {
+    guard let controller = searchPage else { return }
+    controller.view.endEditing(true)
+    controller.willMove(toParent: nil)
+    controller.view.removeFromSuperview()
+    controller.removeFromParent()
+    controller.onEvent = nil
+    if resetState { searchPage = nil }
+  }
+
+  /// 无页内动作时始终提供同尺寸搜索按钮，入口仍复用当前授权的网页全局动作。
+  private func searchButton(_ snapshot: NavigationSnapshot) -> UIButton {
+    var config = UIButton.Configuration.tinted()
+    if #available(iOS 26.0, *) { config = .glass() }
+    config.cornerStyle = .capsule
+    config.image = UIImage(
+      systemName: "magnifyingglass", withConfiguration: NavigationSymbols.bottomConfiguration)
+    if snapshot.chrome.content == .search {
+      config.baseForegroundColor =
+        NavigationSymbols.color(snapshot.chrome.accentColor) ?? AccountAppearance.accent
+    }
+    let action = snapshot.actions.first { $0.actionId.hasSuffix(":global:search") }
+    let button = UIButton(
+      configuration: config,
+      primaryAction: UIAction { [weak self] _ in
+        guard let self, let action else { return }
+        if self.latest?.chrome.content == .search { return }
+        if action.dataAttr == "native-search-page" {
+          self.coordinator.invoke(action)
+        } else if action.panel != nil {
+          self.openNativePanel(action)
+        } else {
+          self.coordinator.invoke(action)
+        }
+      })
+    button.accessibilityLabel = "搜索"
+    button.isEnabled = action?.enabled == true && snapshot.presentation?.overlayOpen != true
+    return button
+  }
+
   /// 原生目录叠在实时网页背景上；Sheet 搬走 WebView 时由底页快照保持相同壁纸。
   private func configureMoreMenu(_ host: ContentHostController, snapshot: NavigationSnapshot) {
+    configureSearchPage(host, snapshot: snapshot)
     let visible = snapshot.chrome.content == .menu
     coordinator.content.view.isHidden = false
     guard visible else {
       removeMoreMenu()
-      host.trackContentScrollView(coordinator.webView.scrollView)
+      if searchPage?.parent == nil { host.trackContentScrollView(coordinator.webView.scrollView) }
       return
     }
     moreMenu.apply(

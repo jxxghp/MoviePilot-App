@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		EBC0DFA944EF2796F87B7B76 /* SearchPageController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 679A44F3DC9A280BB5F36D51 /* SearchPageController.swift */; };
 		3BC9AD35937B4502AE2280DD /* ServerProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12A1D18E5414AD1876346C5 /* ServerProfileTests.swift */; };
 		ECE3BE0870D3AA76DD3F1B2F /* ServiceStartupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 623C822C175E4F82C08A8233 /* ServiceStartupTests.swift */; };
 		0B79AFE6E3E507A780FAEDAB /* LoginController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8072C0F89DB70887DB4A4AEC /* LoginController.swift */; };
@@ -80,6 +81,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		679A44F3DC9A280BB5F36D51 /* SearchPageController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchPageController.swift; sourceTree = "<group>"; };
 		B12A1D18E5414AD1876346C5 /* ServerProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerProfileTests.swift; sourceTree = "<group>"; };
 		623C822C175E4F82C08A8233 /* ServiceStartupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceStartupTests.swift; sourceTree = "<group>"; };
 		11C1FABE88ED006EC70944CD /* InstanceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstanceStore.swift; sourceTree = "<group>"; };
@@ -165,6 +167,7 @@
 				3C5522D23DCCE1A49988D78B /* NotificationService.swift */,
 				86D43CD80FACB4AAA460D482 /* OperationMenuController.swift */,
 				EDC7F876AC1F304D50E70B03 /* SceneDelegate.swift */,
+				679A44F3DC9A280BB5F36D51 /* SearchPageController.swift */,
 				1EDD6E57585F04BA1211B21F /* ShellController.swift */,
 				A18E5B7A511689BF6BE63B93 /* StandaloneMenuBridge.swift */,
 				EF1A8D67F8876B6AECE70ECA /* StartupView.swift */,
@@ -397,6 +400,7 @@
 				AABED68CFA2524E767AD4CE1 /* NotificationService.swift in Sources */,
 				C269B51BDA7008F3E55B6CF9 /* OperationMenuController.swift in Sources */,
 				D25729D75787FFE684BCE836 /* SceneDelegate.swift in Sources */,
+				EBC0DFA944EF2796F87B7B76 /* SearchPageController.swift in Sources */,
 				4230F60B0326B26D9A25E2BC /* ShellController.swift in Sources */,
 				EB4FBB378F5FB78066EDB77D /* StandaloneMenuBridge.swift in Sources */,
 				E2CC1E5D7BA47467F0727E6B /* StartupView.swift in Sources */,
@@ -483,7 +487,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.0.10;
+				MARKETING_VERSION = 1.1.0;
 				MOVIEPILOT_APNS_ENVIRONMENT = disabled;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -623,7 +627,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.0.10;
+				MARKETING_VERSION = 1.1.0;
 				MOVIEPILOT_APNS_ENVIRONMENT = disabled;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;

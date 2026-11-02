@@ -8,7 +8,7 @@
   function postMessage(message) {
     if (message.type === "navigation.state" && document.documentElement) {
       document.documentElement.dataset.nativeContent =
-        message.payload?.chrome?.content === "menu" ? "menu" : "web";
+        ["menu", "search"].includes(message.payload?.chrome?.content) ? message.payload.chrome.content : "web";
     }
     handler.postMessage(message);
   }
@@ -17,7 +17,7 @@
   function installMenuBackdropStyle() {
     const style = document.createElement("style");
     style.textContent = `
-      html[data-native-chrome="active"][data-native-content="menu"]:not([data-native-sheet]) .layout-page-content {
+      html[data-native-chrome="active"]:is([data-native-content="menu"], [data-native-content="search"]):not([data-native-sheet]) .layout-page-content {
         visibility: hidden !important;
         pointer-events: none !important;
       }
@@ -30,6 +30,7 @@
     value: Object.freeze({
       transportVersion: 1,
       panelsVersion: 1,
+      searchPageVersion: 1,
       panelFeedsVersion: 1,
       sheetsVersion: 1,
       progressSheetsVersion: 1,

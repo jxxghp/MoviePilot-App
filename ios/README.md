@@ -47,12 +47,12 @@ open ios/MoviePilot.xcodeproj
 ## 构建未签名 IPA
 
 ```sh
-bash scripts/build-ipa.sh 1.0.10
+bash scripts/build-ipa.sh 1.1.0
 ```
 
-从仓库根目录执行，产物位于 `artifacts/MoviePilot-1.0.10-unsigned.ipa`，同时生成 `SHA256SUMS`。脚本使用真机 iPhoneOS SDK 和 arm64 架构，校验版本、ZIP 及 Mach-O 平台；安装者仍须自行重签。
+从仓库根目录执行，产物位于 `artifacts/MoviePilot-1.1.0-unsigned.ipa`，同时生成 `SHA256SUMS`。脚本使用真机 iPhoneOS SDK 和 arm64 架构，校验版本、ZIP 及 Mach-O 平台；安装者仍须自行重签。
 
-工程当前版本为 1.0.10、构建号为 1。发布新版本时先更新 `ios/project.yml` 与已提交工程中的版本号，再将 `v主版本.次版本.修订版本` 标签推到 GitHub。`Release IPA` 会复用现有检查，成功后构建对应版本并发布 IPA 和校验文件。
+工程当前版本为 1.1.0、构建号为 1。发布新版本时先更新 `ios/project.yml` 与已提交工程中的版本号，再将 `v主版本.次版本.修订版本` 标签推到 GitHub。`Release IPA` 会复用现有检查，成功后构建对应版本并发布 IPA 和校验文件。
 
 同版本修复在 `main` 的 Actions → `Release IPA` → `Run workflow` 中操作：填写现有标签，勾选同版本重建确认。检查与打包通过后，工作流将该标签和 Release 资产更新为本次 `main` 源码；若构建期间主分支或标签变化则停止发布。普通标签发布仍拒绝覆盖已有 Release。用户从同一 Release 重新下载 IPA 后覆盖安装即可。
 
@@ -136,3 +136,23 @@ scripts/      本地验证入口
 桌面图标在 `AppIcon.appiconset` 中配置 Any、Dark、Tinted 三种外观。浅色图标复用前端的 `scripts/assets/moviepilot-logo-master.png` 和 `scripts/generate-pwa-icons.mjs` 中的 `createSquareIcon`，按 1024×1024、0.76 标识比例生成；深色图标保留原资源，着色图标以同一母版、尺寸和比例生成黑底灰度图，最终色调由 iOS 处理。图标外观及兼容范围见[连接与兼容性](../guides/connection.md)。
 
 仍需完成真实 iPhone、横屏/键盘完整矩阵、文件/外链、前后台与内容进程恢复、OTP/签名 Keychain 和 APNs 的完整验收。Android 延后规划。
+
+独立搜索页面可使用隔离服务与当前前端开发服务器验收，不连接真实后端，也无需反复构建前端：
+
+```sh
+# 终端一：合成 API；可选 --wallpaper /path/to/a.jpg --wallpaper /path/to/b.jpg 验证轮播；
+# 加 --background-notices 主动触发 GitHub 横幅和主题保存错误通知，验证背景隔离。
+../MoviePilot/.venv/bin/python scripts/search-page-fixture.py --frontend ../MoviePilot-Frontend/dist
+# 终端二：在 MoviePilot-Frontend 运行。
+MOVIEPILOT_DEV_PROXY_TARGET=http://127.0.0.1:5296 yarn dev --host 127.0.0.1 --port 5297 --strictPort
+# 终端三：在 App 仓库运行，指定独立模拟器。
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+TEST_RUNNER_MOVIEPILOT_E2E_SERVER=http://localhost:5297 \
+TEST_RUNNER_MOVIEPILOT_E2E_USERNAME=startup-fixture \
+TEST_RUNNER_MOVIEPILOT_E2E_PASSWORD=fixture-only \
+xcodebuild test -project ios/MoviePilot.xcodeproj -scheme MoviePilot \
+  -destination 'platform=iOS Simulator,id=你的模拟器UUID' \
+  -only-testing:MoviePilotUITests/NativeFrameworkTests/testStandaloneNativeSearchPage CODE_SIGN_IDENTITY=-
+```
+
+额外设置 `TEST_RUNNER_MOVIEPILOT_E2E_SEARCH_WALLPAPER=1` 时，用例等待一轮壁纸轮换、捕获页面，并通过主题面板切换浅色和深色；传入的图片仅作为本机测试背景，不提交或上传。来源与站点均为合成数据，不能代替真实站点搜索验收。

@@ -5,6 +5,20 @@ import Testing
 
 /// 系统面板只接受有界展示声明，兼容旧网页且拒绝恶意层级与重复标识。
 struct NativePanelTests {
+  /// 独立搜索正文允许原生呈现，面板的行和来源仍必须通过既有数量与文本校验。
+  @Test func decodesStandaloneSearchContent() throws {
+    let base = try snapshot(panel: ["title": "搜索", "sections": []])
+    var object = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(base)) as? [String: Any])
+    var chrome = try #require(object["chrome"] as? [String: Any])
+    chrome["content"] = "search"
+    object["chrome"] = chrome
+    let value = try JSONDecoder().decode(
+      NavigationSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+    try value.validate()
+    #expect(value.chrome.content == .search)
+  }
+
   /// 原生弹窗动作的可选图标向后兼容，不能用控制字符或无限文案污染导航栏。
   @Test func validatesOptionalSheetActionIcons() throws {
     let base = try snapshot(panel: ["title": "空菜单", "sections": []])

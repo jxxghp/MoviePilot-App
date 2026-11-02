@@ -153,7 +153,7 @@ public struct ChromeSnapshot: Codable, Equatable, Sendable {
 }
 
 /// 业务 HTML 与原生框架菜单使用不同呈现，但共享同一个 Router 会话。
-public enum ChromeContent: String, Codable, Sendable { case web, menu }
+public enum ChromeContent: String, Codable, Sendable { case web, menu, search }
 
 /// 由前端权限目录投影的原生更多菜单分组。
 public struct MoreMenuSection: Codable, Equatable, Sendable {

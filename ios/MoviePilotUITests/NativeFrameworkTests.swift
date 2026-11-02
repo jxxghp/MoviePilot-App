@@ -13,6 +13,86 @@ private struct NetworkFixtures: Decodable {
 /// 使用显式配置的实例验收原生框架与原业务 HTML；真实写入须另行开启并限定临时插件。
 @MainActor
 final class NativeFrameworkTests: XCTestCase {
+  /// 独立搜索保留来源入口，类型切换改变来源与站点，空关键词不允许提交。
+  func testStandaloneNativeSearchPage() throws {
+    let app = try signIn(captureScreens: false, remember: false)
+    let roots = app.tabBars["native-root-navigation"]
+    roots.buttons["仪表盘"].tap()
+    let bottom = app.buttons["native-bottom-action"]
+    XCTAssertTrue(bottom.waitForExistence(timeout: 15))
+    XCTAssertEqual(bottom.label, "搜索")
+    bottom.tap()
+    let page = app.tables["native-search-page"]
+    XCTAssertTrue(page.waitForExistence(timeout: 20), app.debugDescription)
+    let submit = app.buttons["native-search-submit"]
+    XCTAssertFalse(submit.isEnabled)
+    XCTAssertEqual(app.buttons["native-search-type-media-media"].label, "影视")
+    XCTAssertEqual(app.buttons["native-search-type-media-person"].label, "人物")
+    let field = app.searchFields["native-search-field"]
+    XCTAssertTrue(field.exists)
+    field.tap()
+    field.typeText("星际穿越")
+    app.buttons["native-search-type-media-media"].tap()
+    XCTAssertTrue(app.cells["native-search-item-source-media-douban"].exists)
+    XCTAssertTrue(submit.isEnabled)
+    attachScreen("搜索页-影视", app: app)
+    if ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_SEARCH_WALLPAPER"] == "1" {
+      RunLoop.current.run(until: Date().addingTimeInterval(7))
+      XCTAssertFalse(app.webViews.staticTexts["设置 GitHub Token"].exists, "全局网页提示不得出现在原生搜索背景中")
+      attachScreen("搜索页-动态壁纸轮播", app: app)
+      selectTheme("浅色", app: app)
+      XCTAssertTrue(page.waitForExistence(timeout: 10))
+      XCTAssertFalse(app.webViews.staticTexts["404"].exists, "错误通知不得透过原生搜索材质显示")
+      attachScreen("搜索页-浅色", app: app)
+      selectTheme("深色", app: app)
+      XCTAssertTrue(page.waitForExistence(timeout: 10))
+    }
+    app.buttons["native-search-type-media-music"].tap()
+    XCTAssertTrue(
+      app.cells["native-search-item-source-music-musicbrainz"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.cells["native-search-item-source-media-douban"].exists)
+    attachScreen("搜索页-音乐", app: app)
+    app.buttons["native-search-type-media-collection"].tap()
+    XCTAssertTrue(app.cells["native-search-item-source-collection-themoviedb"].exists)
+    XCTAssertFalse(app.cells["native-search-item-source-person-douban"].exists)
+    app.buttons["native-search-type-media-person"].tap()
+    XCTAssertTrue(app.cells["native-search-item-source-person-musicbrainz"].exists)
+    page.buttons["资源"].tap()
+    XCTAssertTrue(
+      app.cells["native-search-item-native-site-torrent-11"].waitForExistence(timeout: 15))
+    app.buttons["native-search-type-resource-music"].tap()
+    XCTAssertTrue(
+      app.cells["native-search-item-native-site-music-22"].waitForExistence(timeout: 15))
+    XCTAssertFalse(app.cells["native-search-item-native-site-music-11"].exists)
+    attachScreen("搜索页-音乐资源", app: app)
+    app.buttons["native-search-type-resource-subtitle"].tap()
+    XCTAssertTrue(
+      app.cells["native-search-item-native-site-subtitle-11"].waitForExistence(timeout: 15))
+    page.buttons["站内"].tap()
+    XCTAssertFalse(app.cells["native-search-item-native-site-subtitle-11"].exists)
+    attachScreen("搜索页-站内", app: app)
+    app.buttons["返回"].tap()
+    XCTAssertTrue(app.navigationBars["仪表盘"].waitForExistence(timeout: 10))
+    roots.buttons["更多"].tap()
+    XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
+    XCTAssertEqual(bottom.label, "搜索")
+    XCTAssertFalse(app.webViews.staticTexts["设置 GitHub Token"].exists, "更多页也不得透出全局网页提示")
+    XCTAssertFalse(app.webViews.staticTexts["404"].exists, "更多页不得透出网页错误通知")
+    attachScreen("更多页-纯壁纸背景", app: app)
+    bottom.tap()
+    XCTAssertTrue(page.waitForExistence(timeout: 10))
+    page.buttons["媒体"].tap()
+    app.buttons["native-search-type-media-media"].tap()
+    XCTAssertEqual(app.buttons["native-search-submit"].label, "搜索 影视")
+    app.buttons["native-search-submit"].tap()
+    XCTAssertTrue(page.waitForNonExistence(timeout: 15))
+    XCTAssertTrue(app.buttons["返回"].exists)
+    app.buttons["返回"].tap()
+    XCTAssertTrue(page.waitForExistence(timeout: 10))
+    app.buttons["返回"].tap()
+    XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
+  }
+
   /// 真实账号在同一文档中验收明暗壁纸、目录滚动、Sheet 归还与连续主入口切换。
   func testMoreWallpaperContinuity() throws {
     let app = try signIn(captureScreens: false, remember: false)
