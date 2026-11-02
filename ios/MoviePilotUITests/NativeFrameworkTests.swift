@@ -186,6 +186,21 @@ final class NativeFrameworkTests: XCTestCase {
     attachScreen("搜索-栏目与菜单导航独立", app: app)
   }
 
+  /// 菜单名称直接对应设置功能，兼容旧前端的图标按钮投影。
+  func testRecommendDiscoverMenuNames() throws {
+    let app = try signIn(captureScreens: false, remember: false)
+    let roots = app.tabBars["native-root-navigation"]
+    for (page, action) in [("推荐", "自定义推荐"), ("探索", "自定义探索标签")] {
+      roots.buttons[page].tap()
+      app.buttons["操作菜单"].tap()
+      XCTAssertTrue(app.buttons[action].waitForExistence(timeout: 8), app.debugDescription)
+      attachScreen("\(page)-真实功能菜单名称", app: app)
+      app.buttons[action].tap()
+      XCTAssertTrue(app.buttons["native-sheet-close"].waitForExistence(timeout: 10))
+      app.buttons["native-sheet-close"].tap()
+    }
+  }
+
   /// 真实账号在同一文档中验收明暗壁纸、目录滚动、Sheet 归还与连续主入口切换。
   func testMoreWallpaperContinuity() throws {
     let app = try signIn(captureScreens: false, remember: false)
