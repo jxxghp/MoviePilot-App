@@ -170,7 +170,7 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertTrue(page.waitForExistence(timeout: 10))
     app.buttons["操作菜单"].tap()
     nativeUserItem("用户", app: app).tap()
-    nativeUserItem("系统设置", app: app).tap()
+    nativeUserItem("系统设定", app: app).tap()
     XCTAssertTrue(page.waitForNonExistence(timeout: 10))
     roots.buttons["仪表盘"].tap()
     XCTAssertTrue(page.waitForNonExistence(timeout: 10))
