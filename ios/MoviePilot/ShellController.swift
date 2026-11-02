@@ -773,6 +773,10 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       // 图标菜单固定等宽等高，避免导航栏按内边距扩展为椭圆。
       button.widthAnchor.constraint(equalToConstant: 44).isActive = true
       button.heightAnchor.constraint(equalToConstant: 44).isActive = true
+      button.setContentHuggingPriority(.required, for: .horizontal)
+      button.setContentHuggingPriority(.required, for: .vertical)
+      button.setContentCompressionResistancePriority(.required, for: .horizontal)
+      button.setContentCompressionResistancePriority(.required, for: .vertical)
     }
     // 搜索固定由右下角进入，操作菜单不重复列出该全局动作。
     let menuActions = overflow.filter { !$0.actionId.hasSuffix(":global:search") }
@@ -869,9 +873,18 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
         title: "常用入口", options: .displayInline,
         children: common.map(menuElement) + [connection] + user.map(menuElement))
     ]
-    if !pages.isEmpty {
+    // 仪表盘的页面动作已经移到一级菜单，展开其子项后仍保留统一的页面分组标题。
+    let pageElements: [UIMenuElement] = pages.flatMap { action in
+      if self.latest?.route.fullPath.components(separatedBy: "?")[0] == "/dashboard",
+        let menu = action.menu, !menu.isEmpty
+      {
+        return actionMenu(action, items: menu).children
+      }
+      return [menuElement(action)]
+    }
+    if !pageElements.isEmpty {
       groups.append(
-        UIMenu(title: "当前页面", options: .displayInline, children: pages.map(menuElement)))
+        UIMenu(title: "当前页面", options: .displayInline, children: pageElements))
     }
     let menu = UIMenu(children: groups)
     button.apply(menu: menu)
