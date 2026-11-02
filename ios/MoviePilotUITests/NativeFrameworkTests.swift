@@ -190,7 +190,7 @@ final class NativeFrameworkTests: XCTestCase {
   func testRecommendDiscoverMenuNames() throws {
     let app = try signIn(captureScreens: false, remember: false)
     let roots = app.tabBars["native-root-navigation"]
-    for (page, action) in [("推荐", "自定义推荐"), ("探索", "自定义探索标签")] {
+    for (page, action) in [("推荐", "自定义推荐"), ("探索", "自定义探索")] {
       roots.buttons[page].tap()
       let menuButton = app.buttons["native-top-actions"]
       XCTAssertEqual(menuButton.frame.width, menuButton.frame.height, accuracy: 1)
