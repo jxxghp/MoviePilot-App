@@ -547,9 +547,10 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     UIAccessibility.post(notification: .screenChanged, argument: title)
   }
 
-  /// 当前快照决定正文宿主，未就绪时只使用启动页后的文档暂存容器。
+  /// 独立入口不占用业务栏目宿主；未就绪时也由共享容器暂存正文。
   private var selectedHost: ContentHostController {
     guard latest?.chrome.bottomVisible == true else { return compatibilityHost }
+    if latest?.route.rootId == nil { return compatibilityHost }
     if let id = latest?.route.rootId, let host = hosts.first(where: { $0.rootId == id }) {
       return host
     }
@@ -564,7 +565,9 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     {
       return rootNavigations[index]
     }
-    if latest?.chrome.bottomVisible == true { return rootNavigations.first }
+    if latest?.chrome.bottomVisible == true, latest?.route.rootId != nil {
+      return rootNavigations.first
+    }
     return compatibilityNavigation
   }
 
@@ -781,6 +784,11 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
         return userSubmenu(action)
       }
       if let menu = action.menu, !menu.isEmpty {
+        if self.latest?.route.fullPath.components(separatedBy: "?")[0] == "/dashboard",
+          action.position == .accessory
+        {
+          return UIMenu(options: .displayInline, children: actionMenu(action, items: menu).children)
+        }
         return UIMenu(
           title: action.title, image: symbol(action.icon),
           children: actionMenu(action, items: menu).children)
@@ -1633,6 +1641,8 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     if controller.parent == nil { add(controller) }
     controller.view.alpha = 1
     controller.view.isUserInteractionEnabled = true
+    // 独立入口会复用启动容器，安装时撤销启动/恢复阶段遗留的无障碍隐藏。
+    controller.view.accessibilityElementsHidden = startupView != nil || recoveryView != nil
     view.bringSubviewToFront(controller.view)
     if let old = activeContainer, old !== controller { remove(old) }
     activeContainer = controller
