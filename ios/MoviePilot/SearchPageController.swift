@@ -116,7 +116,7 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
       scopeIDs = available
       scope.removeAllSegments()
       for (index, id) in available.enumerated() {
-        let title = id == "local" ? "站内" : id == "resources" ? "资源" : "媒体"
+        let title = id == "local" ? "应用" : id == "resources" ? "资源" : "媒体"
         scope.insertSegment(withTitle: title, at: index, animated: false)
       }
     }
@@ -155,7 +155,7 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
     categories.first { $0.id == selectedTypes[selectedScope] } ?? categories.first
   }
 
-  /// 按声明构造来源清单、主操作与站内匹配；空关键词只显示近期搜索。
+  /// 按声明构造来源清单、主操作与应用内匹配；空关键词只显示近期搜索。
   private func rebuild() {
     guard let snapshot else { return }
     categories =
@@ -222,7 +222,7 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
       }
     }
     let localIDs =
-      selectedScope == "local" ? ["local", "menus", "subscriptions", "plugins"] : ["local"]
+      selectedScope == "local" ? ["local", "menus", "subscriptions", "plugins"] : []
     for section in snapshot.sections where localIDs.contains(section.id) && !section.items.isEmpty {
       next.append(Group(id: section.id, title: section.title, items: section.items))
     }
@@ -285,7 +285,9 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
     var content = cell.defaultContentConfiguration()
     content.text = item.title
     content.secondaryText = item.subtitle
-    content.secondaryTextProperties.numberOfLines = 0
+    // 已选站点以摘要呈现，较多名称截为两行，完整目录在选择弹窗中查看。
+    content.secondaryTextProperties.numberOfLines =
+      item.id.hasPrefix("native-sites-select-") ? 2 : 0
     content.image = item.icon.flatMap { NavigationSymbols.image($0) }
     content.imageProperties.tintColor = tableView.tintColor
     cell.contentConfiguration = content
@@ -320,7 +322,7 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
     onEvent?("query", nil, String(searchText.prefix(256)))
   }
 
-  /// 键盘搜索键执行当前类型唯一主要动作，站内模式仅收起键盘。
+  /// 键盘搜索键执行当前类型唯一主要动作，应用模式仅收起键盘。
   func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
     if let item = currentCategory?.children?.first(where: { $0.primary == true }),
       item.enabled != false
