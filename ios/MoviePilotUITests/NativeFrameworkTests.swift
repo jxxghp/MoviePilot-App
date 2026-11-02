@@ -26,6 +26,13 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertTrue(page.waitForExistence(timeout: 20), app.debugDescription)
     let submit = app.buttons["native-search-submit"]
     XCTAssertFalse(submit.isEnabled)
+    let recent = page.cells.matching(
+      NSPredicate(format: "identifier BEGINSWITH %@", "native-search-item-recent-")
+    ).firstMatch
+    if recent.exists {
+      XCTAssertLessThan(recent.frame.maxY, submit.frame.minY)
+      attachScreen("搜索页-近期搜索在主按钮之前", app: app)
+    }
     XCTAssertEqual(app.buttons["native-search-type-media-media"].label, "影视")
     XCTAssertEqual(app.buttons["native-search-type-media-person"].label, "人物")
     let field = app.searchFields["native-search-field"]
@@ -61,32 +68,61 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertTrue(app.cells["native-search-item-source-person-musicbrainz"].exists)
     page.buttons["资源"].tap()
     XCTAssertEqual(app.buttons["native-search-type-resource-torrent"].label, "影视资源")
-    XCTAssertTrue(
-      app.cells["native-search-item-native-sites-select-torrent"].waitForExistence(timeout: 15))
+    let legacySites = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_LEGACY_SITES"] == "1"
+    let summaryID =
+      legacySites
+      ? "native-search-item-native-sites-summary" : "native-search-item-native-sites-select-torrent"
+    XCTAssertTrue(app.cells[summaryID].waitForExistence(timeout: 15))
+    XCTAssertEqual(page.cells.count, 2)
+    attachScreen("搜索页-影视资源站点摘要", app: app)
     app.buttons["native-search-type-resource-music"].tap()
-    XCTAssertTrue(
-      app.cells["native-search-item-native-sites-select-music"].waitForExistence(timeout: 15))
+    let musicSummary =
+      legacySites
+      ? "native-search-item-native-sites-summary" : "native-search-item-native-sites-select-music"
+    XCTAssertTrue(app.cells[musicSummary].waitForExistence(timeout: 15))
     XCTAssertFalse(app.cells["native-search-item-native-site-music-11"].exists)
     XCTAssertFalse(app.cells["native-search-item-shares"].exists)
     XCTAssertFalse(app.cells["native-search-item-history"].exists)
-    let siteSelection = app.cells["native-search-item-native-sites-select-music"]
+    let siteSelection = app.cells[musicSummary]
     XCTAssertTrue(siteSelection.staticTexts["音乐站"].exists)
     siteSelection.tap()
-    XCTAssertTrue(app.webViews.staticTexts["音乐站"].waitForExistence(timeout: 10))
-    XCTAssertFalse(app.webViews.staticTexts["综合站"].exists)
-    let confirmSites = app.webViews.buttons["确认"]
-    XCTAssertTrue(confirmSites.waitForExistence(timeout: 5))
-    confirmSites.tap()
+    if legacySites {
+      let picker = app.tables["native-search-site-picker"]
+      XCTAssertTrue(picker.waitForExistence(timeout: 10))
+      let site = picker.cells["native-search-picker-native-site-music-22"]
+      XCTAssertTrue(site.exists)
+      site.tap()
+      app.buttons["完成"].tap()
+      XCTAssertFalse(submit.isEnabled)
+      app.cells[musicSummary].tap()
+      site.tap()
+      app.buttons["完成"].tap()
+      XCTAssertTrue(submit.isEnabled)
+    } else {
+      XCTAssertTrue(app.webViews.staticTexts["音乐站"].waitForExistence(timeout: 10))
+      XCTAssertFalse(app.webViews.staticTexts["综合站"].exists)
+      let confirmSites = app.webViews.buttons["确认"]
+      XCTAssertTrue(confirmSites.waitForExistence(timeout: 5))
+      confirmSites.tap()
+    }
     XCTAssertTrue(page.waitForExistence(timeout: 10))
     attachScreen("搜索页-音乐资源", app: app)
     app.buttons["native-search-type-resource-subtitle"].tap()
     XCTAssertTrue(
-      app.cells["native-search-item-native-sites-select-subtitle"].waitForExistence(timeout: 15))
+      app.cells[
+        legacySites
+          ? "native-search-item-native-sites-summary"
+          : "native-search-item-native-sites-select-subtitle"
+      ].waitForExistence(timeout: 15))
+    field.tap()
+    field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4) + "v")
     page.buttons["应用"].tap()
     XCTAssertFalse(app.cells["native-search-item-native-sites-select-subtitle"].exists)
     XCTAssertTrue(app.cells["native-search-item-shares"].exists)
     XCTAssertTrue(app.cells["native-search-item-history"].exists)
     XCTAssertFalse(submit.exists)
+    XCTAssertEqual(app.staticTexts.matching(identifier: "功能").count, 1)
+    XCTAssertGreaterThan(page.cells.count, 2)
     attachScreen("搜索页-应用", app: app)
     app.buttons["返回"].tap()
     XCTAssertTrue(app.navigationBars["仪表盘"].waitForExistence(timeout: 10))

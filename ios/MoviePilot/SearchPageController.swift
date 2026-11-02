@@ -23,6 +23,7 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
     let items: [NativePanelItem]
   }
   private var groups: [Group] = []
+  private weak var sitePicker: SearchSitePickerController?
   private var categories: [NativePanelItem] = []
   private var categorySignature = ""
   private var headerHeight: CGFloat = 0
@@ -149,7 +150,7 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
     categories.first { $0.id == selectedTypes[selectedScope] } ?? categories.first
   }
 
-  /// 按声明构造来源清单、主操作与应用内匹配；空关键词只显示近期搜索。
+  /// 按声明构造来源清单、主操作与应用内匹配；空关键词保留近期搜索，主操作始终置底。
   private func rebuild() {
     guard let snapshot else { return }
     categories =
@@ -200,29 +201,41 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
     let keyword = snapshot.search?.text ?? ""
     queryTitle.text = keyword.isEmpty ? "搜索" : "搜索“\(keyword)”"
     queryTitle.isHidden = selectedScope == "local" && keyword.isEmpty
+    var submit: [NativePanelItem] = []
     if let selected {
       let choices = (selected.children ?? []).filter { $0.primary != true }
       let run = (selected.children ?? []).filter { $0.primary == true }
       if !choices.isEmpty {
         next.append(
           Group(
-            id: "choices", title: selectedScope == "resources" ? "选择站点" : "数据源",
+            id: choices.contains { $0.id.hasPrefix("native-site-") } ? "legacy-sites" : "choices",
+            title: selectedScope == "resources" ? "选择站点" : "数据源",
             items: choices))
       }
-      if !run.isEmpty {
-        next.append(Group(id: "submit", title: nil, items: run))
-      }
+      submit = run
+      sitePicker?.apply(choices)
     }
-    let localIDs =
-      selectedScope == "local" ? ["local", "menus", "subscriptions", "plugins"] : []
-    for section in snapshot.sections where localIDs.contains(section.id) && !section.items.isEmpty {
-      next.append(Group(id: section.id, title: section.title, items: section.items))
+    if selectedScope == "local" {
+      let functions = snapshot.sections.filter { ["local", "menus"].contains($0.id) }
+      let items = functions.flatMap(\.items)
+      if !items.isEmpty {
+        next.append(
+          Group(id: "functions", title: functions.compactMap(\.title).first, items: items))
+      }
+      for section in snapshot.sections
+      where ["subscriptions", "plugins"].contains(section.id)
+        && !section.items.isEmpty
+      {
+        next.append(Group(id: section.id, title: section.title, items: section.items))
+      }
     }
     if keyword.isEmpty, let recent = snapshot.sections.first(where: { $0.id == "recent" }),
       !recent.items.isEmpty
     {
       next.append(Group(id: recent.id, title: recent.title, items: recent.items))
     }
+    // 主操作固定为最后一组，近期搜索与匹配内容不能出现在按钮之后。
+    if !submit.isEmpty { next.append(Group(id: "submit", title: nil, items: submit)) }
     if groups != next {
       groups = next
       tableView.reloadData()
@@ -236,7 +249,7 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
 
   /// 行数按当前快照读取，迟到的点击在选择回调中再次校验。
   override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-    groups[section].items.count
+    groups[section].id == "legacy-sites" ? 1 : groups[section].items.count
   }
 
   /// 组标题使用当前资源类型的明确描述。
@@ -247,7 +260,20 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
   override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath)
     -> UITableViewCell
   {
-    let item = groups[indexPath.section].items[indexPath.row]
+    let group = groups[indexPath.section]
+    if group.id == "legacy-sites" {
+      let cell = UITableViewCell()
+      var content = cell.defaultContentConfiguration()
+      let names = group.items.filter { $0.selected == true }.map(\.title)
+      content.text = names.isEmpty ? "选择站点" : names.joined(separator: "、")
+      content.textProperties.numberOfLines = 2
+      cell.contentConfiguration = content
+      cell.backgroundConfiguration = .clear()
+      cell.accessoryType = .disclosureIndicator
+      cell.accessibilityIdentifier = "native-search-item-native-sites-summary"
+      return cell
+    }
+    let item = group.items[indexPath.row]
     if item.primary == true {
       let cell = UITableViewCell()
       cell.backgroundConfiguration = .clear()
@@ -302,7 +328,28 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
     guard groups.indices.contains(indexPath.section),
       groups[indexPath.section].items.indices.contains(indexPath.row)
     else { return }
+    if groups[indexPath.section].id == "legacy-sites" {
+      showSitePicker(groups[indexPath.section].items)
+      return
+    }
     select(groups[indexPath.section].items[indexPath.row])
+  }
+
+  /// 旧前端仍提供逐站点回调时，将列表移到独立选择层，继续复用原有选择状态。
+  private func showSitePicker(_ items: [NativePanelItem]) {
+    search.resignFirstResponder()
+    let picker = SearchSitePickerController(items: items)
+    picker.onSelect = { [weak self, weak picker] item in
+      if item.keepOpen == true {
+        self?.select(item)
+      } else {
+        picker?.dismiss(animated: true) { [weak self] in self?.select(item) }
+      }
+    }
+    sitePicker = picker
+    let navigation = UINavigationController(rootViewController: picker)
+    navigation.view.tintColor = tableView.tintColor
+    present(navigation, animated: true)
   }
 
   /// 选择数据源时保留键盘，执行搜索或导航时收起键盘等待 Vue 路由确认。
@@ -362,5 +409,67 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
         glass.frame = tableView.convert(first.union(last), to: backdrop)
       }
     }
+  }
+}
+
+/// 旧版站点投影的原生选择层，只回传现有行标识，不复制站点接口或选择业务。
+@MainActor
+private final class SearchSitePickerController: UITableViewController {
+  var onSelect: ((NativePanelItem) -> Void)?
+  private var items: [NativePanelItem]
+
+  /// 完整选择目录只在此层显示，搜索主页面保持摘要。
+  init(items: [NativePanelItem]) {
+    self.items = items
+    super.init(style: .insetGrouped)
+  }
+
+  /// 选择层由当前搜索快照创建，不从 storyboard 恢复。
+  required init?(coder: NSCoder) { fatalError("Use init(items:)") }
+
+  /// 系统完成按钮只关闭选择层，站点勾选仍由 Vue 回调更新。
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    title = "选择站点"
+    tableView.accessibilityIdentifier = "native-search-site-picker"
+    navigationItem.rightBarButtonItem = UIBarButtonItem(
+      title: "完成", primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) })
+  }
+
+  /// 重新消费 Vue 的已选状态，避免原生维护第二份选择结果。
+  func apply(_ items: [NativePanelItem]) {
+    guard self.items != items else { return }
+    self.items = items
+    if isViewLoaded { tableView.reloadData() }
+  }
+
+  /// 选择目录保留原投影中的站点与完整目录入口。
+  override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    items.count
+  }
+
+  /// 勾选状态与禁用状态完全来自当前网页快照。
+  override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath)
+    -> UITableViewCell
+  {
+    let item = items[indexPath.row]
+    let cell = UITableViewCell()
+    var content = cell.defaultContentConfiguration()
+    content.text = item.title
+    content.textProperties.numberOfLines = 0
+    cell.contentConfiguration = content
+    cell.accessoryType = item.selected == true ? .checkmark : .none
+    cell.isUserInteractionEnabled = item.enabled != false
+    cell.accessibilityIdentifier = "native-search-picker-\(item.id)"
+    return cell
+  }
+
+  /// 点击只使用当前行，迟到快照不改变业务回调的权限校验。
+  override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+    tableView.deselectRow(at: indexPath, animated: true)
+    guard items.indices.contains(indexPath.row), items[indexPath.row].enabled != false else {
+      return
+    }
+    onSelect?(items[indexPath.row])
   }
 }
