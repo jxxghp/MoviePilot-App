@@ -837,7 +837,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       }
       // 旧前端的动态按钮未声明标题，按已确认的页面功能补全；新前端标题优先。
       let path = self.latest?.route.fullPath.components(separatedBy: "?")[0]
-      let legacyTitles = ["/recommend": "自定义推荐", "/discover": "自定义探索标签"]
+      let legacyTitles = ["/recommend": "自定义推荐", "/discover": "自定义探索"]
       let title =
         !action.isGlobal && action.actionId.hasSuffix(":accessory")
           && (action.title == "当前页面" || action.title.hasSuffix(" · 更多"))
