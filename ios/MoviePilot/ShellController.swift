@@ -793,8 +793,15 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
           title: action.title, image: symbol(action.icon),
           children: actionMenu(action, items: menu).children)
       }
+      // 旧前端的动态按钮未声明标题，按已确认的页面功能补全；新前端标题优先。
+      let path = self.latest?.route.fullPath.components(separatedBy: "?")[0]
+      let legacyTitles = ["/recommend": "自定义推荐", "/discover": "自定义探索标签"]
+      let title =
+        !action.isGlobal && action.actionId.hasSuffix(":accessory")
+          && (action.title == "当前页面" || action.title.hasSuffix(" · 更多"))
+        ? (path.flatMap { legacyTitles[$0] } ?? action.title) : action.title
       return UIAction(
-        title: action.title, image: symbol(action.icon),
+        title: title, image: symbol(action.icon),
         attributes: action.enabled && !action.loading ? [] : [.disabled]
       ) { [weak self, weak button] _ in
         guard let self else { return }
