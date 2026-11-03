@@ -2,7 +2,7 @@
 
 [返回首页](../README.md)
 
-App 1.1.0 的独立搜索请部署本次重建的 [MoviePilot-Frontend v3.2.4](https://github.com/jxxghp/MoviePilot-Frontend/releases/tag/v3.2.4) 或更新的兼容版本，并同时更新 App IPA 与前端资源。容器适配已合入正式前端源码，自行构建使用其 `v3` 分支。
+App 1.1.0 及更新版本的独立搜索请部署本次重建的 [MoviePilot-Frontend v3.2.4](https://github.com/jxxghp/MoviePilot-Frontend/releases/tag/v3.2.4) 或更新的兼容版本，并同时更新 App IPA 与前端资源。容器适配已合入正式前端源码，自行构建使用其 `v3` 分支。
 
 App 1.0.1 及更新版本的系统快捷面板和业务 Sheet 需要更新后的兼容前端。App 不提供完整网页导航或网页登录退路；前端不兼容时显示原生恢复页。普通浏览器与 PWA 的界面保持原有方式。面板只接收当前权限过滤后的展示声明，搜索、通知、插件和用户操作继续执行前端已有业务方法。业务弹窗在同一个 WebView 中保留 Vue 内容，由原生接管标题、关闭按钮与弹出动画，关闭后恢复原宿主，桥接故障则进入原生恢复页。
 
