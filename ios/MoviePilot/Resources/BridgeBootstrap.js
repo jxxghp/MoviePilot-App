@@ -12,14 +12,17 @@
     }
     handler.postMessage(message);
   }
-  // Hide only the replaced HTML directory; global wallpaper and Sheet layers
-  // keep their original rendering, timers, theme treatment and viewport.
+  // Hide replaced HTML content and body-teleported assistants beneath native pages.
+  // Keep wallpaper rendering alive; Sheet and web content regain their own styles.
   function installMenuBackdropStyle() {
     const style = document.createElement("style");
     style.textContent = `
       html[data-native-chrome="active"]:is([data-native-content="menu"], [data-native-content="search"]):not([data-native-sheet]) .layout-page-content {
         visibility: hidden !important;
         pointer-events: none !important;
+      }
+      html[data-native-chrome="active"]:is([data-native-content="menu"], [data-native-content="search"]):not([data-native-sheet]) :is(.agent-assistant-fab, .agent-pet-stage-layer) {
+        display: none !important;
       }
     `;
     document.documentElement.appendChild(style);
