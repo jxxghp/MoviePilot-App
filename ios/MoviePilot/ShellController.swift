@@ -211,6 +211,8 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   /// 系统安全区改变后刷新当前布局，不修改业务路由。
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
+    synchronizeBottomBarGeometry()
+    synchronizePanelAnchor()
     synchronizeNavigationPreviewContext()
     coordinator.layoutChanged()
   }
@@ -479,7 +481,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     let bounds = host.view.bounds
     let safe = host.view.safeAreaInsets
     let system = view.window?.safeAreaInsets ?? .zero
-    let overlap = keyboard.map { host.view.convert($0, from: nil).intersection(bounds).height } ?? 0
+    let overlap = WebCoordinator.keyboardOcclusion(in: host.view, frame: keyboard)
     return .object([
       "layoutRevision": .number(Double(revision)),
       "viewportPoints": .object(["width": .number(bounds.width), "height": .number(bounds.height)]),
@@ -762,9 +764,6 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     let systemSheet = snapshot.presentation?.sheet != nil || webSheet != nil
     let visible =
       snapshot.chrome.bottomVisible && (systemSheet || snapshot.presentation?.fullscreen != true)
-    host.additionalSafeAreaInsets.bottom =
-      visible
-      ? max(0, bottomNavigation.intrinsicContentSize.height - view.safeAreaInsets.bottom) : 0
     if bottomNavigation.superview == nil {
       bottomNavigation.translatesAutoresizingMaskIntoConstraints = false
       view.addSubview(bottomNavigation)
@@ -791,8 +790,21 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
         completion: completion)
     }
     bottomNavigation.isHidden = !nativeVisible || !visible
+    synchronizeBottomBarGeometry()
     if !bottomNavigation.isHidden { view.bringSubviewToFront(bottomNavigation) }
     keepStartupInFront()
+  }
+
+  /// 窗口或安全区变化时只重算底栏避让，不重建动作按钮或中断系统菜单。
+  private func synchronizeBottomBarGeometry() {
+    guard nativeVisible else { return }
+    let inset =
+      bottomNavigation.isHidden
+      ? 0 : max(0, bottomNavigation.intrinsicContentSize.height - view.safeAreaInsets.bottom)
+    let host = selectedHost
+    if abs(host.additionalSafeAreaInsets.bottom - inset) > 0.5 {
+      host.additionalSafeAreaInsets.bottom = inset
+    }
   }
 
   /// 常用入口与页面注册动作使用带标题的独立系统分组；HTML 弹层期间禁用。
@@ -1407,9 +1419,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
         max(280, view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom - 170)))
     if let popover = navigation.popoverPresentationController {
       popover.delegate = self
-      popover.sourceView = view
-      popover.sourceRect = CGRect(
-        x: view.bounds.maxX - 38, y: view.safeAreaInsets.top + 44, width: 1, height: 1)
+      anchorPanel(popover)
       popover.permittedArrowDirections = .up
       popover.passthroughViews = nil
     }
@@ -1420,6 +1430,28 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     present(navigation, animated: true)
     coordinator.invoke(action, panelEvent: "open")
     synchronizeNativePanel(latest)
+  }
+
+  /// 窗口折叠、旋转或调整大小后，浮层继续锚定当前顶栏的真实按钮。
+  private func synchronizePanelAnchor() {
+    guard let popover = panelNavigation?.popoverPresentationController else { return }
+    anchorPanel(popover)
+  }
+
+  /// 优先沿用按钮视图坐标；尚未挂载时使用当前安全区内的锚点，分别避让左右边缘。
+  private func anchorPanel(_ popover: UIPopoverPresentationController) {
+    if let button = selectedHost.navigationItem.rightBarButtonItems?.first?.customView,
+      button.window != nil
+    {
+      popover.sourceView = button
+      popover.sourceRect = button.bounds
+    } else {
+      let safe = view.safeAreaLayoutGuide.layoutFrame
+      popover.sourceView = view
+      popover.sourceRect = CGRect(
+        x: max(safe.minX, safe.maxX - 22), y: min(safe.maxY, safe.minY + 44),
+        width: 1, height: 1)
+    }
   }
 
   /// 确认使用系统 alert；已有 HTML Sheet 保留唯一 WebView，在其上呈现而不重新搬运网页。
