@@ -19,7 +19,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
   private(set) var registrationError: String?
   private var pending: (NotificationIntent, Date)?
 
-  /// 默认免费签名不声明 APNs；付费签名在构建时显式选择与描述文件一致的环境。
+  /// 发布包默认生产 APNs；开发签名须在构建时选择与描述文件一致的环境。
   var environment: String? {
     let value = Bundle.main.object(forInfoDictionaryKey: "MoviePilotAPNsEnvironment") as? String
     if value == "development" { return "sandbox" }

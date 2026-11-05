@@ -24,7 +24,9 @@ open ios/MoviePilot.xcodeproj
 2. 选择 `MoviePilot` 工程，分别为 `MoviePilot` 和 `MoviePilotWidgets` Target 配置 **Signing & Capabilities**。
 3. 打开 **Automatically manage signing**，将 **Team** 选为自己的 Personal Team 或开发者团队。
 4. 将主 App 的 **Bundle Identifier** 改为自己唯一的值，例如 `com.yourname.moviepilot`，扩展使用相同前缀，例如 `com.yourname.moviepilot.widgets`。
-5. 两个 Target 使用同一个 **App Groups**。个人构建可在两份 `Widgets.entitlements` 中将组名改为 `group.org.moviepilot.widgets.你的10位TeamID`，并在两个 Target 的能力面板选中该组；不要只修改其中一个。小组件的启用与使用见[系统小组件](../guides/widgets.md)。只改本机签名配置，不提交团队信息、证书或描述文件。
+5. 两个 Target 使用同一个 **App Groups**。个人构建可在主 App 实际使用的 entitlement 文件与扩展的 `Widgets.entitlements` 中，将组名改为 `group.org.moviepilot.widgets.你的10位TeamID`，并在两个 Target 的能力面板选中该组；不要只修改其中一个。小组件的启用与使用见[系统小组件](../guides/widgets.md)。只改本机签名配置，不提交团队信息、证书或描述文件。
+
+工程默认启用生产 APNs，主 App 使用 `MoviePilot/Resources/APNs.entitlements`，其中也保留共享组；使用原生推送时须将它与扩展的 `Widgets.entitlements` 配成同一共享组。免费 Personal Team 构建须将 `MOVIEPILOT_APNS_ENVIRONMENT` 设为 `disabled`，并把主 App 的 `CODE_SIGN_ENTITLEMENTS` 改为 `MoviePilot/Resources/Widgets.entitlements`；开发 APNs 签名改用 `development` 和匹配的描述文件。详见[消息通知](../guides/notifications.md)。
 
 免费 Apple 账户可通过 Personal Team 在自己的设备上运行。免费签名的描述文件通常 **7 天到期**，届时需重新连接 Xcode 构建安装；它不等于 TestFlight 或 App Store 分发资格。限制以 [Apple 个人团队说明](https://developer.apple.com/help/account/basics/about-your-developer-account#enable-a-personal-team-in-xcode) 为准。
 
@@ -47,12 +49,12 @@ open ios/MoviePilot.xcodeproj
 ## 构建未签名 IPA
 
 ```sh
-bash scripts/build-ipa.sh 1.1.1
+bash scripts/build-ipa.sh 1.1.2
 ```
 
-从仓库根目录执行，产物位于 `artifacts/MoviePilot-1.1.1-unsigned.ipa`，同时生成 `SHA256SUMS`。脚本使用真机 iPhoneOS SDK 和 arm64 架构，校验版本、ZIP 及 Mach-O 平台；安装者仍须自行重签。
+从仓库根目录执行，产物位于 `artifacts/MoviePilot-1.1.2-unsigned.ipa`，同时生成 `SHA256SUMS`。脚本使用真机 iPhoneOS SDK 和 arm64 架构，默认 `com.moviepilot.app` 与生产 APNs，保留主包的推送/共享组和扩展的共享组元数据，并校验版本、ZIP 及 Mach-O 平台；安装者仍须自行重签。
 
-工程当前版本为 1.1.1、构建号为 1。发布新版本时先更新 `ios/project.yml` 与已提交工程中的版本号，再将 `v主版本.次版本.修订版本` 标签推到 GitHub。`Release IPA` 会复用现有检查，成功后构建对应版本并发布 IPA 和校验文件。
+工程当前版本为 1.1.2、构建号为 1。发布新版本时先更新 `ios/project.yml` 与已提交工程中的版本号，再将 `v主版本.次版本.修订版本` 标签推到 GitHub。`Release IPA` 会复用现有检查，成功后构建对应版本并发布 IPA 和校验文件。
 
 同版本修复在 `main` 的 Actions → `Release IPA` → `Run workflow` 中操作：填写现有标签，勾选同版本重建确认。检查与打包通过后，工作流将该标签和 Release 资产更新为本次 `main` 源码；若构建期间主分支或标签变化则停止发布。普通标签发布仍拒绝覆盖已有 Release。用户从同一 Release 重新下载 IPA 后覆盖安装即可。
 

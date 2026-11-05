@@ -45,35 +45,38 @@ def executable(*, platform=2, signature=None):
     return struct.pack("<8I", 0xFEEDFACF, 0x0100000C, 0, 2, count, len(commands), 0, 0) + commands + (signature or b"")
 
 
-def archive(path, *, widgets=True, enabled=None, extension_version="1.0.1", extension_platform=2, provision=False):
+def archive(path, *, widgets=True, enabled=None, extension_version="1.0.1", extension_platform=2, provision=False,
+            bundle="com.moviepilot.app", app_environment="production", signed_environment="production", widget_push=False):
     """构造完整 ZIP，分别改变扩展元数据而不依赖构建目录或网络。"""
     common = {
         "CFBundleShortVersionString": "1.0.1", "CFBundleVersion": "1", "DTPlatformName": "iphoneos",
         "CFBundleSupportedPlatforms": ["iPhoneOS"], "CFBundleExecutable": "MoviePilot",
     }
     root = "Payload/MoviePilot.app"
-    app = dict(common, CFBundleIdentifier="org.moviepilot.app", MoviePilotAPNsEnvironment="disabled")
+    app = dict(common, CFBundleIdentifier=bundle, MoviePilotAPNsEnvironment=app_environment)
     app["MoviePilotWidgetsEnabled"] = widgets if enabled is None else enabled
     with zipfile.ZipFile(path, "w") as target:
         if widgets:
-            extension = dict(common, CFBundleIdentifier="org.moviepilot.app.widgets", CFBundleShortVersionString=extension_version,
+            extension = dict(common, CFBundleIdentifier=bundle + ".widgets", CFBundleShortVersionString=extension_version,
                              NSExtension={"NSExtensionPointIdentifier": "com.apple.widgetkit-extension"})
             extension_root = f"{root}/PlugIns/MoviePilotWidgets.appex"
             target.writestr(f"{extension_root}/Info.plist", plistlib.dumps(extension))
-            target.writestr(f"{extension_root}/MoviePilot", executable(platform=extension_platform, signature=metadata()))
+            target.writestr(f"{extension_root}/MoviePilot", executable(platform=extension_platform,
+                             signature=metadata(extra={"aps-environment": "production"} if widget_push else None)))
             target.writestr(f"{extension_root}/_CodeSignature/CodeResources", b"synthetic-resources")
-            target.writestr(f"{root}/_CodeSignature/CodeResources", b"synthetic-resources")
+        target.writestr(f"{root}/_CodeSignature/CodeResources", b"synthetic-resources")
         target.writestr(f"{root}/Info.plist", plistlib.dumps(app))
-        target.writestr(f"{root}/MoviePilot", executable(signature=metadata() if widgets else None))
+        extra = {"aps-environment": signed_environment} if signed_environment is not None else None
+        target.writestr(f"{root}/MoviePilot", executable(signature=metadata(extra=extra)))
         if provision:
             target.writestr(f"{root}/embedded.mobileprovision", b"synthetic-forbidden-profile")
 
 
 class IpaBoundaryTests(unittest.TestCase):
-    """产品包必须在真正上传前拒绝模拟器、证书签名、额外权限和扩展版本漂移。"""
+    """上传前拒绝模拟器、证书签名、推送配置不一致、额外权限和扩展版本漂移。"""
 
-    def test_accepts_legacy_unsigned_and_widget_metadata(self):
-        """保留旧版无签名 IPA 的校验，同时明确新格式仍需个人重签。"""
+    def test_accepts_apns_metadata_with_or_without_widget(self):
+        """主包始终保留生产推送声明，扩展可选且不持有推送权限；均仍需重签。"""
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sample.ipa"
             for widgets, enabled in [(False, False), (True, False), (True, True)]:
@@ -82,14 +85,31 @@ class IpaBoundaryTests(unittest.TestCase):
                     value = VERIFY.verify_ipa(path, "1.0.1", "1")
                     self.assertEqual(value["widgets"], enabled)
                     self.assertEqual(value["widgetExtension"], widgets)
-                    self.assertEqual(value["signing"], "ad-hoc metadata; requires re-signing" if widgets else "unsigned")
+                    self.assertEqual(value["signing"], "ad-hoc metadata; requires re-signing")
+                    self.assertEqual(value["bundleIdentifier"], "com.moviepilot.app")
+                    self.assertEqual(value["apnsEnvironment"], "production")
+
+    def test_rejects_disabled_mismatched_or_missing_native_push(self):
+        """主包配置与生产推送权限须一致，旧包名和扩展夹带推送权限均不能发布。"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.ipa"
+            for options in [dict(bundle="org.moviepilot.app"), dict(app_environment="disabled"),
+                            dict(app_environment="development"), dict(signed_environment=None),
+                            dict(signed_environment="development"), dict(widget_push=True),
+                            dict(widgets=False, signed_environment=None)]:
+                with self.subTest(options=options), self.assertRaises(ValueError):
+                    archive(path, **options)
+                    VERIFY.verify_ipa(path, "1.0.1", "1")
 
     def test_rejects_certificate_or_extra_entitlements(self):
-        """即使拥有正确共享组，也不能夹带 CMS、APNs 或调试权限。"""
+        """扩展不能夹带 APNs；主包和扩展均不得包含 CMS 或调试权限。"""
         for signature in [metadata(flags=0), metadata(cms=b"synthetic-cms"), metadata(group="group.other"),
                           metadata(extra={"aps-environment": "development"}), metadata(extra={"get-task-allow": True})]:
             with self.assertRaises(ValueError):
                 VERIFY.verify_device_executable(executable(signature=signature), widget_metadata=True)
+        with self.assertRaises(ValueError):
+            VERIFY.verify_device_executable(executable(signature=metadata(extra={"aps-environment": "production", "get-task-allow": True})),
+                                            widget_metadata=True, native_push=True)
 
     def test_rejects_wrong_extension_version_platform_or_profile(self):
         """主包正确不能掩盖嵌入扩展是模拟器、旧版本或夹带描述文件。"""
