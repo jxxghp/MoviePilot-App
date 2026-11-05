@@ -4,7 +4,9 @@
 
 需要 iOS 17+ 的 iPhone、自己的 Apple 账户和 MoviePilot 实例。首次配置 SideStore 等工具通常需要一台电脑。
 
-在 [最新 Release](https://github.com/jxxghp/MoviePilot-App/releases/latest) 下载 `MoviePilot-版本号-unsigned.ipa`，当前版本为 **1.0.10**。安装包由 GitHub Actions 构建，**需要使用自己的 Apple 账户重签安装，不能下载后直接点开安装**。免费账户即可，无需付费开发者账号或 Xcode。
+在 [最新 Release](https://github.com/jxxghp/MoviePilot-App/releases/latest) 下载 `MoviePilot-版本号-unsigned.ipa`，当前版本为 **1.1.2**。安装包由 GitHub Actions 构建，**需要使用自己的 Apple 账户重签安装，不能下载后直接点开安装**。原生 APNs 需要带 Push Notifications 权限的开发者签名；免费账户重签时须移除 `aps-environment`，使用主屏幕网页接收通知，保留 App Groups 和小组件扩展。
+
+从 1.1.2 起默认 Bundle ID 为 `com.moviepilot.app`，小组件为 `com.moviepilot.app.widgets`。若旧版仍使用 `org.moviepilot.app`，iOS 会将新版作为独立 App 安装，需要重新登录和绑定通知；旧 App 及其数据不会自动迁移或删除。只有重签后的 Bundle ID 与原安装一致时才能覆盖更新，使用原生 APNs 时还须与 Server 的 topics 允许名单一致。
 
 ## 通过 SideStore 安装并自动续签
 
@@ -22,6 +24,6 @@
 
 也可使用 [AltStore Classic](https://altstore.io/) 或 [Sideloadly](https://sideloadly.io/) 导入同一个 IPA。AltStore Classic 的日常刷新通常需要可连接的 AltServer；Sideloadly 的自动续签需要电脑上的刷新组件运行。按所选工具的官方指南完成签名、安装和自动刷新设置。
 
-Release 同时提供 `SHA256SUMS`。将它与 IPA 放在同一目录，在 macOS 运行 `shasum -a 256 -c SHA256SUMS`；Windows 可用 `Get-FileHash .\MoviePilot-1.0.10-unsigned.ipa -Algorithm SHA256` 对照校验。
+Release 同时提供 `SHA256SUMS`。将它与 IPA 放在同一目录，在 macOS 运行 `shasum -a 256 -c SHA256SUMS`；Windows 可用 `Get-FileHash .\MoviePilot-1.1.2-unsigned.ipa -Algorithm SHA256` 对照校验。
 
 若希望通过 Xcode 安装或修改源码，见 [自行构建与开发](../ios/README.md)。安装后按照[连接说明](connection.md)登录实例。

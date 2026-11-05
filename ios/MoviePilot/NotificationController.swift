@@ -42,7 +42,7 @@ final class NotificationController: UITableViewController {
   /// 由当前实例显式创建，不支持 storyboard 恢复失效的会话。
   required init?(coder: NSCoder) { fatalError("Use init(coordinator:)") }
 
-  /// 免费自签以主屏幕通知为主要入口，签名支持 APNs 时补充原生开关。
+  /// 同时提供主屏幕通知与构建声明的原生推送入口，实际注册仍需签名权限。
   override func viewDidLoad() {
     super.viewDidLoad()
     title = "通知"

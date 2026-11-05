@@ -10,6 +10,8 @@ iOS 26+ 支持系统 Liquid Glass；提供侧滑返回、卡片长按菜单、�
 
 在 [最新 Release](https://github.com/jxxghp/MoviePilot-App/releases/latest) 下载未签名 IPA，通过 SideStore、AltStore Classic 或 Sideloadly 重签安装。免费账户可用，签名通常每 7 天续签；配置步骤见[安装与自动续签](guides/install.md)。
 
+安装包默认开启生产 APNs，Bundle ID 为 `com.moviepilot.app`；原生消息推送仍需带 Push Notifications 权限的签名和描述文件。免费账户重签须移除推送权限并使用主屏幕通知，详见[消息通知](guides/notifications.md)。
+
 ## 使用与开发文档
 
 | 文档 | 内容 |

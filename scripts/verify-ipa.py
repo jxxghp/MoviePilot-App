@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""核对真机 IPA；组件包仅允许保留共享组的 ad-hoc 元数据签名，仍须安装者重签。"""
+"""核对默认启用生产 APNs 的真机 IPA；无证书元数据仍须安装者重签。"""
 
 import argparse
 import hashlib
@@ -12,10 +12,11 @@ from pathlib import Path, PurePosixPath
 
 
 WIDGET_GROUP = "group.org.moviepilot.widgets"
+BUNDLE_IDENTIFIER = "com.moviepilot.app"
 
 
-def verify_metadata_signature(signature: bytes) -> None:
-    """只允许无证书的 ad-hoc CodeDirectory 与精确共享组，不把元数据当作 Apple 安装签名。"""
+def verify_metadata_signature(signature: bytes, *, native_push: bool = False) -> None:
+    """主包精确允许生产 APNs 与共享组，扩展仅允许共享组；二者均不能夹带证书。"""
     if len(signature) < 12:
         raise ValueError("代码签名被截断")
     magic, length, count = struct.unpack_from(">3I", signature)
@@ -42,12 +43,15 @@ def verify_metadata_signature(signature: bytes) -> None:
             entitlements = plistlib.loads(signature[offset + 8:offset + size])
         elif slot == 0x10000 and size != 8:
             raise ValueError("发布包不能包含 CMS 证书签名")
-    if 0 not in slots or entitlements != {"com.apple.security.application-groups": [WIDGET_GROUP]}:
-        raise ValueError("发布包必须仅声明约定的 Widget 共享组")
+    expected = {"com.apple.security.application-groups": [WIDGET_GROUP]}
+    if native_push:
+        expected["aps-environment"] = "production"
+    if 0 not in slots or entitlements != expected:
+        raise ValueError("发布包的 APNs 或 Widget 共享组声明不匹配")
 
 
-def verify_device_executable(binary: bytes, *, widget_metadata: bool = False) -> None:
-    """解析加载命令，核对 arm64 真机平台及允许的无证书元数据签名。"""
+def verify_device_executable(binary: bytes, *, widget_metadata: bool = False, native_push: bool = False) -> None:
+    """核对 arm64 真机平台，并分别限制主包和扩展的无证书推送、共享组声明。"""
     if len(binary) < 32:
         raise ValueError("主程序缺少 Mach-O 头")
     magic, cpu, _, file_type, commands, commands_size, _, _ = struct.unpack_from("<8I", binary)
@@ -80,7 +84,7 @@ def verify_device_executable(binary: bytes, *, widget_metadata: bool = False) ->
     if widget_metadata:
         if signature is None:
             raise ValueError("组件包缺少用于重签的共享组元数据")
-        verify_metadata_signature(signature)
+        verify_metadata_signature(signature, native_push=native_push)
 
 
 def verify_ipa(path: Path, version: str, build_number: str) -> dict:
@@ -103,12 +107,12 @@ def verify_ipa(path: Path, version: str, build_number: str) -> dict:
             raise ValueError("IPA 必须包含且仅包含一个 App")
         info = plistlib.loads(archive.read(plists[0]))
         expected = {
-            "CFBundleIdentifier": "org.moviepilot.app",
+            "CFBundleIdentifier": BUNDLE_IDENTIFIER,
             "CFBundleShortVersionString": version,
             "CFBundleVersion": build_number,
             "DTPlatformName": "iphoneos",
             "CFBundleSupportedPlatforms": ["iPhoneOS"],
-            "MoviePilotAPNsEnvironment": "disabled",
+            "MoviePilotAPNsEnvironment": "production",
         }
         for key, value in expected.items():
             if info.get(key) != value:
@@ -122,14 +126,16 @@ def verify_ipa(path: Path, version: str, build_number: str) -> dict:
         widget_metadata = bool(extensions)
         if widgets_enabled and not widget_metadata:
             raise ValueError("已启用小组件却没有嵌入扩展")
-        verify_device_executable(archive.read(f"{app_root}/{executable}"), widget_metadata=widget_metadata)
+        verify_device_executable(archive.read(f"{app_root}/{executable}"), widget_metadata=True, native_push=True)
+        if not archive.read(f"{app_root}/_CodeSignature/CodeResources"):
+            raise ValueError("主包的 APNs 元数据缺少资源封装")
         if widget_metadata:
             extension_root = f"{app_root}/PlugIns/MoviePilotWidgets.appex"
             if extensions != [f"{extension_root}/Info.plist"]:
                 raise ValueError("组件包必须且只能嵌入 MoviePilotWidgets 扩展")
             extension = plistlib.loads(archive.read(extensions[0]))
             for key, expected_value in {
-                "CFBundleIdentifier": "org.moviepilot.app.widgets",
+                "CFBundleIdentifier": BUNDLE_IDENTIFIER + ".widgets",
                 "CFBundleShortVersionString": version, "CFBundleVersion": build_number,
                 "DTPlatformName": "iphoneos", "CFBundleSupportedPlatforms": ["iPhoneOS"],
                 "NSExtension": {"NSExtensionPointIdentifier": "com.apple.widgetkit-extension"},
@@ -140,18 +146,17 @@ def verify_ipa(path: Path, version: str, build_number: str) -> dict:
             if not isinstance(program, str) or "/" in program or program in {"", ".", ".."}:
                 raise ValueError("扩展程序名称无效")
             verify_device_executable(archive.read(f"{extension_root}/{program}"), widget_metadata=True)
-            for root in [app_root, extension_root]:
-                if not archive.read(f"{root}/_CodeSignature/CodeResources"):
-                    raise ValueError("ad-hoc 元数据缺少资源封装")
-        elif extensions or any("_CodeSignature" in PurePosixPath(name).parts for name in names):
-            raise ValueError("旧格式 IPA 不应包含扩展或签名")
+            if not archive.read(f"{extension_root}/_CodeSignature/CodeResources"):
+                raise ValueError("扩展的共享组元数据缺少资源封装")
     return {
         "file": path.name,
         "version": version,
         "build": build_number,
         "platform": "iPhoneOS",
         "architecture": "arm64",
-        "signing": "ad-hoc metadata; requires re-signing" if widget_metadata else "unsigned",
+        "bundleIdentifier": BUNDLE_IDENTIFIER,
+        "apnsEnvironment": "production",
+        "signing": "ad-hoc metadata; requires re-signing",
         "widgets": widgets_enabled,
         "widgetExtension": widget_metadata,
         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),

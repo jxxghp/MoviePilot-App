@@ -13,6 +13,8 @@ App 右上角的“通知中心”使用连续列表，滚动到底部会自动�
 
 免费签名没有原生 APNs 权限，Server 中转也不能补上该权限。主屏幕 Web Push 不需要付费开发者账号，不要求 App 常驻前台；通知由主屏幕网页接收，点击后可选择返回 App 或打开实例网页。WKWebView 不会继承 Safari/PWA 的订阅；原 PWA 的 Web Push 和其他通知渠道继续独立使用。[WebKit 平台说明](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/)
 
+从 1.1.2 起，发布包默认声明生产 APNs，主 App 的 Bundle ID 为 `com.moviepilot.app`。原生推送仍须使用带 Push Notifications 权限的签名和描述文件；免费重签须移除 `aps-environment`，使用下面的主屏幕通知方式。App Groups 及小组件扩展应继续保留。
+
 ## 免费自签：配置私有 Server 和主屏幕通知
 
 1. 更新 MoviePilot 后端与兼容前端。App 默认使用 `https://movie-pilot.org` 通知服务中心，通常无需自行部署 Server；使用自建中心时可参考 [Server 部署说明](https://github.com/jxxghp/MoviePilot-Server/blob/main/docs/PUSH.md)。
@@ -29,18 +31,24 @@ App 可解除本机及其配对网页绑定，通知网页也可自行解绑。�
 
 这里的“绑定”只表示通知设备归属哪个 MoviePilot 实例中的登录用户，Server 不创建普通用户账号。既有 `user_uid` 关联部署来源，独立随机凭据验证实例权限，容器内的不可变用户 ID 隔离本地账户；知道别人的 UID 不能取得其密钥或认领其设备。中心仍会接触消息正文和推送地址，应选择信任的运营者。
 
-## 可选：原生 APNs
+## 原生 APNs
 
-有有效开发者团队和 Push Notifications 描述文件时，在 Xcode 中为自己的 Bundle ID 开启该能力，并设置：
+发布包已默认开启原生推送入口，并在无证书的重签元数据中保留生产 APNs 与 Widget 共享组声明。使用步骤：
+
+1. 在 Apple 开发者后台为 `com.moviepilot.app` 开启 Push Notifications，使用包含该能力的生产描述文件重签安装；同时重签 `com.moviepilot.app.widgets` 扩展并保留一致的 App Groups。Server 的 topics 允许名单须包含实际重签后的 Bundle ID。
+2. 在 MoviePilot 的 **设定 → 通知** 中启用 **AppPush**，配置同一通知中心、所需消息类型和接收用户。
+3. App 登录该实例后，进入 **右上角三点 → 连接与显示 → 通知 → 开启系统通知**，允许系统通知。设备令牌自动注册，无需网页绑定码；稍后重新打开通知页查看设备数量，再点击 **发送测试通知**，在真机后台或锁屏检查接收。
+
+源码构建默认使用：
 
 ```text
 CODE_SIGN_ENTITLEMENTS = MoviePilot/Resources/APNs.entitlements
-MOVIEPILOT_APNS_ENVIRONMENT = development
+MOVIEPILOT_APNS_ENVIRONMENT = production
 ```
 
-开发签名使用 `development`（投递到 sandbox），正式分发签名使用 `production`。Server 按部署说明配置 `.p8` 文件、Team ID、Key ID 与允许的 Bundle ID；Apple 私钥只保存在 Server。App 通知页申请权限并注册设备，token 更新会同步覆盖旧绑定。
+开发签名时将 `MOVIEPILOT_APNS_ENVIRONMENT` 改为 `development`（投递到 sandbox），并使用匹配的开发描述文件；正式分发使用 `production`。重签工具不能只改变签名里的环境而保留不匹配的 `MoviePilotAPNsEnvironment`，否则设备令牌会发往错误环境。Server 按部署说明配置 `.p8` 文件、Team ID、Key ID 与允许的 Bundle ID；Apple 私钥只保存在 Server。App 不需要填写这些密钥，token 更新会同步覆盖旧绑定。
 
-工程默认 `MOVIEPILOT_APNS_ENVIRONMENT=disabled`，不要求免费个人团队具备推送权限。请勿为免费签名启用 APNs entitlement。原生 APNs 已实现并通过服务端协议测试、模拟器点击及冷启动交接验证，真实 Apple 投递、后台和锁屏到达仍待有效签名及真机验收。
+免费 Personal Team 源码构建应将 `MOVIEPILOT_APNS_ENVIRONMENT` 设为 `disabled`，并将主 App 的 `CODE_SIGN_ENTITLEMENTS` 改为 `MoviePilot/Resources/Widgets.entitlements`。没有推送权限的签名无法完成原生注册，通知页会提示签名或注册失败，可使用主屏幕通知。原生 APNs 的真实 Apple 投递、后台和锁屏到达仍须用有效签名及真机验收；未签名 IPA 与协议测试不代表已完成该验收。
 
 实现参考了 [MoviePilotLite](https://github.com/singleton-altman/MoviePilotLite) 的中转与设备绑定思路和 [MoviePilotAppPush](https://github.com/buzhengg/MoviePilotAppPush) 的 APNs 链路。本项目独立实现，使用自己的 Server；两个参考项目的 iOS 原生通知同样依赖 APNs 权限。
 
