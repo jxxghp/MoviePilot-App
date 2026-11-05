@@ -493,12 +493,17 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     } else {
       guard snapshot.route.canGoBack, snapshot.presentation?.sheet == nil,
         snapshot.presentation?.overlayOpen != true,
-        keyboardFrame.map({
-          webView.convert($0, from: nil).intersection(webView.bounds).height <= 0
-        }) ?? true
+        Self.keyboardOcclusion(in: webView, frame: keyboardFrame) <= 0
       else { return nil }
     }
     return EdgeBackIdentity(sessionID: id, routeRevision: session.routeRevision, sheetID: sheetID)
+  }
+
+  /// 键盘通知使用屏幕坐标；按当前窗口转换，兼容不在屏幕原点的分屏与可移动窗口。
+  static func keyboardOcclusion(in view: UIView, frame: CGRect?) -> CGFloat {
+    guard let frame, let window = view.window else { return 0 }
+    let localFrame = view.convert(frame, from: window.screen.coordinateSpace)
+    return max(0, view.bounds.intersection(localFrame).height)
   }
 
   /// 完成时重新核对会话和路由，只发送一次原有返回或弹窗关闭意图。

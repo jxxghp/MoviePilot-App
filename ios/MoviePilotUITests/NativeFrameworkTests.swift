@@ -13,6 +13,75 @@ private struct NetworkFixtures: Decodable {
 /// 使用显式配置的实例验收原生框架与原业务 HTML；真实写入须另行开启并限定临时插件。
 @MainActor
 final class NativeFrameworkTests: XCTestCase {
+  /// 使用私有配置登录或复用真实会话，只读检查旋转、搜索键盘、导航几何和前后台恢复。
+  func testReadOnlyDeviceCompatibility() throws {
+    continueAfterFailure = false
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_COMPATIBILITY"] == "1" else {
+      throw XCTSkip("需要专用模拟器的真实会话或私有登录配置，并显式启用只读兼容性验收。")
+    }
+    let app: XCUIApplication
+    if ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_PASSWORD"] != nil {
+      app = try signIn(captureScreens: false)
+    } else {
+      app = XCUIApplication()
+      app.launch()
+    }
+    let roots = app.tabBars["native-root-navigation"]
+    XCTAssertTrue(roots.waitForExistence(timeout: 45), "真实登录会话应恢复至原生导航")
+    defer { XCUIDevice.shared.orientation = .portrait }
+    for orientation in [UIDeviceOrientation.portrait, .landscapeLeft, .portrait] {
+      XCUIDevice.shared.orientation = orientation
+      roots.buttons["更多"].tap()
+      let menu = app.tables["more-menu"]
+      XCTAssertTrue(menu.waitForExistence(timeout: 15))
+      let action = app.buttons["native-bottom-action"]
+      XCTAssertTrue(action.isHittable, "窗口变化后搜索按钮仍应可点击")
+      XCTAssertTrue(app.frame.insetBy(dx: -1, dy: -1).contains(action.frame))
+      let rootButtons = roots.buttons.allElementsBoundByIndex
+      XCTAssertEqual(rootButtons.count, 4, "主导航应保留四个入口")
+      for rootButton in rootButtons {
+        XCTAssertTrue(
+          app.frame.insetBy(dx: -1, dy: -1).contains(rootButton.frame),
+          "主导航入口必须留在窗口内")
+        XCTAssertFalse(rootButton.frame.intersects(action.frame), "动作与主导航入口不得重叠")
+      }
+      if let lastRoot = rootButtons.last {
+        XCTAssertGreaterThanOrEqual(
+          action.frame.minX - lastRoot.frame.maxX, 8,
+          "动态动作与主导航最后入口之间应保留可点击间距")
+      }
+      attachScreen("兼容性-更多-\(orientation.rawValue)", app: app)
+      action.tap()
+      let page = app.tables["native-search-page"]
+      XCTAssertTrue(page.waitForExistence(timeout: 15))
+      let field = app.searchFields["native-search-field"]
+      XCTAssertTrue(field.isHittable)
+      field.tap()
+      if field.value as? String == "窗口适配" {
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4))
+      }
+      field.typeText("窗口适配")
+      attachScreen("兼容性-搜索键盘-\(orientation.rawValue)", app: app)
+      XCUIDevice.shared.orientation =
+        orientation == .portrait ? .landscapeLeft : .portrait
+      XCTAssertTrue(page.waitForExistence(timeout: 10))
+      XCTAssertEqual(field.value as? String, "窗口适配", "旋转不得重建搜索输入或账号会话")
+      attachScreen("兼容性-旋转保留搜索输入-\(orientation.rawValue)", app: app)
+      page.swipeDown()
+      app.buttons["native-top-actions"].tap()
+      attachScreen("兼容性-操作菜单-\(orientation.rawValue)", app: app)
+      app.tap()
+      roots.buttons["仪表盘"].tap()
+      XCTAssertTrue(app.navigationBars["仪表盘"].waitForExistence(timeout: 15))
+      attachScreen("兼容性-仪表盘-\(orientation.rawValue)", app: app)
+    }
+    XCUIDevice.shared.press(.home)
+    app.activate()
+    XCTAssertTrue(roots.waitForExistence(timeout: 20), "前后台切换不能丢失真实会话")
+    XCTAssertFalse(app.otherElements["native-startup-screen"].exists)
+    attachScreen("兼容性-前后台恢复", app: app)
+  }
+
   /// 独立搜索保留来源入口，类型切换改变来源与站点，空关键词不允许提交。
   func testStandaloneNativeSearchPage() throws {
     let app = try signIn(captureScreens: false, remember: false)
