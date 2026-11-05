@@ -1881,6 +1881,75 @@ final class NativeFrameworkTests: XCTestCase {
     attachScreen("恢复-后台进程回收后恢复原生框架", app: app)
   }
 
+  /// 渠道失败先显示配置原因，后台恢复后无需重新登录即可进入系统授权。
+  func testNativeNotificationSetupRecoversWithoutLogin() async throws {
+    guard let raw = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_NOTIFICATION_SETUP"],
+      let fixture = URL(string: raw), fixture.scheme == "http", fixture.host == "127.0.0.1"
+    else { throw XCTSkip("通知配置回归需要专用回环服务与全新模拟器权限状态。") }
+    try await setNotificationSetup("disabled", fixture: fixture)
+    let app = try signIn(captureScreens: false, remember: false)
+    settlePage(app)
+    dismissUpdateReminderIfVisible(app)
+    app.buttons["操作菜单"].tap()
+    app.buttons["连接与显示"].tap()
+    app.buttons["通知"].firstMatch.tap()
+    let settings = app.tables["notification-settings"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 10))
+    let button = settings.cells["notification-enable-native"]
+    settings.swipeUp()
+    let ready = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "isEnabled == true"), object: button)
+    XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 15), .completed)
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    button.tap()
+    let message = app.alerts["通知"]
+    XCTAssertTrue(message.waitForExistence(timeout: 10))
+    XCTAssertTrue(
+      message.staticTexts.matching(NSPredicate(format: "label CONTAINS 'AppPush'")).firstMatch
+        .exists)
+    XCTAssertFalse(message.staticTexts["请先登录 MoviePilot。"].exists)
+    XCTAssertFalse(springboard.alerts.firstMatch.exists, "渠道不可用时不能先申请系统权限")
+    attachScreen("通知-未启用渠道显示配置步骤", app: app)
+    message.buttons["好"].tap()
+
+    try await setNotificationSetup("missing-owner", fixture: fixture)
+    button.tap()
+    XCTAssertTrue(message.waitForExistence(timeout: 10))
+    XCTAssertTrue(message.staticTexts["通知服务未返回账号身份，请更新 MoviePilot 后端后重试。"].exists)
+    XCTAssertFalse(springboard.alerts.firstMatch.exists)
+    message.buttons["好"].tap()
+
+    try await setNotificationSetup("ready", fixture: fixture)
+    button.tap()
+    let permission = springboard.alerts.firstMatch
+    XCTAssertTrue(permission.waitForExistence(timeout: 10), "恢复渠道后应重新取得身份并进入系统授权")
+    let deny = permission.buttons.matching(
+      NSPredicate(format: "label IN %@", ["不允许", "Don’t Allow", "Don't Allow"])
+    ).firstMatch
+    XCTAssertTrue(deny.exists)
+    deny.tap()
+    XCTAssertTrue(message.waitForExistence(timeout: 10))
+    XCTAssertTrue(message.staticTexts["系统通知未开启，可前往设置允许通知。"].exists)
+    XCTAssertFalse(message.staticTexts["请先登录 MoviePilot。"].exists)
+    attachScreen("通知-配置恢复后完成系统权限流程", app: app)
+    let (data, _) = try await URLSession.shared.data(
+      from: fixture.appendingPathComponent("__notification/state"))
+    let state = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let actions = try XCTUnwrap(state["actions"] as? [String])
+    XCTAssertGreaterThanOrEqual(actions.count, 4)
+    XCTAssertTrue(actions.allSatisfy { $0 == "status" }, "拒绝授权不能注册设备或发送消息")
+  }
+
+  /// 控制状态仅发往显式回环夹具，不修改真实 MoviePilot 通知配置。
+  private func setNotificationSetup(_ mode: String, fixture: URL) async throws {
+    var request = URLRequest(url: fixture.appendingPathComponent("__notification/state"))
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: ["mode": mode])
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+  }
+
   /// 隔离中转夹具验证原生设置、真实绑定码与主屏幕通知链接，不访问外部推送服务。
   func testNotificationSettingsAndHotLink() async throws {
     guard let fixture = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_NOTIFICATION_FIXTURE"],
