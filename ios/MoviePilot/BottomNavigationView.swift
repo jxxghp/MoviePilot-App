@@ -5,13 +5,17 @@ import UIKit
 @MainActor
 final class BottomNavigationView: UIView, UITabBarDelegate {
   static let height: CGFloat = 64
+  /// 路由守卫取消时网页不发送失败信号，超过该时长未确认才撤销点击目标。
+  private static let confirmationTimeout: TimeInterval = 2
   private let tabBar = UITabBar()
   private let group = UIView()
   private let navigationHost = UIView()
   private let actionHost = UIView()
   private var rootIds: [String] = []
   private var selectedRoot: String?
-  private var onSelect: ((String) -> Void)?
+  private var pendingRoot: String?
+  private var pendingTimeout: Timer?
+  private var onSelect: ((String, @escaping (Bool) -> Void) -> Void)?
   private var actionWidth: NSLayoutConstraint!
   private var actionHeight: NSLayoutConstraint!
   private var actionSpacing: NSLayoutConstraint!
@@ -87,14 +91,18 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
     super.layoutSubviews()
   }
 
-  /// 快照确认后才更新选中项；动作控件使用与顶栏相同的 JS 回调和菜单声明。
+  /// 选中项以快照确认的入口为准；动作控件使用与顶栏相同的 JS 回调和菜单声明。
   func apply(
-    _ snapshot: NavigationSnapshot, action: UIButton?, onSelect: @escaping (String) -> Void
+    _ snapshot: NavigationSnapshot, action: UIButton?,
+    onSelect: @escaping (String, @escaping (Bool) -> Void) -> Void
   ) {
     self.onSelect = onSelect
+    // 已确认入口变化即结束等待；守卫重定向到其他入口时同样以快照为准。
+    if snapshot.route.rootId != selectedRoot { clearPendingRoot() }
     selectedRoot = snapshot.route.rootId
     let ids = snapshot.roots.map(\.id)
     if ids != rootIds {
+      clearPendingRoot()
       rootIds = ids
       tabBar.items = snapshot.roots.enumerated().map { index, root in
         let image = NavigationSymbols.image(
@@ -112,9 +120,7 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
         root.icon, configuration: NavigationSymbols.bottomConfiguration)
       item.isEnabled = !overlayOpen
     }
-    tabBar.selectedItem = tabBar.items?.first { item in
-      rootIds.indices.contains(item.tag) && rootIds[item.tag] == selectedRoot
-    }
+    synchronizeSelection()
     tabBar.isUserInteractionEnabled = !overlayOpen
     tabBar.accessibilityElementsHidden = overlayOpen
     for view in actionHost.subviews { view.removeFromSuperview() }
@@ -134,13 +140,44 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
     }
   }
 
-  /// 点击只发起路由意图；立即保留已确认选择，权限守卫通过后的快照负责真正切换。
+  /// 系统滑块在回调前已开始移动，这里只发起路由意图并保留点击目标，避免改回旧值造成往返。
   func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
     guard rootIds.indices.contains(item.tag) else { return }
     let requested = rootIds[item.tag]
-    tabBar.selectedItem = tabBar.items?.first {
-      rootIds.indices.contains($0.tag) && rootIds[$0.tag] == selectedRoot
+    clearPendingRoot()
+    if requested != selectedRoot {
+      pendingRoot = requested
+      pendingTimeout = Timer.scheduledTimer(
+        withTimeInterval: Self.confirmationTimeout, repeats: false
+      ) { [weak self] _ in
+        MainActor.assumeIsolated { self?.cancelPendingRoot(requested) }
+      }
     }
-    onSelect?(requested)
+    onSelect?(requested) { [weak self] accepted in
+      if !accepted { self?.cancelPendingRoot(requested) }
+    }
+  }
+
+  /// 等待确认时显示点击目标；目标未变不赋值，避免干扰进行中的滑块动画。
+  private func synchronizeSelection() {
+    let displayed = pendingRoot ?? selectedRoot
+    let target = tabBar.items?.first {
+      rootIds.indices.contains($0.tag) && rootIds[$0.tag] == displayed
+    }
+    if tabBar.selectedItem !== target { tabBar.selectedItem = target }
+  }
+
+  /// 导航被拒绝或长时间未确认时撤销对应点击，后续点击不受迟到结果影响。
+  private func cancelPendingRoot(_ rootId: String) {
+    guard pendingRoot == rootId else { return }
+    clearPendingRoot()
+    synchronizeSelection()
+  }
+
+  /// 结束当前等待；选中项由调用方按确认状态同步。
+  private func clearPendingRoot() {
+    pendingTimeout?.invalidate()
+    pendingTimeout = nil
+    pendingRoot = nil
   }
 }

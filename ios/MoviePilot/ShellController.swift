@@ -769,12 +769,13 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     let accessory =
       (!moveAccessory ? snapshot.actions.first { $0.position == .accessory } : nil)
       .map { bottomActionButton($0) } ?? searchButton(snapshot)
-    bottomNavigation.apply(snapshot, action: accessory) { [weak self] rootId in
+    bottomNavigation.apply(snapshot, action: accessory) { [weak self] rootId, completion in
       if self?.latest?.roots.first(where: { $0.id == rootId })?.path == "/apps" {
         self?.moreMenu.scrollToBeginning()
       }
       self?.coordinator.command(
-        "navigation.selectRoot", payload: .object(["rootId": .string(rootId)]))
+        "navigation.selectRoot", payload: .object(["rootId": .string(rootId)]),
+        completion: completion)
     }
     bottomNavigation.isHidden = !nativeVisible || !visible
     if !bottomNavigation.isHidden { view.bringSubviewToFront(bottomNavigation) }
