@@ -1,15 +1,19 @@
-MoviePilot iOS 1.1.3，修复开启原生通知时的错误提示与重试流程。支持 iOS 17+，iOS 26+ 使用系统 Liquid Glass。
+MoviePilot iOS 1.2.0，支持 iOS 16+、iPad 与 iPhone Duo 可调整窗口布局。
 
 ### 更新内容
 
-- 开启系统通知前先检查实例的 AppPush 渠道。渠道未启用时明确提示到 MoviePilot「设定 → 通知」中添加并保存，不再误报“请先登录 MoviePilot”。
-- 后台配置恢复后，直接再次点击“开启系统通知”即可重新获取绑定身份，无需退出登录；检查与授权期间避免重复提交。
-- 系统授权返回时再次核对实例与账号，登录状态发生变化时不保存旧账号的通知偏好。
-- 继续默认使用生产 APNs、`com.moviepilot.app` 与 `com.moviepilot.app.widgets`，保留主包推送和共享组、小组件共享组元数据。
+- 主 App 最低系统版本调整为 iOS 16.0，主 App 与 UI 测试工程保持 iPhone/iPad 设备族配置。
+- 统一 iPhone、iPad 和 iPhone Duo 的竖横屏、窄宽窗口、键盘、搜索、菜单、Sheet 和前后台恢复流程，保持实例与账号会话。
+- 验证 iPhone Duo 合拢、半展开和完全展开三种姿态下的真实账号交互；iPad 与 iPhone 也完成相同关键流程回归。
+- 小组件继续要求 iOS 17.0；iOS 26+ 继续使用系统 Liquid Glass。
 
-### 安装与通知
+### 验收边界
 
-下载 `MoviePilot-1.1.3-unsigned.ipa` 后自行重签。本包没有 Apple 证书签名，不能直接安装；原生推送需要开发者团队为 `com.moviepilot.app` 启用 Push Notifications，并使用带该权限的生产描述文件，同时重签小组件、保留一致的 App Groups。免费账户须在重签时移除 `aps-environment`，继续使用主屏幕网页通知。
+本次发布使用 Xcode 27.1 的 iOS 26.1、iOS 27.1 模拟器完成 iPad、iPhone 和 iPhone Duo 的真实账号截图验收。当前 Xcode 安装中没有可用的 iOS 16 模拟器 Runtime，因此 iOS 16 由工程最低部署版本、归档产物和 API 兼容性检查证明；需要 iOS 16 Runtime 截图时，请使用包含该 Runtime 的 Xcode 14.3.1 或更高兼容版本补做验收。
+
+### 安装
+
+下载 `MoviePilot-1.2.0-unsigned.ipa` 后自行重签。本包没有 Apple 证书签名，不能直接安装；原生推送需要开发者团队为 `com.moviepilot.app` 启用 Push Notifications，并使用带该权限的生产描述文件，同时重签小组件、保留一致的 App Groups。免费账户须在重签时移除 `aps-environment`，继续使用主屏幕网页通知。
 
 如果旧版使用 `org.moviepilot.app`，新版会作为独立 App 安装，需要重新登录及绑定通知；旧 App 和数据不会自动迁移或删除。重签后 Bundle ID 与已有安装一致时才能覆盖更新，原生推送还须与 Server 的 topics 允许名单一致。
 

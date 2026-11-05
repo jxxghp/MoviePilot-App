@@ -50,7 +50,7 @@ final class NativeFrameworkTests: XCTestCase {
           action.frame.minX - lastRoot.frame.maxX, 8,
           "动态动作与主导航最后入口之间应保留可点击间距")
       }
-      attachScreen("兼容性-更多-\(orientation.rawValue)", app: app)
+      attachScreen("兼容性-更多-\(orientation.rawValue)", app: app, dismissUpdateReminder: false)
       action.tap()
       let page = app.tables["native-search-page"]
       XCTAssertTrue(page.waitForExistence(timeout: 15))
@@ -61,25 +61,43 @@ final class NativeFrameworkTests: XCTestCase {
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4))
       }
       field.typeText("窗口适配")
-      attachScreen("兼容性-搜索键盘-\(orientation.rawValue)", app: app)
+      attachScreen("兼容性-搜索键盘-\(orientation.rawValue)", app: app, dismissUpdateReminder: false)
       XCUIDevice.shared.orientation =
         orientation == .portrait ? .landscapeLeft : .portrait
       XCTAssertTrue(page.waitForExistence(timeout: 10))
       XCTAssertEqual(field.value as? String, "窗口适配", "旋转不得重建搜索输入或账号会话")
-      attachScreen("兼容性-旋转保留搜索输入-\(orientation.rawValue)", app: app)
-      page.swipeDown()
-      app.buttons["native-top-actions"].tap()
-      attachScreen("兼容性-操作菜单-\(orientation.rawValue)", app: app)
-      app.tap()
-      roots.buttons["仪表盘"].tap()
+      attachScreen(
+        "兼容性-旋转保留搜索输入-\(orientation.rawValue)", app: app, dismissUpdateReminder: false)
+      dismissKeyboardIfVisible(app)
+      let topActions = app.buttons["native-top-actions"]
+      XCTAssertTrue(topActions.waitForExistence(timeout: 10), "搜索提交后顶栏操作按钮仍应存在")
+      topActions.tap()
+      attachScreen("兼容性-操作菜单-\(orientation.rawValue)", app: app, dismissUpdateReminder: false)
+      // 折叠窗口上的系统菜单可能覆盖顶栏按钮，重新激活应用统一收起它。
+      app.activate()
+      app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
+      dismissKeyboardIfVisible(app)
+      let edgeStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+      let edgeEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+      edgeStart.press(forDuration: 0.1, thenDragTo: edgeEnd)
+      let back = app.buttons["返回"]
+      if back.exists { back.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+      let dashboard = app.tabBars["native-root-navigation"].buttons["仪表盘"]
+      XCTAssertTrue(dashboard.waitForExistence(timeout: 10), "窗口变化后仪表盘入口仍应存在")
+      let hittable = XCTNSPredicateExpectation(
+        predicate: NSPredicate(format: "hittable == true"), object: dashboard)
+      XCTAssertEqual(
+        XCTWaiter.wait(for: [hittable], timeout: 5), .completed,
+        "收起键盘后仪表盘入口必须可点击")
+      dashboard.tap()
       XCTAssertTrue(app.navigationBars["仪表盘"].waitForExistence(timeout: 15))
-      attachScreen("兼容性-仪表盘-\(orientation.rawValue)", app: app)
+      attachScreen("兼容性-仪表盘-\(orientation.rawValue)", app: app, dismissUpdateReminder: false)
     }
     XCUIDevice.shared.press(.home)
     app.activate()
     XCTAssertTrue(roots.waitForExistence(timeout: 20), "前后台切换不能丢失真实会话")
     XCTAssertFalse(app.otherElements["native-startup-screen"].exists)
-    attachScreen("兼容性-前后台恢复", app: app)
+    attachScreen("兼容性-前后台恢复", app: app, dismissUpdateReminder: false)
   }
 
   /// 独立搜索保留来源入口，类型切换改变来源与站点，空关键词不允许提交。
@@ -4709,6 +4727,22 @@ final class NativeFrameworkTests: XCTestCase {
       "原生返回应交由既有 HTML 弹层关闭逻辑处理")
   }
 
+  /// 收起真实搜索输入的系统键盘，避免 iPad 底部导航被输入窗口遮挡。
+  private func dismissKeyboardIfVisible(_ app: XCUIApplication) {
+    let keyboard = app.keyboards.firstMatch
+    guard keyboard.exists else { return }
+    let searchButton = keyboard.buttons["Search"].firstMatch
+    let localizedSearchButton = keyboard.buttons["搜索"].firstMatch
+    if searchButton.exists && searchButton.isHittable {
+      searchButton.tap()
+    } else if localizedSearchButton.exists && localizedSearchButton.isHittable {
+      localizedSearchButton.tap()
+    } else {
+      keyboard.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.92)).tap()
+    }
+    XCTAssertFalse(keyboard.waitForExistence(timeout: 3), "底部导航前必须收起系统键盘")
+  }
+
   /// 主入口与动态动作必须处于同一行，两组之间留白，不能叠成上下两层。
   private func assertBottomLayout(_ app: XCUIApplication) {
     let roots = app.tabBars["native-root-navigation"].buttons.allElementsBoundByIndex
@@ -4793,8 +4827,10 @@ final class NativeFrameworkTests: XCTestCase {
   }
 
   /// 将系统最终画面保存在测试结果包中，避免仅以节点查询替代外观验收。
-  private func attachScreen(_ name: String, app: XCUIApplication) {
-    dismissUpdateReminderIfVisible(app)
+  private func attachScreen(
+    _ name: String, app: XCUIApplication, dismissUpdateReminder: Bool = true
+  ) {
+    if dismissUpdateReminder { self.dismissUpdateReminderIfVisible(app) }
     let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
     attachment.name = name
     attachment.lifetime = .keepAlways
