@@ -39,9 +39,11 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
     super.viewDidLoad()
     tableView.accessibilityIdentifier = "native-search-page"
     tableView.backgroundColor = .clear
-    registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
-      (controller: SearchPageController, _: UITraitCollection) in
-      controller.refreshGlass()
+    if #available(iOS 17.0, *) {
+      registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+        (controller: SearchPageController, _: UITraitCollection) in
+        controller.refreshGlass()
+      }
     }
     tableView.backgroundView = backdrop
     backdrop.isUserInteractionEnabled = false
@@ -74,6 +76,16 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
     queryTitle.numberOfLines = 0
     header.addArrangedSubview(queryTitle)
     tableView.tableHeaderView = header
+  }
+
+  /// iOS 16 明暗变化仍刷新原生搜索材质，不重建搜索输入或网页会话。
+  override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+    super.traitCollectionDidChange(previousTraitCollection)
+    if #unavailable(iOS 17.0),
+      previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle
+    {
+      refreshGlass()
+    }
   }
 
   /// 窗口宽度、键盘和 Dynamic Type 变化后只量测原生控件，不截取或复制壁纸。

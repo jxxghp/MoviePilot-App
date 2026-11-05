@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
   name: "MoviePilotCore",
-  platforms: [.iOS(.v17), .macOS(.v14)],
+  platforms: [.iOS(.v16), .macOS(.v14)],
   products: [.library(name: "MoviePilotCore", targets: ["MoviePilotCore"])],
   targets: [
     .target(name: "MoviePilotCore"),

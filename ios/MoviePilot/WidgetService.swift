@@ -5,9 +5,12 @@ import WidgetKit
 /// 已配套只读扩展的产品能力开关；网页无法通过桥消息改变此配置。
 @MainActor
 enum WidgetFeature {
-  /// 由受版本管理的 App 配置控制，缺失字段保持默认关闭。
+  /// 小组件配置需要 iOS 17；旧系统不宣告能力，也不登记无法使用的只读凭据。
   static var isEnabled: Bool {
-    Bundle.main.object(forInfoDictionaryKey: "MoviePilotWidgetsEnabled") as? Bool == true
+    if #available(iOS 17.0, *) {
+      return Bundle.main.object(forInfoDictionaryKey: "MoviePilotWidgetsEnabled") as? Bool == true
+    }
+    return false
   }
 }
 

@@ -19,15 +19,27 @@ final class MoreMenuController: UITableViewController {
   /// 保留 Dynamic Type、VoiceOver、滚动和键盘的系统行为。
   override func viewDidLoad() {
     super.viewDidLoad()
-    registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
-      (controller: MoreMenuController, _: UITraitCollection) in
-      controller.refreshGlass()
+    if #available(iOS 17.0, *) {
+      registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+        (controller: MoreMenuController, _: UITraitCollection) in
+        controller.refreshGlass()
+      }
     }
     tableView.accessibilityIdentifier = "more-menu"
     tableView.rowHeight = UITableView.automaticDimension
     tableView.estimatedRowHeight = 60
     backdrop.isUserInteractionEnabled = false
     tableView.backgroundView = backdrop
+  }
+
+  /// 旧系统通过传统 trait 回调刷新材质，保持更多页与系统明暗一致。
+  override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+    super.traitCollectionDidChange(previousTraitCollection)
+    if #unavailable(iOS 17.0),
+      previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle
+    {
+      refreshGlass()
+    }
   }
 
   /// 分组玻璃随实际行高与滚动位置布局；整组共用一块材质，避免行间产生折射接缝。

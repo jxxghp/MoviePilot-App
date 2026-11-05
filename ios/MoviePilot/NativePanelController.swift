@@ -15,7 +15,12 @@ enum NativeModalAppearance {
 
   /// 呈现层也跟随 App 主题；材质厚度、外围压暗和转场全部使用 UIKit 默认行为。
   static func apply(to presentation: UIPresentationController?, style: UIUserInterfaceStyle) {
-    presentation?.traitOverrides.userInterfaceStyle = style
+    if #available(iOS 17.0, *) {
+      presentation?.traitOverrides.userInterfaceStyle = style
+    } else {
+      presentation?.overrideTraitCollection =
+        style == .unspecified ? nil : UITraitCollection(userInterfaceStyle: style)
+    }
   }
 }
 
@@ -297,10 +302,12 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     tableView.estimatedRowHeight = 64
     tableView.keyboardDismissMode = .interactive
     tableView.alwaysBounceVertical = true
-    registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) {
-      (controller: NativePanelController, _: UITraitCollection) in
-      controller.measuredWidth = nil
-      controller.view.setNeedsLayout()
+    if #available(iOS 17.0, *) {
+      registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) {
+        (controller: NativePanelController, _: UITraitCollection) in
+        controller.measuredWidth = nil
+        controller.view.setNeedsLayout()
+      }
     }
     NativeModalAppearance.apply(to: self)
     navigationItem.rightBarButtonItem = UIBarButtonItem(
@@ -314,6 +321,18 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     search.searchTextField.autocorrectionType = .no
     search.searchTextField.autocapitalizationType = .none
     apply(snapshot)
+  }
+
+  /// iOS 16 的字号变化撤销旧量测，让浮层按当前字体和可用空间重新布局。
+  override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+    super.traitCollectionDidChange(previousTraitCollection)
+    if #unavailable(iOS 17.0),
+      previousTraitCollection?.preferredContentSizeCategory
+        != traitCollection.preferredContentSizeCategory
+    {
+      measuredWidth = nil
+      view.setNeedsLayout()
+    }
   }
 
   /// 内容较少的子菜单缩短浮层高度，长列表限制在底栏上方，避免留下大块空白。
