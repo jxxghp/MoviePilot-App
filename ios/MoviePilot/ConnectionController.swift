@@ -264,16 +264,18 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
     present(alert, animated: true)
   }
 
-  /// 清空独立数据仓后移除凭据与配置；实例清理接口也支持尚未创建 WebView 的冷启动。
+  /// 清空持久网页仓后移除凭据；iOS 16 内存仓随会话释放，不触碰其他服务的数据。
   private func forget(_ instance: SavedInstance) {
     view.isUserInteractionEnabled = false
     Task { [weak self] in
       guard let self else { return }
       defer { self.view.isUserInteractionEnabled = true }
       do {
-        let store = WKWebsiteDataStore(forIdentifier: instance.id)
-        await store.removeData(
-          ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+        if #available(iOS 17.0, *) {
+          let store = WKWebsiteDataStore(forIdentifier: instance.id)
+          await store.removeData(
+            ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+        }
         try self.instances.forget(instance)
         if (try? ServerAddress(self.addressField.text ?? "")) == instance.address {
           self.addressField.text = nil

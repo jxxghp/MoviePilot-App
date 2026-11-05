@@ -2,7 +2,7 @@
 
 [返回首页](../README.md)
 
-需要 iOS 17+ 的 iPhone、自己的 Apple 账户和 MoviePilot 实例。首次配置 SideStore 等工具通常需要一台电脑。
+需要 iOS 16+ 的 iPhone 或 iPad、自己的 Apple 账户和 MoviePilot 实例。首次配置 SideStore 等工具通常需要一台电脑。
 
 在 [最新 Release](https://github.com/jxxghp/MoviePilot-App/releases/latest) 下载 `MoviePilot-版本号-unsigned.ipa`，当前版本为 **1.1.3**。安装包由 GitHub Actions 构建，**需要使用自己的 Apple 账户重签安装，不能下载后直接点开安装**。原生 APNs 需要带 Push Notifications 权限的开发者签名；免费账户重签时须移除 `aps-environment`，使用主屏幕网页接收通知，保留 App Groups 和小组件扩展。
 

@@ -96,7 +96,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     },
     send: { [weak self] type, payload in self?.send(type, payload: payload) })
 
-  /// 数据容器按实例 UUID 隔离；不将 Safari 或其他实例 Cookie 导入此会话。
+  /// 数据容器按实例隔离；iOS 16 由原生会话恢复登录，不共享默认网页存储。
   init(
     instance: SavedInstance, authentication: AuthenticationResult,
     onAuthenticationRequired: @escaping () -> Void
@@ -106,7 +106,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     self.onAuthenticationRequired = onAuthenticationRequired
     relay = ScriptRelay()
     let configuration = WKWebViewConfiguration()
-    configuration.websiteDataStore = WKWebsiteDataStore(forIdentifier: instance.id)
+    configuration.websiteDataStore = Self.websiteDataStore(for: instance.id)
     configuration.allowsInlineMediaPlayback = true
     // 原生菜单异步调用网页动作，没有浏览器手势标记；新窗口仍须经过来源与 URL 校验。
     configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
@@ -164,6 +164,14 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
         self?.layoutChanged()
       }
     }
+  }
+
+  /// iOS 17 起按 UUID 持久化；旧系统每次连接使用独立内存仓，避免同源服务串号。
+  private static func websiteDataStore(for instanceID: UUID) -> WKWebsiteDataStore {
+    if #available(iOS 17.0, *) {
+      return WKWebsiteDataStore(forIdentifier: instanceID)
+    }
+    return .nonPersistent()
   }
 
   /// 开始唯一顶层导航，页面内部 hash 路由不调用此方法。

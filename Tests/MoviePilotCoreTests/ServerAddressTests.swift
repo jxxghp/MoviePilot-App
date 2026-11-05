@@ -97,7 +97,10 @@ struct ServerAddressTests {
       #expect(server.recoveryURL(currentDocument: URL(string: reference)) == server.url)
     }
     let document = URL(string: "https://mp.test/base/#/recommend")!
-    for route in ["//evil.test/path", "https://evil.test/", "/bad\\path", "/bad\npath", "/bad%GG"] {
+    for route in [
+      "//evil.test/path", "https://evil.test/", "/bad\\path", "/bad\npath", "/bad%GG",
+      "/search?q=two words", "/search?q=电影",
+    ] {
       #expect(server.recoveryURL(currentDocument: document, confirmedRoute: route) == document)
     }
   }

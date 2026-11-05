@@ -186,13 +186,26 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   override func viewDidLoad() {
     super.viewDidLoad()
     view.backgroundColor = .systemBackground
-    registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
-      (controller: ShellController, _: UITraitCollection) in
-      controller.synchronizeContentBackground()
-      controller.setNeedsStatusBarAppearanceUpdate()
+    if #available(iOS 17.0, *) {
+      registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+        (controller: ShellController, _: UITraitCollection) in
+        controller.synchronizeContentBackground()
+        controller.setNeedsStatusBarAppearanceUpdate()
+      }
     }
     installBackGesture(on: view)
     prepareDocumentHost()
+  }
+
+  /// iOS 16 使用传统 trait 回调，确保系统明暗切换同步网页背景和状态栏。
+  override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+    super.traitCollectionDidChange(previousTraitCollection)
+    if #unavailable(iOS 17.0),
+      previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle
+    {
+      synchronizeContentBackground()
+      setNeedsStatusBarAppearanceUpdate()
+    }
   }
 
   /// 系统安全区改变后刷新当前布局，不修改业务路由。

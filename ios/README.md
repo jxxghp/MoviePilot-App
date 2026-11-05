@@ -4,7 +4,7 @@
 
 普通用户可直接[下载 Release IPA 并安装](../guides/install.md)，无需编译。本页适用于需要修改源码或使用 Xcode 的开发者。
 
-需要 Mac、Xcode 26 或更新版本、Apple 账户和 iOS 17+ 设备。本地构建验证使用 Xcode 27.1 / iOS SDK 27.1。
+需要 Mac、Xcode 26 或更新版本、Apple 账户和 iOS 16+ 设备。本地构建验证使用 Xcode 27.1 / iOS SDK 27.1。
 
 ## 使用 Xcode 安装
 

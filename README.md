@@ -6,7 +6,7 @@ iOS 26+ 支持系统 Liquid Glass；提供侧滑返回、卡片长按菜单、�
 
 ## 下载与安装
 
-需要 **iOS 17+**、自己的 Apple 账户和 MoviePilot 实例。独立原生搜索需要同时更新至本次重建的 [MoviePilot-Frontend v3.2.4](https://github.com/jxxghp/MoviePilot-Frontend/releases/tag/v3.2.4) 或更新的兼容版本；旧前端继续使用原搜索浮层。
+需要 **iOS 16+**、自己的 Apple 账户和 MoviePilot 实例。独立原生搜索需要同时更新至本次重建的 [MoviePilot-Frontend v3.2.4](https://github.com/jxxghp/MoviePilot-Frontend/releases/tag/v3.2.4) 或更新的兼容版本；旧前端继续使用原搜索浮层。
 
 在 [最新 Release](https://github.com/jxxghp/MoviePilot-App/releases/latest) 下载未签名 IPA，通过 SideStore、AltStore Classic 或 Sideloadly 重签安装。免费账户可用，签名通常每 7 天续签；配置步骤见[安装与自动续签](guides/install.md)。
 

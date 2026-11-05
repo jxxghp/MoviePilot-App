@@ -95,7 +95,9 @@ public struct ServerAddress: Codable, Equatable, Sendable {
     var base = URLComponents(url: document, resolvingAgainstBaseURL: true)
     base?.fragment = nil
     guard let reference = base?.url?.absoluteString,
-      let target = URL(string: "\(reference)#\(confirmedRoute)", encodingInvalidCharacters: false),
+      // 旧 Foundation 也必须拒绝自动转义的输入，不能把非法路由修正成另一个恢复目标。
+      let target = URL(string: "\(reference)#\(confirmedRoute)"),
+      target.absoluteString == "\(reference)#\(confirmedRoute)",
       contains(target)
     else { return document }
     return target
