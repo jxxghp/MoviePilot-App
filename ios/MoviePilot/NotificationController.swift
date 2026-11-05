@@ -8,12 +8,6 @@ struct NotificationReply: Decodable, Sendable {
   let data: [String: JSONValue]?
 }
 
-/// 向用户显示可恢复的通知错误，不拼接底层网络响应或认证数据。
-struct NotificationFailure: LocalizedError, Sendable {
-  let message: String
-  var errorDescription: String? { message }
-}
-
 /// 原生系统集成设置；业务消息仍由既有 MoviePilot 通知渠道和通知中心处理。
 @MainActor
 final class NotificationController: UITableViewController {
@@ -151,11 +145,25 @@ final class NotificationController: UITableViewController {
       UIPasteboard.general.string = code
       show("绑定码已复制。请在主屏幕通知网页中粘贴。")
     case (2, 1):
-      Task { show(await NotificationService.shared.enable()) }
+      Task { await enableNative() }
     case (3, 1): Task { await perform("test") }
     case (3, 2): Task { await perform("unregister") }
     default: break
     }
+  }
+
+  /// 状态检查与系统授权期间串行处理，避免重复点击并发修改当前安装的通知偏好。
+  private func enableNative() async {
+    guard !busy else { return }
+    busy = true
+    tableView.reloadData()
+    defer {
+      busy = false
+      tableView.reloadData()
+    }
+    let message = await NotificationService.shared.enable()
+    summary = message
+    show(message)
   }
 
   /// 只保存当前实例的非敏感中心地址，切换中心后不继续显示旧绑定码。

@@ -5,6 +5,26 @@ import Testing
 
 /// 验证通知载荷与自定义链接共用的实例、账号和内部路由边界。
 struct NotificationTests {
+  /// 未加载或未配置渠道都给出后台操作位置，不把通知身份缺失当成未登录。
+  @Test func disabledChannelExplainsRequiredSetup() {
+    for message in [
+      "该通知渠道未启用或不支持此管理动作", "请先配置并启用 AppPush 私有通知渠道",
+      "请先配置并启用 AppPush 通知渠道。",
+    ] {
+      let failure = NotificationFailure(message: message)
+      #expect(failure.localizedDescription.contains("设定 → 通知"))
+      #expect(failure.localizedDescription.contains("AppPush"))
+      #expect(!failure.localizedDescription.contains("请先登录"))
+    }
+  }
+
+  /// 认证迁移、网络与中转错误不能被统一覆盖成渠道未配置。
+  @Test func otherNotificationFailuresKeepTheirCause() {
+    for message in ["请完成数据库升级后重新登录", "通知服务暂不可用，请检查后台版本与渠道配置。", "实例接入凭据无效"] {
+      #expect(NotificationFailure(message: message).localizedDescription == message)
+    }
+  }
+
   /// 默认公开中心和反向代理子路径均生成规范入口，旧后台配置可继续使用。
   @Test func notificationCenterNormalizesPageAndBase() throws {
     #expect(NotificationCenterAddress.defaultValue.displayURL == "https://movie-pilot.org")

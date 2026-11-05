@@ -1,14 +1,15 @@
-MoviePilot iOS 1.1.2，默认开启原生 APNs 消息推送。支持 iOS 17+，iOS 26+ 使用系统 Liquid Glass。
+MoviePilot iOS 1.1.3，修复开启原生通知时的错误提示与重试流程。支持 iOS 17+，iOS 26+ 使用系统 Liquid Glass。
 
 ### 更新内容
 
-- 主 App 默认使用生产 APNs，通知页提供“开启系统通知”；授权后自动注册设备令牌，并继续复用 MoviePilot 的 AppPush 渠道、消息类型和用户路由。
-- 安装包默认 Bundle ID 调整为 `com.moviepilot.app`，小组件为 `com.moviepilot.app.widgets`，与中心服务的允许名单保持一致。
-- 未签名 IPA 保留主包的生产推送与共享组元数据，小组件仅保留共享组；发布前检查实际安装包中的 APNs 环境、包名和权限，拒绝不匹配的产物。
+- 开启系统通知前先检查实例的 AppPush 渠道。渠道未启用时明确提示到 MoviePilot「设定 → 通知」中添加并保存，不再误报“请先登录 MoviePilot”。
+- 后台配置恢复后，直接再次点击“开启系统通知”即可重新获取绑定身份，无需退出登录；检查与授权期间避免重复提交。
+- 系统授权返回时再次核对实例与账号，登录状态发生变化时不保存旧账号的通知偏好。
+- 继续默认使用生产 APNs、`com.moviepilot.app` 与 `com.moviepilot.app.widgets`，保留主包推送和共享组、小组件共享组元数据。
 
 ### 安装与通知
 
-下载 `MoviePilot-1.1.2-unsigned.ipa` 后自行重签。本包没有 Apple 证书签名，不能直接安装；原生推送需要开发者团队为 `com.moviepilot.app` 启用 Push Notifications，并使用带该权限的生产描述文件，同时重签小组件、保留一致的 App Groups。免费账户须在重签时移除 `aps-environment`，继续使用主屏幕网页通知。
+下载 `MoviePilot-1.1.3-unsigned.ipa` 后自行重签。本包没有 Apple 证书签名，不能直接安装；原生推送需要开发者团队为 `com.moviepilot.app` 启用 Push Notifications，并使用带该权限的生产描述文件，同时重签小组件、保留一致的 App Groups。免费账户须在重签时移除 `aps-environment`，继续使用主屏幕网页通知。
 
 如果旧版使用 `org.moviepilot.app`，新版会作为独立 App 安装，需要重新登录及绑定通知；旧 App 和数据不会自动迁移或删除。重签后 Bundle ID 与已有安装一致时才能覆盖更新，原生推送还须与 Server 的 topics 允许名单一致。
 

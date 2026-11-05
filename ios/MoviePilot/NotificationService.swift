@@ -41,10 +41,17 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     }
   }
 
-  /// 授权只在用户明确点击后申请，拒绝后保留主屏幕通知入口。
+  /// 显式开启时先复查渠道与账号，再申请权限；配置失败不能误报未登录或消耗系统授权。
   func enable() async -> String {
     guard environment != nil else { return "当前安装使用主屏幕通知。" }
+    guard let coordinator else { return "请等待页面登录并完成加载。" }
     do {
+      let data = try await coordinator.notificationRequest("status")
+      guard case .string(let owner) = data["owner"], !owner.isEmpty else {
+        return "通知服务未返回账号身份，请更新 MoviePilot 后端后重试。"
+      }
+      identified(owner)
+      guard let key = preferenceKey else { return "登录状态已改变，请重新打开通知设置。" }
       guard
         try await UNUserNotificationCenter.current().requestAuthorization(options: [
           .alert, .sound, .badge,
@@ -52,12 +59,16 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
       else {
         return "系统通知未开启，可前往设置允许通知。"
       }
-      guard let key = preferenceKey else { return "请先登录 MoviePilot。" }
+      guard self.coordinator === coordinator, preferenceKey == key else {
+        return "登录状态已改变，请重新打开通知设置。"
+      }
       UserDefaults.standard.set(true, forKey: key)
       registrationError = nil
       UIApplication.shared.registerForRemoteNotifications()
       return "已向系统申请推送令牌，稍后刷新查看绑定状态。"
-    } catch { return "无法申请通知权限，请检查系统设置。" }
+    } catch let error as NotificationFailure {
+      return error.localizedDescription
+    } catch { return "无法开启系统通知，请检查通知服务与系统设置。" }
   }
 
   /// Apple 令牌可能随重装或恢复改变，每次回调都覆盖当前安装绑定。
