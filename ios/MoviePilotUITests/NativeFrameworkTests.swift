@@ -4896,10 +4896,12 @@ final class NativeFrameworkTests: XCTestCase {
       "原生返回应交由既有 HTML 弹层关闭逻辑处理")
   }
 
-  /// 收起真实搜索输入的系统键盘，避免 iPad 底部导航被输入窗口遮挡。
+  /// 收起实际位于活动窗口内的键盘，忽略 Duo 非活动显示屏保留的辅助功能键盘节点。
   private func dismissKeyboardIfVisible(_ app: XCUIApplication) {
     let keyboard = app.keyboards.firstMatch
     guard keyboard.exists else { return }
+    let windowFrame = app.windows.firstMatch.frame
+    guard keyboard.frame.intersects(windowFrame) else { return }
     let searchButton = keyboard.buttons["Search"].firstMatch
     let localizedSearchButton = keyboard.buttons["搜索"].firstMatch
     if searchButton.exists && searchButton.isHittable {
@@ -4909,7 +4911,11 @@ final class NativeFrameworkTests: XCTestCase {
     } else {
       keyboard.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.92)).tap()
     }
-    XCTAssertTrue(keyboard.waitForNonExistence(timeout: 5), "底部导航前必须收起系统键盘")
+    let hidden = XCTNSPredicateExpectation(
+      predicate: NSPredicate { _, _ in
+        !keyboard.exists || !keyboard.frame.intersects(windowFrame)
+      }, object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 5), .completed, "底部导航前必须收起系统键盘")
   }
 
   /// 主入口与动态动作必须处于同一行，两组之间留白，不能叠成上下两层。
