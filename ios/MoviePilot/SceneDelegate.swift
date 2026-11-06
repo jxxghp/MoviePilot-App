@@ -117,14 +117,15 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
   func sceneDidEnterBackground(_ scene: UIScene) { coordinator?.setLifecycle("background") }
 
   /// 断开旧会话后显示实例配置，旧脚本 handler 不得继续接收命令。
-  private func showConnection() {
+  private func showConnection(message: String? = nil) {
     if instances.selected != nil { homeShortcut.clear() }
     widgetLinkTask?.cancel()
     widgetLinkTask = nil
     WidgetService.shared.cancelOpen()
     coordinator?.stop()
     coordinator = nil
-    let controller = ConnectionController(instances: instances) { [weak self] instance in
+    let controller = ConnectionController(instances: instances, connectionError: message) {
+      [weak self] instance in
       // 清除旧版本的网页偏好，重新连接始终走原生认证。
       UserDefaults.standard.removeObject(forKey: "moviepilot.web-login.\(instance.id)")
       self?.connect(instance)
@@ -175,7 +176,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
           self.window?.rootViewController?.present(alert, animated: true)
         }
       },
-      onConnection: { [weak self] in self?.showConnection() })
+      onConnection: { [weak self] message in self?.showConnection(message: message) })
     window?.rootViewController = AccountAppearance.navigationController(
       root: login, instance: instance.id)
   }
@@ -191,7 +192,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       onAuthenticationRequired: { [weak self] in
         self?.tokens.remove(instance.id)
         self?.showLogin(instance)
-      })
+      },
+      onConnectionFailed: { [weak self] message in self?.showConnection(message: message) })
     let shell = ShellController(
       coordinator: coordinator,
       onConnection: { [weak self] in self?.showConnection() })

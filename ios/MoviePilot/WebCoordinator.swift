@@ -50,6 +50,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   private var downloadWebViews: [ObjectIdentifier: WKWebView] = [:]
   private var authentication: AuthenticationResult?
   private let onAuthenticationRequired: () -> Void
+  private let onConnectionFailed: (String) -> Void
   private var usageLookupStarted = false
   private var notificationLookupStarted = false
   private var notificationNavigationAvailable = false
@@ -99,11 +100,13 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   /// 数据容器按实例隔离；iOS 16 由原生会话恢复登录，不共享默认网页存储。
   init(
     instance: SavedInstance, authentication: AuthenticationResult,
-    onAuthenticationRequired: @escaping () -> Void
+    onAuthenticationRequired: @escaping () -> Void,
+    onConnectionFailed: @escaping (String) -> Void
   ) {
     self.instance = instance
     self.authentication = authentication
     self.onAuthenticationRequired = onAuthenticationRequired
+    self.onConnectionFailed = onConnectionFailed
     relay = ScriptRelay()
     let configuration = WKWebViewConfiguration()
     configuration.websiteDataStore = Self.websiteDataStore(for: instance.id)
@@ -986,7 +989,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     }
   }
 
-  /// 连接失败不输出底层 URL 或用户数据，保留重试与配置出口。
+  /// 启动文档连接失败时返回地址列表，不输出底层 URL 或用户数据。
   func webView(
     _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
     withError error: Error
@@ -998,10 +1001,10 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       if ConnectionFailure(error) != .cancelled { showDownloadFailure() }
       return
     }
-    if let message = ConnectionFailure(error).errorDescription { fail(message) }
+    handleNavigationFailure(error)
   }
 
-  /// 已提交文档的加载错误同样进入可操作的恢复状态。
+  /// 已提交文档尚未就绪时也允许重新选择地址，正常使用后的故障保留原来的恢复入口。
   func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
     guard !convertingDownloadWebViews.contains(ObjectIdentifier(webView)) else { return }
     guard webView === self.webView else {
@@ -1009,7 +1012,15 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       if ConnectionFailure(error) != .cancelled { showDownloadFailure() }
       return
     }
-    if let message = ConnectionFailure(error).errorDescription { fail(message) }
+    handleNavigationFailure(error)
+  }
+
+  /// 仅当前容器的非取消网络故障能够退出启动，切换服务后的旧回调不能接管新窗口。
+  private func handleNavigationFailure(_ error: Error) {
+    guard relay.owner != nil, let message = ConnectionFailure(error).errorDescription else {
+      return
+    }
+    if startupPending { onConnectionFailed(message) } else { fail(message) }
   }
 
   /// 内容进程在后台被系统回收后，回到前台重新载入文档并恢复原生接管。

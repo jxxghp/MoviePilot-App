@@ -6,6 +6,7 @@ import WebKit
 @MainActor
 final class ConnectionController: UITableViewController, UITextFieldDelegate {
   private let instances: InstanceStore
+  private let connectionError: String?
   private let onConnect: (SavedInstance) -> Void
   private let addressField = UITextField()
   private var savedInstances: [SavedInstance] = []
@@ -14,8 +15,12 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
   private var addressSection: Int { savedInstances.isEmpty ? 0 : 1 }
 
   /// 接收实例存储与连接结果，不把账号数据引入原生配置。
-  init(instances: InstanceStore, onConnect: @escaping (SavedInstance) -> Void) {
+  init(
+    instances: InstanceStore, connectionError: String? = nil,
+    onConnect: @escaping (SavedInstance) -> Void
+  ) {
     self.instances = instances
+    self.connectionError = connectionError
     self.onConnect = onConnect
     super.init(style: .insetGrouped)
   }
@@ -54,6 +59,7 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
       addressField.text = previous.address.url.absoluteString
       _ = showCompatibilityError(previous.address)
     }
+    if let connectionError { showError(connectionError) }
   }
 
   /// 尚无历史时仅展示添加服务，已有记录时在上方增加服务分组。

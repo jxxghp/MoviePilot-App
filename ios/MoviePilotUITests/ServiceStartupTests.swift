@@ -6,6 +6,84 @@ final class ServiceStartupTests: XCTestCase {
   private let base = URL(string: "http://127.0.0.1:5244")!
   private let initialization = "/api/v1/login/initialization"
   private let login = "/api/v1/login/access-token"
+  private let runID = UUID().uuidString.lowercased()
+
+  /// 不可用的已选地址最多等待十五秒，返回列表后停止旧探测，并能点选原地址重新连接。
+  func testUnavailableServiceReturnsToAddressSelection() async throws {
+    try await configure("unavailable", reset: true)
+    let app = try launch("deadline")
+    assertWaiting(app)
+    assertConnectionSelection(app, scenario: "deadline")
+    XCTAssertTrue(app.staticTexts["连接超时，请选择当前网络可用的服务地址，或稍后重试。"].exists)
+    let stopped = try await stats()[initialization, default: 0]
+    try await configure("ready")
+    try await Task.sleep(for: .seconds(2))
+    let requests = try await stats()
+    XCTAssertEqual(requests[initialization, default: 0], stopped)
+    XCTAssertEqual(requests[login, default: 0], 0)
+    capture("连接超时-返回地址列表")
+    savedService(app, scenario: "deadline").tap()
+    XCTAssertTrue(app.textFields["用户名"].waitForExistence(timeout: 10), app.debugDescription)
+  }
+
+  /// 首次请求没有响应时也受独立期限约束；旧请求稍后返回不能覆盖用户选择的其他地址。
+  func testUnresponsiveServiceReturnsBeforeRequestTimeout() async throws {
+    try await configure("initialization-stalled", reset: true)
+    let app = try launch("stalled")
+    assertConnectionSelection(app, scenario: "stalled")
+    try await configure("ready")
+    enterAddress(app, scenario: "alternate")
+    XCTAssertTrue(app.textFields["用户名"].waitForExistence(timeout: 10), app.debugDescription)
+    try await Task.sleep(for: .seconds(12))
+    XCTAssertTrue(
+      app.staticTexts[serviceAddress("alternate").absoluteString]
+        .exists)
+    XCTAssertTrue(app.textFields["用户名"].isHittable)
+    XCTAssertFalse(app.otherElements["native-startup-screen"].exists)
+    let requests = try await stats()
+    XCTAssertEqual(requests[initialization, default: 0], 2)
+    XCTAssertEqual(requests[login, default: 0], 0)
+  }
+
+  /// 已保存令牌的校验挂起也会返回地址列表，重新连接仍恢复原会话，无需再次发送密码。
+  func testSavedSessionSurvivesConnectionTimeout() async throws {
+    try await configure("expired", reset: true)
+    let app = try launch("restore-stalled")
+    try await configure("ready")
+    authenticate(app)
+    XCTAssertTrue(
+      app.tabBars["native-root-navigation"].waitForExistence(timeout: 45), app.debugDescription)
+    app.terminate()
+    try await configure("restore-stalled", reset: true)
+    app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+    app.launch()
+    assertConnectionSelection(app, scenario: "restore-stalled")
+    let stalled = try await stats()
+    XCTAssertEqual(stalled["/api/v1/user/current", default: 0], 1)
+    try await configure("ready")
+    savedService(app, scenario: "restore-stalled").tap()
+    XCTAssertTrue(
+      app.tabBars["native-root-navigation"].waitForExistence(timeout: 45), app.debugDescription)
+    XCTAssertFalse(app.textFields["用户名"].exists)
+    let requests = try await stats()
+    XCTAssertEqual(requests[login, default: 0], 0)
+    capture("连接超时-保留原登录会话")
+  }
+
+  /// 原生认证成功后文档连接中断，同样自动回到地址列表，不停在 Logo 或要求先点恢复按钮。
+  func testDocumentConnectionFailureReturnsToAddressSelection() async throws {
+    try await configure("document-disconnected", reset: true)
+    let app = try launch("page-disconnected")
+    authenticate(app)
+    assertConnectionSelection(app, scenario: "page-disconnected")
+    XCTAssertFalse(app.buttons["重新打开"].exists)
+    try await configure("ready")
+    savedService(app, scenario: "page-disconnected").tap()
+    XCTAssertTrue(
+      app.tabBars["native-root-navigation"].waitForExistence(timeout: 45), app.debugDescription)
+    let requests = try await stats()
+    XCTAssertEqual(requests[login, default: 0], 1)
+  }
 
   /// 多次 HTTP 故障和连接中断后自动进入登录，等待过程没有表单、网页或密码提交。
   func testAutomaticServiceRecovery() async throws {
@@ -39,7 +117,7 @@ final class ServiceStartupTests: XCTestCase {
     try await waitForRequests(initialization, atLeast: before + 1)
     assertWaiting(app)
     app.buttons["native-service-change-address"].tap()
-    XCTAssertTrue(app.textFields["MoviePilot 服务地址"].waitForExistence(timeout: 10))
+    _ = visibleAddressField(app)
     try await Task.sleep(for: .milliseconds(300))
     let stopped = try await stats()[initialization, default: 0]
     try await configure("ready")
@@ -47,7 +125,7 @@ final class ServiceStartupTests: XCTestCase {
     let requests = try await stats()
     XCTAssertEqual(requests[initialization, default: 0], stopped)
     XCTAssertEqual(requests[login, default: 0], 0)
-    XCTAssertTrue(app.textFields["MoviePilot 服务地址"].isHittable)
+    XCTAssertTrue(visibleAddressField(app).isHittable)
   }
 
   /// 真正进入后台后停止轮询，回到前台继续检测并自动恢复登录。
@@ -161,7 +239,7 @@ final class ServiceStartupTests: XCTestCase {
     XCTAssertTrue(app.buttons["native-service-change-address"].isHittable, app.debugDescription)
     capture("服务等待-横屏大字号")
     app.buttons["native-service-change-address"].tap()
-    XCTAssertTrue(app.textFields["MoviePilot 服务地址"].waitForExistence(timeout: 10))
+    _ = visibleAddressField(app)
   }
 
   /// 目录接口首次失败后自动恢复首页，不重复提交密码或保留启动状态提示。
@@ -207,10 +285,10 @@ final class ServiceStartupTests: XCTestCase {
     authenticate(app)
     XCTAssertTrue(app.otherElements["native-page-status"].waitForExistence(timeout: 20))
     app.buttons["native-page-change-address"].tap()
-    XCTAssertTrue(app.textFields["MoviePilot 服务地址"].waitForExistence(timeout: 10))
+    _ = visibleAddressField(app)
     try await configure("ready")
     try await Task.sleep(for: .seconds(2))
-    XCTAssertTrue(app.textFields["MoviePilot 服务地址"].isHittable)
+    XCTAssertTrue(visibleAddressField(app).isHittable)
     XCTAssertFalse(app.otherElements["native-page-status"].exists)
   }
 
@@ -237,18 +315,60 @@ final class ServiceStartupTests: XCTestCase {
       "zh_CN",
     ]
     app.launch()
-    let field = app.textFields["MoviePilot 服务地址"]
-    XCTAssertTrue(field.waitForExistence(timeout: 10))
+    enterAddress(app, scenario: scenario)
+    return app
+  }
+
+  /// 新增地址和失败后的切换都通过真实连接表单，必要时滚动到列表末尾的输入框。
+  private func enterAddress(_ app: XCUIApplication, scenario: String) {
+    let field = visibleAddressField(app)
     field.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), app.debugDescription)
     let clear = field.buttons.firstMatch
-    if clear.exists { clear.tap() }
-    let address = base.appendingPathComponent(scenario, isDirectory: true).absoluteString
+    if let value = field.value as? String, !value.isEmpty, value != field.placeholderValue {
+      XCTAssertTrue(clear.waitForExistence(timeout: 5), app.debugDescription)
+      clear.tap()
+    }
+    let address = serviceAddress(scenario).absoluteString
     field.typeText(address)
     XCTAssertEqual(field.value as? String, address)
     // 大字号输入时表单可能滚动，重新确认焦点后再提交，避免将键盘失焦误判为连接故障。
     field.tap()
     field.typeText("\n")
-    return app
+  }
+
+  /// 将添加服务表单滚动到安全可点位置，地址较多时屏幕外的输入框不代表返回列表失败。
+  private func visibleAddressField(_ app: XCUIApplication) -> XCUIElement {
+    XCTAssertTrue(app.tables["server-connections"].waitForExistence(timeout: 10))
+    let field = app.textFields["MoviePilot 服务地址"]
+    for _ in 0..<12 {
+      if field.isHittable, field.frame.maxY < app.frame.maxY - 140 { break }
+      app.tables["server-connections"].swipeUp()
+    }
+    XCTAssertTrue(field.waitForExistence(timeout: 10))
+    XCTAssertTrue(field.isHittable, app.debugDescription)
+    return field
+  }
+
+  /// 当前地址记录必须保留在可操作的原生列表中，启动覆盖层和旧网页必须已经退出。
+  private func assertConnectionSelection(_ app: XCUIApplication, scenario: String) {
+    XCTAssertTrue(
+      app.tables["server-connections"].waitForExistence(timeout: 20), app.debugDescription)
+    XCTAssertTrue(savedService(app, scenario: scenario).isHittable, app.debugDescription)
+    XCTAssertFalse(app.otherElements["native-startup-screen"].exists)
+    XCTAssertFalse(app.webViews.firstMatch.exists)
+  }
+
+  /// 使用归一化地址定位实例，验证连接失败没有移除已保存记录。
+  private func savedService(_ app: XCUIApplication, scenario: String) -> XCUIElement {
+    let address = serviceAddress(scenario).absoluteString
+    return app.cells["saved-service-\(address)"]
+  }
+
+  /// 每轮回归使用独立地址，避免旧 Keychain 会话使需要手动登录的用例跳过表单。
+  private func serviceAddress(_ scenario: String) -> URL {
+    base.appendingPathComponent(scenario, isDirectory: true)
+      .appendingPathComponent(runID, isDirectory: true)
   }
 
   /// 等待页必须真正遮住登录与网页，两个恢复出口都保持可交互。
