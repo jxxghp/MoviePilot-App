@@ -98,10 +98,15 @@ final class NativeFrameworkTests: XCTestCase {
       attachScreen("兼容性-操作菜单-\(orientation.rawValue)", app: app, dismissUpdateReminder: false)
       // 折叠窗口上的系统菜单可能覆盖顶栏按钮，重新激活应用统一收起它。
       app.activate()
+      let interactionSurface: XCUIElement = isDuoSimulator ? app.windows.firstMatch : app
+      if isDuoSimulator {
+        interactionSurface.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.65)).tap()
+      }
       app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
       dismissKeyboardIfVisible(app)
-      let edgeStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
-      let edgeEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+      let edgeStart = interactionSurface.coordinate(
+        withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+      let edgeEnd = interactionSurface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
       edgeStart.press(forDuration: 0.1, thenDragTo: edgeEnd)
       let back = app.buttons["返回"]
       if back.exists { back.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
