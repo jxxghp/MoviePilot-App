@@ -788,11 +788,6 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     if bottomNavigation.superview == nil {
       bottomNavigationHost.view = bottomNavigation
       addChild(bottomNavigationHost)
-      // 仅底栏采用上下排列的图标与文案；iPad 正文、菜单和弹层仍保留真实窗口 traits。
-      if traitCollection.userInterfaceIdiom == .pad {
-        setOverrideTraitCollection(
-          UITraitCollection(horizontalSizeClass: .compact), forChild: bottomNavigationHost)
-      }
       bottomNavigation.translatesAutoresizingMaskIntoConstraints = false
       view.addSubview(bottomNavigation)
       NSLayoutConstraint.activate([
@@ -800,7 +795,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
           equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
         bottomNavigation.trailingAnchor.constraint(
           equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-        // 底栏用自身的系统推荐高度；按钮的 64pt 不是原生栏总高度。
+        // 底栏自行区分可见内容与底部安全区，不能再把 Home Indicator 留白当成按钮高度。
         bottomNavigation.bottomAnchor.constraint(equalTo: view.bottomAnchor),
       ])
       bottomNavigationHost.didMove(toParent: self)

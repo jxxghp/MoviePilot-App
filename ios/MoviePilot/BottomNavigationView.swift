@@ -2,7 +2,7 @@ import Darwin
 import MoviePilotCore
 import UIKit
 
-/// 单行底部框架：系统 Tab Bar 保持固定按钮几何，动态动作只改变整组导航的位置。
+/// 单行底部框架：主入口与动态动作同高，底部安全区独立占位，隐藏动作只移动整组导航。
 @MainActor
 final class BottomNavigationView: UIView, UITabBarDelegate {
   static let height: CGFloat = 64
@@ -30,6 +30,11 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
   /// 路由守卫取消时网页不发送失败信号，超过该时长未确认才撤销点击目标。
   private static let confirmationTimeout: TimeInterval = 2
   private let tabBar = UITabBar()
+  private let capsuleNavigation: CapsuleNavigationView? = {
+    // 独立 UITabBar 在 iPad 和旧系统中仅绘制 49pt 内容，拉高外框无法改变可见栏体。
+    if #available(iOS 26, *), UIDevice.current.userInterfaceIdiom != .pad { return nil }
+    return CapsuleNavigationView()
+  }()
   private let group = UIView()
   private let navigationHost = UIView()
   private let actionHost = UIView()
@@ -43,20 +48,23 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
   private var actionSpacing: NSLayoutConstraint!
   private var navigationWidth: NSLayoutConstraint!
 
-  /// 固定主入口和动作的空间关系，玻璃材质、选中反馈与无障碍语义交由 UIKit。
+  /// 当前设备使用的入口控件；普通 iOS 26+ iPhone 保留原有系统 Tab Bar。
+  private var rootNavigation: UIView { capsuleNavigation ?? tabBar }
+
+  /// 固定主入口和动作的空间关系，材质与按钮反馈仍使用公开 UIKit 控件。
   init() {
     super.init(frame: .zero)
     accessibilityIdentifier = "native-bottom-navigation"
-    tabBar.accessibilityIdentifier = "native-root-navigation"
+    rootNavigation.accessibilityIdentifier = "native-root-navigation"
     tabBar.delegate = self
     tabBar.itemPositioning = .fill
-    tabBar.translatesAutoresizingMaskIntoConstraints = false
+    rootNavigation.translatesAutoresizingMaskIntoConstraints = false
     navigationHost.translatesAutoresizingMaskIntoConstraints = false
     actionHost.translatesAutoresizingMaskIntoConstraints = false
     group.translatesAutoresizingMaskIntoConstraints = false
     addSubview(group)
     group.addSubview(navigationHost)
-    navigationHost.addSubview(tabBar)
+    navigationHost.addSubview(rootNavigation)
     group.addSubview(actionHost)
     navigationWidth = navigationHost.widthAnchor.constraint(equalToConstant: 294)
     actionWidth = actionHost.widthAnchor.constraint(equalToConstant: Self.height)
@@ -64,7 +72,7 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
     actionSpacing = navigationHost.trailingAnchor.constraint(
       equalTo: actionHost.leadingAnchor, constant: -12)
     // 浮动 Tab Bar 自带水平透明留白；允许其在宿主两侧延伸，避免与框架边距重复挤压入口。
-    let overflow: CGFloat = if #available(iOS 26, *) { 16 } else { 0 }
+    let overflow: CGFloat = capsuleNavigation == nil ? 16 : 0
     NSLayoutConstraint.activate([
       group.centerXAnchor.constraint(equalTo: centerXAnchor),
       group.topAnchor.constraint(equalTo: topAnchor),
@@ -72,18 +80,24 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
       navigationHost.leadingAnchor.constraint(equalTo: group.leadingAnchor),
       navigationHost.topAnchor.constraint(equalTo: group.topAnchor),
       navigationHost.bottomAnchor.constraint(equalTo: group.bottomAnchor),
-      tabBar.leadingAnchor.constraint(equalTo: navigationHost.leadingAnchor, constant: -overflow),
-      tabBar.trailingAnchor.constraint(equalTo: navigationHost.trailingAnchor, constant: overflow),
-      tabBar.topAnchor.constraint(equalTo: navigationHost.topAnchor),
-      tabBar.bottomAnchor.constraint(equalTo: navigationHost.bottomAnchor),
+      rootNavigation.leadingAnchor.constraint(
+        equalTo: navigationHost.leadingAnchor, constant: -overflow),
+      rootNavigation.trailingAnchor.constraint(
+        equalTo: navigationHost.trailingAnchor, constant: overflow),
+      rootNavigation.topAnchor.constraint(equalTo: navigationHost.topAnchor),
       navigationWidth,
       actionSpacing,
       actionHost.trailingAnchor.constraint(equalTo: group.trailingAnchor),
       // 原生栏的总高度包含底部留白；独立动作对齐上方导航内容，不对齐整个栏的中心。
-      actionHost.topAnchor.constraint(equalTo: tabBar.topAnchor),
+      actionHost.topAnchor.constraint(equalTo: rootNavigation.topAnchor),
       actionHeight,
       actionWidth,
     ])
+    if capsuleNavigation != nil {
+      rootNavigation.heightAnchor.constraint(equalToConstant: Self.height).isActive = true
+    } else {
+      rootNavigation.bottomAnchor.constraint(equalTo: navigationHost.bottomAnchor).isActive = true
+    }
   }
 
   /// 底栏由当前实例会话创建，不支持 storyboard 恢复。
@@ -91,14 +105,15 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
 
   /// 总高度采用 UIKit 的实际量测，避免把按钮高度与 Home Indicator 区域重复计入。
   override var intrinsicContentSize: CGSize {
+    if capsuleNavigation != nil {
+      // Home 键机型和窄窗口可能没有底部安全区，仍为浮动胶囊留出最小边距。
+      return CGSize(
+        width: UIView.noIntrinsicMetric, height: Self.height + max(8, safeAreaInsets.bottom))
+    }
     let measured = tabBar.sizeThatFits(
       CGSize(width: max(0, bounds.width), height: CGFloat.greatestFiniteMagnitude)
     ).height
-    // iPad 的独立 Tab Bar 默认仅量到 49pt；为上下排列保留与动态动作一致的 64pt 内容区。
-    let height =
-      UIDevice.current.userInterfaceIdiom == .pad
-      ? max(measured, Self.height + safeAreaInsets.bottom) : measured
-    return CGSize(width: UIView.noIntrinsicMetric, height: height)
+    return CGSize(width: UIView.noIntrinsicMetric, height: measured)
   }
 
   /// 入窗或旋转会改变系统栏的安全区和推荐高度，重新交给 Auto Layout 量测。
@@ -132,15 +147,20 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
     if ids != rootIds {
       clearPendingRoot()
       rootIds = ids
-      tabBar.items = snapshot.roots.enumerated().map { index, root in
-        let image = NavigationSymbols.image(
-          root.icon, configuration: NavigationSymbols.bottomConfiguration)
-        let item = UITabBarItem(title: root.title, image: image, tag: index)
-        item.accessibilityIdentifier = "native-root-\(root.id)"
-        return item
+      if capsuleNavigation == nil {
+        tabBar.items = snapshot.roots.enumerated().map { index, root in
+          let image = NavigationSymbols.image(
+            root.icon, configuration: NavigationSymbols.bottomConfiguration)
+          let item = UITabBarItem(title: root.title, image: image, tag: index)
+          item.accessibilityIdentifier = "native-root-\(root.id)"
+          return item
+        }
       }
     }
     let overlayOpen = snapshot.presentation?.overlayOpen == true
+    capsuleNavigation?.apply(snapshot.roots, enabled: !overlayOpen) { [weak self] index in
+      self?.selectRoot(at: index)
+    }
     for (index, item) in (tabBar.items ?? []).enumerated() {
       item.title = snapshot.roots[index].title
       let root = snapshot.roots[index]
@@ -149,8 +169,8 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
       item.isEnabled = !overlayOpen
     }
     synchronizeSelection()
-    tabBar.isUserInteractionEnabled = !overlayOpen
-    tabBar.accessibilityElementsHidden = overlayOpen
+    rootNavigation.isUserInteractionEnabled = !overlayOpen
+    rootNavigation.accessibilityElementsHidden = overlayOpen
     for view in actionHost.subviews { view.removeFromSuperview() }
     actionHost.isHidden = action == nil
     actionWidth.constant = action == nil ? 0 : Self.height
@@ -170,8 +190,13 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
 
   /// 系统滑块在回调前已开始移动，这里只发起路由意图并保留点击目标，避免改回旧值造成往返。
   func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
-    guard rootIds.indices.contains(item.tag) else { return }
-    let requested = rootIds[item.tag]
+    selectRoot(at: item.tag)
+  }
+
+  /// 两种原生入口共享路由确认与超时撤销，不能让拒绝或迟到的网页回调留下错误选中态。
+  private func selectRoot(at index: Int) {
+    guard rootIds.indices.contains(index) else { return }
+    let requested = rootIds[index]
     clearPendingRoot()
     if requested != selectedRoot {
       pendingRoot = requested
@@ -181,6 +206,7 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
         MainActor.assumeIsolated { self?.cancelPendingRoot(requested) }
       }
     }
+    if capsuleNavigation != nil { synchronizeSelection() }
     onSelect?(requested) { [weak self] accepted in
       if !accepted { self?.cancelPendingRoot(requested) }
     }
@@ -189,6 +215,10 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
   /// 等待确认时显示点击目标；目标未变不赋值，避免干扰进行中的滑块动画。
   private func synchronizeSelection() {
     let displayed = pendingRoot ?? selectedRoot
+    if let capsuleNavigation {
+      capsuleNavigation.select(rootId: displayed)
+      return
+    }
     let target = tabBar.items?.first {
       rootIds.indices.contains($0.tag) && rootIds[$0.tag] == displayed
     }
@@ -207,5 +237,111 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
     pendingTimeout?.invalidate()
     pendingTimeout = nil
     pendingRoot = nil
+  }
+}
+
+/// iPad 与 iOS 16–25 的原生胶囊入口，64pt 可见材质不包含 Home Indicator 留白。
+@MainActor
+private final class CapsuleNavigationView: UIView {
+  private let stack = UIStackView()
+  private var rootIds: [String] = []
+  private var buttons: [UIButton] = []
+  private var onSelect: ((Int) -> Void)?
+
+  /// 材质铺满栏体，按钮上下各内缩 4pt；主导航按语义分组，选中状态由 UIButton 提供。
+  init() {
+    super.init(frame: .zero)
+    isAccessibilityElement = false
+    accessibilityContainerType = .semanticGroup
+    accessibilityLabel = "主导航"
+    let effect: UIVisualEffect
+    if #available(iOS 26, *) {
+      effect = UIGlassEffect(style: .regular)
+    } else {
+      effect = UIBlurEffect(style: .systemMaterial)
+    }
+    let material = UIVisualEffectView(effect: effect)
+    if #available(iOS 26, *) { material.cornerConfiguration = .capsule() }
+    material.layer.cornerRadius = BottomNavigationView.height / 2
+    material.clipsToBounds = true
+    material.isUserInteractionEnabled = false
+    material.translatesAutoresizingMaskIntoConstraints = false
+    stack.axis = .horizontal
+    stack.distribution = .fillEqually
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(material)
+    addSubview(stack)
+    NSLayoutConstraint.activate([
+      material.leadingAnchor.constraint(equalTo: leadingAnchor),
+      material.trailingAnchor.constraint(equalTo: trailingAnchor),
+      material.topAnchor.constraint(equalTo: topAnchor),
+      material.bottomAnchor.constraint(equalTo: bottomAnchor),
+      stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+      stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+      stack.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+      stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+    ])
+  }
+
+  /// 此控件由底栏创建，不接收 storyboard 状态。
+  required init?(coder: NSCoder) { fatalError("Use init()") }
+
+  /// 只投影网页授权的入口；按钮使用原 SF Symbol、完整标题与相同路由回调。
+  func apply(_ roots: [RootSnapshot], enabled: Bool, onSelect: @escaping (Int) -> Void) {
+    self.onSelect = onSelect
+    let ids = roots.map(\.id)
+    if ids != rootIds {
+      for button in buttons { button.removeFromSuperview() }
+      rootIds = ids
+      buttons = roots.indices.map { index in
+        let button = UIButton(configuration: .plain())
+        button.accessibilityIdentifier = "native-root-\(roots[index].id)"
+        // 每个入口只暴露一个按钮，避免配置标题再次被系统提升成嵌套标签按钮。
+        button.isAccessibilityElement = true
+        button.accessibilityElements = []
+        button.isPointerInteractionEnabled = true
+        button.configurationUpdateHandler = { button in
+          var configuration = button.configuration
+          configuration?.baseForegroundColor = button.isSelected ? button.tintColor : .label
+          configuration?.background.backgroundColor =
+            button.isSelected ? .tertiarySystemFill : .clear
+          button.configuration = configuration
+        }
+        button.addAction(
+          UIAction { [weak self] _ in self?.onSelect?(index) }, for: .touchUpInside)
+        stack.addArrangedSubview(button)
+        return button
+      }
+      accessibilityElements = buttons
+    }
+    for (index, root) in roots.enumerated() {
+      let button = buttons[index]
+      var configuration = button.configuration ?? .plain()
+      configuration.title = root.title
+      configuration.image = NavigationSymbols.image(
+        root.icon, configuration: NavigationSymbols.bottomConfiguration)
+      configuration.imagePlacement = .top
+      configuration.imagePadding = 2
+      configuration.contentInsets = .zero
+      configuration.cornerStyle = .capsule
+      configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
+        incoming in
+        var attributes = incoming
+        attributes.font = UIFont.systemFont(ofSize: 11, weight: .medium)
+        return attributes
+      }
+      button.configuration = configuration
+      button.titleLabel?.isAccessibilityElement = false
+      button.imageView?.isAccessibilityElement = false
+      button.accessibilityLabel = root.title
+      button.isEnabled = enabled
+    }
+  }
+
+  /// 选中状态只接受底栏的已确认或等待确认目标，UIButton 同步 VoiceOver 与系统反馈。
+  func select(rootId: String?) {
+    for (index, button) in buttons.enumerated() {
+      button.isSelected = rootIds[index] == rootId
+    }
   }
 }
