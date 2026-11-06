@@ -141,6 +141,8 @@ scripts/      本地验证入口
 
 原生通知配置回归使用 `scripts/notification-setup-fixture.py --frontend /path/to/frontend/dist`，仅监听回环端口 5306。指定全新专用模拟器，传入 `TEST_RUNNER_MOVIEPILOT_E2E_SERVER=http://127.0.0.1:5306`、`TEST_RUNNER_MOVIEPILOT_E2E_NOTIFICATION_SETUP=http://127.0.0.1:5306`、`TEST_RUNNER_MOVIEPILOT_E2E_USERNAME=startup-fixture`、`TEST_RUNNER_MOVIEPILOT_E2E_PASSWORD=fixture-only`，执行 `NativeFrameworkTests/testNativeNotificationSetupRecoversWithoutLogin`。用例验证渠道未启用及身份缺失时不先申请系统权限、后台恢复后直接重试，并拒绝系统授权以避免实际注册；这不代替 Apple 投递验收。
 
+后台通知点击回归给同一夹具增加 `--simulator 专用模拟器UUID`，设置 `TEST_RUNNER_MOVIEPILOT_E2E_NOTIFICATION_TAP=http://127.0.0.1:5306`，执行 `NativeFrameworkTests/testBackgroundNotificationTapKeepsAppAlive`。该用例允许模拟器系统通知后，通过 `simctl push` 注入有效、无效与其他账号的合成载荷，实际点击系统横幅，验证后台恢复及通知中心，不向外部服务发送推送。旧的非隔离 async 通知代理会在 UIKit 状态恢复时崩溃；显式完成回调必须在主线程执行。模拟器注入不代替 Apple APNs 真机投递验收。
+
 独立搜索页面可使用隔离服务与当前前端开发服务器验收，不连接真实后端，也无需反复构建前端：
 
 ```sh
