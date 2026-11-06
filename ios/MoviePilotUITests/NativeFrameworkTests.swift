@@ -13,6 +13,84 @@ private struct NetworkFixtures: Decodable {
 /// 使用显式配置的实例验收原生框架与原业务 HTML；真实写入须另行开启并限定临时插件。
 @MainActor
 final class NativeFrameworkTests: XCTestCase {
+  /// 快慢保存、失败与重试均使用真实 Vue 表单，每次点击只能发起一次保存且保留导航。
+  func testPluginConfigurationSaveKeepsNavigation() async throws {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_PLUGIN_SAVE"] == "1",
+      ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_SERVER"] == "http://127.0.0.1:5312"
+    else { throw XCTSkip("插件保存需要本机合成插件夹具。") }
+    try await pluginSaveFixture("config", value: ["reset": true])
+    let app = try signIn(captureScreens: false, remember: false)
+    let plugin = app.webViews.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "保存回归插件")
+    ).firstMatch
+    let sheet = app.otherElements["native-web-sheet"]
+    let save = app.webViews.buttons["保存"].firstMatch
+    for delay in [0.0, 0.2, 1.0] {
+      try await pluginSaveFixture("config", value: ["delay": delay])
+      XCTAssertTrue(plugin.waitForExistence(timeout: 20), app.debugDescription)
+      plugin.tap()
+      XCTAssertTrue(save.waitForExistence(timeout: 15), app.debugDescription)
+      XCTAssertTrue(save.isHittable)
+      save.tap()
+      XCTAssertTrue(sheet.waitForNonExistence(timeout: 15), app.debugDescription)
+      XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists, app.debugDescription)
+    }
+    try await pluginSaveFixture("config", value: ["delay": 1, "failure": true])
+    plugin.tap()
+    XCTAssertTrue(save.waitForExistence(timeout: 15), app.debugDescription)
+    let field = app.webViews.textFields["测试配置"]
+    XCTAssertTrue(field.exists, app.debugDescription)
+    field.tap()
+    field.typeText("重试")
+    let done = app.toolbars.buttons["完成"]
+    XCTAssertTrue(done.waitForExistence(timeout: 5), app.debugDescription)
+    done.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+    XCTAssertTrue(save.isHittable)
+    save.tap()
+    try await waitForPluginSaveCompletion(4)
+    XCTAssertTrue(app.buttons["native-sheet-close"].waitForExistence(timeout: 10))
+    XCTAssertTrue(save.isHittable, "保存失败后应恢复可编辑表单")
+    XCTAssertTrue((field.value as? String)?.contains("重试") == true)
+    XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists)
+    try await pluginSaveFixture("config", value: ["delay": 1])
+    save.tap()
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 15), app.debugDescription)
+    XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists, app.debugDescription)
+    let state = try await pluginSaveFixture("state")
+    let saves = try XCTUnwrap(state["saves"] as? [[String: String]])
+    XCTAssertEqual(saves.count, 5, "归还重试不能重发业务保存")
+    XCTAssertEqual(saves[3], saves[4], "失败后的手动重试应保留原表单输入")
+    rootNavigation(app).buttons["更多"].tap()
+    XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10), app.debugDescription)
+    attachScreen("插件保存后导航", app: app, dismissUpdateReminder: false)
+  }
+
+  /// 失败分支等待合成服务实际完成响应，避免依赖一闪而过的进度控件。
+  private func waitForPluginSaveCompletion(_ count: Int) async throws {
+    for _ in 0..<50 {
+      if try await pluginSaveFixture("state")["completed"] as? Int == count { return }
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    XCTFail("插件保存未完成预期响应")
+  }
+
+  /// 测试控制固定在回环端口，不接受真实实例地址或认证材料。
+  @discardableResult
+  private func pluginSaveFixture(_ path: String, value: [String: Any]? = nil) async throws
+    -> [String: Any]
+  {
+    var request = URLRequest(url: URL(string: "http://127.0.0.1:5312/__plugin/\(path)")!)
+    if let value {
+      request.httpMethod = "POST"
+      request.httpBody = try JSONSerialization.data(withJSONObject: value)
+      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    }
+    let (data, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+    return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+  }
+
   /// 使用私有配置登录或复用真实会话，只读检查旋转、搜索键盘、导航几何和前后台恢复。
   func testReadOnlyDeviceCompatibility() throws {
     continueAfterFailure = false
@@ -4668,8 +4746,9 @@ final class NativeFrameworkTests: XCTestCase {
         try await point("search").tap()
       } else {
         card.press(forDuration: 1)
-        XCTAssertTrue(app.buttons["搜索"].waitForExistence(timeout: 8), app.debugDescription)
-        app.buttons["搜索"].tap()
+        let search = app.collectionViews.buttons["搜索"].firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 8), app.debugDescription)
+        search.tap()
       }
       let sheet = app.otherElements["native-web-sheet"]
       XCTAssertTrue(sheet.waitForExistence(timeout: 10), app.debugDescription)
