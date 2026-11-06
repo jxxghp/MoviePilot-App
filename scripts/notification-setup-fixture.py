@@ -3,6 +3,9 @@
 import argparse
 import importlib.util
 import json
+import subprocess
+import tempfile
+import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -25,7 +28,7 @@ class NotificationHandler(startup.StartupHandler):
     def do_POST(self):
         """服务端配置可在 App 不退出登录时恢复，验证开启操作确实重新获取身份。"""
         path = urlsplit(self.path).path
-        if path not in ("/__notification/state", "/api/v1/notification/app"):
+        if path not in ("/__notification/state", "/__notification/push", "/api/v1/notification/app"):
             super().do_POST()
             return
         length = int(self.headers.get("Content-Length", "0"))
@@ -33,6 +36,9 @@ class NotificationHandler(startup.StartupHandler):
             self.reply(413, {})
             return
         data = json.loads(self.rfile.read(length))
+        if path == "/__notification/push":
+            self.push(data.get("kind"))
+            return
         if path == "/__notification/state":
             mode = data.get("mode")
             if mode not in ("disabled", "ready", "missing-owner"):
@@ -59,16 +65,39 @@ class NotificationHandler(startup.StartupHandler):
                 result["owner"] = "a" * 32
             self.reply(200, {"success": True, "data": result})
 
+    def push(self, kind):
+        """只向显式指定的专用模拟器注入合成载荷，实际点击由系统通知 UI 完成。"""
+        if not self.server.simulator or kind not in ("valid", "invalid", "other"):
+            self.reply(400, {})
+            return
+        title = "MoviePilot 通知点击回归"
+        payload = {"aps": {"alert": {"title": title, "body": kind}, "sound": "default"}}
+        if kind != "invalid":
+            payload["moviepilot"] = {
+                "origin": f"http://127.0.0.1:{self.server.server_port}",
+                "route": "/?shotcut=message",
+                "owner": ("b" if kind == "other" else "a") * 32,
+            }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".apns") as stream:
+            json.dump(payload, stream)
+            stream.flush()
+            result = subprocess.run(
+                ["xcrun", "simctl", "push", self.server.simulator, "com.moviepilot.app", stream.name],
+                capture_output=True, timeout=15, check=False,
+            )
+        self.reply(200 if result.returncode == 0 else 503, {"title": title})
+
 
 class NotificationServer(startup.StartupServer):
     """专用端口与独立状态避免影响正在使用的实例和其他模拟器服务。"""
 
-    def __init__(self, port, frontend):
+    def __init__(self, port, frontend, simulator=None):
         """登录保持可用，仅设备管理状态由测试显式切换。"""
         super().__init__(port, frontend)
         self.mode = "ready"
         self.notification_mode = "disabled"
         self.actions = []
+        self.simulator = simulator
 
     def finish_request(self, request, client_address):
         """复用标准 HTTP 连接生命周期并替换设备管理响应。"""
@@ -80,10 +109,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--frontend", type=Path, required=True)
     parser.add_argument("--port", type=int, default=5306)
+    parser.add_argument("--simulator", type=lambda value: str(uuid.UUID(value)))
     args = parser.parse_args()
     if not (args.frontend / "index.html").is_file():
         parser.error("前端目录缺少 index.html")
-    with NotificationServer(args.port, args.frontend.resolve()) as server:
+    with NotificationServer(args.port, args.frontend.resolve(), args.simulator) as server:
         server.serve_forever()
 
 

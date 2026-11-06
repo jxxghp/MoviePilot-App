@@ -154,21 +154,30 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     return NotificationIntent(origin: origin, route: route, owner: owner)
   }
 
-  /// 前台通知遵守相同身份校验，拒绝内容不交给页面。
+  /// 使用显式完成回调，身份校验与系统完成通知均在主线程执行。
   nonisolated func userNotificationCenter(
-    _ center: UNUserNotificationCenter, willPresent notification: UNNotification
-  ) async -> UNNotificationPresentationOptions {
-    guard let intent = Self.intent(from: notification.request.content.userInfo) else { return [] }
-    return await accepts(intent) ? [.banner, .list, .sound] : []
+    _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+    withCompletionHandler completionHandler:
+      @escaping @Sendable (UNNotificationPresentationOptions) ->
+      Void
+  ) {
+    let intent = Self.intent(from: notification.request.content.userInfo)
+    Task { @MainActor [weak self] in
+      let accepted = intent.map { self?.accepts($0) == true } ?? false
+      completionHandler(accepted ? [.banner, .list, .sound] : [])
+    }
   }
 
-  /// 系统点击和主屏幕链接共用待处理导航，冷启动不直接加载外部 URL。
+  /// UIKit 的通知完成回调会更新状态恢复，必须留在主线程，不能使用非隔离 async 桥接。
   nonisolated func userNotificationCenter(
-    _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
-  ) async {
-    guard let intent = Self.intent(from: response.notification.request.content.userInfo) else {
-      return
+    _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping @Sendable () -> Void
+  ) {
+    let intent = Self.intent(from: response.notification.request.content.userInfo)
+    Task { @MainActor [weak self] in
+      // 无效载荷和已释放会话也必须完成系统回调，冷启动意图仍交由既有认证流程等待。
+      defer { completionHandler() }
+      if let intent { self?.receive(intent) }
     }
-    await receive(intent)
   }
 }

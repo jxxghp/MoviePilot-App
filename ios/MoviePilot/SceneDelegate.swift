@@ -180,10 +180,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       root: login, instance: instance.id)
   }
 
-  /// 业务网页只在原生认证后创建；运行中失效通知始终撤销令牌并回到原生登录。
+  /// 原生认证后先收起登录键盘再交接网页；会话失效始终撤销令牌并回到原生登录。
   private func openWeb(
     _ instance: SavedInstance, authentication: AuthenticationResult
   ) {
+    window?.endEditing(true)
     coordinator?.stop()
     let coordinator = WebCoordinator(
       instance: instance, authentication: authentication,

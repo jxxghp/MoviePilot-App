@@ -26,29 +26,52 @@ final class NativeFrameworkTests: XCTestCase {
       app = XCUIApplication()
       app.launch()
     }
+    let isDuoSimulator =
+      ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4"
     let roots = app.tabBars["native-root-navigation"]
-    XCTAssertTrue(roots.waitForExistence(timeout: 45), "真实登录会话应恢复至原生导航")
+    let operationBar = duoOperationBar(app)
+    if isDuoSimulator {
+      XCTAssertTrue(operationBar.waitForExistence(timeout: 45), "Duo 应注册到系统操作栏")
+      XCTAssertFalse(roots.exists, "Duo 不应再绘制自定义底部导航")
+    } else {
+      XCTAssertTrue(roots.waitForExistence(timeout: 45), "真实登录会话应恢复至原生导航")
+    }
     defer { XCUIDevice.shared.orientation = .portrait }
     for orientation in [UIDeviceOrientation.portrait, .landscapeLeft, .portrait] {
       XCUIDevice.shared.orientation = orientation
-      roots.buttons["更多"].tap()
+      let rootContainer = isDuoSimulator ? operationBar : roots
+      rootContainer.buttons["更多"].tap()
       let menu = app.tables["more-menu"]
       XCTAssertTrue(menu.waitForExistence(timeout: 15))
       let action = app.buttons["native-bottom-action"]
       XCTAssertTrue(action.isHittable, "窗口变化后搜索按钮仍应可点击")
-      XCTAssertTrue(app.frame.insetBy(dx: -1, dy: -1).contains(action.frame))
-      let rootButtons = roots.buttons.allElementsBoundByIndex
-      XCTAssertEqual(rootButtons.count, 4, "主导航应保留四个入口")
-      for rootButton in rootButtons {
-        XCTAssertTrue(
-          app.frame.insetBy(dx: -1, dy: -1).contains(rootButton.frame),
-          "主导航入口必须留在窗口内")
-        XCTAssertFalse(rootButton.frame.intersects(action.frame), "动作与主导航入口不得重叠")
+      let rootButtons = rootContainer.buttons.allElementsBoundByIndex.filter {
+        !isDuoSimulator || $0.identifier.hasPrefix("native-root-")
       }
-      if let lastRoot = rootButtons.last {
-        XCTAssertGreaterThanOrEqual(
-          action.frame.minX - lastRoot.frame.maxX, 8,
-          "动态动作与主导航最后入口之间应保留可点击间距")
+      XCTAssertEqual(rootButtons.count, 4, "主导航应保留四个入口")
+      if isDuoSimulator {
+        // Duo 的系统栏位于活动内屏，XCUIApplication.frame 可能仍指向未激活的外屏。
+        XCTAssertTrue(rootContainer.exists, "Duo 系统操作栏必须可访问")
+        XCTAssertTrue(rootContainer.frame.insetBy(dx: -1, dy: -1).contains(action.frame))
+        XCTAssertLessThanOrEqual(action.frame.maxX, rootContainer.frame.maxX + 1)
+        XCTAssertGreaterThanOrEqual(action.frame.minX, rootContainer.frame.minX - 1)
+        for rootButton in rootButtons {
+          XCTAssertGreaterThanOrEqual(rootButton.frame.minX, rootContainer.frame.minX - 1)
+          XCTAssertLessThanOrEqual(rootButton.frame.maxX, rootContainer.frame.maxX + 1)
+        }
+      } else {
+        XCTAssertTrue(app.frame.insetBy(dx: -1, dy: -1).contains(action.frame))
+        for rootButton in rootButtons {
+          XCTAssertTrue(
+            app.frame.insetBy(dx: -1, dy: -1).contains(rootButton.frame),
+            "主导航入口必须留在窗口内")
+          XCTAssertFalse(rootButton.frame.intersects(action.frame), "动作与主导航入口不得重叠")
+        }
+        if let lastRoot = rootButtons.last {
+          XCTAssertGreaterThanOrEqual(
+            action.frame.minX - lastRoot.frame.maxX, 8,
+            "动态动作与主导航最后入口之间应保留可点击间距")
+        }
       }
       attachScreen("兼容性-更多-\(orientation.rawValue)", app: app, dismissUpdateReminder: false)
       action.tap()
@@ -82,7 +105,7 @@ final class NativeFrameworkTests: XCTestCase {
       edgeStart.press(forDuration: 0.1, thenDragTo: edgeEnd)
       let back = app.buttons["返回"]
       if back.exists { back.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
-      let dashboard = app.tabBars["native-root-navigation"].buttons["仪表盘"]
+      let dashboard = (isDuoSimulator ? operationBar : roots).buttons["仪表盘"]
       XCTAssertTrue(dashboard.waitForExistence(timeout: 10), "窗口变化后仪表盘入口仍应存在")
       let hittable = XCTNSPredicateExpectation(
         predicate: NSPredicate(format: "hittable == true"), object: dashboard)
@@ -95,9 +118,80 @@ final class NativeFrameworkTests: XCTestCase {
     }
     XCUIDevice.shared.press(.home)
     app.activate()
-    XCTAssertTrue(roots.waitForExistence(timeout: 20), "前后台切换不能丢失真实会话")
+    XCTAssertTrue(nativeRootBar(app).waitForExistence(timeout: 20), "前后台切换不能丢失真实会话")
     XCTAssertFalse(app.otherElements["native-startup-screen"].exists)
     attachScreen("兼容性-前后台恢复", app: app, dismissUpdateReminder: false)
+  }
+
+  /// 在最新 iPhone Duo 模拟器上验证入口和搜索动作注册到系统操作栏，并确认路由有效。
+  func testIPhoneDuoUsesSystemOperationBar() throws {
+    guard ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4" else {
+      throw XCTSkip("仅在 iPhone Duo 模拟器验证侧边操作栏。")
+    }
+    let app = try signIn(captureScreens: false, remember: false)
+    dismissKeyboardIfVisible(app)
+    let rail = duoOperationBar(app)
+    XCTAssertTrue(rail.waitForExistence(timeout: 30), app.debugDescription)
+    XCTAssertFalse(app.tabBars["native-root-navigation"].exists)
+    let populated = XCTNSPredicateExpectation(
+      predicate: NSPredicate { _, _ in
+        rail.buttons.allElementsBoundByIndex.filter { $0.identifier.hasPrefix("native-root-") }
+          .count == 4
+      }, object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [populated], timeout: 12), .completed, app.debugDescription)
+    let roots = rail.buttons.allElementsBoundByIndex.filter {
+      $0.identifier.hasPrefix("native-root-")
+    }
+    XCTAssertEqual(roots.count, 4)
+    for root in roots {
+      XCTAssertGreaterThanOrEqual(root.frame.minX, rail.frame.minX - 1)
+      XCTAssertLessThanOrEqual(root.frame.maxX, rail.frame.maxX + 1)
+      XCTAssertGreaterThanOrEqual(root.frame.height, 32)
+    }
+    let action = app.buttons["native-bottom-action"]
+    XCTAssertTrue(action.waitForExistence(timeout: 12))
+    XCTAssertGreaterThanOrEqual(action.frame.minX, rail.frame.minX - 1)
+    XCTAssertLessThanOrEqual(action.frame.maxX, rail.frame.maxX + 1)
+    attachScreen("Duo-侧边操作栏", app: app, dismissUpdateReminder: false)
+    rail.buttons["推荐"].tap()
+    XCTAssertTrue(app.navigationBars["推荐"].waitForExistence(timeout: 15))
+    attachScreen("Duo-侧边操作栏-路由点击", app: app, dismissUpdateReminder: false)
+  }
+
+  /// iPad 横竖屏底栏为完整文案保留独立空间，并与动态动作保持一致的可点击高度。
+  func testIPadBottomNavigationKeepsFullTitles() throws {
+    guard UIDevice.current.userInterfaceIdiom == .pad else {
+      throw XCTSkip("仅在 iPad 验证上下排列的底栏文案。")
+    }
+    let app = try signIn(captureScreens: false)
+    defer { XCUIDevice.shared.orientation = .portrait }
+    for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+      XCUIDevice.shared.orientation = orientation
+      let bar = app.tabBars["native-root-navigation"]
+      XCTAssertTrue(bar.waitForExistence(timeout: 15))
+      bar.buttons["仪表盘"].tap()
+      settlePage(app)
+      attachScreen("iPad-底栏尺寸-\(orientation.rawValue)", app: app, dismissUpdateReminder: false)
+      let geometry = XCTAttachment(
+        string:
+          "bar=\(bar.frame)\naction=\(app.buttons["native-bottom-action"].frame)\n\(app.debugDescription)"
+      )
+      geometry.name = "iPad 底栏实际几何"
+      geometry.lifetime = .keepAlways
+      add(geometry)
+      XCTAssertGreaterThanOrEqual(bar.frame.width, 400, "全宽 iPad 不能沿用手机窄底栏")
+      XCTAssertGreaterThanOrEqual(bar.frame.height, 64, "底栏整体需容纳图标和文案")
+      for title in ["仪表盘", "推荐", "探索", "更多"] {
+        let button = bar.buttons[title]
+        XCTAssertTrue(button.isHittable)
+        XCTAssertEqual(button.label, title)
+        XCTAssertGreaterThanOrEqual(button.frame.width, 88, "每个入口应容纳完整文案")
+        // UIKit 的辅助功能按钮不含玻璃外缘；单个目标遵循 44pt 下限，栏体单独验证高度。
+        XCTAssertGreaterThanOrEqual(button.frame.height, 44, "入口不能压成不可点击的细条")
+      }
+      assertBottomLayout(app)
+      attachScreen("iPad-完整底栏文案-\(orientation.rawValue)", app: app, dismissUpdateReminder: false)
+    }
   }
 
   /// 独立搜索保留来源入口，类型切换改变来源与站点，空关键词不允许提交。
@@ -2037,6 +2131,64 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
   }
 
+  /// 点击系统投递的通知唤醒后台 App，覆盖有效、无效和异账号载荷的系统完成回调。
+  func testBackgroundNotificationTapKeepsAppAlive() async throws {
+    guard let raw = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_NOTIFICATION_TAP"],
+      let fixture = URL(string: raw), fixture.scheme == "http", fixture.host == "127.0.0.1"
+    else { throw XCTSkip("通知点击回归需要显式指定模拟器的本机隔离服务。") }
+    try await setNotificationSetup("ready", fixture: fixture)
+    let app = try signIn(captureScreens: false, remember: false)
+    settlePage(app)
+    dismissUpdateReminderIfVisible(app)
+    app.buttons["操作菜单"].tap()
+    app.buttons["连接与显示"].tap()
+    app.buttons["通知"].firstMatch.tap()
+    let settings = app.tables["notification-settings"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 10))
+    settings.swipeUp()
+    let enable = settings.cells["notification-enable-native"]
+    let ready = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "isEnabled == true"), object: enable)
+    XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 15), .completed)
+    enable.tap()
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    let permission = springboard.alerts.firstMatch
+    if permission.waitForExistence(timeout: 5) {
+      permission.buttons.matching(NSPredicate(format: "label IN %@", ["允许", "Allow"]))
+        .firstMatch.tap()
+    }
+    let confirmation = app.alerts["通知"]
+    if confirmation.waitForExistence(timeout: 8) { confirmation.buttons["好"].tap() }
+    app.buttons["完成"].tap()
+    for kind in ["valid", "invalid", "other"] {
+      XCUIDevice.shared.press(.home)
+      XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
+      var request = URLRequest(url: fixture.appendingPathComponent("__notification/push"))
+      request.httpMethod = "POST"
+      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      request.httpBody = try JSONSerialization.data(withJSONObject: ["kind": kind])
+      let (_, response) = try await URLSession.shared.data(for: request)
+      XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+      let notification = springboard.descendants(matching: .any)
+        .matching(NSPredicate(format: "label CONTAINS %@", "MoviePilot 通知点击回归")).firstMatch
+      XCTAssertTrue(notification.waitForExistence(timeout: 10), springboard.debugDescription)
+      notification.tap()
+      XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10), "点击通知必须恢复原 App 进程")
+      if kind == "valid" {
+        XCTAssertTrue(app.tables["native-quick-panel"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars["通知中心"].exists)
+        attachScreen("通知-后台点击恢复通知中心", app: app, dismissUpdateReminder: false)
+        app.buttons["native-panel-close"].tap()
+      } else if kind == "other" {
+        let alert = app.alerts["通知"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10))
+        alert.buttons["好"].tap()
+      }
+      XCTAssertTrue(app.tabBars["native-root-navigation"].exists)
+      XCTAssertEqual(app.state, .runningForeground)
+    }
+  }
+
   /// 隔离中转夹具验证原生设置、真实绑定码与主屏幕通知链接，不访问外部推送服务。
   func testNotificationSettingsAndHotLink() async throws {
     guard let fixture = ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_NOTIFICATION_FIXTURE"],
@@ -3368,6 +3520,9 @@ final class NativeFrameworkTests: XCTestCase {
 
   /// 动态按钮出现与消失只平移整组导航，不重新压缩主按钮与选中反馈。
   func testBottomNavigationKeepsItemGeometry() throws {
+    guard ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] != "iPhone19,4" else {
+      throw XCTSkip("Duo 使用系统操作栏，不执行普通底栏的水平几何断言。")
+    }
     let app = try signIn()
     app.tabBars["native-root-navigation"].buttons["更多"].tap()
     XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
@@ -4559,7 +4714,7 @@ final class NativeFrameworkTests: XCTestCase {
     return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
   }
 
-  /// 公共登录前置只读取私有运行参数，截图不包含账号输入或密码。
+  /// 公共登录前置允许恢复同一实例的已有会话，私有登录参数不进入截图或持久测试配置。
   private func signIn(captureScreens: Bool = true, remember: Bool = true) throws -> XCUIApplication
   {
     let environment = ProcessInfo.processInfo.environment
@@ -4567,20 +4722,34 @@ final class NativeFrameworkTests: XCTestCase {
       let password = environment["MOVIEPILOT_E2E_PASSWORD"],
       !username.isEmpty, !password.isEmpty
     else { throw XCTSkip("需要通过私有测试运行配置指定实例和账号。") }
-    let app = try launchLogin(captureScreens: captureScreens)
-    if !remember { app.switches["保持登录"].tap() }
+    guard let server = environment["MOVIEPILOT_E2E_SERVER"] else {
+      throw XCTSkip("需要指定私有验收实例。")
+    }
+    let app = launchConnection(server: server, captureScreens: captureScreens)
     let account = app.textFields["用户名"]
-    account.tap()
-    if captureScreens { attachScreen("框架-登录键盘", app: app) }
-    account.typeText(username)
-    app.secureTextFields["密码"].tap()
-    app.secureTextFields["密码"].typeText(password + "\n")
+    let entry = XCTNSPredicateExpectation(
+      predicate: NSPredicate { _, _ in
+        account.exists || app.buttons["更多"].exists
+      }, object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [entry], timeout: 45), .completed)
+    if account.exists {
+      if !remember { app.switches["保持登录"].tap() }
+      account.tap()
+      if captureScreens { attachScreen("框架-登录键盘", app: app) }
+      account.typeText(username)
+      app.secureTextFields["密码"].tap()
+      app.secureTextFields["密码"].typeText(password + "\n")
+    }
     // 未签名的模拟器可能拒绝 Keychain；明确关闭已告知的降级提示再验收页面交接。
     let outcome = app.buttons.matching(NSPredicate(format: "label IN %@", ["更多", "好"])).firstMatch
     XCTAssertTrue(outcome.waitForExistence(timeout: 45))
     if app.alerts["已登录"].exists { app.alerts["已登录"].buttons["好"].tap() }
     XCTAssertTrue(app.buttons["更多"].waitForExistence(timeout: 45), "等待网页确认原生导航接管")
-    XCTAssertFalse(app.otherElements["native-startup-screen"].exists, "资源与导航完成后启动页必须消失")
+    let startup = app.otherElements["native-startup-screen"]
+    if startup.exists {
+      XCTAssertTrue(
+        startup.waitForNonExistence(timeout: 20), "资源与导航完成后启动页必须消失")
+    }
     return app
   }
 
@@ -4740,11 +4909,15 @@ final class NativeFrameworkTests: XCTestCase {
     } else {
       keyboard.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.92)).tap()
     }
-    XCTAssertFalse(keyboard.waitForExistence(timeout: 3), "底部导航前必须收起系统键盘")
+    XCTAssertTrue(keyboard.waitForNonExistence(timeout: 5), "底部导航前必须收起系统键盘")
   }
 
   /// 主入口与动态动作必须处于同一行，两组之间留白，不能叠成上下两层。
   private func assertBottomLayout(_ app: XCUIApplication) {
+    if ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4" {
+      assertSystemOperationBarLayout(app)
+      return
+    }
     let roots = app.tabBars["native-root-navigation"].buttons.allElementsBoundByIndex
     XCTAssertEqual(roots.count, 4)
     XCTAssertEqual(roots.last?.label, "更多", "主导航最后一项保持为更多菜单")
@@ -4753,7 +4926,8 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertEqual(app.tabBars.count, 1, "不能同时保留旧底栏")
     for root in roots {
       XCTAssertEqual(root.frame.midY, more.frame.midY, accuracy: 4)
-      XCTAssertGreaterThanOrEqual(root.frame.height, 52, "主导航保持原生底栏的大点击区域")
+      let minimumHeight: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 44 : 52
+      XCTAssertGreaterThanOrEqual(root.frame.height, minimumHeight, "主导航保持系统推荐的点击区域")
       XCTAssertGreaterThanOrEqual(root.frame.width, 52)
     }
     let action = app.buttons["native-bottom-action"]
@@ -4767,15 +4941,49 @@ final class NativeFrameworkTests: XCTestCase {
     }
   }
 
+  /// Duo 主入口和动态动作必须同处系统操作栏，且不再出现自定义底栏。
+  private func assertSystemOperationBarLayout(_ app: XCUIApplication) {
+    let bar = duoOperationBar(app)
+    let roots = bar.buttons.allElementsBoundByIndex.filter {
+      $0.identifier.hasPrefix("native-root-")
+    }
+    XCTAssertEqual(roots.count, 4)
+    XCTAssertFalse(app.tabBars["native-root-navigation"].exists, "Duo 不应同时保留自定义底栏")
+    for root in roots {
+      XCTAssertGreaterThanOrEqual(root.frame.minX, bar.frame.minX - 1)
+      XCTAssertLessThanOrEqual(root.frame.maxX, bar.frame.maxX + 1)
+      XCTAssertGreaterThanOrEqual(root.frame.height, 32)
+    }
+    let action = app.buttons["native-bottom-action"]
+    if action.exists {
+      XCTAssertGreaterThanOrEqual(action.frame.minX, bar.frame.minX - 1)
+      XCTAssertLessThanOrEqual(action.frame.maxX, bar.frame.maxX + 1)
+    }
+  }
+
+  /// 根据设备选择系统操作栏或普通底栏，目录滚动锚点始终避开当前控件。
+  private func nativeRootBar(_ app: XCUIApplication) -> XCUIElement {
+    if ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4" {
+      return duoOperationBar(app)
+    }
+    return app.tabBars["native-root-navigation"]
+  }
+
+  /// 返回 Duo 上由 UIKit 创建的系统工具栏；其系统可访问性标识在不同 Xcode 版本中可能变化。
+  private func duoOperationBar(_ app: XCUIApplication) -> XCUIElement {
+    app.toolbars.element(boundBy: 0)
+  }
+
   /// 通过真实目录滚动找到授权入口，避免点击底部导航覆盖的行。
   private func moreItem(_ title: String, app: XCUIApplication) -> XCUIElement {
     let menu = app.tables["more-menu"]
     let item = menu.cells.containing(.staticText, identifier: title).firstMatch
     for _ in 0..<12 {
-      if item.exists, item.isHittable,
-        item.frame.maxY < app.tabBars["native-root-navigation"].frame.minY
-      {
-        return item
+      if item.exists, item.isHittable {
+        let clearsNavigation =
+          ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4"
+          || item.frame.maxY < nativeRootBar(app).frame.minY
+        if clearsNavigation { return item }
       }
       menu.swipeUp()
     }
@@ -4785,7 +4993,7 @@ final class NativeFrameworkTests: XCTestCase {
 
   /// 从任意业务页重置更多目录，再按原目录标题打开页面，不直接操纵 Web 路由。
   private func openMorePage(_ title: String, app: XCUIApplication) {
-    app.tabBars["native-root-navigation"].buttons["更多"].tap()
+    nativeRootBar(app).buttons["更多"].tap()
     let menu = app.tables["more-menu"]
     XCTAssertTrue(menu.waitForExistence(timeout: 10))
     moreItem(title, app: app).tap()

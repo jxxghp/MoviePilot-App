@@ -1,3 +1,4 @@
+import Darwin
 import MoviePilotCore
 import UIKit
 
@@ -5,6 +6,27 @@ import UIKit
 @MainActor
 final class BottomNavigationView: UIView, UITabBarDelegate {
   static let height: CGFloat = 64
+  private static let duoModelIdentifiers: Set<String> = ["iPhone19,4"]
+
+  /// 只识别 Apple iPhone Duo 型号；其它 iPhone、iPad 和 Mac 保持原底部导航。
+  static var isIPhoneDuo: Bool {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
+    let model =
+      ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"]
+      ?? machineIdentifier()
+    return duoModelIdentifiers.contains(model)
+  }
+
+  /// 读取真机硬件标识；模拟器优先使用 Xcode 注入的型号标识。
+  private static func machineIdentifier() -> String {
+    var size: size_t = 0
+    guard sysctlbyname("hw.machine", nil, &size, nil, 0) == 0, size > 0 else { return "" }
+    var machine = [CChar](repeating: 0, count: Int(size))
+    guard sysctlbyname("hw.machine", &machine, &size, nil, 0) == 0 else { return "" }
+    return String(
+      decoding: machine.map { UInt8(bitPattern: $0) }.prefix { $0 != 0 }, as: UTF8.self)
+  }
+
   /// 路由守卫取消时网页不发送失败信号，超过该时长未确认才撤销点击目标。
   private static let confirmationTimeout: TimeInterval = 2
   private let tabBar = UITabBar()
@@ -72,7 +94,11 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
     let measured = tabBar.sizeThatFits(
       CGSize(width: max(0, bounds.width), height: CGFloat.greatestFiniteMagnitude)
     ).height
-    return CGSize(width: UIView.noIntrinsicMetric, height: measured)
+    // iPad 的独立 Tab Bar 默认仅量到 49pt；为上下排列保留与动态动作一致的 64pt 内容区。
+    let height =
+      UIDevice.current.userInterfaceIdiom == .pad
+      ? max(measured, Self.height + safeAreaInsets.bottom) : measured
+    return CGSize(width: UIView.noIntrinsicMetric, height: height)
   }
 
   /// 入窗或旋转会改变系统栏的安全区和推荐高度，重新交给 Auto Layout 量测。
@@ -86,7 +112,9 @@ final class BottomNavigationView: UIView, UITabBarDelegate {
     actionHeight.constant = min(Self.height, intrinsicContentSize.height)
     let count = CGFloat(max(1, rootIds.count))
     let maximum = max(0, bounds.width - Self.height - 12)
-    let width = min(maximum, count * 72 + 8)
+    // iPad 的独立底栏有足够空间容纳完整文案，窄窗口仍由实际可用宽度限制。
+    let itemWidth: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 100 : 72
+    let width = min(maximum, count * itemWidth + 8)
     if abs(navigationWidth.constant - width) > 0.5 { navigationWidth.constant = width }
     super.layoutSubviews()
   }
