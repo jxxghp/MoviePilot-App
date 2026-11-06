@@ -146,6 +146,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   private var webSheet: NativeWebSheetController?
   private var sheetNavigation: UINavigationController?
   private var sheetAttachedID: String?
+  private var sheetAttachmentIDs: [String] = []
   private var sheetDismissing = false
   private var sheetRestoreToken: UUID?
   private var preparingSheetID: String?
@@ -1324,6 +1325,9 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     _ descriptor: NativeSheetSnapshot, controller: NativeWebSheetController
   ) {
     sheetAttachedID = descriptor.id
+    // 新层可能在 attach 到达网页前关闭；保留本轮候选，归还时才能找到实际接管的上一层。
+    sheetAttachmentIDs.removeAll { $0 == descriptor.id }
+    sheetAttachmentIDs.append(descriptor.id)
     coordinator.layoutChanged()
     coordinator.command(
       "presentation.attach", payload: .object(["id": .string(descriptor.id)])
@@ -1336,6 +1340,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
         self.coordinator.recoverNavigation()
         return
       }
+      self.sheetAttachmentIDs = [descriptor.id]
       guard let navigation = self.sheetNavigation, navigation.presentingViewController == nil,
         self.presentedViewController == nil, self.nativeVisible,
         self.latest?.presentation?.sheet?.id == descriptor.id
@@ -1410,7 +1415,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     sheetDismissing = true
     let token = UUID()
     sheetRestoreToken = token
-    let id = sheetAttachedID
+    let attachmentIDs = Array(sheetAttachmentIDs.reversed())
     let dismiss = { [weak self] in
       guard let self, self.sheetRestoreToken == token else { return }
       self.removeSheetStaging(navigation)
@@ -1432,15 +1437,31 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     synchronizeContentBackground()
     host.view.layoutIfNeeded()
     coordinator.layoutChanged()
-    if let id, nativeVisible {
-      coordinator.command(
-        "presentation.detach", payload: .object(["id": .string(id)])
-      ) { [weak self] accepted in
-        guard let self, self.sheetRestoreToken == token else { return }
-        if accepted { dismiss() } else { self.coordinator.recoverNavigation() }
-      }
+    if !attachmentIDs.isEmpty, nativeVisible {
+      detachWebSheet(attachmentIDs[...], token: token, completion: dismiss)
     } else {
       dismiss()
+    }
+  }
+
+  /// 只归还本轮尝试接管过的层；明确拒绝才检查上一层，不重放保存或关闭等业务动作。
+  private func detachWebSheet(
+    _ ids: ArraySlice<String>, token: UUID, completion: @escaping () -> Void
+  ) {
+    guard sheetRestoreToken == token else { return }
+    guard let id = ids.first else {
+      coordinator.recoverNavigation()
+      return
+    }
+    coordinator.command(
+      "presentation.detach", payload: .object(["id": .string(id)])
+    ) { [weak self] accepted in
+      guard let self, self.sheetRestoreToken == token else { return }
+      if accepted {
+        completion()
+      } else {
+        self.detachWebSheet(ids.dropFirst(), token: token, completion: completion)
+      }
     }
   }
 
@@ -1451,6 +1472,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     webSheet = nil
     sheetNavigation = nil
     sheetAttachedID = nil
+    sheetAttachmentIDs.removeAll()
     sheetExitPlaceholder?.removeFromSuperview()
     sheetExitPlaceholder = nil
     sheetPagePlaceholder?.removeFromSuperview()

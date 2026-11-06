@@ -126,6 +126,25 @@ TEST_RUNNER_MOVIEPILOT_E2E_SHEET_RACE=1 xcodebuild test \
 
 用例从推荐、探索和更多入口交替通过卡片按钮与长按菜单发起搜索，连续验证 12 次站点筛选和资源页跳转。后半段扩大归还绘制确认与路由切换交错的窗口，检查导航未进入恢复页、Sheet 样式已清除且资源页属于当前入口。
 
+插件配置保存回归使用真实前端和固定合成插件，不连接真实实例，也不安装插件：
+
+```sh
+# App 仓库没有虚拟环境时，使用工作区主仓已配置的虚拟环境。
+../MoviePilot/.venv/bin/python scripts/plugin-save-fixture.py --frontend ../MoviePilot-Frontend/dist
+# 另开终端，在专用模拟器运行；可以复用已编译的测试产物。
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+TEST_RUNNER_MOVIEPILOT_E2E_PLUGIN_SAVE=1 \
+TEST_RUNNER_MOVIEPILOT_E2E_SERVER=http://127.0.0.1:5312 \
+TEST_RUNNER_MOVIEPILOT_E2E_USERNAME=startup-fixture \
+TEST_RUNNER_MOVIEPILOT_E2E_PASSWORD=fixture-only \
+xcodebuild test -project ios/MoviePilot.xcodeproj -scheme MoviePilot \
+  -destination 'platform=iOS Simulator,id=你的模拟器UUID' \
+  -only-testing:MoviePilotUITests/NativeFrameworkTests/testPluginConfigurationSaveKeepsNavigation \
+  CODE_SIGNING_ALLOWED=NO
+```
+
+用例覆盖立即、短延迟和一秒延迟保存，以及保存失败后保留输入并手动重试；核对五次点击对应五次请求，完成后可继续打开原生更多页面。协议事件只记录弹窗声明与命令结果，不记录认证信息。
+
 ```text
 ios/          UIKit / WKWebView App、资源与 UI 测试
 Sources/      可独立编译的 Swift 核心
