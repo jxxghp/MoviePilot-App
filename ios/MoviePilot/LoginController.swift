@@ -9,7 +9,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
   private let savedToken: String?
   private let onExpired: () -> Void
   private let onAuthenticated: (AuthenticationResult, Bool, Bool) -> Void
-  private let onConnection: () -> Void
+  private let onConnection: (String?) -> Void
   private let credentials = LoginCredentialStore()
   private let username = UITextField()
   private let password = UITextField()
@@ -26,13 +26,14 @@ final class LoginController: UIViewController, UITextFieldDelegate {
   private var initialized = true
   private var startupView: StartupView?
   private var preparationID: UUID?
+  private var preparationTimeout: Timer?
   private var preparationSuspended = false
 
   /// 回调只交付认证结果与保存状态，密码仅由本控制器按用户选择交给私有钥匙串。
   init(
     instance: SavedInstance, savedToken: String?, onExpired: @escaping () -> Void,
     onAuthenticated: @escaping (AuthenticationResult, Bool, Bool) -> Void,
-    onConnection: @escaping () -> Void
+    onConnection: @escaping (String?) -> Void
   ) {
     self.instance = instance
     self.savedToken = savedToken
@@ -51,7 +52,7 @@ final class LoginController: UIViewController, UITextFieldDelegate {
     super.viewDidLoad()
     title = "登录"
     navigationItem.leftBarButtonItem = UIBarButtonItem(
-      title: "更改地址", primaryAction: UIAction { [weak self] _ in self?.onConnection() })
+      title: "更改地址", primaryAction: UIAction { [weak self] _ in self?.onConnection(nil) })
     let header = AccountAppearance.header(title: "欢迎回来", subtitle: "登录你的服务，继续管理订阅与媒体。")
     let serverIcon = UIImageView(image: UIImage(systemName: "server.rack"))
     serverIcon.tintColor = AccountAppearance.accent(for: instance.id)
@@ -212,6 +213,8 @@ final class LoginController: UIViewController, UITextFieldDelegate {
       return
     }
     preparationID = nil
+    preparationTimeout?.invalidate()
+    preparationTimeout = nil
     preparationSuspended = false
     task?.cancel()
     task = nil
@@ -274,10 +277,18 @@ final class LoginController: UIViewController, UITextFieldDelegate {
     }
   }
 
-  /// 初始化与令牌恢复先验证服务器；未知状态允许重试，不进入网页认证或初始化。
+  /// 初始化与令牌恢复共用十五秒前台期限；连不上时返回地址列表，不清除保存的会话。
   private func prepare() {
     let identifier = UUID()
     preparationID = identifier
+    preparationTimeout?.invalidate()
+    preparationTimeout = Timer.scheduledTimer(withTimeInterval: 15, repeats: false) {
+      [weak self] _ in
+      MainActor.assumeIsolated {
+        guard let self, self.preparationID == identifier else { return }
+        self.returnToConnection("连接超时，请选择当前网络可用的服务地址，或稍后重试。")
+      }
+    }
     setBusy(true)
     setMessage("正在连接你的实例…")
     task = Task { [weak self] in
@@ -286,6 +297,8 @@ final class LoginController: UIViewController, UITextFieldDelegate {
       defer {
         if self.preparationID == identifier {
           self.preparationID = nil
+          self.preparationTimeout?.invalidate()
+          self.preparationTimeout = nil
           self.setBusy(false)
           self.task = nil
           if !restored && !Task.isCancelled { self.revealLogin() }
@@ -319,11 +332,18 @@ final class LoginController: UIViewController, UITextFieldDelegate {
         guard !Task.isCancelled else { return }
         self.passkey.isHidden = enabled != true
         self.setMessage(nil)
-      } catch { if !Task.isCancelled { self.show(error) } }
+      } catch {
+        guard !Task.isCancelled else { return }
+        if error is AuthenticationError {
+          self.show(error)
+        } else if let message = ConnectionFailure(error).errorDescription {
+          self.returnToConnection(message)
+        }
+      }
     }
   }
 
-  /// 只重试初始化查询和已保存令牌的只读校验；密码、OTP 和通行密钥提交不自动重放。
+  /// 仅在连接期限内重试只读探测；密码、OTP 和通行密钥提交不自动重放。
   private func whenServiceAvailable<Value>(_ operation: () async throws -> Value) async throws
     -> Value
   {
@@ -346,10 +366,21 @@ final class LoginController: UIViewController, UITextFieldDelegate {
         showStartup()
         startupView?.showServiceWait(
           message: description, retry: { [weak self] in self?.retryPreparation() },
-          changeAddress: { [weak self] in self?.onConnection() })
+          changeAddress: { [weak self] in self?.returnToConnection() })
         try await Task.sleep(for: .milliseconds(1500))
       }
     }
+  }
+
+  /// 撤销旧探测后交回地址选择，迟到响应不能打开旧服务，也不把网络故障当作令牌过期。
+  private func returnToConnection(_ message: String? = nil) {
+    preparationID = nil
+    preparationTimeout?.invalidate()
+    preparationTimeout = nil
+    task?.cancel()
+    task = nil
+    client.cancel()
+    onConnection(message)
   }
 
   /// 手动重试立即撤销旧探测，旧任务的清理不能覆盖新一轮等待状态。
@@ -364,6 +395,8 @@ final class LoginController: UIViewController, UITextFieldDelegate {
     guard preparationID != nil else { return }
     preparationSuspended = true
     preparationID = nil
+    preparationTimeout?.invalidate()
+    preparationTimeout = nil
     task?.cancel()
     task = nil
   }

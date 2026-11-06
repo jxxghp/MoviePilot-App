@@ -7,6 +7,7 @@ import json
 import socket
 import subprocess
 import threading
+import time
 import uuid
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -60,18 +61,30 @@ class StartupHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
 
     def scenario_path(self):
         """
-        各用例使用独立实例前缀隔离 Keychain，接口与静态资源仍来自同一合成服务。
+        各轮回归可追加独立 UUID 隔离 Keychain，接口与静态资源仍来自同一合成服务。
         """
         path = urlsplit(self.path).path
         for prefix in (
             "/automatic", "/cancel", "/background", "/saved", "/response", "/submit", "/layout",
             "/page-transient", "/page-retry", "/page-switch",
+            "/deadline", "/stalled", "/restore-stalled", "/page-disconnected", "/alternate",
         ):
             if path.startswith(prefix + "/"):
+                segments = path[len(prefix):].split("/", 2)
+                if len(segments) == 3:
+                    try:
+                        uuid.UUID(segments[1])
+                    except ValueError:
+                        pass
+                    else:
+                        prefix += "/" + segments[1]
                 self.path = self.path[len(prefix):]
                 return path[len(prefix):]
         return path
@@ -94,6 +107,9 @@ class StartupHandler(SimpleHTTPRequestHandler):
                 self.close_connection = True
             elif mode == "unavailable":
                 self.reply(status, {"detail": "合成服务尚未就绪"})
+            elif mode == "initialization-stalled":
+                time.sleep(25)
+                self.reply(200, {"success": True, "data": {"initialized": True}})
             elif mode == "invalid":
                 self.reply(200, {"data": {"initialized": "invalid"}})
             elif mode == "legacy":
@@ -105,6 +121,12 @@ class StartupHandler(SimpleHTTPRequestHandler):
         elif path == "/api/v1/user/current":
             if mode == "restore-unavailable":
                 self.reply(503, {})
+            elif mode == "restore-stalled":
+                time.sleep(25)
+                self.reply(200, {"success": True, "data": {
+                    "id": 1, "name": self.username(), "is_superuser": True, "level": 1,
+                    "permissions": {},
+                }})
             elif mode == "expired" or (
                 self.server.profile
                 and self.headers.get("Authorization") != f"Bearer profile-{self.server.profile}-only"
@@ -127,6 +149,10 @@ class StartupHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/"):
             self.reply(200, {"success": True, "data": []})
         else:
+            if mode == "document-disconnected":
+                self.connection.shutdown(socket.SHUT_RDWR)
+                self.close_connection = True
+                return
             if not Path(self.translate_path(path)).is_file():
                 self.path = "/index.html"
             super().do_GET()

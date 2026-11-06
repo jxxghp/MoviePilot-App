@@ -37,7 +37,7 @@ final class StartupView: UIView {
   ) {
     showWait(
       message: message, kicker: "服务状态", heading: "正在等待 MoviePilot",
-      detail: "后端服务就绪后，将自动继续登录或进入首页。", identifier: "native-service",
+      detail: "服务就绪后会自动继续；连接超时后将返回地址列表。", identifier: "native-service",
       retry: retry, changeAddress: changeAddress)
   }
 
