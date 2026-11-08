@@ -16,6 +16,7 @@ PLUGIN = {
     "plugin_desc": "仅用于本机保存回归", "installed": True, "has_page": False,
     "state": True, "runtime_status": "active", "plugin_icon": "none.png",
 }
+PANEL_PLUGIN = dict(PLUGIN, id="PanelFixture", plugin_name="面板回归插件", has_page=True)
 
 SCRIPT = """<script>
 location.hash = '#/plugins';
@@ -27,7 +28,8 @@ if (handler) {
       const payload = message.payload;
       fetch('/__plugin/event', {method:'POST', body:JSON.stringify({
         type:message.type, result:message.type === 'command.result' ? payload : undefined,
-        sheet:payload.presentation?.sheet, overlayOpen:payload.presentation?.overlayOpen
+        sheet:payload.presentation?.sheet, overlayOpen:payload.presentation?.overlayOpen,
+        content:payload.chrome?.content, route:payload.route?.fullPath
       })});
     }
     original(message);
@@ -62,7 +64,7 @@ class PluginSaveHandler(startup.StartupHandler):
             self.wfile.write(body)
             return
         if path == "/api/v1/plugin/":
-            data = [PLUGIN]
+            data = [PLUGIN, PANEL_PLUGIN]
         elif path == "/api/v1/plugin/form/SaveFixture":
             data = {"render_mode": "vuetify", "conf": [
                 {"component": "VTextField", "props": {"model": "value", "label": "测试配置"}},
@@ -71,7 +73,10 @@ class PluginSaveHandler(startup.StartupHandler):
             data = {"ready": True, "generation": 1, "plugins": {}}
         elif path in ("/api/v1/plugin/statistic", "/api/v1/plugin/rating"):
             data = {}
-        elif path.startswith(("/api/v1/user/config/", "/api/v1/system/setting/")):
+        elif path.startswith("/api/v1/user/config/"):
+            with self.server.guard:
+                data = {"value": self.server.user_configs.get(path)}
+        elif path.startswith("/api/v1/system/setting/"):
             data = {"value": None}
         if data is not None:
             self.reply(200, {"success": True, "data": data})
@@ -79,9 +84,18 @@ class PluginSaveHandler(startup.StartupHandler):
             super().do_GET()
 
     def do_POST(self):
-        """控制端仅接收合成测试场景与有界事件，不接受真实实例参数。"""
+        """主题偏好仅保存在本机夹具内，控制端只接收合成测试场景与有界事件。"""
         path = urlsplit(self.path).path
-        if path.startswith("/__plugin/"):
+        if path.startswith("/api/v1/user/config/"):
+            length = int(self.headers.get("Content-Length", "0"))
+            if length > 8192:
+                self.reply(413, {})
+                return
+            data = json.loads(self.rfile.read(length))
+            with self.server.guard:
+                self.server.user_configs[path] = data
+            self.reply(200, {"success": True, "data": None})
+        elif path.startswith("/__plugin/"):
             data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
             with self.server.guard:
                 if path == "/__plugin/event":
@@ -120,6 +134,7 @@ class PluginSaveServer(startup.StartupServer):
         """静态资源必须由调用者指定，不复用任何真实服务地址或会话。"""
         super().__init__(5312, frontend)
         self.mode = "ready"
+        self.user_configs = {}
         self.state = {"events": [], "saves": [], "completed": 0, "delay": 0, "failure": False}
 
     def finish_request(self, request, client_address):

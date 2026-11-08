@@ -3,14 +3,19 @@ import MoviePilotCore
 import UIKit
 import WebKit
 
-/// 系统浮层自带 Liquid Glass；清除内容实色，避免把系统材质盖住或叠加另一层玻璃。
+/// 系统浮层在 iOS 26+ 使用 Liquid Glass，旧系统提供不透明底色以隔离底页文字。
 @MainActor
 enum NativeModalAppearance {
-  /// 表格和分组背景保持透明，材质、圆角与阴影由系统 presentation controller 负责。
+  /// 只有支持系统玻璃背景时才透明；动态语义色在旧系统下继续跟随 App 的明暗主题。
+  static var backgroundColor: UIColor {
+    if #available(iOS 26.0, *) { .clear } else { .systemBackground }
+  }
+
+  /// 表格与导航容器共用兼容底色，圆角、阴影和转场仍由系统负责。
   static func apply(to controller: UITableViewController) {
-    controller.tableView.backgroundColor = .clear
+    controller.tableView.backgroundColor = backgroundColor
     controller.tableView.backgroundView = nil
-    controller.navigationController?.view.backgroundColor = .clear
+    controller.navigationController?.view.backgroundColor = backgroundColor
   }
 
   /// 呈现层也跟随 App 主题；材质厚度、外围压暗和转场全部使用 UIKit 默认行为。

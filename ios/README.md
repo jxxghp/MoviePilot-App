@@ -145,6 +145,8 @@ xcodebuild test -project ios/MoviePilot.xcodeproj -scheme MoviePilot \
 
 用例覆盖立即、短延迟和一秒延迟保存，以及保存失败后保留输入并手动重试；核对五次点击对应五次请求，完成后可继续打开原生更多页面。协议事件只记录弹窗声明与命令结果，不记录认证信息。
 
+同一夹具还可运行 `NativeFrameworkTests/testModalBackgroundsAcrossThemes`，覆盖浅深主题下反复打开插件配置和原生插件面板。iOS 26 以前会检查内容及标题栏空白处的截图像素，确认不透明主题底色；iOS 26+ 保留系统材质并记录截图。新系统上的通过结果不能代替旧系统真机验收。
+
 ```text
 ios/          UIKit / WKWebView App、资源与 UI 测试
 Sources/      可独立编译的 Swift 核心

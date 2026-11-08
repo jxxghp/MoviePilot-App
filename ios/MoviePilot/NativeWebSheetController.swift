@@ -28,7 +28,7 @@ final class NativeWebSheetController: UIViewController, UIAdaptivePresentationCo
   /// 内容框架消费系统栏与 Home Indicator 安全区，网页不再重复添加原页面边距。
   override func viewDidLoad() {
     super.viewDidLoad()
-    view.backgroundColor = .clear
+    view.backgroundColor = NativeModalAppearance.backgroundColor
     view.accessibilityIdentifier = "native-web-sheet"
     addChild(contentHost)
     contentHost.view.translatesAutoresizingMaskIntoConstraints = false
