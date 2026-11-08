@@ -1298,7 +1298,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     controller.onLayout = { [weak self] in self?.coordinator.layoutChanged() }
     let navigation = UINavigationController(rootViewController: controller)
     navigation.overrideUserInterfaceStyle = overrideUserInterfaceStyle
-    navigation.view.backgroundColor = .clear
+    navigation.view.backgroundColor = NativeModalAppearance.backgroundColor
     navigation.view.tintColor = view.tintColor
     navigation.modalPresentationStyle = .pageSheet
     webSheet = controller

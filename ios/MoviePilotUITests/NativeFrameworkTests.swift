@@ -13,6 +13,109 @@ private struct NetworkFixtures: Decodable {
 /// 使用显式配置的实例验收原生框架与原业务 HTML；真实写入须另行开启并限定临时插件。
 @MainActor
 final class NativeFrameworkTests: XCTestCase {
+  /// 配置保存与面板在浅深主题下反复打开；旧系统检查最终像素，防止透明背景露出底页。
+  func testModalBackgroundsAcrossThemes() async throws {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_PLUGIN_SAVE"] == "1",
+      ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_SERVER"] == "http://127.0.0.1:5312"
+    else { throw XCTSkip("弹窗背景验收需要本机合成插件夹具。") }
+    try await pluginSaveFixture("config", value: ["reset": true])
+    let app = try signIn(captureScreens: false, remember: false)
+    defer { app.terminate() }
+    let plugin = app.webViews.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "保存回归插件")
+    ).firstMatch
+    for (theme, style) in [("浅色", UIUserInterfaceStyle.light), ("深色", .dark)] {
+      selectTheme(theme, app: app)
+      XCTAssertTrue(plugin.waitForExistence(timeout: 15), app.debugDescription)
+      for cycle in 1...2 {
+        plugin.tap()
+        let sheet = app.otherElements["native-web-sheet"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), app.debugDescription)
+        settlePage(app)
+        XCTAssertTrue(app.webViews.textFields["测试配置"].isHittable)
+        assertModalBackground(sheet, app: app, style: style, name: "配置-\(theme)-\(cycle)")
+        app.webViews.buttons["保存"].firstMatch.tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
+        let restored = XCTNSPredicateExpectation(
+          predicate: NSPredicate { _, _ in plugin.isHittable }, object: nil)
+        XCTAssertEqual(
+          XCTWaiter.wait(for: [restored], timeout: 10), .completed,
+          "配置保存后应保留原插件列表：\(app.debugDescription)")
+      }
+      rootNavigation(app).buttons["更多"].tap()
+      XCTAssertTrue(app.tables["more-menu"].waitForExistence(timeout: 10))
+      app.buttons["操作菜单"].tap()
+      app.buttons["插件面板"].firstMatch.tap()
+      let panel = app.tables["native-quick-panel"]
+      XCTAssertTrue(panel.waitForExistence(timeout: 10), app.debugDescription)
+      let tile = panel.buttons.matching(
+        NSPredicate(format: "label BEGINSWITH %@", "面板回归插件")
+      ).firstMatch
+      XCTAssertTrue(tile.waitForExistence(timeout: 10), app.debugDescription)
+      XCTAssertTrue(tile.isHittable)
+      assertModalBackground(panel, app: app, style: style, name: "插件面板-\(theme)")
+      app.buttons["native-panel-close"].tap()
+      XCTAssertTrue(panel.waitForNonExistence(timeout: 10))
+      // 返回同一个业务页，再次切换主题，覆盖背景与 WebView 归还后的重用。
+      openMorePage("插件", app: app)
+      XCTAssertTrue(plugin.waitForExistence(timeout: 15), app.debugDescription)
+      XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists)
+    }
+    selectTheme("跟随系统", app: app)
+  }
+
+  /// 采样内容与导航栏的空白边缘；iOS 26+ 保留系统材质，只留截图供外观检查。
+  private func assertModalBackground(
+    _ content: XCUIElement, app: XCUIApplication, style: UIUserInterfaceStyle, name: String
+  ) {
+    settlePage(app)
+    let screenshot = XCUIScreen.main.screenshot()
+    let attachment = XCTAttachment(screenshot: screenshot)
+    attachment.name = "弹窗背景-\(name)"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+    if #available(iOS 26.0, *) { return }
+    guard let image = screenshot.image.cgImage else {
+      XCTFail("无法读取弹窗截图")
+      return
+    }
+    let scale = CGFloat(image.width) / app.frame.width
+    // 系统 Sheet 使用 elevated 层级，深色语义背景与底页的 base 层级不同。
+    let expected = UIColor.systemBackground.resolvedColor(
+      with: UITraitCollection(traitsFrom: [
+        UITraitCollection(userInterfaceStyle: style),
+        UITraitCollection(userInterfaceLevel: .elevated),
+      ]))
+    var red: CGFloat = 0
+    var green: CGFloat = 0
+    var blue: CGFloat = 0
+    expected.getRed(&red, green: &green, blue: &blue, alpha: nil)
+    let closeID =
+      content.identifier == "native-web-sheet" ? "native-sheet-close" : "native-panel-close"
+    let bar = app.navigationBars.containing(.button, identifier: closeID).firstMatch
+    XCTAssertTrue(bar.exists)
+    for frame in [content.frame, bar.frame] {
+      let area = CGRect(
+        x: (frame.minX + 4) * scale, y: frame.midY * scale,
+        width: 2 * scale, height: 8 * scale)
+      guard let sample = image.cropping(to: area) else {
+        XCTFail("弹窗采样区域必须位于截图内")
+        continue
+      }
+      var pixel = [UInt8](repeating: 0, count: 4)
+      let context = CGContext(
+        data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+      context?.draw(sample, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+      for (index, component) in [red, green, blue].enumerated() {
+        XCTAssertEqual(
+          Double(pixel[index]) / 255, Double(component), accuracy: 0.04,
+          "\(name)：旧系统应显示不透明主题底色，RGB=\(pixel)")
+      }
+    }
+  }
+
   /// 快慢保存、失败与重试均使用真实 Vue 表单，每次点击只能发起一次保存且保留导航。
   func testPluginConfigurationSaveKeepsNavigation() async throws {
     guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_PLUGIN_SAVE"] == "1",
