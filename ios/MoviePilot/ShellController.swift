@@ -1230,8 +1230,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     }
     if let controller = webSheet {
       if sheetAttachedID != descriptor.id {
-        // 同一系统 Sheet 切回父弹窗时，旧子窗的透明退出截图不能叠在新的 HTML 内容上。
-        sheetExitPlaceholder?.removeFromSuperview()
+        controller.prepareContentTransition(to: descriptor.id, placeholder: sheetExitPlaceholder)
         sheetExitPlaceholder = nil
       }
       sheetNavigation?.overrideUserInterfaceStyle = overrideUserInterfaceStyle
@@ -1341,6 +1340,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
         return
       }
       self.sheetAttachmentIDs = [descriptor.id]
+      controller.finishContentTransition(to: descriptor.id)
       guard let navigation = self.sheetNavigation, navigation.presentingViewController == nil,
         self.presentedViewController == nil, self.nativeVisible,
         self.latest?.presentation?.sheet?.id == descriptor.id
@@ -1411,6 +1411,7 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       }
       return
     }
+    webSheet?.cancelContentTransition()
     preserveWebSheetExit()
     sheetDismissing = true
     let token = UUID()

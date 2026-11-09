@@ -147,6 +147,8 @@ xcodebuild test -project ios/MoviePilot.xcodeproj -scheme MoviePilot \
 
 同一夹具还可运行 `NativeFrameworkTests/testModalBackgroundsAcrossThemes`，覆盖浅深主题下反复打开插件配置和原生插件面板。iOS 26 以前会检查内容及标题栏空白处的截图像素，确认不透明主题底色；iOS 26+ 保留系统材质并记录截图。新系统上的通过结果不能代替旧系统真机验收。
 
+嵌套弹窗回归使用 `scripts/nested-sheet-fixture.py --frontend /path/to/frontend/dist`，仅监听 `127.0.0.1:5322`。设置 `TEST_RUNNER_MOVIEPILOT_E2E_SERVER` 和 `TEST_RUNNER_MOVIEPILOT_E2E_PROCESS_FIXTURE` 均为 `http://127.0.0.1:5322`，沿用上述合成账号，执行 `NativeFrameworkTests/testNativeNestedSheetRestoresParent`。用例从真实站点卡片打开浏览父窗，再连续三次打开、关闭确认下载子窗，确认父列表只加载一次，且不执行下载。动画只作用于当前已绘制的层，父窗表单与列表继续由同一个 WebView 保留；开启系统“减弱动态效果”时使用淡入淡出。
+
 ```text
 ios/          UIKit / WKWebView App、资源与 UI 测试
 Sources/      可独立编译的 Swift 核心
