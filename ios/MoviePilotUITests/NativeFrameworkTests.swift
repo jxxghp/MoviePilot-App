@@ -3554,6 +3554,15 @@ final class NativeFrameworkTests: XCTestCase {
     }
     app.buttons["native-sheet-close"].tap()
     XCTAssertTrue(site.waitForExistence(timeout: 8))
+    if ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_PROCESS_FIXTURE"]
+      == "http://127.0.0.1:5322"
+    {
+      let (data, _) = try await URLSession.shared.data(
+        from: URL(string: "http://127.0.0.1:5322/__nested/state")!)
+      let state = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Int])
+      XCTAssertEqual(state["resource_requests"], 1, "嵌套动画不能重建或重新请求父窗列表")
+      XCTAssertFalse(app.staticTexts["暂时无法打开 MoviePilot"].exists)
+    }
     try await setUIScenario("default")
   }
 
