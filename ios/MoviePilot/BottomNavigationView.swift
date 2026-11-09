@@ -258,7 +258,8 @@ private final class CapsuleNavigationView: UIView {
     if #available(iOS 26, *) {
       effect = UIGlassEffect(style: .regular)
     } else {
-      effect = UIBlurEffect(style: .systemMaterial)
+      // 旧系统使用超薄材质，保留底页壁纸的颜色和明暗变化。
+      effect = UIBlurEffect(style: .systemUltraThinMaterial)
     }
     let material = UIVisualEffectView(effect: effect)
     if #available(iOS 26, *) { material.cornerConfiguration = .capsule() }

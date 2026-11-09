@@ -179,8 +179,17 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
         child.removeFromSuperview()
       }
       for item in categories {
-        var config = UIButton.Configuration.tinted()
-        if #available(iOS 26.0, *) { config = .glass() }
+        let isSelected = item.id == selected?.id
+        var config: UIButton.Configuration
+        if #available(iOS 26.0, *) {
+          config = .glass()
+        } else {
+          // 旧系统的 tinted 配置会同时用强调色绘制选中态背景和前景，造成图标与文字消失。
+          config = .filled()
+          config.baseBackgroundColor = tableView.tintColor.withAlphaComponent(
+            isSelected ? 0.9 : 0.24)
+          config.baseForegroundColor = .label
+        }
         let labels = [
           "media-media": "影视", "media-music": "音乐", "media-collection": "合集", "media-person": "人物",
           "resource-torrent": "影视资源", "resource-music": "音乐资源", "resource-subtitle": "字幕",
@@ -190,7 +199,9 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
         config.imagePlacement = .top
         config.imagePadding = 8
         config.cornerStyle = .large
-        config.baseForegroundColor = item.id == selected?.id ? tableView.tintColor : .label
+        if #available(iOS 26.0, *) {
+          config.baseForegroundColor = isSelected ? tableView.tintColor : .label
+        }
         config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
           incoming in
           var attributes = incoming
