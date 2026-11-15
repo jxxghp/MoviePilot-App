@@ -151,7 +151,7 @@ final class NativeWebSheetController: UIViewController, UIAdaptivePresentationCo
         primaryAction: UIAction { [weak self] _ in
           self?.onCommand("presentation.dismiss", nil)
         })
-      close.accessibilityLabel = "关闭"
+      close.accessibilityLabel = L10n.text("关闭")
       close.accessibilityIdentifier = "native-sheet-close"
       navigationItem.rightBarButtonItem = close
     }
@@ -166,7 +166,7 @@ final class NativeWebSheetController: UIViewController, UIAdaptivePresentationCo
       }
       let more = UIBarButtonItem(
         image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: actions))
-      more.accessibilityLabel = "弹窗操作"
+      more.accessibilityLabel = L10n.text("弹窗操作")
       more.accessibilityIdentifier = "native-sheet-menu"
       navigationItem.leftBarButtonItem = more
     }

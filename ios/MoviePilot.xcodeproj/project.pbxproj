@@ -17,6 +17,7 @@
 		2BD57F8FAA89B6CE62520CDF /* CardMenuInteraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32C08F097B084258A76DECD1 /* CardMenuInteraction.swift */; };
 		4230F60B0326B26D9A25E2BC /* ShellController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EDD6E57585F04BA1211B21F /* ShellController.swift */; };
 		528DDA8EB6B423A11DB733E6 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0A361DAFEEE9F51B4F91B7 /* TokenStore.swift */; };
+		5B239E611FBFE70668B9E86D /* LanguageBootstrap.js in Resources */ = {isa = PBXBuildFile; fileRef = 9F0DF2142B7D5B4A29F499BD /* LanguageBootstrap.js */; };
 		60C934B3A627113848AA3617 /* ThirdPartyNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = 074E2F176D7B19065BD0557F /* ThirdPartyNotices.txt */; };
 		6DDAF5BF9FAD7A46EE8A3EC6 /* BridgeBootstrap.js in Resources */ = {isa = PBXBuildFile; fileRef = 43EEF99FFB4650801A93C48B /* BridgeBootstrap.js */; };
 		74BB072F347838874E453BDA /* MoviePilotCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5EA1036A3B6223749CA83C56 /* MoviePilotCore */; };
@@ -41,6 +42,9 @@
 		D25729D75787FFE684BCE836 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDC7F876AC1F304D50E70B03 /* SceneDelegate.swift */; };
 		D35DF2F50FBE16CFA6562C23 /* VLCKit in Frameworks */ = {isa = PBXBuildFile; productRef = 91C7B8794D4CD7E0C76EDFF0 /* VLCKit */; };
 		D5A9065E8F7FF3AC3F10AD48 /* MediaPlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F2D6BEC371D062C0F306FC1 /* MediaPlaybackTests.swift */; };
+		D9DD60CF7154BD6A1589FE6C /* LanguageSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D109BBC337EDBA3CAD6FCC0E /* LanguageSettings.swift */; };
+		DD0E2E99E6765F70226EBAF8 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 04E88BB7343F2CD8583FABF2 /* InfoPlist.strings */; };
+		E21E24BFBE4855AC34A5D779 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 1AB88D3590D6F2C58202F3F7 /* Localizable.strings */; };
 		E2CC1E5D7BA47467F0727E6B /* StartupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF1A8D67F8876B6AECE70ECA /* StartupView.swift */; };
 		E3AC1F3F475F11DC45745A36 /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDB18350D46A9411B179B162 /* Configuration.swift */; };
 		E4468F866BDEF9BB3036AF33 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 571C52ACC53E9ADFF2774ACA /* LaunchScreen.storyboard */; };
@@ -89,10 +93,12 @@
 		11C1FABE88ED006EC70944CD /* InstanceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstanceStore.swift; sourceTree = "<group>"; };
 		15977B3A7EE8DCEF7B5257CF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		16DC09F74832A0B86B73E0DB /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		18D77B462A8A2EDE1AD9ABCC /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		1A53F32D403882DC68D3CE17 /* MoviePilotWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MoviePilotWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		1C14F52952629F4DE2A12E6E /* PasskeyAuthenticator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasskeyAuthenticator.swift; sourceTree = "<group>"; };
 		1E54307B2FD9DE9B104A4C0B /* NotificationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationController.swift; sourceTree = "<group>"; };
 		1EDD6E57585F04BA1211B21F /* ShellController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellController.swift; sourceTree = "<group>"; };
+		26F7EF16B0F3F0449AC21549 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		274895617146E30E9DDE5876 /* AccountAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountAppearance.swift; sourceTree = "<group>"; };
 		2A663A5F20E9060A67A02499 /* APNs.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = APNs.entitlements; sourceTree = "<group>"; };
 		2ED77660949143CE0F66ABB7 /* AuthenticationClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationClient.swift; sourceTree = "<group>"; };
@@ -102,6 +108,7 @@
 		43EEF99FFB4650801A93C48B /* BridgeBootstrap.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = BridgeBootstrap.js; sourceTree = "<group>"; };
 		45F7C55CF76C93C422A267E7 /* MoviePilotUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MoviePilotUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		492AB810F34D732AF976E01D /* NativeFrameworkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFrameworkTests.swift; sourceTree = "<group>"; };
+		4B46855E6AB548E26061B2F7 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		4F2D6BEC371D062C0F306FC1 /* MediaPlaybackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPlaybackTests.swift; sourceTree = "<group>"; };
 		540C3624C243BD95F2F9BC5C /* moviepilot-ios-streaming-app */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "moviepilot-ios-streaming-app"; path = ..; sourceTree = SOURCE_ROOT; };
 		5459CACEBD27D42F6FD137E0 /* MoviePilot.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MoviePilot.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -117,17 +124,22 @@
 		82C723DD27397A1AD7E2E7E2 /* WebContentController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebContentController.swift; sourceTree = "<group>"; };
 		86D43CD80FACB4AAA460D482 /* OperationMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationMenuController.swift; sourceTree = "<group>"; };
 		97C577DD42CBEF2372229CE0 /* NativePanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePanelController.swift; sourceTree = "<group>"; };
+		9F0DF2142B7D5B4A29F499BD /* LanguageBootstrap.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = LanguageBootstrap.js; sourceTree = "<group>"; };
 		A18E5B7A511689BF6BE63B93 /* StandaloneMenuBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandaloneMenuBridge.swift; sourceTree = "<group>"; };
 		A6E9D58111CB3F6D0CC5F8EB /* MoviePilotWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoviePilotWidgets.swift; sourceTree = "<group>"; };
+		C0583F9328402162806C7EB8 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		C39BCAFDF2337FD0D5D79555 /* ServerProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerProfileTests.swift; sourceTree = "<group>"; };
 		CA63714518565C74DC4BC92B /* Provider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Provider.swift; sourceTree = "<group>"; };
 		CCC001A55D766FA81E7EC654 /* Views.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views.swift; sourceTree = "<group>"; };
 		CDB18350D46A9411B179B162 /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
+		D109BBC337EDBA3CAD6FCC0E /* LanguageSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageSettings.swift; sourceTree = "<group>"; };
 		D64A494ED8149ABF1DECA7A0 /* CardMenuBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardMenuBridge.swift; sourceTree = "<group>"; };
+		D676393768FED12DA28746BD /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		DDA1934688E4D109E194DB96 /* WidgetService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetService.swift; sourceTree = "<group>"; };
 		E07A2D5374C03798153CFA82 /* MoreMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreMenuController.swift; sourceTree = "<group>"; };
 		E27A900F0778C506F3B44F3E /* ConnectionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionController.swift; sourceTree = "<group>"; };
 		E3BEFC3136EEA7192AD5C20D /* NavigationSymbols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationSymbols.swift; sourceTree = "<group>"; };
+		E93AFCC3E95380CC87531EFD /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		EC6B4DF852680FFE4FCB4A47 /* BottomNavigationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomNavigationView.swift; sourceTree = "<group>"; };
 		EDC7F876AC1F304D50E70B03 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		EF1A8D67F8876B6AECE70ECA /* StartupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupView.swift; sourceTree = "<group>"; };
@@ -165,6 +177,7 @@
 				32C08F097B084258A76DECD1 /* CardMenuInteraction.swift */,
 				E27A900F0778C506F3B44F3E /* ConnectionController.swift */,
 				11C1FABE88ED006EC70944CD /* InstanceStore.swift */,
+				D109BBC337EDBA3CAD6FCC0E /* LanguageSettings.swift */,
 				8072C0F89DB70887DB4A4AEC /* LoginController.swift */,
 				7AFD1560F224ABDAD40A7D45 /* MediaPlaybackController.swift */,
 				E07A2D5374C03798153CFA82 /* MoreMenuController.swift */,
@@ -201,6 +214,14 @@
 			path = MoviePilotUITests;
 			sourceTree = "<group>";
 		};
+		291370FCA7C212AF8D9C11BC /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				1AB88D3590D6F2C58202F3F7 /* Localizable.strings */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		4DDF86623FD6E2935988CCB0 = {
 			isa = PBXGroup;
 			children = (
@@ -228,9 +249,11 @@
 				2A663A5F20E9060A67A02499 /* APNs.entitlements */,
 				15977B3A7EE8DCEF7B5257CF /* Assets.xcassets */,
 				43EEF99FFB4650801A93C48B /* BridgeBootstrap.js */,
+				9F0DF2142B7D5B4A29F499BD /* LanguageBootstrap.js */,
 				571C52ACC53E9ADFF2774ACA /* LaunchScreen.storyboard */,
 				074E2F176D7B19065BD0557F /* ThirdPartyNotices.txt */,
 				5F9B30B754752545394EF900 /* Widgets.entitlements */,
+				04E88BB7343F2CD8583FABF2 /* InfoPlist.strings */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -242,6 +265,7 @@
 				A6E9D58111CB3F6D0CC5F8EB /* MoviePilotWidgets.swift */,
 				CA63714518565C74DC4BC92B /* Provider.swift */,
 				CCC001A55D766FA81E7EC654 /* Views.swift */,
+				291370FCA7C212AF8D9C11BC /* Resources */,
 			);
 			path = MoviePilotWidgets;
 			sourceTree = "<group>";
@@ -262,6 +286,7 @@
 			buildConfigurationList = 54A088926E3B25FC65550EB1 /* Build configuration list for PBXNativeTarget "MoviePilotWidgets" */;
 			buildPhases = (
 				50F552640E4558423E67956B /* Sources */,
+				BD48ABE32A528E5A037C515F /* Resources */,
 				820AF78656BE5ED300A0762C /* Frameworks */,
 			);
 			buildRules = (
@@ -347,6 +372,8 @@
 			knownRegions = (
 				Base,
 				en,
+				"zh-Hans",
+				"zh-Hant",
 			);
 			mainGroup = 4DDF86623FD6E2935988CCB0;
 			minimizedProjectReferenceProxies = 1;
@@ -373,8 +400,18 @@
 			files = (
 				FBCCCA54858635AC0FAFCBBE /* Assets.xcassets in Resources */,
 				6DDAF5BF9FAD7A46EE8A3EC6 /* BridgeBootstrap.js in Resources */,
+				DD0E2E99E6765F70226EBAF8 /* InfoPlist.strings in Resources */,
+				5B239E611FBFE70668B9E86D /* LanguageBootstrap.js in Resources */,
 				E4468F866BDEF9BB3036AF33 /* LaunchScreen.storyboard in Resources */,
 				60C934B3A627113848AA3617 /* ThirdPartyNotices.txt in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BD48ABE32A528E5A037C515F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E21E24BFBE4855AC34A5D779 /* Localizable.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -404,6 +441,7 @@
 				2BD57F8FAA89B6CE62520CDF /* CardMenuInteraction.swift in Sources */,
 				AF1B137366BEA44FD5055EF3 /* ConnectionController.swift in Sources */,
 				B751481BFB0F29D5319D82A4 /* InstanceStore.swift in Sources */,
+				D9DD60CF7154BD6A1589FE6C /* LanguageSettings.swift in Sources */,
 				0B79AFE6E3E507A780FAEDAB /* LoginController.swift in Sources */,
 				0EE2961899BD600DE410D4E8 /* MediaPlaybackController.swift in Sources */,
 				B95E25B659010EF18733CB13 /* MoreMenuController.swift in Sources */,
@@ -452,6 +490,29 @@
 			targetProxy = C22464F252D17635DE6CC587 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		04E88BB7343F2CD8583FABF2 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				26F7EF16B0F3F0449AC21549 /* en */,
+				D676393768FED12DA28746BD /* zh-Hans */,
+				E93AFCC3E95380CC87531EFD /* zh-Hant */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+		1AB88D3590D6F2C58202F3F7 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				18D77B462A8A2EDE1AD9ABCC /* en */,
+				4B46855E6AB548E26061B2F7 /* zh-Hans */,
+				C0583F9328402162806C7EB8 /* zh-Hant */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
 		1286F1AC767C00C40E8D8894 /* Release */ = {

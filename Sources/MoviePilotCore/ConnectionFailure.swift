@@ -44,14 +44,14 @@ public enum ConnectionFailure: Error, Equatable, LocalizedError, Sendable {
     switch self {
     case .cancelled: nil
     case .offline:
-      "当前网络不可用。若连接局域网服务，请检查系统设置中 MoviePilot 的本地网络权限。"
-    case .timedOut: "连接超时，请检查网络及服务状态后重试。"
-    case .hostname: "无法解析服务地址，请检查主机名及当前网络的 DNS 设置。"
-    case .certificate: "服务器的 HTTPS 证书未受系统信任或已失效。请修复证书后重试。"
-    case .secureConnection: "无法建立安全的 HTTPS 连接，请检查服务器的 TLS 配置。"
-    case .clientCertificate: "此实例要求客户端证书，请使用网页登录。"
-    case .transportSecurity: "系统阻止了此连接，请检查服务地址及设备的网络访问限制。"
-    case .unavailable: "无法连接服务，请检查地址、端口和服务状态后重试。"
+      L10n.text("当前网络不可用。若连接局域网服务，请检查系统设置中 MoviePilot 的本地网络权限。")
+    case .timedOut: L10n.text("连接超时，请检查网络及服务状态后重试。")
+    case .hostname: L10n.text("无法解析服务地址，请检查主机名及当前网络的 DNS 设置。")
+    case .certificate: L10n.text("服务器的 HTTPS 证书未受系统信任或已失效。请修复证书后重试。")
+    case .secureConnection: L10n.text("无法建立安全的 HTTPS 连接，请检查服务器的 TLS 配置。")
+    case .clientCertificate: L10n.text("此实例要求客户端证书，请使用网页登录。")
+    case .transportSecurity: L10n.text("系统阻止了此连接，请检查服务地址及设备的网络访问限制。")
+    case .unavailable: L10n.text("无法连接服务，请检查地址、端口和服务状态后重试。")
     }
   }
 }

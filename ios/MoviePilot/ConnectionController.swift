@@ -33,7 +33,7 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
     super.viewDidLoad()
     let previous = instances.selected ?? instances.instances.last
     savedInstances = Array(instances.instances.reversed())
-    title = "连接服务"
+    title = L10n.text("连接服务")
     navigationController?.navigationBar.prefersLargeTitles = false
     navigationItem.largeTitleDisplayMode = .never
     tableView.accessibilityIdentifier = "server-connections"
@@ -44,7 +44,7 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
     tableView.estimatedRowHeight = 64
     tableView.sectionHeaderTopPadding = 8
     addressField.placeholder = "https://moviepilot.example.com"
-    addressField.accessibilityLabel = "MoviePilot 服务地址"
+    addressField.accessibilityLabel = L10n.text("MoviePilot 服务地址")
     addressField.keyboardType = .URL
     addressField.textContentType = .URL
     addressField.autocorrectionType = .no
@@ -60,6 +60,28 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
       _ = showCompatibilityError(previous.address)
     }
     if let connectionError { showError(connectionError) }
+    refreshLanguageMenu()
+  }
+
+  /// 连接前也可选择语言，保留已输入地址和实例列表；下一次连接再同步网页。
+  private func refreshLanguageMenu() {
+    navigationItem.rightBarButtonItem = UIBarButtonItem(
+      image: UIImage(systemName: "globe"),
+      menu: LanguageSettings.menu { [weak self] language in
+        guard let self else { return }
+        LanguagePreferences(defaults: .standard).select(language)
+        LanguageSettings.refreshShortcuts()
+        self.title = L10n.text("连接服务")
+        self.addressField.accessibilityLabel = L10n.text("MoviePilot 服务地址")
+        self.installConnectionFooter()
+        self.errorLabel.text = nil
+        self.errorLabel.isHidden = true
+        if let connectionError = self.connectionError { self.showError(connectionError) }
+        self.tableView.reloadData()
+        self.refreshLanguageMenu()
+      })
+    navigationItem.rightBarButtonItem?.accessibilityIdentifier = "connection-language"
+    navigationItem.rightBarButtonItem?.accessibilityLabel = L10n.text("语言")
   }
 
   /// 尚无历史时仅展示添加服务，已有记录时在上方增加服务分组。
@@ -73,13 +95,13 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
   /// 使用系统分组标题，避免重复品牌和大段介绍挤占服务列表。
   override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String?
   {
-    section == addressSection ? "添加服务" : "已保存的服务"
+    section == addressSection ? L10n.text("添加服务") : L10n.text("已保存的服务")
   }
 
   /// 手势提示随列表分组显示，输入说明集中在独立的连接按钮下方。
   override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String?
   {
-    section == addressSection ? nil : "点按切换 · 左滑删除"
+    section == addressSection ? nil : L10n.text("点按切换 · 左滑删除")
   }
 
   /// 表格页尾按实际宽度和动态字号测量，横屏与键盘出现后仍可滚动访问。
@@ -104,16 +126,16 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
   /// 将连接操作与地址输入分开，保留原生胶囊按钮和可完整换行的反馈说明。
   private func installConnectionFooter() {
     let connect = UIButton(
-      configuration: AccountAppearance.primaryButton(title: "连接"),
+      configuration: AccountAppearance.primaryButton(title: L10n.text("连接")),
       primaryAction: UIAction { [weak self] _ in self?.submit() })
-    connect.accessibilityLabel = "连接"
+    connect.accessibilityLabel = L10n.text("连接")
     errorLabel.textColor = .systemRed
     errorLabel.font = .preferredFont(forTextStyle: .footnote)
     errorLabel.adjustsFontForContentSizeCategory = true
     errorLabel.numberOfLines = 0
     errorLabel.isHidden = true
     let note = UILabel()
-    note.text = "支持 HTTP 和 HTTPS。登录信息按服务分别保存。"
+    note.text = L10n.text("支持 HTTP 和 HTTPS。登录信息按服务分别保存。")
     note.font = .preferredFont(forTextStyle: .footnote)
     note.adjustsFontForContentSizeCategory = true
     note.textColor = .secondaryLabel
@@ -154,7 +176,7 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
         systemName: "server.rack", withConfiguration: UIImage.SymbolConfiguration(pointSize: 19))
       content.imageProperties.tintColor = tableView.tintColor
       if instance.id == instances.selected?.id {
-        content.secondaryText = "当前服务"
+        content.secondaryText = L10n.text("当前服务")
         cell.accessoryType = .checkmark
       } else {
         cell.accessoryType = .disclosureIndicator
@@ -162,7 +184,7 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
       cell.contentConfiguration = content
       cell.accessibilityIdentifier = "saved-service-\(instance.address.url.absoluteString)"
       cell.accessibilityCustomActions = [
-        UIAccessibilityCustomAction(name: "删除服务") { [weak self] _ in
+        UIAccessibilityCustomAction(name: L10n.text("删除服务")) { [weak self] _ in
           self?.confirmForget(instance)
           return self != nil
         }
@@ -214,7 +236,7 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
       UIImage.SymbolConfiguration(paletteColors: [.white, .systemRed]))
     let image = UIImage(systemName: "trash.circle.fill", withConfiguration: symbol)?
       .withRenderingMode(.alwaysOriginal)
-    image?.accessibilityLabel = "删除"
+    image?.accessibilityLabel = L10n.text("删除")
     remove.image = image
     remove.backgroundColor = .clear
     let configuration = UISwipeActionsConfiguration(actions: [remove])
@@ -236,11 +258,11 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
     } catch {
       switch error {
       case ServerAddressError.credentialsNotAllowed:
-        showError("地址中不要包含账号或密码。连接后再安全登录。")
+        showError(L10n.text("地址中不要包含账号或密码。连接后再安全登录。"))
       case ServerAddressError.queryOrFragmentNotAllowed:
-        showError("请输入服务根地址，不要包含查询参数或 # 后的页面路径。")
+        showError(L10n.text("请输入服务根地址，不要包含查询参数或 # 后的页面路径。"))
       case is ServerAddressError:
-        showError("请输入包含 http:// 或 https:// 的完整服务地址。")
+        showError(L10n.text("请输入包含 http:// 或 https:// 的完整服务地址。"))
       default:
         showStorageError()
       }
@@ -259,12 +281,12 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
   private func confirmForget(_ instance: SavedInstance) {
     view.endEditing(true)
     let alert = UIAlertController(
-      title: "删除已保存的服务？",
-      message: "\(instance.address.url.absoluteString)\n将清除此服务保存的账号密码、登录状态和网页数据。",
+      title: L10n.text("删除已保存的服务？"),
+      message: L10n.format("%@\n将清除此服务保存的账号密码、登录状态和网页数据。", instance.address.url.absoluteString),
       preferredStyle: .alert)
-    alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+    alert.addAction(UIAlertAction(title: L10n.text("取消"), style: .cancel))
     alert.addAction(
-      UIAlertAction(title: "删除", style: .destructive) { [weak self] _ in
+      UIAlertAction(title: L10n.text("删除"), style: .destructive) { [weak self] _ in
         self?.forget(instance)
       })
     present(alert, animated: true)
@@ -295,16 +317,16 @@ final class ConnectionController: UITableViewController, UITextFieldDelegate {
 
   /// 本地持久化失败不误报地址错误，也不回显底层系统信息。
   private func showStorageError() {
-    showError("未能更新已保存的服务，请重试。")
+    showError(L10n.text("未能更新已保存的服务，请重试。"))
   }
 
   /// 页脚保持输入值，更新错误后为 VoiceOver 朗读具体原因。
   private func showError(_ message: String) {
-    errorLabel.text = message
+    errorLabel.text = L10n.text(message)
     errorLabel.isHidden = false
     view.endEditing(true)
     view.setNeedsLayout()
-    UIAccessibility.post(notification: .announcement, argument: message)
+    UIAccessibility.post(notification: .announcement, argument: errorLabel.text)
   }
 
   /// 浏览器不支持的地址停留在可编辑的配置页，不让原生 API 成功掩盖网页无法加载。

@@ -8,13 +8,21 @@ public enum WidgetPlatformError: Error, Equatable, Sendable {
 
 /// 主 App 与扩展分别打开自己的实际签名共享组，服务端和网页不能提供组名。
 public enum WidgetSharedStorage {
-  /// 签名解析只用于找组；containerURL 和后续 Keychain 操作才验证实际系统授权。
-  public static func open() throws -> WidgetStore {
+  private static let signedGroup: String? = {
     guard let executable = Bundle.main.executableURL,
       let size = try? executable.resourceValues(forKeys: [.fileSizeKey]).fileSize,
       size > 0, size <= 256 * 1024 * 1024,
-      let data = try? Data(contentsOf: executable, options: .mappedIfSafe),
-      let group = try? WidgetAppGroup.resolve(in: data),
+      let data = try? Data(contentsOf: executable, options: .mappedIfSafe)
+    else { return nil }
+    return try? WidgetAppGroup.resolve(in: data)
+  }()
+
+  /// 只返回当前已签名可执行文件中解析出的 MoviePilot 共享组。
+  public static var groupIdentifier: String? { signedGroup }
+
+  /// 签名解析只用于找组；containerURL 和后续 Keychain 操作才验证实际系统授权。
+  public static func open() throws -> WidgetStore {
+    guard let group = groupIdentifier,
       let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
     else { throw WidgetPlatformError.sharedStorageUnavailable }
     return try WidgetStore(container: container, vault: SharedWidgetKeychain(group: group))

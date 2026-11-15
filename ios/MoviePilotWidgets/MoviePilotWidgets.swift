@@ -1,3 +1,4 @@
+import MoviePilotCore
 import SwiftUI
 import WidgetKit
 

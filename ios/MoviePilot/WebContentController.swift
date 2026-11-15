@@ -1,3 +1,4 @@
+import MoviePilotCore
 import UIKit
 import WebKit
 
@@ -84,7 +85,7 @@ final class WebContentController: UIViewController {
     preview.isUserInteractionEnabled = true
     preview.isAccessibilityElement = true
     preview.accessibilityIdentifier = "native-resume-preview"
-    preview.accessibilityLabel = "正在恢复页面"
+    preview.accessibilityLabel = L10n.text("正在恢复页面")
     resumeContext = context
     resumeSize = view.bounds.size
     resumePreviewToken = UUID()
@@ -294,7 +295,7 @@ final class NavigationBackTransition {
     previous.contentMode = .scaleToFill
     previous.accessibilityIdentifier = "native-back-previous"
     previous.isAccessibilityElement = true
-    previous.accessibilityLabel = "上一页预览"
+    previous.accessibilityLabel = L10n.text("上一页预览")
     overlay.addSubview(previous)
     shade.frame = overlay.bounds
     shade.backgroundColor = .black
@@ -303,7 +304,7 @@ final class NavigationBackTransition {
     card.frame = overlay.bounds
     card.accessibilityIdentifier = "native-back-card"
     card.isAccessibilityElement = true
-    card.accessibilityLabel = "返回中的当前页面"
+    card.accessibilityLabel = L10n.text("返回中的当前页面")
     card.layer.shadowColor = UIColor.black.cgColor
     card.layer.shadowOpacity = 0.2
     card.layer.shadowRadius = 14

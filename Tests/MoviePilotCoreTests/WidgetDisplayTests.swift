@@ -46,7 +46,7 @@ struct WidgetDisplayTests {
       at: now, connectionFailed: true)
     #expect(fresh.state == .ready && fresh.metrics.first?.value == "1")
     #expect(fresh.updatedAt == now)
-    #expect(fresh.message == "暂时无法连接")
+    #expect(fresh.message == L10n.text("暂时无法连接"))
     let stale = WidgetDisplay(
       profile: profile, snapshot: snapshot, content: .downloads, showMediaNames: false,
       at: now.addingTimeInterval(1800))
@@ -93,7 +93,7 @@ struct WidgetDisplayTests {
       profile: profile, snapshot: snapshot, content: .downloads, showMediaNames: false, at: now)
     let visible = WidgetDisplay(
       profile: profile, snapshot: snapshot, content: .downloads, showMediaNames: true, at: now)
-    #expect(hidden.items.first?.title == "项目 1")
+    #expect(hidden.items.first?.title == L10n.format("项目 %d", 1))
     #expect(hidden.items.first?.subtitle == nil && hidden.items.first?.timestamp == nil)
     #expect(hidden.items.first?.progress == 0.4)
     #expect(visible.items.first?.title == "合成电影")

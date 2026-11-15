@@ -9,6 +9,7 @@ struct WidgetAccountEntity: AppEntity {
   let id: String
   let name: String
 
+  /// 用户别名属于业务数据，不作为翻译资源键。
   var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(name)") }
 }
 

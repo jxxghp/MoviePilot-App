@@ -120,7 +120,7 @@ enum AccountAppearance {
     name.font = UIFont.preferredFont(forTextStyle: .title2).withTraits(.traitBold)
     name.adjustsFontForContentSizeCategory = true
     let caption = UILabel()
-    caption.text = "你的媒体世界，随时连接。"
+    caption.text = L10n.text("你的媒体世界，随时连接。")
     caption.font = .preferredFont(forTextStyle: .subheadline)
     caption.adjustsFontForContentSizeCategory = true
     caption.textColor = .secondaryLabel

@@ -689,9 +689,9 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     avatar.clipsToBounds = true
     avatar.layer.cornerRadius = 28
     avatar.isAccessibilityElement = true
-    avatar.accessibilityLabel = "用户头像"
+    avatar.accessibilityLabel = L10n.text("用户头像")
     avatar.accessibilityIdentifier = "native-profile-avatar"
-    avatar.accessibilityValue = "默认头像"
+    avatar.accessibilityValue = L10n.text("默认头像")
     NSLayoutConstraint.activate([
       avatar.widthAnchor.constraint(equalToConstant: 56),
       avatar.heightAnchor.constraint(equalToConstant: 56),
@@ -703,7 +703,7 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
         if let loaded {
           avatar.image = loaded
           avatar.tintColor = nil
-          avatar.accessibilityValue = "头像已加载"
+          avatar.accessibilityValue = L10n.text("头像已加载")
         }
       }
     }
@@ -765,7 +765,7 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
       ? feedState.isEmpty : sections.allSatisfy({ $0.1.isEmpty })
     if empty && snapshot.loading != true && snapshot.loadError == nil {
       let label = UILabel()
-      label.text = snapshot.emptyText ?? "暂无内容"
+      label.text = snapshot.emptyText ?? L10n.text("暂无内容")
       label.textColor = .secondaryLabel
       label.font = .preferredFont(forTextStyle: .body)
       label.numberOfLines = 0
@@ -784,7 +784,7 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
     }
     if path.isEmpty && snapshot.feed == nil && snapshot.hasMore == true {
       var config = UIButton.Configuration.tinted()
-      config.title = "下一页"
+      config.title = L10n.text("下一页")
       config.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 24, bottom: 12, trailing: 24)
       let more = UIButton(
         configuration: config,
@@ -799,7 +799,7 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
       snapshot.loading != true
     {
       let label = UILabel()
-      label.text = "已显示全部内容"
+      label.text = L10n.text("已显示全部内容")
       label.font = .preferredFont(forTextStyle: .footnote)
       label.textColor = .secondaryLabel
       label.accessibilityIdentifier = "native-panel-feed-end"
@@ -887,7 +887,7 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
       content.imageProperties.reservedLayoutSize = CGSize(width: 56, height: 84)
       content.imageProperties.cornerRadius = 6
       content.imageProperties.accessibilityIgnoresInvertColors = true
-      cell.accessibilityValue = "海报加载中"
+      cell.accessibilityValue = L10n.text("海报加载中")
       imageTasks.append(
         Task { [weak cell, images] in
           let poster = await images.image(image)
@@ -896,7 +896,7 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
           updated?.image = poster.map(Self.portraitThumbnail) ?? UIImage(systemName: "photo")
           if poster != nil { updated?.imageProperties.tintColor = nil }
           cell.contentConfiguration = updated
-          cell.accessibilityValue = poster == nil ? "海报暂不可用" : "含海报"
+          cell.accessibilityValue = poster == nil ? L10n.text("海报暂不可用") : L10n.text("含海报")
         })
     }
     cell.contentConfiguration = content
@@ -992,19 +992,20 @@ final class NativePanelController: UITableViewController, UISearchBarDelegate {
             state: child.selected == true ? .on : .off
           ) { [weak self] _ in self?.selectGridItem(item.id, childID: child.id) }
         })
-      button.accessibilityHint = [item.subtitle, "长按可查看操作"].compactMap { $0 }.joined(separator: "，")
+      button.accessibilityHint = [item.subtitle, L10n.text("长按可查看操作")].compactMap { $0 }.joined(
+        separator: "，")
     }
     if let image = item.image {
-      button.accessibilityValue = "图标加载中"
+      button.accessibilityValue = L10n.text("图标加载中")
       imageTasks.append(
         Task { [weak button, images] in
           let loaded = await images.image(image)
           guard !Task.isCancelled, let button else { return }
           if let thumbnail = loaded?.preparingThumbnail(of: CGSize(width: 48, height: 48)) {
             button.configuration?.image = thumbnail.withRenderingMode(.alwaysOriginal)
-            button.accessibilityValue = "插件图标已加载"
+            button.accessibilityValue = L10n.text("插件图标已加载")
           } else {
-            button.accessibilityValue = "默认图标"
+            button.accessibilityValue = L10n.text("默认图标")
           }
         })
     }

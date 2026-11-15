@@ -106,7 +106,7 @@ public struct ServerAddress: Codable, Equatable, Sendable {
   /// Foundation 可保存带网卡标识的 IPv6，但浏览器 URL 不支持；保留旧配置身份并阻止连接。
   public var webCompatibilityError: String? {
     guard origin.host.contains(":"), origin.host.contains("%") else { return nil }
-    return "此 IPv6 地址包含网卡标识，网页无法使用。请改用 .local 主机名或其他可访问的地址。"
+    return L10n.text("此 IPv6 地址包含网卡标识，网页无法使用。请改用 .local 主机名或其他可访问的地址。")
   }
 
   /// 判断主机是否属于私网、链路本地、回环或本地 DNS。

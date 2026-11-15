@@ -1,3 +1,4 @@
+import MoviePilotCore
 import UIKit
 
 /// 延续系统启动页的品牌画面；服务未就绪时提供原生等待与恢复入口。
@@ -14,7 +15,7 @@ final class StartupView: UIView {
     backgroundColor = AccountAppearance.background(for: instance)
     accessibilityIdentifier = "native-startup-screen"
     isAccessibilityElement = true
-    accessibilityLabel = "MoviePilot 正在准备页面"
+    accessibilityLabel = L10n.text("MoviePilot 正在准备页面")
     let icon = UIImageView(image: UIImage(named: "LaunchMark"))
     icon.contentMode = .scaleAspectFit
     icon.translatesAutoresizingMaskIntoConstraints = false
@@ -36,8 +37,8 @@ final class StartupView: UIView {
     message: String, retry: @escaping () -> Void, changeAddress: @escaping () -> Void
   ) {
     showWait(
-      message: message, kicker: "服务状态", heading: "正在等待 MoviePilot",
-      detail: "服务就绪后会自动继续；连接超时后将返回地址列表。", identifier: "native-service",
+      message: message, kicker: L10n.text("服务状态"), heading: L10n.text("正在等待 MoviePilot"),
+      detail: L10n.text("服务就绪后会自动继续；连接超时后将返回地址列表。"), identifier: "native-service",
       retry: retry, changeAddress: changeAddress)
   }
 
@@ -46,8 +47,8 @@ final class StartupView: UIView {
     message: String, retry: @escaping () -> Void, changeAddress: @escaping () -> Void
   ) {
     showWait(
-      message: message, kicker: "页面状态", heading: "正在打开 MoviePilot",
-      detail: "页面准备完成后会自动进入，也可以立即重试或切换服务地址。", identifier: "native-page",
+      message: message, kicker: L10n.text("页面状态"), heading: L10n.text("正在打开 MoviePilot"),
+      detail: L10n.text("页面准备完成后会自动进入，也可以立即重试或切换服务地址。"), identifier: "native-page",
       retry: retry, changeAddress: changeAddress)
   }
 
@@ -101,11 +102,11 @@ final class StartupView: UIView {
     let progress = UIStackView(arrangedSubviews: [spinner, status])
     progress.spacing = 12
     progress.alignment = .center
-    let again = UIButton(configuration: AccountAppearance.primaryButton(title: "立即重试"))
+    let again = UIButton(configuration: AccountAppearance.primaryButton(title: L10n.text("立即重试")))
     again.accessibilityIdentifier = "\(identifier)-retry"
     again.addAction(UIAction { _ in retry() }, for: .touchUpInside)
     var changeStyle = UIButton.Configuration.plain()
-    changeStyle.title = "更改地址"
+    changeStyle.title = L10n.text("更改地址")
     changeStyle.baseForegroundColor = AccountAppearance.accent(for: instance)
     let change = UIButton(configuration: changeStyle)
     change.accessibilityIdentifier = "\(identifier)-change-address"

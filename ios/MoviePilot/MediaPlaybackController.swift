@@ -204,9 +204,9 @@ private enum MediaPlaybackError: LocalizedError {
   /// 返回不包含认证信息和上游来源的操作提示。
   var errorDescription: String? {
     switch self {
-    case .unavailable: "无法读取播放信息，请确认影片仍在媒体库中并检查后台连接。"
-    case .subtitleUnavailable: "字幕读取失败，请选择其他字幕或检查后台连接。"
-    case .lyricsUnavailable: "无法读取本地歌词。"
+    case .unavailable: L10n.text("无法读取播放信息，请确认影片仍在媒体库中并检查后台连接。")
+    case .subtitleUnavailable: L10n.text("字幕读取失败，请选择其他字幕或检查后台连接。")
+    case .lyricsUnavailable: L10n.text("无法读取本地歌词。")
     }
   }
 }
@@ -307,7 +307,7 @@ final class MediaPlaybackViewController: UIViewController {
   private func configureViews() {
     videoView.translatesAutoresizingMaskIntoConstraints = false
     videoView.backgroundColor = .black
-    videoView.accessibilityLabel = "视频画面"
+    videoView.accessibilityLabel = L10n.text("视频画面")
     videoView.isHidden = isAudioPlayback
     view.addSubview(videoView)
     NSLayoutConstraint.activate([
@@ -332,7 +332,8 @@ final class MediaPlaybackViewController: UIViewController {
     titleLabel.adjustsFontForContentSizeCategory = true
     titleLabel.numberOfLines = 2
     titleLabel.isHidden = isAudioPlayback
-    let closeButton = makeButton(title: nil, symbol: "chevron.down", accessibility: "关闭播放器")
+    let closeButton = makeButton(
+      title: nil, symbol: "chevron.down", accessibility: L10n.text("关闭播放器"))
     closeButton.addAction(
       UIAction { [weak self] _ in self?.dismissPlayback() }, for: .touchUpInside)
     let topBar = UIStackView(arrangedSubviews: [closeButton, titleLabel])
@@ -371,7 +372,7 @@ final class MediaPlaybackViewController: UIViewController {
 
     positionSlider.minimumValue = 0
     positionSlider.maximumValue = 1
-    positionSlider.accessibilityLabel = "播放进度"
+    positionSlider.accessibilityLabel = L10n.text("播放进度")
     positionSlider.accessibilityIdentifier = "playback-progress"
     positionSlider.minimumTrackTintColor = .white
     positionSlider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.3)
@@ -383,17 +384,19 @@ final class MediaPlaybackViewController: UIViewController {
     positionSlider.addTarget(
       self, action: #selector(endScrubbing), for: [.touchUpInside, .touchUpOutside, .touchCancel])
 
-    let skipBack = makeButton(title: nil, symbol: "gobackward.15", accessibility: "后退 15 秒")
+    let skipBack = makeButton(
+      title: nil, symbol: "gobackward.15", accessibility: L10n.text("后退 15 秒"))
     skipBack.addAction(UIAction { [weak self] _ in self?.skip(seconds: -15) }, for: .touchUpInside)
     playButton.setImage(UIImage(systemName: "pause.fill"), for: .normal)
-    playButton.accessibilityLabel = "暂停"
+    playButton.accessibilityLabel = L10n.text("暂停")
     playButton.tintColor = .black
     playButton.backgroundColor = .white
     playButton.layer.cornerRadius = 38
     playButton.setPreferredSymbolConfiguration(
       UIImage.SymbolConfiguration(pointSize: 30, weight: .semibold), forImageIn: .normal)
     playButton.addAction(UIAction { [weak self] _ in self?.togglePlayback() }, for: .touchUpInside)
-    let skipForward = makeButton(title: nil, symbol: "goforward.15", accessibility: "前进 15 秒")
+    let skipForward = makeButton(
+      title: nil, symbol: "goforward.15", accessibility: L10n.text("前进 15 秒"))
     skipForward.addAction(
       UIAction { [weak self] _ in self?.skip(seconds: 15) }, for: .touchUpInside)
     transport.axis = .horizontal
@@ -424,14 +427,14 @@ final class MediaPlaybackViewController: UIViewController {
     }
 
     subtitleButton.setImage(UIImage(systemName: "captions.bubble"), for: .normal)
-    subtitleButton.accessibilityLabel = "选择字幕"
+    subtitleButton.accessibilityLabel = L10n.text("选择字幕")
     subtitleButton.addAction(
       UIAction { [weak self] _ in self?.showSubtitleMenu() }, for: .touchUpInside)
     audioButton.setImage(UIImage(systemName: "waveform"), for: .normal)
-    audioButton.accessibilityLabel = "选择音轨"
+    audioButton.accessibilityLabel = L10n.text("选择音轨")
     audioButton.addAction(UIAction { [weak self] _ in self?.showAudioMenu() }, for: .touchUpInside)
     speedButton.setImage(UIImage(systemName: "speedometer"), for: .normal)
-    speedButton.accessibilityLabel = "播放速度"
+    speedButton.accessibilityLabel = L10n.text("播放速度")
     speedButton.addAction(UIAction { [weak self] _ in self?.showSpeedMenu() }, for: .touchUpInside)
     for button in [subtitleButton, audioButton, speedButton] {
       button.tintColor = .white
@@ -489,7 +492,7 @@ final class MediaPlaybackViewController: UIViewController {
 
     musicArtwork.translatesAutoresizingMaskIntoConstraints = false
     musicArtwork.accessibilityIdentifier = "music-playback-artwork"
-    musicArtwork.accessibilityLabel = "专辑封面"
+    musicArtwork.accessibilityLabel = L10n.text("专辑封面")
     musicArtwork.isAccessibilityElement = true
     musicArtwork.backgroundColor = UIColor.secondarySystemBackground
     musicArtwork.layer.cornerRadius = 12
@@ -513,7 +516,7 @@ final class MediaPlaybackViewController: UIViewController {
     title.textAlignment = .center
     title.numberOfLines = 2
     title.accessibilityIdentifier = "music-playback-title"
-    musicArtistLabel.text = manifest.artist ?? "未知艺人"
+    musicArtistLabel.text = manifest.artist ?? L10n.text("未知艺人")
     musicArtistLabel.font = .preferredFont(forTextStyle: .subheadline)
     musicArtistLabel.textColor = .secondaryLabel
     musicArtistLabel.textAlignment = .center
@@ -544,7 +547,7 @@ final class MediaPlaybackViewController: UIViewController {
         equalTo: lyricsScroll.contentLayoutGuide.bottomAnchor, constant: -8),
       lyricsStack.widthAnchor.constraint(equalTo: lyricsScroll.frameLayoutGuide.widthAnchor),
     ])
-    appendLyricPlaceholder("正在读取歌词…")
+    appendLyricPlaceholder(L10n.text("正在读取歌词…"))
 
     let artworkRow = UIView()
     artworkRow.translatesAutoresizingMaskIntoConstraints = false
@@ -662,7 +665,7 @@ final class MediaPlaybackViewController: UIViewController {
     lyricButtons.removeAll()
     activeLyricIndex = nil
     guard !cues.isEmpty else {
-      appendLyricPlaceholder("暂无同名 LRC 歌词")
+      appendLyricPlaceholder(L10n.text("暂无同名 LRC 歌词"))
       return
     }
     for (index, cue) in cues.enumerated() {
@@ -692,7 +695,7 @@ final class MediaPlaybackViewController: UIViewController {
     for (index, button) in lyricButtons.enumerated() {
       let active = index == nextIndex
       button.alpha = active ? 1 : 0.48
-      button.accessibilityValue = active ? "当前播放" : nil
+      button.accessibilityValue = active ? L10n.text("当前播放") : nil
       button.titleLabel?.font = .preferredFont(forTextStyle: active ? .headline : .subheadline)
       button.titleLabel?.font = UIFont.systemFont(
         ofSize: UIFont.preferredFont(forTextStyle: active ? .headline : .subheadline).pointSize,
@@ -730,7 +733,7 @@ final class MediaPlaybackViewController: UIViewController {
         .playback, mode: isAudioPlayback ? .default : .moviePlayback, options: [.allowAirPlay])
       try AVAudioSession.sharedInstance().setActive(true)
     } catch {
-      showError("无法启动系统音频会话，请检查设备声音设置。")
+      showError(L10n.text("无法启动系统音频会话，请检查设备声音设置。"))
     }
   }
 
@@ -752,7 +755,7 @@ final class MediaPlaybackViewController: UIViewController {
           try AVAudioSession.sharedInstance().setActive(true)
           player.play()
         } catch {
-          showError("无法恢复系统音频会话，请手动继续播放。")
+          showError(L10n.text("无法恢复系统音频会话，请手动继续播放。"))
         }
       }
     @unknown default:
@@ -811,7 +814,7 @@ final class MediaPlaybackViewController: UIViewController {
     }
     playButton.setImage(
       UIImage(systemName: player.isPlaying ? "pause.fill" : "play.fill"), for: .normal)
-    playButton.accessibilityLabel = player.isPlaying ? "暂停" : "播放"
+    playButton.accessibilityLabel = player.isPlaying ? L10n.text("暂停") : L10n.text("播放")
     if player.isPlaying { loading.stopAnimating() }
     let subtitleTracks = player.textTracks
     let audioTracks = player.audioTracks
@@ -847,10 +850,11 @@ final class MediaPlaybackViewController: UIViewController {
     resumeDecisionPending = true
     player.pause()
     let alert = UIAlertController(
-      title: isAudioPlayback ? "继续收听？" : "继续观看？",
-      message: "上次播放到 \(Self.format(milliseconds: saved))。", preferredStyle: .alert)
+      title: isAudioPlayback ? L10n.text("继续收听？") : L10n.text("继续观看？"),
+      message: L10n.format("上次播放到 %@。", Self.format(milliseconds: saved)), preferredStyle: .alert)
     alert.addAction(
-      UIAlertAction(title: isAudioPlayback ? "继续收听" : "继续播放", style: .default) { [weak self] _ in
+      UIAlertAction(title: isAudioPlayback ? L10n.text("继续收听") : L10n.text("继续播放"), style: .default)
+      { [weak self] _ in
         guard let self else { return }
         self.player.time = VLCTime(int: Int32(clamping: saved))
         self.savedProgress = nil
@@ -858,7 +862,7 @@ final class MediaPlaybackViewController: UIViewController {
         self.player.play()
       })
     alert.addAction(
-      UIAlertAction(title: "从头开始", style: .cancel) { [weak self] _ in
+      UIAlertAction(title: L10n.text("从头开始"), style: .cancel) { [weak self] _ in
         guard let self else { return }
         UserDefaults.standard.removeObject(forKey: self.progressKey)
         self.savedProgress = nil
@@ -975,27 +979,31 @@ final class MediaPlaybackViewController: UIViewController {
 
   /// 显示内嵌和同名外挂字幕选项。
   private func showSubtitleMenu() {
-    let alert = UIAlertController(title: "字幕", message: nil, preferredStyle: .actionSheet)
+    let alert = UIAlertController(
+      title: L10n.text("字幕"), message: nil, preferredStyle: .actionSheet)
     alert.addAction(
-      UIAlertAction(title: "关闭字幕", style: .default) { [weak self] _ in
+      UIAlertAction(title: L10n.text("关闭字幕"), style: .default) { [weak self] _ in
         self?.player.deselectAllTextTracks()
       })
     let tracks = player.textTracks
     for track in tracks {
-      let name = track.trackName.isEmpty ? (track.trackDescription ?? "字幕") : track.trackName
+      let name =
+        track.trackName.isEmpty ? (track.trackDescription ?? L10n.text("字幕")) : track.trackName
       alert.addAction(
-        UIAlertAction(title: "内嵌 · \(name)", style: .default) { _ in
+        UIAlertAction(title: L10n.format("内嵌 · %@", name), style: .default) { _ in
           track.isSelectedExclusively = true
         })
     }
     for subtitle in manifest.subtitles {
       alert.addAction(
-        UIAlertAction(title: "\(subtitle.language ?? "外挂") · \(subtitle.title)", style: .default) {
+        UIAlertAction(
+          title: "\(subtitle.language ?? L10n.text("外挂")) · \(subtitle.title)", style: .default
+        ) {
           [weak self] _ in
           self?.loadSubtitle(subtitle)
         })
     }
-    alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+    alert.addAction(UIAlertAction(title: L10n.text("取消"), style: .cancel))
     presentActionSheet(alert, from: subtitleButton)
   }
 
@@ -1024,31 +1032,34 @@ final class MediaPlaybackViewController: UIViewController {
   /// 显示当前内嵌音轨并允许切换语言或描述。
   private func showAudioMenu() {
     let tracks = player.audioTracks
-    let alert = UIAlertController(title: "音轨", message: nil, preferredStyle: .actionSheet)
+    let alert = UIAlertController(
+      title: L10n.text("音轨"), message: nil, preferredStyle: .actionSheet)
     for track in tracks {
-      let name = track.trackName.isEmpty ? (track.trackDescription ?? "音轨") : track.trackName
+      let name =
+        track.trackName.isEmpty ? (track.trackDescription ?? L10n.text("音轨")) : track.trackName
       let action = UIAlertAction(title: name, style: .default) { _ in
         track.isSelectedExclusively = true
       }
       alert.addAction(action)
     }
-    alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+    alert.addAction(UIAlertAction(title: L10n.text("取消"), style: .cancel))
     presentActionSheet(alert, from: audioButton)
   }
 
   /// 显示常用播放速度并更新解码器和无文字图标的辅助标签。
   private func showSpeedMenu() {
-    let alert = UIAlertController(title: "播放速度", message: nil, preferredStyle: .actionSheet)
+    let alert = UIAlertController(
+      title: L10n.text("播放速度"), message: nil, preferredStyle: .actionSheet)
     for rate: Float in [0.5, 0.75, 1, 1.25, 1.5, 2] {
-      let label = rate == 1 ? "正常速度" : "\(rate.formatted())x"
+      let label = rate == 1 ? L10n.text("正常速度") : "\(rate.formatted())x"
       alert.addAction(
         UIAlertAction(title: label, style: .default) { [weak self] _ in
           guard let self else { return }
           self.player.rate = rate
-          self.speedButton.accessibilityValue = "\(rate.formatted()) 倍"
+          self.speedButton.accessibilityValue = L10n.format("%@ 倍", rate.formatted())
         })
     }
-    alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+    alert.addAction(UIAlertAction(title: L10n.text("取消"), style: .cancel))
     presentActionSheet(alert, from: speedButton)
   }
 
@@ -1064,8 +1075,9 @@ final class MediaPlaybackViewController: UIViewController {
   /// 以固定提示显示网络或播放错误，不展示上游 URL 和敏感响应正文。
   private func showError(_ message: String) {
     guard view.window != nil else { return }
-    let alert = UIAlertController(title: "播放暂不可用", message: message, preferredStyle: .alert)
-    alert.addAction(UIAlertAction(title: "好", style: .default))
+    let alert = UIAlertController(
+      title: L10n.text("播放暂不可用"), message: message, preferredStyle: .alert)
+    alert.addAction(UIAlertAction(title: L10n.text("好"), style: .default))
     present(alert, animated: true)
   }
 

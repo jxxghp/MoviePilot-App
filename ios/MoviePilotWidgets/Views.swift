@@ -41,9 +41,12 @@ struct MoviePilotWidgetView: View {
       header
       if entry.display.metrics.isEmpty && entry.display.items.isEmpty {
         Spacer(minLength: 0)
-        Text(entry.display.state == .empty ? "暂无内容" : (entry.display.message ?? "暂时无法读取"))
-          .font(.subheadline).foregroundStyle(.secondary).fixedSize(
-            horizontal: false, vertical: true)
+        Text(
+          entry.display.state == .empty
+            ? L10n.text("暂无内容") : (entry.display.message ?? L10n.text("暂时无法读取"))
+        )
+        .font(.subheadline).foregroundStyle(.secondary).fixedSize(
+          horizontal: false, vertical: true)
         Spacer(minLength: 0)
       } else {
         details
@@ -150,9 +153,9 @@ struct MoviePilotWidgetView: View {
   private func metricTitle(_ metric: WidgetMetric) -> String {
     guard metric.id == "count" else { return metric.title }
     switch entry.content {
-    case .imports: return "总入库"
-    case .subscriptions: return "总订阅"
-    case .downloads: return "下载任务"
+    case .imports: return L10n.text("总入库")
+    case .subscriptions: return L10n.text("总订阅")
+    case .downloads: return L10n.text("下载任务")
     default: return metric.title
     }
   }
@@ -200,7 +203,9 @@ struct MoviePilotWidgetView: View {
       if let subtitle = item.subtitle, !subtitle.isEmpty {
         Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
       }
-      if let progress = item.progress { ProgressView(value: progress).accessibilityLabel("进度") }
+      if let progress = item.progress {
+        ProgressView(value: progress).accessibilityLabel(L10n.text("进度"))
+      }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -226,10 +231,11 @@ struct MoviePilotWidgetView: View {
       let upload = entry.display.metrics.first(where: { $0.id == "uploadSpeed" })
     {
       Text("↓ \(lockRate(download)) ↑ \(lockRate(upload))")
-        .accessibilityLabel("下载速度 \(download.value)，上传速度 \(upload.value)")
+        .accessibilityLabel(L10n.format("下载速度 %@，上传速度 %@", download.value, upload.value))
     } else {
       Label(
-        entry.display.metrics.first?.value ?? "打开 MoviePilot", systemImage: entry.content.symbol)
+        entry.display.metrics.first?.value ?? L10n.text("打开 MoviePilot"),
+        systemImage: entry.content.symbol)
     }
   }
 
@@ -264,7 +270,7 @@ struct MoviePilotWidgetView: View {
       } else {
         VStack(spacing: 2) {
           Image(systemName: entry.content.symbol)
-          Text(entry.display.metrics.first?.value ?? "打开 App")
+          Text(entry.display.metrics.first?.value ?? L10n.text("打开 App"))
             .font(.caption2).lineLimit(1).minimumScaleFactor(0.5)
         }
       }
@@ -277,7 +283,7 @@ struct MoviePilotWidgetView: View {
       if entry.display.metrics.isEmpty {
         Label(entry.display.title, systemImage: entry.content.symbol)
           .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-        Text(entry.display.state == .empty ? "暂无内容" : "在 App 中检查小组件")
+        Text(entry.display.state == .empty ? L10n.text("暂无内容") : L10n.text("在 App 中检查小组件"))
           .font(.caption).lineLimit(2)
       } else if hasTransferMetrics {
         HStack(spacing: 10) {
@@ -292,12 +298,12 @@ struct MoviePilotWidgetView: View {
         }.font(.caption.weight(.semibold)).monospacedDigit()
         if let metric = entry.display.metrics.first(where: { $0.id == "freeSpace" }) {
           HStack(spacing: 4) {
-            Label("剩余 \(metric.value)", systemImage: metric.icon.symbol)
+            Label(L10n.format("剩余 %@", metric.value), systemImage: metric.icon.symbol)
               .lineLimit(1).minimumScaleFactor(0.85)
               .accessibilityLabel("\(metric.title) \(metric.value)")
             if entry.display.state == .stale {
               Image(systemName: "clock.badge.exclamationmark")
-                .accessibilityLabel("数据待更新")
+                .accessibilityLabel(L10n.text("数据待更新"))
             }
           }.font(.caption2).foregroundStyle(.secondary)
         }

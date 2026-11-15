@@ -228,14 +228,14 @@ final class OperationMenuController: UITableViewController, UISheetPresentationC
       title = submenu.title
     }
     path = validPath
-    navigationItem.title = title ?? "操作"
+    navigationItem.title = title ?? L10n.text("操作")
     navigationItem.leftBarButtonItem =
       path.isEmpty
       ? nil
       : UIBarButtonItem(
         image: UIImage(systemName: "chevron.left"), style: .plain,
         target: self, action: #selector(back))
-    navigationItem.leftBarButtonItem?.accessibilityLabel = "返回上一级菜单"
+    navigationItem.leftBarButtonItem?.accessibilityLabel = L10n.text("返回上一级菜单")
     sections = [Section()]
     append(rows)
     sections.removeAll { $0.rows.isEmpty }

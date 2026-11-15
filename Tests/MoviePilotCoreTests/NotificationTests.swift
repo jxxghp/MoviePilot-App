@@ -12,7 +12,9 @@ struct NotificationTests {
       "请先配置并启用 AppPush 通知渠道。",
     ] {
       let failure = NotificationFailure(message: message)
-      #expect(failure.localizedDescription.contains("设定 → 通知"))
+      #expect(
+        failure.localizedDescription
+          == L10n.text("请在 MoviePilot「设定 → 通知」中添加、启用并保存 AppPush 渠道；若已启用，请更新后端后重试。"))
       #expect(failure.localizedDescription.contains("AppPush"))
       #expect(!failure.localizedDescription.contains("请先登录"))
     }

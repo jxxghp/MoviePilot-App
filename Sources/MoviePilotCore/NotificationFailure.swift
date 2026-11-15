@@ -9,7 +9,7 @@ public struct NotificationFailure: LocalizedError, Sendable {
     switch message {
     case "该通知渠道未启用或不支持此管理动作", "请先配置并启用 AppPush 私有通知渠道",
       "请先配置并启用 AppPush 通知渠道。":
-      self.message = "请在 MoviePilot「设定 → 通知」中添加、启用并保存 AppPush 渠道；若已启用，请更新后端后重试。"
+      self.message = L10n.text("请在 MoviePilot「设定 → 通知」中添加、启用并保存 AppPush 渠道；若已启用，请更新后端后重试。")
     default:
       self.message = message
     }

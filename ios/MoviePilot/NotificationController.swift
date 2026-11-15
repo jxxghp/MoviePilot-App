@@ -17,7 +17,7 @@ final class NotificationController: UITableViewController {
   private var center: NotificationCenterAddress
   private var instanceCenter: NotificationCenterAddress?
   private var code: String?
-  private var summary = "正在读取通知绑定…"
+  private var summary = L10n.text("正在读取通知绑定…")
   private var busy = false
 
   /// 设置页只绑定当前协调器；切换实例后旧文档的请求不能回写新会话。
@@ -39,9 +39,10 @@ final class NotificationController: UITableViewController {
   /// 同时提供主屏幕通知与构建声明的原生推送入口，实际注册仍需签名权限。
   override func viewDidLoad() {
     super.viewDidLoad()
-    title = "通知"
+    title = L10n.text("通知")
     navigationItem.rightBarButtonItem = UIBarButtonItem(
-      systemItem: .done, primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) })
+      title: L10n.text("完成"),
+      primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) })
     tableView.accessibilityIdentifier = "notification-settings"
     NativeModalAppearance.apply(to: self)
     Task { [weak self] in await self?.perform("status") }
@@ -63,7 +64,7 @@ final class NotificationController: UITableViewController {
   /// 系统分组标题说明通知归属，避免用户把免费自签与 APNs 混淆。
   override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String?
   {
-    ["通知服务中心", "主屏幕通知", "系统通知", "当前安装"][section]
+    [L10n.text("通知服务中心"), L10n.text("主屏幕通知"), L10n.text("系统通知"), L10n.text("当前安装")][section]
   }
 
   /// 设备选择的中心须与后台签发绑定码的中心一致，避免将绑定码交给其他服务。
@@ -71,9 +72,9 @@ final class NotificationController: UITableViewController {
   {
     guard section == 0 else { return nil }
     if let instanceCenter, instanceCenter != center {
-      return "实例 AppPush 当前使用 \(instanceCenter.displayURL)。请在后台配置相同地址，或选择“使用实例配置”后绑定。"
+      return L10n.format("实例 AppPush 当前使用 %@。请在后台配置相同地址，或选择“使用实例配置”后绑定。", instanceCenter.displayURL)
     }
-    return "默认使用 https://movie-pilot.org。更换服务中心时，实例的 AppPush 渠道也须使用相同地址。"
+    return L10n.text("默认使用 https://movie-pilot.org。更换服务中心时，实例的 AppPush 渠道也须使用相同地址。")
   }
 
   /// 绑定码只在当前设置页短暂显示，退出页面不写入日志或持久配置。
@@ -88,34 +89,36 @@ final class NotificationController: UITableViewController {
     cell.isUserInteractionEnabled = !busy
     switch (indexPath.section, indexPath.row) {
     case (0, 0):
-      button(cell, title: "服务地址", id: "notification-service-center")
+      button(cell, title: L10n.text("服务地址"), id: "notification-service-center")
       cell.detailTextLabel?.text = center.displayURL
       cell.accessibilityValue = center.displayURL
       cell.accessoryType = .disclosureIndicator
-    case (0, 1): button(cell, title: "使用默认服务中心", id: "notification-center-reset")
-    case (0, 2): button(cell, title: "使用实例配置", id: "notification-center-instance")
+    case (0, 1): button(cell, title: L10n.text("使用默认服务中心"), id: "notification-center-reset")
+    case (0, 2): button(cell, title: L10n.text("使用实例配置"), id: "notification-center-instance")
     case (1, 0):
-      cell.textLabel?.text = "免费自签也可接收通知"
-      cell.detailTextLabel?.text = "在 Safari 打开通知网页，添加到主屏幕，再从主屏幕打开并输入绑定码。通知由主屏幕网页接收，点击后可返回 App。"
-    case (1, 1): button(cell, title: "生成绑定码", id: "notification-generate")
-    case (1, 2): button(cell, title: "打开通知网页", id: "notification-open-page")
+      cell.textLabel?.text = L10n.text("免费自签也可接收通知")
+      cell.detailTextLabel?.text = L10n.text(
+        "在 Safari 打开通知网页，添加到主屏幕，再从主屏幕打开并输入绑定码。通知由主屏幕网页接收，点击后可返回 App。")
+    case (1, 1): button(cell, title: L10n.text("生成绑定码"), id: "notification-generate")
+    case (1, 2): button(cell, title: L10n.text("打开通知网页"), id: "notification-open-page")
     case (1, 3):
-      button(cell, title: "复制绑定码", id: "notification-copy-code")
-      cell.detailTextLabel?.text = "\(code ?? "")\n十分钟内有效，仅可使用一次。请只粘贴到你自己的通知网页。"
+      button(cell, title: L10n.text("复制绑定码"), id: "notification-copy-code")
+      cell.detailTextLabel?.text = L10n.format("%@\n十分钟内有效，仅可使用一次。请只粘贴到你自己的通知网页。", code ?? "")
       cell.detailTextLabel?.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
     case (2, 0):
       cell.textLabel?.text =
-        NotificationService.shared.environment == nil ? "当前签名使用主屏幕通知" : "原生通知需要系统授权"
+        NotificationService.shared.environment == nil
+        ? L10n.text("当前签名使用主屏幕通知") : L10n.text("原生通知需要系统授权")
       cell.detailTextLabel?.text =
         NotificationService.shared.registrationError
         ?? (NotificationService.shared.environment == nil
-          ? "免费 Apple 个人签名没有 APNs 能力。主屏幕通知使用相同的私有 Server，无需开发者账号。"
-          : "使用带 Push Notifications 能力的签名和已配置的 Server 后开启。")
-    case (2, 1): button(cell, title: "开启系统通知", id: "notification-enable-native")
+          ? L10n.text("免费 Apple 个人签名没有 APNs 能力。主屏幕通知使用相同的私有 Server，无需开发者账号。")
+          : L10n.text("使用带 Push Notifications 能力的签名和已配置的 Server 后开启。"))
+    case (2, 1): button(cell, title: L10n.text("开启系统通知"), id: "notification-enable-native")
     case (3, 0): cell.textLabel?.text = summary
-    case (3, 1): button(cell, title: "发送测试通知", id: "notification-test")
+    case (3, 1): button(cell, title: L10n.text("发送测试通知"), id: "notification-test")
     default:
-      button(cell, title: "解除本机及配对网页绑定", id: "notification-remove")
+      button(cell, title: L10n.text("解除本机及配对网页绑定"), id: "notification-remove")
       cell.textLabel?.textColor = .systemRed
     }
     return cell
@@ -143,7 +146,7 @@ final class NotificationController: UITableViewController {
     case (1, 2): UIApplication.shared.open(center.pageURL)
     case (1, 3):
       UIPasteboard.general.string = code
-      show("绑定码已复制。请在主屏幕通知网页中粘贴。")
+      show(L10n.text("绑定码已复制。请在主屏幕通知网页中粘贴。"))
     case (2, 1):
       Task { await enableNative() }
     case (3, 1): Task { await perform("test") }
@@ -171,14 +174,14 @@ final class NotificationController: UITableViewController {
     center = value
     defaults.set(value.displayURL, forKey: centerKey)
     code = nil
-    summary = "通知服务中心已更新，请重新生成绑定码。"
+    summary = L10n.text("通知服务中心已更新，请重新生成绑定码。")
     tableView.reloadData()
   }
 
   /// 系统输入框允许修改中心；无效、明文公网或带凭据的地址不能保存。
   private func editCenter() {
     let alert = UIAlertController(
-      title: "通知服务中心", message: "请输入 HTTPS 服务地址，并与实例的 AppPush 消息中心保持一致。",
+      title: L10n.text("通知服务中心"), message: L10n.text("请输入 HTTPS 服务地址，并与实例的 AppPush 消息中心保持一致。"),
       preferredStyle: .alert)
     alert.addTextField { [center] field in
       field.text = center.displayURL
@@ -188,7 +191,7 @@ final class NotificationController: UITableViewController {
       field.autocorrectionType = .no
       field.accessibilityIdentifier = "notification-center-address"
     }
-    let save = UIAlertAction(title: "保存", style: .default) { [weak self, weak alert] _ in
+    let save = UIAlertAction(title: L10n.text("保存"), style: .default) { [weak self, weak alert] _ in
       guard let raw = alert?.textFields?.first?.text,
         let value = try? NotificationCenterAddress(raw)
       else { return }
@@ -200,7 +203,7 @@ final class NotificationController: UITableViewController {
           save?.isEnabled = (try? NotificationCenterAddress(field?.text ?? "")) != nil
         }, for: .editingChanged)
     }
-    alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+    alert.addAction(UIAlertAction(title: L10n.text("取消"), style: .cancel))
     alert.addAction(save)
     present(alert, animated: true)
   }
@@ -230,21 +233,24 @@ final class NotificationController: UITableViewController {
       case "pair":
         guard instanceCenter == center else {
           code = nil
-          throw NotificationFailure(message: "通知服务中心与实例 AppPush 配置不一致，请先统一服务地址后重新生成绑定码。")
+          throw NotificationFailure(message: L10n.text("通知服务中心与实例 AppPush 配置不一致，请先统一服务地址后重新生成绑定码。"))
         }
         if case .string(let value) = data["code"] { code = value }
-        summary = "绑定码已生成，完成主屏幕网页绑定后可发送测试通知。"
+        summary = L10n.text("绑定码已生成，完成主屏幕网页绑定后可发送测试通知。")
       case "unregister":
         NotificationService.shared.disable()
         code = nil
-        summary = "当前安装已解除绑定。"
+        summary = L10n.text("当前安装已解除绑定。")
       case "test":
         if case .number(let count) = data["total"], case .number(let accepted) = data["accepted"] {
-          show(count == 0 ? "当前账号还没有绑定通知设备。" : "已提交 \(Int(accepted))/\(Int(count)) 个设备，请检查系统通知。")
+          show(
+            count == 0
+              ? L10n.text("当前账号还没有绑定通知设备。")
+              : L10n.format("已提交 %d/%d 个设备，请检查系统通知。", Int(accepted), Int(count)))
         }
       default:
         if case .array(let devices) = data["devices"] {
-          summary = "当前账号已绑定 \(devices.count) 个通知设备。"
+          summary = L10n.format("当前账号已绑定 %d 个通知设备。", devices.count)
         }
       }
     } catch {
@@ -256,8 +262,8 @@ final class NotificationController: UITableViewController {
   /// 操作结果使用系统提示框；不回显服务器原始响应。
   private func show(_ message: String) {
     guard presentedViewController == nil else { return }
-    let alert = UIAlertController(title: "通知", message: message, preferredStyle: .alert)
-    alert.addAction(UIAlertAction(title: "好", style: .default))
+    let alert = UIAlertController(title: L10n.text("通知"), message: message, preferredStyle: .alert)
+    alert.addAction(UIAlertAction(title: L10n.text("好"), style: .default))
     present(alert, animated: true)
   }
 }

@@ -1,0 +1,15 @@
+"服务" = "Server";
+"内容" = "Content";
+"系统概览" = "System overview";
+"下载状态" = "Download status";
+"近期入库" = "Recent imports";
+"订阅" = "Subscriptions";
+"电影订阅" = "Movie subscriptions";
+"剧集订阅" = "TV subscriptions";
+"音乐订阅" = "Music subscriptions";
+"MoviePilot 小组件" = "MoviePilot widgets";
+"选择已在 App 中启用的服务与只读内容。" = "Choose a server enabled in the App and its read-only content.";
+"显示媒体名称" = "Show media names";
+"查看服务概览、下载、近期入库与订阅。" = "View the server overview, downloads, recent imports and subscriptions.";
+"MoviePilot 状态" = "MoviePilot Status";
+"在锁屏查看下载、上传速度及只读状态。" = "View download and upload speeds and read-only status on the Lock Screen.";

@@ -8,10 +8,10 @@ public enum PasskeyFailure: String, Error, LocalizedError, Sendable {
   public var errorDescription: String? {
     switch self {
     case .canceled: nil
-    case .expired: "通行密钥验证已过期，请重新尝试。"
-    case .unsupported: "当前连接或系统不支持通行密钥，请使用 HTTPS 地址和支持的系统。"
-    case .invalid: "通行密钥验证结果无效，请重新尝试。"
-    case .failed: "未能完成通行密钥验证，请重新尝试。"
+    case .expired: L10n.text("通行密钥验证已过期，请重新尝试。")
+    case .unsupported: L10n.text("当前连接或系统不支持通行密钥，请使用 HTTPS 地址和支持的系统。")
+    case .invalid: L10n.text("通行密钥验证结果无效，请重新尝试。")
+    case .failed: L10n.text("未能完成通行密钥验证，请重新尝试。")
     }
   }
 }

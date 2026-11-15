@@ -7,7 +7,7 @@ final class WidgetController: UITableViewController, UIAdaptivePresentationContr
   private let coordinator: WebCoordinator
   private var state: WidgetSettingsState?
   private var operation: Task<Void, Never>?
-  private var status = "正在读取…"
+  private var status = L10n.text("正在读取…")
 
   /// 控制器只关联打开时的实例，关闭后取消等待，不保存主认证或专用 secret。
   init(coordinator: WebCoordinator) {
@@ -21,9 +21,9 @@ final class WidgetController: UITableViewController, UIAdaptivePresentationContr
   /// 继续使用 UIKit 默认材质与系统分组，不按弹窗高度调整文字颜色。
   override func viewDidLoad() {
     super.viewDidLoad()
-    title = "小组件"
+    title = L10n.text("小组件")
     navigationItem.rightBarButtonItem = UIBarButtonItem(
-      systemItem: .done, primaryAction: UIAction { [weak self] _ in self?.close() })
+      title: L10n.text("完成"), primaryAction: UIAction { [weak self] _ in self?.close() })
     tableView.accessibilityIdentifier = "widget-settings"
     navigationController?.presentationController?.delegate = self
     NativeModalAppearance.apply(to: self)
@@ -59,14 +59,14 @@ final class WidgetController: UITableViewController, UIAdaptivePresentationContr
   /// 分组标题交给系统渲染，保持原生 Sheet 的明暗与转场行为。
   override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String?
   {
-    ["当前服务", "本机资料", "添加小组件"][section]
+    [L10n.text("当前服务"), L10n.text("本机资料"), L10n.text("添加小组件")][section]
   }
 
   /// 说明只读、系统调度及续期，不向用户暴露桥协议或 Keychain 实现。
   override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String?
   {
     guard section == 1 else { return nil }
-    return "每个服务使用当前账号的只读资料。有效期为 30 天，届时需在 App 内续期；退出账号会移除资料。更新频率由 iOS 决定。"
+    return L10n.text("每个服务使用当前账号的只读资料。有效期为 30 天，届时需在 App 内续期；退出账号会移除资料。更新频率由 iOS 决定。")
   }
 
   /// 表格只显示白名单状态，数据源错误不能变成假的已启用或空内容。
@@ -81,33 +81,37 @@ final class WidgetController: UITableViewController, UIAdaptivePresentationContr
     cell.isUserInteractionEnabled = false
     switch (indexPath.section, indexPath.row) {
     case (0, 0):
-      cell.textLabel?.text = state?.profile?.name ?? (state == nil ? "小组件" : "尚未启用")
+      cell.textLabel?.text =
+        state?.profile?.name ?? (state == nil ? L10n.text("小组件") : L10n.text("尚未启用"))
       cell.detailTextLabel?.text = status
     case (0, 1):
-      cell.textLabel?.text = "上次采样"
+      cell.textLabel?.text = L10n.text("上次采样")
       cell.detailTextLabel?.text =
-        state?.generatedAt.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "尚无数据"
+        state?.generatedAt.map { $0.formatted(date: .abbreviated, time: .shortened) }
+        ?? L10n.text("尚无数据")
     case (0, 2):
-      cell.textLabel?.text = "有效期至"
+      cell.textLabel?.text = L10n.text("有效期至")
       cell.detailTextLabel?.text = state?.profile.map {
         Date(timeIntervalSince1970: $0.credentialExpiresAt).formatted(
           date: .abbreviated, time: .shortened)
       }
     case (1, 0):
-      action(cell, title: state?.profile == nil ? "启用当前账号" : "续期", id: "widget-enable")
+      action(
+        cell, title: state?.profile == nil ? L10n.text("启用当前账号") : L10n.text("续期"),
+        id: "widget-enable")
       cell.isUserInteractionEnabled =
         operation == nil && state?.context.availableContents.isEmpty == false
     case (1, 1):
-      action(cell, title: "刷新", id: "widget-refresh")
+      action(cell, title: L10n.text("刷新"), id: "widget-refresh")
     case (1, 2):
-      action(cell, title: "修改显示名称", id: "widget-rename")
+      action(cell, title: L10n.text("修改显示名称"), id: "widget-rename")
     case (1, 3):
-      action(cell, title: "移除本机资料", id: "widget-remove")
+      action(cell, title: L10n.text("移除本机资料"), id: "widget-remove")
       cell.textLabel?.textColor = .systemRed
     default:
-      cell.textLabel?.text = "桌面、锁屏与今天视图"
+      cell.textLabel?.text = L10n.text("桌面、锁屏与今天视图")
       cell.detailTextLabel?.text =
-        "长按主屏幕空白处，选择“编辑”→“添加小组件”，搜索 MoviePilot。锁屏可在自定中添加；向右滑到今天视图，也可添加。编辑小组件可选择服务和内容。"
+        L10n.text("长按主屏幕空白处，选择“编辑”→“添加小组件”，搜索 MoviePilot。锁屏可在自定中添加；向右滑到今天视图，也可添加。编辑小组件可选择服务和内容。")
     }
     return cell
   }
@@ -133,10 +137,11 @@ final class WidgetController: UITableViewController, UIAdaptivePresentationContr
     case 2: editName(enabling: false)
     case 3:
       let alert = UIAlertController(
-        title: "移除本机资料？", message: "使用此资料的小组件将停止显示内容。", preferredStyle: .alert)
-      alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        title: L10n.text("移除本机资料？"), message: L10n.text("使用此资料的小组件将停止显示内容。"), preferredStyle: .alert
+      )
+      alert.addAction(UIAlertAction(title: L10n.text("取消"), style: .cancel))
       alert.addAction(
-        UIAlertAction(title: "移除", style: .destructive) { [weak self] _ in
+        UIAlertAction(title: L10n.text("移除"), style: .destructive) { [weak self] _ in
           self?.run { [weak self] in
             guard let self else { return }
             try await WidgetService.shared.disable(self.coordinator)
@@ -151,15 +156,16 @@ final class WidgetController: UITableViewController, UIAdaptivePresentationContr
   /// 明确的系统输入框只收本机显示名，不读取主账号或服务器配置。
   private func editName(enabling: Bool) {
     let alert = UIAlertController(
-      title: enabling ? "启用小组件" : "修改显示名称", message: "填写便于区分服务的名称。", preferredStyle: .alert)
+      title: enabling ? L10n.text("启用小组件") : L10n.text("修改显示名称"),
+      message: L10n.text("填写便于区分服务的名称。"), preferredStyle: .alert)
     alert.addTextField { [state] field in
       field.text = state?.profile?.name ?? "MoviePilot"
-      field.placeholder = "显示名称"
+      field.placeholder = L10n.text("显示名称")
       field.autocorrectionType = .no
     }
-    alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+    alert.addAction(UIAlertAction(title: L10n.text("取消"), style: .cancel))
     alert.addAction(
-      UIAlertAction(title: "确定", style: .default) { [weak self, weak alert] _ in
+      UIAlertAction(title: L10n.text("确定"), style: .default) { [weak self, weak alert] _ in
         guard let name = alert?.textFields?.first?.text else { return }
         self?.run { [weak self] in
           guard let self else { return }
@@ -203,21 +209,22 @@ final class WidgetController: UITableViewController, UIAdaptivePresentationContr
     let current = try await WidgetService.shared.settings(coordinator)
     try Task.checkCancellation()
     state = current
-    status = current.profile == nil ? "启用后可在系统小组件中选择此服务。" : "已启用，只读显示当前账号允许的内容。"
-    if current.context.availableContents.isEmpty { status = "当前账号没有可用的小组件内容。" }
+    status =
+      current.profile == nil ? L10n.text("启用后可在系统小组件中选择此服务。") : L10n.text("已启用，只读显示当前账号允许的内容。")
+    if current.context.availableContents.isEmpty { status = L10n.text("当前账号没有可用的小组件内容。") }
   }
 
   /// 错误文案固定，不拼接后端响应、原始异常或凭据。
   private func message(for error: any Error) -> String {
     switch error {
-    case WidgetBridgeError.unsupported: return "当前页面暂不支持，请更新 MoviePilot 后重试。"
+    case WidgetBridgeError.unsupported: return L10n.text("当前页面暂不支持，请更新 MoviePilot 后重试。")
     case WidgetBridgeError.unauthorized, WidgetBridgeError.identityChanged:
-      return "登录状态已变化，请重新打开设置。"
-    case WidgetBridgeError.forbidden: return "当前账号没有可用的小组件内容。"
-    case WidgetPlatformError.sharedStorageUnavailable: return "当前安装的共享区域不可用，请检查安装或续签后重试。"
-    case WidgetBridgeError.invalidRequest: return "请输入较短的显示名称，并移除特殊控制字符。"
-    case WidgetBridgeError.requestLimit: return "请重新加载页面后再试。"
-    default: return "暂时无法读取，请解锁设备、检查连接后重试。"
+      return L10n.text("登录状态已变化，请重新打开设置。")
+    case WidgetBridgeError.forbidden: return L10n.text("当前账号没有可用的小组件内容。")
+    case WidgetPlatformError.sharedStorageUnavailable: return L10n.text("当前安装的共享区域不可用，请检查安装或续签后重试。")
+    case WidgetBridgeError.invalidRequest: return L10n.text("请输入较短的显示名称，并移除特殊控制字符。")
+    case WidgetBridgeError.requestLimit: return L10n.text("请重新加载页面后再试。")
+    default: return L10n.text("暂时无法读取，请解锁设备、检查连接后重试。")
     }
   }
 
