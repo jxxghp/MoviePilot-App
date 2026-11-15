@@ -66,8 +66,12 @@ public enum L10n {
 
   /// 使用同一目录读取翻译和校验资源，避免依赖宿主的系统语言。
   static func bundle(for language: AppLanguage) -> Bundle? {
-    Bundle.module.path(forResource: language.resourceName, ofType: "lproj").flatMap(
-      Bundle.init(path:))
+    guard
+      let url = Bundle.module.resourceURL?.appendingPathComponent(
+        "\(language.resourceName).lproj", isDirectory: true),
+      FileManager.default.fileExists(atPath: url.path)
+    else { return nil }
+    return Bundle(url: url)
   }
 
   /// 变量通过占位符传入，允许英语和中文调整语序，不把用户内容当翻译键。
