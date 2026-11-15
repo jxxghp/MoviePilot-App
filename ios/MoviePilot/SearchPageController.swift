@@ -114,8 +114,10 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
     if tableView.tintColor != accent { categorySignature = "" }
     tableView.tintColor = accent
     search.tintColor = accent
-    if !search.searchTextField.isFirstResponder { search.text = snapshot.search?.text }
-    search.placeholder = snapshot.search?.placeholder
+    UIView.performWithoutAnimation {
+      if !search.searchTextField.isFirstResponder { search.text = snapshot.search?.text }
+      search.placeholder = snapshot.search?.placeholder
+    }
     let available = ["media", "resources", "local"].filter { id in
       id == "local" || snapshot.sections.contains { $0.id == id && !$0.items.isEmpty }
     }
@@ -191,7 +193,8 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
           config.baseForegroundColor = .label
         }
         let labels = [
-          "media-media": "影视", "media-music": "音乐", "media-collection": "合集", "media-person": "人物",
+          "media-media": "影视", "media-library": "媒体库", "media-music": "音乐",
+          "media-collection": "合集", "media-person": "人物",
           "resource-torrent": "影视资源", "resource-music": "音乐资源", "resource-subtitle": "字幕",
         ]
         config.title = labels[item.id] ?? item.title
@@ -222,8 +225,11 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
     types.isHidden = categories.isEmpty
     var next: [Group] = []
     let keyword = snapshot.search?.text ?? ""
-    queryTitle.text = keyword.isEmpty ? "搜索" : "搜索“\(keyword)”"
-    queryTitle.isHidden = selectedScope == "local" && keyword.isEmpty
+    UIView.performWithoutAnimation {
+      queryTitle.text = keyword.isEmpty ? "搜索" : "搜索“\(keyword)”"
+      queryTitle.isHidden = selectedScope == "local" && keyword.isEmpty
+      queryTitle.layoutIfNeeded()
+    }
     var submit: [NativePanelItem] = []
     if let selected {
       let choices = (selected.children ?? []).filter { $0.primary != true }
