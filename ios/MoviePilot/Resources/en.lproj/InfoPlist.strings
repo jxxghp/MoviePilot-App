@@ -1,0 +1,5 @@
+"NSLocalNetworkUsageDescription" = "Connect to the MoviePilot server you configured on your local network.";
+"NSCameraUsageDescription" = "Use the camera when you choose to take and upload a photo in MoviePilot.";
+"NSMicrophoneUsageDescription" = "Use the microphone to record and send voice messages in the assistant.";
+"NSPhotoLibraryUsageDescription" = "Choose photos to upload in MoviePilot.";
+"NSPhotoLibraryAddUsageDescription" = "Save assistant images you select to your photo library.";

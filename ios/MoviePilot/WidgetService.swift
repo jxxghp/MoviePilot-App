@@ -310,7 +310,7 @@ final class WidgetService {
           try? await repository.remove(profileId: profile.id, revokeWith: self.client)
           WidgetCenter.shared.reloadAllTimelines()
         }
-        coordinator.shell?.showNotificationMessage("无法打开此小组件，请检查当前账号权限或重新启用资料。")
+        coordinator.shell?.showNotificationMessage(L10n.text("无法打开此小组件，请检查当前账号权限或重新启用资料。"))
       }
     }
   }

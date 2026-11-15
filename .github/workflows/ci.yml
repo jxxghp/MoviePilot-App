@@ -22,6 +22,8 @@ jobs:
         run: zsh scripts/test-core.sh
       - name: IPA verification boundaries
         run: python3 -m unittest discover -s scripts/tests
+      - name: Shared language bootstrap boundaries
+        run: node --test scripts/tests/*.test.mjs
       - name: Swift formatting
         run: xcrun swift-format lint --strict --recursive Sources Tests ios/MoviePilot ios/MoviePilotUITests ios/MoviePilotWidgets
       - name: Build WidgetKit extension

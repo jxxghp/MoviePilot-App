@@ -1,0 +1,5 @@
+"NSLocalNetworkUsageDescription" = "連接你在區域網路中設定的 MoviePilot 服務。";
+"NSCameraUsageDescription" = "在 MoviePilot 網頁中選擇拍照上傳時使用相機。";
+"NSMicrophoneUsageDescription" = "在智慧助理中錄製並傳送語音訊息時使用麥克風。";
+"NSPhotoLibraryUsageDescription" = "在 MoviePilot 網頁中選擇要上傳的照片。";
+"NSPhotoLibraryAddUsageDescription" = "將你選擇儲存的智慧助理圖片存入照片圖庫。";

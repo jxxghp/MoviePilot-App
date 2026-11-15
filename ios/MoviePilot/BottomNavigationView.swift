@@ -253,7 +253,7 @@ private final class CapsuleNavigationView: UIView {
     super.init(frame: .zero)
     isAccessibilityElement = false
     accessibilityContainerType = .semanticGroup
-    accessibilityLabel = "主导航"
+    accessibilityLabel = L10n.text("主导航")
     let effect: UIVisualEffect
     if #available(iOS 26, *) {
       effect = UIGlassEffect(style: .regular)
@@ -289,6 +289,7 @@ private final class CapsuleNavigationView: UIView {
 
   /// 只投影网页授权的入口；按钮使用原 SF Symbol、完整标题与相同路由回调。
   func apply(_ roots: [RootSnapshot], enabled: Bool, onSelect: @escaping (Int) -> Void) {
+    accessibilityLabel = L10n.text("主导航")
     self.onSelect = onSelect
     let ids = roots.map(\.id)
     if ids != rootIds {

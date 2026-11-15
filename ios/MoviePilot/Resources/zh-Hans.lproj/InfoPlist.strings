@@ -1,0 +1,5 @@
+"NSLocalNetworkUsageDescription" = "连接你在局域网中配置的 MoviePilot 服务。";
+"NSCameraUsageDescription" = "在 MoviePilot 网页中选择拍照上传时使用相机。";
+"NSMicrophoneUsageDescription" = "在智能助手中录制并发送语音消息时使用麦克风。";
+"NSPhotoLibraryUsageDescription" = "在 MoviePilot 网页中选择要上传的照片。";
+"NSPhotoLibraryAddUsageDescription" = "将你选择保存的智能助手图片存入照片图库。";

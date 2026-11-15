@@ -125,7 +125,8 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
       scopeIDs = available
       scope.removeAllSegments()
       for (index, id) in available.enumerated() {
-        let title = id == "local" ? "应用" : id == "resources" ? "资源" : "媒体"
+        let title =
+          id == "local" ? L10n.text("应用") : id == "resources" ? L10n.text("资源") : L10n.text("媒体")
         scope.insertSegment(withTitle: title, at: index, animated: false)
       }
     }
@@ -193,9 +194,11 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
           config.baseForegroundColor = .label
         }
         let labels = [
-          "media-media": "影视", "media-library": "媒体库", "media-music": "音乐",
-          "media-collection": "合集", "media-person": "人物",
-          "resource-torrent": "影视资源", "resource-music": "音乐资源", "resource-subtitle": "字幕",
+          "media-media": L10n.text("影视"), "media-library": L10n.text("媒体库"),
+          "media-music": L10n.text("音乐"),
+          "media-collection": L10n.text("合集"), "media-person": L10n.text("人物"),
+          "resource-torrent": L10n.text("影视资源"), "resource-music": L10n.text("音乐资源"),
+          "resource-subtitle": L10n.text("字幕"),
         ]
         config.title = labels[item.id] ?? item.title
         config.image = item.icon.flatMap { NavigationSymbols.image($0) }
@@ -226,7 +229,7 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
     var next: [Group] = []
     let keyword = snapshot.search?.text ?? ""
     UIView.performWithoutAnimation {
-      queryTitle.text = keyword.isEmpty ? "搜索" : "搜索“\(keyword)”"
+      queryTitle.text = keyword.isEmpty ? L10n.text("搜索") : L10n.format("搜索“%@”", keyword)
       queryTitle.isHidden = selectedScope == "local" && keyword.isEmpty
       queryTitle.layoutIfNeeded()
     }
@@ -238,7 +241,7 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
         next.append(
           Group(
             id: choices.contains { $0.id.hasPrefix("native-site-") } ? "legacy-sites" : "choices",
-            title: selectedScope == "resources" ? "选择站点" : "数据源",
+            title: selectedScope == "resources" ? L10n.text("选择站点") : L10n.text("数据源"),
             items: choices))
       }
       submit = run
@@ -294,7 +297,7 @@ final class SearchPageController: UITableViewController, UISearchBarDelegate {
       let cell = UITableViewCell()
       var content = cell.defaultContentConfiguration()
       let names = group.items.filter { $0.selected == true }.map(\.title)
-      content.text = names.isEmpty ? "选择站点" : names.joined(separator: "、")
+      content.text = names.isEmpty ? L10n.text("选择站点") : names.joined(separator: "、")
       content.textProperties.numberOfLines = 2
       cell.contentConfiguration = content
       cell.backgroundConfiguration = .clear()
@@ -459,10 +462,11 @@ private final class SearchSitePickerController: UITableViewController {
   /// 系统完成按钮只关闭选择层，站点勾选仍由 Vue 回调更新。
   override func viewDidLoad() {
     super.viewDidLoad()
-    title = "选择站点"
+    title = L10n.text("选择站点")
     tableView.accessibilityIdentifier = "native-search-site-picker"
     navigationItem.rightBarButtonItem = UIBarButtonItem(
-      title: "完成", primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) })
+      title: L10n.text("完成"),
+      primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) })
   }
 
   /// 重新消费 Vue 的已选状态，避免原生维护第二份选择结果。

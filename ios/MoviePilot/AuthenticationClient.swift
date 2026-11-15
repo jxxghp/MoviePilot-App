@@ -11,14 +11,14 @@ enum AuthenticationError: LocalizedError {
   /// 登录界面的错误文案不包含凭据或调试信息。
   var errorDescription: String? {
     switch self {
-    case .credentials: "用户名、密码或验证码不正确。"
-    case .otpRequired: "请输入身份验证器中的 6 位验证码。"
-    case .unsupportedVerification: "当前 App 尚不支持此实例要求的验证方式，请检查账户验证设置。"
-    case .notInitialized: "此实例尚未初始化，请先在浏览器中创建管理员，再返回 App 重新检查。"
-    case .unavailable: "无法连接此实例，请检查地址、网络和服务状态。"
-    case .invalidResponse: "认证接口返回了不支持的数据，请更新实例或检查服务后重试。"
-    case .passkeyFrontendRequired: "请更新实例的前端资源后，再使用 App 通行密钥登录。"
-    case .throttled(let seconds): "登录尝试过于频繁，请在 \(seconds) 秒后重试。"
+    case .credentials: L10n.text("用户名、密码或验证码不正确。")
+    case .otpRequired: L10n.text("请输入身份验证器中的 6 位验证码。")
+    case .unsupportedVerification: L10n.text("当前 App 尚不支持此实例要求的验证方式，请检查账户验证设置。")
+    case .notInitialized: L10n.text("此实例尚未初始化，请先在浏览器中创建管理员，再返回 App 重新检查。")
+    case .unavailable: L10n.text("无法连接此实例，请检查地址、网络和服务状态。")
+    case .invalidResponse: L10n.text("认证接口返回了不支持的数据，请更新实例或检查服务后重试。")
+    case .passkeyFrontendRequired: L10n.text("请更新实例的前端资源后，再使用 App 通行密钥登录。")
+    case .throttled(let seconds): L10n.format("登录尝试过于频繁，请在 %d 秒后重试。", seconds)
     }
   }
 }

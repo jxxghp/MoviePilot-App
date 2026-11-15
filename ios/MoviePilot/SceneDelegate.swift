@@ -96,8 +96,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard !Task.isCancelled else { return }
         WidgetService.shared.cancelOpen()
         let alert = UIAlertController(
-          title: "小组件资料不可用", message: "请在对应服务登录后，重新启用小组件资料。", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "好", style: .default))
+          title: L10n.text("小组件资料不可用"), message: L10n.text("请在对应服务登录后，重新启用小组件资料。"),
+          preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.text("好"), style: .default))
         self.window?.rootViewController?.present(alert, animated: true)
       }
     }
@@ -138,6 +139,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
   private func connect(_ instance: SavedInstance) {
     coordinator?.stop()
     coordinator = nil
+    LanguagePreferences(defaults: .standard).activate(instance.id)
+    LanguageSettings.refreshShortcuts()
     guard instance.address.webCompatibilityError == nil else {
       showConnection()
       return
@@ -171,8 +174,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         self.openWeb(instance, authentication: result)
         if storageFailed {
           let alert = UIAlertController(
-            title: "已登录", message: "此设备未能安全保存部分登录信息，下次可能需要重新输入。", preferredStyle: .alert)
-          alert.addAction(UIAlertAction(title: "好", style: .default))
+            title: L10n.text("已登录"), message: L10n.text("此设备未能安全保存部分登录信息，下次可能需要重新输入。"),
+            preferredStyle: .alert)
+          alert.addAction(UIAlertAction(title: L10n.text("好"), style: .default))
           self.window?.rootViewController?.present(alert, animated: true)
         }
       },

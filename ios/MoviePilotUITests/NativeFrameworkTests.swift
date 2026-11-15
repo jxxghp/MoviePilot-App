@@ -13,6 +13,87 @@ private struct NetworkFixtures: Decodable {
 /// 使用显式配置的实例验收原生框架与原业务 HTML；真实写入须另行开启并限定临时插件。
 @MainActor
 final class NativeFrameworkTests: XCTestCase {
+  /// 原生切换会同步当前实例的 MP_LOCALE；重启后网页与系统菜单仍保留同一选择。
+  func testLanguageSelectionIsSharedByConnectionAndDisplay() async throws {
+    let server =
+      ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_LANGUAGE_SERVER"]
+      ?? "http://127.0.0.1:5342"
+    guard let base = URL(string: server), base.scheme == "http", base.host == "127.0.0.1",
+      base.user == nil, base.password == nil, base.query == nil, base.fragment == nil
+    else { throw XCTSkip("语言夹具只允许使用不带凭据的本机 HTTP 服务。") }
+    guard
+      let (_, probe) = try? await URLSession.shared.data(
+        from: base.appendingPathComponent("__service/stats")),
+      (probe as? HTTPURLResponse)?.statusCode == 200
+    else { throw XCTSkip("需要本机端口 5342 上的发布前端语言夹具。") }
+    var request = URLRequest(url: base.appendingPathComponent("__service/config"))
+    request.httpMethod = "POST"
+    request.httpBody = try JSONSerialization.data(withJSONObject: ["mode": "ready", "reset": true])
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+
+    let app = XCUIApplication()
+    app.launchArguments = [
+      "-moviepilot.instance.selected.v1", "", "-AppleLanguages", "(zh-Hans)",
+      "-AppleLocale", "zh_CN",
+    ]
+    app.launch()
+    let languageButton = app.buttons["connection-language"]
+    XCTAssertTrue(languageButton.waitForExistence(timeout: 10))
+    languageButton.tap()
+    app.buttons["English"].tap()
+    XCTAssertTrue(app.navigationBars["Connect to server"].waitForExistence(timeout: 5))
+    attachScreen("语言-连接页-英语", app: app)
+    let address = app.textFields["MoviePilot server address"]
+    XCTAssertTrue(address.exists)
+    address.tap()
+    if address.buttons.firstMatch.exists { address.buttons.firstMatch.tap() }
+    address.typeText(server)
+    XCTAssertEqual(address.value as? String, server)
+    address.typeText("\n")
+    let username = app.textFields["Username"]
+    XCTAssertTrue(username.waitForExistence(timeout: 15))
+    username.tap()
+    username.typeText("native-demo")
+    app.secureTextFields["Password"].tap()
+    app.secureTextFields["Password"].typeText("fixture-only")
+    app.buttons["Sign in"].tap()
+    XCTAssertTrue(rootNavigation(app).buttons["Dashboard"].waitForExistence(timeout: 30))
+    XCTAssertTrue(app.buttons["Actions menu"].exists)
+    attachScreen("语言-连接显示-英语", app: app)
+
+    app.buttons["Actions menu"].tap()
+    app.buttons["Connection & Display"].tap()
+    app.buttons["Language"].tap()
+    app.buttons["繁體中文"].tap()
+    XCTAssertTrue(app.buttons["操作菜單"].waitForExistence(timeout: 30))
+    XCTAssertTrue(rootNavigation(app).buttons["儀表盤"].waitForExistence(timeout: 30))
+    XCTAssertFalse(rootNavigation(app).buttons["Dashboard"].exists)
+    attachScreen("语言-连接显示-繁体中文", app: app)
+
+    app.terminate()
+    app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+    app.launch()
+    let usernameAfterRelaunch = app.textFields["用戶名"]
+    if usernameAfterRelaunch.waitForExistence(timeout: 10) {
+      usernameAfterRelaunch.tap()
+      usernameAfterRelaunch.typeText("native-demo")
+      app.secureTextFields["密碼"].tap()
+      app.secureTextFields["密碼"].typeText("fixture-only")
+      app.buttons["登錄"].tap()
+    }
+    XCTAssertTrue(rootNavigation(app).buttons["儀表盤"].waitForExistence(timeout: 30))
+    XCTAssertTrue(app.buttons["操作菜單"].exists)
+
+    app.buttons["操作菜單"].tap()
+    app.buttons["連接與顯示"].tap()
+    app.buttons["語言"].tap()
+    XCTAssertTrue(app.buttons["繁體中文"].exists)
+    app.buttons["简体中文"].tap()
+    XCTAssertTrue(rootNavigation(app).buttons["仪表盘"].waitForExistence(timeout: 30))
+    app.terminate()
+  }
+
   /// 配置保存与面板在浅深主题下反复打开；旧系统检查最终像素，防止透明背景露出底页。
   func testModalBackgroundsAcrossThemes() async throws {
     guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_PLUGIN_SAVE"] == "1",

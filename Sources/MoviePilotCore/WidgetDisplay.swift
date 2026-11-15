@@ -27,10 +27,10 @@ public struct WidgetDisplay: Sendable {
     link =
       validProfile ? profile.flatMap { WidgetLink(profileId: $0.id, content: content).url } : nil
     var displayState: WidgetDisplayState = .unconfigured
-    var note: String? = "在 App 中启用小组件，再长按选择服务和内容"
+    var note: String? = L10n.text("在 App 中启用小组件，再长按选择服务和内容")
     if profile == nil && connectionFailed {
       displayState = .unavailable
-      note = "暂时无法读取小组件资料，请在 App 中检查"
+      note = L10n.text("暂时无法读取小组件资料，请在 App 中检查")
     }
     var date: Date?
     var shownMetrics: [WidgetMetric] = []
@@ -38,30 +38,32 @@ public struct WidgetDisplay: Sendable {
     if let profile {
       if !validProfile {
         displayState = .expired
-        note = "请在 App 中重新启用"
+        note = L10n.text("请在 App 中重新启用")
       } else if let snapshot, snapshot.owner == profile.owner {
         if snapshot.isExpired(at: now) {
           displayState = .expired
-          note = "数据已过期，请打开 App 刷新"
+          note = L10n.text("数据已过期，请打开 App 刷新")
         } else if let section = snapshot.sections.first(where: { $0.content == content }),
           snapshot.availableContents.contains(content)
         {
           let freshness = section.freshness(at: now)
           if section.state == .unavailable {
             displayState = .unavailable
-            note = section.message ?? "暂时无法读取"
+            note = section.message ?? L10n.text("暂时无法读取")
           } else if freshness == .expired {
             displayState = .expired
-            note = "数据已过期，请打开 App 刷新"
+            note = L10n.text("数据已过期，请打开 App 刷新")
           } else if content == .overview
             && !["cpu", "memory"].allSatisfy({ id in section.metrics.contains { $0.id == id } })
           {
             displayState = .unavailable
-            note = "请更新 MoviePilot 并刷新小组件"
+            note = L10n.text("请更新 MoviePilot 并刷新小组件")
           } else {
             displayState =
               freshness == .stale ? .stale : (section.state == .empty ? .empty : .ready)
-            note = connectionFailed ? "暂时无法连接" : (freshness == .stale ? "数据待更新" : nil)
+            note =
+              connectionFailed
+              ? L10n.text("暂时无法连接") : (freshness == .stale ? L10n.text("数据待更新") : nil)
             date = section.updatedAt.map { Date(timeIntervalSince1970: $0) }
             shownMetrics =
               content == .overview
@@ -74,17 +76,18 @@ public struct WidgetDisplay: Sendable {
               ? section.items
               : section.items.enumerated().map { index, item in
                 WidgetItem(
-                  id: item.id, title: "项目 \(index + 1)", subtitle: nil, progress: item.progress,
+                  id: item.id, title: L10n.format("项目 %d", index + 1), subtitle: nil,
+                  progress: item.progress,
                   timestamp: nil)
               }
           }
         } else {
           displayState = .unavailable
-          note = "此账号暂不可显示所选内容"
+          note = L10n.text("此账号暂不可显示所选内容")
         }
       } else {
         displayState = .unavailable
-        note = "请在 App 中刷新小组件资料"
+        note = L10n.text("请在 App 中刷新小组件资料")
       }
     }
     state = displayState
@@ -117,13 +120,13 @@ extension WidgetContent {
   /// 配置项和视图只翻译有限内容枚举，不把业务路由或接口暴露为配置。
   public var title: String {
     switch self {
-    case .overview: "系统概览"
-    case .downloads: "下载状态"
-    case .imports: "近期入库"
-    case .subscriptions: "订阅"
-    case .movieSubscriptions: "电影订阅"
-    case .tvSubscriptions: "剧集订阅"
-    case .musicSubscriptions: "音乐订阅"
+    case .overview: L10n.text("系统概览")
+    case .downloads: L10n.text("下载状态")
+    case .imports: L10n.text("近期入库")
+    case .subscriptions: L10n.text("订阅")
+    case .movieSubscriptions: L10n.text("电影订阅")
+    case .tvSubscriptions: L10n.text("剧集订阅")
+    case .musicSubscriptions: L10n.text("音乐订阅")
     }
   }
 
