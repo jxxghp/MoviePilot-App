@@ -49,6 +49,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   private var popupWebViews: [ObjectIdentifier: WKWebView] = [:]
   private var downloadWebViews: [ObjectIdentifier: WKWebView] = [:]
   private var authentication: AuthenticationResult?
+  private var streamAccessToken: String?
   private let onAuthenticationRequired: () -> Void
   private let onConnectionFailed: (String) -> Void
   private var usageLookupStarted = false
@@ -58,6 +59,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   private var widgetContextChecked = false
   private var cardMenusNegotiated = false
   private var standaloneMenusNegotiated = false
+  private var playbackNegotiated = false
+  private var playbackGeneration = 0
+  private var playbackTask: Task<Void, Never>?
   private lazy var cardMenus = CardMenuBridge(
     webView: webView,
     context: { [weak self] in
@@ -182,6 +186,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     shell?.setLoading(true)
     armStartupTimeout()
     let cookies = authentication?.cookies ?? []
+    streamAccessToken = authentication?.session.accessToken
     authentication = nil
     Task { [weak self] in
       guard let self else { return }
@@ -201,6 +206,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     onNavigationReady = nil
     cardMenusNegotiated = false
     standaloneMenusNegotiated = false
+    playbackNegotiated = false
+    cancelPlaybackRequest()
     cardMenus.stop()
     standaloneMenus.invalidate()
     if NotificationService.shared.coordinator === self { NotificationService.shared.attach(nil) }
@@ -222,6 +229,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       forName: "moviepilotAuthentication")
     webView.configuration.userContentController.removeAllUserScripts()
     authentication = nil
+    streamAccessToken = nil
     lastConfirmedURL = nil
     relay.owner = nil
     content.onLayout = nil
@@ -690,6 +698,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       WidgetService.shared.endSession(instanceId: instance.id, clear: true)
       cardMenus.invalidate()
       standaloneMenus.invalidate()
+      streamAccessToken = nil
+      playbackNegotiated = false
+      cancelPlaybackRequest()
       onAuthenticationRequired()
       return
     }
@@ -721,6 +732,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       standaloneMenus.invalidate()
       cardMenusNegotiated = ready.capabilities.contains("card-menus.v1")
       standaloneMenusNegotiated = ready.capabilities.contains("standalone-menus.v1")
+      playbackNegotiated = ready.capabilities.contains("playback.v1")
       let id = try session.negotiate(majors: ready.majors, capabilities: Set(ready.capabilities))
       lastLayout = nil
       send(
@@ -734,9 +746,17 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
               // 只启用网页已声明的内存缓存；旧前端不因新的可选能力失配。
               + (ready.capabilities.contains("readonly-cache.v1") ? ["readonly-cache.v1"] : []))
               .map(JSONValue.string) + (cardMenusNegotiated ? [.string("card-menus.v1")] : [])
-              + (standaloneMenusNegotiated ? [.string("standalone-menus.v1")] : [])),
+              + (standaloneMenusNegotiated ? [.string("standalone-menus.v1")] : [])
+              + (playbackNegotiated ? [.string("playback.v1")] : [])),
         ]))
       armTimeout()
+    case "playback.open":
+      guard playbackNegotiated, lifecycle == "active",
+        session.phase == .nativeNavigation, message.routeRevision == session.routeRevision
+      else { return }
+      let request = try message.decodePayload(PlaybackOpenPayload.self)
+      guard Self.isValidPlaybackRequest(request) else { throw BridgeError.invalidMessage }
+      openPlayback(request)
     case "navigation.state":
       guard let route = message.routeRevision, let state = message.stateRevision else {
         throw BridgeError.invalidMessage
@@ -801,6 +821,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       // 拒绝也证明网页仍有响应；由调用者核对交接是否仍有效，已关闭弹窗的迟到结果不应中断导航。
       completion?(result.accepted)
     case "session.state":
+      cancelPlaybackRequest()
       cardMenus.invalidate()
       standaloneMenus.invalidate()
       widgetContextChecked = false
@@ -840,6 +861,120 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       break  // v1 返回由网页优先关闭其顶层弹层，原生不猜测 DOM 栈。
     default: throw BridgeError.invalidMessage
     }
+  }
+
+  /// 只为当前页面、路由和身份请求播放清单，不把令牌交给网页桥或 URL。
+  private func openPlayback(_ request: PlaybackOpenPayload) {
+    guard let token = streamAccessToken, let sessionId = session.sessionId,
+      shell != nil
+    else {
+      presentPlaybackError()
+      return
+    }
+    cancelPlaybackRequest()
+    let generation = playbackGeneration
+    let document = documentID
+    let route = session.routeRevision
+    let address = instance.address
+    let instanceId = instance.id
+    let client = MediaPlaybackClient(address: address, accessToken: token)
+    playbackTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        let manifest = try await client.loadManifest(itemId: request.itemId, server: request.server)
+        guard !Task.isCancelled, self.playbackGeneration == generation,
+          self.documentID == document, self.session.sessionId == sessionId,
+          self.session.routeRevision == route, self.lifecycle == "active",
+          self.session.phase == .nativeNavigation, let currentShell = self.shell
+        else { return }
+        guard
+          await self.waitForPlaybackPresentationSlot(
+            currentShell, generation: generation, document: document,
+            sessionId: sessionId, routeRevision: route)
+        else { return }
+        guard self.playbackGeneration == generation, self.documentID == document,
+          self.session.sessionId == sessionId, self.session.routeRevision == route,
+          self.lifecycle == "active", self.session.phase == .nativeNavigation,
+          self.shell === currentShell, currentShell.presentedViewController == nil
+        else { return }
+        let player = MediaPlaybackViewController(
+          manifest: manifest, client: client, instanceId: instanceId,
+          itemId: request.itemId, displayTitle: request.title)
+        currentShell.present(player, animated: true)
+      } catch {
+        guard !Task.isCancelled, self.playbackGeneration == generation,
+          self.documentID == document, self.session.sessionId == sessionId,
+          self.session.routeRevision == route, self.lifecycle == "active"
+        else { return }
+        self.presentPlaybackError()
+      }
+      if self.playbackGeneration == generation { self.playbackTask = nil }
+    }
+  }
+
+  /// 等待网页详情 Sheet 完成关闭，再使用当前仍可见的 App Shell 展示播放器。
+  private func waitForPlaybackPresentationSlot(
+    _ expectedShell: ShellController, generation: Int, document: UUID,
+    sessionId: String, routeRevision: Int
+  ) async -> Bool {
+    for _ in 0..<40 {
+      guard !Task.isCancelled, playbackGeneration == generation,
+        documentID == document, session.sessionId == sessionId,
+        session.routeRevision == routeRevision, lifecycle == "active",
+        session.phase == .nativeNavigation, shell === expectedShell
+      else { return false }
+      if expectedShell.presentedViewController == nil { return true }
+      do {
+        try await Task.sleep(for: .milliseconds(100))
+      } catch {
+        return false
+      }
+    }
+    return false
+  }
+
+  /// 取消尚未展示播放器的清单请求并使所有迟到响应失效。
+  private func cancelPlaybackRequest() {
+    playbackGeneration += 1
+    playbackTask?.cancel()
+    playbackTask = nil
+  }
+
+  /// 为失败的播放清单显示固定提示，不泄露服务端地址和认证信息。
+  private func presentPlaybackError() {
+    guard lifecycle == "active", relay.owner != nil, let shell,
+      shell.presentedViewController == nil
+    else { return }
+    let alert = UIAlertController(
+      title: "无法播放", message: "请确认影片仍在媒体库中，并检查 MoviePilot 与网盘连接。",
+      preferredStyle: .alert)
+    alert.addAction(UIAlertAction(title: "好", style: .default))
+    shell.present(alert, animated: true)
+  }
+
+  /// 只接受媒体服务器条目 ID 和可展示标题，拒绝不完整的电视剧季集信息。
+  private static func isValidPlaybackRequest(_ request: PlaybackOpenPayload) -> Bool {
+    let itemId = request.itemId
+    let safeItemId =
+      itemId.range(
+        of:
+          "^(?:[A-Za-z0-9._:-]{1,128}|/library/metadata/[A-Za-z0-9._:-]{1,128}|file\\.[A-Za-z0-9_-]{64,4096})$",
+        options: .regularExpression) != nil
+    let safeTitle =
+      !request.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && request.title.utf8.count <= 256
+      && !request.title.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+    let safeServer =
+      request.server.map {
+        !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          && $0.utf8.count <= 128
+          && !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+      } ?? true
+    let seasonAndEpisodeMatch =
+      (request.season == nil && request.episode == nil)
+      || (request.season.map { (0...999).contains($0) } == true
+        && request.episode.map { (0...9999).contains($0) } == true)
+    return safeItemId && safeTitle && safeServer && seasonAndEpisodeMatch
   }
 
   /// 固定 JS 入口使用参数传递，不把用户路径或载荷拼接为可执行代码。
@@ -885,6 +1020,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     cardMenus.invalidate()
     standaloneMenus.invalidate()
     documentID = UUID()
+    cancelPlaybackRequest()
+    playbackNegotiated = false
+    streamAccessToken = nil
     WidgetService.shared.endSession(instanceId: instance.id, clear: false)
     pendingProcessRecovery = false
     timeout?.invalidate()
@@ -903,6 +1041,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     standaloneMenus.invalidate()
     cardMenusNegotiated = false
     standaloneMenusNegotiated = false
+    playbackNegotiated = false
+    cancelPlaybackRequest()
     timeout?.invalidate()
     lastConfirmedURL = nil
     documentID = UUID()
@@ -1311,6 +1451,15 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 private struct ReadyPayload: Decodable {
   let majors: [Int]
   let capabilities: [String]
+}
+
+/// 当前文档请求的播放条目和可选电视剧季集号。
+private struct PlaybackOpenPayload: Decodable {
+  let itemId: String
+  let title: String
+  let server: String?
+  let season: Int?
+  let episode: Int?
 }
 
 /// 网页确认的布局代次与原生准备阶段必须一致。

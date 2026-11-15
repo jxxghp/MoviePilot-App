@@ -19,6 +19,7 @@
     <key>CFBundleURLSchemes</key><array><string>moviepilot</string></array>
   </dict></array>
   <key>MoviePilotWidgetsEnabled</key><true/>
+  <key>UIBackgroundModes</key><array><string>audio</string></array>
   <key>UIApplicationShortcutItems</key><array>
     <dict>
       <key>UIApplicationShortcutItemType</key><string>org.moviepilot.app.search</string>

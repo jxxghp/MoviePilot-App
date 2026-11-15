@@ -1,0 +1,13 @@
+VLCKit
+
+MoviePilot App includes VLCKit, the VideoLAN wrapper for libVLC, for in-app
+media playback. VLCKit is licensed under the GNU Lesser General Public License
+version 2.1 or later (LGPL-2.1-or-later).
+
+Source project: https://code.videolan.org/videolan/vlckit
+License text: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+
+The Swift package is pinned to VideoLAN/vlckit commit
+3d0f0fa7031eab1a67c817c98a495e1c68fc998c. The package manifest identifies
+the binary archive checksum so the framework can be reproduced from that
+source revision.
