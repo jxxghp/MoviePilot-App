@@ -4,6 +4,7 @@ import argparse
 from email.parser import BytesParser
 from email.policy import default
 import json
+import mimetypes
 import re
 import threading
 import urllib.error
@@ -64,16 +65,17 @@ class PlaybackHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         """提供 App 登录、媒体清单、同名字幕和 Range 视频响应。"""
         parsed = urlsplit(self.path)
-        if self.uses_backend(parsed.path):
-            self.proxy_backend()
+        path = self.normalize_api_path(parsed.path)
+        if self.uses_backend(path):
+            self.proxy_backend(path)
             return
-        if parsed.path.startswith(('/api/v1/message/', '/api/v1/system/message', '/api/v1/system/progress/')):
+        if path.startswith(('/api/v1/message/', '/api/v1/system/message', '/api/v1/system/progress/')):
             self.send_response(204)
             self.send_header('Content-Type', 'text/event-stream')
             self.send_header('Content-Length', '0')
             self.end_headers()
             return
-        if parsed.path == '/api/v1/media/157336':
+        if path == '/api/v1/media/157336':
             self.reply(200, {'success': True, 'message': '', 'data': {
                 'media_source': 'themoviedb', 'media_id': '157336', 'tmdb_id': 157336,
                 'title': '星际穿越', 'type': '电视剧', 'year': '2014',
@@ -83,19 +85,19 @@ class PlaybackHandler(BaseHTTPRequestHandler):
                 'vote_average': 8.7, 'seasons': [{'season_number': 1, 'episode_count': 2, 'name': '第 1 季'}],
             }})
             return
-        if parsed.path == '/api/v1/media/source':
+        if path == '/api/v1/media/source':
             self.reply(200, {'success': True, 'message': '', 'data': [
                 {'name': 'TMDB', 'media_source': 'themoviedb', 'media_types': ['电影', '电视剧']},
                 {'name': 'MusicBrainz', 'media_source': 'musicbrainz', 'media_types': ['音乐']},
             ]})
             return
-        if parsed.path == '/api/v1/storage/options':
+        if path == '/api/v1/storage/options':
             self.reply(200, {'success': True, 'message': '', 'data': [{'type': 'local', 'name': '本地存储'}]})
             return
-        if parsed.path == '/api/v1/download/paths':
+        if path == '/api/v1/download/paths':
             self.reply(200, {'success': True, 'message': '', 'data': [{'storage': 'local', 'download_path': '/tmp/'}]})
             return
-        if parsed.path == '/api/v1/history/transfer':
+        if path == '/api/v1/history/transfer':
             entries = []
             for index, (title, name, media_type) in enumerate([
                 ('星际穿越', self.server.media.name, '电视剧'), ('晴天', 'moviepilot-playback.m4a', '音乐')
@@ -111,57 +113,57 @@ class PlaybackHandler(BaseHTTPRequestHandler):
                 })
             self.reply(200, {'success': True, 'message': '', 'data': {'list': entries, 'total': len(entries)}})
             return
-        if parsed.path == "/__playback/stats":
+        if path == "/__playback/stats":
             with self.server.guard:
                 counts = dict(self.server.counts)
             self.reply(200, counts)
             return
-        if parsed.path == "/api/v1/login/initialization":
+        if path == "/api/v1/login/initialization":
             self.reply(200, {"success": True, "message": "", "data": {"initialized": True}})
             return
-        if parsed.path == "/api/v1/auth/providers":
+        if path == "/api/v1/auth/providers":
             self.reply(200, {"success": True, "message": "", "data": []})
             return
-        if parsed.path == "/api/v1/system/global":
+        if path == "/api/v1/system/global":
             self.reply(200, {"success": True, "message": "", "data": {"APP_VERSION": "fixture", "WALLPAPER": ""}})
             return
-        if parsed.path == "/api/v1/system/module-catalog":
+        if path == "/api/v1/system/module-catalog":
             self.reply(200, {"success": True, "message": "", "data": {"modules": []}})
             return
-        if parsed.path == "/api/v1/user/current":
+        if path == "/api/v1/user/current":
             self.reply(200, {"success": True, "message": "", "data": {
                 "id": 1, "name": "playback-fixture", "is_superuser": True,
                 "level": 1, "permissions": {},
             }})
             return
-        if parsed.path == "/api/v1/mediaserver/stream-info":
+        if path == "/api/v1/mediaserver/stream-info":
             self.stream_info(parse_qs(parsed.query))
             return
-        if parsed.path == "/api/v1/mediaserver/search":
+        if path == "/api/v1/mediaserver/search":
             self.search_library(parse_qs(parsed.query))
             return
-        if parsed.path == "/api/v1/mediaserver/episodes":
+        if path == "/api/v1/mediaserver/episodes":
             self.reply(200, {"success": True, "message": "", "data": {1: {1: "episode-local-1", 2: "episode-strm-1"}}})
             return
-        if parsed.path == "/api/v1/system/img/0":
+        if path == "/api/v1/system/img/0":
             self.send_poster()
             return
-        if parsed.path == "/api/v1/mediaserver/stream-subtitle":
+        if path == "/api/v1/mediaserver/stream-subtitle":
             self.stream_subtitle(parse_qs(parsed.query))
             return
-        if parsed.path == "/api/v1/mediaserver/stream-lyrics":
+        if path == "/api/v1/mediaserver/stream-lyrics":
             self.stream_lyrics(parse_qs(parsed.query))
             return
-        if parsed.path == "/api/v1/mediaserver/stream":
+        if path == "/api/v1/mediaserver/stream":
             self.stream(parse_qs(parsed.query).get("itemid", [""])[0])
             return
-        if parsed.path == "/__upstream/fixture.mp4":
+        if path == "/__upstream/fixture.mp4":
             with self.server.guard:
                 if self.headers.get("Range"):
                     self.server.counts["upstream_range_requests"] += 1
             self.send_file(self.server.media, include_body=True)
             return
-        if parsed.path.startswith("/api/"):
+        if path.startswith("/api/"):
             self.reply(200, {"success": True, "message": "", "data": []})
             return
         if self.server.frontend and parsed.path not in {'/', '/apps', '/dashboard', '/playback-fixture'}:
@@ -171,15 +173,18 @@ class PlaybackHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         """只接受固定合成账号的密码表单并签发测试令牌。"""
-        path = urlsplit(self.path).path
+        path = self.normalize_api_path(urlsplit(self.path).path)
         if self.uses_backend(path):
-            self.proxy_backend()
+            self.proxy_backend(path)
             return
         if path in {'/api/v1/storage/list', '/api/v1/media/status', '/api/v1/music/recognize'}:
             body = self.rfile.read(min(int(self.headers.get('Content-Length', '0')), 65536))
             data = json.loads(body)
             if path.endswith('/storage/list'):
-                result = [self.file_item(self.server.media), self.file_item(self.server.media.with_suffix('.m4a'))]
+                result = [self.file_item(self.server.media)]
+                audio_path = self.server.media.with_suffix('.m4a')
+                if audio_path.is_file():
+                    result.append(self.file_item(audio_path))
             elif path.endswith('/media/status'):
                 result = [{'item_id': 'series-search-1', 'subscribed': False, 'seasons': {}} for _ in data]
             else:
@@ -190,11 +195,25 @@ class PlaybackHandler(BaseHTTPRequestHandler):
                 }
             self.reply(200, {'success': True, 'message': '', 'data': result})
             return
+        if path == '/api/v1/mediaserver/stream-ticket':
+            body = self.rfile.read(min(int(self.headers.get('Content-Length', '0')), 65536))
+            self.create_file_stream_ticket(body)
+            return
+        if path == '/api/v1/mediaserver/stream-info/music':
+            body = self.rfile.read(min(int(self.headers.get('Content-Length', '0')), 65536))
+            request = json.loads(body)
+            if not self.authorized() or request.get('media_id') != 'recording-fixture':
+                self.reply(404, {})
+                return
+            self.reply(200, {'success': True, 'message': '', 'data': {
+                'item_id': 'audio-track-1', 'title': '晴天', 'server': 'Navidrome-音乐',
+            }})
+            return
         if path in {'/api/v1/mediaserver/notexists', '/api/v1/mediaserver/exists_remote'}:
             self.rfile.read(min(int(self.headers.get('Content-Length', '0')), 65536))
             self.reply(200, {'success': True, 'message': '', 'data': [] if path.endswith('/notexists') else {1: [1, 2]}})
             return
-        if urlsplit(self.path).path != "/api/v1/login/access-token":
+        if path != "/api/v1/login/access-token":
             self.reply(404, {})
             return
         length = min(int(self.headers.get("Content-Length", "0")), 8192)
@@ -227,6 +246,36 @@ class PlaybackHandler(BaseHTTPRequestHandler):
         prefix = '/api/v1/mediaserver/'
         return bool(self.server.backend and path.startswith(prefix) and path[len(prefix):].startswith(('stream', 'episodes', 'search')))
 
+    def normalize_api_path(self, path: str) -> str:
+        """把产品深层路由生成的相对 API 地址映射回夹具根路径。"""
+        return path.removeprefix('/product') if path.startswith('/product/api/') else path
+
+    def create_file_stream_ticket(self, body: bytes) -> None:
+        """只为夹具持有的本地临时文件签发固定测试票据。"""
+        if not self.authorized():
+            self.reply(401, {})
+            return
+        try:
+            request = json.loads(body)
+            file_item = request.get('file', {})
+        except (json.JSONDecodeError, AttributeError):
+            self.reply(400, {})
+            return
+        if file_item.get('storage') != 'local' or file_item.get('type') != 'file':
+            self.reply(400, {})
+            return
+        media_path = str(self.server.media)
+        audio_path = str(self.server.media.with_suffix('.m4a'))
+        ticket = None
+        if file_item.get('path') == media_path:
+            ticket = 'file-video-1'
+        elif file_item.get('path') == audio_path and self.server.media.with_suffix('.m4a').is_file():
+            ticket = 'file-audio-1'
+        if ticket is None:
+            self.reply(404, {})
+            return
+        self.reply(200, {'success': True, 'message': '', 'data': {'item_id': ticket}})
+
     def file_item(self, path: Path) -> dict[str, object]:
         """按产品文件浏览器合同返回一个存在的本地测试文件。"""
         return {'storage': 'local', 'type': 'file', 'path': str(path), 'fileid': str(path),
@@ -234,8 +283,11 @@ class PlaybackHandler(BaseHTTPRequestHandler):
                 'size': path.stat().st_size, 'modify_time': path.stat().st_mtime}
 
     def proxy_frontend(self) -> None:
-        """让回环启动页的普通链接加载真实 Vite 产品页面和资源。"""
-        request = urllib.request.Request(self.server.frontend + self.path)
+        """映射产品路由到前端根路径，使相对资源继续命中实际构建产物。"""
+        parsed = urlsplit(self.path)
+        frontend_path = parsed.path.removeprefix('/product')
+        request_path = frontend_path + (f"?{parsed.query}" if parsed.query else "")
+        request = urllib.request.Request(self.server.frontend + request_path)
         try:
             response = urllib.request.urlopen(request, timeout=30)
         except urllib.error.HTTPError as error:
@@ -248,7 +300,7 @@ class PlaybackHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
 
-    def proxy_backend(self) -> None:
+    def proxy_backend(self, path: str) -> None:
         """将媒体请求交给隔离的真实后端路由，保留原生 Cookie、Range 和响应状态。"""
         length = min(int(self.headers.get("Content-Length", "0")), 65536)
         body = self.rfile.read(length) if self.command == "POST" else None
@@ -258,8 +310,10 @@ class PlaybackHandler(BaseHTTPRequestHandler):
             if self.headers.get(name)
         }
         headers["Host"] = urlsplit(self.server.public_base).netloc
+        parsed = urlsplit(self.path)
+        upstream_path = path + (f"?{parsed.query}" if parsed.query else "")
         request = urllib.request.Request(
-            self.server.backend + self.path, data=body, headers=headers, method=self.command
+            self.server.backend + upstream_path, data=body, headers=headers, method=self.command
         )
         try:
             response = urllib.request.urlopen(request, timeout=30)
@@ -301,7 +355,7 @@ class PlaybackHandler(BaseHTTPRequestHandler):
                 "subtitle": "科幻 · 2 集",
                 "year": 2014,
                 "type": "电视剧",
-                "image": f"http://127.0.0.1:{self.server.server_port}/poster/film",
+                "image": f"{self.server.public_base}/api/v1/system/img/0",
             },
             {
                 "server": "Navidrome-音乐",
@@ -310,7 +364,7 @@ class PlaybackHandler(BaseHTTPRequestHandler):
                 "subtitle": "周杰伦 · 叶惠美",
                 "year": 2003,
                 "type": "音乐",
-                "image": f"http://127.0.0.1:{self.server.server_port}/poster/music",
+                "image": f"{self.server.public_base}/api/v1/system/img/0",
             },
         ]
         matching = [item for item in items if item["type"] in requested_types]
@@ -388,7 +442,10 @@ class PlaybackHandler(BaseHTTPRequestHandler):
     def stream_info(self, query: dict[str, list[str]]) -> None:
         """要求固定访问令牌，并返回受控剧集或音乐条目的媒体清单。"""
         item_id = query.get("itemid", [""])[0]
-        allowed_ids = {"episode-local-1", "episode-strm-1", "audio-track-1"}
+        allowed_ids = {
+            "episode-local-1", "episode-strm-1", "audio-track-1", "series-search-1",
+            "file-video-1", "file-audio-1",
+        }
         if item_id not in allowed_ids:
             self.reply(404, {})
             return
@@ -401,7 +458,7 @@ class PlaybackHandler(BaseHTTPRequestHandler):
             selected["server"] = server
         content_url = f"{base}/stream?{urlencode(selected)}"
         subtitle_url = f"{base}/stream-subtitle?{urlencode({**selected, 'subtitle_id': self.server.subtitle.name})}"
-        is_audio = item_id == "audio-track-1"
+        is_audio = item_id in {"audio-track-1", "file-audio-1"}
         lyrics_url = f"{base}/stream-lyrics?{urlencode(selected)}"
         self.reply(200, {"success": True, "message": "", "data": {
             "item_id": item_id,
@@ -461,13 +518,14 @@ class PlaybackHandler(BaseHTTPRequestHandler):
         if "resource_token=fixture-stream-only" not in self.headers.get("Cookie", ""):
             self.reply(401, {})
             return
-        if item_id == "episode-local-1":
+        if item_id in {"episode-local-1", "series-search-1", "file-video-1"}:
             self._count_range("local_range_requests")
             self.send_file(self.server.media, include_body=True)
             return
-        if item_id == "audio-track-1":
+        if item_id in {"audio-track-1", "file-audio-1"}:
             self._count_range("audio_range_requests")
-            self.send_file(self.server.media, include_body=True)
+            audio_path = self.server.media.with_suffix('.m4a')
+            self.send_file(audio_path if audio_path.is_file() else self.server.media, include_body=True)
             return
         if item_id != "episode-strm-1":
             self.reply(404, {})
@@ -517,7 +575,7 @@ class PlaybackHandler(BaseHTTPRequestHandler):
             status = 206
         body = data[start : end + 1]
         self.send_response(status)
-        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(len(body)))
         if status == 206:

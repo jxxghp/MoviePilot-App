@@ -956,21 +956,38 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
           self.session.routeRevision == route, self.lifecycle == "active",
           self.session.phase == .nativeNavigation, let currentShell = self.shell
         else { return }
-        guard
-          await self.waitForPlaybackPresentationSlot(
-            currentShell, generation: generation, document: document,
-            sessionId: sessionId, routeRevision: route)
-        else { return }
+        let presentationSlotAvailable = await self.waitForPlaybackPresentationSlot(
+          currentShell, generation: generation, document: document,
+          sessionId: sessionId, routeRevision: route)
         guard self.playbackGeneration == generation, self.documentID == document,
           self.session.sessionId == sessionId, self.session.routeRevision == route,
           self.lifecycle == "active", self.session.phase == .nativeNavigation,
-          self.shell === currentShell, currentShell.presentedViewController == nil
+          self.shell === currentShell
         else { return }
+        guard presentationSlotAvailable, currentShell.presentedViewController == nil else {
+          self.presentPlaybackError()
+          return
+        }
+        currentShell.closePlayback()
         let player = MediaPlaybackViewController(
           manifest: manifest, client: client, instanceId: instanceId,
-          itemId: request.itemId, displayTitle: request.title)
-        currentShell.present(player, animated: true)
+          itemId: request.itemId, displayTitle: request.title,
+          onMinimize: { [weak currentShell] player in currentShell?.minimizePlayback(player) },
+          onExpand: { [weak currentShell] player in currentShell?.expandPlayback(player) },
+          onClosePlayback: { [weak currentShell] player in
+            currentShell?.closePlayback(player)
+          })
+        currentShell.presentPlayback(player)
       } catch {
+        guard !Task.isCancelled, self.playbackGeneration == generation,
+          self.documentID == document, self.session.sessionId == sessionId,
+          self.session.routeRevision == route, self.lifecycle == "active"
+        else { return }
+        if let currentShell = self.shell {
+          _ = await self.waitForPlaybackPresentationSlot(
+            currentShell, generation: generation, document: document,
+            sessionId: sessionId, routeRevision: route)
+        }
         guard !Task.isCancelled, self.playbackGeneration == generation,
           self.documentID == document, self.session.sessionId == sessionId,
           self.session.routeRevision == route, self.lifecycle == "active"
@@ -981,12 +998,12 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
     }
   }
 
-  /// 等待网页详情 Sheet 完成关闭，再使用当前仍可见的 App Shell 展示播放器。
+  /// 等待网页详情 Sheet 完成关闭，避免播放事件与原生弹窗转场竞争。
   private func waitForPlaybackPresentationSlot(
     _ expectedShell: ShellController, generation: Int, document: UUID,
     sessionId: String, routeRevision: Int
   ) async -> Bool {
-    for _ in 0..<40 {
+    for _ in 0..<100 {
       guard !Task.isCancelled, playbackGeneration == generation,
         documentID == document, session.sessionId == sessionId,
         session.routeRevision == routeRevision, lifecycle == "active",
@@ -1011,14 +1028,17 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
 
   /// 为失败的播放清单显示固定提示，不泄露服务端地址和认证信息。
   private func presentPlaybackError() {
-    guard lifecycle == "active", relay.owner != nil, let shell,
-      shell.presentedViewController == nil
-    else { return }
+    guard lifecycle == "active", relay.owner != nil, let shell else { return }
+    var presenter: UIViewController = shell
+    while let presented = presenter.presentedViewController, !presented.isBeingDismissed {
+      guard !(presented is UIAlertController) else { return }
+      presenter = presented
+    }
     let alert = UIAlertController(
       title: L10n.text("无法播放"), message: L10n.text("请确认影片仍在媒体库中，并检查 MoviePilot 与网盘连接。"),
       preferredStyle: .alert)
     alert.addAction(UIAlertAction(title: L10n.text("好"), style: .default))
-    shell.present(alert, animated: true)
+    presenter.present(alert, animated: true)
   }
 
   /// 只接受媒体服务器条目 ID 和可展示标题，拒绝不完整的电视剧季集信息。

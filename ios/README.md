@@ -92,11 +92,11 @@ TEST_RUNNER_MOVIEPILOT_E2E_SERVICE_WAIT=1 xcodebuild test \
 原生媒体播放回归使用含双音轨的短视频、同名 SRT 字幕和 LRC 歌词，通过正式原生桥打开本地与 STRM 剧集以及音乐单曲：
 
 ```sh
-python3 -c 'from pathlib import Path; Path("/tmp/moviepilot-playback.zh-CN.srt").write_text("1\n00:00:00,000 --> 00:00:20,000\n字幕验收\n", encoding="utf-8")'
+python3 -c 'from pathlib import Path; Path("/tmp/moviepilot-playback.zh-CN.srt").write_text("1\n00:00:00,000 --> 00:02:00,000\n字幕验收\n", encoding="utf-8")'
 python3 -c 'from pathlib import Path; Path("/tmp/moviepilot-playback.lrc").write_text("[00:00.00]开头歌词\n[00:02.00]副歌高亮\n", encoding="utf-8")'
 ffmpeg -y -f lavfi -i testsrc2=size=640x360:rate=24 -f lavfi -i sine=frequency=440 \
   -f lavfi -i sine=frequency=660 -i /tmp/moviepilot-playback.zh-CN.srt \
-  -t 30 -map 0:v -map 1:a -map 2:a -map 3:s -c:v libx264 -pix_fmt yuv420p \
+  -t 120 -map 0:v -map 1:a -map 2:a -map 3:s -c:v libx264 -pix_fmt yuv420p \
   -c:a aac -c:s mov_text -movflags +faststart /tmp/moviepilot-playback.mp4
 python3 scripts/media-playback-fixture.py --media /tmp/moviepilot-playback.mp4 \
   --poster ../MoviePilot-Frontend/src/assets/images/no-image.jpeg
