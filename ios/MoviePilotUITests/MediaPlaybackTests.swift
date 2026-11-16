@@ -147,22 +147,45 @@ final class MediaPlaybackTests: XCTestCase {
   private func verifyPlayback(_ launchButton: XCUIElement, item: String) async throws {
     XCTAssertTrue(launchButton.isHittable)
     launchButton.tap()
-    let title = app.staticTexts["测试剧集 S01E01"]
-    XCTAssertTrue(title.waitForExistence(timeout: 15), app.debugDescription)
+    let videoSurface = app.otherElements["视频画面"]
+    XCTAssertTrue(videoSurface.waitForExistence(timeout: 15), app.debugDescription)
+    let initialResume = app.alerts.buttons["继续播放"]
+    if initialResume.waitForExistence(timeout: 2) { initialResume.tap() }
+    revealVideoControls()
     let slider = app.sliders["playback-progress"]
     XCTAssertTrue(slider.waitForExistence(timeout: 10), app.debugDescription)
     XCTAssertTrue(app.buttons["后退 15 秒"].exists)
     XCTAssertTrue(app.buttons["前进 15 秒"].exists)
-    try await waitForPlaybackProgress(slider)
+    let startingProgress = String(describing: slider.value ?? "")
+    try await waitForPlaybackProgress(slider, after: startingProgress)
     let pause = app.buttons["暂停"]
     revealVideoControls()
     XCTAssertTrue(pause.exists, app.debugDescription)
+    if item == "local" {
+      let miniWindow = app.buttons["小窗播放"]
+      XCTAssertTrue(miniWindow.waitForExistence(timeout: 5), app.debugDescription)
+      miniWindow.tap()
+      let miniTitle = app.staticTexts["mini-playback-title"]
+      XCTAssertTrue(miniTitle.waitForExistence(timeout: 10), app.debugDescription)
+      XCTAssertTrue(launchButton.isHittable, "小窗播放时原页面仍可操作")
+      let initialPosition = miniTitle.value as? String
+      XCTAssertNotNil(initialPosition)
+      try await waitForMiniProgress(miniTitle, after: initialPosition ?? "")
+      attachScreenshot(named: "视频小窗播放")
+      app.buttons["返回全屏"].tap()
+      XCTAssertTrue(slider.waitForExistence(timeout: 10), app.debugDescription)
+      revealVideoControls()
+    }
     pause.tap()
     let play = app.buttons["播放"]
     XCTAssertTrue(play.waitForExistence(timeout: 5), app.debugDescription)
     try await Task.sleep(for: .milliseconds(4500))
     XCTAssertTrue(play.isHittable, "暂停后的控制层应持续可操作")
     try await waitForRangeRequest(item)
+    // 暂停状态断言结束后继续播放，再验证拖动和跳转改变实际解码位置。
+    let pausedProgress = String(describing: slider.value ?? "")
+    play.tap()
+    XCTAssertTrue(app.buttons["暂停"].waitForExistence(timeout: 5), app.debugDescription)
     if item == "local" { attachScreenshot(named: "原生视频播放器") }
 
     if item == "local" {
@@ -195,11 +218,12 @@ final class MediaPlaybackTests: XCTestCase {
       slider.adjust(toNormalizedSliderPosition: 0.55)
       try await waitForPlaybackProgress(slider, minimum: 0.5)
       app.buttons["后退 15 秒"].tap()
+      // 120 秒合成视频从 55% 回退 15 秒后约为 42%。
       try await waitForPlaybackProgress(slider, minimum: 0.3, maximum: 0.48)
       app.buttons["前进 15 秒"].tap()
       try await waitForPlaybackProgress(slider, minimum: 0.5)
       app.buttons["关闭播放器"].tap()
-      XCTAssertTrue(title.waitForNonExistence(timeout: 10))
+      XCTAssertTrue(videoSurface.waitForNonExistence(timeout: 10))
       launchButton.tap()
       let resume = app.alerts.buttons["继续播放"]
       XCTAssertTrue(resume.waitForExistence(timeout: 15), app.debugDescription)
@@ -207,14 +231,13 @@ final class MediaPlaybackTests: XCTestCase {
       resume.tap()
       try await waitForPlaybackProgress(slider, minimum: 0.45)
     } else {
-      play.tap()
-      try await waitForPlaybackProgress(slider, minimum: 0.03)
+      try await waitForPlaybackProgress(slider, minimum: 0.03, after: pausedProgress)
     }
 
     let close = app.buttons["关闭播放器"]
     XCTAssertTrue(close.exists, app.debugDescription)
     close.tap()
-    XCTAssertTrue(title.waitForNonExistence(timeout: 10), app.debugDescription)
+    XCTAssertTrue(videoSurface.waitForNonExistence(timeout: 10), app.debugDescription)
   }
 
   /// 音乐单曲在原生音频布局中播放，并随解码时间自动高亮滚动本地 LRC 歌词。
@@ -247,6 +270,15 @@ final class MediaPlaybackTests: XCTestCase {
     XCTAssertTrue(app.buttons["播放"].waitForExistence(timeout: 5), app.debugDescription)
     app.buttons["关闭播放器"].tap()
     XCTAssertTrue(title.waitForNonExistence(timeout: 10), app.debugDescription)
+  }
+
+  /// 在小窗状态等待时间标签变化，证明 VLC 解码会话没有随全屏关闭而停止。
+  private func waitForMiniProgress(_ title: XCUIElement, after initial: String) async throws {
+    for _ in 0..<40 {
+      if let current = title.value as? String, current != initial { return }
+      try await Task.sleep(for: .milliseconds(250))
+    }
+    XCTFail("小窗播放时进度没有继续前进")
   }
 
   /// 等待指定 LRC 行成为当前播放行，验证高亮状态来自实际播放器时间。
@@ -282,11 +314,11 @@ final class MediaPlaybackTests: XCTestCase {
     password.typeText("\n")
   }
 
-  /// 控制层淡出后用一次画面点击恢复，避免双击被解码画面识别为播放手势。
+  /// 控制层淡出后用一次画面点击恢复，不用尚未启用的进度滑块判断控制层是否可见。
   private func revealVideoControls() {
     let surface = app.otherElements["视频画面"].coordinate(
-      withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
-    if !app.sliders["playback-progress"].isHittable { surface.tap() }
+      withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+    if !app.buttons["关闭播放器"].isHittable { surface.tap() }
   }
 
   /// 使用空的实例选择状态启动 App，通过真实地址表单连接本机夹具。
@@ -316,12 +348,15 @@ final class MediaPlaybackTests: XCTestCase {
 
   /// 等待 VLC 的当前播放时间超过首帧，防止只验证控制器已显示。
   private func waitForPlaybackProgress(
-    _ slider: XCUIElement, minimum: Double = 0.02, maximum: Double = 0.99
+    _ slider: XCUIElement, minimum: Double = 0.02, maximum: Double = 0.99,
+    after previous: String? = nil
   ) async throws {
     for _ in 0..<40 {
+      revealVideoControls()
       let value = String(describing: slider.value ?? "")
       if let percentage = Double(value.replacingOccurrences(of: "%", with: "")),
-        percentage / 100 >= minimum, percentage / 100 <= maximum
+        percentage / 100 >= minimum, percentage / 100 <= maximum,
+        previous == nil || value != previous
       {
         return
       }

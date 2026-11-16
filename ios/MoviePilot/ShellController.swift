@@ -132,6 +132,10 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   private var searchPage: SearchPageController?
   private let bottomNavigation = BottomNavigationView()
   private let bottomNavigationHost = UIViewController()
+  private var playbackController: MediaPlaybackViewController?
+  private var playbackContainer: UIView?
+  private var playbackFullScreenConstraints: [NSLayoutConstraint] = []
+  private var playbackMiniConstraints: [NSLayoutConstraint] = []
   private var panelNavigation: UINavigationController?
   private var panelImages: NativePanelImageLoader?
   private var panelAction: ActionSnapshot?
@@ -217,6 +221,103 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     synchronizePanelAnchor()
     synchronizeNavigationPreviewContext()
     coordinator.layoutChanged()
+    if let playbackContainer { view.bringSubviewToFront(playbackContainer) }
+  }
+
+  /// 在 Shell 中常驻同一播放器控制器，缩放时保留当前解码与播放状态。
+  func presentPlayback(_ controller: MediaPlaybackViewController) {
+    guard playbackController == nil, presentedViewController == nil else {
+      controller.closeFromShell()
+      return
+    }
+    playbackController = controller
+    addChild(controller)
+
+    let container = UIView()
+    container.accessibilityIdentifier = "playback-container"
+    container.backgroundColor = .black
+    container.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(container)
+    playbackContainer = container
+
+    controller.view.translatesAutoresizingMaskIntoConstraints = false
+    container.addSubview(controller.view)
+    playbackFullScreenConstraints = [
+      container.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      container.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      container.topAnchor.constraint(equalTo: view.topAnchor),
+      container.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ]
+    playbackMiniConstraints = [
+      container.trailingAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+      container.bottomAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -86),
+      container.widthAnchor.constraint(equalToConstant: 236),
+      container.heightAnchor.constraint(equalToConstant: 170),
+    ]
+    NSLayoutConstraint.activate([
+      controller.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      controller.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      controller.view.topAnchor.constraint(equalTo: container.topAnchor),
+      controller.view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+    ])
+    NSLayoutConstraint.activate(playbackFullScreenConstraints)
+    controller.didMove(toParent: self)
+    view.bringSubviewToFront(container)
+  }
+
+  /// 将 Shell 托管的播放器容器缩到右下角，不改变播放器控制器层级。
+  func minimizePlayback(_ controller: MediaPlaybackViewController) {
+    guard playbackController === controller, let container = playbackContainer else { return }
+    controller.setMiniWindow(true)
+    container.layer.cornerRadius = 14
+    container.layer.cornerCurve = .continuous
+    container.layer.borderWidth = 0.8
+    container.layer.borderColor = UIColor.white.withAlphaComponent(0.2).cgColor
+    container.layer.shadowColor = UIColor.black.cgColor
+    container.layer.shadowOpacity = 0.32
+    container.layer.shadowRadius = 16
+    container.layer.shadowOffset = CGSize(width: 0, height: 5)
+    NSLayoutConstraint.deactivate(playbackFullScreenConstraints)
+    NSLayoutConstraint.activate(playbackMiniConstraints)
+    UIView.animate(withDuration: 0.24) { self.view.layoutIfNeeded() }
+  }
+
+  /// 将播放器容器扩展至 Shell 全屏，继续使用同一解码器和播放时间。
+  func expandPlayback(_ controller: MediaPlaybackViewController) {
+    guard playbackController === controller, let container = playbackContainer else { return }
+    NSLayoutConstraint.deactivate(playbackMiniConstraints)
+    NSLayoutConstraint.activate(playbackFullScreenConstraints)
+    container.layer.cornerRadius = 0
+    container.layer.borderWidth = 0
+    container.layer.shadowOpacity = 0
+    controller.setMiniWindow(false)
+    UIView.animate(withDuration: 0.24) { self.view.layoutIfNeeded() }
+  }
+
+  /// 停止当前播放器并移除 Shell 托管的全屏或悬浮容器。
+  func closePlayback() {
+    playbackController?.closeFromShell()
+  }
+
+  /// 从 Shell 移除已停止的播放器并释放控制器父子关系与布局约束。
+  private func removePlayback(_ controller: MediaPlaybackViewController) {
+    guard playbackController === controller, let container = playbackContainer else { return }
+    controller.willMove(toParent: nil)
+    NSLayoutConstraint.deactivate(playbackFullScreenConstraints + playbackMiniConstraints)
+    controller.view.removeFromSuperview()
+    controller.removeFromParent()
+    container.removeFromSuperview()
+    playbackController = nil
+    playbackContainer = nil
+    playbackFullScreenConstraints = []
+    playbackMiniConstraints = []
+  }
+
+  /// 连接播放器关闭回调并执行 Shell 内的移除流程。
+  func closePlayback(_ controller: MediaPlaybackViewController) {
+    removePlayback(controller)
   }
 
   /// 预览只跨同一文档、主题与窗口保留，外观或身份变化不复用旧画面。

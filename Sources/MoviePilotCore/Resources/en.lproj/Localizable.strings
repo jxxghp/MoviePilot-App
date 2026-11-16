@@ -35,6 +35,7 @@
 "关闭" = "Close";
 "关闭字幕" = "Subtitles off";
 "关闭播放器" = "Close player";
+"更多播放选项" = "More playback options";
 "内容" = "Content";
 "内嵌 · %@" = "Embedded · %@";
 "切换服务" = "Switch server";
@@ -67,6 +68,7 @@
 "媒体" = "Media";
 "媒体库" = "Library";
 "字幕" = "Subtitles";
+"小窗播放" = "Picture in Picture";
 "字幕读取失败，请选择其他字幕或检查后台连接。" = "Unable to load subtitles. Select another track or check the server connection.";
 "完成" = "Done";
 "实例 AppPush 当前使用 %@。请在后台配置相同地址，或选择“使用实例配置”后绑定。" = "The instance AppPush channel uses %@. Use the same address or select Use instance settings before pairing.";
@@ -241,6 +243,7 @@
 "身份验证器验证码" = "Authenticator code";
 "近期入库" = "Recent imports";
 "返回" = "Back";
+"返回全屏" = "Return to full screen";
 "返回上一级菜单" = "Back to parent menu";
 "返回中的当前页面" = "Current page while going back";
 "这条通知属于其他实例或账号，请切换后查看通知中心。" = "This notification belongs to another instance or account. Switch to it to view the notification center.";
