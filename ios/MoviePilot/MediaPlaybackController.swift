@@ -213,13 +213,13 @@ private enum MediaPlaybackError: LocalizedError {
 
 /// 使用原生 UIKit 控件驱动 VLCKit，支持常见容器、内嵌音轨、字幕和远程控制。
 @MainActor
-final class MediaPlaybackViewController: UIViewController {
+final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDelegate {
   private let manifest: MediaPlaybackManifest
   private let client: MediaPlaybackClient
   private let instanceId: UUID
   private let itemId: String
   private let displayTitle: String
-  private let player = VLCMediaPlayer()
+  private let player = VLCMediaPlayer(options: ["--no-mouse-events", "--no-keyboard-events"])
   private let videoView = UIView()
   private let musicStage = UIView()
   private let musicArtwork = UIView()
@@ -235,12 +235,6 @@ final class MediaPlaybackViewController: UIViewController {
   private let elapsedLabel = UILabel()
   private let durationLabel = UILabel()
   private let miniWindowButton = UIButton(type: .system)
-  private let miniInfoBar = UIVisualEffectView(
-    effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
-  private let miniTitleLabel = UILabel()
-  private let miniPlayButton = UIButton(type: .system)
-  private let miniCloseButton = UIButton(type: .system)
-  private let miniExpandButton = UIButton(type: .system)
   private let loading = UIActivityIndicatorView(style: .large)
   private let titleLabel = UILabel()
   private let playButton = UIButton(type: .system)
@@ -266,9 +260,30 @@ final class MediaPlaybackViewController: UIViewController {
   private var resumePromptShown = false
   private var isScrubbing = false
   private var controlsVisible = true
-  private var isMiniWindow = false
   private var playbackDidAppear = false
   private var closed = false
+
+  /// 系统画中画复用当前采样层；只有进入成功后才让 Shell 隐藏全屏容器。
+  private lazy var pictureInPicture = MediaPictureInPictureController(
+    player: player, videoView: videoView,
+    onStart: { [weak self] in
+      guard let self, !self.closed else { return }
+      self.hideControlsTask?.cancel()
+      self.onMinimize(self)
+    },
+    onRestore: { [weak self] in
+      guard let self, !self.closed else { return }
+      self.onExpand(self)
+      self.showControls()
+    },
+    onStop: { [weak self] restored in
+      guard let self, !self.closed else { return }
+      if restored { self.showControls() } else { self.closeFromShell() }
+    },
+    onAvailability: { [weak self] available in self?.miniWindowButton.isEnabled = available },
+    onFailure: { [weak self] in
+      self?.showError(L10n.text("暂时无法开启画中画，请等待视频开始播放后重试。"))
+    })
 
   /// 清单显式声明音频时展示音乐播放器；兼容旧服务响应仍按视频处理。
   private var isAudioPlayback: Bool { manifest.mediaType == "audio" }
@@ -320,7 +335,7 @@ final class MediaPlaybackViewController: UIViewController {
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
     playbackDidAppear = true
-    if !isMiniWindow { scheduleControlsHide() }
+    scheduleControlsHide()
   }
 
   /// 全屏视频允许设备旋转，布局始终保持画面等比显示。
@@ -332,39 +347,19 @@ final class MediaPlaybackViewController: UIViewController {
   /// 播放结束或控制器关闭时停止计时、声音会话、远程命令和临时字幕。
   override func viewDidDisappear(_ animated: Bool) {
     super.viewDidDisappear(animated)
-    if isMovingFromParent || view.window == nil {
+    if isMovingFromParent || (view.window == nil && !pictureInPicture.keepsPlaybackAlive) {
       closePlayback()
     }
   }
 
-  /// 切换全屏与小窗的控件层，不重建或暂停 VLC 播放器。
-  func setMiniWindow(_ minimized: Bool) {
-    guard isMiniWindow != minimized else { return }
-    isMiniWindow = minimized
-    topBar.isHidden = minimized
-    controls.isHidden = minimized
-    if !isAudioPlayback { transport.isHidden = minimized }
-    miniInfoBar.isHidden = !minimized
-    miniCloseButton.isHidden = !minimized
-    miniExpandButton.isHidden = !minimized
-    view.layer.cornerRadius = minimized ? 14 : 0
-    view.clipsToBounds = minimized
-    videoView.layer.cornerRadius = minimized ? 14 : 0
-    videoView.clipsToBounds = minimized
-    if minimized {
-      controlsVisible = false
-      hideControlsTask?.cancel()
-      hideControlsTask = nil
-    } else {
-      showControls()
-    }
-  }
-
-  /// 创建视频画布、截图对应的玻璃顶栏与控制区，以及可复用的小窗控件。
+  /// 创建等比视频画布、系统玻璃顶栏与独立控制区。
   private func configureViews() {
     videoView.translatesAutoresizingMaskIntoConstraints = false
     videoView.backgroundColor = .black
+    // VLC 的 DVD 鼠标手势不参与 App 控制，触摸统一交给外层控制器。
+    videoView.isUserInteractionEnabled = false
     videoView.accessibilityLabel = L10n.text("视频画面")
+    videoView.isAccessibilityElement = true
     videoView.isHidden = isAudioPlayback
     view.addSubview(videoView)
     NSLayoutConstraint.activate([
@@ -434,7 +429,6 @@ final class MediaPlaybackViewController: UIViewController {
 
     configureControls()
     if isAudioPlayback { configureMusicStage(below: topBar) }
-    configureMiniControls()
   }
 
   /// 创建三枚玻璃拟态传输键、磨砂进度胶囊和底部播放选项。
@@ -497,8 +491,8 @@ final class MediaPlaybackViewController: UIViewController {
     ])
 
     let skipBack = makeGlassButton(
-      symbol: "gobackward.15", accessibility: L10n.text("后退 15 秒"), diameter: 62, pointSize: 22)
-    skipBack.addAction(UIAction { [weak self] _ in self?.skip(seconds: -15) }, for: .touchUpInside)
+      symbol: "gobackward.10", accessibility: L10n.text("后退 10 秒"), diameter: 62, pointSize: 22)
+    skipBack.addAction(UIAction { [weak self] _ in self?.skip(seconds: -10) }, for: .touchUpInside)
     playButton.setImage(UIImage(systemName: "pause.fill"), for: .normal)
     playButton.accessibilityLabel = L10n.text("暂停")
     styleAsGlassButton(playButton, diameter: 88, pointSize: 30)
@@ -506,9 +500,9 @@ final class MediaPlaybackViewController: UIViewController {
       UIImage.SymbolConfiguration(pointSize: 30, weight: .semibold), forImageIn: .normal)
     playButton.addAction(UIAction { [weak self] _ in self?.togglePlayback() }, for: .touchUpInside)
     let skipForward = makeGlassButton(
-      symbol: "goforward.15", accessibility: L10n.text("前进 15 秒"), diameter: 62, pointSize: 22)
+      symbol: "goforward.10", accessibility: L10n.text("前进 10 秒"), diameter: 62, pointSize: 22)
     skipForward.addAction(
-      UIAction { [weak self] _ in self?.skip(seconds: 15) }, for: .touchUpInside)
+      UIAction { [weak self] _ in self?.skip(seconds: 10) }, for: .touchUpInside)
     transport.axis = .horizontal
     transport.alignment = .center
     transport.distribution = .fill
@@ -575,6 +569,7 @@ final class MediaPlaybackViewController: UIViewController {
     miniWindowButton.setImage(UIImage(systemName: "pip.enter"), for: .normal)
     miniWindowButton.accessibilityLabel = L10n.text("小窗播放")
     miniWindowButton.isHidden = isAudioPlayback
+    miniWindowButton.isEnabled = false
     styleAsGlassButton(miniWindowButton, diameter: 44, pointSize: 17)
     miniWindowButton.addAction(
       UIAction { [weak self] _ in self?.minimizePlayback() }, for: .touchUpInside)
@@ -602,65 +597,9 @@ final class MediaPlaybackViewController: UIViewController {
     ])
 
     let tap = UITapGestureRecognizer(target: self, action: #selector(toggleControls))
-    videoView.addGestureRecognizer(tap)
-  }
-
-  /// 将同一解码器画面切换到可扩展、可关闭的悬浮小窗控制层。
-  private func configureMiniControls() {
-    miniInfoBar.layer.cornerRadius = 0
-    miniInfoBar.translatesAutoresizingMaskIntoConstraints = false
-    miniInfoBar.isHidden = true
-    miniTitleLabel.text = displayTitle
-    miniTitleLabel.translatesAutoresizingMaskIntoConstraints = false
-    miniTitleLabel.textColor = .white
-    miniTitleLabel.font = .systemFont(ofSize: 12, weight: .medium)
-    miniTitleLabel.lineBreakMode = .byTruncatingTail
-    miniTitleLabel.accessibilityIdentifier = "mini-playback-title"
-    miniTitleLabel.isAccessibilityElement = true
-    miniPlayButton.setImage(UIImage(systemName: "pause.fill"), for: .normal)
-    miniPlayButton.translatesAutoresizingMaskIntoConstraints = false
-    miniPlayButton.tintColor = .white
-    miniPlayButton.accessibilityLabel = L10n.text("暂停")
-    miniPlayButton.addAction(
-      UIAction { [weak self] _ in self?.togglePlayback() }, for: .touchUpInside)
-    configureGlassButton(
-      miniCloseButton, symbol: "xmark", accessibility: "关闭播放器", diameter: 32, pointSize: 13)
-    configureGlassButton(
-      miniExpandButton, symbol: "arrow.up.left.and.arrow.down.right",
-      accessibility: L10n.text("返回全屏"),
-      diameter: 32, pointSize: 13)
-    miniCloseButton.addAction(
-      UIAction { [weak self] _ in self?.closeMiniWindow() }, for: .touchUpInside)
-    miniExpandButton.addAction(
-      UIAction { [weak self] _ in self?.expandPlayback() }, for: .touchUpInside)
-    miniCloseButton.isHidden = true
-    miniExpandButton.isHidden = true
-
-    view.addSubview(miniInfoBar)
-    view.addSubview(miniCloseButton)
-    view.addSubview(miniExpandButton)
-    miniInfoBar.contentView.addSubview(miniTitleLabel)
-    miniInfoBar.contentView.addSubview(miniPlayButton)
-    NSLayoutConstraint.activate([
-      miniInfoBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-      miniInfoBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      miniInfoBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-      miniInfoBar.heightAnchor.constraint(equalToConstant: 38),
-      miniTitleLabel.leadingAnchor.constraint(
-        equalTo: miniInfoBar.contentView.leadingAnchor, constant: 10),
-      miniTitleLabel.trailingAnchor.constraint(equalTo: miniPlayButton.leadingAnchor, constant: -8),
-      miniTitleLabel.centerYAnchor.constraint(equalTo: miniInfoBar.contentView.centerYAnchor),
-      miniPlayButton.trailingAnchor.constraint(
-        equalTo: miniInfoBar.contentView.trailingAnchor, constant: -4),
-      miniPlayButton.centerYAnchor.constraint(equalTo: miniInfoBar.contentView.centerYAnchor),
-      miniPlayButton.widthAnchor.constraint(equalToConstant: 34),
-      miniPlayButton.heightAnchor.constraint(equalToConstant: 34),
-      miniCloseButton.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
-      miniCloseButton.trailingAnchor.constraint(
-        equalTo: miniExpandButton.leadingAnchor, constant: -8),
-      miniExpandButton.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
-      miniExpandButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
-    ])
+    tap.delegate = self
+    tap.cancelsTouchesInView = false
+    view.addGestureRecognizer(tap)
   }
 
   /// 显示本地音频的原生封面占位、曲目信息与可滚动同步歌词。
@@ -967,9 +906,9 @@ final class MediaPlaybackViewController: UIViewController {
     center.pauseCommand.addTarget(self, action: #selector(remotePause))
     center.togglePlayPauseCommand.addTarget(self, action: #selector(remoteToggle))
     center.changePlaybackPositionCommand.addTarget(self, action: #selector(remoteSeek(_:)))
-    center.skipForwardCommand.preferredIntervals = [15]
+    center.skipForwardCommand.preferredIntervals = [10]
     center.skipForwardCommand.addTarget(self, action: #selector(remoteForward))
-    center.skipBackwardCommand.preferredIntervals = [15]
+    center.skipBackwardCommand.preferredIntervals = [10]
     center.skipBackwardCommand.addTarget(self, action: #selector(remoteBackward))
     center.playCommand.isEnabled = true
     center.pauseCommand.isEnabled = true
@@ -1004,8 +943,23 @@ final class MediaPlaybackViewController: UIViewController {
     styleAsGlassButton(button, diameter: diameter, pointSize: pointSize)
   }
 
-  /// 为圆形播放控件设置磨砂玻璃背景、轻描边和稳定的点击尺寸。
+  /// 对齐系统画中画的圆形玻璃按钮；新系统使用原生玻璃，旧系统回退到磨砂材质。
   private func styleAsGlassButton(_ button: UIButton, diameter: CGFloat, pointSize: CGFloat) {
+    button.translatesAutoresizingMaskIntoConstraints = false
+    if #available(iOS 26.0, *) {
+      var configuration = UIButton.Configuration.glass()
+      configuration.cornerStyle = .capsule
+      configuration.baseForegroundColor = .white
+      configuration.image = button.image(for: .normal)
+      configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+        pointSize: pointSize, weight: .medium)
+      button.configuration = configuration
+      NSLayoutConstraint.activate([
+        button.widthAnchor.constraint(equalToConstant: diameter),
+        button.heightAnchor.constraint(equalToConstant: diameter),
+      ])
+      return
+    }
     button.tintColor = .white
     button.backgroundColor = UIColor.black.withAlphaComponent(0.16)
     button.layer.cornerRadius = diameter / 2
@@ -1053,13 +1007,10 @@ final class MediaPlaybackViewController: UIViewController {
     }
     elapsedLabel.text = Self.format(milliseconds: current)
     durationLabel.text = Self.format(milliseconds: duration)
-    miniTitleLabel.accessibilityValue = Self.format(milliseconds: current)
     playButton.setImage(
       UIImage(systemName: player.isPlaying ? "pause.fill" : "play.fill"), for: .normal)
     playButton.accessibilityLabel = player.isPlaying ? L10n.text("暂停") : L10n.text("播放")
-    miniPlayButton.setImage(
-      UIImage(systemName: player.isPlaying ? "pause.fill" : "play.fill"), for: .normal)
-    miniPlayButton.accessibilityLabel = player.isPlaying ? L10n.text("暂停") : L10n.text("播放")
+    if !isAudioPlayback { pictureInPicture.refresh() }
     if player.isPlaying { loading.stopAnimating() }
     let subtitleTracks = player.textTracks
     let audioTracks = player.audioTracks
@@ -1190,31 +1141,28 @@ final class MediaPlaybackViewController: UIViewController {
     showControls()
   }
 
-  /// 在视频画面上轻点时显示或隐藏控制栏。
+  /// 画面轻点只改变控制栏可见性，播放状态只能由对应按钮或系统命令改变。
   @objc private func toggleControls() {
-    if isMiniWindow {
-      expandPlayback()
-      return
-    }
     controlsVisible ? hideControls() : showControls()
   }
 
-  /// 请求 Shell 接管全屏关闭与小窗安装，避免同一控制器并发转场。
+  /// 进度条、菜单和播放按钮自行接收点击，避免一次点击同时执行两个动作。
+  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch)
+    -> Bool
+  {
+    guard !isAudioPlayback else { return false }
+    var target = touch.view
+    while let current = target, current !== view {
+      if current is UIControl || current is UIScrollView { return false }
+      target = current.superview
+    }
+    return true
+  }
+
+  /// 请求 iOS 原生画中画接管窗口，保留同一解码器、字幕和播放进度。
   private func minimizePlayback() {
-    guard !isMiniWindow, !closed else { return }
-    onMinimize(self)
-  }
-
-  /// 请求 Shell 将悬浮播放器重新呈现为全屏控制器。
-  private func expandPlayback() {
-    guard isMiniWindow, !closed else { return }
-    onExpand(self)
-  }
-
-  /// 停止当前播放并从 Shell 的悬浮层移除播放器。
-  func closeMiniWindow() {
-    guard isMiniWindow else { return }
-    closeFromShell()
+    guard !closed, !isAudioPlayback else { return }
+    pictureInPicture.start()
   }
 
   /// 关闭播放器并请求 Shell 移除当前控制器。
@@ -1225,7 +1173,7 @@ final class MediaPlaybackViewController: UIViewController {
 
   /// 显示控制栏并在短暂停留后自动淡出。
   private func showControls() {
-    guard !isMiniWindow else { return }
+    guard !pictureInPicture.keepsPlaybackAlive else { return }
     controlsVisible = true
     hideControlsTask?.cancel()
     UIView.animate(withDuration: 0.18) { self.topBar.alpha = 1 }
@@ -1236,7 +1184,7 @@ final class MediaPlaybackViewController: UIViewController {
 
   /// 在视频播放且没有系统弹窗时隐藏控制栏。
   private func hideControls() {
-    guard !isMiniWindow else { return }
+    guard !pictureInPicture.keepsPlaybackAlive else { return }
     controlsVisible = false
     UIView.animate(withDuration: 0.25) { self.topBar.alpha = 0 }
     UIView.animate(withDuration: 0.25) { self.controls.alpha = 0 }
@@ -1246,7 +1194,9 @@ final class MediaPlaybackViewController: UIViewController {
   /// 为活动播放安排控制栏自动隐藏。
   private func scheduleControlsHide() {
     hideControlsTask?.cancel()
-    guard playbackDidAppear, player.isPlaying, !isAudioPlayback, !isScrubbing, !isMiniWindow else {
+    guard playbackDidAppear, player.isPlaying, !isAudioPlayback, !isScrubbing,
+      !pictureInPicture.keepsPlaybackAlive
+    else {
       return
     }
     hideControlsTask = Task { [weak self] in
@@ -1362,10 +1312,6 @@ final class MediaPlaybackViewController: UIViewController {
 
   /// 停止当前播放并关闭播放器控制器。
   private func dismissPlayback() {
-    if isMiniWindow {
-      closeMiniWindow()
-      return
-    }
     closeFromShell()
   }
 
@@ -1379,6 +1325,7 @@ final class MediaPlaybackViewController: UIViewController {
     lyricsTask?.cancel()
     hideControlsTask?.cancel()
     NotificationCenter.default.removeObserver(self)
+    pictureInPicture.stop()
     player.stop()
     player.media = nil
     let center = MPRemoteCommandCenter.shared()
@@ -1435,15 +1382,15 @@ final class MediaPlaybackViewController: UIViewController {
     return .success
   }
 
-  /// 耳机前进命令跳过 15 秒。
+  /// 耳机前进命令跳过 10 秒。
   @objc private func remoteForward() -> MPRemoteCommandHandlerStatus {
-    skip(seconds: 15)
+    skip(seconds: 10)
     return .success
   }
 
-  /// 耳机后退命令回退 15 秒。
+  /// 耳机后退命令回退 10 秒。
   @objc private func remoteBackward() -> MPRemoteCommandHandlerStatus {
-    skip(seconds: -15)
+    skip(seconds: -10)
     return .success
   }
 }

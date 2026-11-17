@@ -64,6 +64,10 @@ final class OperationMenuController: UITableViewController, UISheetPresentationC
     navigation.modalPresentationStyle = .pageSheet
     navigation.view.accessibilityIdentifier = "native-operation-menu-sheet"
     guard let sheet = navigation.sheetPresentationController else { return }
+    let style =
+      navigation.overrideUserInterfaceStyle == .unspecified
+      ? presentingView.traitCollection.userInterfaceStyle : navigation.overrideUserInterfaceStyle
+    NativeModalAppearance.apply(to: sheet, style: style)
     sheet.detents = [
       .custom(identifier: .init("operation-content")) { [weak self, weak presentingView] context in
         // UIKit 会在 detent 之外加底部安全区，先限制总高度再扣回这部分。
