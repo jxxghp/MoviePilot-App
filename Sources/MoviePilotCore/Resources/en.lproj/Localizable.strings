@@ -43,14 +43,14 @@
 "删除已保存的服务？" = "Delete saved server?";
 "删除服务" = "Delete server";
 "刷新" = "Refresh";
-"前进 15 秒" = "Forward 15 seconds";
+"前进 10 秒" = "Forward 10 seconds";
 "剧集订阅" = "TV subscriptions";
 "剩余 %@" = "%@ free";
 "原生通知需要系统授权" = "Native notifications require permission";
 "发送测试通知" = "Send test notification";
 "取消" = "Cancel";
 "合集" = "Collections";
-"后退 15 秒" = "Back 15 seconds";
+"后退 10 秒" = "Back 10 seconds";
 "含海报" = "Poster available";
 "启用后可在系统小组件中选择此服务。" = "Enable to select this server in system widgets.";
 "启用小组件" = "Enable widgets";
@@ -289,3 +289,4 @@
 "默认图标" = "Default icon";
 "默认头像" = "Default avatar";
 "在 Safari 打开通知网页，添加到主屏幕，再从主屏幕打开并输入绑定码。通知由主屏幕网页接收，点击后可返回 App。" = "Open the notification page in Safari and add it to the Home Screen. Open it there and enter the pairing code. Tap a notification to return to the App.";
+"暂时无法开启画中画，请等待视频开始播放后重试。" = "Picture in Picture is not ready. Wait for the video to start, then try again.";
