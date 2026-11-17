@@ -27,6 +27,16 @@ fixture_pids=()
 trap 'for fixture_pid in "${fixture_pids[@]}"; do kill "$fixture_pid" 2>/dev/null || true; done; xcrun simctl shutdown "$playback_simulator" 2>/dev/null || true; xcrun simctl delete "$playback_simulator"' EXIT
 python3 scripts/media-playback-fixture.py --port 5317 --media "$test_root/fixture.mp4" --poster "$test_root/poster.jpg" > "$test_root/ipv4.log" 2>&1 &
 fixture_pids+=($!)
+mkdir -p "$test_root/frontend"
+curl -fsSL https://github.com/jxxghp/MoviePilot-Frontend/releases/download/v3.2.8/dist.zip -o "$test_root/frontend.zip"
+unzip -q "$test_root/frontend.zip" -d "$test_root/frontend"
+python3 scripts/settings-search-fixture.py --frontend "$test_root/frontend/dist" \
+  --poster "$test_root/poster.jpg" --appearance-simulator "$playback_simulator" > "$test_root/settings.log" 2>&1 &
+fixture_pids+=($!)
+export TEST_RUNNER_MOVIEPILOT_E2E_SERVER=http://127.0.0.1:5319
+export TEST_RUNNER_MOVIEPILOT_E2E_PROCESS_FIXTURE=http://127.0.0.1:5319
+export TEST_RUNNER_MOVIEPILOT_E2E_USERNAME=startup-fixture
+export TEST_RUNNER_MOVIEPILOT_E2E_PASSWORD=fixture-only
 python3 scripts/media-playback-fixture.py --ipv6 --port 5320 --media "$test_root/fixture.mp4" --poster "$test_root/poster.jpg" > "$test_root/ipv6.log" 2>&1 &
 fixture_pids+=($!)
 xcrun simctl boot "$playback_simulator"
@@ -40,4 +50,6 @@ xcodebuild test \
   -only-testing:MoviePilotUITests/MediaPlaybackTests/testVideoSurfaceTapsOnlyToggleControls \
   -only-testing:MoviePilotUITests/MediaPlaybackTests/testIPv6LiteralPlayback \
   -only-testing:MoviePilotUITests/MediaPlaybackTests/testSystemPictureInPictureContinuesOnHomeScreen \
+  -only-testing:MoviePilotUITests/NativeFrameworkTests/testStorageMenuFollowsAppThemeAcrossSystemThemes \
+  -only-testing:MoviePilotUITests/NativeFrameworkTests/testSettingsAndSearchSheetsAcceptance \
   CODE_SIGN_IDENTITY=-
