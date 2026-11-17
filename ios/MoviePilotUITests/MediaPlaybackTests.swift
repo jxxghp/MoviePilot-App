@@ -97,6 +97,8 @@ final class MediaPlaybackTests: XCTestCase {
     let ready = XCTNSPredicateExpectation(
       predicate: NSPredicate(format: "enabled == true"), object: pictureInPicture)
     await fulfillment(of: [ready], timeout: 15)
+    revealVideoControls()
+    attachScreenshot(named: "全屏播放器-系统圆形按钮")
     pictureInPicture.tap()
     let started = XCTNSPredicateExpectation(
       predicate: NSPredicate(format: "hittable == true"), object: entry)
