@@ -687,7 +687,7 @@ final class NativeFrameworkTests: XCTestCase {
     let roots = rootNavigation(app)
     settlePage(app)
     app.buttons["操作菜单"].tap()
-    nativeUserItem("用户", app: app).tap()
+    app.buttons["连接与显示"].tap()
     nativeUserItem("主题", app: app).tap()
     XCTAssertTrue(app.navigationBars["主题定制"].waitForExistence(timeout: 10))
     let modes = ["浅色", "深色", "跟随系统"]
@@ -2865,10 +2865,10 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertTrue(app.navigationBars["仪表盘"].waitForExistence(timeout: 10))
   }
 
-  /// 只操作已有用户主题面板，恢复时选回跟随系统，不改服务端业务设置。
+  /// 从连接与显示复用已有主题面板，恢复时选回跟随系统，不改服务端业务设置。
   private func selectTheme(_ title: String, app: XCUIApplication) {
     app.buttons["操作菜单"].tap()
-    nativeUserItem("用户", app: app).tap()
+    app.buttons["连接与显示"].tap()
     nativeUserItem("主题", app: app).tap()
     XCTAssertTrue(app.navigationBars["主题定制"].waitForExistence(timeout: 10))
     let option = app.webViews.switches[title].firstMatch
@@ -3030,7 +3030,7 @@ final class NativeFrameworkTests: XCTestCase {
     .firstMatch
   }
 
-  /// 主题入口直接位于用户菜单内，设置业务仍交给原 HTML 弹窗。
+  /// 主题和语言统一位于连接与显示，用户菜单保留账号动作，主题仍交给原 HTML 弹窗。
   func testNativeHTMLPresentation() throws {
     let app = try signIn()
     settlePage(app)
@@ -3048,17 +3048,21 @@ final class NativeFrameworkTests: XCTestCase {
     XCTAssertGreaterThanOrEqual(user.frame.minY, connection.frame.maxY - 2)
     attachScreen("交互-常用入口用户位于最后", app: app)
     nativeUserItem("用户", app: app).tap()
-    let theme = nativeUserItem("主题", app: app)
-    let language = nativeUserItem("语言", app: app)
-    XCTAssertTrue(theme.waitForExistence(timeout: 8), "用户入口必须进入系统二级菜单")
-    XCTAssertFalse(app.tables["native-quick-panel"].exists)
-    for item in ["附加样式", "界面布局"] {
+    XCTAssertTrue(nativeUserItem("个人信息", app: app).waitForExistence(timeout: 8))
+    for item in ["主题", "语言", "附加样式", "界面布局"] {
       XCTAssertFalse(app.buttons[item].exists)
     }
-    attachScreen("交互-原生用户菜单", app: app)
-    XCTAssertEqual(language.frame.minY, theme.frame.maxY, accuracy: 3, "主题和语言应相邻，不插入分类标题")
-    attachScreen("交互-用户菜单主题与语言相邻", app: app)
-    nativeUserItem("主题", app: app).tap()
+    XCTAssertFalse(app.tables["native-quick-panel"].exists)
+    attachScreen("交互-用户菜单仅保留账号操作", app: app)
+    dismissOverlays(app)
+    app.buttons["操作菜单"].tap()
+    app.buttons["连接与显示"].tap()
+    let theme = nativeUserItem("主题", app: app)
+    let language = nativeUserItem("语言", app: app)
+    XCTAssertTrue(theme.waitForExistence(timeout: 8))
+    XCTAssertTrue(language.exists)
+    attachScreen("交互-连接与显示主题和语言", app: app)
+    theme.tap()
     XCTAssertTrue(app.navigationBars["主题定制"].waitForExistence(timeout: 10))
     XCTAssertTrue(app.buttons["native-sheet-close"].exists)
     XCTAssertTrue(app.webViews.staticTexts["色调"].firstMatch.waitForExistence(timeout: 10))
@@ -3083,7 +3087,7 @@ final class NativeFrameworkTests: XCTestCase {
     let app = try signIn()
     settlePage(app)
     app.buttons["操作菜单"].tap()
-    nativeUserItem("用户", app: app).tap()
+    app.buttons["连接与显示"].tap()
     XCTAssertTrue(nativeUserItem("主题", app: app).waitForExistence(timeout: 8))
     nativeUserItem("主题", app: app).tap()
     XCTAssertTrue(app.navigationBars["主题定制"].waitForExistence(timeout: 10))
@@ -3193,7 +3197,7 @@ final class NativeFrameworkTests: XCTestCase {
       try await setSystemAppearance(appearance)
       settlePage(app)
       app.buttons["操作菜单"].tap()
-      nativeUserItem("用户", app: app).tap()
+      app.buttons["连接与显示"].tap()
       XCTAssertTrue(nativeUserItem("主题", app: app).waitForExistence(timeout: 8))
       nativeUserItem("主题", app: app).tap()
       let panel = app.tables["native-quick-panel"]
@@ -3369,7 +3373,7 @@ final class NativeFrameworkTests: XCTestCase {
       XCTAssertTrue(logout.waitForExistence(timeout: 8))
       settlePage(app)
       attachScreen("交互-用户二级菜单初始高度-\(cycle)", app: app)
-      for title in ["个人信息", "系统设定", "主题", "语言"] {
+      for title in ["个人信息", "系统设定"] {
         let item = nativeUserItem(title, app: app)
         XCTAssertTrue(item.isHittable, "用户菜单首屏应可直接操作\(title)，不能只存在于屏外")
       }
@@ -5386,4 +5390,73 @@ final class NativeFrameworkTests: XCTestCase {
       predicate: NSPredicate(format: "exists == false"), object: reminder)
     XCTAssertEqual(XCTWaiter.wait(for: [closed], timeout: 3), .completed)
   }
+  /// 本机合成页面验收设置入口、单项半屏及带集信息的共享选集，不提交业务数据。
+  func testSettingsAndSearchSheetsAcceptance() async throws {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_SERVER"] == "http://127.0.0.1:5319"
+    else {
+      throw XCTSkip("需要本机设置和搜索夹具。")
+    }
+    let app = try signIn(captureScreens: false, remember: false)
+    settlePage(app)
+    app.buttons["操作菜单"].tap()
+    nativeUserItem("用户", app: app).tap()
+    XCTAssertTrue(nativeUserItem("个人信息", app: app).waitForExistence(timeout: 8))
+    XCTAssertFalse(nativeUserItem("主题", app: app).exists)
+    XCTAssertFalse(nativeUserItem("语言", app: app).exists)
+    attachScreen("设置-用户菜单无重复入口", app: app)
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.35)).tap()
+    app.buttons["操作菜单"].tap()
+    app.buttons["连接与显示"].tap()
+    XCTAssertTrue(nativeUserItem("语言", app: app).waitForExistence(timeout: 8))
+    XCTAssertTrue(nativeUserItem("主题", app: app).waitForExistence(timeout: 8))
+    attachScreen("设置-连接与显示统一入口", app: app)
+    nativeUserItem("主题", app: app).tap()
+    XCTAssertTrue(app.buttons["native-sheet-close"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.navigationBars["主题定制"].exists)
+    XCTAssertTrue(app.webViews.staticTexts["色调"].firstMatch.waitForExistence(timeout: 10))
+    attachScreen("设置-复用主题面板", app: app)
+    app.buttons["native-sheet-close"].tap()
+    XCTAssertTrue(app.buttons["native-sheet-close"].waitForNonExistence(timeout: 10))
+
+    /// 只允许本用例固定回环端口切换路由，产品中不加入测试桥。
+    func navigate(_ path: String) async throws {
+      var request = URLRequest(url: URL(string: "http://127.0.0.1:5319/__qa/navigation")!)
+      request.httpMethod = "POST"
+      request.httpBody = try JSONSerialization.data(withJSONObject: ["path": path])
+      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      let (_, response) = try await URLSession.shared.data(for: request)
+      XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+    }
+    try await navigate("/resource")
+    let resolution = app.webViews.buttons.matching(NSPredicate(format: "label CONTAINS %@", "分辨率"))
+      .firstMatch
+    XCTAssertTrue(resolution.waitForExistence(timeout: 20), app.debugDescription)
+    resolution.tap()
+    let close = app.buttons["native-sheet-close"]
+    XCTAssertTrue(close.waitForExistence(timeout: 10))
+    let title = app.navigationBars["分辨率"]
+    XCTAssertTrue(title.exists)
+    XCTAssertGreaterThan(title.frame.minY, app.frame.height * 0.35)
+    XCTAssertGreaterThan(close.frame.minX, app.frame.width * 0.75)
+    XCTAssertTrue(app.webViews.staticTexts["2160p"].firstMatch.waitForExistence(timeout: 8))
+    attachScreen("搜索-单项过滤半屏与关闭", app: app)
+    close.tap()
+    XCTAssertTrue(close.waitForNonExistence(timeout: 10))
+
+    try await navigate("/media-library/search?query=歌手")
+    let series = app.webViews.buttons["我是歌手, 电视剧"]
+    XCTAssertTrue(series.waitForExistence(timeout: 20), app.debugDescription)
+    series.tap()
+    XCTAssertTrue(close.waitForExistence(timeout: 10))
+    XCTAssertTrue(app.navigationBars["选择剧集播放"].exists)
+    XCTAssertGreaterThan(close.frame.minX, app.frame.width * 0.75)
+    XCTAssertTrue(app.webViews.staticTexts["第一集：重逢"].waitForExistence(timeout: 12))
+    XCTAssertTrue(app.webViews.staticTexts["48 min"].exists)
+    XCTAssertTrue(app.webViews.staticTexts["几位歌手在新的舞台相聚，准备首轮演出。"].exists)
+    attachScreen("搜索-媒体库统一选集信息与关闭", app: app)
+    close.tap()
+    XCTAssertTrue(close.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(series.isHittable)
+  }
+
 }
