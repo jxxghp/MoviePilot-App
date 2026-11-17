@@ -94,24 +94,27 @@ TEST_RUNNER_MOVIEPILOT_E2E_SERVICE_WAIT=1 xcodebuild test \
 原生媒体播放回归使用含双音轨的短视频、同名 SRT 字幕和 LRC 歌词，通过正式原生桥打开本地与 STRM 剧集以及音乐单曲：
 
 ```sh
-python3 -c 'from pathlib import Path; Path("/tmp/moviepilot-playback.zh-CN.srt").write_text("1\n00:00:00,000 --> 00:02:00,000\n字幕验收\n", encoding="utf-8")'
-python3 -c 'from pathlib import Path; Path("/tmp/moviepilot-playback.lrc").write_text("[00:00.00]开头歌词\n[00:02.00]副歌高亮\n", encoding="utf-8")'
+python3 -c 'from pathlib import Path; Path("/Volumes/DISK/TmpBuild/moviepilot-playback.zh-CN.srt").write_text("1\n00:00:00,000 --> 00:02:00,000\n字幕验收\n", encoding="utf-8")'
+python3 -c 'from pathlib import Path; Path("/Volumes/DISK/TmpBuild/moviepilot-playback.lrc").write_text("[00:00.00]开头歌词\n[00:02.00]副歌高亮\n", encoding="utf-8")'
 ffmpeg -y -f lavfi -i testsrc2=size=640x360:rate=24 -f lavfi -i sine=frequency=440 \
-  -f lavfi -i sine=frequency=660 -i /tmp/moviepilot-playback.zh-CN.srt \
+  -f lavfi -i sine=frequency=660 -i /Volumes/DISK/TmpBuild/moviepilot-playback.zh-CN.srt \
   -t 120 -map 0:v -map 1:a -map 2:a -map 3:s -c:v libx264 -pix_fmt yuv420p \
-  -c:a aac -c:s mov_text -movflags +faststart /tmp/moviepilot-playback.mp4
-python3 scripts/media-playback-fixture.py --media /tmp/moviepilot-playback.mp4 \
+  -c:a aac -c:s mov_text -movflags +faststart /Volumes/DISK/TmpBuild/moviepilot-playback.mp4
+python3 scripts/media-playback-fixture.py --media /Volumes/DISK/TmpBuild/moviepilot-playback.mp4 \
   --poster ../MoviePilot-Frontend/src/assets/images/no-image.jpeg
 # 另开终端，使用专用模拟器运行：
 xcodebuild test \
   -project ios/MoviePilot.xcodeproj -scheme MoviePilot \
   -destination 'platform=iOS Simulator,id=你的模拟器UUID' \
+  -derivedDataPath /Volumes/DISK/TmpBuild/PlaybackDerivedData \
+  -clonedSourcePackagesDirPath /Volumes/DISK/Xcode/SourcePackages \
+  -resultBundlePath /Volumes/DISK/TmpBuild/Playback.xcresult \
   -only-testing:MoviePilotUITests/MediaPlaybackTests CODE_SIGN_IDENTITY=-
 ```
 
 需要与这次未发布的后端接口端到端联调时，额外准备 MoviePilot 测试虚拟环境中的独立媒体路由服务并在 App 仓库提供 `scripts/media-playback-fixture.py --backend http://127.0.0.1:5319 --frontend http://127.0.0.1:5181`；媒体请求只转发到合成账号和临时媒体文件使用的本机接口，不能指向运行中的真实实例。前端开发服务器可将 API 代理设置为 `http://127.0.0.1:5318`。启动页面“产品影片详情、产品音乐详情、产品文件管理、产品整理历史”链接经本地 Vite 打开实际 Vue 产品入口。
 
-该夹具只监听 `127.0.0.1:5317`，本地、STRM 和音乐路径都必须收到播放器 Range 请求；UI 测试检查原生视频与音乐布局、进度、暂停/继续、跳转、外挂字幕读取及 LRC 歌词高亮，以及影片/音乐详情、文件管理和整理历史的产品入口，并将关键页面截图保存在测试结果中。后端自身的本地文件、STRM 代理、SRT/LRC 和季集映射仍由 MoviePilot 后端测试覆盖。
+该夹具默认只监听 `127.0.0.1:5317`；另启 `--ipv6 --port 5320` 可覆盖 IPv6 直连。本地、STRM 和音乐路径都必须收到播放器 Range 请求；UI 测试检查原生视频与音乐布局、进度、画面点击只切换控制条、暂停/继续、10 秒跳转、系统画中画、外挂字幕读取及 LRC 歌词高亮，以及影片/音乐详情、文件管理和整理历史的产品入口，并将关键页面截图保存在测试结果中。画中画由 `AVPictureInPictureController` 直接接管解码器的 `AVSampleBufferDisplayLayer`，不再创建 App 内浮窗；系统关闭结束播放，系统返回按钮恢复原全屏及进度。退到主屏幕后仍可使用系统窗口。真机验收还需检查拖动、缩放、锁屏及来电中断。后端自身的本地文件、STRM 代理、SRT/LRC 和季集映射仍由 MoviePilot 后端测试覆盖。
 
 多服务和密码记忆回归复用同一夹具，在两个终端分别运行：
 

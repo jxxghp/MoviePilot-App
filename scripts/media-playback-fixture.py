@@ -6,6 +6,7 @@ from email.policy import default
 import json
 import mimetypes
 import re
+import socket
 import threading
 import urllib.error
 import urllib.request
@@ -19,12 +20,13 @@ class PlaybackServer(ThreadingHTTPServer):
 
     def __init__(
         self, port: int, media: Path, poster: Path, public_base: str | None,
-        backend: str | None = None, frontend: str | None = None
+        backend: str | None = None, frontend: str | None = None, ipv6: bool = False
     ) -> None:
         """只绑定回环地址，并确认影片与同名外挂字幕位于本机。"""
         self.media = media.resolve()
         self.poster = poster.resolve()
-        self.public_base = public_base or f"http://127.0.0.1:{port}"
+        self.loopback_base = f"http://[::1]:{port}" if ipv6 else f"http://127.0.0.1:{port}"
+        self.public_base = public_base or self.loopback_base
         self.backend = backend
         self.frontend = frontend
         self.subtitle = self.media.with_name(f"{self.media.stem}.zh-CN.srt")
@@ -38,7 +40,8 @@ class PlaybackServer(ThreadingHTTPServer):
             "lyrics_requests": 0,
         }
         self.guard = threading.Lock()
-        super().__init__(("127.0.0.1", port), PlaybackHandler)
+        self.address_family = socket.AF_INET6 if ipv6 else socket.AF_INET
+        super().__init__(("::1" if ipv6 else "127.0.0.1", port), PlaybackHandler)
 
 
 class PlaybackHandler(BaseHTTPRequestHandler):
@@ -532,7 +535,7 @@ class PlaybackHandler(BaseHTTPRequestHandler):
             return
         self._count_range("strm_range_requests")
         upstream = urllib.request.Request(
-            f"http://127.0.0.1:{self.server.server_port}/__upstream/fixture.mp4",
+            f"{self.server.loopback_base}/__upstream/fixture.mp4",
             headers={"Range": self.headers["Range"]} if self.headers.get("Range") else {},
         )
         try:
@@ -603,6 +606,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--media", type=Path, required=True, help="合成 MP4，需有同名 .zh-CN.srt 和 .lrc 字幕")
     parser.add_argument("--port", type=int, default=5317)
+    parser.add_argument("--ipv6", action="store_true", help="只绑定 IPv6 回环 ::1")
     parser.add_argument("--poster", type=Path, required=True, help="媒体服务器海报响应使用的测试 JPEG")
     parser.add_argument("--public-base", help="通过前端开发代理访问时的回环来源")
     parser.add_argument("--backend", help="可选的回环后端来源，媒体请求转发到其正式路由")
@@ -619,7 +623,7 @@ def main() -> None:
             parsed = urlsplit(origin)
             if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.path or parsed.query or parsed.fragment:
                 parser.error("--backend 和 --frontend 仅接受不带路径的 http://127.0.0.1:端口")
-    with PlaybackServer(args.port, args.media, args.poster, args.public_base, args.backend, args.frontend) as server:
+    with PlaybackServer(args.port, args.media, args.poster, args.public_base, args.backend, args.frontend, args.ipv6) as server:
         server.serve_forever()
 
 
