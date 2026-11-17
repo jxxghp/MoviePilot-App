@@ -5027,6 +5027,7 @@ final class NativeFrameworkTests: XCTestCase {
   }
 
   /// 公共登录前置允许恢复同一实例的已有会话，私有登录参数不进入截图或持久测试配置。
+  /// 只使用调用方指定的隔离账号登录，等待网页与原生导航完成接管。
   private func signIn(captureScreens: Bool = true, remember: Bool = true) throws -> XCUIApplication
   {
     let environment = ProcessInfo.processInfo.environment
@@ -5418,16 +5419,7 @@ final class NativeFrameworkTests: XCTestCase {
     app.buttons["native-sheet-close"].tap()
     XCTAssertTrue(app.buttons["native-sheet-close"].waitForNonExistence(timeout: 10))
 
-    /// 只允许本用例固定回环端口切换路由，产品中不加入测试桥。
-    func navigate(_ path: String) async throws {
-      var request = URLRequest(url: URL(string: "http://127.0.0.1:5319/__qa/navigation")!)
-      request.httpMethod = "POST"
-      request.httpBody = try JSONSerialization.data(withJSONObject: ["path": path])
-      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-      let (_, response) = try await URLSession.shared.data(for: request)
-      XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
-    }
-    try await navigate("/resource")
+    try await settingsSearchNavigate("/resource")
     let resolution = app.webViews.buttons.matching(NSPredicate(format: "label CONTAINS %@", "分辨率"))
       .firstMatch
     XCTAssertTrue(resolution.waitForExistence(timeout: 20), app.debugDescription)
@@ -5443,7 +5435,7 @@ final class NativeFrameworkTests: XCTestCase {
     close.tap()
     XCTAssertTrue(close.waitForNonExistence(timeout: 10))
 
-    try await navigate("/media-library/search?query=歌手")
+    try await settingsSearchNavigate("/media-library/search?query=歌手")
     let series = app.webViews.buttons["我是歌手, 电视剧"]
     XCTAssertTrue(series.waitForExistence(timeout: 20), app.debugDescription)
     series.tap()
@@ -5457,6 +5449,43 @@ final class NativeFrameworkTests: XCTestCase {
     close.tap()
     XCTAssertTrue(close.waitForNonExistence(timeout: 10))
     XCTAssertTrue(series.isHittable)
+  }
+
+  /// App 手动主题与系统主题相反时，操作菜单材质与文字必须使用同一种明暗模式。
+  func testStorageMenuFollowsAppThemeAcrossSystemThemes() async throws {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_E2E_SERVER"] == "http://127.0.0.1:5319"
+    else { throw XCTSkip("需要本机设置和搜索夹具。") }
+    let app = try signIn(captureScreens: false, remember: false)
+    defer { app.terminate() }
+    try await settingsSearchNavigate("/filemanager")
+    let storage = app.webViews.buttons["本地"]
+    XCTAssertTrue(storage.waitForExistence(timeout: 20), app.debugDescription)
+    for (system, theme) in [("dark", "浅色"), ("light", "深色")] {
+      try await setSystemAppearance(system)
+      selectTheme(theme, app: app)
+      XCTAssertTrue(storage.waitForExistence(timeout: 10), app.debugDescription)
+      storage.tap()
+      let table = app.tables["nativeOperationMenu"]
+      XCTAssertTrue(table.waitForExistence(timeout: 10), app.debugDescription)
+      XCTAssertTrue(table.staticTexts["SMB网络共享"].exists)
+      let close = app.buttons["native-operation-menu-close"]
+      XCTAssertTrue(close.isHittable)
+      XCTAssertGreaterThan(close.frame.minX, app.frame.width * 0.7)
+      settlePage(app)
+      attachScreen("存储菜单-系统\(system)-App\(theme)", app: app)
+      close.tap()
+      XCTAssertTrue(table.waitForNonExistence(timeout: 10))
+    }
+  }
+
+  /// 仅控制专用回环夹具的路由，不在正式产品中加入测试消息。
+  private func settingsSearchNavigate(_ path: String) async throws {
+    var request = URLRequest(url: URL(string: "http://127.0.0.1:5319/__qa/navigation")!)
+    request.httpMethod = "POST"
+    request.httpBody = try JSONSerialization.data(withJSONObject: ["path": path])
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
   }
 
 }

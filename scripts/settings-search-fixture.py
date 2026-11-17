@@ -3,6 +3,7 @@
 import argparse
 import importlib.util
 import json
+import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -48,6 +49,21 @@ class Handler(plugin.PluginSaveHandler):
     def do_GET(self):
         """只返回有限的合成集信息、图片与资源。"""
         path = urlsplit(self.path).path
+        if path == "/api/v1/storage/options":
+            self.reply(200, {"success": True, "data": [
+                {"type": "local", "name": "本地"},
+                {"type": "smb", "name": "SMB网络共享"},
+            ]})
+            return
+        if path == "/api/v1/storage/catalog":
+            self.reply(200, {"success": True, "data": [
+                {"type": "local", "name": "本地", "icon": "mdi-folder-outline"},
+                {"type": "smb", "name": "SMB网络共享", "icon": "mdi-web"},
+            ]})
+            return
+        if path == "/api/v1/download/paths":
+            self.reply(200, {"success": True, "data": []})
+            return
         if path.startswith(
             ("/api/v1/message/", "/api/v1/system/message", "/api/v1/system/progress/")
         ):
@@ -179,6 +195,10 @@ class Handler(plugin.PluginSaveHandler):
     def do_POST(self):
         """验收控制仅切换回环页面，不连接真实实例。"""
         path = urlsplit(self.path).path
+        if path == "/api/v1/storage/list":
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            self.reply(200, {"success": True, "data": []})
+            return
         if path in ("/__qa/navigation", "/__qa/dom"):
             data = json.loads(
                 self.rfile.read(int(self.headers.get("Content-Length", "0")))
@@ -213,9 +233,9 @@ class Handler(plugin.PluginSaveHandler):
 class Server(plugin.PluginSaveServer):
     """独立端口与临时状态避免干扰其它验收。"""
 
-    def __init__(self, frontend, poster):
+    def __init__(self, frontend, poster, appearance_simulator=None):
         """直接复用已有启动服务器的数据模型。"""
-        plugin.startup.StartupServer.__init__(self, 5319, frontend)
+        plugin.startup.StartupServer.__init__(self, 5319, frontend, appearance_simulator)
         self.poster = poster
         self.mode = "ready"
         self.user_configs = {}
@@ -239,12 +259,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--frontend", type=Path, required=True)
     parser.add_argument("--poster", type=Path, required=True)
+    parser.add_argument("--appearance-simulator", type=lambda value: str(uuid.UUID(value)))
     args = parser.parse_args()
     frontend = args.frontend.resolve()
     poster = args.poster.resolve()
     if not (frontend / "index.html").is_file() or not poster.is_file():
         parser.error("需要前端构建目录和测试 JPEG 图片")
-    Server(frontend, poster).serve_forever()
+    Server(frontend, poster, args.appearance_simulator).serve_forever()
 
 
 if __name__ == "__main__":
