@@ -19,8 +19,9 @@ ffmpeg -v error -y -f lavfi -i testsrc2=size=640x360:rate=24 -f lavfi -i sine=fr
   -map 0:v -map 1:a -map 2:a -map 3:s -c:v libx264 -pix_fmt yuv420p \
   -c:a aac -c:s mov_text -movflags +faststart "$test_root/fixture.mp4"
 ffmpeg -v error -y -f lavfi -i color=c=blue:size=320x180 -frames:v 1 "$test_root/poster.jpg"
-simulator_runtime=$(xcrun simctl list runtimes --json | python3 -c 'import json,sys; print([r["identifier"] for r in json.load(sys.stdin)["runtimes"] if r["isAvailable"] and r["name"].startswith("iOS")][-1])')
-simulator_type=$(xcrun simctl list devicetypes --json | python3 -c 'import json,sys; print([r["identifier"] for r in json.load(sys.stdin)["devicetypes"] if r["name"].startswith("iPhone")][-1])')
+# 使用已经由当前 runtime 配对的 iPhone 型号，不能把最新硬件与旧 runtime 任意组合。
+simulator_configuration=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; pairs=[(runtime,d["deviceTypeIdentifier"]) for runtime,devices in json.load(sys.stdin)["devices"].items() if ".iOS-" in runtime for d in devices if d.get("isAvailable") and d["name"].startswith("iPhone")]; print(*pairs[-1]) if pairs else sys.exit("没有可用的 iPhone 模拟器")')
+read -r simulator_runtime simulator_type <<< "$simulator_configuration"
 playback_simulator=$(xcrun simctl create MoviePilot-Playback-Acceptance "$simulator_type" "$simulator_runtime")
 fixture_pids=()
 # 只删除本脚本创建的设备与进程；保留结果包供审阅。
