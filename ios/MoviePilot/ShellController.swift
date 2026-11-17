@@ -135,7 +135,6 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   private var playbackController: MediaPlaybackViewController?
   private var playbackContainer: UIView?
   private var playbackFullScreenConstraints: [NSLayoutConstraint] = []
-  private var playbackMiniConstraints: [NSLayoutConstraint] = []
   private var panelNavigation: UINavigationController?
   private var panelImages: NativePanelImageLoader?
   private var panelAction: ActionSnapshot?
@@ -248,14 +247,6 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
       container.topAnchor.constraint(equalTo: view.topAnchor),
       container.bottomAnchor.constraint(equalTo: view.bottomAnchor),
     ]
-    playbackMiniConstraints = [
-      container.trailingAnchor.constraint(
-        equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-      container.bottomAnchor.constraint(
-        equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -86),
-      container.widthAnchor.constraint(equalToConstant: 236),
-      container.heightAnchor.constraint(equalToConstant: 170),
-    ]
     NSLayoutConstraint.activate([
       controller.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
       controller.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
@@ -267,33 +258,16 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
     view.bringSubviewToFront(container)
   }
 
-  /// 将 Shell 托管的播放器容器缩到右下角，不改变播放器控制器层级。
+  /// 系统画中画已接管后隐藏 App 内的播放器，不再创建或摆放悬浮小窗。
   func minimizePlayback(_ controller: MediaPlaybackViewController) {
-    guard playbackController === controller, let container = playbackContainer else { return }
-    controller.setMiniWindow(true)
-    container.layer.cornerRadius = 14
-    container.layer.cornerCurve = .continuous
-    container.layer.borderWidth = 0.8
-    container.layer.borderColor = UIColor.white.withAlphaComponent(0.2).cgColor
-    container.layer.shadowColor = UIColor.black.cgColor
-    container.layer.shadowOpacity = 0.32
-    container.layer.shadowRadius = 16
-    container.layer.shadowOffset = CGSize(width: 0, height: 5)
-    NSLayoutConstraint.deactivate(playbackFullScreenConstraints)
-    NSLayoutConstraint.activate(playbackMiniConstraints)
-    UIView.animate(withDuration: 0.24) { self.view.layoutIfNeeded() }
+    guard playbackController === controller else { return }
+    playbackContainer?.isHidden = true
   }
 
-  /// 将播放器容器扩展至 Shell 全屏，继续使用同一解码器和播放时间。
+  /// 系统返回 App 时恢复原来的全屏容器，解码器及时间轴始终保留。
   func expandPlayback(_ controller: MediaPlaybackViewController) {
-    guard playbackController === controller, let container = playbackContainer else { return }
-    NSLayoutConstraint.deactivate(playbackMiniConstraints)
-    NSLayoutConstraint.activate(playbackFullScreenConstraints)
-    container.layer.cornerRadius = 0
-    container.layer.borderWidth = 0
-    container.layer.shadowOpacity = 0
-    controller.setMiniWindow(false)
-    UIView.animate(withDuration: 0.24) { self.view.layoutIfNeeded() }
+    guard playbackController === controller else { return }
+    playbackContainer?.isHidden = false
   }
 
   /// 停止当前播放器并移除 Shell 托管的全屏或悬浮容器。
@@ -305,14 +279,13 @@ final class ShellController: UIViewController, UIPopoverPresentationControllerDe
   private func removePlayback(_ controller: MediaPlaybackViewController) {
     guard playbackController === controller, let container = playbackContainer else { return }
     controller.willMove(toParent: nil)
-    NSLayoutConstraint.deactivate(playbackFullScreenConstraints + playbackMiniConstraints)
+    NSLayoutConstraint.deactivate(playbackFullScreenConstraints)
     controller.view.removeFromSuperview()
     controller.removeFromParent()
     container.removeFromSuperview()
     playbackController = nil
     playbackContainer = nil
     playbackFullScreenConstraints = []
-    playbackMiniConstraints = []
   }
 
   /// 连接播放器关闭回调并执行 Shell 内的移除流程。
