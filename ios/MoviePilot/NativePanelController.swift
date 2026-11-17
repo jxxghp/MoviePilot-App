@@ -69,15 +69,24 @@ enum NativeUserMenu {
     let menu = UIMenu(
       title: title, image: avatar.map(roundAvatar) ?? fallbackImage,
       children: snapshot.sections.compactMap { section in
-        guard !section.items.isEmpty else { return nil }
+        let items = section.items.filter { !["customizer", "language"].contains($0.id) }
+        guard !items.isEmpty else { return nil }
         return UIMenu(
           title: section.title ?? "", options: .displayInline,
-          children: section.items.map { element($0, onSelect: onSelect) })
+          children: items.map { element($0, onSelect: onSelect) })
       })
     if let profile = snapshot.profile {
       menu.subtitle = [profile.name, profile.detail].compactMap { $0 }.joined(separator: " · ")
     }
     return menu
+  }
+
+  /// 连接与显示复用网页主题动作；语言由宿主的共享设置入口统一处理。
+  static func appearance(
+    snapshot: NativePanelSnapshot, onSelect: @escaping (String) -> Void
+  ) -> [UIMenuElement] {
+    snapshot.sections.flatMap(\.items).filter { $0.id == "customizer" }
+      .map { element($0, onSelect: onSelect) }
   }
 
   /// 子选项保留原顺序与状态，只有当前网页声明的稳定项目 ID 能回传。
