@@ -52,6 +52,7 @@ xcodebuild test \
   -resultBundlePath "$test_root/Playback.xcresult" \
   -parallel-testing-enabled NO \
   -only-testing:MoviePilotUITests/MediaPlaybackTests/testVideoSurfaceTapsOnlyToggleControls \
+  -only-testing:MoviePilotUITests/MediaPlaybackTests/testTrackOptionsPillHidesWhenNoTrackActions \
   -only-testing:MoviePilotUITests/MediaPlaybackTests/testSystemPictureInPictureContinuesOnHomeScreen \
   -only-testing:MoviePilotUITests/NativeFrameworkTests/testStorageMenuFollowsAppThemeAcrossSystemThemes \
   -only-testing:MoviePilotUITests/NativeFrameworkTests/testSettingsAndSearchSheetsAcceptance \

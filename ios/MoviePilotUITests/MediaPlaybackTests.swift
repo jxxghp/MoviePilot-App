@@ -46,6 +46,9 @@ final class MediaPlaybackTests: XCTestCase {
     XCTAssertTrue(slider.waitForExistence(timeout: 15), app.debugDescription)
     XCTAssertFalse(app.buttons["小窗播放"].exists, "画中画入口只放在右上角菜单")
     XCTAssertFalse(app.buttons["播放速度"].exists, "倍速入口只放在右上角菜单")
+    XCTAssertTrue(
+      app.descendants(matching: .any)["playback-track-options"].waitForExistence(timeout: 5),
+      app.debugDescription)
     let menuButton = app.buttons["更多播放选项"]
     menuButton.tap()
     let pipMenuItem = app.descendants(matching: .any)
@@ -78,6 +81,20 @@ final class MediaPlaybackTests: XCTestCase {
     app.buttons["暂停"].tap()
     XCTAssertTrue(app.buttons["播放"].waitForExistence(timeout: 5))
     close.tap()
+  }
+
+  /// 无可选字幕或音轨时，底栏不应留下空的玻璃胶囊。
+  func testTrackOptionsPillHidesWhenNoTrackActions() async throws {
+    _ = try await fixtureStats()
+    continueAfterFailure = false
+    app = launch()
+    try await authenticate()
+    app.webViews.buttons["播放音乐单曲"].tap()
+    XCTAssertTrue(app.staticTexts["music-playback-title"].waitForExistence(timeout: 15))
+    XCTAssertTrue(
+      app.descendants(matching: .any)["playback-track-options"].waitForNonExistence(timeout: 5),
+      app.debugDescription)
+    app.buttons["关闭播放器"].tap()
   }
 
   /// AVKit 确认画中画接管后隐藏 App 播放层，切到桌面仍由系统窗口播放。
