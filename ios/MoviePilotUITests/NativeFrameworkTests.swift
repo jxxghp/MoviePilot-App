@@ -2871,7 +2871,9 @@ final class NativeFrameworkTests: XCTestCase {
     app.buttons["连接与显示"].tap()
     nativeUserItem("主题", app: app).tap()
     XCTAssertTrue(app.navigationBars["主题定制"].waitForExistence(timeout: 10))
-    let option = app.webViews.switches[title].firstMatch
+    let option =
+      app.webViews.buttons[title].firstMatch.exists
+      ? app.webViews.buttons[title].firstMatch : app.webViews.switches[title].firstMatch
     XCTAssertTrue(option.waitForExistence(timeout: 10))
     option.tap()
     app.buttons["native-sheet-close"].tap()
@@ -5458,7 +5460,8 @@ final class NativeFrameworkTests: XCTestCase {
     let app = try signIn(captureScreens: false, remember: false)
     defer { app.terminate() }
     try await settingsSearchNavigate("/filemanager")
-    let storage = app.webViews.buttons["本地"]
+    let storage = app.webViews.descendants(matching: .any)
+      .matching(NSPredicate(format: "label == %@", "本地")).firstMatch
     XCTAssertTrue(storage.waitForExistence(timeout: 20), app.debugDescription)
     for (system, theme) in [("dark", "浅色"), ("light", "深色")] {
       try await setSystemAppearance(system)
