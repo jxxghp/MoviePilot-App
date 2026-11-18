@@ -234,14 +234,14 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
   private let elapsedLabel = UILabel()
   private let durationLabel = UILabel()
-  private let miniWindowButton = UIButton(type: .system)
   private let loading = UIActivityIndicatorView(style: .large)
   private let titleLabel = UILabel()
   private let playButton = UIButton(type: .system)
   private let subtitleButton = UIButton(type: .system)
   private let audioButton = UIButton(type: .system)
-  private let speedButton = UIButton(type: .system)
   private let positionSlider = UISlider()
+  private weak var playbackMenuButton: UIButton?
+  private var pictureInPictureAvailable = false
   private let onMinimize: (MediaPlaybackViewController) -> Void
   private let onExpand: (MediaPlaybackViewController) -> Void
   private let onClosePlayback: (MediaPlaybackViewController) -> Void
@@ -280,7 +280,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       guard let self, !self.closed else { return }
       if restored { self.showControls() } else { self.closeFromShell() }
     },
-    onAvailability: { [weak self] available in self?.miniWindowButton.isEnabled = available },
+    onAvailability: { [weak self] available in
+      self?.updatePictureInPictureAvailability(available)
+    },
     onFailure: { [weak self] in
       self?.showError(L10n.text("暂时无法开启画中画，请等待视频开始播放后重试。"))
     })
@@ -352,7 +354,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 创建等比视频画布、系统玻璃顶栏与独立控制区。
+  /// 创建视频画布、系统玻璃顶栏与独立控制区。
   private func configureViews() {
     videoView.translatesAutoresizingMaskIntoConstraints = false
     videoView.backgroundColor = .black
@@ -394,22 +396,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       symbol: "ellipsis", accessibility: L10n.text("更多播放选项"), diameter: 44, pointSize: 18)
     moreButton.isHidden = isAudioPlayback
     moreButton.showsMenuAsPrimaryAction = true
-    moreButton.menu = UIMenu(children: [
-      UIAction(title: L10n.text("小窗播放"), image: UIImage(systemName: "pip.enter")) { [weak self] _ in
-        self?.minimizePlayback()
-      },
-      UIAction(title: L10n.text("选择字幕"), image: UIImage(systemName: "captions.bubble")) {
-        [weak self] _ in
-        self?.showSubtitleMenu()
-      },
-      UIAction(title: L10n.text("选择音轨"), image: UIImage(systemName: "waveform")) { [weak self] _ in
-        self?.showAudioMenu()
-      },
-      UIAction(title: L10n.text("播放速度"), image: UIImage(systemName: "speedometer")) {
-        [weak self] _ in
-        self?.showSpeedMenu()
-      },
-    ])
+    playbackMenuButton = moreButton
+    moreButton.menu = makePlaybackMenu()
     topBar.addArrangedSubview(closeButton)
     topBar.addArrangedSubview(titleLabel)
     topBar.addArrangedSubview(moreButton)
@@ -431,7 +419,34 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     if isAudioPlayback { configureMusicStage(below: topBar) }
   }
 
-  /// 创建三枚玻璃拟态传输键、磨砂进度胶囊和底部播放选项。
+  /// 将小窗、字幕、音轨和倍速操作集中放在右上角菜单。
+  private func makePlaybackMenu() -> UIMenu {
+    let pipAction = UIAction(
+      title: L10n.text("小窗播放"), image: UIImage(systemName: "pip.enter"),
+      attributes: pictureInPictureAvailable ? [] : .disabled
+    ) { [weak self] _ in
+      self?.minimizePlayback()
+    }
+    let subtitlesAction = UIAction(
+      title: L10n.text("选择字幕"), image: UIImage(systemName: "captions.bubble")
+    ) { [weak self] _ in self?.showSubtitleMenu() }
+    let audioAction = UIAction(
+      title: L10n.text("选择音轨"), image: UIImage(systemName: "waveform")
+    ) { [weak self] _ in self?.showAudioMenu() }
+    let speedAction = UIAction(
+      title: L10n.text("播放速度"), image: UIImage(systemName: "speedometer")
+    ) { [weak self] _ in self?.showSpeedMenu() }
+    return UIMenu(children: [pipAction, subtitlesAction, audioAction, speedAction])
+  }
+
+  /// 画中画准备好后启用菜单项目，等待视频首帧期间保持禁用。
+  private func updatePictureInPictureAvailability(_ available: Bool) {
+    guard pictureInPictureAvailable != available else { return }
+    pictureInPictureAvailable = available
+    playbackMenuButton?.menu = makePlaybackMenu()
+  }
+
+  /// 创建三枚玻璃拟态传输键、磨砂进度胶囊和仅含字幕音轨的底栏。
   private func configureControls() {
     controls.translatesAutoresizingMaskIntoConstraints = false
     controls.backgroundColor = .clear
@@ -526,10 +541,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     audioButton.setImage(UIImage(systemName: "waveform"), for: .normal)
     audioButton.accessibilityLabel = L10n.text("选择音轨")
     audioButton.addAction(UIAction { [weak self] _ in self?.showAudioMenu() }, for: .touchUpInside)
-    speedButton.setImage(UIImage(systemName: "speedometer"), for: .normal)
-    speedButton.accessibilityLabel = L10n.text("播放速度")
-    speedButton.addAction(UIAction { [weak self] _ in self?.showSpeedMenu() }, for: .touchUpInside)
-    for button in [subtitleButton, audioButton, speedButton] {
+    for button in [subtitleButton, audioButton] {
       button.tintColor = .white
       button.backgroundColor = .clear
       button.setPreferredSymbolConfiguration(
@@ -540,7 +552,6 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     if isAudioPlayback {
       subtitleButton.isHidden = true
       audioButton.isHidden = true
-      speedButton.isHidden = true
     }
     let optionPill = UIVisualEffectView(
       effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
@@ -550,7 +561,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     optionPill.layer.borderColor = UIColor.white.withAlphaComponent(0.16).cgColor
     optionPill.clipsToBounds = true
     optionPill.translatesAutoresizingMaskIntoConstraints = false
-    let options = UIStackView(arrangedSubviews: [subtitleButton, audioButton, speedButton])
+    let options = UIStackView(arrangedSubviews: [subtitleButton, audioButton])
     options.axis = .horizontal
     options.alignment = .center
     options.distribution = .fill
@@ -566,16 +577,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       optionPill.heightAnchor.constraint(equalToConstant: 44),
     ])
 
-    miniWindowButton.setImage(UIImage(systemName: "pip.enter"), for: .normal)
-    miniWindowButton.accessibilityLabel = L10n.text("小窗播放")
-    miniWindowButton.isHidden = isAudioPlayback
-    miniWindowButton.isEnabled = false
-    styleAsGlassButton(miniWindowButton, diameter: 44, pointSize: 17)
-    miniWindowButton.addAction(
-      UIAction { [weak self] _ in self?.minimizePlayback() }, for: .touchUpInside)
     let spacer = UIView()
     spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-    let footer = UIStackView(arrangedSubviews: [miniWindowButton, spacer, optionPill])
+    let footer = UIStackView(arrangedSubviews: [spacer, optionPill])
     footer.axis = .horizontal
     footer.alignment = .center
     footer.spacing = 8
@@ -946,11 +950,11 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   /// 对齐系统画中画的圆形玻璃按钮；新系统使用原生玻璃，旧系统回退到磨砂材质。
   private func styleAsGlassButton(_ button: UIButton, diameter: CGFloat, pointSize: CGFloat) {
     button.translatesAutoresizingMaskIntoConstraints = false
-    button.tintColor = .label
+    button.tintColor = .white
     if #available(iOS 26.0, *) {
       var configuration = UIButton.Configuration.glass()
       configuration.cornerStyle = .capsule
-      configuration.baseForegroundColor = .label
+      configuration.baseForegroundColor = .white
       configuration.image = button.image(for: .normal)
       configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
         pointSize: pointSize, weight: .medium)
@@ -1275,7 +1279,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     presentActionSheet(alert, from: audioButton)
   }
 
-  /// 显示常用播放速度并更新解码器和无文字图标的辅助标签。
+  /// 显示常用播放速度并更新解码器和播放按钮的辅助标签。
   private func showSpeedMenu() {
     let alert = UIAlertController(
       title: L10n.text("播放速度"), message: nil, preferredStyle: .actionSheet)
@@ -1285,11 +1289,11 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         UIAlertAction(title: label, style: .default) { [weak self] _ in
           guard let self else { return }
           self.player.rate = rate
-          self.speedButton.accessibilityValue = L10n.format("%@ 倍", rate.formatted())
+          self.playButton.accessibilityValue = L10n.format("%@ 倍", rate.formatted())
         })
     }
     alert.addAction(UIAlertAction(title: L10n.text("取消"), style: .cancel))
-    presentActionSheet(alert, from: speedButton)
+    presentActionSheet(alert, from: topBar)
   }
 
   /// 为 iPad 弹出菜单设置安全锚点，iPhone 仍显示系统操作面板。
