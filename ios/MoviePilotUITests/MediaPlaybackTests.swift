@@ -58,7 +58,7 @@ final class MediaPlaybackTests: XCTestCase {
     let restart = app.alerts.buttons["从头开始"]
     if restart.waitForExistence(timeout: 2) { restart.tap() }
     try await waitForPlaybackProgress(slider)
-    attachScreenshot(named: "全屏播放器-自适应玻璃按钮")
+    attachScreenshot(named: "全屏播放器-白色玻璃按钮")
     let close = app.buttons["关闭播放器"]
     let hidden = XCTNSPredicateExpectation(
       predicate: NSPredicate(format: "hittable == false"), object: close)
