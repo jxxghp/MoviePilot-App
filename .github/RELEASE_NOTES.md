@@ -12,7 +12,7 @@ MoviePilot iOS 1.2.5，修复播放器选项栏没有可用项目时仍残留空
 
 MoviePilot 后台启用 AppPush 后，在 App **右上角三点 → 连接与显示 → 通知 → 开启系统通知** 中授权，再发送测试通知。Apple `.p8` 私钥、Team ID 与 Key ID 由 Server 配置，App 无需填写。开发签名须同时将 App 的 APNs 环境改为 `development`，不能仅替换描述文件。
 
-搜索弹窗调整需搭配 [MoviePilot-Frontend v3.2.9](https://github.com/jxxghp/MoviePilot-Frontend/releases/tag/v3.2.9)；集海报与标题信息还需要后端的剧集元数据接口，相关代码已合入 v3 分支，等待后续后端发布。旧后端仍可按季集编号播放。真实 Apple 投递、后台及锁屏接收需在具有推送权限的签名和真机上验证。
+搜索弹窗调整需搭配 [MoviePilot-Frontend v3.2.8](https://github.com/jxxghp/MoviePilot-Frontend/releases/tag/v3.2.8)；集海报与标题信息还需要后端的剧集元数据接口，相关代码已合入 v3 分支，等待后续后端发布。旧后端仍可按季集编号播放。真实 Apple 投递、后台及锁屏接收需在具有推送权限的签名和真机上验证。
 
 [安装与续签](https://github.com/jxxghp/MoviePilot-App/blob/main/guides/install.md) · [小组件](https://github.com/jxxghp/MoviePilot-App/blob/main/guides/widgets.md) · [通知配置](https://github.com/jxxghp/MoviePilot-App/blob/main/guides/notifications.md)
 
