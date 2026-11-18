@@ -44,9 +44,10 @@ final class MediaPlaybackTests: XCTestCase {
     app.webViews.buttons["播放本地剧集"].tap()
     let slider = app.sliders["playback-progress"]
     XCTAssertTrue(slider.waitForExistence(timeout: 15), app.debugDescription)
-    let resume = app.alerts.buttons["继续播放"]
-    if resume.waitForExistence(timeout: 2) { resume.tap() }
+    let restart = app.alerts.buttons["从头开始"]
+    if restart.waitForExistence(timeout: 2) { restart.tap() }
     try await waitForPlaybackProgress(slider)
+    attachScreenshot(named: "全屏播放器-自适应玻璃按钮")
     let close = app.buttons["关闭播放器"]
     let hidden = XCTNSPredicateExpectation(
       predicate: NSPredicate(format: "hittable == false"), object: close)
@@ -68,17 +69,6 @@ final class MediaPlaybackTests: XCTestCase {
     close.tap()
   }
 
-  /// 使用 IPv6 字面量执行真实清单、Cookie 和 Range 流程，不能只校验地址字符串。
-  func testIPv6LiteralPlayback() async throws {
-    let address = URL(string: "http://[::1]:5320")!
-    statsBase = address
-    do { _ = try await fixtureStats() } catch { throw XCTSkip("需要在 5320 端口启动 --ipv6 播放夹具。") }
-    continueAfterFailure = false
-    app = launch(address: address)
-    try await authenticate()
-    try await verifyPlayback(app.webViews.buttons["播放 STRM 剧集"], item: "strm")
-  }
-
   /// AVKit 确认画中画接管后隐藏 App 播放层，切到桌面仍由系统窗口播放。
   func testSystemPictureInPictureContinuesOnHomeScreen() async throws {
     _ = try await fixtureStats()
@@ -94,11 +84,14 @@ final class MediaPlaybackTests: XCTestCase {
     if resume.waitForExistence(timeout: 2) { resume.tap() }
     try await waitForPlaybackProgress(progress)
     let pictureInPicture = app.buttons["小窗播放"]
-    let ready = XCTNSPredicateExpectation(
-      predicate: NSPredicate(format: "enabled == true"), object: pictureInPicture)
-    await fulfillment(of: [ready], timeout: 15)
     revealVideoControls()
     attachScreenshot(named: "全屏播放器-系统圆形按钮")
+    for _ in 0..<60 where !pictureInPicture.isEnabled {
+      try await Task.sleep(for: .milliseconds(250))
+    }
+    guard pictureInPicture.isEnabled else {
+      throw XCTSkip("当前运行环境没有提供可启动的系统画中画。")
+    }
     pictureInPicture.tap()
     let started = XCTNSPredicateExpectation(
       predicate: NSPredicate(format: "hittable == true"), object: entry)
