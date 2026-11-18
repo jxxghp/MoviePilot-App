@@ -93,6 +93,8 @@ TEST_RUNNER_MOVIEPILOT_E2E_SERVICE_WAIT=1 xcodebuild test \
 
 原生媒体播放回归使用含双音轨的短视频、同名 SRT 字幕和 LRC 歌词，通过正式原生桥打开本地与 STRM 剧集以及音乐单曲：
 
+视频进度栏下只保留字幕与音轨按钮；画中画和倍速统一放在右上角播放菜单，避免全屏底栏重复入口。传输控制采用白色图标以匹配系统画中画控件。
+
 ```sh
 python3 -c 'from pathlib import Path; Path("/Volumes/DISK/TmpBuild/moviepilot-playback.zh-CN.srt").write_text("1\n00:00:00,000 --> 00:02:00,000\n字幕验收\n", encoding="utf-8")'
 python3 -c 'from pathlib import Path; Path("/Volumes/DISK/TmpBuild/moviepilot-playback.lrc").write_text("[00:00.00]开头歌词\n[00:02.00]副歌高亮\n", encoding="utf-8")'
