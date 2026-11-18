@@ -239,6 +239,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private let playButton = UIButton(type: .system)
   private let subtitleButton = UIButton(type: .system)
   private let audioButton = UIButton(type: .system)
+  private let trackOptionsPill = UIVisualEffectView(
+    effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
   private let positionSlider = UISlider()
   private weak var playbackMenuButton: UIButton?
   private var pictureInPictureAvailable = false
@@ -553,33 +555,34 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       subtitleButton.isHidden = true
       audioButton.isHidden = true
     }
-    let optionPill = UIVisualEffectView(
-      effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
-    optionPill.layer.cornerRadius = 22
-    optionPill.layer.cornerCurve = .continuous
-    optionPill.layer.borderWidth = 0.8
-    optionPill.layer.borderColor = UIColor.white.withAlphaComponent(0.16).cgColor
-    optionPill.clipsToBounds = true
-    optionPill.translatesAutoresizingMaskIntoConstraints = false
+    trackOptionsPill.accessibilityIdentifier = "playback-track-options"
+    trackOptionsPill.isHidden = subtitleButton.isHidden && audioButton.isHidden
+    trackOptionsPill.layer.cornerRadius = 22
+    trackOptionsPill.layer.cornerCurve = .continuous
+    trackOptionsPill.layer.borderWidth = 0.8
+    trackOptionsPill.layer.borderColor = UIColor.white.withAlphaComponent(0.16).cgColor
+    trackOptionsPill.clipsToBounds = true
+    trackOptionsPill.translatesAutoresizingMaskIntoConstraints = false
     let options = UIStackView(arrangedSubviews: [subtitleButton, audioButton])
     options.axis = .horizontal
     options.alignment = .center
     options.distribution = .fill
     options.spacing = 2
     options.translatesAutoresizingMaskIntoConstraints = false
-    optionPill.contentView.addSubview(options)
+    trackOptionsPill.contentView.addSubview(options)
     NSLayoutConstraint.activate([
-      options.leadingAnchor.constraint(equalTo: optionPill.contentView.leadingAnchor, constant: 4),
+      options.leadingAnchor.constraint(
+        equalTo: trackOptionsPill.contentView.leadingAnchor, constant: 4),
       options.trailingAnchor.constraint(
-        equalTo: optionPill.contentView.trailingAnchor, constant: -4),
-      options.topAnchor.constraint(equalTo: optionPill.contentView.topAnchor),
-      options.bottomAnchor.constraint(equalTo: optionPill.contentView.bottomAnchor),
-      optionPill.heightAnchor.constraint(equalToConstant: 44),
+        equalTo: trackOptionsPill.contentView.trailingAnchor, constant: -4),
+      options.topAnchor.constraint(equalTo: trackOptionsPill.contentView.topAnchor),
+      options.bottomAnchor.constraint(equalTo: trackOptionsPill.contentView.bottomAnchor),
+      trackOptionsPill.heightAnchor.constraint(equalToConstant: 44),
     ])
 
     let spacer = UIView()
     spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-    let footer = UIStackView(arrangedSubviews: [spacer, optionPill])
+    let footer = UIStackView(arrangedSubviews: [spacer, trackOptionsPill])
     footer.axis = .horizontal
     footer.alignment = .center
     footer.spacing = 8
@@ -1018,8 +1021,14 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     if player.isPlaying { loading.stopAnimating() }
     let subtitleTracks = player.textTracks
     let audioTracks = player.audioTracks
-    subtitleButton.isHidden = manifest.subtitles.isEmpty && subtitleTracks.isEmpty
-    audioButton.isHidden = audioTracks.count <= 1
+    if isAudioPlayback {
+      subtitleButton.isHidden = true
+      audioButton.isHidden = true
+    } else {
+      subtitleButton.isHidden = manifest.subtitles.isEmpty && subtitleTracks.isEmpty
+      audioButton.isHidden = audioTracks.count <= 1
+    }
+    trackOptionsPill.isHidden = subtitleButton.isHidden && audioButton.isHidden
     refreshNowPlayingInfo(current: current, duration: duration)
     if isAudioPlayback { refreshLyrics(currentMilliseconds: current) }
     offerResumeIfNeeded(duration: duration)
