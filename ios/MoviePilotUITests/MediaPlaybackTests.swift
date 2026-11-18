@@ -44,6 +44,17 @@ final class MediaPlaybackTests: XCTestCase {
     app.webViews.buttons["播放本地剧集"].tap()
     let slider = app.sliders["playback-progress"]
     XCTAssertTrue(slider.waitForExistence(timeout: 15), app.debugDescription)
+    XCTAssertFalse(app.buttons["小窗播放"].exists, "画中画入口只放在右上角菜单")
+    XCTAssertFalse(app.buttons["播放速度"].exists, "倍速入口只放在右上角菜单")
+    let menuButton = app.buttons["更多播放选项"]
+    menuButton.tap()
+    let pipMenuItem = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label == %@", "小窗播放")).firstMatch
+    let speedMenuItem = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label == %@", "播放速度")).firstMatch
+    XCTAssertTrue(pipMenuItem.waitForExistence(timeout: 5), app.debugDescription)
+    XCTAssertTrue(speedMenuItem.exists, app.debugDescription)
+    menuButton.tap()
     let restart = app.alerts.buttons["从头开始"]
     if restart.waitForExistence(timeout: 2) { restart.tap() }
     try await waitForPlaybackProgress(slider)
@@ -83,9 +94,13 @@ final class MediaPlaybackTests: XCTestCase {
     let resume = app.alerts.buttons["继续播放"]
     if resume.waitForExistence(timeout: 2) { resume.tap() }
     try await waitForPlaybackProgress(progress)
-    let pictureInPicture = app.buttons["小窗播放"]
+    let menuButton = app.buttons["更多播放选项"]
     revealVideoControls()
     attachScreenshot(named: "全屏播放器-系统圆形按钮")
+    menuButton.tap()
+    let pictureInPicture = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label == %@", "小窗播放")).firstMatch
+    XCTAssertTrue(pictureInPicture.waitForExistence(timeout: 5), app.debugDescription)
     for _ in 0..<60 where !pictureInPicture.isEnabled {
       try await Task.sleep(for: .milliseconds(250))
     }
