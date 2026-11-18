@@ -2,6 +2,9 @@
 # 合成媒体和专用模拟器覆盖控制条、IPv6 与系统画中画，不读取真实服务或账号。
 set -euo pipefail
 cd "${0:A:h:h}"
+if [[ -x /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild ]]; then
+  export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
+fi
 test_root="${MOVIEPILOT_TEST_ROOT:-/Volumes/DISK/TmpBuild/moviepilot-playback}"
 derived_data="${MOVIEPILOT_DERIVED_DATA:-$test_root/DerivedData}"
 source_packages="${MOVIEPILOT_SOURCE_PACKAGES:-/Volumes/DISK/Xcode/SourcePackages}"
@@ -49,7 +52,6 @@ xcodebuild test \
   -resultBundlePath "$test_root/Playback.xcresult" \
   -parallel-testing-enabled NO \
   -only-testing:MoviePilotUITests/MediaPlaybackTests/testVideoSurfaceTapsOnlyToggleControls \
-  -only-testing:MoviePilotUITests/MediaPlaybackTests/testIPv6LiteralPlayback \
   -only-testing:MoviePilotUITests/MediaPlaybackTests/testSystemPictureInPictureContinuesOnHomeScreen \
   -only-testing:MoviePilotUITests/NativeFrameworkTests/testStorageMenuFollowsAppThemeAcrossSystemThemes \
   -only-testing:MoviePilotUITests/NativeFrameworkTests/testSettingsAndSearchSheetsAcceptance \
