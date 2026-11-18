@@ -13,6 +13,11 @@ mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
 build_dir="$(mktemp -d "$output_dir/.ipa-build.XXXXXX")"
 trap 'rm -rf "$build_dir"' EXIT
+source_packages_dir="${CLONED_SOURCE_PACKAGES_DIR:-/Volumes/DISK/Xcode/SourcePackages}"
+if [[ ! -d "$source_packages_dir" ]]; then
+  source_packages_dir="$build_dir/SourcePackages"
+fi
+mkdir -p "$source_packages_dir"
 
 xcodebuild -version
 # 使用真机 SDK；只保留待重签的推送和共享组声明，不注入个人团队。
@@ -24,6 +29,7 @@ xcodebuild archive \
   -sdk iphoneos \
   -archivePath "$build_dir/MoviePilot.xcarchive" \
   -derivedDataPath "$build_dir/DerivedData" \
+  -clonedSourcePackagesDirPath "$source_packages_dir" \
   ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
   MARKETING_VERSION="$release_version" CURRENT_PROJECT_VERSION=1 \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \

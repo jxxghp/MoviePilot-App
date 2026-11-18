@@ -946,10 +946,11 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   /// 对齐系统画中画的圆形玻璃按钮；新系统使用原生玻璃，旧系统回退到磨砂材质。
   private func styleAsGlassButton(_ button: UIButton, diameter: CGFloat, pointSize: CGFloat) {
     button.translatesAutoresizingMaskIntoConstraints = false
+    button.tintColor = .label
     if #available(iOS 26.0, *) {
       var configuration = UIButton.Configuration.glass()
       configuration.cornerStyle = .capsule
-      configuration.baseForegroundColor = .white
+      configuration.baseForegroundColor = .label
       configuration.image = button.image(for: .normal)
       configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
         pointSize: pointSize, weight: .medium)
@@ -960,7 +961,6 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       ])
       return
     }
-    button.tintColor = .white
     button.backgroundColor = UIColor.black.withAlphaComponent(0.16)
     button.layer.cornerRadius = diameter / 2
     button.layer.cornerCurve = .continuous
