@@ -1,0 +1,17 @@
+{
+  "render_mode": "vuetify",
+  "conf": [
+    {
+      "component": "VBtn",
+      "props": {
+        "color": "primary",
+        "variant": "flat",
+        "block": true,
+        "prepend-icon": "mdi-download-box",
+        "onclick": "function(e) { if (!confirm('将从 acme.sh 官方仓库下载并安装到指定目录，已安装时执行升级。是否继续？')) return; window.MoviePilotAPI.post('plugin/CertManager/install', {}).then(function(r) { alert(r && r.message ? r.message : '安装完成') }).catch(function(err) { console.error(err); alert('安装失败，请查看日志') }) }"
+      },
+      "text": "一键安装 / 升级 acme.sh"
+    }
+  ],
+  "model": {}
+}

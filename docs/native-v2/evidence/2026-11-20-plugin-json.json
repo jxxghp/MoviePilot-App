@@ -1,0 +1,125 @@
+{
+  "created_at_utc": "2026-11-19T17:41:28.291446+00:00",
+  "branch": "v2",
+  "parent_commit": "548e18e1199aea01f5a15224ebd522925bc96c45",
+  "module": "MoviePilotPluginUI",
+  "scope": "Offline protocol/model/diagnostics only; not UI, actions, saving, plugin runtime or total Goal acceptance",
+  "tests": {
+    "plugin_swift_testing": 33,
+    "existing_core_swift_testing": 166,
+    "existing_session_swift_testing": 45,
+    "existing_api_swift_testing": 19,
+    "xctest": 4,
+    "python": 17,
+    "node": 3,
+    "skips_reported": 0
+  },
+  "ios16_compile": {
+    "triple": "arm64-apple-ios16.0-simulator",
+    "swift_version": "6",
+    "operation": "emit-module",
+    "exit_code": 0,
+    "artifact_sha256": "32e16d395f1d12b3990d4784627b36a4ebe7c066f7ee3aaed3f9fd41cd3c9b38",
+    "runtime_tested": false
+  },
+  "fixtures": {
+    "count": 7,
+    "git_revision": "5d473864ee9d3d036b28a124262f38f773a2a452",
+    "replay_byte_identical": true,
+    "plugin_code_executed": false
+  },
+  "logs": {
+    "swift": {
+      "file": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/plugin-json-evidence-20261120/plugin-json-final-tests-20261120.log",
+      "sha256": "f9cff446dfd0ca6bf9c61e715496b41f134c0059242067a0288b4e7be4604ffc"
+    },
+    "python": {
+      "file": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/plugin-json-evidence-20261120/plugin-json-python-tests-20261120.log",
+      "sha256": "7a983d47b2a431f7ae49bed35b62e68c339072a4b44e54dbd35f04296e713e32"
+    },
+    "node": {
+      "file": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/plugin-json-evidence-20261120/plugin-json-node-tests-20261120.log",
+      "sha256": "84cf14c3a7dcbdc71ca52f8a04929b5ee45f532273a4b6ebc397e9d25f9a9c25"
+    },
+    "ios16": {
+      "file": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/plugin-json-evidence-20261120/plugin-json-ios16-20261120.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "contract_sources": {
+    "MoviePilot-Frontend/src/components/render/FormRender.vue": {
+      "commit": "db17d9cb349e1024e3f9190c0e888704cb62c8ab",
+      "sha256": "8a2641a7cb06242d6a43a80939f9bccb2a00948454f62347ab0c6cf990a41ccc"
+    },
+    "MoviePilot-Frontend/src/components/render/PageRender.vue": {
+      "commit": "db17d9cb349e1024e3f9190c0e888704cb62c8ab",
+      "sha256": "1c185e7ea49e777d90195aff6bf749edf271ba16a267d9e6352d839d115fa1f6"
+    },
+    "MoviePilot-Frontend/src/components/render/DashboardRender.vue": {
+      "commit": "db17d9cb349e1024e3f9190c0e888704cb62c8ab",
+      "sha256": "f716caf56bf2c3a32ac3f01a6d162dc3c45517ac9296be176838bd260aa785c3"
+    },
+    "MoviePilot-Frontend/src/utils/federationLoader.ts": {
+      "commit": "db17d9cb349e1024e3f9190c0e888704cb62c8ab",
+      "sha256": "cc7bd33ad6193c7acfad27936ccc8a8bfa5fdc763e4c82acc172d2cf9ba1faac"
+    },
+    "MoviePilot-Frontend/src/pages/plugin/app.vue": {
+      "commit": "db17d9cb349e1024e3f9190c0e888704cb62c8ab",
+      "sha256": "44f819c64d536cb39fad9e287501544e7e8011a8beae8b22adc6bff40e4cc985"
+    },
+    "MoviePilot/app/api/endpoints/plugin.py": {
+      "commit": "63d09b1c7299973a7b458ba897aa109085ca6948",
+      "sha256": "5c7a73ed1c4597a6f752ce0e80488786401e9fc2cda97f9f349cf9f8113188da"
+    },
+    "MoviePilot/app/schemas/plugin.py": {
+      "commit": "63d09b1c7299973a7b458ba897aa109085ca6948",
+      "sha256": "f96143bd4fcb48676e20598c313b1178dd2e9079f99680bff7fea4ec91cd1a30"
+    },
+    "MoviePilot/app/sdk/plugin/base.py": {
+      "commit": "63d09b1c7299973a7b458ba897aa109085ca6948",
+      "sha256": "0eeddf62cf5452cedccb0cff7fa8e5ae2042148d0da0ff577a58c5e83d08f830"
+    },
+    "MoviePilot/app/runtime/extensions/plugin/projection.py": {
+      "commit": "63d09b1c7299973a7b458ba897aa109085ca6948",
+      "sha256": "a251b3a815466f82bdc5ac1cb3f7139b834b09332518590a3417755b398519f8"
+    }
+  },
+  "source_sha256": {
+    "Package.swift": "3568f5d43cbb2c6e6d26ecc765d07be399741fb1a246ed90d41fcd0efafc8ecd",
+    "Sources/MoviePilotPluginUI/PluginComponentCatalog.swift": "5baa8bce2e2e8c21baedb31d3edf298cc605676a39043305378679d6a0ca4cca",
+    "Sources/MoviePilotPluginUI/PluginJSON.swift": "c647ff0baee61dafd786e2efd122128a5a564adfbf326c47fa955464f82b2676",
+    "Sources/MoviePilotPluginUI/PluginNavigation.swift": "389ccff4f400145356640e74b98bfd6ec022c72b76b59ed922e390f9efd2e52d",
+    "Sources/MoviePilotPluginUI/PluginUIDecoder.swift": "f5a79ebbf1cd8730aed20509b177b3b5bdbd606d57ecf6551ad9a1a9ce9b8203",
+    "Sources/MoviePilotPluginUI/PluginUIModel.swift": "a77d26972f057338fb6a7147715f39bdf5fe85c23ea235cbe25bd7e86c2a1bbc",
+    "Tests/MoviePilotPluginUITests/Fixtures/animeupscale-table.json": "20157899f39f465c7764152b089c7c2de0531fcbcfe2c2d3ed900ec4f391e028",
+    "Tests/MoviePilotPluginUITests/Fixtures/autosignin-form.json": "291448f9f781313d60a26b99cfb68d8497056777cf448f43d4639f3ec53391fc",
+    "Tests/MoviePilotPluginUITests/Fixtures/autosports-editor.json": "e92bdf3f71e2e4f01d3712b8018efd1220cba9d3796209df17d8a221cb5f0dfb",
+    "Tests/MoviePilotPluginUITests/Fixtures/autosubtitle-condition.json": "875c2f5d7803de103967075ab73f9ceec24b8bc7606a314984bd49e89e82c915",
+    "Tests/MoviePilotPluginUITests/Fixtures/certmanager-script.json": "71479a7904715d5b11bccd11c8bdcdb20179177067f330f2ae6338c84d54c4c8",
+    "Tests/MoviePilotPluginUITests/Fixtures/chatgpt-action.json": "9e40a766f39ff4050952d1d5b348c369dcac89a4b2732e89fe054b5b476664c3",
+    "Tests/MoviePilotPluginUITests/Fixtures/provenance.json": "dd552d7722c43725de0d7b0480a15c2047f1a62028fc6aee056419f3513354c4",
+    "Tests/MoviePilotPluginUITests/Fixtures/seedstats-chart.json": "c2eaeedd9f38c33af0b68b71df5c17ecb7b57c62385390d5a037c5a1d35fdd25",
+    "Tests/MoviePilotPluginUITests/PluginJSONTests.swift": "fed71595636edabefb179775406fc0fba13cd1457bdc98d66ed7071e1d82e7e0",
+    "Tests/MoviePilotPluginUITests/PluginNavigationTests.swift": "d64fa70ccd3fc60d6d631062bd28fa5423b276696f55b3a3e6db5d3d37b341ff",
+    "Tests/MoviePilotPluginUITests/PluginUIDecoderTests.swift": "fa07e4e344a4060cae5adbb2c0eed1e4eb2c1e0e5743bd34527477efa7bb7d89",
+    "scripts/native-v2-plugin-fixtures.py": "1c8c6f2aebae185478e9f272d69b8793415a6193b920dbe4463ac1602d1aa224",
+    "scripts/tests/test_native_v2_plugin_fixtures.py": "9bd9b87ac9230297fd5b0e9090595a638ff3600452b6a57ef33e8399891fbc3a"
+  },
+  "not_validated": [
+    "Native renderer",
+    "Expression evaluation",
+    "Saving or API event execution",
+    "Actual plugin runtime and real backend",
+    "Web compatibility host",
+    "iOS 16 runtime and physical devices",
+    "Generic JSON AppPage protocol"
+  ],
+  "commands": {
+    "swift": "DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR=/Volumes/DISK/TmpBuild/moviepilot-ios-v2/tmp CLANG_MODULE_CACHE_PATH=/Volumes/DISK/TmpBuild/moviepilot-ios-v2/clang zsh scripts/test-core.sh --scratch-path /Volumes/DISK/TmpBuild/moviepilot-ios-v2/swiftpm",
+    "python": "/Users/jxxghp/MPProjects/MoviePilot/.venv/bin/python -m unittest discover -s scripts/tests -p test_*.py",
+    "node": "node --test scripts/tests/language-bootstrap.test.mjs",
+    "ios16": "DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR=/Volumes/DISK/TmpBuild/moviepilot-ios-v2/tmp xcrun swiftc -target arm64-apple-ios16.0-simulator -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk -swift-version 6 -parse-as-library -emit-module -module-name MoviePilotPluginUI -emit-module-path /Volumes/DISK/TmpBuild/moviepilot-ios-v2/plugin-json-ios16/MoviePilotPluginUI.swiftmodule -module-cache-path /Volumes/DISK/TmpBuild/moviepilot-ios-v2/clang Sources/MoviePilotPluginUI/*.swift",
+    "format": "xcrun --toolchain swift swift-format lint --strict Package.swift Sources/MoviePilotPluginUI/*.swift Tests/MoviePilotPluginUITests/*.swift",
+    "fixture_replay": "/Users/jxxghp/MPProjects/MoviePilot/.venv/bin/python scripts/native-v2-plugin-fixtures.py --plugins-repo /Users/jxxghp/MPProjects/MoviePilot-Plugins --ref 5d473864ee9d3d036b28a124262f38f773a2a452 --output <isolated-external-directory>"
+  }
+}

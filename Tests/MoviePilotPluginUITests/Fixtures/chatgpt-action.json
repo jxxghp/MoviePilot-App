@@ -1,0 +1,21 @@
+{
+  "render_mode": "vuetify",
+  "page": [
+    {
+      "component": "VBtn",
+      "props": {
+        "color": "primary",
+        "block": true,
+        "variant": "tonal",
+        "prepend-icon": "mdi-refresh"
+      },
+      "text": "刷新统计",
+      "events": {
+        "click": {
+          "api": "plugin/ChatGPT/usage_stats?apikey=fixture-only-not-a-real-token",
+          "method": "get"
+        }
+      }
+    }
+  ]
+}
