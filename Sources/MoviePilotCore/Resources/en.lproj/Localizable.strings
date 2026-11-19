@@ -391,3 +391,6 @@
 "范围" = "Range";
 "月底" = "Last day";
 "自定义" = "Custom";
+
+/* v2 插件数字星期方言 */
+"数字星期由插件解释；改选时使用星期名称。" = "Numeric weekdays follow the plugin’s rules. Choose weekday names to change them.";

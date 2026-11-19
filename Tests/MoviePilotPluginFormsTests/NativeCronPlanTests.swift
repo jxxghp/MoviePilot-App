@@ -6,6 +6,26 @@ import Testing
 
 /// Cron 支持必须落到同一个实际 UI/保存计划，不能只增加组件分类。
 @Suite @MainActor struct NativeCronPlanTests {
+  /// 完整来源 Cron 节点明确采用 Sunday=0/7，原生计划仍保留合成模型原文而不强加方言校验。
+  @Test func preservesSourceNumericWeekdayNode() throws {
+    let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .appendingPathComponent("MoviePilotPluginUITests/Fixtures/libraryintegrity-cron-node.json")
+    let document = try PluginUIDecoder.decode(Data(contentsOf: url), surface: .form)
+    let draft = try PluginFormDraft(document: document)
+    let before = try draft.encodedModel()
+    let plan = try NativeFormPlan(document: document, draft: draft)
+    #expect(plan.issues.isEmpty)
+    guard case .cron(let field) = plan.groups.first?.elements.first?.control else {
+      Issue.record("缺少来源 Cron 控件")
+      return
+    }
+    #expect(field.text == " 0 3 * * 0  ")
+    #expect(field.hint.contains("0 和 7 都表示周日"))
+    #expect(NativeCronExpression(field.text).hasAmbiguousWeekday)
+    #expect(try draft.encodedModel() == before)
+  }
+
   /// 四个完整官方 get_form 在不删除字段/提示/其它控件的情况下均进入真实原生计划。
   @Test(arguments: ["libraryscraper", "doubanrank", "rsssubscribe", "autoclean"])
   func rendersCompleteCommittedCronForms(_ name: String) throws {

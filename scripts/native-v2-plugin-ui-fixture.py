@@ -55,8 +55,11 @@ def documents():
             for key, title in [("cron", "插件间隔"), ("empty", "空值计划"), ("missing", "可选计划")]],
         "model": {"enabled": False, "cron": 6, "empty": None, "future": {"integer": 9007199254740993}},
     }
+    weekday = json.loads(FIXTURE_PATH.with_name("libraryintegrity-cron-node.json").read_text())
+    weekday["model"]["future"] = {"integer": 9007199254740993, "hidden": "fixture-only-hidden"}
     return {PHYSICAL_ID: source, "UnsupportedFixture": unsupported, "NativeControlsFixture": controls,
-            "LibraryScraper_copy": cron, "CronCompatibilityFixture": compatibility}
+            "LibraryScraper_copy": cron, "CronCompatibilityFixture": compatibility,
+            "LibraryIntegrityWeekdayFixture": weekday}
 
 
 class PluginFixture(BASE.NativeFixture):
@@ -131,7 +134,9 @@ class PluginHandler(BASE.NativeHandler):
                  "plugin_name": "媒体库刮削", "plugin_desc": "官方完整 Cron 表单（合成服务）", "plugin_version": "fixture"},
                 {"id": "CronCompatibilityFixture", "source_plugin_id": "CronCompatibilityFixture", "installed": True,
                  "plugin_name": "计划兼容验收", "plugin_desc": "合成间隔、空值与可选字段", "plugin_version": "fixture"},
-            ], {"X-Total-Count": "5"})
+                {"id": "LibraryIntegrityWeekdayFixture", "source_plugin_id": "LibraryIntegrity", "installed": True,
+                 "plugin_name": "数字星期源码节点", "plugin_desc": "真实 Cron 节点与合成模型，非完整插件表单", "plugin_version": "fixture"},
+            ], {"X-Total-Count": "6"})
         prefix = "api/v1/plugin/form/"
         if self.command == "GET" and endpoint.startswith(prefix) and not url.query:
             plugin = endpoint[len(prefix):]

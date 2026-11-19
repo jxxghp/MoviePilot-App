@@ -1,0 +1,85 @@
+{
+  "leaf": "P2.2b.2a.1",
+  "base": "14542f45bc202566d3397993711318ecf6f17713",
+  "branch": "v2",
+  "date": "2026-11-20",
+  "host": {
+    "swiftTesting": 334,
+    "xctest": 4,
+    "forms": 60,
+    "python": 21
+  },
+  "red": {
+    "tests": 1,
+    "parameterCases": 9,
+    "issues": 14
+  },
+  "batches": {
+    "phone-initial": {
+      "result": "Failed",
+      "passedTests": 0,
+      "failedTests": 2,
+      "skippedTests": 0
+    },
+    "phone-2": {
+      "result": "Passed",
+      "passedTests": 2,
+      "failedTests": 0,
+      "skippedTests": 0
+    },
+    "ipad-baseline": {
+      "result": "Passed",
+      "passedTests": 2,
+      "failedTests": 0,
+      "skippedTests": 0
+    }
+  },
+  "sourceRefs": {
+    "App": "682e9532c384af457a275ef5dfe66cbe0672a5cb",
+    "Frontend": "57ed574ab1e8ebce90701ef50d7a9db5f85742a3",
+    "Backend": "50d41664ee9266880174556592e6f0db972cbe8d",
+    "Plugins": "be185c5e180cd4752d46384f66ef44f522a9bcb6"
+  },
+  "archive": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/cron-dialect-evidence-20261120",
+  "binary": {
+    "sha256": "1c4751a58cf3ca415ef3c5e7cda3661879da656eef80a3e4773d51173eda5cfb",
+    "build": "/Users/jxxghp/Library/Caches/MoviePilotSimulator/native-v2-cron-dialects-20261120/DerivedData/Build/Products/Debug-iphonesimulator/MoviePilot.app/MoviePilot:\nLoad command 11\n      cmd LC_BUILD_VERSION\n  cmdsize 32\n platform IOSSIMULATOR\n    minos 16.0\n      sdk 27.2\n   ntools 1\n     tool LD\n  version 27106.1\n"
+  },
+  "productSourceSHA256": {
+    "Sources/MoviePilotPluginForms/NativeCron.swift": "da6edc906943b27b5007b7f6ec7789d4aa2d40068206cacde666b4bbfecf3c12",
+    "ios/MoviePilot/NativeV2/NativePluginCronEditor.swift": "dfa8257636e9495d1214a5ef4d3be597b5531e84b090751ab6287cbe243cb1bc",
+    "Tests/MoviePilotPluginFormsTests/NativeCronTests.swift": "38f315ddc9342400dde78a2dd2698c9b08cb379a6e911d19612e835f0d5b26e3",
+    "Tests/MoviePilotPluginFormsTests/NativeCronPlanTests.swift": "c03d40a6cd07fbfbf8546531d4866b2ddb0639b5ab854c52bd6ae832f69fb22c"
+  },
+  "finalUIHelper": {
+    "ios/MoviePilotUITests/NativeV2EntryTests.swift": "1da544f08ecc63f2ae9d3ca9e86d389faa09b498d463dd91f600436ae529d782"
+  },
+  "imagesSHA256": {
+    "phone-2/rex-weekday-dialect-custom-largest.png": "ac7679f0be1e26567f035f5eec0d68e886de03fa57d6b89cd6c0e8851f5c4d81",
+    "phone-2/rex-weekday-dialect-expression-normal.png": "32ccc8ece9815b71590946ed090658bccba36db52030046ede5abe14d144b786",
+    "phone-2/rex-weekday-dialect-choice-normal.png": "ae687316962055f471e7a0f411907f80ff550064413b04e9a40f6c44e876f3a0",
+    "phone-2/rex-weekday-dialect-choice-largest.png": "f71ea7752b117b0de4d41ca19e96efe3e623d980c34814cbef7385b2045589fc",
+    "phone-2/rex-weekday-dialect-custom-normal.png": "566a258afc2372c8965f272942580d218d0abcc42d59090ce44eb5a88ded1bf3",
+    "phone-2/rex-weekday-dialect-expression-largest.png": "7cbcf3680a363cbece9b1755778951beef68b5fce1bc4b6bd7b72af061001ea9",
+    "ipad-baseline/rex-weekday-dialect-custom-largest.png": "09fe5ccb17e22ed17030916b66bb6c8d7b10191ff280aa79b8d51f34d4a5eef9",
+    "ipad-baseline/rex-cron-source-form.png": "9aa132f8a6559d0004441e708236e8076169c2e542e391203771a69abdae4ca4",
+    "ipad-baseline/rex-weekday-dialect-choice-largest.png": "49130a49ded9048f7b9218a2b38e103b22bda2801b913b98f2ef717be35b758f",
+    "ipad-baseline/rex-weekday-dialect-expression-largest.png": "459caa7bf1b48e70b18b19765bfae81055e5d854c6d4513b777a8efb1aa0628b"
+  },
+  "visualStatus": "User rejected gray card surfaces; shared-material correction next in P1.4b. Functional result is not visual approval.",
+  "publication": "local only",
+  "goal": "active",
+  "defaultEntry": "legacy 1.x; DEBUG --native-v2",
+  "temporaryCache": "Reused for immediate glass-clarity validation; clean after that work, not yet removed.",
+  "knownWarnings": [
+    "Existing Invalid frame dimension; not resolved/suppressed",
+    "Xcode diagnostic collector cannot find simctl"
+  ],
+  "notVerified": [
+    "Production plugin execution",
+    "iOS 16 runtime",
+    "Physical device",
+    "Full VoiceOver/performance",
+    "Complete plugin ecology and main WebView removal"
+  ]
+}
