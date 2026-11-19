@@ -4,6 +4,7 @@ set -euo pipefail
 cd "${0:A:h:h}"
 if [[ -x /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild ]]; then
   export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
+  export PATH="$DEVELOPER_DIR/usr/bin:$PATH"
 fi
 test_root="${MOVIEPILOT_TEST_ROOT:-/Volumes/DISK/TmpBuild/moviepilot-playback}"
 derived_data="${MOVIEPILOT_DERIVED_DATA:-$test_root/DerivedData}"
@@ -31,10 +32,18 @@ fixture_pids=()
 trap 'for fixture_pid in "${fixture_pids[@]}"; do kill "$fixture_pid" 2>/dev/null || true; done; xcrun simctl shutdown "$playback_simulator" 2>/dev/null || true; xcrun simctl delete "$playback_simulator"' EXIT
 python3 scripts/media-playback-fixture.py --port 5317 --media "$test_root/fixture.mp4" --poster "$test_root/poster.jpg" > "$test_root/ipv4.log" 2>&1 &
 fixture_pids+=($!)
-mkdir -p "$test_root/frontend"
-curl -fsSL https://github.com/jxxghp/MoviePilot-Frontend/releases/download/v3.2.8/dist.zip -o "$test_root/frontend.zip"
-unzip -q "$test_root/frontend.zip" -d "$test_root/frontend"
-python3 scripts/settings-search-fixture.py --frontend "$test_root/frontend/dist" \
+frontend_stage="$test_root/frontend-$(uuidgen)"
+if [[ -n "${MOVIEPILOT_FRONTEND_DIST:-}" ]]; then
+  frontend_dist="$frontend_stage/dist"
+  mkdir -p "$frontend_dist"
+  ditto "$MOVIEPILOT_FRONTEND_DIST" "$frontend_dist"
+else
+  mkdir -p "$frontend_stage"
+  curl -fsSL https://github.com/jxxghp/MoviePilot-Frontend/releases/download/v3.2.9/dist.zip -o "$frontend_stage/frontend.zip"
+  unzip -q "$frontend_stage/frontend.zip" -d "$frontend_stage"
+  frontend_dist="$frontend_stage/dist"
+fi
+python3 scripts/settings-search-fixture.py --frontend "$frontend_dist" \
   --poster "$test_root/poster.jpg" --appearance-simulator "$playback_simulator" > "$test_root/settings.log" 2>&1 &
 fixture_pids+=($!)
 export TEST_RUNNER_MOVIEPILOT_E2E_SERVER=http://127.0.0.1:5319
@@ -53,6 +62,7 @@ xcodebuild test \
   -parallel-testing-enabled NO \
   -only-testing:MoviePilotUITests/MediaPlaybackTests/testVideoSurfaceTapsOnlyToggleControls \
   -only-testing:MoviePilotUITests/MediaPlaybackTests/testTrackOptionsPillHidesWhenNoTrackActions \
+  -only-testing:MoviePilotUITests/MediaPlaybackTests/testDashboardMediaCardsPlayLocally \
   -only-testing:MoviePilotUITests/MediaPlaybackTests/testSystemPictureInPictureContinuesOnHomeScreen \
   -only-testing:MoviePilotUITests/NativeFrameworkTests/testStorageMenuFollowsAppThemeAcrossSystemThemes \
   -only-testing:MoviePilotUITests/NativeFrameworkTests/testSettingsAndSearchSheetsAcceptance \

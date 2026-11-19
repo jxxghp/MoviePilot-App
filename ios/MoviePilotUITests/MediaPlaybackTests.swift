@@ -72,6 +72,42 @@ final class MediaPlaybackTests: XCTestCase {
     app.buttons["关闭播放器"].tap()
   }
 
+  /// 仪表板继续观看与最近入库卡片显示原生菜单，并从所属媒体服务器切入本地播放器。
+  func testDashboardMediaCardsPlayLocally() async throws {
+    _ = try await fixtureStats()
+    continueAfterFailure = false
+    app = launch()
+    try await authenticate()
+    let dashboard = app.webViews.links["产品仪表板"]
+    XCTAssertTrue(dashboard.waitForExistence(timeout: 10), app.debugDescription)
+    dashboard.tap()
+    for (index, titleText) in ["继续观看演示卡片", "最近入库演示海报"].enumerated() {
+      let title = app.webViews.staticTexts[titleText]
+      XCTAssertTrue(title.waitForExistence(timeout: 30), app.debugDescription)
+      if titleText == "继续观看演示卡片" {
+        title.press(forDuration: 1)
+      } else {
+        // PosterCard keeps its old hover-only title layer; its accessible card action opens the same native menu.
+        let accessibleMenu = app.webViews.buttons["\(titleText)，操作菜单"]
+        XCTAssertTrue(accessibleMenu.waitForExistence(timeout: 10), app.debugDescription)
+        accessibleMenu.tap()
+      }
+
+      let play = app.buttons["播放"]
+      XCTAssertTrue(play.waitForExistence(timeout: 10), app.debugDescription)
+      XCTAssertTrue(app.buttons["在 Emby 中打开"].exists, app.debugDescription)
+      play.tap()
+
+      let progress = app.sliders["playback-progress"]
+      XCTAssertTrue(progress.waitForExistence(timeout: 20), app.debugDescription)
+      try await waitForPlaybackProgress(progress)
+      try await waitForCounter("dashboard_range_requests", minimum: index + 1)
+      attachScreenshot(named: "仪表板媒体卡片\(index + 1)长按本地播放")
+      app.buttons["关闭播放器"].tap()
+      XCTAssertTrue(progress.waitForNonExistence(timeout: 10))
+    }
+  }
+
   /// 控制条自动隐藏后反复点击画面只切换可见性，播放进度应持续增长。
   func testVideoSurfaceTapsOnlyToggleControls() async throws {
     _ = try await fixtureStats()

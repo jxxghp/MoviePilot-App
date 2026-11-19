@@ -33,6 +33,7 @@ class PlaybackServer(ThreadingHTTPServer):
         self.lyrics = self.media.with_name(f"{self.media.stem}.lrc")
         self.counts = {
             "local_range_requests": 0,
+            "dashboard_range_requests": 0,
             "strm_range_requests": 0,
             "audio_range_requests": 0,
             "upstream_range_requests": 0,
@@ -128,7 +129,15 @@ class PlaybackHandler(BaseHTTPRequestHandler):
             self.reply(200, {"success": True, "message": "", "data": []})
             return
         if path == "/api/v1/system/global":
-            self.reply(200, {"success": True, "message": "", "data": {"APP_VERSION": "fixture", "WALLPAPER": ""}})
+            self.reply(200, {"success": True, "message": "", "data": {
+                "APP_VERSION": "fixture", "WALLPAPER": "", "TMDB_IMAGE_DOMAIN": "image.tmdb.org",
+                "GLOBAL_IMAGE_CACHE": False,
+            }})
+            return
+        if path.startswith("/api/v1/user/config/DashboardGridLayout"):
+            self.reply(200, {"success": True, "message": "", "data": {
+                "value": {"items": {}, "enabled": {"playing": True, "latest": True}},
+            }})
             return
         if path == "/api/v1/system/module-catalog":
             self.reply(200, {"success": True, "message": "", "data": {"modules": []}})
@@ -138,6 +147,21 @@ class PlaybackHandler(BaseHTTPRequestHandler):
                 "id": 1, "name": "playback-fixture", "is_superuser": True,
                 "level": 1, "permissions": {},
             }})
+            return
+        if path == "/api/v1/mediaserver/clients":
+            self.reply(200, {"success": True, "message": "", "data": [
+                {"name": "Emby-客厅", "type": "emby"},
+            ]})
+            return
+        if path == "/api/v1/mediaserver/latest":
+            self.reply(200, {"success": True, "message": "", "data": [
+                self.dashboard_item("dashboard-latest-1", "最近入库演示海报"),
+            ]})
+            return
+        if path == "/api/v1/mediaserver/playing":
+            self.reply(200, {"success": True, "message": "", "data": [
+                self.dashboard_item("dashboard-playing-1", "继续观看演示卡片", percent=35),
+            ]})
             return
         if path == "/api/v1/mediaserver/stream-info":
             self.stream_info(parse_qs(parsed.query))
@@ -173,6 +197,25 @@ class PlaybackHandler(BaseHTTPRequestHandler):
             self.proxy_frontend()
             return
         self.send_page()
+
+    def dashboard_item(self, item_id: str, title: str, percent: int | None = None) -> dict[str, object]:
+        """Provide a bounded media-server item for local dashboard card menu acceptance."""
+        item: dict[str, object] = {
+            "id": item_id,
+            "item_id": item_id,
+            "server": "Emby-客厅",
+            "server_id": "fixture-server",
+            "server_type": "emby",
+            "title": title,
+            "subtitle": "本地 iOS 播放验收",
+            "year": 2026,
+            "type": "电影",
+            "image": f"{self.server.public_base}/api/v1/system/img/0",
+            "link": f"https://emby.example/web/index.html#!/item?id={item_id}",
+        }
+        if percent is not None:
+            item["percent"] = percent
+        return item
 
     def do_POST(self) -> None:
         """只接受固定合成账号的密码表单并签发测试令牌。"""
@@ -396,6 +439,7 @@ class PlaybackHandler(BaseHTTPRequestHandler):
 <p><a href="/product/#/music/detail?media_source=musicbrainz&media_id=recording-fixture">产品音乐详情</a></p>
 <p><a href="/product/#/filemanager">产品文件管理</a></p>
 <p><a href="/product/#/history">产品整理历史</a></p>
+<p><a href="/product/#/dashboard">产品仪表板</a></p>
 <script>
 (() => {
   const api = window.MoviePilotNative;
@@ -440,7 +484,7 @@ class PlaybackHandler(BaseHTTPRequestHandler):
   document.querySelector('#strm').addEventListener('click', () => play('episode-strm-1', '测试剧集 S01E01'));
   document.querySelector('#audio').addEventListener('click', () => play('audio-track-1', '测试音乐歌曲'));
   document.querySelector('#audio-second').addEventListener('click', () => play('audio-track-2', '测试音乐歌曲二'));
-  post('web.ready', {majors:[1], capabilities:['navigation.v1','actions.v1','layout.v1','menu.v1','notifications.v1','playback.v1']});
+  post('web.ready', {majors:[1], capabilities:['navigation.v1','actions.v1','layout.v1','menu.v1','notifications.v1','playback.v1','card-menus.v1']});
 })();
 </script></body></html>""".encode()
         self.send_response(200)
@@ -454,7 +498,8 @@ class PlaybackHandler(BaseHTTPRequestHandler):
         """要求固定访问令牌，并返回受控剧集或音乐条目的媒体清单。"""
         item_id = query.get("itemid", [""])[0]
         allowed_ids = {
-            "episode-local-1", "episode-strm-1", "audio-track-1", "audio-track-2", "audio-track-3", "series-search-1",
+            "episode-local-1", "episode-strm-1", "audio-track-1", "audio-track-2", "audio-track-3",
+            "series-search-1", "dashboard-latest-1", "dashboard-playing-1",
             "file-video-1", "file-audio-1",
         }
         if item_id not in allowed_ids:
@@ -533,8 +578,11 @@ class PlaybackHandler(BaseHTTPRequestHandler):
         if "resource_token=fixture-stream-only" not in self.headers.get("Cookie", ""):
             self.reply(401, {})
             return
-        if item_id in {"episode-local-1", "series-search-1", "file-video-1"}:
-            self._count_range("local_range_requests")
+        if item_id in {
+            "episode-local-1", "series-search-1", "file-video-1", "dashboard-latest-1", "dashboard-playing-1",
+        }:
+            counter = "dashboard_range_requests" if item_id.startswith("dashboard-") else "local_range_requests"
+            self._count_range(counter)
             self.send_file(self.server.media, include_body=True)
             return
         if item_id.startswith("audio-track-") or item_id == "file-audio-1":
