@@ -58,6 +58,7 @@ struct NativeAuthenticationTests {
       : NativeSessionTestData.current
     NativeHTTPProtocol.state.prepare(body: data)
     let identity = try await NativeSessionTestData.client().restore(accessToken: token)
+    #expect(identity.accessToken == token)
     #expect(identity.user.level == 2 && identity.user.isSuperuser == false)
     #expect(!identity.user.permissions.manage)
     #expect(

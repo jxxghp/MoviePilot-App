@@ -1,9 +1,10 @@
 import Foundation
+import MoviePilotSession
 import Security
 
 /// 每个实例仅在本机 Keychain 保存已签发令牌；可选密码使用独立存储，OTP 不持久化。
 @MainActor
-final class TokenStore {
+final class TokenStore: SessionTokenStoring {
   private let service = "org.moviepilot.authentication.v1"
 
   /// 读取指定实例令牌；设备锁定或条目不存在时回到可操作的登录页。
