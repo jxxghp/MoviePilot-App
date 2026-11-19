@@ -472,6 +472,7 @@ final class MediaPlaybackTests: XCTestCase {
     let password = app.secureTextFields["密码"]
     replaceText(password, with: "fixture-only")
     password.typeText("\n")
+    XCTAssertTrue(readyElement.waitForExistence(timeout: 30), app.debugDescription)
   }
 
   /// 控制层淡出后用一次画面点击恢复，不用尚未启用的进度滑块判断控制层是否可见。
