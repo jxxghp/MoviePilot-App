@@ -1,0 +1,47 @@
+{
+  "rex-plugin-form-conditional-controls": {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "deviceName": "MoviePilot Rex v2 iPad",
+    "exportedFileName": "517CF13C-3ABC-4003-9753-56282C1073FF.png",
+    "isAssociatedWithFailure": false,
+    "suggestedHumanReadableName": "rex-plugin-form-conditional-controls_0_4C936CD6-1F91-403D-8C19-88C52B149FCB.png",
+    "timestamp": 1795122515.402
+  },
+  "rex-plugin-form-multiple-selection": {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "deviceName": "MoviePilot Rex v2 iPad",
+    "exportedFileName": "4AA0B870-CD1D-408A-9BB5-DB52C5DC47B0.png",
+    "isAssociatedWithFailure": false,
+    "suggestedHumanReadableName": "rex-plugin-form-multiple-selection_0_185C2BE8-7108-4F6F-B25B-2159E58E0ECA.png",
+    "timestamp": 1795122496.627
+  },
+  "rex-plugin-installed-list": {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "deviceName": "MoviePilot Rex v2 iPad",
+    "exportedFileName": "FEBD90F1-4D25-4136-99E0-7B7C2188F24B.png",
+    "isAssociatedWithFailure": false,
+    "suggestedHumanReadableName": "rex-plugin-installed-list_0_D9400231-8C67-4EC9-8242-608311686D77.png",
+    "timestamp": 1795122550.459
+  },
+  "rex-plugin-form-landscape-largest": {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "deviceName": "MoviePilot Rex v2 iPad",
+    "exportedFileName": "B406674A-4126-45F5-8ACC-B318F1622AF1.png",
+    "isAssociatedWithFailure": false,
+    "suggestedHumanReadableName": "rex-plugin-form-landscape-largest_0_FFA6128A-4A2F-4FD4-9758-1DA8531E348A.png",
+    "timestamp": 1795122567.213
+  },
+  "rex-plugin-form-landscape-largest-selection": {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "deviceName": "MoviePilot Rex v2 iPad",
+    "exportedFileName": "78B9226E-8882-455F-BD63-4DED9E19B33D.png",
+    "isAssociatedWithFailure": false,
+    "suggestedHumanReadableName": "rex-plugin-form-landscape-largest-selection_0_45A9CD99-A4FF-4C1B-B508-B02EF58B7506.png",
+    "timestamp": 1795122558.971
+  }
+}

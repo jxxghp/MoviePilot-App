@@ -15,6 +15,8 @@ struct NativeV2RootView: View {
   @State private var pendingForget: SavedInstance?
   @State private var showsAPIKey = false
   @State private var showsPassword = false
+  @State private var showsPlugins = false
+  @State private var pluginScope: NativeSessionScope?
   @FocusState private var focused: Field?
   @Environment(\.scenePhase) private var scenePhase
 
@@ -78,6 +80,11 @@ struct NativeV2RootView: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar { toolbar }
+      .navigationDestination(isPresented: $showsPlugins) {
+        if let session = manager.currentSession, session.scope == pluginScope {
+          NativePluginCatalogView(session: session)
+        }
+      }
       .tint(.white)
       .alert(
         L10n.text("删除服务？"),
@@ -96,7 +103,16 @@ struct NativeV2RootView: View {
     }
     .environment(\.locale, Locale(identifier: model.language.rawValue))
     .preferredColorScheme(.dark)
-    .onChange(of: manager.state) { model.received($0) }
+    .onChange(of: manager.state) { state in
+      model.received(state)
+      if case .authenticated(let snapshot) = state,
+        snapshot.scope == pluginScope, snapshot.user.isSuperuser
+      {
+        return
+      }
+      showsPlugins = false
+      pluginScope = nil
+    }
     .onChange(of: model.selected?.id) { _ in concealSecrets() }
     .onChange(of: model.form) { _ in concealSecrets() }
     .onChange(of: scenePhase) { if $0 != .active { concealSecrets() } }
@@ -414,6 +430,15 @@ struct NativeV2RootView: View {
         }
       }
       CinematicFormSection {
+        if snapshot.user.isSuperuser {
+          CinematicFormRow(symbol: "puzzlepiece.extension") {
+            rowAction("插件", id: "native-v2-plugins") {
+              pluginScope = snapshot.scope
+              showsPlugins = true
+            }
+          }
+          CinematicFormDivider()
+        }
         CinematicFormRow(symbol: "arrow.left.arrow.right") {
           rowAction("切换服务", id: "native-v2-switch") { model.changeServer() }
         }

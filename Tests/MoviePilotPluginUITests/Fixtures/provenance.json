@@ -3,6 +3,16 @@
   "method": "AST data only; no plugin imports or execution",
   "fixtures": [
     {
+      "file": "mediadirwatcher-form.json",
+      "surface": "form",
+      "source": "plugins.v3/mediadirwatcher/__init__.py",
+      "line": 153,
+      "source_sha256": "73219f1075eca4e3c5f4c8e21117d615cee8d5bdb38d8b9a2c9861fb24f7ca5c",
+      "fixture_sha256": "0c7b2902956a1cccd39e5ba3549b56d125451aca22a26d69b745fc455b822e96",
+      "symbols": {},
+      "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly."
+    },
+    {
       "file": "autosignin-form.json",
       "surface": "form",
       "source": "plugins.v3/autosignin/__init__.py",
