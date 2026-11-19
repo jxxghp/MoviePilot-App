@@ -5,6 +5,7 @@ import MoviePilotPluginUI
 public enum NativeFormControl: Sendable {
   case toggle(NativeFormField)
   case input(NativeFormField, NativeFormInputKind)
+  case cron(NativeFormField)
   case select(NativeFormField, options: [NativeFormOption], multiple: Bool, clearable: Bool)
   case notice(title: String, text: String, kind: NativeFormNoticeKind)
   case text(String)
@@ -174,7 +175,7 @@ private struct NativeFormPlanBuilder {
     let layout = Self.layouts.contains(component)
     if layout
       || !(Self.toggles.contains(component) || Self.inputs.contains(component)
-        || component == "VSelect")
+        || component == "VSelect" || component == "VCronField")
     {
       for binding in node.bindings where binding.kind != .implicitRead {
         issue(.unsupported, binding.pointer)
@@ -220,6 +221,11 @@ private struct NativeFormPlanBuilder {
       allowed = [
         "label", "hint", "placeholder", "disabled", "readonly", "required", "type", "min", "max",
         "step", "suffix", "maxlength", "clearable",
+      ]
+    } else if component == "VCronField" {
+      allowed = [
+        "label", "hint", "placeholder", "disabled", "readonly", "required", "clearable", "type",
+        "maxlength", "suffix",
       ]
     } else if component == "VSelect" {
       allowed = [
@@ -291,7 +297,8 @@ private struct NativeFormPlanBuilder {
       placeholder: NativeFormExpression.text(props["placeholder"]) ?? "",
       suffix: NativeFormExpression.text(props["suffix"]) ?? "",
       value: PluginJSONValue.object(model)[exactKey: binding.field], disabled: disabled,
-      clearable: NativeFormExpression.truth(props["clearable"]))
+      clearable: props["clearable"].map { NativeFormExpression.truth($0) }
+        ?? (node.component == "VCronField"))
   }
 
   /// 所有实际控件与值验证集中在同一分支，避免界面和保存支持度漂移。
@@ -301,12 +308,32 @@ private struct NativeFormPlanBuilder {
   ) throws -> NativeFormControl {
     let editable =
       Self.toggles.contains(component) || Self.inputs.contains(component) || component == "VSelect"
+      || component == "VCronField"
     if editable {
       guard let field = field(node, props: props, disabled: disabled) else { return .unsupported }
       if visible && !disabled && NativeFormExpression.truth(props["required"])
         && Self.empty(field.value)
       {
         issue(.requiredValue, node.pointer)
+      }
+      if component == "VCronField" {
+        // 原控件允许插件方言（例如数字小时间隔）；只检验可编辑结构，不替代插件调度规则。
+        if let rawType = node.properties["type"], rawType != .null, props["type"] != .string("text")
+        {
+          issue(.unsupported, node.pointer + "/props/type")
+          return .unsupported
+        }
+        if visible, NativeFormExpression.text(field.value) == nil {
+          issue(.invalidValue, node.pointer)
+        }
+        if let raw = props["maxlength"] {
+          if let max = NativeFormExpression.text(raw).flatMap(Int.init), max >= 0 {
+            if visible && field.text.utf16.count > max { issue(.invalidValue, node.pointer) }
+          } else {
+            issue(.unsupported, node.pointer + "/props/maxlength")
+          }
+        }
+        return .cron(field)
       }
       if Self.toggles.contains(component) {
         if visible, let value = field.value, value != .null, value != .bool(true),

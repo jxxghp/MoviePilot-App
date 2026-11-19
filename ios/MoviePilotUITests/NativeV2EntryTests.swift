@@ -7,6 +7,245 @@ final class NativeV2EntryTests: XCTestCase {
   private let base = "http://127.0.0.1:5330/"
   private let arguments = ["--native-v2", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
 
+  /// 完整官方 Cron 表单从真实入口编辑月底计划，添加缺省模型外的绑定并完整保存/重读。
+  func testPluginCronSourceBuilderSavesCompletePhysicalForm() async throws {
+    let app = try await pluginAccount()
+    openPlugin("LibraryScraper_copy", app: app)
+    capture("rex-cron-source-form")
+    openCron("cron", app: app)
+    XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, "0 0 */7 * *")
+    capture("rex-cron-expression-editor")
+    tap(app.buttons["native-cron-unit-day"], app: app)
+    XCTAssertTrue(app.navigationBars["日期"].waitForExistence(timeout: 5))
+    chooseCronMode("月底", app: app)
+    XCTAssertEqual(app.staticTexts["native-cron-field-preview"].label, "last")
+    tap(app.buttons["native-cron-field-apply"], app: app)
+    XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, "0 0 last * *")
+    capture("rex-cron-last-day")
+    tap(app.buttons["native-cron-apply"], app: app)
+    reveal(app.textFields["native-plugin-field-cron"], app: app)
+    XCTAssertEqual(app.textFields["native-plugin-field-cron"].value as? String, "0 0 last * *")
+    var state = try await pluginState()
+    XCTAssertNil((state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/LibraryScraper_copy"])
+    let excluded = app.textViews["native-plugin-field-exclude_paths"]
+    tap(excluded, app: app)
+    excluded.typeText("/media/skip")
+    dismissKeyboard(app)
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    state = try await pluginState()
+    let model = try cronModel(state, plugin: "LibraryScraper_copy")
+    XCTAssertEqual(model["cron"] as? String, "0 0 last * *")
+    XCTAssertEqual(model["exclude_paths"] as? String, "/media/skip")
+    XCTAssertEqual(model["err_hosts"] as? String, "")
+    XCTAssertEqual((model["future"] as? [String: Any])?["integer"] as? Int64, 9_007_199_254_740_993)
+    XCTAssertEqual(
+      (state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/LibraryScraper_copy"], 1)
+    XCTAssertNil((state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/LibraryScraper"])
+    app.navigationBars["媒体库刮削"].buttons.element(boundBy: 0).tap()
+    tap(app.buttons["native-plugin-LibraryScraper_copy"], app: app)
+    reveal(app.textFields["native-plugin-field-cron"], app: app)
+    XCTAssertEqual(app.textFields["native-plugin-field-cron"].value as? String, "0 0 last * *")
+    XCTAssertTrue((state["unexpected"] as? [String: Int])?.isEmpty == true)
+    XCTAssertEqual(app.webViews.count, 0)
+    app.terminate()
+  }
+
+  /// 原样应用/取消保留数字、null 和缺失字段；清除/手动编辑才改变父草稿的类型和值。
+  func testPluginCronPreservesTypesCancelsAndClearsExplicitly() async throws {
+    let app = try await pluginAccount()
+    openPlugin("CronCompatibilityFixture", app: app)
+    openCron("cron", app: app)
+    XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, "6")
+    capture("rex-cron-plugin-specific-value")
+    tap(app.buttons["native-cron-apply"], app: app)
+    XCTAssertFalse(app.buttons["native-plugin-form-back"].exists)
+    openCron("empty", app: app)
+    XCTAssertFalse(app.buttons["native-cron-empty"].exists)
+    tap(app.buttons["native-cron-apply"], app: app)
+    openCron("missing", app: app)
+    tap(app.buttons["native-cron-apply"], app: app)
+    XCTAssertFalse(app.buttons["native-plugin-form-back"].exists)
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    var state = try await pluginState()
+    var model = try cronModel(state, plugin: "CronCompatibilityFixture")
+    XCTAssertEqual((model["cron"] as? NSNumber)?.intValue, 6)
+    XCTAssertFalse(model["cron"] is String)
+    XCTAssertTrue(model["empty"] is NSNull)
+    XCTAssertNil(model["missing"])
+    openCron("cron", app: app)
+    chooseCronPreset("weekdays", app: app)
+    XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, "0 9 * * mon-fri")
+    tap(app.buttons["native-cron-cancel"], app: app)
+    XCTAssertEqual(app.textFields["native-plugin-field-cron"].value as? String, "6")
+    XCTAssertFalse(app.buttons["native-plugin-form-back"].exists)
+    tap(app.buttons["native-plugin-cron-clear-cron"], app: app)
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    state = try await pluginState()
+    model = try cronModel(state, plugin: "CronCompatibilityFixture")
+    XCTAssertTrue(model["cron"] is NSNull)
+    XCTAssertTrue(model["empty"] is NSNull)
+    XCTAssertNil(model["missing"])
+    replacePluginInput("cron", with: "6.5", app: app)
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    state = try await pluginState()
+    model = try cronModel(state, plugin: "CronCompatibilityFixture")
+    XCTAssertEqual(model["cron"] as? String, "6.5")
+    XCTAssertEqual(
+      (state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/CronCompatibilityFixture"], 3)
+    XCTAssertEqual(app.webViews.count, 0)
+    app.terminate()
+  }
+
+  /// 原生间隔字段的连续调整不会读旧值；退回取消字段、保存失败与显式重试分别生效。
+  func testPluginCronStepEditingCancellationAndSaveRetry() async throws {
+    let app = try await pluginAccount()
+    openPlugin("LibraryScraper_copy", app: app)
+    openCron("cron", app: app)
+    chooseCronPreset("quarterHourly", app: app)
+    tap(app.buttons["native-cron-unit-minute"], app: app)
+    XCTAssertTrue(app.navigationBars["分钟"].waitForExistence(timeout: 5))
+    incrementCronStep(app)
+    incrementCronStep(app)
+    XCTAssertEqual(app.staticTexts["native-cron-field-preview"].label, "*/17")
+    capture("rex-cron-minute-step")
+    app.navigationBars["分钟"].buttons.element(boundBy: 0).tap()
+    XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, "*/15 * * * *")
+    tap(app.buttons["native-cron-unit-minute"], app: app)
+    incrementCronStep(app)
+    incrementCronStep(app)
+    tap(app.buttons["native-cron-field-apply"], app: app)
+    XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, "*/17 * * * *")
+    tap(app.buttons["native-cron-apply"], app: app)
+    try await configurePlugins(mode: "fail_save_once")
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-error"], app: app)
+    reveal(app.textFields["native-plugin-field-cron"], app: app)
+    XCTAssertEqual(app.textFields["native-plugin-field-cron"].value as? String, "*/17 * * * *")
+    let failed = try await pluginState()
+    XCTAssertTrue((failed["receipts"] as? [[String: Any]])?.isEmpty == true)
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    let state = try await pluginState()
+    XCTAssertEqual(
+      try cronModel(state, plugin: "LibraryScraper_copy")["cron"] as? String, "*/17 * * * *")
+    XCTAssertEqual(
+      (state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/LibraryScraper_copy"], 2)
+    app.terminate()
+  }
+
+  /// 最大字号和横屏下可选星期、纠正空选集、应用并保存，表达式用 sun 明确星期日。
+  func testPluginCronLargestTypeLandscapeSelection() async throws {
+    let app = try await pluginAccount(extra: [
+      "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
+      "-AppleInterfaceStyle", "Light",
+    ])
+    openPlugin("LibraryScraper_copy", app: app)
+    openCron("cron", app: app)
+    XCUIDevice.shared.orientation = .landscapeLeft
+    chooseCronPreset("weekdays", app: app)
+    tap(app.buttons["native-cron-unit-weekday"], app: app)
+    XCTAssertTrue(app.navigationBars["星期"].waitForExistence(timeout: 5))
+    chooseCronMode("指定值", app: app)
+    tap(app.buttons["native-cron-choice-weekday-0"], app: app)
+    XCTAssertFalse(app.buttons["native-cron-field-apply"].isEnabled)
+    tap(app.buttons["native-cron-choice-weekday-6"], app: app)
+    XCTAssertTrue(app.buttons["native-cron-field-apply"].isEnabled)
+    capture("rex-cron-largest-weekday")
+    tap(app.buttons["native-cron-field-apply"], app: app)
+    reveal(app.textFields["native-cron-expression"], app: app)
+    XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, "0 9 * * sun")
+    capture("rex-cron-largest-expression")
+    tap(app.buttons["native-cron-apply"], app: app)
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    let state = try await pluginState()
+    XCTAssertEqual(
+      try cronModel(state, plugin: "LibraryScraper_copy")["cron"] as? String, "0 9 * * sun")
+    XCTAssertEqual(app.webViews.count, 0)
+    app.terminate()
+    XCUIDevice.shared.orientation = .portrait
+  }
+
+  /// 小时范围、月份选值和自定义字段分别跳转；整层取消不会泄漏任一字段草稿或发出 PUT。
+  func testPluginCronRangeMonthAndCustomCancellation() async throws {
+    let app = try await pluginAccount()
+    openPlugin("LibraryScraper_copy", app: app)
+    openCron("cron", app: app)
+    chooseCronPreset("daily", app: app)
+    tap(app.buttons["native-cron-unit-hour"], app: app)
+    XCTAssertTrue(app.navigationBars["小时"].waitForExistence(timeout: 5))
+    chooseCronMode("范围", app: app)
+    let start = app.steppers["native-cron-range-start"]
+    reveal(start, app: app)
+    start.buttons.element(boundBy: 1).tap()
+    let end = app.steppers["native-cron-range-end"]
+    reveal(end, app: app)
+    end.buttons.element(boundBy: 0).tap()
+    XCTAssertEqual(app.staticTexts["native-cron-field-preview"].label, "1-22")
+    tap(app.buttons["native-cron-field-apply"], app: app)
+    tap(app.buttons["native-cron-unit-month"], app: app)
+    XCTAssertTrue(app.navigationBars["月份"].waitForExistence(timeout: 5))
+    chooseCronMode("指定值", app: app)
+    tap(app.buttons["native-cron-choice-month-12"], app: app)
+    tap(app.buttons["native-cron-field-apply"], app: app)
+    reveal(app.textFields["native-cron-expression"], app: app)
+    XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, "0 1-22 * 1,12 *")
+    tap(app.buttons["native-cron-unit-month"], app: app)
+    chooseCronMode("自定义", app: app)
+    let token = app.textFields["native-cron-custom-field"]
+    tap(token, app: app)
+    token.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4) + "jan-mar")
+    dismissKeyboard(app)
+    tap(app.buttons["native-cron-field-apply"], app: app)
+    reveal(app.textFields["native-cron-expression"], app: app)
+    XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, "0 1-22 * jan-mar *")
+    capture("rex-cron-range-month-custom")
+    tap(app.buttons["native-cron-cancel"], app: app)
+    XCTAssertEqual(app.textFields["native-plugin-field-cron"].value as? String, "0 0 */7 * *")
+    let state = try await pluginState()
+    XCTAssertNil((state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/LibraryScraper_copy"])
+    XCTAssertFalse(app.buttons["native-plugin-form-back"].exists)
+    app.terminate()
+  }
+
+  /// 只通过真实 Cron 字段上的原生动作打开计划弹层。
+  private func openCron(_ field: String, app: XCUIApplication) {
+    tap(app.buttons["native-plugin-cron-edit-" + field], app: app)
+    XCTAssertTrue(app.textFields["native-cron-expression"].waitForExistence(timeout: 5))
+  }
+
+  /// 使用原生菜单显式选择预设，不从空值自动生成周期。
+  private func chooseCronPreset(_ id: String, app: XCUIApplication) {
+    tap(app.buttons["native-cron-presets"], app: app)
+    let preset = app.buttons["native-cron-preset-" + id]
+    XCTAssertTrue(preset.waitForExistence(timeout: 5))
+    preset.tap()
+  }
+
+  /// 模式通过可滚动原生选择页操作，未实现字段不借测试参数直接赋值。
+  private func chooseCronMode(_ title: String, app: XCUIApplication) {
+    tap(app.descendants(matching: .any)["native-cron-mode"].firstMatch, app: app)
+    XCTAssertTrue(app.buttons[title].waitForExistence(timeout: 5))
+    tap(app.buttons[title], app: app)
+  }
+
+  /// 标准 Stepper 的右侧增量按钮连续操作，验证绑定读取当前草稿而非渲染快照。
+  private func incrementCronStep(_ app: XCUIApplication) {
+    let stepper = app.steppers["native-cron-step-interval"]
+    reveal(stepper, app: app)
+    XCTAssertEqual(stepper.buttons.count, 2)
+    stepper.buttons.element(boundBy: 1).tap()
+  }
+
+  /// 回执之外独立读取服务端完整模型，验证未来字段/类型与新绑定都在实际载荷中。
+  private func cronModel(_ state: [String: Any], plugin: String) throws -> [String: Any] {
+    try XCTUnwrap((state["models"] as? [String: [String: Any]])?[plugin])
+  }
+
   /// 完整官方表单经真实原生入口修改/保存/重读，未知字段和大整数原样保留。
   func testPluginSourceFormSavesCompletePhysicalConfiguration() async throws {
     let app = try await pluginAccount()
@@ -211,6 +450,7 @@ final class NativeV2EntryTests: XCTestCase {
   private func openPlugin(_ id: String, app: XCUIApplication) {
     tap(app.buttons["native-v2-plugins"], app: app)
     let row = app.buttons["native-plugin-" + id]
+    reveal(row, app: app)
     XCTAssertTrue(row.waitForExistence(timeout: 10))
     capture("rex-plugin-installed-list")
     tap(row, app: app)
@@ -592,8 +832,17 @@ final class NativeV2EntryTests: XCTestCase {
     _ = element.waitForExistence(timeout: 2)
     // 键盘候选栏也是 CollectionView；正文继续取首个 Form，只有已打开选择弹层才取其末个 Form。
     let forms = app.collectionViews.allElementsBoundByIndex
+    let cronMode = app.collectionViews["native-cron-mode-form"]
+    let cronField = app.collectionViews["native-cron-field-form"]
+    let cron = app.collectionViews["native-cron-form"]
     let scroll =
-      (app.buttons["native-plugin-selection-done"].exists ? forms.last : forms.first) ?? app
+      cronMode.exists
+      ? cronMode
+      : cronField.exists
+        ? cronField
+        : cron.exists
+          ? cron
+          : (app.buttons["native-plugin-selection-done"].exists ? forms.last : forms.first) ?? app
     for direction in [true, false] {
       for _ in 0..<12 {
         if visible(element, app: app, scroll: scroll) { return }
@@ -603,12 +852,18 @@ final class NativeV2EntryTests: XCTestCase {
         let area = viewport(app, scroll: scroll)
         let origin = app.coordinate(withNormalizedOffset: .zero)
         let x = area.minX + min(32, area.width * 0.1)
-        let upper = origin.withOffset(CGVector(dx: x, dy: area.minY + area.height * 0.2))
-        let lower = origin.withOffset(CGVector(dx: x, dy: area.minY + area.height * 0.8))
+        // 矮横屏的长距离惯性滚动会在目标上下反复越过；按差值短拖并停稳，再查询原生命中区域。
+        let distance = min(
+          area.height * 0.6,
+          element.exists ? max(30, abs(element.frame.midY - area.midY)) : area.height * 0.6)
+        let upper = origin.withOffset(CGVector(dx: x, dy: area.midY - distance / 2))
+        let lower = origin.withOffset(CGVector(dx: x, dy: area.midY + distance / 2))
         if upward {
-          lower.press(forDuration: 0.05, thenDragTo: upper)
+          lower.press(
+            forDuration: 0.05, thenDragTo: upper, withVelocity: .slow, thenHoldForDuration: 0.2)
         } else {
-          upper.press(forDuration: 0.05, thenDragTo: lower)
+          upper.press(
+            forDuration: 0.05, thenDragTo: lower, withVelocity: .slow, thenHoldForDuration: 0.2)
         }
       }
     }
@@ -644,20 +899,25 @@ final class NativeV2EntryTests: XCTestCase {
   private func visible(
     _ element: XCUIElement, app: XCUIApplication, scroll: XCUIElement
   ) -> Bool {
-    guard element.exists, element.isHittable else { return false }
-    if element.identifier == "native-plugin-selection-done" {
+    // 被导航栏完全遮挡的 SwiftUI Menu 在查询 isHittable 时会抛出激活点错误，先检查几何范围再查询。
+    guard element.exists else { return false }
+    if [
+      "native-plugin-selection-done", "native-cron-apply", "native-cron-cancel",
+      "native-cron-field-apply",
+    ].contains(element.identifier) {
       // iPad 原生 sheet 的工具栏 AX 框可能仍用局部坐标；这是导航动作，不属于滚动内容。
       return app.windows.firstMatch.frame.contains(
-        CGPoint(x: element.frame.midX, y: element.frame.midY))
+        CGPoint(x: element.frame.midX, y: element.frame.midY)) && element.isHittable
     }
     if !element.identifier.isEmpty {
       for bar in app.navigationBars.allElementsBoundByIndex
       where bar.buttons.matching(identifier: element.identifier).firstMatch.exists {
         return bar.frame.contains(CGPoint(x: element.frame.midX, y: element.frame.midY))
+          && element.isHittable
       }
     }
     return viewport(app, scroll: scroll).contains(
-      CGPoint(x: element.frame.midX, y: element.frame.midY))
+      CGPoint(x: element.frame.midX, y: element.frame.midY)) && element.isHittable
   }
 
   /// SwiftUI 的带标题开关包含实际 UISwitch，直接操作该控件并验证真实值。

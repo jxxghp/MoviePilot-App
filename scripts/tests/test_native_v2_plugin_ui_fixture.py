@@ -90,6 +90,21 @@ class PluginUIFixtureTests(unittest.TestCase):
         for path in ["/a/", "/a/assets/index.js", "/a/plugin/MediaDirWatcher"]:
             self.assertEqual(self.request(path)[0], 404)
 
+    def test_bound_new_fields_and_cron_types_are_not_dropped(self):
+        """真实源码含默认模型里没有的绑定，完整提交可增加该键并保留未知原值。"""
+        _, form = self.request("/a/api/v1/plugin/form/LibraryScraper_copy")
+        model = form["model"]
+        self.assertNotIn("exclude_paths", model)
+        self.assertIn("err_hosts", model)
+        model["cron"] = "0 0 last * *"
+        model["exclude_paths"] = "/media/skip"
+        self.assertEqual(self.request("/a/api/v1/plugin/LibraryScraper_copy", "PUT", model)[0], 200)
+        _, form = self.request("/a/api/v1/plugin/form/CronCompatibilityFixture")
+        self.assertEqual(type(form["model"]["cron"]), int)
+        self.assertIsNone(form["model"]["empty"])
+        self.assertNotIn("missing", form["model"])
+        self.assertEqual(self.request("/a/api/v1/plugin/CronCompatibilityFixture", "PUT", form["model"])[0], 200)
+
 
 if __name__ == "__main__":
     unittest.main()

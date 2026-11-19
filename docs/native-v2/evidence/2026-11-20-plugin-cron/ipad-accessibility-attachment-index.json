@@ -1,0 +1,101 @@
+[
+  {
+    "attachments": [
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+        "deviceName": "MoviePilot Rex v2 iPad",
+        "exportedFileName": "D83CE990-BB44-4D34-9F4F-C372710D91FE.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "rex-cron-largest-expression_0_27E9DF8A-20B2-4511-8120-604000E1E596.png",
+        "timestamp": 1795127781.427
+      },
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+        "deviceName": "MoviePilot Rex v2 iPad",
+        "exportedFileName": "98ADFFC9-C543-4E29-9D97-A3A4A58B06B5.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "rex-cron-largest-weekday_0_8842FA41-C76F-4255-9F2D-45B6FB03A352.png",
+        "timestamp": 1795127772.888
+      },
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+        "deviceName": "MoviePilot Rex v2 iPad",
+        "exportedFileName": "82376177-A518-4E86-99F6-F335AE62BFAB.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "rex-plugin-installed-list_0_8733C9BA-5300-48CF-8B23-7EF19AE1B696.png",
+        "timestamp": 1795127737.356
+      }
+    ],
+    "testIdentifier": "NativeV2EntryTests/testPluginCronLargestTypeLandscapeSelection()",
+    "testIdentifierURL": "test://com.apple.xcode/MoviePilot/MoviePilotUITests/NativeV2EntryTests/testPluginCronLargestTypeLandscapeSelection"
+  },
+  {
+    "attachments": [
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+        "deviceName": "MoviePilot Rex v2 iPad",
+        "exportedFileName": "4ED80E01-92C6-418A-B64F-63BE5394E37B.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "rex-cron-last-day_0_59378979-9E66-47F2-B3DA-3ECEEDA84151.png",
+        "timestamp": 1795127853.41
+      },
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+        "deviceName": "MoviePilot Rex v2 iPad",
+        "exportedFileName": "80DACCC1-343C-4C67-9CBE-FE5F24B6FC6A.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "rex-cron-expression-editor_0_F9B19905-DC8E-4E90-8420-1F659E6883D2.png",
+        "timestamp": 1795127839.496
+      },
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+        "deviceName": "MoviePilot Rex v2 iPad",
+        "exportedFileName": "4D37D4D6-1722-467C-98C2-812CB8D4D6C3.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "rex-cron-source-form_0_E6F8B919-9F3C-4933-A5F1-69D2D23758C6.png",
+        "timestamp": 1795127835.784
+      },
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+        "deviceName": "MoviePilot Rex v2 iPad",
+        "exportedFileName": "9D563B88-4DDD-4678-BEE3-7055661A6A40.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "rex-plugin-installed-list_0_E8F5A253-8824-4750-881D-FDF616A4D0D2.png",
+        "timestamp": 1795127830.223
+      }
+    ],
+    "testIdentifier": "NativeV2EntryTests/testPluginCronSourceBuilderSavesCompletePhysicalForm()",
+    "testIdentifierURL": "test://com.apple.xcode/MoviePilot/MoviePilotUITests/NativeV2EntryTests/testPluginCronSourceBuilderSavesCompletePhysicalForm"
+  },
+  {
+    "attachments": [
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+        "deviceName": "MoviePilot Rex v2 iPad",
+        "exportedFileName": "45C0AF0E-EF92-4A28-B165-7012A9137E18.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "rex-cron-minute-step_0_45AEE5ED-2177-462E-93D5-6638B6F578DE.png",
+        "timestamp": 1795127926.71
+      },
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+        "deviceName": "MoviePilot Rex v2 iPad",
+        "exportedFileName": "32951159-D672-4D6B-A40A-8F485C63BA51.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "rex-plugin-installed-list_0_9D5786DB-7C5A-42CD-B517-8E9B60E8BBEE.png",
+        "timestamp": 1795127902.541
+      }
+    ],
+    "testIdentifier": "NativeV2EntryTests/testPluginCronStepEditingCancellationAndSaveRetry()",
+    "testIdentifierURL": "test://com.apple.xcode/MoviePilot/MoviePilotUITests/NativeV2EntryTests/testPluginCronStepEditingCancellationAndSaveRetry"
+  }
+]

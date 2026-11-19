@@ -115,10 +115,15 @@ struct NativePluginFormView: View {
       }
     }
     .sheet(item: $selected) { element in
-      NativePluginSelectionView(
-        element: element, read: read, update: update
-      )
-      .preferredColorScheme(.dark)
+      Group {
+        if case .cron(let field) = element.control {
+          NativePluginCronEditor(field: field, value: read(field.key)) { expression in
+            update(.string(expression), field.key)
+          }
+        } else {
+          NativePluginSelectionView(element: element, read: read, update: update)
+        }
+      }.preferredColorScheme(.dark)
     }
     .alert(L10n.text("放弃未保存的修改？"), isPresented: $showsDiscard) {
       Button(L10n.text("放弃修改"), role: .destructive) { dismiss() }
@@ -205,6 +210,8 @@ private struct NativePluginControlView: View {
       hint(field)
     case .input(let field, let kind):
       NativePluginInputView(field: field, kind: kind, read: read, update: update)
+    case .cron(let field):
+      NativePluginCronField(field: field, read: read, update: update) { select(element) }
     case .select(let field, let options, let multiple, _):
       Button {
         select(element)
