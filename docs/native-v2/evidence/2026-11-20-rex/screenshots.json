@@ -1,0 +1,439 @@
+[
+  {
+    "file": "screenshots/iphone/dashboard.png",
+    "originalAttachment": "5DB01229-9C5B-42E3-B9C5-1DC834F1448D.png",
+    "originalPixels": [
+      1206,
+      2622
+    ],
+    "savedPixels": [
+      588,
+      1278
+    ],
+    "sha256Original": "0e24b14f86f4ee5734fbf8e06da9a07ea3b454262c186da1fe105fbda130ec7b",
+    "sha256Saved": "5f33ca58c2f79dcd9a72d5aa7fb58f0504fbbf313e9dbc773b6e5ffeea4eda57",
+    "device": "MoviePilot Native v2 Entry",
+    "test": "NativeDesignTests/testDashboard()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing",
+    "resultBundle": "rex-preview-acceptance.xcresult"
+  },
+  {
+    "file": "screenshots/ipad/dashboard.png",
+    "originalAttachment": "2D2CF5FE-C548-457E-BE27-8866CD93940F.png",
+    "originalPixels": [
+      1668,
+      2420
+    ],
+    "savedPixels": [
+      834,
+      1210
+    ],
+    "sha256Original": "d1b444bdee89ceb7872f2653f538651d5eb3f9597355326e4826f6c09be59d82",
+    "sha256Saved": "cd5fb96754b2f6be1703b5e74f2dc8a868d8da82b2c97045cae3e5cc8270b749",
+    "device": "MoviePilot Rex v2 iPad",
+    "test": "NativeDesignTests/testDashboard()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing",
+    "resultBundle": "rex-preview-acceptance.xcresult"
+  },
+  {
+    "file": "screenshots/iphone/landscape.png",
+    "originalAttachment": "514A75D2-7A7D-4685-A102-82AC21270EBE.png",
+    "originalPixels": [
+      1206,
+      2622
+    ],
+    "savedPixels": [
+      588,
+      1278
+    ],
+    "sha256Original": "2cc2e73ed325a4e71f3e8f7054f817419b3ed84b7cfc64d09fa0a746ec05e960",
+    "sha256Saved": "8b1769e34e8c3df2d423be6483f0ec8efb7e7a6c9ae857a52fc2440825715c9b",
+    "device": "MoviePilot Native v2 Entry",
+    "test": "NativeDesignTests/testRotatedLayout()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing",
+    "resultBundle": "rex-preview-acceptance.xcresult"
+  },
+  {
+    "file": "screenshots/iphone/landscape-initial.png",
+    "originalAttachment": "C5848B1F-EAF5-4C5A-9B03-A0C089780B82.png",
+    "originalPixels": [
+      1206,
+      2622
+    ],
+    "savedPixels": [
+      588,
+      1278
+    ],
+    "sha256Original": "2774504a856c083ed167bcad7f54cd819635881ed8e1a5fba2f8133d8cc3b67a",
+    "sha256Saved": "7307fba3399bfc2fd480792c7022c8520ce00474226349601b12602eaf346aec",
+    "device": "MoviePilot Native v2 Entry",
+    "test": "NativeDesignTests/testRotatedLayout()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing",
+    "resultBundle": "rex-preview-acceptance.xcresult"
+  },
+  {
+    "file": "screenshots/ipad/landscape.png",
+    "originalAttachment": "BA8272E2-09F1-4B39-BC97-6D58CBFF6E64.png",
+    "originalPixels": [
+      1668,
+      2420
+    ],
+    "savedPixels": [
+      834,
+      1210
+    ],
+    "sha256Original": "135ee430810b17c38dba4939907caa094342df6b636e02ea833670dc374f9b84",
+    "sha256Saved": "2f8c0789d9e84f302fba63c6fe8646b5625b41ed647870a7a2757658fd3d183b",
+    "device": "MoviePilot Rex v2 iPad",
+    "test": "NativeDesignTests/testRotatedLayout()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing",
+    "resultBundle": "rex-preview-acceptance.xcresult"
+  },
+  {
+    "file": "screenshots/ipad/landscape-initial.png",
+    "originalAttachment": "FB5226F0-DAA1-4D88-95EC-FBAE62FCB22C.png",
+    "originalPixels": [
+      1668,
+      2420
+    ],
+    "savedPixels": [
+      834,
+      1210
+    ],
+    "sha256Original": "c5f234142ae066ebece3ed69cb187d42558aabef0e9c451e9caf91686ea6b5a8",
+    "sha256Saved": "810cb9ad42d39086fd86e869e314e0b82a93307dd5084978877cc14a97bf3194",
+    "device": "MoviePilot Rex v2 iPad",
+    "test": "NativeDesignTests/testRotatedLayout()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing",
+    "resultBundle": "rex-preview-acceptance.xcresult"
+  },
+  {
+    "file": "screenshots/iphone/plugin-form.png",
+    "originalAttachment": "C7CB98DE-AA5E-4C21-AC0F-85D74626F5F6.png",
+    "originalPixels": [
+      1206,
+      2622
+    ],
+    "savedPixels": [
+      588,
+      1278
+    ],
+    "sha256Original": "373490c80a3a600421134fa02da52bcf3dcc492e634c5a63fb3afe054ab41db5",
+    "sha256Saved": "064863318dd1e6457e9f3ca5a922ccc03bb86fd1df6ccb2f07002edbaed3b365",
+    "device": "MoviePilot Native v2 Entry",
+    "test": "NativeDesignTests/testSettingsAndPluginForm()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing",
+    "resultBundle": "rex-preview-acceptance.xcresult"
+  },
+  {
+    "file": "screenshots/iphone/settings.png",
+    "originalAttachment": "6FB4E3B2-83D8-42A7-9EED-C57348F19312.png",
+    "originalPixels": [
+      1206,
+      2622
+    ],
+    "savedPixels": [
+      588,
+      1278
+    ],
+    "sha256Original": "7645016ea7e15f7d010e4fc70cc406c8d21c4c15f72cf4fc59e02ccf873e2e72",
+    "sha256Saved": "b32d2f1774199d1000f5a77b5ff0990542e77d732cfc07f1ea9b0e069952f60a",
+    "device": "MoviePilot Native v2 Entry",
+    "test": "NativeDesignTests/testSettingsAndPluginForm()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing",
+    "resultBundle": "rex-preview-acceptance.xcresult"
+  },
+  {
+    "file": "screenshots/ipad/plugin-form.png",
+    "originalAttachment": "6DF34772-F55A-43B9-8653-621C547BD821.png",
+    "originalPixels": [
+      1668,
+      2420
+    ],
+    "savedPixels": [
+      834,
+      1210
+    ],
+    "sha256Original": "7b1c7836e27f849963a7a03ca475e638c4409db18ac82065257bd29fb8110245",
+    "sha256Saved": "facc70532d692b514c336735f1d045322a71ae81089704beb2183a5a3cf6a957",
+    "device": "MoviePilot Rex v2 iPad",
+    "test": "NativeDesignTests/testSettingsAndPluginForm()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing",
+    "resultBundle": "rex-preview-acceptance.xcresult"
+  },
+  {
+    "file": "screenshots/ipad/settings.png",
+    "originalAttachment": "EA6A9446-A72D-4B32-9741-9709CFE73940.png",
+    "originalPixels": [
+      1668,
+      2420
+    ],
+    "savedPixels": [
+      834,
+      1210
+    ],
+    "sha256Original": "71fa5b3ccbbc9de5f5e9a0de4f5f3c01cd19f7220f8333fdc4f1a067242a5e84",
+    "sha256Saved": "95ca873dae533d0b577edf76ebd87e2c0c25a591a2190411ca9d4d61aad08190",
+    "device": "MoviePilot Rex v2 iPad",
+    "test": "NativeDesignTests/testSettingsAndPluginForm()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing",
+    "resultBundle": "rex-preview-acceptance.xcresult"
+  },
+  {
+    "file": "screenshots/iphone/large-text.png",
+    "originalAttachment": "6AF5EEE9-6A58-4B94-B6CE-F55D2F6AFFBF.png",
+    "originalPixels": [
+      1206,
+      2622
+    ],
+    "savedPixels": [
+      588,
+      1278
+    ],
+    "sha256Original": "81884e0ce2008e624df5970574cfd5efa67f4a32fd35f43f3fd2e54536c824e6",
+    "sha256Saved": "88ec2e5290776b46d2e0d1fd7325e325085d2685f62e2639ab03c456f00f520c",
+    "device": "MoviePilot Native v2 Entry",
+    "test": "NativeDesignTests/testSingleStyleAndLargeText()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing",
+    "resultBundle": "rex-preview-acceptance.xcresult"
+  },
+  {
+    "file": "screenshots/ipad/large-text.png",
+    "originalAttachment": "9623C6F7-1A0F-4E9C-9A44-80A65BC2C696.png",
+    "originalPixels": [
+      1668,
+      2420
+    ],
+    "savedPixels": [
+      834,
+      1210
+    ],
+    "sha256Original": "79569f2ae60b4e6ccfbedc9f8196091eb9ceb3fbb1e8581f58ea1f501b6c7dd5",
+    "sha256Saved": "368be422d61594d55d5f469a5b2d1439ad321ce772aa746edfbd883331c8491b",
+    "device": "MoviePilot Rex v2 iPad",
+    "test": "NativeDesignTests/testSingleStyleAndLargeText()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing",
+    "resultBundle": "rex-preview-acceptance.xcresult"
+  },
+  {
+    "file": "screenshots/iphone/poster-grid.png",
+    "resultBundle": "rex-preview-detail-check.xcresult",
+    "originalAttachment": "806FFC91-64B9-4326-BE4F-B970D4D10AF0.png",
+    "originalPixels": [
+      1206,
+      2622
+    ],
+    "savedPixels": [
+      588,
+      1278
+    ],
+    "sha256Original": "68124a24773099d30f8cd14c581e2df029cee0f9622066f8489c2577fe1b1ae6",
+    "sha256Saved": "22ceef8631d5499ce29b7cbcfdb0073e863875b27862e960bae7976224522736",
+    "device": "MoviePilot Native v2 Entry",
+    "test": "NativeDesignTests/testAiringPosterGrid()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing"
+  },
+  {
+    "file": "screenshots/ipad/poster-grid.png",
+    "resultBundle": "rex-preview-detail-check.xcresult",
+    "originalAttachment": "D6F2A83B-07F9-4930-BACC-C71B181CCEAB.png",
+    "originalPixels": [
+      1668,
+      2420
+    ],
+    "savedPixels": [
+      834,
+      1210
+    ],
+    "sha256Original": "f2d04aafdd224f3129846bf214910fa1ae425581c6a72d40ca0c6d2978b2f8f1",
+    "sha256Saved": "f7cc6ff2a3ad24e7a69191840770f38c717e7e90bcc2e6b09d93a5431219506f",
+    "device": "MoviePilot Rex v2 iPad",
+    "test": "NativeDesignTests/testAiringPosterGrid()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing"
+  },
+  {
+    "file": "screenshots/iphone/detail.png",
+    "resultBundle": "rex-preview-detail-check.xcresult",
+    "originalAttachment": "E571F92D-7ECB-4DDD-A1AE-659CEBF5829A.png",
+    "originalPixels": [
+      1206,
+      2622
+    ],
+    "savedPixels": [
+      588,
+      1278
+    ],
+    "sha256Original": "f8624282973a57a1da246e3809ed3a0ad2bb52d729cc7177b1d874928f14a9b3",
+    "sha256Saved": "9663aa9d9a978eb7297972a91b65c908fe69b49eabdcf19df484030eca982b52",
+    "device": "MoviePilot Native v2 Entry",
+    "test": "NativeDesignTests/testDiscoveryDetailAndQueue()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing"
+  },
+  {
+    "file": "screenshots/iphone/discover.png",
+    "resultBundle": "rex-preview-detail-check.xcresult",
+    "originalAttachment": "37E7DD68-1832-41EE-80A0-03382CFED729.png",
+    "originalPixels": [
+      1206,
+      2622
+    ],
+    "savedPixels": [
+      588,
+      1278
+    ],
+    "sha256Original": "cb6d8780042484b776d45dbb53707a54ad75d27cb795d9c85946f3b3eed43eb6",
+    "sha256Saved": "c8d15e070c093c157e6b0662027b914c86638786673807fd1d36e02f68de304a",
+    "device": "MoviePilot Native v2 Entry",
+    "test": "NativeDesignTests/testDiscoveryDetailAndQueue()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing"
+  },
+  {
+    "file": "screenshots/ipad/detail.png",
+    "resultBundle": "rex-preview-detail-check.xcresult",
+    "originalAttachment": "D43AE5F1-505D-46E3-A3D3-7B9DDBC37A95.png",
+    "originalPixels": [
+      1668,
+      2420
+    ],
+    "savedPixels": [
+      834,
+      1210
+    ],
+    "sha256Original": "d8840a19444afad2795b674a534a4e565e557d03785d265d08692201e3cbee35",
+    "sha256Saved": "b7a9e9d3b6b82fa21a64b6da9196182b30200f5b67db62a6aa5e042cc411de77",
+    "device": "MoviePilot Rex v2 iPad",
+    "test": "NativeDesignTests/testDiscoveryDetailAndQueue()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing"
+  },
+  {
+    "file": "screenshots/ipad/discover.png",
+    "resultBundle": "rex-preview-detail-check.xcresult",
+    "originalAttachment": "81AAC371-D92E-46D3-B5C6-88DE9968E7C8.png",
+    "originalPixels": [
+      1668,
+      2420
+    ],
+    "savedPixels": [
+      834,
+      1210
+    ],
+    "sha256Original": "910fdff3eb4975b1d71f551b432186d7cfa8acd8067d71167c14842f4bfe7ca0",
+    "sha256Saved": "f04dc0d5783e75c5256b78b9a8d69f82190772863c4fdaf4cf6e57970ddd1e38",
+    "device": "MoviePilot Rex v2 iPad",
+    "test": "NativeDesignTests/testDiscoveryDetailAndQueue()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing"
+  },
+  {
+    "file": "screenshots/iphone/subscriptions.png",
+    "resultBundle": "rex-preview-detail-check.xcresult",
+    "originalAttachment": "ECAB5F01-B396-48F8-8D38-54A64BA672F0.png",
+    "originalPixels": [
+      1206,
+      2622
+    ],
+    "savedPixels": [
+      588,
+      1278
+    ],
+    "sha256Original": "3b6e66a2e186f281c6f8392ea918a74250e3c28ff4eefb2111eed11a6adb9153",
+    "sha256Saved": "20033916ec07f640d3bc55f310ef5b0a8191471d0e5f33946a1432c28574f198",
+    "device": "MoviePilot Native v2 Entry",
+    "test": "NativeDesignTests/testSubscriptions()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing"
+  },
+  {
+    "file": "screenshots/ipad/subscriptions.png",
+    "resultBundle": "rex-preview-detail-check.xcresult",
+    "originalAttachment": "610CB30F-5D45-4FD8-8BD7-1DCF81552A5E.png",
+    "originalPixels": [
+      1668,
+      2420
+    ],
+    "savedPixels": [
+      834,
+      1210
+    ],
+    "sha256Original": "d07b1d4ad902e5fa67cef7e0e6853f617334b3c196ed465c75447eb115c69daf",
+    "sha256Saved": "d25d19523a3466ac50989d58395779d270b6f1b18d0c0a2fafbe4bf11011b2c1",
+    "device": "MoviePilot Rex v2 iPad",
+    "test": "NativeDesignTests/testSubscriptions()",
+    "mode": "normal",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing"
+  },
+  {
+    "file": "screenshots/accessibility/plugin-form.png",
+    "resultBundle": "rex-preview-accessibility-final.xcresult",
+    "originalAttachment": "0C9B1BB3-1304-40AD-824C-FA2029887AEF.png",
+    "originalPixels": [
+      1206,
+      2622
+    ],
+    "savedPixels": [
+      588,
+      1278
+    ],
+    "sha256Original": "d5e9194a3cfa0fc9ff270490eb13ca4da5cff53fb0969ee21ab68a1865571007",
+    "sha256Saved": "41c064cec8a765ae7c24465d9ad3b38b76930841674510770b447a2852416f32",
+    "device": "MoviePilot Native v2 Entry",
+    "test": "NativeDesignTests/testSettingsAndPluginForm()",
+    "mode": "accessibility",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing"
+  },
+  {
+    "file": "screenshots/accessibility/settings.png",
+    "resultBundle": "rex-preview-accessibility-final.xcresult",
+    "originalAttachment": "0EF8D022-0661-4402-93F5-CC9B34EE5E23.png",
+    "originalPixels": [
+      1206,
+      2622
+    ],
+    "savedPixels": [
+      588,
+      1278
+    ],
+    "sha256Original": "ccdcb98a257400537a7070000dce7e91db960a75d5479e6f2692ef16724e0b97",
+    "sha256Saved": "bb2fed1ad6ba530d48ed8b668f4fd97493f4de4e1d54cc2b3e5f789805849549",
+    "device": "MoviePilot Native v2 Entry",
+    "test": "NativeDesignTests/testSettingsAndPluginForm()",
+    "mode": "accessibility",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing"
+  },
+  {
+    "file": "screenshots/accessibility/large-text.png",
+    "resultBundle": "rex-preview-accessibility-final.xcresult",
+    "originalAttachment": "26F017E4-5B77-4745-82FF-8F9DE0903BC7.png",
+    "originalPixels": [
+      1206,
+      2622
+    ],
+    "savedPixels": [
+      588,
+      1278
+    ],
+    "sha256Original": "3abf385e70276baa29e8d65ab02189fc2f2386529f86cd0ddf2f81b08782e2b0",
+    "sha256Saved": "464a22e7004be67345d556d28d9f099807a048b0e923e8d320826264ffdd455c",
+    "device": "MoviePilot Native v2 Entry",
+    "test": "NativeDesignTests/testSingleStyleAndLargeText()",
+    "mode": "accessibility",
+    "normalization": "sRGB; uniform downsample only; no UI redrawing, cropping or compositing"
+  }
+]
