@@ -27,7 +27,7 @@ public protocol NativeAuthenticating: Sendable {
   /// 明确提交一次密码/OTP，不自动重放或持久化输入。
   func login(username: String, password: String, otp: String?) async throws -> SessionIdentity
 
-  /// 通过服务器 current 验证令牌并取得最新身份与权限。
+  /// 通过服务器 current 验证原令牌并取得最新身份；不隐式换发另一个 credential。
   func restore(accessToken: String) async throws -> SessionIdentity
 
   /// 使本次认证网络失效，不能影响其它实例的客户端。

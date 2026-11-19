@@ -1,10 +1,14 @@
 import Foundation
 import MoviePilotCore
+import MoviePilotSession
 
 /// 非敏感实例配置；每个实例拥有独立的持久化 WebKit 数据容器。
 struct SavedInstance: Codable, Equatable {
   let id: UUID
   let address: ServerAddress
+
+  /// v2 复用既有实例 UUID 与标准地址，不生成另一套地址簿或 Keychain 归属。
+  var nativeInstance: NativeInstance { NativeInstance(id: id, address: address) }
 }
 
 /// 在沙箱内保存非敏感实例配置；忘记实例时协调清理其安全存储与外观。

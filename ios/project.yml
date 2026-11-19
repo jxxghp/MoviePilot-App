@@ -29,6 +29,8 @@ targets:
         excludes: [Resources/Info.plist]
     dependencies:
       - package: MoviePilotCore
+      - package: MoviePilotCore
+        product: MoviePilotSession
       - package: VLCKit
       - target: MoviePilotWidgets
         embed: true
