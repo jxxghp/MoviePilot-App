@@ -136,7 +136,13 @@ class PlaybackHandler(BaseHTTPRequestHandler):
             return
         if path.startswith("/api/v1/user/config/DashboardGridLayout"):
             self.reply(200, {"success": True, "message": "", "data": {
-                "value": {"items": {}, "enabled": {"playing": True, "latest": True}},
+                "value": {"items": {}, "enabled": {
+                    "mediaStatistic": False, "mediaRecommend": False, "scheduler": False,
+                    "speed": False, "storage": False, "weeklyOverview": False, "cpu": False,
+                    "memory": False, "network": False, "library": False, "playing": True,
+                    "latest": True, "recentImports": False, "quickActions": False,
+                    "systemInfo": False,
+                }},
             }})
             return
         if path == "/api/v1/system/module-catalog":
@@ -222,6 +228,9 @@ class PlaybackHandler(BaseHTTPRequestHandler):
         path = self.normalize_api_path(urlsplit(self.path).path)
         if self.uses_backend(path):
             self.proxy_backend(path)
+            return
+        if self.server.frontend and path.startswith('/__qa/'):
+            self.proxy_frontend()
             return
         if path in {'/api/v1/storage/list', '/api/v1/media/status', '/api/v1/music/recognize'}:
             body = self.rfile.read(min(int(self.headers.get('Content-Length', '0')), 65536))
@@ -329,11 +338,15 @@ class PlaybackHandler(BaseHTTPRequestHandler):
                 'size': path.stat().st_size, 'modify_time': path.stat().st_mtime}
 
     def proxy_frontend(self) -> None:
-        """映射产品路由到前端根路径，使相对资源继续命中实际构建产物。"""
+        """映射产品资源及夹具状态回报到前端来源，保留同源请求方法。"""
         parsed = urlsplit(self.path)
         frontend_path = parsed.path.removeprefix('/product')
         request_path = frontend_path + (f"?{parsed.query}" if parsed.query else "")
-        request = urllib.request.Request(self.server.frontend + request_path)
+        body = self.rfile.read(min(int(self.headers.get('Content-Length', '0')), 65536)) if self.command == 'POST' else None
+        request = urllib.request.Request(
+            self.server.frontend + request_path, data=body, method=self.command,
+            headers={'Content-Type': self.headers.get('Content-Type', 'application/json')},
+        )
         try:
             response = urllib.request.urlopen(request, timeout=30)
         except urllib.error.HTTPError as error:

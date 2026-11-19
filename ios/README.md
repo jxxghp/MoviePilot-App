@@ -54,11 +54,11 @@ bash scripts/build-ipa.sh 1.2.2
 
 从仓库根目录执行，产物位于 `artifacts/MoviePilot-1.2.2-unsigned.ipa`，同时生成 `SHA256SUMS`。脚本使用真机 iPhoneOS SDK 和 arm64 架构，默认 `com.moviepilot.app` 与生产 APNs，保留主包的推送/共享组和扩展的共享组元数据，并校验版本、ZIP 及 Mach-O 平台；安装者仍须自行重签。
 
-工程当前版本为 1.2.5、构建号为 1。主 App 的最低系统版本为 iOS 16.0，支持 iPhone 与 iPad；iPhone Duo 的合拢、半展开和完全展开姿态由同一套可调整窗口布局承载。小组件仍要求 iOS 17.0，iOS 26+ 使用系统 Liquid Glass。
+工程当前版本为 1.2.6、构建号为 1。主 App 的最低系统版本为 iOS 16.0，支持 iPhone 与 iPad；iPhone Duo 的合拢、半展开和完全展开姿态由同一套可调整窗口布局承载。小组件仍要求 iOS 17.0，iOS 26+ 使用系统 Liquid Glass。
 
 App 支持简体中文、繁体中文和英语。可在连接页右上角的语言菜单，或已连接页面的“操作菜单 → 连接与显示 → 语言”切换。主题也统一在“连接与显示 → 主题”调整，继续使用网页的主题面板与已保存偏好；App 用户菜单不再重复显示主题和语言，普通网页与 PWA 的用户菜单不变。连接后使用当前实例网页保存的 `MP_LOCALE`；从网页切换语言也会同步更新 App 原生菜单。语言按实例保留，切换会重新加载当前页面。
 
-设置与搜索弹窗回归使用 `scripts/settings-search-fixture.py --frontend /path/to/frontend/dist --poster /path/to/test.jpg`，只监听 `127.0.0.1:5319`。设置 `TEST_RUNNER_MOVIEPILOT_E2E_SERVER=http://127.0.0.1:5319`、`TEST_RUNNER_MOVIEPILOT_E2E_USERNAME=startup-fixture`、`TEST_RUNNER_MOVIEPILOT_E2E_PASSWORD=fixture-only`，执行 `NativeFrameworkTests/testSettingsAndSearchSheetsAcceptance`，验证设置入口、单项过滤半屏关闭及共享选集信息。图片域名 `qa-image.test` 为合成占位，浏览器验收可拦截到指定的本机 JPEG；该用例不代表真实媒体服务器与海报网络验收。构建缓存和 `.xcresult` 使用 `/Volumes/DISK/TmpBuild/`，依赖复用 `/Volumes/DISK/Xcode/SourcePackages`。
+设置与搜索弹窗回归使用 `scripts/settings-search-fixture.py --frontend /path/to/frontend/dist --poster /path/to/test.jpg`，只监听 `127.0.0.1:5319`。设置 `TEST_RUNNER_MOVIEPILOT_E2E_SERVER=http://127.0.0.1:5319`、`TEST_RUNNER_MOVIEPILOT_E2E_USERNAME=startup-fixture`、`TEST_RUNNER_MOVIEPILOT_E2E_PASSWORD=fixture-only`，执行 `NativeFrameworkTests/testSettingsAndSearchSheetsAcceptance`，验证设置入口、单项过滤半屏关闭及共享选集信息。图片域名 `qa-image.test` 为合成占位，浏览器验收可拦截到指定的本机 JPEG；该用例不代表真实媒体服务器与海报网络验收。模拟器验收的构建缓存、夹具和 `.xcresult` 使用内置盘的 `~/Library/Caches/MoviePilotSimulator/<任务名>/`，验收后清理该任务目录；依赖复用 `/Volumes/DISK/Xcode/SourcePackages`。其他构建与发版校验产物放在 `/Volumes/DISK/TmpBuild/`。
 
 发布新版本时先更新 ios/project.yml 与已提交工程中的版本号，再将版本标签推到 GitHub。Release IPA 会复用现有检查，成功后构建对应版本并发布 IPA 和校验文件。
 
