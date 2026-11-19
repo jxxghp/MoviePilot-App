@@ -1562,7 +1562,10 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
     hideControlsTask = Task { [weak self] in
       try? await Task.sleep(for: .seconds(8))
-      guard !Task.isCancelled, let self, self.presentedViewController == nil else { return }
+      guard !Task.isCancelled, let self else { return }
+      // 弹窗阻止隐藏后也要释放已结束的任务，让后续播放状态刷新重新计时。
+      self.hideControlsTask = nil
+      guard self.presentedViewController == nil else { return }
       self.hideControls()
     }
   }
