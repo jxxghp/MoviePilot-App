@@ -824,7 +824,10 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
         session.phase == .nativeNavigation, message.routeRevision == session.routeRevision
       else { return }
       let request = try message.decodePayload(PlaybackOpenPayload.self)
-      guard Self.isValidPlaybackRequest(request) else { throw BridgeError.invalidMessage }
+      guard Self.isValidPlaybackRequest(request),
+        request.artworkURL.map(isValidPlaybackArtworkURL) ?? true,
+        request.queue?.allSatisfy({ $0.artworkURL.map(isValidPlaybackArtworkURL) ?? true }) ?? true
+      else { throw BridgeError.invalidMessage }
       openPlayback(request)
     case "navigation.state":
       guard let route = message.routeRevision, let state = message.stateRevision else {
@@ -972,6 +975,8 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
         let player = MediaPlaybackViewController(
           manifest: manifest, client: client, instanceId: instanceId,
           itemId: request.itemId, displayTitle: request.title,
+          artworkURL: request.artworkURL.flatMap(URL.init(string:)),
+          queue: request.queue ?? [], queueIndex: request.queueIndex ?? 0,
           onMinimize: { [weak currentShell] player in currentShell?.minimizePlayback(player) },
           onExpand: { [weak currentShell] player in currentShell?.expandPlayback(player) },
           onClosePlayback: { [weak currentShell] player in
@@ -1044,11 +1049,7 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
   /// 只接受媒体服务器条目 ID 和可展示标题，拒绝不完整的电视剧季集信息。
   private static func isValidPlaybackRequest(_ request: PlaybackOpenPayload) -> Bool {
     let itemId = request.itemId
-    let safeItemId =
-      itemId.range(
-        of:
-          "^(?:[A-Za-z0-9._:-]{1,128}|/library/metadata/[A-Za-z0-9._:-]{1,128}|file\\.[A-Za-z0-9_-]{64,4096})$",
-        options: .regularExpression) != nil
+    let safeItemId = Self.isValidPlaybackItemId(itemId)
     let safeTitle =
       !request.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       && request.title.utf8.count <= 256
@@ -1063,7 +1064,54 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDown
       (request.season == nil && request.episode == nil)
       || (request.season.map { (0...999).contains($0) } == true
         && request.episode.map { (0...9999).contains($0) } == true)
-    return safeItemId && safeTitle && safeServer && seasonAndEpisodeMatch
+    let validQueue: Bool
+    if let queue = request.queue {
+      validQueue =
+        queue.count >= 2 && queue.count <= 100
+        && request.queueIndex.map(queue.indices.contains) == true
+        && queue[request.queueIndex ?? 0].itemId == request.itemId
+        && queue.allSatisfy { item in
+          Self.isValidPlaybackItemId(item.itemId)
+            && !item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && item.title.utf8.count <= 256
+            && !item.title.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+            && item.server.map {
+              !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.utf8.count <= 128
+                && !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+            } ?? true
+            && item.artworkURL.map { $0.utf8.count <= 2048 } ?? true
+        }
+    } else {
+      validQueue = request.queueIndex == nil
+    }
+    return safeItemId && safeTitle && safeServer && seasonAndEpisodeMatch && validQueue
+  }
+
+  /// 曲目队列沿用当前播放项支持的媒体服务器 ID 与单文件票据格式。
+  private static func isValidPlaybackItemId(_ itemId: String) -> Bool {
+    itemId.range(
+      of:
+        "^(?:[A-Za-z0-9._:-]{1,128}|/library/metadata/[A-Za-z0-9._:-]{1,128}|file\\.[A-Za-z0-9_-]{64,4096})$",
+      options: .regularExpression) != nil
+  }
+
+  /// 原生播放只接受当前实例图片代理生成的封面地址。
+  private func isValidPlaybackArtworkURL(_ value: String) -> Bool {
+    guard value.utf8.count <= 2048, let url = URL(string: value),
+      instance.address.contains(url), url.user == nil, url.password == nil, url.fragment == nil,
+      url.path == instance.address.url.appending(path: "api/v1/system/img/0").path,
+      let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+      let queryItems = components.queryItems, (1...6).contains(queryItems.count),
+      queryItems.allSatisfy({
+        ["imgurl", "cache", "use_cookies", "maxWidth", "quality"].contains($0.name)
+      }),
+      Set(queryItems.map(\.name)).count == queryItems.count,
+      let sourceValue = queryItems.first(where: { $0.name == "imgurl" })?.value,
+      let source = URL(string: sourceValue),
+      ["http", "https"].contains(source.scheme?.lowercased() ?? ""),
+      source.host != nil, source.user == nil, source.password == nil, source.fragment == nil
+    else { return false }
+    return true
   }
 
   /// 固定 JS 入口使用参数传递，不把用户路径或载荷拼接为可执行代码。
@@ -1551,6 +1599,9 @@ private struct PlaybackOpenPayload: Decodable {
   let itemId: String
   let title: String
   let server: String?
+  let artworkURL: String?
+  let queue: [MediaPlaybackQueueItem]?
+  let queueIndex: Int?
   let season: Int?
   let episode: Int?
 }
