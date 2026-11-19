@@ -17,7 +17,7 @@
 | MoviePilotSession（P1.2，已实现底座） | 直接认证、实例、Keychain 存储协议、当前用户、权限、代次、任务取消 | Foundation/Combine；现有 TokenStore 已接线；默认 UI 未切换，不读取网页 Cookie 或 localStorage |
 | 原生功能模块（P3–P7） | 强类型 DTO、仓库查询、页面状态、用户动作和导航 | 依赖 API/会话；不可通过 JS、网页桥或插件 Web 容器执行主体业务 |
 | 原生设计组件（P1.4） | 海报、列表、表单、选择器、错误/空态、进度与图表 | SwiftUI/原生组件；固定 Rex 风格，支持可访问性、iPad 与旧系统，不提供多主题 |
-| JSON 插件运行时（P2.1–3） | 旧 schema 适配、类型模型、绑定/条件、动作、原生渲染、能力报告 | 不依赖 WebKit；不把任意 JS 当原生表达式执行 |
+| JSON 插件运行时（P2.1–3） | 旧 schema 适配、类型模型、绑定/条件、动作、原生渲染、能力报告 | MoviePilotPluginUI 已实现纯模型/诊断与有界保真值；UI/求值/保存/动作待后续；不依赖 WebKit，不执行任意 JS |
 | 插件 Web 兼容模块（P2.4–5） | 既有 Vue/HTML/远程组件、SDK、独立数据容器与消息桥 | 唯一可引入 WebKit 的业务模块；只接受受信插件上下文 |
 | 系统集成（P7） | APNs、Widget、深链、媒体播放、文件与通知授权 | 通过原生会话和用例接口工作，不继续依赖 WebCoordinator |
 

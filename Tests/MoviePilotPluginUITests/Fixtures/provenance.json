@@ -1,0 +1,119 @@
+{
+  "revision": "5d473864ee9d3d036b28a124262f38f773a2a452",
+  "method": "AST data only; no plugin imports or execution",
+  "fixtures": [
+    {
+      "file": "autosignin-form.json",
+      "surface": "form",
+      "source": "plugins.v3/autosignin/__init__.py",
+      "line": 358,
+      "source_sha256": "ff8e064b3aab3e34745ef6471191d253ede5a9d42e5beaa62181072dc03a88e4",
+      "fixture_sha256": "291448f9f781313d60a26b99cfb68d8497056777cf448f43d4639f3ec53391fc",
+      "symbols": {
+        "site_options": [
+          {
+            "title": "演示站点",
+            "value": 1
+          }
+        ]
+      },
+      "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly."
+    },
+    {
+      "file": "autosports-editor.json",
+      "surface": "form",
+      "source": "plugins.v3/autosports/ui/__init__.py",
+      "line": 624,
+      "source_sha256": "09a986cd6edd634bffd67724229b35ebebf523068455082407f4d5f16a4a0cdc",
+      "fixture_sha256": "e92bdf3f71e2e4f01d3712b8018efd1220cba9d3796209df17d8a221cb5f0dfb",
+      "symbols": {},
+      "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly."
+    },
+    {
+      "file": "certmanager-script.json",
+      "surface": "form",
+      "source": "plugins.v3/certmanager/__init__.py",
+      "line": 383,
+      "source_sha256": "885957b632af78079ef1cb564ef63aa2d9a220e921db159d4605fda3fdcc4085",
+      "fixture_sha256": "71479a7904715d5b11bccd11c8bdcdb20179177067f330f2ae6338c84d54c4c8",
+      "symbols": {},
+      "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly."
+    },
+    {
+      "file": "autosubtitle-condition.json",
+      "surface": "form",
+      "source": "plugins.v3/autosubtitle/__init__.py",
+      "line": 1224,
+      "source_sha256": "70ba42418194bc70390717e835c957c0f1e3abf497008ffa46d2e4e07e619da9",
+      "fixture_sha256": "875c2f5d7803de103967075ab73f9ceec24b8bc7606a314984bd49e89e82c915",
+      "symbols": {},
+      "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly."
+    },
+    {
+      "file": "animeupscale-table.json",
+      "surface": "page",
+      "source": "plugins.v3/animeupscale/__init__.py",
+      "line": 216,
+      "source_sha256": "f4136a7542172cb9b1015ea09a375d3e6f33de76663a40c71d02c623612a5bb8",
+      "fixture_sha256": "20157899f39f465c7764152b089c7c2de0531fcbcfe2c2d3ed900ec4f391e028",
+      "symbols": {
+        "job_rows": [
+          {
+            "id": "fixture-job",
+            "input": "/media/example.mkv",
+            "model": "anime",
+            "status": "queued",
+            "progress": 0,
+            "fps": 0,
+            "error": null
+          }
+        ]
+      },
+      "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly."
+    },
+    {
+      "file": "chatgpt-action.json",
+      "surface": "page",
+      "source": "plugins.v3/chatgpt/__init__.py",
+      "line": 772,
+      "source_sha256": "5f2eccf0e4e39d56c63dca6d0d9c73e53d70b76d44d21ea5070ddb8c0e50288d",
+      "fixture_sha256": "9e40a766f39ff4050952d1d5b348c369dcac89a4b2732e89fe054b5b476664c3",
+      "symbols": {
+        "settings.API_TOKEN": "fixture-only-not-a-real-token"
+      },
+      "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly."
+    },
+    {
+      "file": "seedstats-chart.json",
+      "surface": "dashboard",
+      "source": "plugins.v3/seedstats/__init__.py",
+      "line": 401,
+      "source_sha256": "51f0589be2aec606c4c9718702b27afa7daef4d4d263d53a1af99f851b1e280e",
+      "fixture_sha256": "c2eaeedd9f38c33af0b68b71df5c17ecb7b57c62385390d5a037c5a1d35fdd25",
+      "symbols": {
+        "trend": {
+          "type": "area",
+          "height": 240,
+          "options": {
+            "xaxis": {
+              "categories": [
+                "00:00",
+                "01:00"
+              ]
+            }
+          },
+          "series": [
+            {
+              "name": "上传",
+              "data": [
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      },
+      "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly."
+    }
+  ]
+}

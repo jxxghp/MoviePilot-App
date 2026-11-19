@@ -1,0 +1,40 @@
+{
+  "render_mode": "vuetify",
+  "id": "SeedStats_fixture",
+  "source_plugin_id": "SeedStats",
+  "key": "traffic",
+  "name": "演示统计",
+  "attrs": {
+    "refresh": 30
+  },
+  "cols": {
+    "cols": 12,
+    "md": 6
+  },
+  "elements": [
+    {
+      "component": "VApexChart",
+      "props": {
+        "type": "area",
+        "height": 240,
+        "options": {
+          "xaxis": {
+            "categories": [
+              "00:00",
+              "01:00"
+            ]
+          }
+        },
+        "series": [
+          {
+            "name": "上传",
+            "data": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
