@@ -1,5 +1,7 @@
 import AVFoundation
+import AVKit
 import CryptoKit
+import ImageIO
 import MediaPlayer
 import MoviePilotCore
 import UIKit
@@ -24,6 +26,14 @@ struct MediaPlaybackSubtitle: Decodable, Sendable {
   let title: String
   let language: String?
   let url: URL
+}
+
+/// 网页已按曲序映射到媒体服务器的单曲信息。
+struct MediaPlaybackQueueItem: Decodable, Sendable {
+  let itemId: String
+  let title: String
+  let server: String?
+  let artworkURL: String?
 }
 
 /// LRC 中带播放起始秒数的歌词行。
@@ -143,6 +153,33 @@ final class MediaPlaybackClient {
     throw MediaPlaybackError.lyricsUnavailable
   }
 
+  /// 仅从当前实例图片代理读取限长封面，并缩小解码以适配原生 Now Playing 视图。
+  func downloadArtwork(_ url: URL) async throws -> UIImage {
+    guard isTrustedArtworkURL(url) else { throw MediaPlaybackError.artworkUnavailable }
+    var request = URLRequest(url: url)
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    request.setValue("image/avif,image/webp,image/png,image/jpeg", forHTTPHeaderField: "Accept")
+    let (data, response) = try await session.data(for: request)
+    guard let response = response as? HTTPURLResponse, response.statusCode == 200,
+      let responseURL = response.url, isTrustedArtworkURL(responseURL),
+      response.value(forHTTPHeaderField: "Content-Type")?.lowercased().hasPrefix("image/") == true,
+      !data.isEmpty, data.count <= 8 * 1024 * 1024,
+      let source = CGImageSourceCreateWithData(data as CFData, nil),
+      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+      let width = properties[kCGImagePropertyPixelWidth] as? Int,
+      let height = properties[kCGImagePropertyPixelHeight] as? Int,
+      width <= 16_384, height <= 16_384, width * height <= 80_000_000,
+      let image = CGImageSourceCreateThumbnailAtIndex(
+        source, 0,
+        [
+          kCGImageSourceCreateThumbnailFromImageAlways: true,
+          kCGImageSourceThumbnailMaxPixelSize: 960,
+          kCGImageSourceCreateThumbnailWithTransform: true,
+        ] as CFDictionary)
+    else { throw MediaPlaybackError.artworkUnavailable }
+    return UIImage(cgImage: image)
+  }
+
   /// 为解码器构造媒体对象，并将资源 Cookie 限制到当前实例的媒体流路径。
   func makeMedia(url: URL) throws -> VLCMedia {
     guard let media = VLCMedia(url: url), let cookie = resourceCookie, let host = url.host,
@@ -193,6 +230,24 @@ final class MediaPlaybackClient {
       && queryItems.first(where: { $0.name == "itemid" })?.value == itemId
       && (server == nil || queryItems.first(where: { $0.name == "server" })?.value == server)
   }
+
+  /// 封面只能经当前实例图片代理；源站访问和 DNS 安全校验由后端负责。
+  private func isTrustedArtworkURL(_ url: URL) -> Bool {
+    guard address.contains(url), url.user == nil, url.password == nil, url.fragment == nil,
+      url.path == endpoint(["api", "v1", "system", "img", "0"]).path,
+      let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+      (1...5).contains(queryItems.count),
+      queryItems.allSatisfy({
+        ["imgurl", "cache", "use_cookies", "maxWidth", "quality"].contains($0.name)
+      }),
+      Set(queryItems.map(\.name)).count == queryItems.count,
+      let sourceValue = queryItems.first(where: { $0.name == "imgurl" })?.value,
+      let source = URL(string: sourceValue),
+      ["http", "https"].contains(source.scheme?.lowercased() ?? ""),
+      source.host != nil, source.user == nil, source.password == nil, source.fragment == nil
+    else { return false }
+    return true
+  }
 }
 
 /// 网络错误使用固定文案，不回显 URL、令牌、云盘地址或服务器响应正文。
@@ -200,6 +255,7 @@ private enum MediaPlaybackError: LocalizedError {
   case unavailable
   case subtitleUnavailable
   case lyricsUnavailable
+  case artworkUnavailable
 
   /// 返回不包含认证信息和上游来源的操作提示。
   var errorDescription: String? {
@@ -207,6 +263,7 @@ private enum MediaPlaybackError: LocalizedError {
     case .unavailable: L10n.text("无法读取播放信息，请确认影片仍在媒体库中并检查后台连接。")
     case .subtitleUnavailable: L10n.text("字幕读取失败，请选择其他字幕或检查后台连接。")
     case .lyricsUnavailable: L10n.text("无法读取本地歌词。")
+    case .artworkUnavailable: L10n.text("无法读取专辑封面。")
     }
   }
 }
@@ -214,15 +271,23 @@ private enum MediaPlaybackError: LocalizedError {
 /// 使用原生 UIKit 控件驱动 VLCKit，支持常见容器、内嵌音轨、字幕和远程控制。
 @MainActor
 final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDelegate {
-  private let manifest: MediaPlaybackManifest
+  private var manifest: MediaPlaybackManifest
   private let client: MediaPlaybackClient
   private let instanceId: UUID
-  private let itemId: String
-  private let displayTitle: String
+  private var itemId: String
+  private var displayTitle: String
+  private var artworkURL: URL?
+  private let queue: [MediaPlaybackQueueItem]
+  private var queueIndex: Int
   private let player = VLCMediaPlayer(options: ["--no-mouse-events", "--no-keyboard-events"])
   private let videoView = UIView()
+  private let musicBackdropImageView = UIImageView()
+  private let musicBackdropBlur = UIVisualEffectView(
+    effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+  private let musicBackdropShade = UIView()
   private let musicStage = UIView()
-  private let musicArtwork = UIView()
+  private let musicArtwork = UIImageView()
+  private let musicArtworkPlaceholder = UIImageView(image: UIImage(systemName: "music.note"))
   private let lyricsScroll = UIScrollView()
   private let lyricsStack = UIStackView()
   private let musicArtistLabel = UILabel()
@@ -236,7 +301,10 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private let durationLabel = UILabel()
   private let loading = UIActivityIndicatorView(style: .large)
   private let titleLabel = UILabel()
+  private let musicTitleLabel = UILabel()
   private let playButton = UIButton(type: .system)
+  private let skipBackButton = UIButton(type: .system)
+  private let skipForwardButton = UIButton(type: .system)
   private let subtitleButton = UIButton(type: .system)
   private let audioButton = UIButton(type: .system)
   private let trackOptionsPill = UIVisualEffectView(
@@ -251,6 +319,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private var hideControlsTask: Task<Void, Never>?
   private var subtitleTask: Task<Void, Never>?
   private var lyricsTask: Task<Void, Never>?
+  private var artworkTask: Task<Void, Never>?
+  private var trackSwitchTask: Task<Void, Never>?
+  private var nowPlayingArtwork: MPMediaItemArtwork?
   private var subtitleFiles: [URL] = []
   private var activeSubtitleFile: URL?
   private var lyricCues: [MediaPlaybackLyricCue] = []
@@ -299,6 +370,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     instanceId: UUID,
     itemId: String,
     displayTitle: String,
+    artworkURL: URL? = nil,
+    queue: [MediaPlaybackQueueItem] = [],
+    queueIndex: Int = 0,
     onMinimize: @escaping (MediaPlaybackViewController) -> Void,
     onExpand: @escaping (MediaPlaybackViewController) -> Void,
     onClosePlayback: @escaping (MediaPlaybackViewController) -> Void
@@ -308,6 +382,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     self.instanceId = instanceId
     self.itemId = itemId
     self.displayTitle = displayTitle
+    self.artworkURL = artworkURL
+    self.queue = queue
+    self.queueIndex = queue.indices.contains(queueIndex) ? queueIndex : 0
     self.onMinimize = onMinimize
     self.onExpand = onExpand
     self.onClosePlayback = onClosePlayback
@@ -332,7 +409,10 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       MainActor.assumeIsolated { self?.refreshPlaybackState() }
     }
     player.play()
-    if isAudioPlayback { loadLyrics() }
+    if isAudioPlayback {
+      loadLyrics()
+      loadArtwork()
+    }
   }
 
   /// 恢复全屏后重新启用控制栏自动隐藏。
@@ -358,6 +438,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
   /// 创建视频画布、系统玻璃顶栏与独立控制区。
   private func configureViews() {
+    if isAudioPlayback { configureMusicBackdrop() }
     videoView.translatesAutoresizingMaskIntoConstraints = false
     videoView.backgroundColor = .black
     // VLC 的 DVD 鼠标手势不参与 App 控制，触摸统一交给外层控制器。
@@ -382,16 +463,25 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     ])
     loading.startAnimating()
 
-    titleLabel.text = displayTitle
     titleLabel.textColor = .white
     titleLabel.font = .preferredFont(forTextStyle: .headline)
     titleLabel.adjustsFontForContentSizeCategory = true
     titleLabel.numberOfLines = 1
     titleLabel.textAlignment = .center
-    titleLabel.isHidden = isAudioPlayback
+    titleLabel.text = isAudioPlayback ? L10n.text("正在播放") : displayTitle
+    titleLabel.isHidden = false
     titleLabel.accessibilityIdentifier = "playback-title"
-    let closeButton = makeGlassButton(
-      symbol: "chevron.left", accessibility: L10n.text("关闭播放器"), diameter: 44, pointSize: 18)
+    let closeButton: UIButton
+    if isAudioPlayback {
+      closeButton = UIButton(type: .system)
+      configureMusicCircleButton(
+        closeButton, symbol: "chevron.down", accessibility: L10n.text("关闭播放器"), diameter: 44,
+        pointSize: 18, primary: false)
+      closeButton.accessibilityIdentifier = "music-playback-close"
+    } else {
+      closeButton = makeGlassButton(
+        symbol: "chevron.left", accessibility: L10n.text("关闭播放器"), diameter: 44, pointSize: 18)
+    }
     closeButton.addAction(
       UIAction { [weak self] _ in self?.dismissPlayback() }, for: .touchUpInside)
     let moreButton = makeGlassButton(
@@ -400,12 +490,20 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     moreButton.showsMenuAsPrimaryAction = true
     playbackMenuButton = moreButton
     moreButton.menu = makePlaybackMenu()
-    topBar.addArrangedSubview(closeButton)
+    topBar.addArrangedSubview(fixedSquareControl(closeButton, diameter: 44))
     topBar.addArrangedSubview(titleLabel)
-    topBar.addArrangedSubview(moreButton)
+    if isAudioPlayback {
+      let routePicker = AVRoutePickerView()
+      routePicker.activeTintColor = .white
+      routePicker.tintColor = UIColor.white.withAlphaComponent(0.82)
+      routePicker.accessibilityIdentifier = "music-playback-output"
+      topBar.addArrangedSubview(fixedSquareControl(routePicker, diameter: 44))
+    } else {
+      topBar.addArrangedSubview(fixedSquareControl(moreButton, diameter: 44))
+    }
     topBar.axis = .horizontal
     topBar.alignment = .center
-    topBar.distribution = .fill
+    topBar.distribution = isAudioPlayback ? .equalSpacing : .fill
     topBar.spacing = 12
     topBar.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(topBar)
@@ -446,6 +544,60 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     guard pictureInPictureAvailable != available else { return }
     pictureInPictureAvailable = available
     playbackMenuButton?.menu = makePlaybackMenu()
+  }
+
+  /// 将播放控制固定在正方形触控槽内，阻止玻璃按钮在水平布局里被拉宽。
+  private func fixedSquareControl(_ control: UIView, diameter: CGFloat) -> UIView {
+    let slot = UIView()
+    slot.translatesAutoresizingMaskIntoConstraints = false
+    slot.addSubview(control)
+    control.translatesAutoresizingMaskIntoConstraints = false
+    control.setContentHuggingPriority(.required, for: .horizontal)
+    control.setContentCompressionResistancePriority(.required, for: .horizontal)
+    NSLayoutConstraint.activate([
+      slot.widthAnchor.constraint(equalToConstant: diameter),
+      slot.heightAnchor.constraint(equalToConstant: diameter),
+      control.leadingAnchor.constraint(equalTo: slot.leadingAnchor),
+      control.trailingAnchor.constraint(equalTo: slot.trailingAnchor),
+      control.topAnchor.constraint(equalTo: slot.topAnchor),
+      control.bottomAnchor.constraint(equalTo: slot.bottomAnchor),
+    ])
+    return slot
+  }
+
+  /// 配置音乐页的主播放圆键和玻璃跳转键。
+  private func configureMusicCircleButton(
+    _ button: UIButton, symbol: String, accessibility: String, diameter: CGFloat,
+    pointSize: CGFloat, primary: Bool
+  ) {
+    button.translatesAutoresizingMaskIntoConstraints = false
+    var configuration = UIButton.Configuration.filled()
+    if !primary {
+      if #available(iOS 26.0, *) {
+        configuration = .glass()
+      } else {
+        configuration = .plain()
+        button.backgroundColor = UIColor.white.withAlphaComponent(0.16)
+        button.layer.cornerRadius = diameter / 2
+        button.layer.borderWidth = 0.8
+        button.layer.borderColor = UIColor.white.withAlphaComponent(0.24).cgColor
+      }
+    }
+    configuration.cornerStyle = .capsule
+    configuration.baseForegroundColor = primary ? .black : .white
+    if primary { configuration.baseBackgroundColor = .white }
+    configuration.image = UIImage(systemName: symbol)
+    configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+      pointSize: pointSize, weight: .semibold)
+    button.configuration = configuration
+    button.accessibilityLabel = accessibility
+    button.tintColor = primary ? .black : .white
+    button.setContentHuggingPriority(.required, for: .horizontal)
+    button.setContentCompressionResistancePriority(.required, for: .horizontal)
+    NSLayoutConstraint.activate([
+      button.widthAnchor.constraint(equalToConstant: diameter),
+      button.heightAnchor.constraint(equalToConstant: diameter),
+    ])
   }
 
   /// 创建三枚玻璃拟态传输键、磨砂进度胶囊和仅含字幕音轨的底栏。
@@ -491,44 +643,85 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     progressRow.translatesAutoresizingMaskIntoConstraints = false
     progressPanel.layer.cornerRadius = 18
     progressPanel.layer.cornerCurve = .continuous
-    progressPanel.layer.borderWidth = 0.8
+    progressPanel.layer.borderWidth = isAudioPlayback ? 0 : 0.8
     progressPanel.layer.borderColor = UIColor.white.withAlphaComponent(0.16).cgColor
-    progressPanel.clipsToBounds = true
+    progressPanel.clipsToBounds = !isAudioPlayback
+    if isAudioPlayback {
+      progressPanel.backgroundColor = .clear
+      progressPanel.effect = nil
+    }
     progressPanel.translatesAutoresizingMaskIntoConstraints = false
     progressPanel.contentView.addSubview(progressRow)
     NSLayoutConstraint.activate([
       progressRow.leadingAnchor.constraint(
-        equalTo: progressPanel.contentView.leadingAnchor, constant: 12),
+        equalTo: progressPanel.contentView.leadingAnchor, constant: isAudioPlayback ? 0 : 12),
       progressRow.trailingAnchor.constraint(
-        equalTo: progressPanel.contentView.trailingAnchor, constant: -12),
-      progressRow.topAnchor.constraint(equalTo: progressPanel.contentView.topAnchor, constant: 6),
+        equalTo: progressPanel.contentView.trailingAnchor, constant: isAudioPlayback ? 0 : -12),
+      progressRow.topAnchor.constraint(
+        equalTo: progressPanel.contentView.topAnchor, constant: isAudioPlayback ? 0 : 6),
       progressRow.bottomAnchor.constraint(
-        equalTo: progressPanel.contentView.bottomAnchor, constant: -6),
+        equalTo: progressPanel.contentView.bottomAnchor, constant: isAudioPlayback ? 0 : -6),
       progressPanel.heightAnchor.constraint(equalToConstant: 50),
     ])
 
-    let skipBack = makeGlassButton(
-      symbol: "gobackward.10", accessibility: L10n.text("后退 10 秒"), diameter: 62, pointSize: 22)
-    skipBack.addAction(UIAction { [weak self] _ in self?.skip(seconds: -10) }, for: .touchUpInside)
+    if isAudioPlayback {
+      configureMusicCircleButton(
+        skipBackButton, symbol: "backward.end.fill", accessibility: L10n.text("上一首"),
+        diameter: 54, pointSize: 21, primary: false)
+      skipBackButton.accessibilityIdentifier = "music-playback-back"
+      configureMusicCircleButton(
+        playButton, symbol: "pause.fill", accessibility: L10n.text("暂停"), diameter: 76,
+        pointSize: 28, primary: true)
+      playButton.accessibilityIdentifier = "music-playback-toggle"
+      configureMusicCircleButton(
+        skipForwardButton, symbol: "forward.end.fill", accessibility: L10n.text("下一首"),
+        diameter: 54, pointSize: 21, primary: false)
+      skipForwardButton.accessibilityIdentifier = "music-playback-forward"
+    } else {
+      configureGlassButton(
+        skipBackButton, symbol: "gobackward.10", accessibility: L10n.text("后退 10 秒"),
+        diameter: 62, pointSize: 22)
+      configureGlassButton(
+        playButton, symbol: "pause.fill", accessibility: L10n.text("暂停"), diameter: 88,
+        pointSize: 30)
+      configureGlassButton(
+        skipForwardButton, symbol: "goforward.10", accessibility: L10n.text("前进 10 秒"),
+        diameter: 62, pointSize: 22)
+    }
+    skipBackButton.addAction(
+      UIAction { [weak self] _ in
+        if self?.isAudioPlayback == true {
+          self?.playPreviousTrack()
+        } else {
+          self?.skip(seconds: -10)
+        }
+      }, for: .touchUpInside)
     playButton.setImage(UIImage(systemName: "pause.fill"), for: .normal)
     playButton.accessibilityLabel = L10n.text("暂停")
-    styleAsGlassButton(playButton, diameter: 88, pointSize: 30)
-    playButton.setPreferredSymbolConfiguration(
-      UIImage.SymbolConfiguration(pointSize: 30, weight: .semibold), forImageIn: .normal)
+    if !isAudioPlayback {
+      playButton.setPreferredSymbolConfiguration(
+        UIImage.SymbolConfiguration(pointSize: 30, weight: .semibold), forImageIn: .normal)
+    }
     playButton.addAction(UIAction { [weak self] _ in self?.togglePlayback() }, for: .touchUpInside)
-    let skipForward = makeGlassButton(
-      symbol: "goforward.10", accessibility: L10n.text("前进 10 秒"), diameter: 62, pointSize: 22)
-    skipForward.addAction(
-      UIAction { [weak self] _ in self?.skip(seconds: 10) }, for: .touchUpInside)
+    skipForwardButton.addAction(
+      UIAction { [weak self] _ in
+        if self?.isAudioPlayback == true { self?.playNextTrack() } else { self?.skip(seconds: 10) }
+      }, for: .touchUpInside)
     transport.axis = .horizontal
     transport.alignment = .center
-    transport.distribution = .fill
-    transport.spacing = 24
+    transport.distribution = isAudioPlayback ? .equalSpacing : .fill
+    transport.spacing = isAudioPlayback ? 0 : 24
     transport.translatesAutoresizingMaskIntoConstraints = false
-    transport.addArrangedSubview(skipBack)
-    transport.addArrangedSubview(playButton)
-    transport.addArrangedSubview(skipForward)
-    if !isAudioPlayback {
+    if isAudioPlayback {
+      transport.addArrangedSubview(fixedSquareControl(skipBackButton, diameter: 54))
+      transport.addArrangedSubview(fixedSquareControl(playButton, diameter: 76))
+      transport.addArrangedSubview(fixedSquareControl(skipForwardButton, diameter: 54))
+      transport.widthAnchor.constraint(equalToConstant: 228).isActive = true
+      transport.heightAnchor.constraint(equalToConstant: 76).isActive = true
+    } else {
+      transport.addArrangedSubview(skipBackButton)
+      transport.addArrangedSubview(playButton)
+      transport.addArrangedSubview(skipForwardButton)
       view.addSubview(transport)
       NSLayoutConstraint.activate([
         transport.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -587,13 +780,11 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     footer.alignment = .center
     footer.spacing = 8
 
-    let stack = UIStackView(
-      arrangedSubviews: isAudioPlayback
-        ? [progressPanel, transport, footer]
-        : [progressPanel, footer])
+    trackOptionsPill.isHidden = isAudioPlayback || (subtitleButton.isHidden && audioButton.isHidden)
+    let stack = UIStackView(arrangedSubviews: [progressPanel, isAudioPlayback ? transport : footer])
     stack.axis = .vertical
-    stack.alignment = .fill
-    stack.spacing = 10
+    stack.alignment = isAudioPlayback ? .center : .fill
+    stack.spacing = isAudioPlayback ? 14 : 10
     stack.translatesAutoresizingMaskIntoConstraints = false
     controls.addSubview(stack)
     NSLayoutConstraint.activate([
@@ -602,6 +793,10 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       stack.topAnchor.constraint(equalTo: controls.topAnchor),
       stack.bottomAnchor.constraint(equalTo: controls.bottomAnchor),
     ])
+    if isAudioPlayback {
+      progressPanel.widthAnchor.constraint(equalTo: controls.widthAnchor).isActive = true
+    }
+    refreshQueueControls(current: 0)
 
     let tap = UITapGestureRecognizer(target: self, action: #selector(toggleControls))
     tap.delegate = self
@@ -609,7 +804,35 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     view.addGestureRecognizer(tap)
   }
 
-  /// 显示本地音频的原生封面占位、曲目信息与可滚动同步歌词。
+  /// 为 Now Playing 页面铺设封面取色背景、暗化与模糊层。
+  private func configureMusicBackdrop() {
+    musicBackdropImageView.translatesAutoresizingMaskIntoConstraints = false
+    musicBackdropImageView.contentMode = .scaleAspectFill
+    musicBackdropImageView.clipsToBounds = true
+    musicBackdropImageView.accessibilityIdentifier = "music-playback-backdrop"
+    view.addSubview(musicBackdropImageView)
+    musicBackdropBlur.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(musicBackdropBlur)
+    musicBackdropShade.translatesAutoresizingMaskIntoConstraints = false
+    musicBackdropShade.backgroundColor = UIColor.black.withAlphaComponent(0.38)
+    view.addSubview(musicBackdropShade)
+    NSLayoutConstraint.activate([
+      musicBackdropImageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      musicBackdropImageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      musicBackdropImageView.topAnchor.constraint(equalTo: view.topAnchor),
+      musicBackdropImageView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      musicBackdropBlur.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      musicBackdropBlur.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      musicBackdropBlur.topAnchor.constraint(equalTo: view.topAnchor),
+      musicBackdropBlur.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      musicBackdropShade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      musicBackdropShade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      musicBackdropShade.topAnchor.constraint(equalTo: view.topAnchor),
+      musicBackdropShade.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
+  }
+
+  /// 显示封面、曲目信息与同步歌词，沿用 Apple Music Now Playing 的层次。
   private func configureMusicStage(below topBar: UIView) {
     musicStage.translatesAutoresizingMaskIntoConstraints = false
     musicStage.accessibilityIdentifier = "music-playback-stage"
@@ -627,37 +850,43 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     musicArtwork.accessibilityIdentifier = "music-playback-artwork"
     musicArtwork.accessibilityLabel = L10n.text("专辑封面")
     musicArtwork.isAccessibilityElement = true
-    musicArtwork.backgroundColor = UIColor.secondarySystemBackground
-    musicArtwork.layer.cornerRadius = 12
-    let note = UIImageView(image: UIImage(systemName: "music.note"))
-    note.translatesAutoresizingMaskIntoConstraints = false
-    note.tintColor = .systemPink
-    note.contentMode = .scaleAspectFit
-    musicArtwork.addSubview(note)
+    musicArtwork.accessibilityValue = L10n.text("专辑封面加载中")
+    musicArtwork.backgroundColor = UIColor.white.withAlphaComponent(0.12)
+    musicArtwork.contentMode = .scaleAspectFill
+    musicArtwork.clipsToBounds = true
+    musicArtwork.layer.cornerRadius = 18
+    musicArtwork.layer.cornerCurve = .continuous
+    musicArtworkPlaceholder.translatesAutoresizingMaskIntoConstraints = false
+    musicArtworkPlaceholder.tintColor = UIColor.white.withAlphaComponent(0.82)
+    musicArtworkPlaceholder.contentMode = .scaleAspectFit
+    musicArtwork.addSubview(musicArtworkPlaceholder)
     NSLayoutConstraint.activate([
-      note.centerXAnchor.constraint(equalTo: musicArtwork.centerXAnchor),
-      note.centerYAnchor.constraint(equalTo: musicArtwork.centerYAnchor),
-      note.widthAnchor.constraint(equalToConstant: 70),
-      note.heightAnchor.constraint(equalToConstant: 82),
+      musicArtworkPlaceholder.centerXAnchor.constraint(equalTo: musicArtwork.centerXAnchor),
+      musicArtworkPlaceholder.centerYAnchor.constraint(equalTo: musicArtwork.centerYAnchor),
+      musicArtworkPlaceholder.widthAnchor.constraint(equalToConstant: 52),
+      musicArtworkPlaceholder.heightAnchor.constraint(equalToConstant: 62),
     ])
 
-    let title = UILabel()
-    title.text = displayTitle
-    title.font = .preferredFont(forTextStyle: .title2)
-    title.adjustsFontForContentSizeCategory = true
-    title.textColor = .label
-    title.textAlignment = .center
-    title.numberOfLines = 2
-    title.accessibilityIdentifier = "music-playback-title"
+    musicTitleLabel.text = displayTitle
+    musicTitleLabel.font = .preferredFont(forTextStyle: .title1)
+    musicTitleLabel.adjustsFontForContentSizeCategory = true
+    musicTitleLabel.textColor = .white
+    musicTitleLabel.textAlignment = .center
+    musicTitleLabel.numberOfLines = 2
+    musicTitleLabel.accessibilityIdentifier = "music-playback-title"
     musicArtistLabel.text = manifest.artist ?? L10n.text("未知艺人")
-    musicArtistLabel.font = .preferredFont(forTextStyle: .subheadline)
-    musicArtistLabel.textColor = .secondaryLabel
+    musicArtistLabel.font = .preferredFont(forTextStyle: .headline)
+    musicArtistLabel.textColor = UIColor.white.withAlphaComponent(0.84)
     musicArtistLabel.textAlignment = .center
+    musicArtistLabel.isHidden = manifest.artist?.isEmpty ?? true
     musicAlbumLabel.text = manifest.album
-    musicAlbumLabel.font = .preferredFont(forTextStyle: .caption1)
-    musicAlbumLabel.textColor = .tertiaryLabel
+    musicAlbumLabel.font = .preferredFont(forTextStyle: .subheadline)
+    musicAlbumLabel.textColor = UIColor.white.withAlphaComponent(0.62)
     musicAlbumLabel.textAlignment = .center
-    let metadata = UIStackView(arrangedSubviews: [title, musicArtistLabel, musicAlbumLabel])
+    musicAlbumLabel.isHidden = manifest.album?.isEmpty ?? true
+    let metadata = UIStackView(arrangedSubviews: [
+      musicTitleLabel, musicArtistLabel, musicAlbumLabel,
+    ])
     metadata.axis = .vertical
     metadata.alignment = .fill
     metadata.spacing = 4
@@ -667,7 +896,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     lyricsScroll.accessibilityIdentifier = "music-playback-lyrics"
     lyricsStack.axis = .vertical
     lyricsStack.alignment = .fill
-    lyricsStack.spacing = 14
+    lyricsStack.spacing = 12
     lyricsStack.translatesAutoresizingMaskIntoConstraints = false
     lyricsScroll.addSubview(lyricsStack)
     NSLayoutConstraint.activate([
@@ -692,19 +921,23 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     content.spacing = 14
     content.translatesAutoresizingMaskIntoConstraints = false
     musicStage.addSubview(content)
+    let preferredArtworkWidth = musicArtwork.widthAnchor.constraint(
+      equalTo: musicStage.widthAnchor, multiplier: 0.68)
+    preferredArtworkWidth.priority = .defaultHigh
     NSLayoutConstraint.activate([
       content.leadingAnchor.constraint(equalTo: musicStage.leadingAnchor),
       content.trailingAnchor.constraint(equalTo: musicStage.trailingAnchor),
-      content.centerYAnchor.constraint(equalTo: musicStage.centerYAnchor),
-      content.topAnchor.constraint(greaterThanOrEqualTo: musicStage.topAnchor),
+      content.topAnchor.constraint(equalTo: musicStage.topAnchor, constant: 12),
       content.bottomAnchor.constraint(lessThanOrEqualTo: musicStage.bottomAnchor),
       artworkRow.heightAnchor.constraint(equalTo: musicArtwork.heightAnchor),
       musicArtwork.centerXAnchor.constraint(equalTo: artworkRow.centerXAnchor),
       musicArtwork.centerYAnchor.constraint(equalTo: artworkRow.centerYAnchor),
-      musicArtwork.widthAnchor.constraint(equalTo: musicStage.widthAnchor, multiplier: 0.58),
+      preferredArtworkWidth,
+      musicArtwork.widthAnchor.constraint(lessThanOrEqualToConstant: 280),
       musicArtwork.heightAnchor.constraint(equalTo: musicArtwork.widthAnchor),
-      musicArtwork.heightAnchor.constraint(lessThanOrEqualToConstant: 220),
-      lyricsScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 128),
+      musicArtwork.heightAnchor.constraint(
+        lessThanOrEqualTo: musicStage.heightAnchor, multiplier: 0.4),
+      lyricsScroll.heightAnchor.constraint(equalToConstant: 152),
     ])
   }
 
@@ -751,6 +984,28 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         self.replaceLyrics(with: [])
       }
     }
+  }
+
+  /// 下载后端图片代理的单曲封面，并同步更新播放器背景与锁屏信息。
+  private func loadArtwork() {
+    guard let artworkURL else { return }
+    artworkTask?.cancel()
+    artworkTask = Task { [weak self] in
+      guard let self, let image = try? await self.client.downloadArtwork(artworkURL),
+        !Task.isCancelled, !self.closed
+      else { return }
+      self.musicArtwork.image = image
+      self.musicArtwork.accessibilityValue = L10n.text("专辑封面已加载")
+      self.musicArtworkPlaceholder.isHidden = true
+      self.musicBackdropImageView.image = image
+      self.nowPlayingArtwork = Self.makeNowPlayingArtwork(image)
+      self.refreshNowPlayingInfo()
+    }
+  }
+
+  /// 锁屏服务会在后台队列请求同一张不可变封面图，避免闭包继承界面主线程隔离。
+  nonisolated private static func makeNowPlayingArtwork(_ image: UIImage) -> MPMediaItemArtwork {
+    MPMediaItemArtwork(boundsSize: image.size) { _ in image }
   }
 
   /// 解析 UTF-8/UTF-16 LRC 时间戳，支持同一歌词行的多个起始时间。
@@ -804,11 +1059,12 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     for (index, cue) in cues.enumerated() {
       let button = UIButton(type: .system)
       button.setTitle(cue.text, for: .normal)
-      button.titleLabel?.font = .preferredFont(forTextStyle: .subheadline)
+      button.titleLabel?.font = .preferredFont(forTextStyle: .title3)
       button.titleLabel?.adjustsFontForContentSizeCategory = true
       button.titleLabel?.numberOfLines = 0
-      button.titleLabel?.textAlignment = .center
+      button.titleLabel?.textAlignment = .left
       button.tintColor = .white
+      button.setTitleColor(UIColor.white.withAlphaComponent(0.58), for: .normal)
       button.accessibilityIdentifier = "playback-lyric-line-\(index)"
       button.accessibilityLabel = cue.text
       button.addAction(UIAction { [weak self] _ in self?.seekToLyric(index) }, for: .touchUpInside)
@@ -827,11 +1083,12 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     activeLyricIndex = nextIndex
     for (index, button) in lyricButtons.enumerated() {
       let active = index == nextIndex
-      button.alpha = active ? 1 : 0.48
+      button.alpha = active ? 1 : 0.7
       button.accessibilityValue = active ? L10n.text("当前播放") : nil
-      button.titleLabel?.font = .preferredFont(forTextStyle: active ? .headline : .subheadline)
+      button.setTitleColor(active ? .white : UIColor.white.withAlphaComponent(0.58), for: .normal)
+      button.titleLabel?.font = .preferredFont(forTextStyle: active ? .title3 : .subheadline)
       button.titleLabel?.font = UIFont.systemFont(
-        ofSize: UIFont.preferredFont(forTextStyle: active ? .headline : .subheadline).pointSize,
+        ofSize: UIFont.preferredFont(forTextStyle: active ? .title3 : .subheadline).pointSize,
         weight: active ? .semibold : .regular)
     }
     guard let nextIndex, lyricButtons.indices.contains(nextIndex) else { return }
@@ -917,12 +1174,20 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     center.skipForwardCommand.addTarget(self, action: #selector(remoteForward))
     center.skipBackwardCommand.preferredIntervals = [10]
     center.skipBackwardCommand.addTarget(self, action: #selector(remoteBackward))
+    center.nextTrackCommand.addTarget(self, action: #selector(remoteNextTrack))
+    center.previousTrackCommand.addTarget(self, action: #selector(remotePreviousTrack))
     center.playCommand.isEnabled = true
     center.pauseCommand.isEnabled = true
     center.togglePlayPauseCommand.isEnabled = true
     center.changePlaybackPositionCommand.isEnabled = true
     center.skipForwardCommand.isEnabled = true
     center.skipBackwardCommand.isEnabled = true
+    center.nextTrackCommand.isEnabled = isAudioPlayback && queue.indices.contains(queueIndex + 1)
+    center.previousTrackCommand.isEnabled = isAudioPlayback && queueIndex > 0
+    if isAudioPlayback {
+      center.skipForwardCommand.isEnabled = false
+      center.skipBackwardCommand.isEnabled = false
+    }
     refreshNowPlayingInfo()
   }
 
@@ -1029,6 +1294,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       audioButton.isHidden = audioTracks.count <= 1
     }
     trackOptionsPill.isHidden = subtitleButton.isHidden && audioButton.isHidden
+    refreshQueueControls(current: current)
     refreshNowPlayingInfo(current: current, duration: duration)
     if isAudioPlayback { refreshLyrics(currentMilliseconds: current) }
     offerResumeIfNeeded(duration: duration)
@@ -1097,6 +1363,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     if isAudioPlayback {
       information[MPMediaItemPropertyArtist] = manifest.artist
       information[MPMediaItemPropertyAlbumTitle] = manifest.album
+      if let nowPlayingArtwork { information[MPMediaItemPropertyArtwork] = nowPlayingArtwork }
     }
     MPNowPlayingInfoCenter.default().nowPlayingInfo = information
     MPNowPlayingInfoCenter.default().playbackState = player.isPlaying ? .playing : .paused
@@ -1122,6 +1389,87 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     let target = min(duration, max(0, current + seconds * 1000))
     player.time = VLCTime(int: Int32(clamping: target))
     showControls()
+  }
+
+  /// 在首曲播放不足三秒时切到上一首，否则从头重播当前歌曲。
+  private func playPreviousTrack() {
+    let current = max(0, Int(player.time.intValue))
+    guard current > 3_000 || queueIndex > 0 else { return }
+    if current > 3_000 {
+      player.time = VLCTime(int: 0)
+      showControls()
+    } else {
+      switchTrack(at: queueIndex - 1)
+    }
+  }
+
+  /// 播放当前队列中的下一首歌曲。
+  private func playNextTrack() {
+    switchTrack(at: queueIndex + 1)
+  }
+
+  /// 加载下一条媒体服务器流并同步更新曲目信息、封面和歌词。
+  private func switchTrack(at index: Int) {
+    guard isAudioPlayback, trackSwitchTask == nil, queue.indices.contains(index),
+      index != queueIndex
+    else { return }
+    let item = queue[index]
+    skipBackButton.isEnabled = false
+    skipForwardButton.isEnabled = false
+    MPRemoteCommandCenter.shared().previousTrackCommand.isEnabled = false
+    MPRemoteCommandCenter.shared().nextTrackCommand.isEnabled = false
+    trackSwitchTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        let manifest = try await self.client.loadManifest(itemId: item.itemId, server: item.server)
+        guard !Task.isCancelled, !self.closed else { return }
+        let media = try self.client.makeMedia(url: manifest.contentUrl)
+        self.player.stop()
+        self.player.media = media
+        self.manifest = manifest
+        self.itemId = item.itemId
+        self.displayTitle = item.title
+        self.musicTitleLabel.text = item.title
+        self.musicArtistLabel.text = manifest.artist
+        self.musicArtistLabel.isHidden = manifest.artist?.isEmpty ?? true
+        self.musicAlbumLabel.text = manifest.album
+        self.musicAlbumLabel.isHidden = manifest.album?.isEmpty ?? true
+        self.artworkURL = item.artworkURL.flatMap(URL.init(string:))
+        self.musicArtwork.image = nil
+        self.musicArtworkPlaceholder.isHidden = false
+        self.musicArtwork.accessibilityValue = L10n.text("专辑封面加载中")
+        self.musicBackdropImageView.image = nil
+        self.nowPlayingArtwork = nil
+        self.queueIndex = index
+        self.savedProgress = nil
+        self.resumePromptShown = true
+        self.lyricsTask?.cancel()
+        self.artworkTask?.cancel()
+        self.replaceLyrics(with: [])
+        self.loadLyrics()
+        self.loadArtwork()
+        self.player.time = VLCTime(int: 0)
+        self.player.play()
+        self.trackSwitchTask = nil
+        self.refreshPlaybackState()
+        self.showControls()
+      } catch {
+        guard !Task.isCancelled, !self.closed else { return }
+        self.trackSwitchTask = nil
+        self.refreshQueueControls(current: Int(self.player.time.intValue))
+        self.showError(error.localizedDescription)
+      }
+    }
+  }
+
+  /// 根据队列位置更新界面按钮及锁屏上一首、下一首命令的可用状态。
+  private func refreshQueueControls(current: Int) {
+    guard isAudioPlayback else { return }
+    skipBackButton.isEnabled = queueIndex > 0 || current > 3_000
+    skipForwardButton.isEnabled = queue.indices.contains(queueIndex + 1)
+    let center = MPRemoteCommandCenter.shared()
+    center.previousTrackCommand.isEnabled = skipBackButton.isEnabled
+    center.nextTrackCommand.isEnabled = skipForwardButton.isEnabled
   }
 
   /// 按毫秒格式化已播放或总时长。
@@ -1214,7 +1562,10 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
     hideControlsTask = Task { [weak self] in
       try? await Task.sleep(for: .seconds(8))
-      guard !Task.isCancelled, let self, self.presentedViewController == nil else { return }
+      guard !Task.isCancelled, let self else { return }
+      // 弹窗阻止隐藏后也要释放已结束的任务，让后续播放状态刷新重新计时。
+      self.hideControlsTask = nil
+      guard self.presentedViewController == nil else { return }
       self.hideControls()
     }
   }
@@ -1336,6 +1687,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     updateTimer = nil
     subtitleTask?.cancel()
     lyricsTask?.cancel()
+    artworkTask?.cancel()
+    trackSwitchTask?.cancel()
     hideControlsTask?.cancel()
     NotificationCenter.default.removeObserver(self)
     pictureInPicture.stop()
@@ -1348,6 +1701,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     center.changePlaybackPositionCommand.removeTarget(self)
     center.skipForwardCommand.removeTarget(self)
     center.skipBackwardCommand.removeTarget(self)
+    center.nextTrackCommand.removeTarget(self)
+    center.previousTrackCommand.removeTarget(self)
     MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     MPNowPlayingInfoCenter.default().playbackState = .stopped
     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -1404,6 +1759,18 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   /// 耳机后退命令回退 10 秒。
   @objc private func remoteBackward() -> MPRemoteCommandHandlerStatus {
     skip(seconds: -10)
+    return .success
+  }
+
+  /// 锁屏上一首命令沿用界面按钮的三秒重播规则。
+  @objc private func remotePreviousTrack() -> MPRemoteCommandHandlerStatus {
+    playPreviousTrack()
+    return .success
+  }
+
+  /// 锁屏下一首命令切到队列中的下一项。
+  @objc private func remoteNextTrack() -> MPRemoteCommandHandlerStatus {
+    playNextTrack()
     return .success
   }
 }
