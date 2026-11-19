@@ -89,3 +89,15 @@ final result: passed
 - 中间失败批次及测试辅助定位修正逐项记录，未把它们改写为整体成功。既有键盘工具栏运行警告、最低系统/真机、完整 VoiceOver/性能与全生态仍继续验收。
 
 本批配置页面的实际视觉/可用性检查：passed；结论不覆盖全部产品或生产插件执行结果。
+
+## P2.2b.2a 原生 Cron 追加检查
+
+按指定 swiftui-liquid-glass 技能继续复用同一套 Rex 渐变、玻璃分组和原生导航。固定一种风格，未增加主题选择。来源、批次与完整边界见 [Cron 验收](docs/native-v2/evidence/2026-11-20-plugin-cron.md)。
+
+- 实际打开 [Rex / 原生计划 / 模式选择并排图](docs/native-v2/evidence/2026-11-20-plugin-cron/rex-comparison.png)，比较背景、材质透底、圆角/分隔、字体/提示、间距与导航。模式页保持同一原生外观，未退回纯灰/白列表底。
+- 实操发现同一 Form 玻璃分组的多个 NavigationLink 会整行联动，改为明确的逐项按钮与按单位隔离草稿；真实 UI 分别验证五个单位的导航/编辑，取消和父表单保存边界分明。
+- 最大辅助字号横屏暴露模式菜单溢出视口，改为可滚动原生选择页。最终 iPhone 和 iPad 均完成星期空选禁用、选择/应用/保存；没有缩字、坐标点击或删除该状态来绕过。
+- 检查 [iPad 降低透明度/分钟间隔](docs/native-v2/evidence/2026-11-20-plugin-cron/ipad-accessibility/rex-cron-minute-step.png) 和 [最大字号选值](docs/native-v2/evidence/2026-11-20-plugin-cron/ipad-accessibility/rex-cron-largest-weekday.png)。真实辅助设置开启，同色实面、分隔与系统按钮保持可用，长表单自然滚动。
+- 图片仅方向转正、去元数据、等比缩小；并排标签置于截图外。配置界面不加入装饰海报，媒体页海报要求继续后续阶段。保留全部中间失败，不以局部通过代替完整产品、真机、最低系统或 VoiceOver 验收。
+
+此叶子的实际视觉与操作检查：passed；既有 Form/键盘工具栏布局警告继续 P8，未冒记为已解决。

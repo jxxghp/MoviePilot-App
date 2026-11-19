@@ -25,7 +25,8 @@ def documents():
     source["model"]["future"] = {"integer": 9007199254740993, "hidden": "fixture-only-hidden"}
     unsupported = copy.deepcopy(source)
     unsupported["conf"].append({"component": "VRow", "props": {"v-show": "false"}, "content": [
-        {"component": "VCronField", "props": {"model": "cron", "label": "计划"}}
+        {"component": "VCronField", "props": {"model": "cron", "label": "计划"}},
+        {"component": "VAceEditor", "props": {"model": "advanced", "label": "高级配置"}}
     ]})
     unsupported["model"]["cron"] = "0 9 * * *"
     controls = {
@@ -45,7 +46,17 @@ def documents():
         "model": {"enabled": False, "path": "/media/preserved", "sources": [1, "old"],
                   "secret": "fixture-only-private", "amount": 2, "future": {"integer": 9007199254740993}},
     }
-    return {PHYSICAL_ID: source, "UnsupportedFixture": unsupported, "NativeControlsFixture": controls}
+    cron = json.loads(FIXTURE_PATH.with_name("libraryscraper-form.json").read_text())
+    cron["model"]["future"] = {"integer": 9007199254740993, "hidden": "fixture-only-hidden"}
+    compatibility = {
+        "render_mode": "vuetify",
+        "conf": [{"component": "VSwitch", "props": {"model": "enabled", "label": "启用计划"}}] + [
+            {"component": "VCronField", "props": {"model": key, "label": title, "clearable": key != "empty"}}
+            for key, title in [("cron", "插件间隔"), ("empty", "空值计划"), ("missing", "可选计划")]],
+        "model": {"enabled": False, "cron": 6, "empty": None, "future": {"integer": 9007199254740993}},
+    }
+    return {PHYSICAL_ID: source, "UnsupportedFixture": unsupported, "NativeControlsFixture": controls,
+            "LibraryScraper_copy": cron, "CronCompatibilityFixture": compatibility}
 
 
 class PluginFixture(BASE.NativeFixture):
@@ -115,8 +126,12 @@ class PluginHandler(BASE.NativeHandler):
                 {"id": "NativeControlsFixture", "source_plugin_id": "NativeControlsFixture", "installed": True,
                  "plugin_name": "原生控件验收", "plugin_desc": "合成条件、多选与密码用例", "plugin_version": "fixture"},
                 {"id": "UnsupportedFixture", "source_plugin_id": "MediaDirWatcher", "installed": True,
-                 "plugin_name": "未支持能力验收", "plugin_desc": "合成隐藏 Cron 节点", "plugin_version": "fixture"},
-            ], {"X-Total-Count": "3"})
+                 "plugin_name": "未支持能力验收", "plugin_desc": "合成隐藏 Cron 与未支持编辑器", "plugin_version": "fixture"},
+                {"id": "LibraryScraper_copy", "source_plugin_id": "LibraryScraper", "installed": True,
+                 "plugin_name": "媒体库刮削", "plugin_desc": "官方完整 Cron 表单（合成服务）", "plugin_version": "fixture"},
+                {"id": "CronCompatibilityFixture", "source_plugin_id": "CronCompatibilityFixture", "installed": True,
+                 "plugin_name": "计划兼容验收", "plugin_desc": "合成间隔、空值与可选字段", "plugin_version": "fixture"},
+            ], {"X-Total-Count": "5"})
         prefix = "api/v1/plugin/form/"
         if self.command == "GET" and endpoint.startswith(prefix) and not url.query:
             plugin = endpoint[len(prefix):]
@@ -135,7 +150,7 @@ class PluginHandler(BASE.NativeHandler):
             if original is not None:
                 try:
                     value = json.loads(body)
-                    if not isinstance(value, dict) or set(value) != set(original["model"]) or "application/json" not in self.headers.get("Content-Type", ""):
+                    if not isinstance(value, dict) or not set(original["model"]).issubset(value) or "application/json" not in self.headers.get("Content-Type", ""):
                         raise ValueError()
                 except (ValueError, TypeError):
                     return self.reply(400, {"success": False})

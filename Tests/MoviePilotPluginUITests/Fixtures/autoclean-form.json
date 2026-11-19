@@ -1,0 +1,163 @@
+{
+  "render_mode": "vuetify",
+  "conf": [
+    {
+      "component": "VForm",
+      "content": [
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 4
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "enabled",
+                    "label": "启用插件"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 4
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "onlyonce",
+                    "label": "立即运行一次"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 4
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "notify",
+                    "label": "开启通知"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 4
+              },
+              "content": [
+                {
+                  "component": "VCronField",
+                  "props": {
+                    "model": "cron",
+                    "label": "执行周期",
+                    "placeholder": "0 0 ? ? ?"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 4
+              },
+              "content": [
+                {
+                  "component": "VSelect",
+                  "props": {
+                    "model": "cleantype",
+                    "label": "全局清理方式",
+                    "items": [
+                      {
+                        "title": "媒体库文件",
+                        "value": "dest"
+                      },
+                      {
+                        "title": "源文件",
+                        "value": "src"
+                      },
+                      {
+                        "title": "所有文件",
+                        "value": "all"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 4
+              },
+              "content": [
+                {
+                  "component": "VTextField",
+                  "props": {
+                    "model": "cleandate",
+                    "label": "全局清理日期",
+                    "placeholder": "清理多少天之前的下载记录（天）"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VTextarea",
+                  "props": {
+                    "model": "cleanuser",
+                    "label": "清理配置",
+                    "rows": 6,
+                    "placeholder": "每一行一个配置，支持以下几种配置方式，清理方式支持 src、desc、all 分别对应源文件，媒体库文件，所有文件\n用户名缺省默认清理所有用户(慎重留空)，清理天数缺省默认使用全局清理天数，清理方式缺省默认使用全局清理方式\n用户名/插件名（豆瓣想看、豆瓣榜单、RSS订阅）\n用户名#清理方式\n用户名:清理天数\n用户名:清理天数#清理方式"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "model": {
+    "enabled": false,
+    "onlyonce": false,
+    "notify": false,
+    "cleantype": "dest",
+    "cron": "",
+    "cleanuser": "",
+    "cleandate": 30
+  }
+}

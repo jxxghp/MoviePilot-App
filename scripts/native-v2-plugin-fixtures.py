@@ -93,6 +93,10 @@ def select(tree: ast.AST, spec: dict) -> ast.AST:
 def specifications() -> list[dict]:
     """所有动态替换均在本地写明为合成值，未从运行服务读取。"""
     return [
+        {"file": name + "-form.json", "source": "plugins.v3/" + name + "/__init__.py",
+         "method": "get_form", "surface": "form"}
+        for name in ("libraryscraper", "doubanrank", "rsssubscribe", "autoclean")
+    ] + [
         {"file": "mediadirwatcher-form.json", "source": "plugins.v3/mediadirwatcher/__init__.py",
          "method": "get_form", "surface": "form"},
         {"file": "autosignin-form.json", "source": "plugins.v3/autosignin/__init__.py",

@@ -17,6 +17,7 @@
 		23E731081F1C8B9393CDE436 /* MoviePilotWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A53F32D403882DC68D3CE17 /* MoviePilotWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		26EA21BAF0EB0F9D663FE97F /* MoviePilotWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E9D58111CB3F6D0CC5F8EB /* MoviePilotWidgets.swift */; };
 		2BD57F8FAA89B6CE62520CDF /* CardMenuInteraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32C08F097B084258A76DECD1 /* CardMenuInteraction.swift */; };
+		3D424A853E324626526E7C32 /* NativePluginCronEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 956812F9BDCA0C80A21A1D4D /* NativePluginCronEditor.swift */; };
 		3D6B172B7B5B1AA97966CF0F /* CinematicForms.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDEA5C38B21EC1C887096B9D /* CinematicForms.swift */; };
 		4230F60B0326B26D9A25E2BC /* ShellController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EDD6E57585F04BA1211B21F /* ShellController.swift */; };
 		4514E3EA6787F9D5520FCDBA /* LegacyWebSceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 093747F8F5F5A6F3F70FF06A /* LegacyWebSceneDelegate.swift */; };
@@ -163,6 +164,7 @@
 		8072C0F89DB70887DB4A4AEC /* LoginController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginController.swift; sourceTree = "<group>"; };
 		82C723DD27397A1AD7E2E7E2 /* WebContentController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebContentController.swift; sourceTree = "<group>"; };
 		86D43CD80FACB4AAA460D482 /* OperationMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationMenuController.swift; sourceTree = "<group>"; };
+		956812F9BDCA0C80A21A1D4D /* NativePluginCronEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginCronEditor.swift; sourceTree = "<group>"; };
 		97C577DD42CBEF2372229CE0 /* NativePanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePanelController.swift; sourceTree = "<group>"; };
 		9CC86AABC2EEAB48327D089F /* MoviePilotDesignPreviewApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoviePilotDesignPreviewApp.swift; sourceTree = "<group>"; };
 		9F0DF2142B7D5B4A29F499BD /* LanguageBootstrap.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = LanguageBootstrap.js; sourceTree = "<group>"; };
@@ -313,6 +315,7 @@
 			children = (
 				56A041E4198BE71B63A2B109 /* NativeAppModel.swift */,
 				C70F0E54BFC5895C7EBDD0AD /* NativePluginCatalogView.swift */,
+				956812F9BDCA0C80A21A1D4D /* NativePluginCronEditor.swift */,
 				B27822CB5BB7D354B979B834 /* NativePluginFormView.swift */,
 				57AF1DC6B88739AE85862902 /* NativeV2RootView.swift */,
 				18137A11C852F3555A73F283 /* NativeV2SceneDelegate.swift */,
@@ -643,6 +646,7 @@
 				9DF0F4028DD3BB274401298C /* NativeAppModel.swift in Sources */,
 				F9CFC187B7A882F2EE4BBA4E /* NativePanelController.swift in Sources */,
 				FA7D96C95BCA99B1CDDEABA8 /* NativePluginCatalogView.swift in Sources */,
+				3D424A853E324626526E7C32 /* NativePluginCronEditor.swift in Sources */,
 				D7EDEDB0DE9835F49D973665 /* NativePluginFormView.swift in Sources */,
 				8DF5E1BB381E11AE01C5C435 /* NativeV2RootView.swift in Sources */,
 				D2AE907740AD1CA35EDE9E4F /* NativeV2SceneDelegate.swift in Sources */,

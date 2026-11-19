@@ -3,6 +3,46 @@
   "method": "AST data only; no plugin imports or execution",
   "fixtures": [
     {
+      "file": "libraryscraper-form.json",
+      "surface": "form",
+      "source": "plugins.v3/libraryscraper/__init__.py",
+      "line": 153,
+      "source_sha256": "58a0f3e139c15663385a0eefe918f0c75713ac0486c1aaf6a1a2f0ff12188717",
+      "fixture_sha256": "e4b459bf32c7d25420690021857b8cb9cde9c6fb57ca20f4e46a6d43bbdfd941",
+      "symbols": {},
+      "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly."
+    },
+    {
+      "file": "doubanrank-form.json",
+      "surface": "form",
+      "source": "plugins.v3/doubanrank/__init__.py",
+      "line": 220,
+      "source_sha256": "c8b62091c704611f317fa007ea0b0b02702dca03d7ad4fb4652fe34de2f5f310",
+      "fixture_sha256": "dd7f441810217d7852b817061d8bbff20e302697d560eaf4e94dc905edd8c787",
+      "symbols": {},
+      "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly."
+    },
+    {
+      "file": "rsssubscribe-form.json",
+      "surface": "form",
+      "source": "plugins.v3/rsssubscribe/__init__.py",
+      "line": 218,
+      "source_sha256": "f9f6d9d39a9570547a992ccfe2d12d8dc5c42b8eff6fb4a4edf59533a761c62c",
+      "fixture_sha256": "e9711ea8f067d8f2e3c2e8c7f91b2efebbfdbb6508948d515cf4b72a44bb1e10",
+      "symbols": {},
+      "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly."
+    },
+    {
+      "file": "autoclean-form.json",
+      "surface": "form",
+      "source": "plugins.v3/autoclean/__init__.py",
+      "line": 283,
+      "source_sha256": "f6e0cfebbb0ff50aea9d2be0e10403719b6a28ee3c1dc8735ffea2d140f44254",
+      "fixture_sha256": "fad8a86909c27cac6b3e9035b7a3b7deaf8458b5e3a5bc5c4ee11d0dd6246999",
+      "symbols": {},
+      "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly."
+    },
+    {
       "file": "mediadirwatcher-form.json",
       "surface": "form",
       "source": "plugins.v3/mediadirwatcher/__init__.py",

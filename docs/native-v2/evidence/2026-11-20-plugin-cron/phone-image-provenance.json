@@ -1,0 +1,30 @@
+{
+  "iphone/rex-cron-largest-expression.png": {
+    "source": "F15D3400-68A6-40AD-B4EC-9C08DEF66C69.png",
+    "sha256": "1754ee7f3cd3c3f380f8802565bbb4f7738b7e4dcc1e0bf7544cd2aed08076ed"
+  },
+  "iphone/rex-cron-largest-weekday.png": {
+    "source": "42672391-129D-433B-A9AB-B7824B8AEEB3.png",
+    "sha256": "b44b6a6b9aff3a35f6c4117d02559732a76287830185bd893dcca7963b8036b5"
+  },
+  "iphone/rex-cron-range-month-custom.png": {
+    "source": "82D04521-7C09-4A18-AA44-761854D418FD.png",
+    "sha256": "c2639cfd2dc5ddbd4037c619a69e3850492f4cd54f10fc60ecb3a1c4ea1d2641"
+  },
+  "iphone/rex-cron-last-day.png": {
+    "source": "A234D2C1-3B05-4561-8F5F-B3EC56AE2F51.png",
+    "sha256": "1f10ce79edc2997e7fe5980d2dd8c15ca31db792e679880d85f7f5a25a9394db"
+  },
+  "iphone/rex-cron-expression-editor.png": {
+    "source": "D96DB24E-2D0A-4B82-AC2E-A86E92D56240.png",
+    "sha256": "9abaa8271110b410793faff3fb0ef3c61bced7328a0c87c1d59d426c4e7076f2"
+  },
+  "iphone/rex-cron-source-form.png": {
+    "source": "1F0827F9-B743-43A3-8B31-6B66B2C1BE06.png",
+    "sha256": "d6befe7514a70f12475303226bdcab556ec3eca48064b55e624f0aaf75411f6b"
+  },
+  "iphone/rex-cron-mode-picker.png": {
+    "source": "simctl io screenshot during phone-4 XCTest mode page wait",
+    "sha256": "6518710878cf5aec76c1317de87713135029e693af4a691e14bf6acb55120ae6"
+  }
+}

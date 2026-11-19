@@ -33,7 +33,7 @@ let package = Package(
       dependencies: [
         "MoviePilotPluginForms", "MoviePilotPluginUI", "MoviePilotSession", "MoviePilotAPI",
         "MoviePilotCore",
-      ]),
+      ], resources: [.copy("Fixtures")]),
   ],
   swiftLanguageModes: [.v6]
 )

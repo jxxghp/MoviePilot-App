@@ -1,0 +1,279 @@
+{
+  "render_mode": "vuetify",
+  "conf": [
+    {
+      "component": "VForm",
+      "content": [
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 4
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "enabled",
+                    "label": "启用插件"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 4
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "notify",
+                    "label": "发送通知"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 4
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "onlyonce",
+                    "label": "立即运行一次"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VCronField",
+                  "props": {
+                    "model": "cron",
+                    "label": "执行周期",
+                    "placeholder": "5位cron表达式，留空自动"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VSelect",
+                  "props": {
+                    "model": "action",
+                    "label": "动作",
+                    "items": [
+                      {
+                        "title": "订阅",
+                        "value": "subscribe"
+                      },
+                      {
+                        "title": "下载",
+                        "value": "download"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VTextarea",
+                  "props": {
+                    "model": "address",
+                    "label": "RSS地址",
+                    "rows": 3,
+                    "placeholder": "每行一个RSS地址"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VTextField",
+                  "props": {
+                    "model": "include",
+                    "label": "包含",
+                    "placeholder": "支持正则表达式"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VTextField",
+                  "props": {
+                    "model": "exclude",
+                    "label": "排除",
+                    "placeholder": "支持正则表达式"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VTextField",
+                  "props": {
+                    "model": "size_range",
+                    "label": "种子大小(GB)",
+                    "placeholder": "如：3 或 3-5"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VTextField",
+                  "props": {
+                    "model": "save_path",
+                    "label": "保存目录",
+                    "placeholder": "下载时有效，留空自动"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 4
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "proxy",
+                    "label": "使用代理服务器"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 4
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "filter",
+                    "label": "使用订阅优先级规则"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 4
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "clear",
+                    "label": "清理历史记录"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "model": {
+    "enabled": false,
+    "notify": true,
+    "onlyonce": false,
+    "cron": "*/30 * * * *",
+    "address": "",
+    "include": "",
+    "exclude": "",
+    "proxy": false,
+    "clear": false,
+    "filter": false,
+    "action": "subscribe",
+    "save_path": "",
+    "size_range": ""
+  }
+}
