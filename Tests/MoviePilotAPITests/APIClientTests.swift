@@ -7,6 +7,65 @@ import Testing
 /// 使用实际 URLSession 与受控协议检查传输边界；所有域名和凭据均为合成值。
 @Suite(.serialized)
 struct APIClientTests {
+  /// payload Data 逐字节保留数值/空白/未知字段，不猜测与标准响应同名的业务键。
+  @Test func preservesOriginalPayloadBytesAndMetadata() async throws {
+    let body = Data(" {\"success\":false,\"data\":9007199254740993,\"decimal\":1.2300} \n".utf8)
+    APIURLProtocol.state.prepare(
+      body: body, headers: ["Content-Type": "application/json", "X-Total-Count": "5"])
+    let response = try await Self.client().requestPayload(
+      APIEndpoint(path: ["plugin", "form", "Example_2"], responseContract: .payload))
+    #expect(response.value == body && response.statusCode == 200)
+    #expect(response.collection.totalCount == 5)
+    #expect(
+      APIURLProtocol.state.requests().first?.request.url?.path.hasSuffix("/plugin/form/Example_2")
+        == true)
+  }
+
+  /// 标准包装不能用原始字节接口绕过业务失败检查，拒绝发生在网络请求之前。
+  @Test func rawProjectionRequiresExplicitPayloadContract() async throws {
+    APIURLProtocol.state.prepare(body: Data())
+    await #expect(throws: APIError.invalidEndpoint) {
+      try await Self.client().requestPayload(APIEndpoint(path: ["plugin", "Example"]))
+    }
+    #expect(APIURLProtocol.state.requests().isEmpty)
+  }
+
+  /// 原始响应仍受流式上限、MIME 与 HTTP 身份失败控制，不自动重发。
+  @Test func rawProjectionRetainsTransportGuards() async throws {
+    let endpoint = try APIEndpoint(
+      path: ["plugin"], responseContract: .payload, maximumResponseBytes: 4)
+    APIURLProtocol.state.prepare(body: Data("12345".utf8))
+    await #expect(throws: APIError.responseTooLarge) {
+      try await Self.client().requestPayload(endpoint)
+    }
+    #expect(APIURLProtocol.state.requests().count == 1)
+    APIURLProtocol.state.prepare(body: Data("{}".utf8), headers: ["Content-Type": "text/html"])
+    await #expect(throws: APIError.invalidResponse) {
+      try await Self.client().requestPayload(endpoint)
+    }
+    APIURLProtocol.state.prepare(status: 401, body: Data())
+    await #expect(throws: APIError.unauthorized) {
+      try await Self.client().requestPayload(endpoint)
+    }
+    #expect(APIURLProtocol.state.requests().count == 1)
+  }
+
+  /// 原始字节请求的在途取消仍结束同一个 URLSession 任务。
+  @Test func cancelsRawProjection() async throws {
+    APIURLProtocol.state.prepare(body: Data(), hold: true)
+    let client = try Self.client()
+    let endpoint = try APIEndpoint(path: ["plugin"], responseContract: .payload)
+    let task = Task { try await client.requestPayload(endpoint) }
+    for _ in 0..<200 {
+      if !APIURLProtocol.state.requests().isEmpty { break }
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(!APIURLProtocol.state.requests().isEmpty)
+    task.cancel()
+    await #expect(throws: CancellationError.self) { try await task.value }
+    #expect(APIURLProtocol.state.requests().count == 1)
+  }
+
   /// 两个独立客户端只带各自令牌；配置中残留的 Cookie、附加头和凭据存储不能继承。
   @Test func isolatesIdentityAndRetainsCollectionMetadata() async throws {
     APIURLProtocol.state.prepare(

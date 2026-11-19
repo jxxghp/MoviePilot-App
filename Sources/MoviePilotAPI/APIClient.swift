@@ -48,6 +48,15 @@ public final class APIClient: Sendable {
   /// 结束会话时取消所有未完成任务；后续登录必须创建新客户端。
   public func cancel() { session.invalidateAndCancel() }
 
+  /// 供保真 JSON 解析器消费原始 payload；HTTP 边界与 typed API 相同，不猜测或跳过标准包装。
+  public func requestPayload(_ endpoint: APIEndpoint) async throws -> APIResult<Data> {
+    guard case .payload = endpoint.responseContract else { throw APIError.invalidEndpoint }
+    let response = try await receive(endpoint)
+    try Task.checkCancellation()
+    return APIResult(
+      value: response.data, statusCode: response.statusCode, collection: response.collection)
+  }
+
   /// 端点必须显式选择标准 envelope 或原始 payload；保留分页头而不修改列表。
   public func request<Value: Decodable & Sendable>(
     _ endpoint: APIEndpoint, as type: Value.Type = Value.self

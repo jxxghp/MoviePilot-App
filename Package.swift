@@ -10,12 +10,16 @@ let package = Package(
     .library(name: "MoviePilotAPI", targets: ["MoviePilotAPI"]),
     .library(name: "MoviePilotSession", targets: ["MoviePilotSession"]),
     .library(name: "MoviePilotPluginUI", targets: ["MoviePilotPluginUI"]),
+    .library(name: "MoviePilotPluginForms", targets: ["MoviePilotPluginForms"]),
   ],
   targets: [
     .target(name: "MoviePilotCore", resources: [.process("Resources")]),
     .target(name: "MoviePilotAPI", dependencies: ["MoviePilotCore"]),
     .target(name: "MoviePilotSession", dependencies: ["MoviePilotAPI", "MoviePilotCore"]),
     .target(name: "MoviePilotPluginUI"),
+    .target(
+      name: "MoviePilotPluginForms",
+      dependencies: ["MoviePilotAPI", "MoviePilotSession", "MoviePilotPluginUI"]),
     .testTarget(name: "MoviePilotCoreTests", dependencies: ["MoviePilotCore"]),
     .testTarget(name: "MoviePilotAPITests", dependencies: ["MoviePilotAPI", "MoviePilotCore"]),
     .testTarget(
@@ -24,6 +28,12 @@ let package = Package(
     .testTarget(
       name: "MoviePilotPluginUITests", dependencies: ["MoviePilotPluginUI"],
       resources: [.copy("Fixtures")]),
+    .testTarget(
+      name: "MoviePilotPluginFormsTests",
+      dependencies: [
+        "MoviePilotPluginForms", "MoviePilotPluginUI", "MoviePilotSession", "MoviePilotAPI",
+        "MoviePilotCore",
+      ]),
   ],
   swiftLanguageModes: [.v6]
 )

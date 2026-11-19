@@ -66,6 +66,20 @@ public final class NativeSession {
     }
   }
 
+  /// 保真 payload 也必须通过同一会话的前后权限/存活检查与 401 失效处理。
+  public func requestPayload(
+    _ endpoint: APIEndpoint, requiring permission: PermissionRequirement? = nil
+  ) async throws -> APIResult<Data> {
+    try checkActive(requiring: permission)
+    do {
+      let value = try await api.requestPayload(endpoint)
+      try checkActive(requiring: permission)
+      return value
+    } catch {
+      try fail(error)
+    }
+  }
+
   /// 写入只发一次；返回只说明端点接受动作，不能自动重试或推断后台任务已结束。
   public func perform(
     _ endpoint: APIEndpoint, requiring permission: PermissionRequirement? = nil
