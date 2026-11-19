@@ -1,3 +1,4 @@
+import Combine
 import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
@@ -23,49 +24,61 @@ struct NativeV2RootView: View {
     manager = model.manager
   }
 
-  /// 系统导航与可滚动表单承担安全区、键盘、旋转和辅助功能字号布局。
+  /// 单一 Rex 背景贯通安全区；系统表单继续承担键盘、旋转和辅助功能布局。
   var body: some View {
     NavigationStack {
-      Form {
-        brand
-        if let message = model.messageKey {
-          Section {
-            Text(L10n.text(message))
-              .font(.callout)
-              .foregroundStyle(.secondary)
-              .accessibilityIdentifier("native-v2-message")
-              .accessibilityAddTraits(.updatesFrequently)
-            if case .failed(_, .api) = manager.state, let selected = model.selected {
-              Button(L10n.text("重试连接")) { model.connect(selected) }
-                .accessibilityIdentifier("native-v2-retry")
+      ZStack {
+        CinematicBackground()
+        ScrollViewReader { scroll in
+          Form {
+            brand.id("native-v2-top")
+            if let message = model.messageKey {
+              CinematicFormSection {
+                CinematicFormRow(symbol: "info.circle") {
+                  Text(L10n.text(message)).font(.callout)
+                    .accessibilityIdentifier("native-v2-message")
+                    .accessibilityAddTraits(.updatesFrequently)
+                }
+                if case .failed(_, .api) = manager.state, let selected = model.selected {
+                  CinematicFormDivider()
+                  CinematicFormRow {
+                    rowAction("重试连接", id: "native-v2-retry") { model.connect(selected) }
+                  }
+                }
+              }
+            }
+            if model.busy {
+              CinematicFormSection {
+                CinematicFormRow {
+                  HStack(spacing: 12) {
+                    ProgressView()
+                    Text(L10n.text("正在连接…"))
+                  }
+                  .accessibilityElement(children: .combine)
+                  .accessibilityIdentifier("native-v2-progress")
+                }
+              }
+            }
+            if case .authenticated(let snapshot) = manager.state {
+              account(snapshot)
+            } else if model.form == .connection {
+              connection
+            } else {
+              authentication
             }
           }
-        }
-        if model.busy {
-          Section {
-            HStack(spacing: 12) {
-              ProgressView()
-              Text(L10n.text("正在连接…"))
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("native-v2-progress")
-          }
-        }
-        if case .authenticated(let snapshot) = manager.state {
-          account(snapshot)
-        } else if model.form == .connection {
-          connection
-        } else {
-          authentication
+          .scrollContentBackground(.hidden)
+          .scrollDismissesKeyboard(.interactively)
+          .frame(maxWidth: 680)
+          .onChange(of: authenticated) { _ in scroll.scrollTo("native-v2-top", anchor: .top) }
+          .onChange(of: model.form) { _ in scroll.scrollTo("native-v2-top", anchor: .top) }
         }
       }
-      .scrollContentBackground(.hidden)
-      .scrollDismissesKeyboard(.interactively)
-      .background(Color(uiColor: AccountAppearance.background(for: model.selected?.id)))
       .navigationTitle(title)
       .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar { toolbar }
-      .tint(Color(uiColor: AccountAppearance.accent(for: model.selected?.id)))
+      .tint(.white)
       .alert(
         L10n.text("删除服务？"),
         isPresented: Binding(
@@ -82,20 +95,21 @@ struct NativeV2RootView: View {
       }
     }
     .environment(\.locale, Locale(identifier: model.language.rawValue))
-    .preferredColorScheme(preferredScheme)
+    .preferredColorScheme(.dark)
     .onChange(of: manager.state) { model.received($0) }
     .onChange(of: model.selected?.id) { _ in concealSecrets() }
     .onChange(of: model.form) { _ in concealSecrets() }
     .onChange(of: scenePhase) { if $0 != .active { concealSecrets() } }
+    // UIKit 承载的 UIHostingController 不保证发布 SwiftUI scenePhase，直接观察系统场景通知。
+    .onReceive(NotificationCenter.default.publisher(for: UIScene.willDeactivateNotification)) { _ in
+      concealSecrets()
+    }
   }
 
-  /// 每次换实例重新读取其明确明暗选择；系统模式不继承上一个实例的强制外观。
-  private var preferredScheme: ColorScheme? {
-    switch AccountAppearance.interfaceStyle(for: model.selected?.id) {
-    case .light: .light
-    case .dark: .dark
-    default: nil
-    }
+  /// 身份页与输入页切换后重置滚动位置，避免沿用大字登录页底部偏移而藏住当前账号。
+  private var authenticated: Bool {
+    if case .authenticated = manager.state { return true }
+    return false
   }
 
   /// 标题只反映真实可用的入口，不把此基础阶段命名为完整首页。
@@ -111,51 +125,57 @@ struct NativeV2RootView: View {
   /// 品牌图标沿用现有资源，字体随系统缩放，不固定海报式大标题高度。
   private var brand: some View {
     Section {
-      HStack(spacing: 16) {
+      HStack(spacing: 18) {
         Image("BrandMark")
-          .resizable().scaledToFit().frame(width: 56, height: 56)
-          .clipShape(RoundedRectangle(cornerRadius: 16)).accessibilityHidden(true)
+          .resizable().scaledToFit().frame(width: 64, height: 64)
+          .clipShape(RoundedRectangle(cornerRadius: 18)).accessibilityHidden(true)
         VStack(alignment: .leading, spacing: 6) {
           Text("MoviePilot").font(.title2.bold())
           Text(L10n.text("你的媒体世界，随时连接。"))
             .font(.subheadline).foregroundStyle(.secondary)
         }
       }
-      .padding(.vertical, 12)
+      .padding(.vertical, 18)
     }
-    .listRowBackground(Color.clear)
+    .listRowBackground(Color.clear).listRowSeparator(.hidden)
   }
 
   /// 地址是可编辑的标准输入；历史服务使用原 UUID 连接并保留系统左滑删除。
   private var connection: some View {
     Group {
-      Section {
-        HStack {
-          TextField(L10n.text("MoviePilot 服务地址"), text: $model.address)
-            .keyboardType(.URL).textInputAutocapitalization(.never)
-            .autocorrectionDisabled().submitLabel(.go).focused($focused, equals: .address)
-            .accessibilityIdentifier("native-v2-address")
-            .onSubmit {
-              focused = nil
-              model.connectAddress()
-            }
+      CinematicFormSection(
+        L10n.text("连接服务"),
+        footer: L10n.text("支持 HTTPS、局域网地址和部署子路径。")
+      ) {
+        CinematicFormRow(symbol: "link") {
+          TextField(
+            L10n.text("MoviePilot 服务地址"), text: $model.address,
+            prompt: fieldPrompt("MoviePilot 服务地址")
+          )
+          .keyboardType(.URL).textInputAutocapitalization(.never)
+          .autocorrectionDisabled().submitLabel(.go).focused($focused, equals: .address)
+          .accessibilityIdentifier("native-v2-address")
+          .onSubmit {
+            focused = nil
+            model.connectAddress()
+          }
           if !model.address.isEmpty {
             Button {
               model.address = ""
             } label: {
               Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 18))
+                .frame(width: 44, height: 44).contentShape(Rectangle())
             }
-            .buttonStyle(.borderless).foregroundStyle(.secondary)
+            .buttonStyle(.plain).foregroundStyle(.secondary)
             .accessibilityLabel(L10n.text("清除地址"))
             .accessibilityIdentifier("native-v2-clear-address")
           }
         }
+      }
+      actionSection {
         primary("连接", id: "native-v2-connect") { model.connectAddress() }
           .disabled(model.address.isEmpty || model.busy)
-      } header: {
-        Text(L10n.text("连接服务"))
-      } footer: {
-        Text(L10n.text("支持 HTTPS、局域网地址和部署子路径。"))
       }
       if !model.saved.isEmpty {
         Section(L10n.text("已保存的服务")) {
@@ -163,23 +183,33 @@ struct NativeV2RootView: View {
             Button {
               model.connect(instance)
             } label: {
-              HStack {
-                Text(instance.address.url.absoluteString)
-                  .foregroundStyle(.primary).lineLimit(nil)
-                Spacer(minLength: 8)
-                if model.selected?.id == instance.id {
-                  Image(systemName: "checkmark.circle.fill")
-                    .accessibilityLabel(L10n.text("当前服务"))
+              CinematicPanel(padding: 0) {
+                CinematicFormRow(symbol: "server.rack") {
+                  HStack {
+                    Text(instance.address.url.absoluteString)
+                      .foregroundStyle(.primary).lineLimit(nil)
+                    Spacer(minLength: 8)
+                    if model.selected?.id == instance.id {
+                      Image(systemName: "checkmark.circle.fill")
+                        .accessibilityLabel(L10n.text("当前服务"))
+                    } else {
+                      Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    }
+                  }
                 }
               }
-              .padding(.vertical, 4)
             }
+            .buttonStyle(.plain)
+            .listRowBackground(Color.clear).listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
             .accessibilityIdentifier("native-v2-saved-\(instance.address.url.absoluteString)")
             .swipeActions(allowsFullSwipe: false) {
               Button(L10n.text("删除"), role: .destructive) { pendingForget = instance }
             }
           }
         }
+        .textCase(nil)
         .disabled(model.busy)
       }
     }
@@ -188,82 +218,111 @@ struct NativeV2RootView: View {
   /// 登录与首次创建使用独立字段语义；验证码只在服务端挑战后出现。
   private var authentication: some View {
     Group {
-      Section {
-        Text(model.selected?.address.url.absoluteString ?? "")
-          .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
-          .accessibilityIdentifier("native-v2-server")
+      CinematicFormSection {
+        CinematicFormRow(symbol: "server.rack") {
+          Text(model.selected?.address.url.absoluteString ?? "")
+            .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+            .accessibilityIdentifier("native-v2-server")
+        }
       }
-      Section {
-        TextField(L10n.text("用户名"), text: $model.username)
-          .textContentType(.username).textInputAutocapitalization(.never)
-          .autocorrectionDisabled().disabled(model.fixedUsername)
-          .focused($focused, equals: .username).submitLabel(.next)
-          .onSubmit { focused = .password }
-          .accessibilityIdentifier("native-v2-username")
+      CinematicFormSection(
+        L10n.text(model.form == .initialization ? "创建管理员" : "登录"),
+        footer: model.form == .initialization
+          ? L10n.text("密码为 6–50 位，至少包含字母、数字、符号中的两类。API Key 仅提交到此服务。") : nil
+      ) {
+        CinematicFormRow(symbol: "person") {
+          TextField(L10n.text("用户名"), text: $model.username, prompt: fieldPrompt("用户名"))
+            .textContentType(.username).textInputAutocapitalization(.never)
+            .autocorrectionDisabled().disabled(model.fixedUsername)
+            .focused($focused, equals: .username).submitLabel(.next)
+            .onSubmit { focused = .password }
+            .accessibilityIdentifier("native-v2-username")
+        }
+        CinematicFormDivider()
         passwordField("密码", text: $model.password, field: .password, id: "native-v2-password")
         if model.form == .initialization {
+          CinematicFormDivider()
           passwordField(
             "确认密码", text: $model.confirmation, field: .confirmation,
             id: "native-v2-confirmation")
-          VStack(alignment: .leading, spacing: 8) {
-            Text("API Key").font(.caption).foregroundStyle(.secondary)
-            HStack {
-              Group {
-                if showsAPIKey {
-                  TextField("API Key", text: $model.apiKey)
-                } else {
-                  SecureField("API Key", text: $model.apiKey)
+          CinematicFormDivider()
+          CinematicFormRow {
+            VStack(alignment: .leading, spacing: 8) {
+              Text("API Key").font(.caption).foregroundStyle(.secondary)
+              HStack {
+                Group {
+                  if showsAPIKey {
+                    TextField("API Key", text: $model.apiKey, prompt: fieldPrompt("API Key"))
+                  } else {
+                    SecureField("API Key", text: $model.apiKey, prompt: fieldPrompt("API Key"))
+                  }
                 }
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                .accessibilityIdentifier("native-v2-api-key")
+                Button {
+                  showsAPIKey.toggle()
+                } label: {
+                  Image(systemName: showsAPIKey ? "eye.slash" : "eye")
+                    .font(.system(size: 18))
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.text(showsAPIKey ? "隐藏 API Key" : "显示 API Key"))
+                .accessibilityIdentifier("native-v2-show-api-key")
+                Button {
+                  UIPasteboard.general.setItems(
+                    [[UTType.utf8PlainText.identifier: model.apiKey]],
+                    options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(60)])
+                } label: {
+                  Image(systemName: "doc.on.doc")
+                    .font(.system(size: 18))
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.text("复制 API Key"))
+                .accessibilityIdentifier("native-v2-copy-api-key")
               }
-              .textInputAutocapitalization(.never).autocorrectionDisabled()
-              .accessibilityIdentifier("native-v2-api-key")
-              Button {
-                showsAPIKey.toggle()
-              } label: {
-                Image(systemName: showsAPIKey ? "eye.slash" : "eye")
-              }
-              .buttonStyle(.borderless)
-              .accessibilityLabel(L10n.text(showsAPIKey ? "隐藏 API Key" : "显示 API Key"))
-              Button {
-                UIPasteboard.general.setItems(
-                  [[UTType.utf8PlainText.identifier: model.apiKey]],
-                  options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(60)])
-              } label: {
-                Image(systemName: "doc.on.doc")
-              }
-              .buttonStyle(.borderless).accessibilityLabel(L10n.text("复制 API Key"))
             }
           }
-          Button(L10n.text("重新生成 API Key")) { model.regenerateKey() }
+          CinematicFormDivider()
+          CinematicFormRow(symbol: "arrow.clockwise") {
+            rowAction("重新生成 API Key", id: "native-v2-regenerate-api-key") {
+              model.regenerateKey()
+            }
+          }
         } else if model.needsOTP {
-          TextField(L10n.text("身份验证器验证码"), text: $model.otp)
+          CinematicFormDivider()
+          CinematicFormRow(symbol: "number.shield") {
+            TextField(
+              L10n.text("身份验证器验证码"), text: $model.otp, prompt: fieldPrompt("身份验证器验证码")
+            )
             .textContentType(.oneTimeCode).keyboardType(.numberPad)
             .focused($focused, equals: .otp)
             .accessibilityIdentifier("native-v2-otp")
-        }
-      } header: {
-        Text(L10n.text(model.form == .initialization ? "创建管理员" : "登录"))
-      } footer: {
-        if model.form == .initialization {
-          Text(L10n.text("密码为 6–50 位，至少包含字母、数字、符号中的两类。API Key 仅提交到此服务。"))
+          }
         }
       }
       .disabled(model.busy)
       if model.form == .login {
-        Section {
-          Toggle(L10n.text("保持登录"), isOn: $model.rememberSession)
-            .accessibilityIdentifier("native-v2-remember-session")
-          Toggle(
-            L10n.text("记住账号密码"),
-            isOn: Binding(
-              get: { model.rememberCredentials }, set: { model.setRememberCredentials($0) })
-          ).accessibilityIdentifier("native-v2-remember-password")
-        } footer: {
-          Text(L10n.text("密码仅在本机安全保存，验证码不会保存。"))
+        CinematicFormSection(
+          footer: L10n.text("密码仅在本机安全保存，验证码不会保存。")
+        ) {
+          CinematicFormRow {
+            Toggle(L10n.text("保持登录"), isOn: $model.rememberSession)
+              .tint(.green).accessibilityIdentifier("native-v2-remember-session")
+          }
+          CinematicFormDivider()
+          CinematicFormRow {
+            Toggle(
+              L10n.text("记住账号密码"),
+              isOn: Binding(
+                get: { model.rememberCredentials }, set: { model.setRememberCredentials($0) })
+            ).tint(.green).accessibilityIdentifier("native-v2-remember-password")
+          }
         }
         .disabled(model.busy)
       }
-      Section {
+      actionSection {
         if model.form == .initialization {
           primary("创建管理员", id: "native-v2-initialize") { model.initialize() }
             .disabled(
@@ -281,12 +340,12 @@ struct NativeV2RootView: View {
   private func passwordField(
     _ title: String, text: Binding<String>, field: Field, id: String
   ) -> some View {
-    HStack {
+    CinematicFormRow(symbol: "lock") {
       Group {
         if showsPassword {
-          TextField(L10n.text(title), text: text)
+          TextField(L10n.text(title), text: text, prompt: fieldPrompt(title))
         } else {
-          SecureField(L10n.text(title), text: text)
+          SecureField(L10n.text(title), text: text, prompt: fieldPrompt(title))
         }
       }
       // 首次创建先保留标准密码输入；系统自动生成和 Passkey 在 P6 完整验收。
@@ -306,8 +365,10 @@ struct NativeV2RootView: View {
           showsPassword.toggle()
         } label: {
           Image(systemName: showsPassword ? "eye.slash" : "eye")
+            .font(.system(size: 18))
+            .frame(width: 44, height: 44).contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
         .accessibilityLabel(L10n.text(showsPassword ? "隐藏密码" : "显示密码"))
         .accessibilityIdentifier("native-v2-show-password")
       }
@@ -321,47 +382,77 @@ struct NativeV2RootView: View {
     focused = nil
   }
 
+  /// 透底表面上的空字段保持可读；只调整原生 prompt，字段标签与输入语义保持不变。
+  private func fieldPrompt(_ key: String) -> Text {
+    Text(L10n.text(key)).foregroundColor(.white.opacity(0.70))
+  }
+
   /// 首个真实原生页面只展示已验证身份及可执行的会话管理操作。
   private func account(_ snapshot: NativeSessionSnapshot) -> some View {
     Group {
-      Section(L10n.text("当前账号")) {
-        Label(snapshot.user.name, systemImage: "person.crop.circle.fill")
-          .font(.title3.weight(.semibold)).padding(.vertical, 4)
-          .accessibilityElement(children: .combine)
-          .accessibilityLabel(snapshot.user.name)
-          .accessibilityIdentifier("native-v2-account")
-        if snapshot.user.isSuperuser { Text(L10n.text("管理员")) }
-        Text(snapshot.instance.address.url.absoluteString)
-          .foregroundStyle(.secondary).textSelection(.enabled)
-        Button(L10n.text("刷新账号状态")) { model.refreshIdentity() }
-          .accessibilityIdentifier("native-v2-refresh")
-          .disabled(model.busy)
+      CinematicFormSection(L10n.text("当前账号")) {
+        CinematicFormRow(symbol: "person.crop.circle.fill") {
+          Text(snapshot.user.name)
+            .font(.title3.weight(.semibold)).padding(.vertical, 4)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(snapshot.user.name)
+            .accessibilityIdentifier("native-v2-account")
+        }
+        if snapshot.user.isSuperuser {
+          CinematicFormDivider()
+          CinematicFormRow(symbol: "checkmark.shield") { Text(L10n.text("管理员")) }
+        }
+        CinematicFormDivider()
+        CinematicFormRow(symbol: "server.rack") {
+          Text(snapshot.instance.address.url.absoluteString)
+            .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+        }
+        CinematicFormDivider()
+        CinematicFormRow(symbol: "arrow.clockwise") {
+          rowAction("刷新账号状态", id: "native-v2-refresh") { model.refreshIdentity() }
+            .disabled(model.busy)
+        }
       }
-      Section {
-        Button(L10n.text("切换服务")) { model.changeServer() }
-          .accessibilityIdentifier("native-v2-switch")
-        Button(L10n.text("退出登录"), role: .destructive) { model.logout() }
-          .accessibilityIdentifier("native-v2-logout")
+      CinematicFormSection {
+        CinematicFormRow(symbol: "arrow.left.arrow.right") {
+          rowAction("切换服务", id: "native-v2-switch") { model.changeServer() }
+        }
+        CinematicFormDivider()
+        CinematicFormRow(symbol: "rectangle.portrait.and.arrow.right") {
+          rowAction("退出登录", id: "native-v2-logout", role: .destructive) { model.logout() }
+        }
       }
     }
   }
 
+  /// 将行内点击区域放进按钮标签，辅助功能边界与实际触控区共同覆盖至少 44pt。
+  private func rowAction(
+    _ key: String, id: String, role: ButtonRole? = nil, action: @escaping () -> Void
+  ) -> some View {
+    Button(role: role, action: action) {
+      Text(L10n.text(key)).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
+    }.buttonStyle(.plain).accessibilityIdentifier(id)
+  }
+
   /// 主操作保留系统点击区域并先收起键盘，不把提交绑定到输入框变化。
   private func primary(_ key: String, id: String, action: @escaping () -> Void) -> some View {
-    Button {
+    CinematicPrimaryAction(title: L10n.text(key), symbol: "arrow.right") {
       focused = nil
       UIApplication.shared.sendAction(
         #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
       action()
-    } label: {
-      HStack {
-        Spacer()
-        Text(L10n.text(key)).fontWeight(.semibold)
-        Image(systemName: "arrow.right")
-        Spacer()
-      }.frame(minHeight: 44)
     }
     .accessibilityIdentifier(id)
+  }
+
+  /// 主动作与正文材质分开，避免把 Liquid Glass 叠加进整块表单背景。
+  private func actionSection<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    Section {
+      CinematicGlassGroup { content() }
+        .listRowBackground(Color.clear).listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+    }
   }
 
   /// 换地址在忙碌时仍可取消；语言始终用自身名称，误选后也能找回。

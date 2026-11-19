@@ -1,0 +1,207 @@
+{
+  "date": "2026-11-20",
+  "branch": "v2",
+  "parentCommit": "419255b3694861a3fb3135ee7dc070e6b2660983",
+  "remoteBaseline": "682e9532c384af457a275ef5dfe66cbe0672a5cb",
+  "results": {
+    "fullIPhone": {
+      "summary": "iphone-tests.json",
+      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/rex-entry-evidence-20261120/final-iphone.xcresult",
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "runtimeWarnings": [
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        },
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        },
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        },
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        },
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        },
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        }
+      ]
+    },
+    "fullIPad": {
+      "summary": "ipad-tests.json",
+      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/rex-entry-evidence-20261120/final-ipad.xcresult",
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "runtimeWarnings": [
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        },
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        },
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        },
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        },
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        },
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        }
+      ]
+    },
+    "contrastIPad": {
+      "summary": "contrast-ipad-tests.json",
+      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/rex-entry-evidence-20261120/contrast-ipad.xcresult",
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "runtimeWarnings": [
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        },
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        },
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        }
+      ]
+    },
+    "contrastIPhone": {
+      "summary": "contrast-iphone-tests.json",
+      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/rex-entry-evidence-20261120/contrast-iphone.xcresult",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "runtimeWarnings": [
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        }
+      ]
+    },
+    "accessibility": {
+      "summary": "accessibility-tests.json",
+      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/rex-entry-evidence-20261120/entry-accessibility.xcresult",
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "runtimeWarnings": [
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        },
+        {
+          "issueType": "Runtime Warning",
+          "message": "Invalid frame dimension (negative or non-finite)."
+        }
+      ]
+    },
+    "preview": {
+      "summary": "preview-tests.json",
+      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/rex-entry-evidence-20261120/preview-final.xcresult",
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "runtimeWarnings": []
+    }
+  },
+  "swiftTests": {
+    "swiftTesting": 263,
+    "xctest": 4,
+    "skipped": 0
+  },
+  "commands": {
+    "environment": {
+      "DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer",
+      "TMPDIR": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/tmp",
+      "TEST_RUNNER_MOVIEPILOT_NATIVE_V2_E2E": "1"
+    },
+    "mainArguments": [
+      "xcodebuild",
+      "-project",
+      "ios/MoviePilot.xcodeproj",
+      "-scheme",
+      "MoviePilot",
+      "-configuration",
+      "Debug",
+      "-derivedDataPath",
+      "/Users/jxxghp/Library/Caches/MoviePilotSimulator/native-v2-rex-entry-20261120/DerivedData",
+      "-clonedSourcePackagesDirPath",
+      "/Volumes/DISK/Xcode/SourcePackages",
+      "-parallel-testing-enabled",
+      "NO",
+      "CODE_SIGN_IDENTITY=-",
+      "CODE_SIGNING_ALLOWED=YES"
+    ],
+    "fullSuiteFilter": "-only-testing:MoviePilotUITests/NativeV2EntryTests",
+    "deviceIds": [
+      "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+      "0288C554-8AA0-4DCB-A459-F3673D7C2D6D"
+    ],
+    "contrastFilters": [
+      "testRexFormControlsAndSecretConcealment",
+      "testSeparateInstancesRestorationAndExplicitPasswordMemory",
+      "testUnavailableRetryCancellationAndLargeText"
+    ],
+    "accessibilityFilters": [
+      "testRexFormControlsAndSecretConcealment",
+      "testUnavailableRetryCancellationAndLargeText"
+    ],
+    "previewFilters": [
+      "testDiscoveryDetailAndQueue",
+      "testSettingsAndPluginForm",
+      "testSingleStyleAndLargeText"
+    ],
+    "swiftPackage": "zsh scripts/test-core.sh --scratch-path /Volumes/DISK/TmpBuild/moviepilot-ios-v2/swiftpm",
+    "sharedPackages": "/Volumes/DISK/Xcode/SourcePackages"
+  },
+  "logs": {
+    "final-iphone.log": "66de78c37c03ec35f8efae5784400ee2f3a3ee71a03344188b5396c61f6f1469",
+    "final-ipad.log": "5b2adbd405ad720d2569b3b643e9b9b65e9a4ce329f7f5d80cfa7ecfaf73976b",
+    "contrast-ipad.log": "23524447c9df5629c9ddc155e02247f7b983b2fc19b876fdc75dad1295ea8f07",
+    "contrast-iphone.log": "144fc8d6a339c91bcd2edd8d391252db76b76b096e54341e6edad00c6cc457e3",
+    "entry-accessibility.log": "18ab974da58210b7ee0e5055c2a35169e00777e2f9c4e0840985876b4ee87da0",
+    "preview-final.log": "c8551847f1c15948ff440faf27fca2f81248815007af6d6f80d27fd7a3b9192a",
+    "build.log": "0e109bb55351b365846e827ca2029d8f071dd0309136650ade918a7bf1d0fcd8",
+    "contrast-build.log": "f1b4f7773eac37db5ca9ae6f53305255a4c5138aae176b9c38078ea50a610945",
+    "preview-build.log": "e06d5c76a941ff38cfa0f271d82ce467a18092211f838b38ef20cfdf3a394497",
+    "core-tests.log": "c83520c4e25f0be56c2e7622383fe777546e0901b20c7734d281785781f12213",
+    "frame-probe.log": "7707b2e6d52bb91da7d3b05dd12bb6f3eca1948967601a82ee661d80184071af",
+    "frame-control.log": "47919398a79f355eb55543c18945c497e76ef9a8a0e6629548cf097a557b0ed0"
+  },
+  "settingsRestored": true,
+  "unvalidated": [
+    "Production backend and user account",
+    "Physical device",
+    "iOS 16 runtime",
+    "Complete VoiceOver and contrast matrix",
+    "Whole-process WebView allocation audit",
+    "Main business pages and dynamic JSON form rendering/saving",
+    "P8 keyboard toolbar warning resolution"
+  ]
+}

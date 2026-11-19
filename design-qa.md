@@ -64,3 +64,16 @@
 - [x] 高清图/完整可访问性/真实业务/最低系统仍列入后续叶子，未冒记完成。
 
 final result: passed
+
+## P1.4a 真实账号/实例入口的追加检查
+
+本段独立于前述媒体演示预览，输入与技术证据见 [真实入口验收](docs/native-v2/evidence/2026-11-20-rex-entry.md)。API-only 合成服务驱动真实会话/Keychain；不把本机夹具当作生产验收。
+
+- 在同一输入中实际打开 [Rex / 原生登录完整比较](docs/native-v2/evidence/2026-11-20-rex-entry/comparisons/login.png)、[局部分组](docs/native-v2/evidence/2026-11-20-rex-entry/comparisons/focus-form.png) 和 [初始化/降低透明度](docs/native-v2/evidence/2026-11-20-rex-entry/comparisons/initialization.png)。颜色、材质、文字/分隔、按钮/开关与页面背景保持唯一 Rex 体系；参考是播放表单，其字段语义不复制。
+- 修正了默认 prompt/禁用主按钮过暗、秘密图标的实际 44pt 标签边界、最大字号图标列宽和 UIKit 场景显隐重置。最终 prompt 与禁用态修正后重新采集常规、辅助设置及 iPad 画面；[历史比较](docs/native-v2/evidence/2026-11-20-rex-entry/history/login-before-contrast.png) 保留修正前输入，不冒充最终版本。
+- 正常连接/登录/账号有 [三屏总览](docs/native-v2/evidence/2026-11-20-rex-entry/entry-board.png)；iPad 限宽、大字横屏、辅助错误重试均有实际截图。动态字体自然增高；仅表单图标/44pt 秘密动作保留合适尺寸，没有通过缩字强塞字段。
+- 图像按原附件 EXIF 方向转正、去元数据后等比缩小，没有旋转屏幕内容来伪造真实横屏或拼接状态栏。入口没有媒体语义，不加入演示海报来填空；主体媒体页仍需真实数据和后续验收。
+- 两设备完整 14 次入口测试、最终对比度输入 6 次入口定向、共享组件 3 项预览通过，0 跳过。提高对比度/降低透明度/减弱动态开启后实测，随后恢复原设置；完整 VoiceOver 和最低系统/真机仍未完成。
+- 仍有 `Invalid frame dimension` 运行警告，独立系统 Form/键盘工具栏程序也可复现；未关闭诊断或记为已修复，保留 P8 系统兼容门禁。
+
+已检查画面与交互的 P1.4a 视觉结果：passed；系统运行警告、真实环境与完整产品范围不包含在此视觉结论中。

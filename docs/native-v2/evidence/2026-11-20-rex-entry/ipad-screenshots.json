@@ -1,0 +1,146 @@
+[
+  {
+    "name": "rex-entry-initialization-system-light",
+    "test": "NativeV2EntryTests/testRexFormControlsAndSecretConcealment()",
+    "sourceAttachment": "47DCD6EB-8F4F-41D3-AB9D-105A8E360080.png",
+    "sourceSHA256": "eaf52a0730a278c9d7c801b2bce9c3749dd06ada35996471902ae6fb7c5b1478",
+    "sourceSize": [
+      1668,
+      2420
+    ],
+    "documentFile": "ipad/rex-entry-initialization-system-light.png",
+    "device": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      834,
+      1210
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize"
+  },
+  {
+    "name": "rex-entry-connection-system-light",
+    "test": "NativeV2EntryTests/testRexFormControlsAndSecretConcealment()",
+    "sourceAttachment": "FBF67DC7-312B-4779-9136-DBFDDC6FECC4.png",
+    "sourceSHA256": "97e2bf99db8a28f856e5b4d084060a5cf3666db9f8867c4411fa18770837d07c",
+    "sourceSize": [
+      1668,
+      2420
+    ],
+    "documentFile": "ipad/rex-entry-connection-system-light.png",
+    "device": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      834,
+      1210
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize"
+  },
+  {
+    "name": "native-v2-03-account",
+    "test": "NativeV2EntryTests/testSeparateInstancesRestorationAndExplicitPasswordMemory()",
+    "sourceAttachment": "6859EA97-A379-45D2-851B-62E998AAFFB0.png",
+    "sourceSHA256": "b2c2d3eb2fb870525bd5369eb1a89935c89da3e4ace00cf275ada2da9c9f392d",
+    "sourceSize": [
+      1668,
+      2420
+    ],
+    "documentFile": "ipad/native-v2-03-account.png",
+    "device": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      834,
+      1210
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize"
+  },
+  {
+    "name": "native-v2-02-login",
+    "test": "NativeV2EntryTests/testSeparateInstancesRestorationAndExplicitPasswordMemory()",
+    "sourceAttachment": "EE8B1174-5402-406F-A58E-083052E78D3E.png",
+    "sourceSHA256": "ea59ecd8a58082c329f650d430fcee29ea41139022739c614fc7c84634b726e4",
+    "sourceSize": [
+      1668,
+      2420
+    ],
+    "documentFile": "ipad/native-v2-02-login.png",
+    "device": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      834,
+      1210
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize"
+  },
+  {
+    "name": "native-v2-01-connection",
+    "test": "NativeV2EntryTests/testSeparateInstancesRestorationAndExplicitPasswordMemory()",
+    "sourceAttachment": "38214598-68B5-4E6A-9E5A-20FAE7E02F3E.png",
+    "sourceSHA256": "97e2bf99db8a28f856e5b4d084060a5cf3666db9f8867c4411fa18770837d07c",
+    "sourceSize": [
+      1668,
+      2420
+    ],
+    "documentFile": "ipad/native-v2-01-connection.png",
+    "device": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      834,
+      1210
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize"
+  },
+  {
+    "name": "native-v2-07-landscape-large-text",
+    "test": "NativeV2EntryTests/testUnavailableRetryCancellationAndLargeText()",
+    "sourceAttachment": "9955A4EB-EEF8-4992-AD07-B208AEC1303B.png",
+    "sourceSHA256": "09a8cedd0782879edf49d0db3160c616b5c0d06475e4231df754b8527ae8b038",
+    "sourceSize": [
+      1668,
+      2420
+    ],
+    "documentFile": "ipad/native-v2-07-landscape-large-text.png",
+    "device": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "sourceExifOrientation": 8,
+    "documentSize": [
+      834,
+      575
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize"
+  },
+  {
+    "name": "native-v2-landscape-before-login",
+    "test": "NativeV2EntryTests/testUnavailableRetryCancellationAndLargeText()",
+    "sourceAttachment": "28D5451B-8030-4BF7-AAF2-FE50E14A6530.png",
+    "sourceSHA256": "60e3fc7e91d9b4e55eb1ca919abcd5298d91eb224a4ce63cfb636235221de782",
+    "sourceSize": [
+      1668,
+      2420
+    ],
+    "documentFile": "ipad/native-v2-landscape-before-login.png",
+    "device": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "sourceExifOrientation": 8,
+    "documentSize": [
+      834,
+      575
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize"
+  },
+  {
+    "name": "native-v2-06-large-text-error",
+    "test": "NativeV2EntryTests/testUnavailableRetryCancellationAndLargeText()",
+    "sourceAttachment": "D8ECB12E-7ED4-4C35-99D2-A9F8F1164762.png",
+    "sourceSHA256": "75a5012ab851facee3b3238f17b3a836fbe2c0ee4514cc624cec370ae59ab24d",
+    "sourceSize": [
+      1668,
+      2420
+    ],
+    "documentFile": "ipad/native-v2-06-large-text-error.png",
+    "device": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      834,
+      1210
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize"
+  }
+]

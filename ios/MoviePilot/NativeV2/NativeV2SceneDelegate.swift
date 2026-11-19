@@ -19,6 +19,7 @@ final class NativeV2SceneDelegate: UIResponder, UIWindowSceneDelegate {
     let window = UIWindow(windowScene: scene)
     self.model = model
     self.window = window
+    window.overrideUserInterfaceStyle = .dark
     window.rootViewController = UIHostingController(rootView: NativeV2RootView(model: model))
     NotificationService.shared.attach(nil)
     window.makeKeyAndVisible()
@@ -30,7 +31,7 @@ final class NativeV2SceneDelegate: UIResponder, UIWindowSceneDelegate {
     guard let window, privacyCover == nil else { return }
     window.endEditing(true)
     let cover = UIView(frame: window.bounds)
-    cover.backgroundColor = AccountAppearance.background(for: model?.selected?.id)
+    cover.backgroundColor = UIColor(CinematicStyle.background)
     cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     window.addSubview(cover)
     privacyCover = cover

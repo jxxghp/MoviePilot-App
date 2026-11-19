@@ -1,0 +1,3 @@
+getpwuid_r did not find a match for uid 501
+Timestamp               Ty Process[PID:TID]
+2026-11-20 02:21:20.862 Df MPFrameControl[28558:44c60c] (Foundation) MPFrameControl focus cycles completed

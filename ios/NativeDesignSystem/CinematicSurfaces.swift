@@ -22,7 +22,7 @@ struct CinematicBackground: View {
         .init(color: Color(red: 0.34, green: 0.22, blue: 0.29), location: 0.70),
         .init(color: Color(red: 0.14, green: 0.18, blue: 0.25), location: 1),
       ], startPoint: .topLeading, endPoint: .bottomTrailing
-    ).ignoresSafeArea()
+    ).ignoresSafeArea().allowsHitTesting(false)
   }
 }
 
@@ -30,6 +30,7 @@ struct CinematicBackground: View {
 @MainActor
 struct CinematicPanel<Content: View>: View {
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+  @Environment(\.colorSchemeContrast) private var contrast
   private let padding: CGFloat
   private let content: Content
 
@@ -51,7 +52,12 @@ struct CinematicPanel<Content: View>: View {
         }
       }
       .clipShape(shape)
-      .overlay(shape.strokeBorder(.white.opacity(0.13), lineWidth: 0.7))
+      .overlay(
+        shape.strokeBorder(
+          .white.opacity(contrast == .increased ? 0.38 : 0.13),
+          lineWidth: contrast == .increased ? 1 : 0.7
+        ).allowsHitTesting(false)
+      )
       .shadow(color: .black.opacity(0.08), radius: 12, y: 6)
   }
 
@@ -125,13 +131,17 @@ struct CinematicPrimaryAction: View {
   let title: String
   let symbol: String
   let action: () -> Void
+  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+  @Environment(\.isEnabled) private var isEnabled
 
   /// 按钮本身保留原生语义和动态字体，不用图像模拟点击区域。
   var body: some View {
-    if #available(iOS 26, *) {
-      button.buttonStyle(.glassProminent).tint(.white).foregroundStyle(.black)
+    if #available(iOS 26, *), !reduceTransparency {
+      button.buttonStyle(.glassProminent).tint(.white)
+        .foregroundStyle(isEnabled ? Color.black : Color.white)
     } else {
-      button.buttonStyle(.borderedProminent).tint(.white).foregroundStyle(.black)
+      button.buttonStyle(.borderedProminent).tint(.white)
+        .foregroundStyle(isEnabled ? Color.black : Color.white)
     }
   }
 
