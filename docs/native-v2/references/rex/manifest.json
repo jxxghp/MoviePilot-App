@@ -1,0 +1,56 @@
+[
+  {
+    "reference": 1,
+    "file": "01-playback-form.png",
+    "source_sha256": "4feb1428cb04e2f1b737e8b36c87d4e9e4c5af6f8dbe78565547fab8cc1a8b4f",
+    "width": 588,
+    "height": 1280,
+    "source": "User-provided Rex screenshot, 2026-11-19",
+    "usage": "Local design reference, not a rendered MoviePilot screen"
+  },
+  {
+    "reference": 2,
+    "file": "02-poster-grid.png",
+    "source_sha256": "11670b47a443196f80dcd6df8cb02e15482f4b22067dd10aa15c46df641fbc6e",
+    "width": 588,
+    "height": 1280,
+    "source": "User-provided Rex screenshot, 2026-11-19",
+    "usage": "Local design reference, not a rendered MoviePilot screen"
+  },
+  {
+    "reference": 3,
+    "file": "03-discovery-sections.png",
+    "source_sha256": "6a1446cdd998f4b5a537b8783bfdf97e9d9794a55175970b8d2a952e86bed016",
+    "width": 588,
+    "height": 1280,
+    "source": "User-provided Rex screenshot, 2026-11-19",
+    "usage": "Local design reference, not a rendered MoviePilot screen"
+  },
+  {
+    "reference": 4,
+    "file": "04-settings.png",
+    "source_sha256": "d710a317e8ea5accc4e96c9e9c24c06cf2990af34409e6834f8f4b3955ad4a6f",
+    "width": 588,
+    "height": 1280,
+    "source": "User-provided Rex screenshot, 2026-11-19",
+    "usage": "Local design reference, not a rendered MoviePilot screen"
+  },
+  {
+    "reference": 5,
+    "file": "05-personal-dashboard.png",
+    "source_sha256": "fce7732d6f2fc5756066f0d1a839dd0bc8104354133a92d4fda8f83e2ba5eb31",
+    "width": 588,
+    "height": 1280,
+    "source": "User-provided Rex screenshot, 2026-11-19",
+    "usage": "Local design reference, not a rendered MoviePilot screen"
+  },
+  {
+    "reference": 6,
+    "file": "06-featured-discovery.png",
+    "source_sha256": "b75bbe69860dd42ff414487f1fa1c4d74157d721da3f7e30d454a9902fbd7111",
+    "width": 588,
+    "height": 1280,
+    "source": "User-provided Rex screenshot, 2026-11-19",
+    "usage": "Local design reference, not a rendered MoviePilot screen"
+  }
+]
