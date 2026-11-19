@@ -1,0 +1,18 @@
+{
+  "a": {
+    "GET api/v1/login/initialization": 2
+  },
+  "b": {
+    "GET api/v1/login/initialization": 1,
+    "POST api/v1/login/access-token": 1
+  },
+  "new": {
+    "GET api/v1/login/initialization": 2,
+    "POST api/v1/login/initialization": 1,
+    "POST api/v1/login/access-token": 1
+  },
+  "slow": {
+    "GET api/v1/login/initialization": 1
+  },
+  "unexpected": {}
+}
