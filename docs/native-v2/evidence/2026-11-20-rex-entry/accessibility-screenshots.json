@@ -1,0 +1,92 @@
+[
+  {
+    "name": "rex-entry-initialization-system-light",
+    "test": "NativeV2EntryTests/testRexFormControlsAndSecretConcealment()",
+    "sourceAttachment": "DEBE21E2-FB59-4E51-8125-D0CC9F2CD29D.png",
+    "sourceSHA256": "73d0605f12e40c68b0832c5e90bc5b7600aeb9ac6ddfe135d94b8042f858170a",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      588,
+      1278
+    ],
+    "documentFile": "accessibility/rex-entry-initialization-system-light.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize"
+  },
+  {
+    "name": "rex-entry-connection-system-light",
+    "test": "NativeV2EntryTests/testRexFormControlsAndSecretConcealment()",
+    "sourceAttachment": "3E8FA033-1383-4EDE-BCF7-995893E4B459.png",
+    "sourceSHA256": "a29447c649d3b5beb55d35abaf85560c13db7d8eeb853949f97b527bae33fc5e",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      588,
+      1278
+    ],
+    "documentFile": "accessibility/rex-entry-connection-system-light.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize"
+  },
+  {
+    "name": "native-v2-07-landscape-large-text",
+    "test": "NativeV2EntryTests/testUnavailableRetryCancellationAndLargeText()",
+    "sourceAttachment": "80270403-42FB-45F6-836F-32E724B64E72.png",
+    "sourceSHA256": "c4d6501b761052700e6a03b1ddc22a84d4ac142f020be1a1b230ac43de0e7c25",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "sourceExifOrientation": 8,
+    "documentSize": [
+      588,
+      270
+    ],
+    "documentFile": "accessibility/native-v2-07-landscape-large-text.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize"
+  },
+  {
+    "name": "native-v2-landscape-before-login",
+    "test": "NativeV2EntryTests/testUnavailableRetryCancellationAndLargeText()",
+    "sourceAttachment": "FEE899EA-7E56-42DD-A92F-7E055A2AE3D9.png",
+    "sourceSHA256": "940cd145d76d0fb9148ba8d8e06ef11666dda7acbd66372a6f30aac10192d6db",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "sourceExifOrientation": 8,
+    "documentSize": [
+      588,
+      270
+    ],
+    "documentFile": "accessibility/native-v2-landscape-before-login.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize"
+  },
+  {
+    "name": "native-v2-06-large-text-error",
+    "test": "NativeV2EntryTests/testUnavailableRetryCancellationAndLargeText()",
+    "sourceAttachment": "7609BEED-0D28-4DF1-A0CB-2CC847AF1587.png",
+    "sourceSHA256": "9c7650d80383410ff9e02f6db9d6124c24404c7221d2c882f41a0cb32a9dd14e",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      588,
+      1278
+    ],
+    "documentFile": "accessibility/native-v2-06-large-text-error.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize"
+  }
+]

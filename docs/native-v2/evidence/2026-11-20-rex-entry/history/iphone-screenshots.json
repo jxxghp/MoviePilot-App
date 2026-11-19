@@ -1,0 +1,249 @@
+[
+  {
+    "name": "native-v2-08-background-memory-session",
+    "test": "NativeV2EntryTests/testActiveMemorySessionSurvivesBackgroundDuringRefresh()",
+    "sourceAttachment": "026BAACD-894B-4E95-A19F-E97C70529A56.png",
+    "sourceSHA256": "e86a97d6368c48ff15e013457847968be89ac0a4817cb0902c81015e8c62f496",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "documentFile": "history/full-suite-iphone/native-v2-08-background-memory-session.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      588,
+      1278
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize",
+    "documentRetained": false
+  },
+  {
+    "name": "native-v2-initialization-submitted",
+    "test": "NativeV2EntryTests/testInitializationRequiresSeparateLogin()",
+    "sourceAttachment": "0C901A05-B89E-4E57-BC15-487241FF9455.png",
+    "sourceSHA256": "85bb7d7b10fb16cfdcafed3437c553bcbbef3c20b50bae08ee79fbb05c7ed7d9",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "documentFile": "history/full-suite-iphone/native-v2-initialization-submitted.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      588,
+      1278
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize",
+    "documentRetained": false
+  },
+  {
+    "name": "native-v2-initialization-filled",
+    "test": "NativeV2EntryTests/testInitializationRequiresSeparateLogin()",
+    "sourceAttachment": "2851394C-66F3-48CC-863A-A7BCD2E52A84.png",
+    "sourceSHA256": "92d881bf886efc1cfab595854612bf8d1d8b9bd9f55e9b5cfbcd5dac0789bc0c",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "documentFile": "history/full-suite-iphone/native-v2-initialization-filled.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      588,
+      1278
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize",
+    "documentRetained": false
+  },
+  {
+    "name": "native-v2-05-initialization",
+    "test": "NativeV2EntryTests/testInitializationRequiresSeparateLogin()",
+    "sourceAttachment": "5BE6213D-E4D7-457A-B97D-E3DB31B0BA12.png",
+    "sourceSHA256": "fbdd6b392cbdc74d8d5c24080329433e596ec301681bc0325dc46681b8754518",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "documentFile": "history/full-suite-iphone/native-v2-05-initialization.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      588,
+      1278
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize",
+    "documentRetained": true
+  },
+  {
+    "name": "native-v2-04-otp",
+    "test": "NativeV2EntryTests/testOTPAndSessionNotRemembered()",
+    "sourceAttachment": "C5E58578-6E25-4265-A6FD-3E01D6B5BB11.png",
+    "sourceSHA256": "c102619a03f6e57ebe382e068a8d1ce5ec107558f1cef195dc82af7b53b5ba12",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "documentFile": "history/full-suite-iphone/native-v2-04-otp.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      588,
+      1278
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize",
+    "documentRetained": false
+  },
+  {
+    "name": "rex-entry-initialization-system-light",
+    "test": "NativeV2EntryTests/testRexFormControlsAndSecretConcealment()",
+    "sourceAttachment": "654A71A6-55C1-4C5D-9CD5-B5EF996B2EE2.png",
+    "sourceSHA256": "fbdd6b392cbdc74d8d5c24080329433e596ec301681bc0325dc46681b8754518",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "documentFile": "history/full-suite-iphone/rex-entry-initialization-system-light.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      588,
+      1278
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize",
+    "documentRetained": false
+  },
+  {
+    "name": "rex-entry-connection-system-light",
+    "test": "NativeV2EntryTests/testRexFormControlsAndSecretConcealment()",
+    "sourceAttachment": "D5A17C98-484A-485A-B0B3-FBD4720F9BB9.png",
+    "sourceSHA256": "5b58fecd8a86e7a6038aaa18fb66a046981c79c2e8b5f7cf7d49aeb91045920f",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "documentFile": "history/full-suite-iphone/rex-entry-connection-system-light.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      588,
+      1278
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize",
+    "documentRetained": false
+  },
+  {
+    "name": "native-v2-03-account",
+    "test": "NativeV2EntryTests/testSeparateInstancesRestorationAndExplicitPasswordMemory()",
+    "sourceAttachment": "E4BB9D3D-E0BC-462E-9BA7-85AB8A7A8A71.png",
+    "sourceSHA256": "e86a97d6368c48ff15e013457847968be89ac0a4817cb0902c81015e8c62f496",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "documentFile": "history/full-suite-iphone/native-v2-03-account.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      588,
+      1278
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize",
+    "documentRetained": false
+  },
+  {
+    "name": "native-v2-02-login",
+    "test": "NativeV2EntryTests/testSeparateInstancesRestorationAndExplicitPasswordMemory()",
+    "sourceAttachment": "720B4093-B97F-43A7-BC82-1841A64BF2C7.png",
+    "sourceSHA256": "3bf54a9af459453c0912599424a7c7130debadd2c3c276d7668d20df8e455aeb",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "documentFile": "history/full-suite-iphone/native-v2-02-login.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      588,
+      1278
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize",
+    "documentRetained": true
+  },
+  {
+    "name": "native-v2-01-connection",
+    "test": "NativeV2EntryTests/testSeparateInstancesRestorationAndExplicitPasswordMemory()",
+    "sourceAttachment": "CE68D148-6EEE-4332-A0FF-21C49A664322.png",
+    "sourceSHA256": "5b58fecd8a86e7a6038aaa18fb66a046981c79c2e8b5f7cf7d49aeb91045920f",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "documentFile": "history/full-suite-iphone/native-v2-01-connection.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      588,
+      1278
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize",
+    "documentRetained": false
+  },
+  {
+    "name": "native-v2-07-landscape-large-text",
+    "test": "NativeV2EntryTests/testUnavailableRetryCancellationAndLargeText()",
+    "sourceAttachment": "A44F9802-3964-4FCF-A617-B63E63FE21C7.png",
+    "sourceSHA256": "68ffb7d6fce84e857074b4af3f27ed7cdb174a3a8c63a9701464f58504cb316c",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "documentFile": "history/full-suite-iphone/native-v2-07-landscape-large-text.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "sourceExifOrientation": 8,
+    "documentSize": [
+      588,
+      270
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize",
+    "documentRetained": false
+  },
+  {
+    "name": "native-v2-landscape-before-login",
+    "test": "NativeV2EntryTests/testUnavailableRetryCancellationAndLargeText()",
+    "sourceAttachment": "3D1E1D3B-0804-4173-9160-4BDFDE2B0266.png",
+    "sourceSHA256": "31b5942500168afffa71b113f02d7bcf1ede96aaccafdb5f912ba6d2b4659260",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "documentFile": "history/full-suite-iphone/native-v2-landscape-before-login.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "sourceExifOrientation": 8,
+    "documentSize": [
+      588,
+      270
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize",
+    "documentRetained": false
+  },
+  {
+    "name": "native-v2-06-large-text-error",
+    "test": "NativeV2EntryTests/testUnavailableRetryCancellationAndLargeText()",
+    "sourceAttachment": "0E2FC59C-6E7A-4C03-A028-74641360601B.png",
+    "sourceSHA256": "86f868df1314743ead81cab74a52884d9450fa3b9202c51aaf575fad6d4bedf7",
+    "sourceSize": [
+      1206,
+      2622
+    ],
+    "documentFile": "history/full-suite-iphone/native-v2-06-large-text-error.png",
+    "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+    "sourceExifOrientation": 1,
+    "documentSize": [
+      588,
+      1278
+    ],
+    "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize",
+    "documentRetained": false
+  }
+]

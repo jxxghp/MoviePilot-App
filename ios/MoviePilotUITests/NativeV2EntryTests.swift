@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// API-only 服务通过真实按钮验收原生入口，不启动前端或借用网页登录结果。
@@ -5,6 +6,47 @@ import XCTest
 final class NativeV2EntryTests: XCTestCase {
   private let base = "http://127.0.0.1:5330/"
   private let arguments = ["--native-v2", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+
+  /// 浅色系统偏好下仍为 Rex 单一风格，玻璃表单中的秘密可检查且暂离后恢复遮盖。
+  func testRexFormControlsAndSecretConcealment() async throws {
+    try await configure("new", mode: "new", reset: true)
+    let app = try cleanPicker(extra: ["-AppleInterfaceStyle", "Light"])
+    capture("rex-entry-connection-system-light")
+    connect("new", app: app)
+    let key = app.secureTextFields["native-v2-api-key"]
+    reveal(key, app: app)
+    capture("rex-entry-initialization-system-light")
+    for identifier in [
+      "native-v2-show-api-key", "native-v2-copy-api-key", "native-v2-show-password",
+    ] {
+      let button = app.buttons[identifier]
+      reveal(button, app: app)
+      // 像素到逻辑点的换算可能产生 43.99999999999994，仅容许浮点舍入误差。
+      XCTAssertGreaterThanOrEqual(button.frame.width, 44 - 0.01)
+      XCTAssertGreaterThanOrEqual(button.frame.height, 44 - 0.01)
+    }
+    tap(app.buttons["native-v2-show-api-key"], app: app)
+    XCTAssertTrue(app.textFields["native-v2-api-key"].exists)
+    tap(app.buttons["native-v2-show-password"], app: app)
+    XCTAssertTrue(app.textFields["native-v2-password"].exists)
+    XCUIDevice.shared.press(.home)
+    let background = XCTNSPredicateExpectation(
+      predicate: NSPredicate(
+        format: "state == %d OR state == %d",
+        XCUIApplication.State.runningBackground.rawValue,
+        XCUIApplication.State.runningBackgroundSuspended.rawValue), object: app)
+    XCTAssertEqual(XCTWaiter.wait(for: [background], timeout: 5), .completed)
+    app.activate()
+    XCTAssertTrue(app.secureTextFields["native-v2-password"].waitForExistence(timeout: 5))
+    XCTAssertTrue(key.exists)
+    XCTAssertFalse(app.textFields["native-v2-api-key"].exists)
+    XCTAssertFalse(app.textFields["native-v2-password"].exists)
+    XCTAssertEqual(key.value as? String, "API Key")
+    tap(app.buttons["native-v2-regenerate-api-key"], app: app)
+    XCTAssertNotEqual(key.value as? String, "API Key")
+    XCTAssertEqual(app.webViews.count, 0)
+    app.terminate()
+  }
 
   /// 两个部署子路径的身份、可选密码和令牌跨切换/重启隔离，过期不能自动重发密码。
   func testSeparateInstancesRestorationAndExplicitPasswordMemory() async throws {
@@ -172,7 +214,9 @@ final class NativeV2EntryTests: XCTestCase {
     try await configure("a", mode: "ready")
     tap(retry, app: app)
     reveal(app.textFields["native-v2-username"], app: app)
-    XCTAssertFalse(app.buttons["native-v2-retry"].exists)
+    let recovered = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "exists == false"), object: retry)
+    XCTAssertEqual(XCTWaiter.wait(for: [recovered], timeout: 10), .completed)
     tap(app.buttons["native-v2-change-server"], app: app)
     connect("slow", app: app, wait: false)
     tap(app.buttons["native-v2-change-server"], app: app)
@@ -222,6 +266,9 @@ final class NativeV2EntryTests: XCTestCase {
       throw XCTSkip("需要显式启动原生 API-only 本机夹具。")
     }
     continueAfterFailure = false
+    print(
+      "NativeEntry accessibility: reduceTransparency=\(UIAccessibility.isReduceTransparencyEnabled), reduceMotion=\(UIAccessibility.isReduceMotionEnabled)"
+    )
     XCUIDevice.shared.orientation = .portrait
     let app = XCUIApplication()
     app.launchArguments = arguments + ["-moviepilot.instance.selected.v1", ""] + extra
@@ -289,15 +336,29 @@ final class NativeV2EntryTests: XCTestCase {
     element.tap()
   }
 
-  /// Form 会延迟创建屏幕外的行，大字号下先滚动再验证元素存在。
+  /// Form 延迟创建行且部分 SwiftUI 后代会误报 hittable，必须检查点击中心在可见区域内。
   private func reveal(_ element: XCUIElement, app: XCUIApplication) {
     _ = element.waitForExistence(timeout: 2)
     let scroll = app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app
-    for _ in 0..<8 where !element.exists || !element.isHittable { scroll.swipeUp() }
-    if !element.isHittable {
-      for _ in 0..<8 where !element.exists || !element.isHittable { scroll.swipeDown() }
+    for direction in [true, false] {
+      for _ in 0..<12 {
+        if visible(element, app: app, scroll: scroll) { return }
+        let upward =
+          element.exists
+          ? element.frame.midY > viewport(app, scroll: scroll).midY : direction
+        let area = viewport(app, scroll: scroll)
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let x = area.minX + min(32, area.width * 0.1)
+        let upper = origin.withOffset(CGVector(dx: x, dy: area.minY + area.height * 0.2))
+        let lower = origin.withOffset(CGVector(dx: x, dy: area.minY + area.height * 0.8))
+        if upward {
+          lower.press(forDuration: 0.05, thenDragTo: upper)
+        } else {
+          upper.press(forDuration: 0.05, thenDragTo: lower)
+        }
+      }
     }
-    if !element.exists || !element.isHittable {
+    if !visible(element, app: app, scroll: scroll) {
       capture("native-v2-unreachable-control")
       let details = XCTAttachment(string: app.debugDescription)
       details.name = "native-v2-unreachable-hierarchy"
@@ -306,6 +367,38 @@ final class NativeV2EntryTests: XCTestCase {
     }
     XCTAssertTrue(element.exists)
     XCTAssertTrue(element.isHittable)
+    XCTAssertTrue(visible(element, app: app, scroll: scroll))
+  }
+
+  /// 系统导航、键盘与底部安全区不能被当作表单的有效点击区域。
+  private func viewport(_ app: XCUIApplication, scroll: XCUIElement) -> CGRect {
+    let window = app.windows.firstMatch.frame
+    var rect = scroll.frame.intersection(window).insetBy(dx: 0, dy: 12)
+    let bar = app.navigationBars.firstMatch
+    if bar.exists, bar.frame.maxY > rect.minY {
+      let bottom = rect.maxY
+      rect.origin.y = bar.frame.maxY + 6
+      rect.size.height = max(0, bottom - rect.minY)
+    }
+    let keyboard = app.keyboards.firstMatch
+    let bottom = keyboard.exists ? min(rect.maxY, keyboard.frame.minY - 6) : rect.maxY - 18
+    rect.size.height = max(0, bottom - rect.minY)
+    return rect
+  }
+
+  /// 以真实元素中心验证命中点，保留普通 isHittable 检查而不使用坐标直接点击控件。
+  private func visible(
+    _ element: XCUIElement, app: XCUIApplication, scroll: XCUIElement
+  ) -> Bool {
+    guard element.exists, element.isHittable else { return false }
+    let bar = app.navigationBars.firstMatch
+    if !element.identifier.isEmpty,
+      bar.buttons.matching(identifier: element.identifier).firstMatch.exists
+    {
+      return bar.frame.contains(CGPoint(x: element.frame.midX, y: element.frame.midY))
+    }
+    return viewport(app, scroll: scroll).contains(
+      CGPoint(x: element.frame.midX, y: element.frame.midY))
   }
 
   /// SwiftUI 的带标题开关包含实际 UISwitch，直接操作该控件并验证真实值。
@@ -320,6 +413,7 @@ final class NativeV2EntryTests: XCTestCase {
   /// 已认证账号标签必须属于本次服务，同时检查运行中的可访问性树没有 WebView。
   private func assertAccount(_ name: String, app: XCUIApplication) {
     let account = app.descendants(matching: .any)["native-v2-account"].firstMatch
+    reveal(account, app: app)
     XCTAssertTrue(account.waitForExistence(timeout: 15))
     XCTAssertTrue(account.label.contains("native-" + name))
     XCTAssertEqual(app.webViews.count, 0)

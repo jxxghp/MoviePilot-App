@@ -1,0 +1,5 @@
+{
+  "fullSuiteInstalledMoviePilotDebugDylibSHA256": "08e75e05fd7627e15220edb8abee21aaef0807c0f62d4b1440f2be6f463e6573",
+  "contrastRevisionMoviePilotDebugDylibSHA256": "ef5b49910cfc35dbe311c044c527b9066e5e2ef3c391624be5bcb40b534e0313",
+  "scope": "Both devices retained the full-suite app while host built the contrast revision; subsequent UI batches install the contrast revision."
+}

@@ -27,6 +27,7 @@ targets:
     sources:
       - path: MoviePilot
         excludes: [Resources/Info.plist]
+      - path: NativeDesignSystem
     dependencies:
       - package: MoviePilotCore
       - package: MoviePilotCore
