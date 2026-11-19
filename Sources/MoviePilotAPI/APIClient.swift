@@ -161,7 +161,7 @@ public final class APIClient: Sendable {
   }
 
   /// 接受标准秒数或 HTTP 日期；只供 UI 展示等待提示，客户端从不据此自动重发。
-  static func retryAfter(_ value: String?, now: Date = Date()) -> TimeInterval? {
+  public static func retryAfter(_ value: String?, now: Date = Date()) -> TimeInterval? {
     guard let value else { return nil }
     if !value.isEmpty, value.utf8.allSatisfy({ (48...57).contains($0) }),
       let seconds = Double(value), seconds.isFinite
