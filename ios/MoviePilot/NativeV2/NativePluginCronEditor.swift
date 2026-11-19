@@ -168,7 +168,10 @@ struct NativePluginCronEditor: View {
 
   /// 格式说明不是全局保存校验，不将合法插件自定义值误判为不可保存。
   private var guidance: String {
-    switch NativeCronExpression(expression).format {
+    if NativeCronExpression(expression).hasAmbiguousWeekday {
+      return L10n.text("数字星期由插件解释；改选时使用星期名称。")
+    }
+    return switch NativeCronExpression(expression).format {
     case .empty: L10n.text("留空时由插件决定执行规则。")
     case .fiveFields: L10n.text("五段顺序：分、时、日、月、周。")
     case .custom: L10n.text("自定义值会原样交给插件处理。")
@@ -196,7 +199,10 @@ private struct NativeCronFieldEditor: View {
     ZStack {
       CinematicBackground()
       Form {
-        CinematicFormSection {
+        CinematicFormSection(
+          footer: draft.unit == .weekday
+            ? L10n.text("数字星期由插件解释；改选时使用星期名称。") : nil
+        ) {
           CinematicFormRow {
             Button {
               selectingMode = true
@@ -263,7 +269,9 @@ private struct NativeCronFieldEditor: View {
         guard mode != NativeCronMode(draft.rule) else { return }
         switch mode {
         case .every: draft.rule = .every
-        case .values: draft.rule = .values([draft.unit.bounds.lowerBound])
+        case .values:
+          draft.rule = .values(
+            draft.unit.hasAmbiguousNumericValue(draft.source) ? [] : [draft.unit.bounds.lowerBound])
         case .range: draft.rule = .range(draft.unit.bounds.lowerBound, draft.unit.bounds.upperBound)
         case .step: draft.rule = .step(start: nil, every: 1)
         case .lastDay: draft.rule = .lastDay

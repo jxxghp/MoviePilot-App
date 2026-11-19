@@ -10,7 +10,7 @@ public enum NativeCronUnit: String, CaseIterable, Hashable, Sendable, Identifiab
   /// 五段顺序与后端 from_crontab 一致。
   public var index: Int { Self.allCases.firstIndex(of: self)! }
 
-  /// 数字星期沿用现有 APScheduler 3 的 0=周一，生成时改用明确名称。
+  /// 星期是原生选择器内部的周一到周日索引；不代表已有数字 token 的插件方言。
   public var bounds: ClosedRange<Int> {
     switch self {
     case .minute: 0...59
@@ -23,6 +23,11 @@ public enum NativeCronUnit: String, CaseIterable, Hashable, Sendable, Identifiab
 
   /// 构造器的显式步长使用后端字段范围，不生成超过可用范围的增量。
   public var maximumStep: Int { bounds.upperBound - bounds.lowerBound }
+
+  /// 插件对数字星期的起点并不一致，包含数字的点/列表/范围/步长都不能擅自映射为日期。
+  public func hasAmbiguousNumericValue(_ token: String) -> Bool {
+    self == .weekday && token.utf8.contains { (48...57).contains($0) }
+  }
 
   /// 星期生成 mon–sun，避免其它 cron 方言对数字星期的不同解释。
   public func token(for value: Int) throws -> String {
@@ -39,6 +44,11 @@ public struct NativeCronExpression: Sendable, Equatable {
   public let rawValue: String
   public let fields: [String]?
   public let format: NativeCronFormat
+
+  /// 用于界面解释为什么数字星期保持自定义原文，不把它标作无效或禁止保存。
+  public var hasAmbiguousWeekday: Bool {
+    fields.map { NativeCronUnit.weekday.hasAmbiguousNumericValue($0[4]) } ?? false
+  }
 
   /// nil fields 表示不能按五字段编辑，仍可原样显示/保存和显式使用预设。
   public init(_ source: String) {
@@ -191,7 +201,7 @@ private enum NativeCronSyntax {
 
   /// 识别常用五段字段；不认识的合法插件方言留在 custom，不改写/阻断原始值。
   static func recognizes(_ token: String, unit: NativeCronUnit) -> Bool {
-    guard singleToken(token) else { return false }
+    guard singleToken(token), !unit.hasAmbiguousNumericValue(token) else { return false }
     let terms = token.split(separator: ",", omittingEmptySubsequences: false)
     guard terms.count <= 64 else { return false }
     return terms.allSatisfy { term in
@@ -258,7 +268,7 @@ private enum NativeCronSyntax {
 
   /// 月/周的固定英文缩写与数值对应已有调度器，不查询用户时区或网络。
   private static func value(_ text: String, unit: NativeCronUnit) -> Int? {
-    if let value = integer(text), unit.bounds.contains(value) { return value }
+    if unit != .weekday, let value = integer(text), unit.bounds.contains(value) { return value }
     if unit == .weekday { return weekdays.firstIndex(of: text.lowercased()) }
     if unit == .month, let index = months.firstIndex(of: text.lowercased()) { return index + 1 }
     return nil

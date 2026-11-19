@@ -60,13 +60,39 @@ import Testing
     #expect(try draft.token() == "1,5,10")
   }
 
-  /// 原始星期按后端 Monday=0 映射；生成名称不受手机地区第一天设置影响。
+  /// 生成器用内部 Monday=0 索引发出名称；原始数字 token 仍由插件方言解释。
   @Test func usesExplicitWeekdayNames() throws {
     #expect(try NativeCronRule.values([0, 6]).token(for: .weekday) == "mon,sun")
     #expect(try NativeCronRule.range(0, 4).token(for: .weekday) == "mon-fri")
     #expect(try NativeCronRule.step(start: 0, every: 2).token(for: .weekday) == "mon,wed,fri,sun")
-    #expect(NativeCronFieldDraft(unit: .weekday, token: "0").rule == .values([0]))
+    #expect(NativeCronFieldDraft(unit: .weekday, token: "0").rule == .custom("0"))
     #expect(NativeCronFieldDraft(unit: .weekday, token: "sun").rule == .values([6]))
+  }
+
+  /// 实际插件存在 Sunday=0/7 与 Monday=0 两种解释，不能将数字原文预选为某一天。
+  @Test(arguments: ["0", "1", "6", "7", "0,2,6", "1-5", "*/2", "0-7", "mon,2"])
+  func keepsNumericWeekdayAsCustom(_ token: String) throws {
+    let draft = NativeCronFieldDraft(unit: .weekday, token: token)
+    #expect(draft.rule == .custom(token))
+    #expect(try draft.token().utf8.elementsEqual(token.utf8))
+    #expect(NativeCronExpression("0 3 * * " + token).format == .custom)
+    #expect(NativeCronExpression("0 3 * * " + token).hasAmbiguousWeekday)
+  }
+
+  /// 只有数字星期需要方言说明；无改应用保留整个空白/原数字，明确选择才生成新名称。
+  @Test func preservesAmbiguousWeekdayAndSeparatesExplicitChoice() throws {
+    let source = "  0  3 * * 0  "
+    let expression = NativeCronExpression(source)
+    #expect(try expression.replacing(.weekday, with: "0").utf8.elementsEqual(source.utf8))
+    #expect(
+      try expression.replacing(.weekday, with: NativeCronRule.values([6]).token(for: .weekday))
+        == "0 3 * * sun")
+    for token in ["*", "mon", "sun", "mon-fri", "mon,wed,fri"] {
+      let named = NativeCronExpression("0 3 * * " + token)
+      #expect(!named.hasAmbiguousWeekday)
+      #expect(named.format == .fiveFields)
+    }
+    #expect(!NativeCronExpression("6").hasAmbiguousWeekday)
   }
 
   /// 范围/步长/空选集在构造器内被拒绝，不等到网络请求后才发现。

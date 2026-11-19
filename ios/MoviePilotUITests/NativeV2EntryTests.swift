@@ -7,6 +7,71 @@ final class NativeV2EntryTests: XCTestCase {
   private let base = "http://127.0.0.1:5330/"
   private let arguments = ["--native-v2", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
 
+  /// 来源节点的 0 不应被预选为周一，无改保存保留空格原文，主动选周日后才写 sun。
+  func testPluginCronNumericWeekdayPreservesSource() async throws {
+    let app = try await pluginAccount()
+    try await verifyNumericWeekday(app, evidenceLabel: "normal")
+    app.terminate()
+  }
+
+  /// 数字星期说明、自定义输入与显式选值在最大字号横屏下仍可操作并完整保存。
+  func testPluginCronNumericWeekdayLargestTypeLandscape() async throws {
+    let app = try await pluginAccount(extra: [
+      "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
+      "-AppleInterfaceStyle", "Light",
+    ])
+    defer {
+      app.terminate()
+      XCUIDevice.shared.orientation = .portrait
+    }
+    XCUIDevice.shared.orientation = .landscapeLeft
+    try await verifyNumericWeekday(app, evidenceLabel: "largest")
+  }
+
+  /// 在真实 API-only 原生入口完成无改与改选两次保存，独立检查完整服务端回执。
+  private func verifyNumericWeekday(_ app: XCUIApplication, evidenceLabel: String) async throws {
+    let original = " 0 3 * * 0  "
+    let plugin = "LibraryIntegrityWeekdayFixture"
+    openPlugin(plugin, initialControl: "native-plugin-field-cron", app: app)
+    openCron("cron", app: app)
+    XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, original)
+    reveal(app.staticTexts["数字星期由插件解释；改选时使用星期名称。"].firstMatch, app: app)
+    capture("rex-weekday-dialect-expression-" + evidenceLabel)
+    tap(app.buttons["native-cron-unit-weekday"], app: app)
+    XCTAssertTrue(app.buttons["native-cron-mode"].label.contains("自定义"))
+    let custom = app.textFields["native-cron-custom-field"]
+    reveal(custom, app: app)
+    XCTAssertEqual(custom.value as? String, "0")
+    XCTAssertFalse(app.buttons["native-cron-choice-weekday-0"].exists)
+    capture("rex-weekday-dialect-custom-" + evidenceLabel)
+    tap(app.buttons["native-cron-field-apply"], app: app)
+    tap(app.buttons["native-cron-apply"], app: app)
+    XCTAssertFalse(app.buttons["native-plugin-form-back"].exists)
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    var state = try await pluginState()
+    XCTAssertEqual(try cronModel(state, plugin: plugin)["cron"] as? String, original)
+    openCron("cron", app: app)
+    tap(app.buttons["native-cron-unit-weekday"], app: app)
+    chooseCronMode("指定值", app: app)
+    XCTAssertFalse(app.buttons["native-cron-field-apply"].isEnabled)
+    tap(app.buttons["native-cron-choice-weekday-6"], app: app)
+    XCTAssertTrue(app.buttons["native-cron-field-apply"].isEnabled)
+    capture("rex-weekday-dialect-choice-" + evidenceLabel)
+    tap(app.buttons["native-cron-field-apply"], app: app)
+    tap(app.buttons["native-cron-apply"], app: app)
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    state = try await pluginState()
+    let model = try cronModel(state, plugin: plugin)
+    XCTAssertEqual(model["cron"] as? String, "0 3 * * sun")
+    XCTAssertEqual((model["future"] as? [String: Any])?["integer"] as? Int64, 9_007_199_254_740_993)
+    XCTAssertEqual((state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/" + plugin], 2)
+    XCTAssertEqual((state["receipts"] as? [[String: Any]])?.count, 2)
+    XCTAssertTrue((state["unexpected"] as? [String: Int])?.isEmpty == true)
+    XCTAssertEqual(app.webViews.count, 0)
+  }
+
   /// 完整官方 Cron 表单从真实入口编辑月底计划，添加缺省模型外的绑定并完整保存/重读。
   func testPluginCronSourceBuilderSavesCompletePhysicalForm() async throws {
     let app = try await pluginAccount()
@@ -446,8 +511,10 @@ final class NativeV2EntryTests: XCTestCase {
     return app
   }
 
-  /// 清单和配置加载都经用户可见按钮，不直接导航到测试页面。
-  private func openPlugin(_ id: String, app: XCUIApplication) {
+  /// 清单和配置加载都经真实按钮；等待各表单确实提供的首控件，而非假定所有插件都有开关。
+  private func openPlugin(
+    _ id: String, initialControl: String = "native-plugin-field-enabled", app: XCUIApplication
+  ) {
     tap(app.buttons["native-v2-plugins"], app: app)
     let row = app.buttons["native-plugin-" + id]
     reveal(row, app: app)
@@ -455,7 +522,7 @@ final class NativeV2EntryTests: XCTestCase {
     capture("rex-plugin-installed-list")
     tap(row, app: app)
     XCTAssertTrue(app.buttons["native-plugin-form-save"].waitForExistence(timeout: 10))
-    reveal(app.switches["native-plugin-field-enabled"], app: app)
+    reveal(app.descendants(matching: .any)[initialControl].firstMatch, app: app)
   }
 
   /// 输入由真实键盘产生；单字符数字测试不依赖粘贴或直接改草稿。

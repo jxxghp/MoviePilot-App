@@ -1,5 +1,5 @@
 {
-  "revision": "5d473864ee9d3d036b28a124262f38f773a2a452",
+  "revision": "be185c5e180cd4752d46384f66ef44f522a9bcb6",
   "method": "AST data only; no plugin imports or execution",
   "fixtures": [
     {
@@ -39,6 +39,16 @@
       "line": 283,
       "source_sha256": "f6e0cfebbb0ff50aea9d2be0e10403719b6a28ee3c1dc8735ffea2d140f44254",
       "fixture_sha256": "fad8a86909c27cac6b3e9035b7a3b7deaf8458b5e3a5bc5c4ee11d0dd6246999",
+      "symbols": {},
+      "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly."
+    },
+    {
+      "file": "libraryintegrity-cron-node.json",
+      "surface": "form",
+      "source": "plugins.v3/libraryintegrity/page.py",
+      "line": 88,
+      "source_sha256": "22fa8b27d3eafdf362073def295f54f7609eeb225ee213f61773fc07617d01a6",
+      "fixture_sha256": "4854d84e7dfdd3ab68641ce1dce588d4c7c50f9a78244228a5ccf3e8c46b0e5f",
       "symbols": {},
       "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly."
     },

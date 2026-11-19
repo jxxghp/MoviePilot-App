@@ -97,6 +97,8 @@ def specifications() -> list[dict]:
          "method": "get_form", "surface": "form"}
         for name in ("libraryscraper", "doubanrank", "rsssubscribe", "autoclean")
     ] + [
+        {"file": "libraryintegrity-cron-node.json", "source": "plugins.v3/libraryintegrity/page.py",
+         "component": "VCronField", "surface": "form", "model": {"cron": " 0 3 * * 0  "}},
         {"file": "mediadirwatcher-form.json", "source": "plugins.v3/mediadirwatcher/__init__.py",
          "method": "get_form", "surface": "form"},
         {"file": "autosignin-form.json", "source": "plugins.v3/autosignin/__init__.py",
@@ -170,7 +172,7 @@ def main() -> None:
     """命令行显式指定来源与输出，默认引用本叶子已复核的固定版本。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plugins-repo", type=Path, required=True)
-    parser.add_argument("--ref", default="5d473864ee9d3d036b28a124262f38f773a2a452")
+    parser.add_argument("--ref", default="be185c5e180cd4752d46384f66ef44f522a9bcb6")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     generate(args.plugins_repo, args.ref, args.output)
