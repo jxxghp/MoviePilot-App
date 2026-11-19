@@ -202,6 +202,8 @@ public final class NativeAuthenticationClient: NativeAuthenticating {
         if endpoint == .login { throw NativeAuthenticationError.credentials }
         throw APIError.unauthorized
       case 403: throw APIError.forbidden
+      case let status where endpoint == .initialize && [400, 422].contains(status):
+        throw NativeAuthenticationError.invalidInput
       case 404 where endpoint == .initialization: return (Data(), response)
       case 429:
         throw APIError.rateLimited(

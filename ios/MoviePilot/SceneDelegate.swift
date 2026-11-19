@@ -1,214 +1,62 @@
-import MoviePilotCore
 import UIKit
-import WebKit
 
-/// 持有窗口、当前单 WebView 会话与实例切换，避免旧容器残留在新实例下。
+/// 每次场景连接都选择独立驱动，避免系统恢复旧场景时绕过调试入口选择。
 @MainActor
 final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
   var window: UIWindow?
-  private let instances = InstanceStore()
-  private let tokens = TokenStore()
-  private var coordinator: WebCoordinator?
-  private var widgetLinkTask: Task<Void, Never>?
-  private var homeShortcut = PendingHomeShortcut()
+  private var driver: (any UIWindowSceneDelegate)?
 
-  /// 创建窗口后恢复实例；没有配置时直接显示可操作的连接页。
+  /// 原生模式默认关闭，Release 不接受测试参数切换尚未完成的客户端。
+  private var usesNativeEntry: Bool {
+    #if DEBUG
+      ProcessInfo.processInfo.arguments.contains("--native-v2")
+    #else
+      false
+    #endif
+  }
+
+  /// 驱动各自拥有窗口和生命周期，原生链不初始化旧网页协调器。
   func scene(
     _ scene: UIScene, willConnectTo session: UISceneSession,
     options connectionOptions: UIScene.ConnectionOptions
   ) {
-    guard let scene = scene as? UIWindowScene else { return }
-    let window = UIWindow(windowScene: scene)
-    self.window = window
-    if let item = connectionOptions.shortcutItem { _ = receiveHomeShortcut(item) }
-    if let instance = instances.selected { connect(instance) } else { showConnection() }
-    window.makeKeyAndVisible()
-    if let response = connectionOptions.notificationResponse,
-      let intent = NotificationService.intent(from: response.notification.request.content.userInfo)
-    {
-      NotificationService.shared.receive(intent)
+    if usesNativeEntry {
+      let native = NativeV2SceneDelegate()
+      driver = native
+      native.scene(scene, willConnectTo: session, options: connectionOptions)
+      window = native.window
+    } else {
+      let legacy = LegacyWebSceneDelegate()
+      driver = legacy
+      legacy.scene(scene, willConnectTo: session, options: connectionOptions)
+      window = legacy.window
     }
-    openIncomingURLs(connectionOptions.urlContexts)
   }
 
-  /// 运行中的图标快捷项与冷启动共用白名单和待处理意图，不跳过当前认证。
+  /// 快捷项只交给当前驱动；原生未实现的业务入口明确返回未处理。
   func windowScene(
     _ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem,
     completionHandler: @escaping (Bool) -> Void
   ) {
-    completionHandler(receiveHomeShortcut(shortcutItem))
-  }
-
-  /// 系统载荷只决定固定入口，实例来自用户当前选择，未知类型不能替换旧意图。
-  private func receiveHomeShortcut(_ item: UIApplicationShortcutItem) -> Bool {
-    guard let value = HomeShortcut(type: item.type) else { return false }
-    homeShortcut.receive(value, instanceID: instances.selected?.id.uuidString)
-    resumeHomeShortcut()
-    return true
-  }
-
-  /// 当前原生导航及面板已经可用才消费，成功一次后立即清空内存意图。
-  private func resumeHomeShortcut() {
-    guard let coordinator,
-      let shortcut = homeShortcut.resolve(for: coordinator.instance.id.uuidString),
-      coordinator.openHomeShortcut(shortcut)
-    else { return }
-    homeShortcut.clear()
-  }
-
-  /// 主屏幕通知网页的显式链接与系统通知使用相同账号和实例校验。
-  func scene(_ scene: UIScene, openURLContexts urlContexts: Set<UIOpenURLContext>) {
-    openIncomingURLs(urlContexts)
-  }
-
-  /// 仅识别通知与本机小组件白名单，外部 URL 不能选择服务器、凭据或任意网页路由。
-  private func openIncomingURLs(_ contexts: Set<UIOpenURLContext>) {
-    for context in contexts {
-      if let link = WidgetLink(url: context.url), WidgetFeature.isEnabled {
-        openWidget(link)
-      } else if let intent = NotificationIntent(url: context.url) {
-        NotificationService.shared.receive(intent)
-      }
-    }
-  }
-
-  /// 冷热启动都先找到资料原来的 SavedInstance，再用该实例既有登录流程恢复身份。
-  private func openWidget(_ link: WidgetLink) {
-    widgetLinkTask?.cancel()
-    widgetLinkTask = Task { [weak self] in
-      guard let self else { return }
-      do {
-        let profile = try await WidgetService.shared.receive(link)
-        try Task.checkCancellation()
-        guard
-          let instance = self.instances.instances.first(where: {
-            $0.id == profile.instanceId && $0.address == profile.address
-          })
-        else { throw WidgetBridgeError.invalidRequest }
-        if self.coordinator?.instance.id != instance.id {
-          _ = try self.instances.select(instance.address)
-          self.connect(instance)
-        }
-        if let coordinator = self.coordinator {
-          WidgetService.shared.resumePending(with: coordinator)
-        }
-      } catch {
-        guard !Task.isCancelled else { return }
-        WidgetService.shared.cancelOpen()
-        let alert = UIAlertController(
-          title: L10n.text("小组件资料不可用"), message: L10n.text("请在对应服务登录后，重新启用小组件资料。"),
-          preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: L10n.text("好"), style: .default))
-        self.window?.rootViewController?.present(alert, animated: true)
-      }
-    }
-  }
-
-  /// 恢复可交互状态后重新同步网页状态，不重放业务动作。
-  func sceneDidBecomeActive(_ scene: UIScene) {
-    coordinator?.setLifecycle("active")
-    if let coordinator { WidgetService.shared.resumePending(with: coordinator) }
-    resumeHomeShortcut()
-  }
-
-  /// 系统中断期间暂停本地协商超时，避免把后台暂停当成断链。
-  func sceneWillResignActive(_ scene: UIScene) { coordinator?.setLifecycle("inactive") }
-
-  /// 后台生命周期只通知现有网页，不承诺持续执行网页任务。
-  func sceneDidEnterBackground(_ scene: UIScene) { coordinator?.setLifecycle("background") }
-
-  /// 断开旧会话后显示实例配置，旧脚本 handler 不得继续接收命令。
-  private func showConnection(message: String? = nil) {
-    if instances.selected != nil { homeShortcut.clear() }
-    widgetLinkTask?.cancel()
-    widgetLinkTask = nil
-    WidgetService.shared.cancelOpen()
-    coordinator?.stop()
-    coordinator = nil
-    let controller = ConnectionController(instances: instances, connectionError: message) {
-      [weak self] instance in
-      // 清除旧版本的网页偏好，重新连接始终走原生认证。
-      UserDefaults.standard.removeObject(forKey: "moviepilot.web-login.\(instance.id)")
-      self?.connect(instance)
-    }
-    window?.rootViewController = AccountAppearance.navigationController(
-      root: controller, instance: (instances.selected ?? instances.instances.last)?.id)
-  }
-
-  /// 旧版本网页偏好不再参与连接；每次恢复都先由原生认证校验当前实例令牌。
-  private func connect(_ instance: SavedInstance) {
-    coordinator?.stop()
-    coordinator = nil
-    LanguagePreferences(defaults: .standard).activate(instance.id)
-    LanguageSettings.refreshShortcuts()
-    guard instance.address.webCompatibilityError == nil else {
-      showConnection()
+    guard let legacy = driver as? LegacyWebSceneDelegate else {
+      completionHandler(false)
       return
     }
-    UserDefaults.standard.removeObject(forKey: "moviepilot.web-login.\(instance.id)")
-    showLogin(instance)
+    legacy.windowScene(
+      windowScene, performActionFor: shortcutItem, completionHandler: completionHandler)
   }
 
-  /// 登录与令牌恢复只有当前实例的控制器能提交，换实例立即撤销旧网络。
-  private func showLogin(_ instance: SavedInstance) {
-    coordinator?.stop()
-    coordinator = nil
-    let login = LoginController(
-      instance: instance, savedToken: tokens.read(instance.id),
-      onExpired: { [weak self] in
-        self?.tokens.remove(instance.id)
-        WidgetService.shared.endSession(instanceId: instance.id, clear: true)
-      },
-      onAuthenticated: { [weak self] result, remember, credentialsFailed in
-        guard let self else { return }
-        UserDefaults.standard.removeObject(forKey: "moviepilot.web-login.\(instance.id)")
-        var storageFailed = credentialsFailed
-        if remember {
-          do { try self.tokens.save(result.session.accessToken, for: instance.id) } catch {
-            storageFailed = true
-            self.tokens.remove(instance.id)
-          }
-        } else {
-          self.tokens.remove(instance.id)
-        }
-        self.openWeb(instance, authentication: result)
-        if storageFailed {
-          let alert = UIAlertController(
-            title: L10n.text("已登录"), message: L10n.text("此设备未能安全保存部分登录信息，下次可能需要重新输入。"),
-            preferredStyle: .alert)
-          alert.addAction(UIAlertAction(title: L10n.text("好"), style: .default))
-          self.window?.rootViewController?.present(alert, animated: true)
-        }
-      },
-      onConnection: { [weak self] message in self?.showConnection(message: message) })
-    window?.rootViewController = AccountAppearance.navigationController(
-      root: login, instance: instance.id)
+  /// 深链由当前实现解释，不从原生入口跨回旧网页。
+  func scene(_ scene: UIScene, openURLContexts urlContexts: Set<UIOpenURLContext>) {
+    driver?.scene?(scene, openURLContexts: urlContexts)
   }
 
-  /// 原生认证后先收起登录键盘再交接网页；会话失效始终撤销令牌并回到原生登录。
-  private func openWeb(
-    _ instance: SavedInstance, authentication: AuthenticationResult
-  ) {
-    window?.endEditing(true)
-    coordinator?.stop()
-    let coordinator = WebCoordinator(
-      instance: instance, authentication: authentication,
-      onAuthenticationRequired: { [weak self] in
-        self?.tokens.remove(instance.id)
-        self?.showLogin(instance)
-      },
-      onConnectionFailed: { [weak self] message in self?.showConnection(message: message) })
-    let shell = ShellController(
-      coordinator: coordinator,
-      onConnection: { [weak self] in self?.showConnection() })
-    coordinator.shell = shell
-    coordinator.onNavigationReady = { [weak self, weak coordinator] in
-      guard let self, self.coordinator === coordinator else { return }
-      self.resumeHomeShortcut()
-    }
-    self.coordinator = coordinator
-    NotificationService.shared.attach(coordinator)
-    window?.rootViewController = shell
-    coordinator.start()
-  }
+  /// 前台恢复仅通知已经选定的驱动。
+  func sceneDidBecomeActive(_ scene: UIScene) { driver?.sceneDidBecomeActive?(scene) }
+
+  /// 系统中断转发给当前驱动，用于隐藏认证输入。
+  func sceneWillResignActive(_ scene: UIScene) { driver?.sceneWillResignActive?(scene) }
+
+  /// 后台取消语义由各驱动负责，不在路由层重新建立会话。
+  func sceneDidEnterBackground(_ scene: UIScene) { driver?.sceneDidEnterBackground?(scene) }
 }

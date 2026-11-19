@@ -225,6 +225,23 @@ struct NativeAuthenticationTests {
     }
   }
 
+  /// 初始化专用的字段校验分类不能误报为连接失败，也不能改变其它端点的 HTTP 语义。
+  @Test(arguments: [400, 422])
+  func projectsInitializationValidationWithoutReplaying(_ status: Int) async throws {
+    NativeHTTPProtocol.state.prepare(status: status, body: Data("private-field-detail".utf8))
+    await #expect(throws: NativeAuthenticationError.invalidInput) {
+      try await NativeSessionTestData.client().initialize(
+        username: "reader", password: "synthetic-only", confirmation: "synthetic-only",
+        apiKey: String(repeating: "a", count: 64))
+    }
+    #expect(NativeHTTPProtocol.state.requests().count == 1)
+    NativeHTTPProtocol.state.prepare(status: status, body: Data("private-field-detail".utf8))
+    await #expect(throws: APIError.httpStatus(status)) {
+      try await NativeSessionTestData.client().restore(accessToken: "synthetic.token")
+    }
+    #expect(NativeHTTPProtocol.state.requests().count == 1)
+  }
+
   /// 401/403/限流/服务失败语义分离，错误正文不会出现在上层分类里，也不自动重发。
   @Test(arguments: [401, 403, 429, 503])
   func projectsRestoreHTTPFailures(_ status: Int) async throws {

@@ -2,7 +2,7 @@
 
 ## 当前合同
 
-P1.2a 先交付 WebKit 无关的身份/权限与现有认证 API；P1.2b 再交付会话和安全存储接线。默认 1.x UI 暂不切换，Passkey/OIDC 与初始化表单属于后续原生界面/安全认证叶子，不能因基础客户端存在就标为完成。
+P1.2a 交付 WebKit 无关的身份/权限与现有认证 API；P1.2b 交付会话和安全存储接线；P1.3a 补齐初始化提交，P1.3b 接入独立原生 UI。默认 1.x UI 暂不切换，Passkey/OIDC 等仍属后续安全认证叶子，不能因基础客户端存在就标为完成。
 
 当前四仓基线与首轮相同：App origin/main 682e9532、Frontend origin/v3 db17d9cb、后端 origin/v3 e0f17f5a；本轮开始已重新 fetch 核实。新代码在本地 v2 分支。
 
@@ -14,7 +14,7 @@ P1.2a 先交付 WebKit 无关的身份/权限与现有认证 API；P1.2b 再交�
 - user/current 验证保存的令牌后才可恢复；不能从 JWT 中自行授予用户/权限。仅在令牌已被 current 验证后，可沿用其 level 作为既有展示等级的回退。
 - login/initialization 保留 initialized/configured_username；404 仅表示旧实例无该探测接口，不视为需要创建管理员。
 - 认证传输只开放固定路径；使用私有临时 URLSession、无全局 Cookie/缓存/凭据、流式大小上限、禁止自动重定向与重发。普通 JSON 业务请求仍使用 MoviePilotAPI。
-- 密码/OTP 不进入任何模型、日志或持久化。认证结果仅在模块内部访问令牌，对外描述与 debug 输出隐藏令牌。
+- 密码/OTP 只存在于请求与短期表单草稿，不进入身份模型、日志或默认持久化。用户明确选择记住密码且登录成功后，才使用既有本机 LoginCredentialStore；OTP 始终不保存。认证结果仅在模块内部访问令牌，对外描述与 debug 输出隐藏令牌。
 
 ## 会话状态与任务归属
 
@@ -48,4 +48,4 @@ P1.2a 先交付 WebKit 无关的身份/权限与现有认证 API；P1.2b 再交�
 
 当前 P1.2a/P1.2b 已完成本地底座验收，认证/权限/生命周期共 40 项测试通过；App、Widget 和 UI 测试目标编译通过。原生会话使用现有 TokenStore 的相同 Keychain 方法和 service，SavedInstance 仅增加保留原 UUID 的映射。
 
-实际 Keychain/UI 交互、真实后端账号、真机、安全认证和 Web 插件仍分别验收；此阶段不代替它们。下一叶子 P1.3 使用 API-only 夹具验证真实原生连接/登录界面。
+P1.3 的实际 Keychain/UI 交互与初始化表单另见[入口验收记录](evidence/2026-11-19-entry.md)。真实后端账号、真机、安全认证和 Web 插件仍分别验收，此阶段不代替它们。

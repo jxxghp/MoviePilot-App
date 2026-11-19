@@ -1,7 +1,7 @@
 import UIKit
 import UserNotifications
 
-/// 应用入口只负责系统生命周期注册，业务内容始终留在网页。
+/// 应用入口只负责系统生命周期注册，场景驱动选择独立原生入口或既有实现。
 @main
 @MainActor
 final class AppDelegate: UIResponder, UIApplicationDelegate {

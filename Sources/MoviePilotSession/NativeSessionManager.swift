@@ -16,12 +16,16 @@ public final class NativeSessionManager: ObservableObject {
 
   /// 默认适配直接认证和 API；安全存储由既有 iOS TokenStore 注入，不创建第二套库。
   public convenience init(
-    tokens: any SessionTokenStoring, language: AppLanguage = .current
+    tokens: any SessionTokenStoring, language: AppLanguage? = nil
   ) {
     self.init(
       tokens: tokens,
-      makeAuthentication: { NativeAuthenticationClient(address: $0.address, language: language) },
-      makeAPI: { try APIClient(address: $0.address, token: $0.accessToken, language: language) })
+      makeAuthentication: {
+        NativeAuthenticationClient(address: $0.address, language: language ?? .current)
+      },
+      makeAPI: {
+        try APIClient(address: $0.address, token: $0.accessToken, language: language ?? .current)
+      })
   }
 
   /// 测试只替换认证时序和受控网络，仍使用真实状态、代次和存储处理。
