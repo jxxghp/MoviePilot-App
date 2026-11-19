@@ -48,6 +48,7 @@ final class ControlledAuthentication: NativeAuthenticating, @unchecked Sendable 
   private var held = false
   private var waiting: [CheckedContinuation<SessionIdentity, any Error>] = []
   private var loginInvocations = 0
+  private var initializationInvocations = 0
   private var restored: [String] = []
   private var cancelled = 0
 
@@ -78,6 +79,14 @@ final class ControlledAuthentication: NativeAuthenticating, @unchecked Sendable 
     return try await answer()
   }
 
+  /// 不记录任何初始化输入，只用计数与延迟结果验证单次提交和代次保护。
+  func initialize(
+    username: String, password: String, confirmation: String, apiKey: String
+  ) async throws {
+    lock.withLock { initializationInvocations += 1 }
+    _ = try await answer()
+  }
+
   /// 保存的合成令牌用于归属断言，不参与自行解码或构造用户。
   func restore(accessToken: String) async throws -> SessionIdentity {
     lock.withLock { restored.append(accessToken) }
@@ -102,6 +111,7 @@ final class ControlledAuthentication: NativeAuthenticating, @unchecked Sendable 
 
   /// 返回锁保护的观测值，不能因为 mock 自己的竞态误判状态机。
   var loginCount: Int { lock.withLock { loginInvocations } }
+  var initializationCount: Int { lock.withLock { initializationInvocations } }
   var restoreTokens: [String] { lock.withLock { restored } }
   var cancellationCount: Int { lock.withLock { cancelled } }
   var pendingCount: Int { lock.withLock { waiting.count } }

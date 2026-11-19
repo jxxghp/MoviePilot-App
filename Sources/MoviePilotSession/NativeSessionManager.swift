@@ -78,6 +78,34 @@ public final class NativeSessionManager: ObservableObject {
     }
   }
 
+  /// 创建前重新探测；只有本次成功写入才清理旧自动登录，不自动重发或自动登录。
+  @discardableResult
+  public func initialize(
+    _ instance: NativeInstance, username: String, password: String,
+    confirmation: String, apiKey: String
+  ) async throws -> NativeInitializationResult {
+    let pending = try begin(instance, connecting: false)
+    state = .initializing(instance)
+    do {
+      let status = try await pending.authentication.initialization()
+      try check(pending)
+      guard case .required = status else {
+        finish(pending)
+        state = .loginRequired(instance, reason: .initial)
+        return .alreadyInitialized
+      }
+      try await pending.authentication.initialize(
+        username: username, password: password, confirmation: confirmation, apiKey: apiKey)
+      try check(pending)
+      guard tokens.remove(instance.id) else { throw NativeSessionFailure.storageUnavailable }
+      finish(pending)
+      state = .loginRequired(instance, reason: .initial)
+      return .created
+    } catch {
+      try fail(error, attempt: pending, restoring: false)
+    }
+  }
+
   /// 只关闭当前连接，保留地址簿和用户选择的保存令牌，供实例切换与暂离使用。
   public func disconnect() {
     endCurrent()

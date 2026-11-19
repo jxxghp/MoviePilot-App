@@ -17,12 +17,22 @@ public enum NativeInitialization: Equatable, Sendable {
   case legacy
 }
 
+/// 创建结果区分本次真实写入和探测时发现已经就绪，避免界面误报创建成功。
+public enum NativeInitializationResult: Equatable, Sendable {
+  case created, alreadyInitialized
+}
+
 /// 会话只依赖原生认证协议，便于 Passkey 等后续适配复用同一生命周期。
 public protocol NativeAuthenticating: Sendable {
   var address: ServerAddress { get }
 
   /// 匿名读取初始化状态，不加载前端或据此自动创建管理员。
   func initialization() async throws -> NativeInitialization
+
+  /// 明确提交首次管理员与 API Key，不能自动重试或顺带登录。
+  func initialize(
+    username: String, password: String, confirmation: String, apiKey: String
+  ) async throws
 
   /// 明确提交一次密码/OTP，不自动重放或持久化输入。
   func login(username: String, password: String, otp: String?) async throws -> SessionIdentity
@@ -79,6 +89,22 @@ public final class NativeAuthenticationClient: NativeAuthenticating {
     let payload = try Self.decode(InitializationPayload.self, data: data)
     try Task.checkCancellation()
     return payload.initialized ? .ready : .required(configuredUsername: payload.configuredUsername)
+  }
+
+  /// 使用既有 JSON 创建协议，密码与 API Key 只保留到这次明确提交结束。
+  public func initialize(
+    username: String, password: String, confirmation: String, apiKey: String
+  ) async throws {
+    let name = username.trimmingCharacters(in: .whitespacesAndNewlines)
+    let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard (1...50).contains(name.count), (6...50).contains(password.count),
+      password == confirmation, (16...256).contains(key.count)
+    else { throw NativeAuthenticationError.invalidInput }
+    let payload = InitializationForm(
+      username: name, password: password, confirmPassword: confirmation, apiKey: key)
+    let (data, _) = try await request(.initialize, body: JSONEncoder().encode(payload))
+    _ = try Self.decode(JSONValue.self, data: data)
+    try Task.checkCancellation()
   }
 
   /// 密码与 OTP 只在明确调用中发送一次，挑战不记为登录成功，也不自动选择验证方式。
@@ -152,7 +178,10 @@ public final class NativeAuthenticationClient: NativeAuthenticating {
     request.setValue(language.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
     if body != nil {
       request.setValue(
-        "application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        endpoint == .initialize
+          ? "application/json; charset=utf-8"
+          : "application/x-www-form-urlencoded; charset=utf-8",
+        forHTTPHeaderField: "Content-Type")
     }
     if let accessToken {
       request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
@@ -221,15 +250,30 @@ public final class NativeAuthenticationClient: NativeAuthenticating {
 
 /// 认证白名单不包含前端探测、任意插件接口或 URL 重写。
 private enum NativeAuthEndpoint {
-  case initialization, login, current
+  case initialization, initialize, login, current
 
   /// 所有路径均相对实例 api/v1，代理子路径由 APIEndpoint 保留。
   var path: [String] {
     switch self {
-    case .initialization: ["login", "initialization"]
+    case .initialization, .initialize: ["login", "initialization"]
     case .login: ["login", "access-token"]
     case .current: ["user", "current"]
     }
+  }
+}
+
+/// 一次性初始化请求不实现日志描述或持久化接口，编码键严格跟随后端。
+private struct InitializationForm: Encodable {
+  let username: String
+  let password: String
+  let confirmPassword: String
+  let apiKey: String
+
+  /// 确认密码不能省略，API Key 不放入 URL、认证头或本地默认值。
+  private enum CodingKeys: String, CodingKey {
+    case username, password
+    case confirmPassword = "confirm_password"
+    case apiKey = "api_key"
   }
 }
 

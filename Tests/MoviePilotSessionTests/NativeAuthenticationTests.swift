@@ -7,6 +7,44 @@ import Testing
 /// 通过实际 URLSession 检验原生认证，不启动网页、服务器或真实账号。
 @Suite(.serialized)
 struct NativeAuthenticationTests {
+  /// 初始化 JSON 与登录表单不同，确认密码和 API Key 都必须只进入本次请求体。
+  @Test func createsInitialAdministratorThroughTheJSONContract() async throws {
+    NativeHTTPProtocol.state.prepare(
+      body: Data(#"{"success":true,"message":"","data":null}"#.utf8))
+    try await NativeSessionTestData.client().initialize(
+      username: " fixed-admin ", password: "Fixture123!", confirmation: "Fixture123!",
+      apiKey: " synthetic-key-only-123456 ")
+    let captured = try #require(NativeHTTPProtocol.state.requests().first)
+    let body = try #require(JSONSerialization.jsonObject(with: captured.body) as? [String: String])
+    #expect(Set(body.keys) == ["username", "password", "confirm_password", "api_key"])
+    #expect(body["username"] == "fixed-admin" && body["api_key"] == "synthetic-key-only-123456")
+    #expect(body["password"] == "Fixture123!" && body["confirm_password"] == "Fixture123!")
+    #expect(captured.request.httpMethod == "POST" && captured.request.url?.query == nil)
+    #expect(
+      captured.request.value(forHTTPHeaderField: "Content-Type")
+        == "application/json; charset=utf-8")
+    #expect(captured.request.value(forHTTPHeaderField: "Authorization") == nil)
+    #expect(NativeHTTPProtocol.state.requests().count == 1)
+  }
+
+  /// 错误确认密码在发送前拒绝，服务端冲突只返回一次，不自动再次创建。
+  @Test func doesNotReplayInitializationOrIgnoreConfirmation() async throws {
+    NativeHTTPProtocol.state.prepare()
+    await #expect(throws: NativeAuthenticationError.invalidInput) {
+      try await NativeSessionTestData.client().initialize(
+        username: "admin", password: "Fixture123!", confirmation: "different",
+        apiKey: "synthetic-key-only-123456")
+    }
+    #expect(NativeHTTPProtocol.state.requests().isEmpty)
+    NativeHTTPProtocol.state.prepare(status: 409)
+    await #expect(throws: APIError.httpStatus(409)) {
+      try await NativeSessionTestData.client().initialize(
+        username: "admin", password: "Fixture123!", confirmation: "Fixture123!",
+        apiKey: "synthetic-key-only-123456")
+    }
+    #expect(NativeHTTPProtocol.state.requests().count == 1)
+  }
+
   /// 密码/OTP 表单独立编码，并且令牌、Cookie、旧账号头不从其它会话继承。
   @Test func logsInWithAnExplicitEncodedForm() async throws {
     NativeHTTPProtocol.state.prepare(body: NativeSessionTestData.login)
