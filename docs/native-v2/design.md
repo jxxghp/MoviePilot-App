@@ -29,6 +29,8 @@
 
 ## 目标
 
+本批已交付 [P0.2 原生预览](preview.md)：可运行 Scheme、发现/网格/详情/工作台/设置/插件表单、iPhone/iPad 交互和固定风格辅助设置检查。修正历史见[设计 QA](../../design-qa.md)，技术证据见[本地记录](evidence/2026-11-20-rex.md)。演示不计作后端业务完成，后续继续沿用本规范。
+
 保留 MoviePilot 的品牌和功能语义，统一采用 Rex 参考的渐变、玻璃与海报布局，改进信息密度和操作层级。主体是真实原生布局，不把网页截图切片做成界面，也不保留会替换这套统一风格的主题/配色入口。
 
 参考现有 [推荐](../../screenshots/screens/06.png)、[仪表板](../../screenshots/screens/02.png)、[插件](../../screenshots/screens/07.png)、[订阅](../../screenshots/screens/13.png)、[文件管理](../../screenshots/screens/09.png) 和 [截图册](../../screenshots/README.md)。这些是已有 1.x 视觉参考，不是 v2 实现结果；部分截图来自较早版本，功能仍以本次固定源码为准。

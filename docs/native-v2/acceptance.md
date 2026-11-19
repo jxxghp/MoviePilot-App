@@ -88,6 +88,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
 4. 精确暂存本叶子文件，验证暂存内容，保存聚焦本地提交；不顺带提交其它仓库或个人签名。
 5. 在 ROADMAP.md 中记录本地完成、交付/外部验收等待状态和下一叶子。只在全部总验收门成立后关闭长期 Goal。
 
-## 首轮未验收事项
+## 当前未覆盖事项
 
-尚未运行原生 v2 UI、真实后端写入、真实插件兼容、iOS 16 设备、物理 iPhone、APNs/PiP/Widget 真机回归、最终 IPA 和发布流程。首轮范围/底座测试不能改变这些状态。
+原生账号入口已完成 API-only 模拟器验证，见[入口证据](evidence/2026-11-19-entry.md)；Rex 单一风格预览及其 iPhone/iPad/表单辅助设置已完成本地检查，见[视觉证据](evidence/2026-11-20-rex.md)。它们分别属于功能底座和隔离演示，不能互相替代。
+
+真实后端业务写入、全插件生态、iOS 16 设备、物理 iPhone、完整 VoiceOver、APNs/PiP/Widget 真机回归、最终 IPA 与发布仍未完成。演示画面不增加业务覆盖率；旧普通账号表单的图片也不是认可的视觉基线。
