@@ -1,5 +1,7 @@
 # MoviePilot-App
 
+> **v2 全原生迁移分支**：本分支已启动主体全部功能的 iOS 原生迁移，直接对接后端；JSON 插件原生渲染，既有 Web 插件保留专用兼容容器。[路线图、架构与验收入口](docs/native-v2/README.md)。当前尚未完成替换，以下内容仍说明现有 1.x 客户端。
+
 MoviePilot 的 iOS 客户端。使用系统原生导航、搜索和快捷面板，业务页面、弹窗内容和插件界面继续复用 MoviePilot-Frontend。
 
 iOS 26+ 支持系统 Liquid Glass；提供侧滑返回、卡片长按菜单、原生弹窗及前后台恢复。[查看界面截图](screenshots/README.md)。
