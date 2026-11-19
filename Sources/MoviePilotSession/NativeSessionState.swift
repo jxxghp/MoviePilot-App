@@ -50,6 +50,7 @@ public enum NativeSessionState: Equatable, Sendable {
   case disconnected
   case connecting(NativeInstance)
   case initializationRequired(NativeInstance, configuredUsername: String?)
+  case initializing(NativeInstance)
   case loginRequired(NativeInstance, reason: NativeLoginReason)
   case authenticating(NativeInstance)
   case verificationRequired(NativeInstance, methods: [String])

@@ -8,6 +8,37 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct NativeSessionLifecycleTests {
+  /// 初始化只创建管理员，不把密码再提交到登录，也不保留旧自动登录。
+  @Test func initializesOnceAndRequiresExplicitLogin() async throws {
+    let instance = try SessionLifecycleTestData.instance()
+    let store = SessionTestTokenStore()
+    store.values[instance.id] = "synthetic.old"
+    let auth = try ControlledAuthentication(instance: instance)
+    auth.configure(
+      .success(try SessionLifecycleTestData.identity(instance)),
+      initialization: .success(.required(configuredUsername: "admin")))
+    let manager = SessionLifecycleTestData.manager(tokens: store, clients: [auth])
+    let result = try await manager.initialize(
+      instance, username: "admin", password: "Fixture123!", confirmation: "Fixture123!",
+      apiKey: "synthetic-key-only-123456")
+    #expect(result == .created && auth.initializationCount == 1 && auth.loginCount == 0)
+    #expect(manager.state == .loginRequired(instance, reason: .initial))
+    #expect(manager.currentSession == nil && store.values[instance.id] == nil)
+  }
+
+  /// 并发初始化已由其它客户端完成时，只转登录，不重复 POST 或清理原有凭据。
+  @Test func detectsInitializationAlreadyCompletedElsewhere() async throws {
+    let instance = try SessionLifecycleTestData.instance()
+    let store = SessionTestTokenStore()
+    let auth = try ControlledAuthentication(instance: instance)
+    let manager = SessionLifecycleTestData.manager(tokens: store, clients: [auth])
+    let result = try await manager.initialize(
+      instance, username: "admin", password: "Fixture123!", confirmation: "Fixture123!",
+      apiKey: "synthetic-key-only-123456")
+    #expect(result == .alreadyInitialized && auth.initializationCount == 0)
+    #expect(auth.loginCount == 0 && store.removedIDs.isEmpty && store.savedIDs.isEmpty)
+  }
+
   /// 未初始化不读取或发送旧令牌，无保存令牌时显示原生登录状态。
   @Test func separatesInitializationAndLoginRequirements() async throws {
     let instance = try SessionLifecycleTestData.instance()
