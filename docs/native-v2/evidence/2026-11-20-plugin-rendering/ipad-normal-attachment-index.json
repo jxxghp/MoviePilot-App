@@ -1,0 +1,38 @@
+{
+  "rex-plugin-form-source-fields": {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "deviceName": "MoviePilot Rex v2 iPad",
+    "exportedFileName": "5D92938A-0909-4755-A751-D0FAF3D1DCB4.png",
+    "isAssociatedWithFailure": false,
+    "suggestedHumanReadableName": "rex-plugin-form-source-fields_0_CAC61C39-FE7C-43EF-9DEC-194319A3A639.png",
+    "timestamp": 1795122308.001
+  },
+  "rex-plugin-form-single-selection": {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "deviceName": "MoviePilot Rex v2 iPad",
+    "exportedFileName": "430E15D0-BFD1-4FD0-A1A2-802FE7B46605.png",
+    "isAssociatedWithFailure": false,
+    "suggestedHumanReadableName": "rex-plugin-form-single-selection_0_45A838FD-DF2A-406A-9A23-B01B96376B46.png",
+    "timestamp": 1795122296.458
+  },
+  "rex-plugin-form-source-top": {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "deviceName": "MoviePilot Rex v2 iPad",
+    "exportedFileName": "98D7E69A-8A75-4197-9AE8-B122FD6ACFA7.png",
+    "isAssociatedWithFailure": false,
+    "suggestedHumanReadableName": "rex-plugin-form-source-top_0_C0FCF440-3C7D-4D69-874E-8A81CBAEAD05.png",
+    "timestamp": 1795122289.067
+  },
+  "rex-plugin-installed-list": {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+    "deviceName": "MoviePilot Rex v2 iPad",
+    "exportedFileName": "DE819195-A4E7-4786-8D1A-ECB4DB505576.png",
+    "isAssociatedWithFailure": false,
+    "suggestedHumanReadableName": "rex-plugin-installed-list_0_A2AA9E99-A840-44E7-B68E-0D3569BEDC2C.png",
+    "timestamp": 1795122283.605
+  }
+}

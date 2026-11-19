@@ -32,6 +32,8 @@ targets:
       - package: MoviePilotCore
       - package: MoviePilotCore
         product: MoviePilotSession
+      - package: MoviePilotCore
+        product: MoviePilotPluginForms
       - package: VLCKit
       - target: MoviePilotWidgets
         embed: true

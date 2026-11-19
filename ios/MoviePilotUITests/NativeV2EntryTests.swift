@@ -7,6 +7,244 @@ final class NativeV2EntryTests: XCTestCase {
   private let base = "http://127.0.0.1:5330/"
   private let arguments = ["--native-v2", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
 
+  /// 完整官方表单经真实原生入口修改/保存/重读，未知字段和大整数原样保留。
+  func testPluginSourceFormSavesCompletePhysicalConfiguration() async throws {
+    let app = try await pluginAccount()
+    openPlugin("MediaDirWatcher_copy", app: app)
+    capture("rex-plugin-form-source-top")
+    toggle("native-plugin-field-enabled", to: true, app: app)
+    tap(app.buttons["native-plugin-field-media_type"], app: app)
+    XCTAssertTrue(app.buttons["native-plugin-option-1"].waitForExistence(timeout: 5))
+    capture("rex-plugin-form-single-selection")
+    tap(app.buttons["native-plugin-option-1"], app: app)
+    replacePluginInput("scan_interval", with: "7", app: app)
+    let paths = app.textViews["native-plugin-field-monitor_paths"]
+    tap(paths, app: app)
+    paths.typeText("/media/Films\n/media/TV")
+    dismissKeyboard(app)
+    capture("rex-plugin-form-source-fields")
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    var state = try await pluginState()
+    let receipts = try XCTUnwrap(state["receipts"] as? [[String: Any]])
+    XCTAssertEqual(receipts.count, 1)
+    XCTAssertEqual(receipts[0]["plugin"] as? String, "MediaDirWatcher_copy")
+    let model = try XCTUnwrap(receipts[0]["model"] as? [String: Any])
+    XCTAssertEqual(model.count, 10)
+    XCTAssertEqual(model["enabled"] as? Bool, true)
+    XCTAssertEqual(model["media_type"] as? String, "电影")
+    XCTAssertEqual(model["scan_interval"] as? String, "7")
+    XCTAssertEqual(model["monitor_paths"] as? String, "/media/Films\n/media/TV")
+    XCTAssertEqual(model["notify"] as? Bool, true)
+    XCTAssertEqual((model["future"] as? [String: Any])?["integer"] as? Int64, 9_007_199_254_740_993)
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    tap(app.buttons["native-plugin-MediaDirWatcher_copy"], app: app)
+    reveal(app.textFields["native-plugin-field-scan_interval"], app: app)
+    XCTAssertEqual(app.textFields["native-plugin-field-scan_interval"].value as? String, "7")
+    state = try await pluginState()
+    let counts = try XCTUnwrap(state["counts"] as? [String: Int])
+    XCTAssertEqual(counts["PUT a/api/v1/plugin/MediaDirWatcher_copy"], 1)
+    XCTAssertEqual(counts["GET a/api/v1/plugin/form/MediaDirWatcher_copy"], 2)
+    XCTAssertNil(counts["PUT a/api/v1/plugin/MediaDirWatcher"])
+    XCTAssertTrue((state["unexpected"] as? [String: Int])?.isEmpty == true)
+    XCTAssertEqual(app.webViews.count, 0)
+    app.terminate()
+  }
+
+  /// 失败保留输入且没有自动重试；第二次明确保存才允许产生第二次 PUT。
+  func testPluginFailedSaveRetainsDraftAndNeedsExplicitRetry() async throws {
+    let app = try await pluginAccount()
+    openPlugin("MediaDirWatcher_copy", app: app)
+    replacePluginInput("notify_user", with: "42", app: app)
+    try await configurePlugins(mode: "fail_save_once")
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-error"], app: app)
+    capture("rex-plugin-form-save-failure")
+    var state = try await pluginState()
+    XCTAssertEqual(
+      (state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/MediaDirWatcher_copy"], 1)
+    XCTAssertTrue((state["receipts"] as? [[String: Any]])?.isEmpty == true)
+    XCUIDevice.shared.press(.home)
+    app.activate()
+    reveal(app.textFields["native-plugin-field-notify_user"], app: app)
+    XCTAssertEqual(app.textFields["native-plugin-field-notify_user"].value as? String, "42")
+    state = try await pluginState()
+    XCTAssertEqual(
+      (state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/MediaDirWatcher_copy"], 1)
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    state = try await pluginState()
+    XCTAssertEqual(
+      (state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/MediaDirWatcher_copy"], 2)
+    XCTAssertEqual((state["receipts"] as? [[String: Any]])?.count, 1)
+    app.terminate()
+  }
+
+  /// 隐藏的未知组件仍禁用保存，放弃修改须经明确操作，不发送缩减配置。
+  func testPluginUnsupportedHiddenComponentCannotSave() async throws {
+    let app = try await pluginAccount()
+    openPlugin("UnsupportedFixture", app: app)
+    reveal(app.staticTexts["native-plugin-form-blocked"], app: app)
+    XCTAssertFalse(app.buttons["native-plugin-form-save"].isEnabled)
+    capture("rex-plugin-form-unsupported")
+    toggle("native-plugin-field-enabled", to: true, app: app)
+    XCTAssertFalse(app.buttons["native-plugin-form-save"].isEnabled)
+    tap(app.buttons["native-plugin-form-back"], app: app)
+    XCTAssertTrue(app.buttons["放弃修改"].waitForExistence(timeout: 5))
+    app.buttons["取消"].tap()
+    XCTAssertTrue(app.buttons["native-plugin-form-save"].exists)
+    tap(app.buttons["native-plugin-form-back"], app: app)
+    app.buttons["放弃修改"].tap()
+    XCTAssertTrue(app.buttons["native-plugin-UnsupportedFixture"].waitForExistence(timeout: 5))
+    let state = try await pluginState()
+    XCTAssertNil((state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/UnsupportedFixture"])
+    XCTAssertTrue((state["receipts"] as? [[String: Any]])?.isEmpty == true)
+    app.terminate()
+  }
+
+  /// 条件、多选值类型、未知旧选项、密码遮盖和数值校验在真实 UI 同时生效。
+  func testPluginConditionalMultiSelectAndNumericValidation() async throws {
+    let app = try await pluginAccount()
+    openPlugin("NativeControlsFixture", app: app)
+    XCTAssertFalse(app.textFields["native-plugin-field-path"].exists)
+    tap(app.buttons["native-plugin-field-sources"], app: app)
+    tap(app.buttons["native-plugin-option-1"], app: app)
+    tap(app.buttons["native-plugin-option-2"], app: app)
+    tap(app.buttons["native-plugin-option-0"], app: app)
+    capture("rex-plugin-form-multiple-selection")
+    tap(app.buttons["native-plugin-selection-done"], app: app)
+    toggle("native-plugin-field-enabled", to: true, app: app)
+    reveal(app.textFields["native-plugin-field-path"], app: app)
+    XCTAssertEqual(app.textFields["native-plugin-field-path"].value as? String, "/media/preserved")
+    reveal(app.secureTextFields["native-plugin-field-secret"], app: app)
+    XCTAssertFalse(app.textFields["native-plugin-field-secret"].exists)
+    tap(app.buttons["显示密码"], app: app)
+    XCTAssertTrue(app.textFields["native-plugin-field-secret"].exists)
+    XCUIDevice.shared.press(.home)
+    app.activate()
+    reveal(app.secureTextFields["native-plugin-field-secret"], app: app)
+    XCTAssertFalse(app.textFields["native-plugin-field-secret"].exists)
+    replacePluginInput("amount", with: "0", app: app)
+    XCTAssertFalse(app.buttons["native-plugin-form-save"].isEnabled)
+    replacePluginInput("amount", with: "7", app: app)
+    XCTAssertTrue(app.buttons["native-plugin-form-save"].isEnabled)
+    capture("rex-plugin-form-conditional-controls")
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    let state = try await pluginState()
+    let models = try XCTUnwrap(state["models"] as? [String: [String: Any]])
+    let model = try XCTUnwrap(models["NativeControlsFixture"])
+    XCTAssertEqual(model["sources"] as? NSArray, ["old", "1", 2] as NSArray)
+    XCTAssertEqual(model["amount"] as? String, "7")
+    XCTAssertEqual(model["path"] as? String, "/media/preserved")
+    XCTAssertEqual(model["secret"] as? String, "fixture-only-private")
+    XCTAssertEqual(app.webViews.count, 0)
+    app.terminate()
+  }
+
+  /// 配置提交收到 401 后整个旧导航退出，旧草稿不能留在下一登录代次中。
+  func testPluginExpiredSessionClosesOldNavigation() async throws {
+    let app = try await pluginAccount()
+    openPlugin("MediaDirWatcher_copy", app: app)
+    toggle("native-plugin-field-enabled", to: true, app: app)
+    try await configure("a", mode: "expired")
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    XCTAssertTrue(app.textFields["native-v2-username"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["native-plugin-form-save"].exists)
+    XCTAssertFalse(app.switches["native-plugin-field-enabled"].exists)
+    let state = try await pluginState()
+    XCTAssertEqual(
+      (state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/MediaDirWatcher_copy"], 1)
+    XCTAssertTrue((state["receipts"] as? [[String: Any]])?.isEmpty == true)
+    app.terminate()
+  }
+
+  /// 普通账号保持既有权限，没有配置入口或后台插件请求。
+  func testPluginConfigurationRequiresAdministrator() async throws {
+    let app = try await pluginAccount("b")
+    XCTAssertFalse(app.buttons["native-v2-plugins"].exists)
+    let state = try await pluginState()
+    XCTAssertTrue((state["counts"] as? [String: Int])?.isEmpty == true)
+    app.terminate()
+  }
+
+  /// 最大辅助字号/横屏仍可选择、输入和保存，透明度/动态辅助设置由设备真实状态提供。
+  func testPluginLandscapeLargestTypeRemainsUsable() async throws {
+    let app = try await pluginAccount(extra: [
+      "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
+      "-AppleInterfaceStyle", "Light",
+    ])
+    openPlugin("MediaDirWatcher_copy", app: app)
+    XCUIDevice.shared.orientation = .landscapeLeft
+    tap(app.buttons["native-plugin-field-media_type"], app: app)
+    capture("rex-plugin-form-landscape-largest-selection")
+    tap(app.buttons["native-plugin-option-2"], app: app)
+    replacePluginInput("scan_interval", with: "8", app: app)
+    capture("rex-plugin-form-landscape-largest")
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    let state = try await pluginState()
+    XCTAssertEqual((state["receipts"] as? [[String: Any]])?.count, 1)
+    XCTAssertEqual(app.webViews.count, 0)
+    app.terminate()
+    XCUIDevice.shared.orientation = .portrait
+  }
+
+  /// 每个插件用例从真实原生登录开始，不能借 launch 参数注入已认证账号。
+  private func pluginAccount(_ name: String = "a", extra: [String] = []) async throws
+    -> XCUIApplication
+  {
+    guard ProcessInfo.processInfo.environment["MOVIEPILOT_NATIVE_V2_E2E"] == "1" else {
+      throw XCTSkip("需要显式启动原生插件 API-only 本机夹具。")
+    }
+    try await configure(name, mode: "ready", reset: true)
+    try await configurePlugins(reset: true)
+    let app = try cleanPicker(extra: extra)
+    connect(name, app: app)
+    enterCredentials(name, app: app)
+    tap(app.buttons["native-v2-login"], app: app)
+    assertAccount(name, app: app)
+    return app
+  }
+
+  /// 清单和配置加载都经用户可见按钮，不直接导航到测试页面。
+  private func openPlugin(_ id: String, app: XCUIApplication) {
+    tap(app.buttons["native-v2-plugins"], app: app)
+    let row = app.buttons["native-plugin-" + id]
+    XCTAssertTrue(row.waitForExistence(timeout: 10))
+    capture("rex-plugin-installed-list")
+    tap(row, app: app)
+    XCTAssertTrue(app.buttons["native-plugin-form-save"].waitForExistence(timeout: 10))
+    reveal(app.switches["native-plugin-field-enabled"], app: app)
+  }
+
+  /// 输入由真实键盘产生；单字符数字测试不依赖粘贴或直接改草稿。
+  private func replacePluginInput(_ key: String, with text: String, app: XCUIApplication) {
+    let field = app.textFields["native-plugin-field-" + key]
+    tap(field, app: app)
+    let count = (field.value as? String)?.count ?? 0
+    field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: count) + text)
+    dismissKeyboard(app)
+  }
+
+  /// 控制端点仅改变回环合成插件的故障模式，不接触用户后端。
+  private func configurePlugins(mode: String = "ready", reset: Bool = false) async throws {
+    var request = URLRequest(url: URL(string: base + "__plugins/config")!)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: ["mode": mode, "reset": reset])
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+  }
+
+  /// 独立读取服务端实际 PUT 记录，UI 成功提示本身不能作为完整配置证明。
+  private func pluginState() async throws -> [String: Any] {
+    let (data, response) = try await URLSession.shared.data(
+      from: URL(string: base + "__plugins/state")!)
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+    return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+  }
+
   /// 浅色系统偏好下仍为 Rex 单一风格，玻璃表单中的秘密可检查且暂离后恢复遮盖。
   func testRexFormControlsAndSecretConcealment() async throws {
     try await configure("new", mode: "new", reset: true)
@@ -274,17 +512,30 @@ final class NativeV2EntryTests: XCTestCase {
     app.launchArguments = arguments + ["-moviepilot.instance.selected.v1", ""] + extra
     app.launch()
     XCTAssertTrue(app.textFields["native-v2-address"].waitForExistence(timeout: 15))
-    for name in ["a", "b", "new", "slow"] {
-      let row = app.buttons["native-v2-saved-\(base)\(name)/"]
-      if row.exists {
-        for _ in 0..<8 where !row.isHittable { app.swipeUp() }
+    let fixtureIDs = ["a", "b", "new", "slow"].map { "native-v2-saved-\(base)\($0)/" }
+    var previousBottom: String?
+    // 大字 Form 延迟创建底部行；从顶部完整遍历，不能把尚未创建的测试地址误认成不存在。
+    for _ in 0..<16 {
+      if let candidate = app.buttons.matching(NSPredicate(format: "identifier IN %@", fixtureIDs))
+        .allElementsBoundByIndex.first
+      {
+        // 固定原始 ID；删除后不能让 index 0 自动指向下一个实例，误判目标仍存在。
+        let row = app.buttons[candidate.identifier]
+        reveal(row, app: app)
         row.swipeLeft()
         app.buttons["删除"].tap()
         app.alerts.buttons["删除"].tap()
         let gone = XCTNSPredicateExpectation(
           predicate: NSPredicate(format: "exists == false"), object: row)
         XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 15), .completed)
+        previousBottom = nil
+        continue
       }
+      let cells = app.collectionViews.firstMatch.cells.allElementsBoundByIndex
+      let bottom = "\(cells.count):\(Int((cells.last?.frame.maxY ?? 0).rounded()))"
+      if previousBottom == bottom { break }
+      previousBottom = bottom
+      app.swipeUp()
     }
     XCTAssertEqual(app.webViews.count, 0)
     return app
@@ -339,7 +590,10 @@ final class NativeV2EntryTests: XCTestCase {
   /// Form 延迟创建行且部分 SwiftUI 后代会误报 hittable，必须检查点击中心在可见区域内。
   private func reveal(_ element: XCUIElement, app: XCUIApplication) {
     _ = element.waitForExistence(timeout: 2)
-    let scroll = app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app
+    // 键盘候选栏也是 CollectionView；正文继续取首个 Form，只有已打开选择弹层才取其末个 Form。
+    let forms = app.collectionViews.allElementsBoundByIndex
+    let scroll =
+      (app.buttons["native-plugin-selection-done"].exists ? forms.last : forms.first) ?? app
     for direction in [true, false] {
       for _ in 0..<12 {
         if visible(element, app: app, scroll: scroll) { return }
@@ -374,7 +628,7 @@ final class NativeV2EntryTests: XCTestCase {
   private func viewport(_ app: XCUIApplication, scroll: XCUIElement) -> CGRect {
     let window = app.windows.firstMatch.frame
     var rect = scroll.frame.intersection(window).insetBy(dx: 0, dy: 12)
-    let bar = app.navigationBars.firstMatch
+    let bar = app.navigationBars.allElementsBoundByIndex.last ?? app.navigationBars.firstMatch
     if bar.exists, bar.frame.maxY > rect.minY {
       let bottom = rect.maxY
       rect.origin.y = bar.frame.maxY + 6
@@ -391,11 +645,16 @@ final class NativeV2EntryTests: XCTestCase {
     _ element: XCUIElement, app: XCUIApplication, scroll: XCUIElement
   ) -> Bool {
     guard element.exists, element.isHittable else { return false }
-    let bar = app.navigationBars.firstMatch
-    if !element.identifier.isEmpty,
-      bar.buttons.matching(identifier: element.identifier).firstMatch.exists
-    {
-      return bar.frame.contains(CGPoint(x: element.frame.midX, y: element.frame.midY))
+    if element.identifier == "native-plugin-selection-done" {
+      // iPad 原生 sheet 的工具栏 AX 框可能仍用局部坐标；这是导航动作，不属于滚动内容。
+      return app.windows.firstMatch.frame.contains(
+        CGPoint(x: element.frame.midX, y: element.frame.midY))
+    }
+    if !element.identifier.isEmpty {
+      for bar in app.navigationBars.allElementsBoundByIndex
+      where bar.buttons.matching(identifier: element.identifier).firstMatch.exists {
+        return bar.frame.contains(CGPoint(x: element.frame.midX, y: element.frame.midY))
+      }
     }
     return viewport(app, scroll: scroll).contains(
       CGPoint(x: element.frame.midX, y: element.frame.midY))
