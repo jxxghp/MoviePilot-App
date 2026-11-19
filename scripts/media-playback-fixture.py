@@ -33,6 +33,7 @@ class PlaybackServer(ThreadingHTTPServer):
         self.lyrics = self.media.with_name(f"{self.media.stem}.lrc")
         self.counts = {
             "local_range_requests": 0,
+            "dashboard_range_requests": 0,
             "strm_range_requests": 0,
             "audio_range_requests": 0,
             "upstream_range_requests": 0,
@@ -128,7 +129,21 @@ class PlaybackHandler(BaseHTTPRequestHandler):
             self.reply(200, {"success": True, "message": "", "data": []})
             return
         if path == "/api/v1/system/global":
-            self.reply(200, {"success": True, "message": "", "data": {"APP_VERSION": "fixture", "WALLPAPER": ""}})
+            self.reply(200, {"success": True, "message": "", "data": {
+                "APP_VERSION": "fixture", "WALLPAPER": "", "TMDB_IMAGE_DOMAIN": "image.tmdb.org",
+                "GLOBAL_IMAGE_CACHE": False,
+            }})
+            return
+        if path.startswith("/api/v1/user/config/DashboardGridLayout"):
+            self.reply(200, {"success": True, "message": "", "data": {
+                "value": {"items": {}, "enabled": {
+                    "mediaStatistic": False, "mediaRecommend": False, "scheduler": False,
+                    "speed": False, "storage": False, "weeklyOverview": False, "cpu": False,
+                    "memory": False, "network": False, "library": False, "playing": True,
+                    "latest": True, "recentImports": False, "quickActions": False,
+                    "systemInfo": False,
+                }},
+            }})
             return
         if path == "/api/v1/system/module-catalog":
             self.reply(200, {"success": True, "message": "", "data": {"modules": []}})
@@ -138,6 +153,21 @@ class PlaybackHandler(BaseHTTPRequestHandler):
                 "id": 1, "name": "playback-fixture", "is_superuser": True,
                 "level": 1, "permissions": {},
             }})
+            return
+        if path == "/api/v1/mediaserver/clients":
+            self.reply(200, {"success": True, "message": "", "data": [
+                {"name": "Emby-客厅", "type": "emby"},
+            ]})
+            return
+        if path == "/api/v1/mediaserver/latest":
+            self.reply(200, {"success": True, "message": "", "data": [
+                self.dashboard_item("dashboard-latest-1", "最近入库演示海报"),
+            ]})
+            return
+        if path == "/api/v1/mediaserver/playing":
+            self.reply(200, {"success": True, "message": "", "data": [
+                self.dashboard_item("dashboard-playing-1", "继续观看演示卡片", percent=35),
+            ]})
             return
         if path == "/api/v1/mediaserver/stream-info":
             self.stream_info(parse_qs(parsed.query))
@@ -174,11 +204,33 @@ class PlaybackHandler(BaseHTTPRequestHandler):
             return
         self.send_page()
 
+    def dashboard_item(self, item_id: str, title: str, percent: int | None = None) -> dict[str, object]:
+        """Provide a bounded media-server item for local dashboard card menu acceptance."""
+        item: dict[str, object] = {
+            "id": item_id,
+            "item_id": item_id,
+            "server": "Emby-客厅",
+            "server_id": "fixture-server",
+            "server_type": "emby",
+            "title": title,
+            "subtitle": "本地 iOS 播放验收",
+            "year": 2026,
+            "type": "电影",
+            "image": f"{self.server.public_base}/api/v1/system/img/0",
+            "link": f"https://emby.example/web/index.html#!/item?id={item_id}",
+        }
+        if percent is not None:
+            item["percent"] = percent
+        return item
+
     def do_POST(self) -> None:
         """只接受固定合成账号的密码表单并签发测试令牌。"""
         path = self.normalize_api_path(urlsplit(self.path).path)
         if self.uses_backend(path):
             self.proxy_backend(path)
+            return
+        if self.server.frontend and path.startswith('/__qa/'):
+            self.proxy_frontend()
             return
         if path in {'/api/v1/storage/list', '/api/v1/media/status', '/api/v1/music/recognize'}:
             body = self.rfile.read(min(int(self.headers.get('Content-Length', '0')), 65536))
@@ -286,11 +338,15 @@ class PlaybackHandler(BaseHTTPRequestHandler):
                 'size': path.stat().st_size, 'modify_time': path.stat().st_mtime}
 
     def proxy_frontend(self) -> None:
-        """映射产品路由到前端根路径，使相对资源继续命中实际构建产物。"""
+        """映射产品资源及夹具状态回报到前端来源，保留同源请求方法。"""
         parsed = urlsplit(self.path)
         frontend_path = parsed.path.removeprefix('/product')
         request_path = frontend_path + (f"?{parsed.query}" if parsed.query else "")
-        request = urllib.request.Request(self.server.frontend + request_path)
+        body = self.rfile.read(min(int(self.headers.get('Content-Length', '0')), 65536)) if self.command == 'POST' else None
+        request = urllib.request.Request(
+            self.server.frontend + request_path, data=body, method=self.command,
+            headers={'Content-Type': self.headers.get('Content-Type', 'application/json')},
+        )
         try:
             response = urllib.request.urlopen(request, timeout=30)
         except urllib.error.HTTPError as error:
@@ -391,11 +447,12 @@ class PlaybackHandler(BaseHTTPRequestHandler):
         page = r"""<!doctype html>
 <html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>播放验收</title><style>body{font:17px -apple-system,sans-serif;padding:24px}button{display:block;margin:12px 0;padding:14px}</style>
-<body><h1>播放验收</h1><button id="local" disabled>播放本地剧集</button><button id="strm" disabled>播放 STRM 剧集</button><button id="audio" disabled>播放音乐单曲</button>
+<body><h1>播放验收</h1><button id="local" disabled>播放本地剧集</button><button id="strm" disabled>播放 STRM 剧集</button><button id="audio" disabled>播放音乐单曲</button><button id="audio-second" disabled>播放队列第二首</button>
 <p><a href="/product/#/media?media_source=themoviedb&media_id=157336&type=电视剧">产品影片详情</a></p>
 <p><a href="/product/#/music/detail?media_source=musicbrainz&media_id=recording-fixture">产品音乐详情</a></p>
 <p><a href="/product/#/filemanager">产品文件管理</a></p>
 <p><a href="/product/#/history">产品整理历史</a></p>
+<p><a href="/product/#/dashboard">产品仪表板</a></p>
 <script>
 (() => {
   const api = window.MoviePilotNative;
@@ -416,7 +473,14 @@ class PlaybackHandler(BaseHTTPRequestHandler):
     api.postMessage(message);
   }
   function play(itemId, title) {
-    post('playback.open', {itemId, title, season:1, episode:1});
+    const artworkURL = itemId.startsWith('audio-track-') ? `${location.origin}/api/v1/system/img/0?imgurl=${encodeURIComponent('https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/8c/47/86/8c47862d-e254-8b49-30cf-d1f05ebba05b/23UM1IM56855.rgb.jpg/600x600bb.jpg')}&maxWidth=720&quality=88` : undefined;
+    const queue = itemId.startsWith('audio-track-') ? [
+      {itemId:'audio-track-1', title:'测试音乐歌曲', server:'fixture-music', artworkURL},
+      {itemId:'audio-track-2', title:'测试音乐歌曲二', server:'fixture-music', artworkURL},
+      {itemId:'audio-track-3', title:'测试音乐歌曲三', server:'fixture-music', artworkURL}
+    ] : undefined;
+    const queueIndex = queue?.findIndex(track => track.itemId === itemId);
+    post('playback.open', {itemId, title, ...(artworkURL ? {artworkURL} : {}), ...(queue && queueIndex !== undefined && queueIndex >= 0 ? {queue, queueIndex} : {}), ...(itemId.startsWith('audio-track-') ? {} : {season:1, episode:1})});
   }
   window.addEventListener('moviepilot:native-message', event => {
     const message = event.detail;
@@ -432,7 +496,8 @@ class PlaybackHandler(BaseHTTPRequestHandler):
   document.querySelector('#local').addEventListener('click', () => play('episode-local-1', '测试剧集 S01E01'));
   document.querySelector('#strm').addEventListener('click', () => play('episode-strm-1', '测试剧集 S01E01'));
   document.querySelector('#audio').addEventListener('click', () => play('audio-track-1', '测试音乐歌曲'));
-  post('web.ready', {majors:[1], capabilities:['navigation.v1','actions.v1','layout.v1','menu.v1','notifications.v1','playback.v1']});
+  document.querySelector('#audio-second').addEventListener('click', () => play('audio-track-2', '测试音乐歌曲二'));
+  post('web.ready', {majors:[1], capabilities:['navigation.v1','actions.v1','layout.v1','menu.v1','notifications.v1','playback.v1','card-menus.v1']});
 })();
 </script></body></html>""".encode()
         self.send_response(200)
@@ -446,7 +511,8 @@ class PlaybackHandler(BaseHTTPRequestHandler):
         """要求固定访问令牌，并返回受控剧集或音乐条目的媒体清单。"""
         item_id = query.get("itemid", [""])[0]
         allowed_ids = {
-            "episode-local-1", "episode-strm-1", "audio-track-1", "series-search-1",
+            "episode-local-1", "episode-strm-1", "audio-track-1", "audio-track-2", "audio-track-3",
+            "series-search-1", "dashboard-latest-1", "dashboard-playing-1",
             "file-video-1", "file-audio-1",
         }
         if item_id not in allowed_ids:
@@ -461,11 +527,15 @@ class PlaybackHandler(BaseHTTPRequestHandler):
             selected["server"] = server
         content_url = f"{base}/stream?{urlencode(selected)}"
         subtitle_url = f"{base}/stream-subtitle?{urlencode({**selected, 'subtitle_id': self.server.subtitle.name})}"
-        is_audio = item_id in {"audio-track-1", "file-audio-1"}
+        is_audio = item_id.startswith("audio-track-") or item_id == "file-audio-1"
         lyrics_url = f"{base}/stream-lyrics?{urlencode(selected)}"
         self.reply(200, {"success": True, "message": "", "data": {
             "item_id": item_id,
-            "title": "测试音乐歌曲" if is_audio else "测试剧集 S01E01",
+            "title": {
+                "audio-track-1": "测试音乐歌曲",
+                "audio-track-2": "测试音乐歌曲二",
+                "audio-track-3": "测试音乐歌曲三",
+            }.get(item_id, "测试剧集 S01E01"),
             "content_url": content_url,
             "media_type": "audio" if is_audio else "video",
             "artist": "周杰伦" if is_audio else None,
@@ -501,7 +571,7 @@ class PlaybackHandler(BaseHTTPRequestHandler):
     def stream_lyrics(self, query: dict[str, list[str]]) -> None:
         """只提供播放清单声明的音乐 LRC 文件。"""
         item_id = query.get("itemid", [""])[0]
-        if not self.authorized() or item_id != "audio-track-1":
+        if not self.authorized() or not item_id.startswith("audio-track-"):
             self.reply(401, {})
             return
         if not self.server.lyrics.is_file():
@@ -521,11 +591,14 @@ class PlaybackHandler(BaseHTTPRequestHandler):
         if "resource_token=fixture-stream-only" not in self.headers.get("Cookie", ""):
             self.reply(401, {})
             return
-        if item_id in {"episode-local-1", "series-search-1", "file-video-1"}:
-            self._count_range("local_range_requests")
+        if item_id in {
+            "episode-local-1", "series-search-1", "file-video-1", "dashboard-latest-1", "dashboard-playing-1",
+        }:
+            counter = "dashboard_range_requests" if item_id.startswith("dashboard-") else "local_range_requests"
+            self._count_range(counter)
             self.send_file(self.server.media, include_body=True)
             return
-        if item_id in {"audio-track-1", "file-audio-1"}:
+        if item_id.startswith("audio-track-") or item_id == "file-audio-1":
             self._count_range("audio_range_requests")
             audio_path = self.server.media.with_suffix('.m4a')
             self.send_file(audio_path if audio_path.is_file() else self.server.media, include_body=True)

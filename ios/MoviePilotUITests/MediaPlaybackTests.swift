@@ -35,6 +35,73 @@ final class MediaPlaybackTests: XCTestCase {
     XCTAssertGreaterThan(stats["lyrics_requests"] ?? 0, 0)
   }
 
+  /// 单独验证原生音乐页的专辑封面、圆形控制键与同步歌词。
+  func testNativeMusicNowPlayingLayout() async throws {
+    _ = try await fixtureStats()
+    continueAfterFailure = false
+    app = launch()
+    try await authenticate()
+    try await verifyMusicPlayback(app.webViews.buttons["播放音乐单曲"])
+  }
+
+  /// 曲目队列的左右控制切换上下曲。
+  func testMusicTrackControlsMoveWithinQueue() async throws {
+    _ = try await fixtureStats()
+    continueAfterFailure = false
+    app = launch()
+    try await authenticate()
+    app.webViews.buttons["播放队列第二首"].tap()
+    let previous = app.buttons["music-playback-back"]
+    let next = app.buttons["music-playback-forward"]
+    let title = app.staticTexts["music-playback-title"]
+    XCTAssertTrue(title.waitForExistence(timeout: 15), app.debugDescription)
+    XCTAssertTrue(previous.waitForExistence(timeout: 5), app.debugDescription)
+    XCTAssertTrue(previous.isEnabled, "第二首歌曲应能切回上一首")
+    XCTAssertTrue(next.isEnabled, "存在后续曲目时下一首应可操作")
+    previous.tap()
+    for _ in 0..<60 where title.label != "测试音乐歌曲" {
+      try await Task.sleep(for: .milliseconds(250))
+    }
+    XCTAssertEqual(title.label, "测试音乐歌曲")
+    XCTAssertTrue(next.isEnabled)
+    next.tap()
+    for _ in 0..<60 where title.label != "测试音乐歌曲二" {
+      try await Task.sleep(for: .milliseconds(250))
+    }
+    XCTAssertEqual(title.label, "测试音乐歌曲二")
+    app.buttons["关闭播放器"].tap()
+  }
+
+  /// 长按仪表板真实卡片显示原生菜单，并验证本地播放器实际请求媒体和推进进度。
+  func testDashboardMediaCardsPlayLocally() async throws {
+    _ = try await fixtureStats()
+    continueAfterFailure = false
+    app = launch()
+    try await authenticate()
+    let dashboard = app.webViews.links["产品仪表板"]
+    XCTAssertTrue(dashboard.waitForExistence(timeout: 10), app.debugDescription)
+    dashboard.tap()
+    for (index, titleText) in ["继续观看演示卡片", "最近入库演示海报"].enumerated() {
+      let card = app.webViews.otherElements[titleText].firstMatch
+      XCTAssertTrue(card.waitForExistence(timeout: 30), app.debugDescription)
+      XCTAssertTrue(card.isHittable, app.debugDescription)
+      card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).press(forDuration: 1)
+
+      let play = app.buttons["播放"]
+      XCTAssertTrue(play.waitForExistence(timeout: 10), app.debugDescription)
+      XCTAssertTrue(app.buttons["在 Emby 中打开"].exists, app.debugDescription)
+      play.tap()
+
+      let progress = app.sliders["playback-progress"]
+      XCTAssertTrue(progress.waitForExistence(timeout: 20), app.debugDescription)
+      try await waitForPlaybackProgress(progress)
+      try await waitForCounter("dashboard_range_requests", minimum: index + 1)
+      attachScreenshot(named: "仪表板媒体卡片\(index + 1)长按本地播放")
+      app.buttons["关闭播放器"].tap()
+      XCTAssertTrue(progress.waitForNonExistence(timeout: 10))
+    }
+  }
+
   /// 控制条自动隐藏后反复点击画面只切换可见性，播放进度应持续增长。
   func testVideoSurfaceTapsOnlyToggleControls() async throws {
     _ = try await fixtureStats()
@@ -335,11 +402,25 @@ final class MediaPlaybackTests: XCTestCase {
     XCTAssertTrue(title.waitForExistence(timeout: 15), app.debugDescription)
     XCTAssertTrue(["测试音乐歌曲", "晴天"].contains(title.label))
     XCTAssertTrue(app.staticTexts["周杰伦"].exists)
-    let artwork = app.otherElements["music-playback-artwork"]
+    let artwork = app.images["music-playback-artwork"]
     let lyrics = app.descendants(matching: .any)["music-playback-lyrics"]
     XCTAssertTrue(artwork.waitForExistence(timeout: 5), app.debugDescription)
     XCTAssertTrue(lyrics.waitForExistence(timeout: 5), app.debugDescription)
+    XCTAssertGreaterThan(artwork.frame.width, 180)
+    XCTAssertEqual(artwork.value as? String, "专辑封面已加载")
+    XCTAssertLessThanOrEqual(abs(artwork.frame.width - artwork.frame.height), 3)
+    let close = app.buttons["music-playback-close"]
+    let play = app.buttons["music-playback-toggle"]
+    XCTAssertTrue(close.waitForExistence(timeout: 5), app.debugDescription)
+    XCTAssertTrue(play.waitForExistence(timeout: 5), app.debugDescription)
+    XCTAssertEqual(close.frame.width, 44, accuracy: 3)
+    XCTAssertEqual(close.frame.width, close.frame.height, accuracy: 3)
+    XCTAssertEqual(play.frame.width, 76, accuracy: 3)
+    XCTAssertEqual(play.frame.width, play.frame.height, accuracy: 3)
+    XCTAssertTrue(title.frame.height > 24, "曲名必须完整显示在音乐界面")
     XCTAssertLessThanOrEqual(abs(artwork.frame.midX - app.frame.midX), 3)
+    XCTAssertLessThanOrEqual(abs(title.frame.midX - artwork.frame.midX), 3)
+    XCTAssertLessThanOrEqual(abs(app.staticTexts["周杰伦"].frame.midX - artwork.frame.midX), 3)
     XCTAssertLessThanOrEqual(abs(lyrics.frame.midX - app.frame.midX), 3)
     let firstLyric = app.buttons["playback-lyric-line-0"]
     let chorusLyric = app.buttons["playback-lyric-line-1"]
@@ -348,6 +429,7 @@ final class MediaPlaybackTests: XCTestCase {
     let progress = app.sliders["playback-progress"]
     try await waitForPlaybackProgress(progress)
     try await waitForCounter("lyrics_requests", minimum: 1)
+    chorusLyric.tap()
     try await waitForLyricsHighlight(chorusLyric)
     attachScreenshot(named: "音乐播放器与实时歌词")
 
@@ -390,6 +472,7 @@ final class MediaPlaybackTests: XCTestCase {
     let password = app.secureTextFields["密码"]
     replaceText(password, with: "fixture-only")
     password.typeText("\n")
+    XCTAssertTrue(readyElement.waitForExistence(timeout: 30), app.debugDescription)
   }
 
   /// 控制层淡出后用一次画面点击恢复，不用尚未启用的进度滑块判断控制层是否可见。
