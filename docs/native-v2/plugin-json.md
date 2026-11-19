@@ -41,7 +41,7 @@
 
 字符串上限按转义后的词法字节计。Swift 字典会把规范等价的不同 Unicode 键视为相等，因此拒绝同一对象中的这类键冲突，不能悄悄覆盖；绑定使用 exactKey/forExactModelField 精确读取。节点树是结构索引，不是已求值的可见性或内容优先级计划，原始 text/html/content/slots 均保留。
 
-后续草稿写入也必须检测规范等价但字节不同的字段名冲突，不能直接用 Dictionary 下标覆盖另一字段；遇到本值模型无法无损表达的新增冲突应阻止保存并诊断。
+P2.2a 已新增 PluginFormDraft：写入前检测规范等价但字节不同的字段名冲突，不能直接用 Dictionary 下标覆盖另一字段；整份候选模型先编码/检查资源预算再原子替换。脏状态按编码字节而非 Swift String 的规范等价比较，完整保留未知值。接线与保存门禁见[原生表单方案](plugin-forms.md)。
 
 ## 能力与保存边界
 
@@ -51,7 +51,7 @@
 
 已有可空 content/events 按无内容/事件处理并保留 null；仪表板 elements=null 保留并给出信息诊断，与根响应 null（面板不可用）区分。HTML 能力同时覆盖节点 html 与 props.innerHTML，不能只检查一种写法。
 
-接线时必须从现有受限 API 客户端取得**原始响应字节**，不能先经旧 Double JSONValue 解码再重编码。P2.2 按需扩展同一传输的数据响应投影，不另建认证/Session 或绕过同源、响应上限与取消策略。
+P2.2a 已从现有受限 APIClient/NativeSession 取得**原始响应字节**，不经旧 Double JSONValue 中转。新产品 MoviePilotPluginForms 负责真实会话/物理目标与显式保存；不另建认证/Session 或绕过同源、响应上限与取消策略。真实组件/表达式和校验器仍由 P2.2b 接续。
 
 ## 验收合同
 
