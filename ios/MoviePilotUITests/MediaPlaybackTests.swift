@@ -72,7 +72,7 @@ final class MediaPlaybackTests: XCTestCase {
     app.buttons["关闭播放器"].tap()
   }
 
-  /// 仪表板继续观看与最近入库卡片显示原生菜单，并从所属媒体服务器切入本地播放器。
+  /// 长按仪表板真实卡片显示原生菜单，并验证本地播放器实际请求媒体和推进进度。
   func testDashboardMediaCardsPlayLocally() async throws {
     _ = try await fixtureStats()
     continueAfterFailure = false
@@ -82,16 +82,10 @@ final class MediaPlaybackTests: XCTestCase {
     XCTAssertTrue(dashboard.waitForExistence(timeout: 10), app.debugDescription)
     dashboard.tap()
     for (index, titleText) in ["继续观看演示卡片", "最近入库演示海报"].enumerated() {
-      let title = app.webViews.staticTexts[titleText]
-      XCTAssertTrue(title.waitForExistence(timeout: 30), app.debugDescription)
-      if titleText == "继续观看演示卡片" {
-        title.press(forDuration: 1)
-      } else {
-        // PosterCard keeps its old hover-only title layer; its accessible card action opens the same native menu.
-        let accessibleMenu = app.webViews.buttons["\(titleText)，操作菜单"]
-        XCTAssertTrue(accessibleMenu.waitForExistence(timeout: 10), app.debugDescription)
-        accessibleMenu.tap()
-      }
+      let card = app.webViews.otherElements[titleText].firstMatch
+      XCTAssertTrue(card.waitForExistence(timeout: 30), app.debugDescription)
+      XCTAssertTrue(card.isHittable, app.debugDescription)
+      card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).press(forDuration: 1)
 
       let play = app.buttons["播放"]
       XCTAssertTrue(play.waitForExistence(timeout: 10), app.debugDescription)
