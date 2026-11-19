@@ -13,7 +13,7 @@
 | 模块/归属 | 责任 | 约束与当前状态 |
 | --- | --- | --- |
 | MoviePilotCore（现有） | 可复用的地址、认证投影、语言、通知与 Widget 纯契约 | 混有旧网页桥模型；迁移时只提取需要的独立类型，最终拆离旧桥依赖 |
-| MoviePilotAPI（P1.1） | URLSession、端点、显式响应契约、错误、分页元数据 | Foundation-only；不导入 WebKit，不管理 UI、Keychain 或自动登录 |
+| MoviePilotAPI（P1.1，已实现底座） | URLSession、端点、显式响应契约、错误、分页元数据 | Foundation + 现有纯核心类型；不导入 WebKit，不管理 UI、Keychain 或自动登录；尚未接入默认 App |
 | 原生会话（P1.2） | 实例、Keychain 令牌、当前用户、权限、代次、任务取消 | 一个实例/账号/代次对应一个会话；不读取网页 Cookie 或 localStorage |
 | 原生功能模块（P3–P7） | 强类型 DTO、仓库查询、页面状态、用户动作和导航 | 依赖 API/会话；不可通过 JS、网页桥或插件 Web 容器执行主体业务 |
 | 原生设计组件（P1.4） | 海报、列表、表单、选择器、错误/空态、进度与图表 | SwiftUI/原生组件；支持可访问性、主题、iPad 与旧系统 |
