@@ -18,8 +18,10 @@
 		229C4BD2AB608276A1D9C7A3 /* MoviePilotDesignPreviewApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CC86AABC2EEAB48327D089F /* MoviePilotDesignPreviewApp.swift */; };
 		23E731081F1C8B9393CDE436 /* MoviePilotWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A53F32D403882DC68D3CE17 /* MoviePilotWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		26EA21BAF0EB0F9D663FE97F /* MoviePilotWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E9D58111CB3F6D0CC5F8EB /* MoviePilotWidgets.swift */; };
+		29D3DF44DA14967EB9C79979 /* NativeSystemSettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68C6FA6CA18037E7B4A18B47 /* NativeSystemSettingsPage.swift */; };
 		2BD57F8FAA89B6CE62520CDF /* CardMenuInteraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32C08F097B084258A76DECD1 /* CardMenuInteraction.swift */; };
 		2ECCFA5FCDCC8BEB234D0B0D /* NativeDashboardPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76B2E764B2FD72F7288DDD30 /* NativeDashboardPage.swift */; };
+		3C9C4AF98C14ECF412DD19A5 /* NativeUsersPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92FC46BA3B51393FE1CBD566 /* NativeUsersPage.swift */; };
 		3CBB675738DCDAD4D0C9ADB9 /* NativeWorkflowsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E76B95589CF91ADA4DD7FA6 /* NativeWorkflowsPage.swift */; };
 		3D424A853E324626526E7C32 /* NativePluginCronEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 956812F9BDCA0C80A21A1D4D /* NativePluginCronEditor.swift */; };
 		3D6B172B7B5B1AA97966CF0F /* CinematicForms.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDEA5C38B21EC1C887096B9D /* CinematicForms.swift */; };
@@ -180,6 +182,7 @@
 		641204B445D6421F3776C827 /* PreviewDashboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewDashboard.swift; sourceTree = "<group>"; };
 		64E08B040825C4BB1B965C7E /* NativeDiscoverPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiscoverPage.swift; sourceTree = "<group>"; };
 		679A44F3DC9A280BB5F36D51 /* SearchPageController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchPageController.swift; sourceTree = "<group>"; };
+		68C6FA6CA18037E7B4A18B47 /* NativeSystemSettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSystemSettingsPage.swift; sourceTree = "<group>"; };
 		6D565B6584319D5328EB3F39 /* WebCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebCoordinator.swift; sourceTree = "<group>"; };
 		6E34C8AE293060383912C15F /* PreviewMediaDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewMediaDetail.swift; sourceTree = "<group>"; };
 		6FA5AFA5548F3E007A5709E9 /* NativePluginComboboxEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginComboboxEditor.swift; sourceTree = "<group>"; };
@@ -189,6 +192,7 @@
 		8072C0F89DB70887DB4A4AEC /* LoginController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginController.swift; sourceTree = "<group>"; };
 		82C723DD27397A1AD7E2E7E2 /* WebContentController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebContentController.swift; sourceTree = "<group>"; };
 		86D43CD80FACB4AAA460D482 /* OperationMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationMenuController.swift; sourceTree = "<group>"; };
+		92FC46BA3B51393FE1CBD566 /* NativeUsersPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeUsersPage.swift; sourceTree = "<group>"; };
 		956812F9BDCA0C80A21A1D4D /* NativePluginCronEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginCronEditor.swift; sourceTree = "<group>"; };
 		97C577DD42CBEF2372229CE0 /* NativePanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePanelController.swift; sourceTree = "<group>"; };
 		9CC86AABC2EEAB48327D089F /* MoviePilotDesignPreviewApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoviePilotDesignPreviewApp.swift; sourceTree = "<group>"; };
@@ -319,7 +323,9 @@
 				3E0B3A43D3BA4AA717CEB29B /* NativeResourceSearchPage.swift */,
 				5F33A2CBF14E52CA99816FE7 /* NativeSitesPage.swift */,
 				DA6542A83716C651A9A5510B /* NativeSubscriptionsPage.swift */,
+				68C6FA6CA18037E7B4A18B47 /* NativeSystemSettingsPage.swift */,
 				DD83F9ADCEC4810F8AB5FA50 /* NativeTransferHistoryPage.swift */,
+				92FC46BA3B51393FE1CBD566 /* NativeUsersPage.swift */,
 				2E76B95589CF91ADA4DD7FA6 /* NativeWorkflowsPage.swift */,
 			);
 			path = Pages;
@@ -713,7 +719,9 @@
 				84F5B4F5B036CE1992EE9C26 /* NativeResourceSearchPage.swift in Sources */,
 				1643E5D3ACDFDECB97B3BD54 /* NativeSitesPage.swift in Sources */,
 				FFBF4A25C55AF8B92FC3E416 /* NativeSubscriptionsPage.swift in Sources */,
+				29D3DF44DA14967EB9C79979 /* NativeSystemSettingsPage.swift in Sources */,
 				C38CDC369F7BE7AB52EF08E5 /* NativeTransferHistoryPage.swift in Sources */,
+				3C9C4AF98C14ECF412DD19A5 /* NativeUsersPage.swift in Sources */,
 				B8BFDD2872B5BE73B16B5837 /* NativeV2MainShell.swift in Sources */,
 				8DF5E1BB381E11AE01C5C435 /* NativeV2RootView.swift in Sources */,
 				D2AE907740AD1CA35EDE9E4F /* NativeV2SceneDelegate.swift in Sources */,
