@@ -57,9 +57,24 @@ def documents():
     }
     weekday = json.loads(FIXTURE_PATH.with_name("libraryintegrity-cron-node.json").read_text())
     weekday["model"]["future"] = {"integer": 9007199254740993, "hidden": "fixture-only-hidden"}
+    cert_combo = json.loads(FIXTURE_PATH.with_name("certmanager-combobox-node.json").read_text())
+    library_combo = json.loads(FIXTURE_PATH.with_name("libraryintegrity-combobox-node.json").read_text())
+    for document in [cert_combo, library_combo]:
+        document["model"]["future"] = {"integer": 9007199254740993, "hidden": "fixture-only-hidden"}
+    combo_modes = {
+        "render_mode": "vuetify",
+        "conf": [{"component": "VCombobox", "props": {
+            "model": "choice", "label": "标量预设", "return-object": False, "clearable": True,
+            "items": [{"title": "数字一", "value": 1}, {"title": "字符一", "value": "1"},
+                      {"title": "精确数字", "value": 9007199254740993}],
+        }}] + [{"component": "VCombobox", "props": {"model": key, "label": label, "clearable": True}}
+               for key, label in [("empty", "空值"), ("missing", "缺失值")]],
+        "model": {"choice": "legacy", "empty": None, "future": {"integer": 9007199254740993}},
+    }
     return {PHYSICAL_ID: source, "UnsupportedFixture": unsupported, "NativeControlsFixture": controls,
             "LibraryScraper_copy": cron, "CronCompatibilityFixture": compatibility,
-            "LibraryIntegrityWeekdayFixture": weekday}
+            "LibraryIntegrityWeekdayFixture": weekday, "CertManagerCombobox_copy": cert_combo,
+            "LibraryCombobox_copy": library_combo, "ComboboxModesFixture": combo_modes}
 
 
 class PluginFixture(BASE.NativeFixture):
@@ -136,7 +151,12 @@ class PluginHandler(BASE.NativeHandler):
                  "plugin_name": "计划兼容验收", "plugin_desc": "合成间隔、空值与可选字段", "plugin_version": "fixture"},
                 {"id": "LibraryIntegrityWeekdayFixture", "source_plugin_id": "LibraryIntegrity", "installed": True,
                  "plugin_name": "数字星期源码节点", "plugin_desc": "真实 Cron 节点与合成模型，非完整插件表单", "plugin_version": "fixture"},
-            ], {"X-Total-Count": "6"})
+                {"id": "CertManagerCombobox_copy", "source_plugin_id": "CertManager", "installed": True, "plugin_name": "DNS 组合框（来源节点）",
+                 "plugin_desc": "真实预设与节点；模型合成，非完整插件", "plugin_version": "fixture"},
+                {"id": "LibraryCombobox_copy", "source_plugin_id": "LibraryIntegrity", "installed": True, "plugin_name": "媒体库组合框（来源节点）",
+                 "plugin_desc": "真实空预设多选节点；模型合成", "plugin_version": "fixture"},
+                {"id": "ComboboxModesFixture", "installed": True, "plugin_name": "组合框类型验收", "plugin_desc": "合成标量、空值与缺失值", "plugin_version": "fixture"},
+            ], {"X-Total-Count": "9"})
         prefix = "api/v1/plugin/form/"
         if self.command == "GET" and endpoint.startswith(prefix) and not url.query:
             plugin = endpoint[len(prefix):]

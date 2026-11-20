@@ -105,6 +105,27 @@ class PluginUIFixtureTests(unittest.TestCase):
         self.assertNotIn("missing", form["model"])
         self.assertEqual(self.request("/a/api/v1/plugin/CronCompatibilityFixture", "PUT", form["model"])[0], 200)
 
+    def test_combobox_source_and_synthetic_types_remain_distinct(self):
+        """真实节点/预设未改写，合成模型的对象、字符串与空/缺失键均由完整 PUT 保留。"""
+        _, installed = self.request("/a/api/v1/plugin/?state=installed")
+        self.assertEqual(len(installed), 9)
+        self.assertTrue(all(item.get("installed") is True for item in installed))
+        _, form = self.request("/a/api/v1/plugin/form/CertManagerCombobox_copy")
+        props = form["conf"][0]["props"]
+        self.assertEqual(props["items"][2], {"title": "Cloudflare", "value": "dns_cf"})
+        self.assertNotIn("return-object", props)
+        model = form["model"]
+        self.assertEqual(model["dns_provider"]["future"], 9007199254740993)
+        model["dns_provider"] = props["items"][2]
+        self.assertEqual(self.request("/a/api/v1/plugin/CertManagerCombobox_copy", "PUT", model)[0], 200)
+        _, form = self.request("/a/api/v1/plugin/form/LibraryCombobox_copy")
+        self.assertNotIn("items", form["conf"][0]["props"])
+        self.assertTrue(form["conf"][0]["props"]["multiple"])
+        self.assertEqual(form["model"]["libraries"][1]["future"], 9007199254740993)
+        _, form = self.request("/a/api/v1/plugin/form/ComboboxModesFixture")
+        self.assertIsNone(form["model"]["empty"])
+        self.assertNotIn("missing", form["model"])
+
 
 if __name__ == "__main__":
     unittest.main()

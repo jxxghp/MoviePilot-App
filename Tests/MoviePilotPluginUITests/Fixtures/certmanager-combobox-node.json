@@ -1,0 +1,81 @@
+{
+  "render_mode": "vuetify",
+  "conf": [
+    {
+      "component": "VCombobox",
+      "props": {
+        "model": "dns_provider",
+        "label": "DNS 服务商",
+        "items": [
+          {
+            "title": "阿里云（Aliyun）",
+            "value": "dns_ali"
+          },
+          {
+            "title": "腾讯云 DNSPod",
+            "value": "dns_dp"
+          },
+          {
+            "title": "Cloudflare",
+            "value": "dns_cf"
+          },
+          {
+            "title": "华为云",
+            "value": "dns_huaweicloud"
+          },
+          {
+            "title": "百度云",
+            "value": "dns_baidu"
+          },
+          {
+            "title": "GoDaddy",
+            "value": "dns_gd"
+          },
+          {
+            "title": "NameSilo",
+            "value": "dns_namesilo"
+          },
+          {
+            "title": "Namecheap",
+            "value": "dns_namecheap"
+          },
+          {
+            "title": "Porkbun",
+            "value": "dns_porkbun"
+          },
+          {
+            "title": "西部数码",
+            "value": "dns_west_cn"
+          },
+          {
+            "title": "DNSPod 国际版",
+            "value": "dns_dpi"
+          },
+          {
+            "title": "AWS Route53",
+            "value": "dns_aws"
+          },
+          {
+            "title": "Azure DNS",
+            "value": "dns_azure"
+          },
+          {
+            "title": "Google Cloud DNS",
+            "value": "dns_gcloud"
+          }
+        ],
+        "item-title": "title",
+        "item-value": "value",
+        "hint": "可从列表选择，也可直接输入 acme.sh 的脚本名（如 dns_xxx）。常用：dns_ali 阿里云、dns_dp 腾讯云、dns_cf Cloudflare",
+        "persistent-hint": true
+      }
+    }
+  ],
+  "model": {
+    "dns_provider": {
+      "title": "历史 DNS 预设",
+      "value": "dns_legacy",
+      "future": 9007199254740993
+    }
+  }
+}

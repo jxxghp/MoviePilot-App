@@ -1,0 +1,20 @@
+{
+  "device": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
+  "queriedWhileBooted": true,
+  "preferences": {
+    "EnhancedBackgroundContrastEnabled": {
+      "exists": false,
+      "value": null
+    },
+    "ReduceMotionEnabled": {
+      "exists": false,
+      "value": null
+    },
+    "DarkenSystemColors": {
+      "exists": false,
+      "value": null
+    }
+  },
+  "restoredWhileBooted": true,
+  "verified": true
+}

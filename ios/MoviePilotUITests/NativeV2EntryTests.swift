@@ -311,6 +311,192 @@ final class NativeV2EntryTests: XCTestCase {
     try XCTUnwrap((state["models"] as? [String: [String: Any]])?[plugin])
   }
 
+  /// 真实来源对象预设、取消、重读及自定义字符串都通过原生编辑器操作，不自动发 PUT。
+  func testPluginComboboxPresetObjectCustomAndCancel() async throws {
+    let app = try await pluginAccount()
+    let plugin = "CertManagerCombobox_copy"
+    openPlugin(plugin, initialControl: "native-plugin-field-dns_provider", app: app)
+    openCombobox("dns_provider", app: app)
+    capture("rex-combobox-source-object")
+    tap(app.buttons["native-combobox-option-2"], app: app)
+    tap(app.buttons["native-combobox-cancel"], app: app)
+    XCTAssertTrue(app.buttons["native-plugin-field-dns_provider"].label.contains("历史 DNS 预设"))
+    var state = try await pluginState()
+    XCTAssertTrue((state["receipts"] as? [[String: Any]])?.isEmpty == true)
+    openCombobox("dns_provider", app: app)
+    tap(app.buttons["native-combobox-option-2"], app: app)
+    tap(app.buttons["native-combobox-apply"], app: app)
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    state = try await pluginState()
+    var model = try cronModel(state, plugin: plugin)
+    let provider = try XCTUnwrap(model["dns_provider"] as? [String: Any])
+    XCTAssertEqual(provider["title"] as? String, "Cloudflare")
+    XCTAssertEqual(provider["value"] as? String, "dns_cf")
+    XCTAssertEqual(provider.count, 2)
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    tap(app.buttons["native-plugin-" + plugin], app: app)
+    XCTAssertTrue(app.buttons["native-plugin-field-dns_provider"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["native-plugin-field-dns_provider"].label.contains("Cloudflare"))
+    openCombobox("dns_provider", app: app)
+    let input = app.textFields["native-combobox-input"]
+    tap(input, app: app)
+    input.typeText(" dns_custom ")
+    capture("rex-combobox-custom-input")
+    // 不先按加号，应用必须接收尚在输入框的文字，且保留空格。
+    tap(app.buttons["native-combobox-apply"], app: app)
+    state = try await pluginState()
+    XCTAssertEqual((state["receipts"] as? [[String: Any]])?.count, 1)
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    state = try await pluginState()
+    model = try cronModel(state, plugin: plugin)
+    XCTAssertEqual(model["dns_provider"] as? String, " dns_custom ")
+    XCTAssertEqual((model["future"] as? [String: Any])?["integer"] as? Int64, 9_007_199_254_740_993)
+    XCTAssertEqual((state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/" + plugin], 2)
+    XCTAssertEqual((state["counts"] as? [String: Int])?["GET a/api/v1/plugin/form/" + plugin], 2)
+    XCTAssertTrue((state["unexpected"] as? [String: Int])?.isEmpty == true)
+    XCTAssertEqual(app.webViews.count, 0)
+    app.terminate()
+  }
+
+  /// 无预设多选保留历史对象；失败不自动重试，明确重试、删除和清空才改变完整配置。
+  func testPluginComboboxMultipleValuesAndFailedSaveRetainDraft() async throws {
+    let app = try await pluginAccount()
+    let plugin = "LibraryCombobox_copy"
+    openPlugin(plugin, initialControl: "native-plugin-field-libraries", app: app)
+    openCombobox("libraries", app: app)
+    addComboboxInput("Films", app: app)
+    let input = app.textFields["native-combobox-input"]
+    tap(input, app: app)
+    input.typeText("TV")
+    tap(app.buttons["native-combobox-apply"], app: app)
+    try await configurePlugins(mode: "fail_save_once")
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-error"], app: app)
+    var state = try await pluginState()
+    XCTAssertEqual((state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/" + plugin], 1)
+    XCTAssertTrue((state["receipts"] as? [[String: Any]])?.isEmpty == true)
+    openCombobox("libraries", app: app)
+    XCTAssertTrue(app.staticTexts["native-combobox-current-2"].label.contains("Films"))
+    XCTAssertTrue(app.staticTexts["native-combobox-current-3"].label.contains("TV"))
+    tap(app.buttons["native-combobox-remove-0"], app: app)
+    addComboboxInput("Anime", app: app)
+    capture("rex-combobox-multiple-values")
+    tap(app.buttons["native-combobox-apply"], app: app)
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    state = try await pluginState()
+    let model = try cronModel(state, plugin: plugin)
+    let values = try XCTUnwrap(model["libraries"] as? [Any])
+    XCTAssertEqual(values.count, 4)
+    XCTAssertEqual((values.first as? [String: Any])?["future"] as? Int64, 9_007_199_254_740_993)
+    XCTAssertEqual(Array(values.dropFirst()) as? [String], ["Films", "TV", "Anime"])
+    XCTAssertEqual((model["future"] as? [String: Any])?["integer"] as? Int64, 9_007_199_254_740_993)
+    openCombobox("libraries", app: app)
+    tap(app.buttons["native-combobox-clear"], app: app)
+    tap(app.buttons["native-combobox-cancel"], app: app)
+    openCombobox("libraries", app: app)
+    XCTAssertTrue(app.staticTexts["native-combobox-current-3"].exists)
+    tap(app.buttons["native-combobox-clear"], app: app)
+    tap(app.buttons["native-combobox-apply"], app: app)
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    state = try await pluginState()
+    XCTAssertEqual((try cronModel(state, plugin: plugin))["libraries"] as? [String], [])
+    XCTAssertEqual((state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/" + plugin], 3)
+    XCTAssertEqual((state["receipts"] as? [[String: Any]])?.count, 2)
+    XCTAssertTrue((state["unexpected"] as? [String: Int])?.isEmpty == true)
+    XCTAssertEqual(app.webViews.count, 0)
+    app.terminate()
+  }
+
+  /// 原样应用不新增缺失键或改写 null，returnObject=false 的大整数和字符串保持类型。
+  func testPluginComboboxScalarNullAndMissingTypes() async throws {
+    let app = try await pluginAccount()
+    let plugin = "ComboboxModesFixture"
+    openPlugin(plugin, initialControl: "native-plugin-field-choice", app: app)
+    for key in ["empty", "missing"] {
+      openCombobox(key, app: app)
+      tap(app.buttons["native-combobox-apply"], app: app)
+    }
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    var state = try await pluginState()
+    var model = try cronModel(state, plugin: plugin)
+    XCTAssertTrue(model["empty"] is NSNull)
+    XCTAssertNil(model["missing"])
+    for (index, expected) in [(2, "9007199254740993"), (1, "1")] {
+      openCombobox("choice", app: app)
+      tap(app.buttons["native-combobox-option-\(index)"], app: app)
+      tap(app.buttons["native-combobox-apply"], app: app)
+      tap(app.buttons["native-plugin-form-save"], app: app)
+      reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+      state = try await pluginState()
+      model = try cronModel(state, plugin: plugin)
+      if index == 2 {
+        XCTAssertEqual(model["choice"] as? Int64, 9_007_199_254_740_993)
+        XCTAssertFalse(model["choice"] is String)
+      } else {
+        XCTAssertEqual(model["choice"] as? String, expected)
+      }
+      XCTAssertTrue(model["empty"] is NSNull)
+      XCTAssertNil(model["missing"])
+    }
+    openCombobox("choice", app: app)
+    tap(app.buttons["native-combobox-clear"], app: app)
+    tap(app.buttons["native-combobox-apply"], app: app)
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    state = try await pluginState()
+    XCTAssertTrue((try cronModel(state, plugin: plugin))["choice"] is NSNull)
+    XCTAssertEqual((state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/" + plugin], 4)
+    XCTAssertEqual(app.webViews.count, 0)
+    app.terminate()
+  }
+
+  /// 最大字号与横屏下候选列表、键盘和应用动作都必须可达，继续使用统一 Rex 表面。
+  func testPluginComboboxLargestTypeRemainsReachable() async throws {
+    let app = try await pluginAccount(extra: [
+      "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
+    ])
+    defer {
+      app.terminate()
+      XCUIDevice.shared.orientation = .portrait
+    }
+    XCUIDevice.shared.orientation = .landscapeLeft
+    openPlugin(
+      "CertManagerCombobox_copy", initialControl: "native-plugin-field-dns_provider", app: app)
+    openCombobox("dns_provider", app: app)
+    tap(app.buttons["native-combobox-option-13"], app: app)
+    capture("rex-combobox-largest-landscape")
+    let input = app.textFields["native-combobox-input"]
+    tap(input, app: app)
+    input.typeText("dns_custom")
+    tap(app.buttons["native-combobox-apply"], app: app)
+    tap(app.buttons["native-plugin-form-save"], app: app)
+    reveal(app.staticTexts["native-plugin-form-saved"], app: app)
+    let state = try await pluginState()
+    XCTAssertEqual(
+      (try cronModel(state, plugin: "CertManagerCombobox_copy"))["dns_provider"] as? String,
+      "dns_custom")
+    XCTAssertEqual(app.webViews.count, 0)
+  }
+
+  /// 原生弹层从所属字段打开，并等待可输入的实际控件而非依赖固定延迟。
+  private func openCombobox(_ key: String, app: XCUIApplication) {
+    tap(app.buttons["native-plugin-field-" + key], app: app)
+    XCTAssertTrue(app.textFields["native-combobox-input"].waitForExistence(timeout: 5))
+  }
+
+  /// 加号与应用中的待输入分别验证，全部字符经真实系统输入控件产生。
+  private func addComboboxInput(_ text: String, app: XCUIApplication) {
+    let input = app.textFields["native-combobox-input"]
+    tap(input, app: app)
+    input.typeText(text)
+    tap(app.buttons["native-combobox-add"], app: app)
+  }
+
   /// 完整官方表单经真实原生入口修改/保存/重读，未知字段和大整数原样保留。
   func testPluginSourceFormSavesCompletePhysicalConfiguration() async throws {
     let app = try await pluginAccount()
@@ -902,6 +1088,7 @@ final class NativeV2EntryTests: XCTestCase {
     let cronMode = app.collectionViews["native-cron-mode-form"]
     let cronField = app.collectionViews["native-cron-field-form"]
     let cron = app.collectionViews["native-cron-form"]
+    let combobox = app.collectionViews["native-combobox-form"]
     let scroll =
       cronMode.exists
       ? cronMode
@@ -909,7 +1096,9 @@ final class NativeV2EntryTests: XCTestCase {
         ? cronField
         : cron.exists
           ? cron
-          : (app.buttons["native-plugin-selection-done"].exists ? forms.last : forms.first) ?? app
+          : combobox.exists
+            ? combobox
+            : (app.buttons["native-plugin-selection-done"].exists ? forms.last : forms.first) ?? app
     for direction in [true, false] {
       for _ in 0..<12 {
         if visible(element, app: app, scroll: scroll) { return }
@@ -970,7 +1159,7 @@ final class NativeV2EntryTests: XCTestCase {
     guard element.exists else { return false }
     if [
       "native-plugin-selection-done", "native-cron-apply", "native-cron-cancel",
-      "native-cron-field-apply",
+      "native-cron-field-apply", "native-combobox-apply", "native-combobox-cancel",
     ].contains(element.identifier) {
       // iPad 原生 sheet 的工具栏 AX 框可能仍用局部坐标；这是导航动作，不属于滚动内容。
       return app.windows.firstMatch.frame.contains(

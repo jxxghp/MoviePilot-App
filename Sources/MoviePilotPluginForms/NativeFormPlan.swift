@@ -7,6 +7,7 @@ public enum NativeFormControl: Sendable {
   case input(NativeFormField, NativeFormInputKind)
   case cron(NativeFormField)
   case select(NativeFormField, options: [NativeFormOption], multiple: Bool, clearable: Bool)
+  case combobox(NativeFormField, NativeComboboxDraft)
   case notice(title: String, text: String, kind: NativeFormNoticeKind)
   case text(String)
   case divider
@@ -175,7 +176,7 @@ private struct NativeFormPlanBuilder {
     let layout = Self.layouts.contains(component)
     if layout
       || !(Self.toggles.contains(component) || Self.inputs.contains(component)
-        || component == "VSelect" || component == "VCronField")
+        || component == "VSelect" || component == "VCombobox" || component == "VCronField")
     {
       for binding in node.bindings where binding.kind != .implicitRead {
         issue(.unsupported, binding.pointer)
@@ -231,6 +232,12 @@ private struct NativeFormPlanBuilder {
       allowed = [
         "label", "hint", "placeholder", "disabled", "readonly", "required", "items", "multiple",
         "clearable", "item-title", "item-value", "itemTitle", "itemValue",
+      ]
+    } else if component == "VCombobox" {
+      allowed = [
+        "label", "hint", "placeholder", "disabled", "readonly", "required", "items", "multiple",
+        "clearable", "item-title", "item-value", "itemTitle", "itemValue", "return-object",
+        "returnObject",
       ]
     } else if component == "VAlert" {
       allowed = ["title", "text", "type"]
@@ -308,7 +315,7 @@ private struct NativeFormPlanBuilder {
   ) throws -> NativeFormControl {
     let editable =
       Self.toggles.contains(component) || Self.inputs.contains(component) || component == "VSelect"
-      || component == "VCronField"
+      || component == "VCombobox" || component == "VCronField"
     if editable {
       guard let field = field(node, props: props, disabled: disabled) else { return .unsupported }
       if visible && !disabled && NativeFormExpression.truth(props["required"])
@@ -342,6 +349,14 @@ private struct NativeFormPlanBuilder {
           issue(.invalidValue, node.pointer)
         }
         return .toggle(field)
+      }
+      if component == "VCombobox" {
+        do {
+          return .combobox(field, try NativeComboboxDraft(properties: props, value: field.value))
+        } catch NativeComboboxError.unsupported(let property) {
+          issue(.unsupported, node.pointer + "/props/" + property)
+          return .unsupported
+        }
       }
       if component == "VSelect" {
         let multiple = NativeFormExpression.truth(props["multiple"])

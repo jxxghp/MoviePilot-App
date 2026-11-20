@@ -102,6 +102,12 @@ final result: passed
 
 此叶子的实际视觉与操作检查：passed；既有 Form/键盘工具栏布局警告继续 P8，未冒记为已解决。
 
+## 2026-11-20 P2.2b.2b.1 原生组合框
+
+- [iPhone 来源对象预设](docs/native-v2/evidence/2026-11-20-plugin-combobox/iphone-object-preset.png)、[自定义值和系统键盘](docs/native-v2/evidence/2026-11-20-plugin-combobox/iphone-custom-input.png)、[保留对象的多值编辑](docs/native-v2/evidence/2026-11-20-plugin-combobox/iphone-multiple-values.png)和 [iPad 大字横屏](docs/native-v2/evidence/2026-11-20-plugin-combobox/ipad-largest-landscape.png)为 API-only 合成夹具上的真实模拟器截图。它们保留修正后的 Rex 渐变与通透玻璃卡片，不引入第二主题或 Web 内容。
+- 最终 iPhone 构建的对象预设/取消/重新选择/自定义输入、多值增删/取消/清空与失败保存重试三项 UI 测试，及同一最终构建的 iPad 最大字号/横屏和降低透明度/减弱动态检查一项，均通过且零跳过。VoiceOver 全量、iOS 16 真机和性能仍为 P8 门槛。
+- 模拟器保留并恢复原本缺失的辅助设置键；测试完成后设备均关闭。原图未调色，仅直接从 xcresult 导出。
+
 ## 2026-11-20 用户反馈重新打开玻璃材质验收
 
 用户明确指出当前表单卡片偏灰，不如 Rex 通透、有玻璃感。此前各叶子的 passed 是当时内部判断，不代表用户认可此材质；本项重新打开，优先执行 [P1.4b](docs/native-v2/glass-clarity.md)。修正前截图保留，后续必须将参考/修正前/修正后同屏，实际检查透底的紫/玫瑰渐变、灰雾、边缘与可读性，不能只凭 API 名称或测试绿勾判定。仍只做 Rex 一套风格。
