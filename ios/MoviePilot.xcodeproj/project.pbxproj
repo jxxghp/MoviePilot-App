@@ -40,6 +40,7 @@
 		81605C89FB80C7DDEB3B42C2 /* CinematicForms.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDEA5C38B21EC1C887096B9D /* CinematicForms.swift */; };
 		83789EE8C7B5E15DE9D339B2 /* NativeFrameworkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 492AB810F34D732AF976E01D /* NativeFrameworkTests.swift */; };
 		8464FBB90159A6B122B561E9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16DC09F74832A0B86B73E0DB /* AppDelegate.swift */; };
+		84F5B4F5B036CE1992EE9C26 /* NativeResourceSearchPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E0B3A43D3BA4AA717CEB29B /* NativeResourceSearchPage.swift */; };
 		8A3D015696B0598EAB65001E /* WebCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D565B6584319D5328EB3F39 /* WebCoordinator.swift */; };
 		8DF4FDF3C653CBAE5E342F13 /* NativeV2EntryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8610FEB4EE38230CD0D07A1 /* NativeV2EntryTests.swift */; };
 		8DF5E1BB381E11AE01C5C435 /* NativeV2RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57AF1DC6B88739AE85862902 /* NativeV2RootView.swift */; };
@@ -153,6 +154,7 @@
 		32C08F097B084258A76DECD1 /* CardMenuInteraction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardMenuInteraction.swift; sourceTree = "<group>"; };
 		3B9A3A01FB3A03C2FC8AD128 /* MoviePilot-App */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "MoviePilot-App"; path = ..; sourceTree = SOURCE_ROOT; };
 		3C5522D23DCCE1A49988D78B /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		3E0B3A43D3BA4AA717CEB29B /* NativeResourceSearchPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeResourceSearchPage.swift; sourceTree = "<group>"; };
 		43EEF99FFB4650801A93C48B /* BridgeBootstrap.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = BridgeBootstrap.js; sourceTree = "<group>"; };
 		45F7C55CF76C93C422A267E7 /* MoviePilotUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MoviePilotUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		492AB810F34D732AF976E01D /* NativeFrameworkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFrameworkTests.swift; sourceTree = "<group>"; };
@@ -302,6 +304,7 @@
 				64E08B040825C4BB1B965C7E /* NativeDiscoverPage.swift */,
 				EF6849CE05D1EC77AFA67129 /* NativeDownloadsPage.swift */,
 				E2CBAA3DC386BDCFF67D1137 /* NativeMediaDetailPage.swift */,
+				3E0B3A43D3BA4AA717CEB29B /* NativeResourceSearchPage.swift */,
 				DA6542A83716C651A9A5510B /* NativeSubscriptionsPage.swift */,
 			);
 			path = Pages;
@@ -690,6 +693,7 @@
 				98EB4831D3C52B37D00D990D /* NativePluginComboboxEditor.swift in Sources */,
 				3D424A853E324626526E7C32 /* NativePluginCronEditor.swift in Sources */,
 				D7EDEDB0DE9835F49D973665 /* NativePluginFormView.swift in Sources */,
+				84F5B4F5B036CE1992EE9C26 /* NativeResourceSearchPage.swift in Sources */,
 				FFBF4A25C55AF8B92FC3E416 /* NativeSubscriptionsPage.swift in Sources */,
 				B8BFDD2872B5BE73B16B5837 /* NativeV2MainShell.swift in Sources */,
 				8DF5E1BB381E11AE01C5C435 /* NativeV2RootView.swift in Sources */,

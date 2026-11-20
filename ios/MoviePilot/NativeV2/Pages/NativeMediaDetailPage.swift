@@ -94,6 +94,11 @@ struct NativeMediaDetailPage: View {
     session.user.allows(.init(category: .subscribe))
   }
 
+  /// 当前账号具备 PT 资源搜索权限时展示直达资源搜索入口。
+  private var canSearchResources: Bool {
+    session.user.allows(.init(category: .search))
+  }
+
   /// 全宽剧照延伸至顶部安全区，经多段柔边融入 Cinematic 底色并浮置片名与核心元数据。
   private func heroSection(_ detail: NativeMediaDetailPayload) -> some View {
     let heroHeight: CGFloat = dynamicTypeSize.isAccessibilitySize ? 470 : 410
@@ -200,12 +205,12 @@ struct NativeMediaDetailPage: View {
     }
   }
 
-  /// 主操作区遵循 Liquid Glass 分组规范：按权限展示订阅开关与入库状态，不伪造未接入动作。
+  /// 主操作区遵循 Liquid Glass 分组规范：按权限展示订阅开关、资源搜索与入库状态，不伪造未接入动作。
   @ViewBuilder
   private func actionBar(_ detail: NativeMediaDetailPayload) -> some View {
     let tv = isTelevision(detail)
     let subscribedCount = status.seasons.count
-    if canSubscribe || status.itemID != nil {
+    if canSubscribe || canSearchResources || status.itemID != nil {
       CinematicGlassGroup {
         HStack(spacing: 12) {
           if canSubscribe {
@@ -246,6 +251,27 @@ struct NativeMediaDetailPage: View {
               .disabled(isMutatingMovie)
               .accessibilityIdentifier("native-media-detail-subscribe")
             }
+          }
+          if canSearchResources {
+            NavigationLink {
+              NativeResourceSearchPage(
+                session: session,
+                target: .media(
+                  identity: identity, title: detail.title ?? "作品资源", season: nil))
+            } label: {
+              Image(systemName: "magnifyingglass")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 50, height: 50)
+                .background {
+                  Circle()
+                    .fill(.white.opacity(0.14))
+                    .overlay { Circle().strokeBorder(.white.opacity(0.24), lineWidth: 0.7) }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("搜索站点资源")
+            .accessibilityIdentifier("native-media-detail-search-resources")
           }
           if let server = status.server, !server.isEmpty, status.itemID != nil {
             CinematicCircleButton(title: "已入库 · \(server)", symbol: "play.tv.fill") {
