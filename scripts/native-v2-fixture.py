@@ -55,6 +55,16 @@ class NativeFixture(ThreadingHTTPServer):
                         },
                     }
                 ],
+                "history": [
+                    {
+                        "id": 801, "title": "合成追剧", "type": "电视剧", "year": "2025",
+                        "seasons": "S01", "episodes": "E08", "status": True, "mode": "copy",
+                        "date": "2026-11-20 21:00:00", "errmsg": None,
+                        "src": "/downloads/tv/syn-s01e08.mkv", "dest": "/video/tv/syn-s01e08.mkv",
+                        "image": "https://images.example.test/111/poster.png",
+                        "media_source": "themoviedb", "media_id": "111",
+                    }
+                ],
             }
             for name in ("a", "b", "new", "slow")
         }
@@ -196,6 +206,16 @@ class NativeHandler(BaseHTTPRequestHandler):
                             },
                         }
                     ]
+                    profile["history"] = [
+                        {
+                            "id": 801, "title": "合成追剧", "type": "电视剧", "year": "2025",
+                            "seasons": "S01", "episodes": "E08", "status": True, "mode": "copy",
+                            "date": "2026-11-20 21:00:00", "errmsg": None,
+                            "src": "/downloads/tv/syn-s01e08.mkv", "dest": "/video/tv/syn-s01e08.mkv",
+                            "image": "https://images.example.test/111/poster.png",
+                            "media_source": "themoviedb", "media_id": "111",
+                        }
+                    ]
             self.reply(200, {"success": True})
             return
         parts = [unquote(segment) for segment in path.strip("/").split("/") if segment]
@@ -206,6 +226,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                 endpoint in self.business_endpoints()
                 or path in {f"/{name}/api/v1/download/", f"/{name}/api/v1/subscribe/", f"/{name}/api/v1/site/"}
                 or re.fullmatch(r"api/v1/download/(?:start|stop)/[a-z0-9]+", endpoint)
+                or re.fullmatch(r"api/v1/site/test/[0-9]+", endpoint)
                 or re.fullmatch(r"api/v1/search/media/1[0-9]{2}", endpoint)
                 or re.fullmatch(r"api/v1/media/1[0-9]{2}", endpoint)
                 or re.fullmatch(r"api/v1/tmdb/(?:credits|recommend|similar)/1[0-9]{2}/(?:电影|电视剧)", endpoint)
@@ -231,6 +252,9 @@ class NativeHandler(BaseHTTPRequestHandler):
                 self.subscribe_status_endpoint(name, endpoint)
                 return
         if name in self.server.profiles and self.command == "DELETE":
+            if endpoint == "api/v1/history/transfer":
+                self.history_delete_endpoint(name, body)
+                return
             if re.fullmatch(r"api/v1/subscribe/media/1[0-9]{2}", endpoint):
                 self.subscribe_delete_endpoint(name, endpoint)
                 return
@@ -283,6 +307,8 @@ class NativeHandler(BaseHTTPRequestHandler):
             "api/v1/download/paths",
             "api/v1/search/last",
             "api/v1/search/title",
+            "api/v1/history/transfer",
+            "api/v1/message/web",
             "api/v1/subscribe/calendar",
             "api/v1/dashboard/statistic",
             "api/v1/dashboard/storage",
@@ -353,7 +379,22 @@ class NativeHandler(BaseHTTPRequestHandler):
         elif endpoint == "api/v1/download/paths":
             value = [{"name": "电影库", "save_path": "local:/downloads/movies", "download_path": "/downloads/movies"}]
         elif endpoint == "api/v1/site":
-            value = [{"id": 3, "name": "合成站", "is_active": True}]
+            value = [{"id": 3, "name": "合成站", "domain": "syn.example.test", "is_active": True, "pri": 1}]
+        elif re.fullmatch(r"api/v1/site/test/[0-9]+", endpoint):
+            value = None
+        elif endpoint == "api/v1/history/transfer":
+            with self.server.lock:
+                rows = list(self.server.profiles[name]["history"])
+            value = {"list": rows, "total": len(rows)}
+        elif endpoint == "api/v1/message/web":
+            value = [
+                {
+                    "id": 901, "mtype": "订阅", "title": "合成追剧 S01 已开始下载",
+                    "text": "已匹配 2160p 中字版本并提交至 Qbittorrent。",
+                    "image": "https://images.example.test/111/backdrop.png",
+                    "reg_time": "2026-11-20 22:00:00",
+                }
+            ]
         elif endpoint in {"api/v1/search/last", "api/v1/search/title"} or endpoint.startswith("api/v1/search/media/"):
             if not self.permissions(mode)["search"]:
                 self.reply(403, {"success": False})
@@ -600,6 +641,29 @@ class NativeHandler(BaseHTTPRequestHandler):
             self.reply(422, {"success": False})
             return
         self.reply(200, {"success": True, "message": "", "data": {"download_id": "syn-dl-9001"}})
+
+    def history_delete_endpoint(self, name, body):
+        """单次删除合成整理历史记录。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["DELETE api/v1/history/transfer"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a" and not self.permissions(mode)["manage"]:
+            self.reply(403, {"success": False})
+            return
+        try:
+            record_id = int(json.loads(body)["id"])
+        except (KeyError, ValueError, TypeError):
+            self.reply(422, {"success": False})
+            return
+        with self.server.lock:
+            self.server.profiles[name]["history"] = [
+                row for row in self.server.profiles[name]["history"] if row["id"] != record_id
+            ]
+        self.reply(200, {"success": True, "message": "", "data": None})
 
     @staticmethod
     def resource_token(name):

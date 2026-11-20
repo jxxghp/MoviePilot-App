@@ -224,6 +224,12 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           NativeCalendarPage(session: session)
         case .resources:
           NativeResourceSearchPage(session: session, target: .lastResults)
+        case .history:
+          NativeTransferHistoryPage(session: session)
+        case .sites:
+          NativeSitesPage(session: session)
+        case .messages:
+          NativeMessagesPage(session: session)
         }
       }
       .overlay(alignment: .bottomLeading) {
@@ -418,6 +424,50 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("native-workspace-calendar")
               }
+              if canManageDownloads {
+                CinematicFormDivider()
+                Button {
+                  accountPath.append(.history)
+                } label: {
+                  CinematicFormRow(symbol: "clock.arrow.circlepath") {
+                    Text("整理历史")
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                      .foregroundStyle(.white.opacity(0.45))
+                  }
+                  .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-workspace-history")
+                CinematicFormDivider()
+                Button {
+                  accountPath.append(.sites)
+                } label: {
+                  CinematicFormRow(symbol: "globe") {
+                    Text("站点管理")
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                      .foregroundStyle(.white.opacity(0.45))
+                  }
+                  .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-workspace-sites")
+              }
+              CinematicFormDivider()
+              Button {
+                accountPath.append(.messages)
+              } label: {
+                CinematicFormRow(symbol: "bell.fill") {
+                  Text("消息中心")
+                  Spacer()
+                  Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.45))
+                }
+                .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("native-workspace-messages")
             }
           }
           accountContent
@@ -440,6 +490,12 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           NativeCalendarPage(session: session)
         case .resources:
           NativeResourceSearchPage(session: session, target: .lastResults)
+        case .history:
+          NativeTransferHistoryPage(session: session)
+        case .sites:
+          NativeSitesPage(session: session)
+        case .messages:
+          NativeMessagesPage(session: session)
         }
       }
       .navigationDestination(isPresented: $showsPlugins) {
@@ -732,6 +788,9 @@ private enum NativeWorkspaceDestination: Hashable {
   case downloads
   case calendar
   case resources
+  case history
+  case sites
+  case messages
 }
 
 /// 发现导航栈只接收已加载的分区、可验证媒体身份或受控业务页面。
@@ -742,6 +801,9 @@ private enum NativeMediaDestination: Identifiable, Hashable {
   case downloads
   case calendar
   case resources
+  case history
+  case sites
+  case messages
 
   /// 区分分区网格、详情与工作台页面路由。
   var id: String {
@@ -752,6 +814,9 @@ private enum NativeMediaDestination: Identifiable, Hashable {
     case .downloads: "downloads"
     case .calendar: "calendar"
     case .resources: "resources"
+    case .history: "history"
+    case .sites: "sites"
+    case .messages: "messages"
     }
   }
 }

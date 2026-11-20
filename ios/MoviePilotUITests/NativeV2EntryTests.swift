@@ -132,6 +132,30 @@ final class NativeV2EntryTests: XCTestCase {
       capture("native-v2-live-calendar")
       app.navigationBars.buttons.firstMatch.tap()
     }
+    let historyEntry = app.buttons["native-workspace-history"]
+    if historyEntry.waitForExistence(timeout: 8) {
+      tap(historyEntry, app: app)
+      XCTAssertTrue(app.scrollViews["native-history-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 2_000_000_000)
+      capture("native-v2-live-history")
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+    let sitesEntry = app.buttons["native-workspace-sites"]
+    if sitesEntry.waitForExistence(timeout: 8) {
+      tap(sitesEntry, app: app)
+      XCTAssertTrue(app.scrollViews["native-sites-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 1_500_000_000)
+      capture("native-v2-live-sites")
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+    let msgEntry = app.buttons["native-workspace-messages"]
+    if msgEntry.waitForExistence(timeout: 8) {
+      tap(msgEntry, app: app)
+      XCTAssertTrue(app.scrollViews["native-messages-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 2_000_000_000)
+      capture("native-v2-live-messages")
+      app.navigationBars.buttons.firstMatch.tap()
+    }
     tap(tabButton("仪表盘", app: app), app: app)
     XCTAssertTrue(
       app.descendants(matching: .any)["native-dashboard-storage"].firstMatch.waitForExistence(
@@ -352,6 +376,58 @@ final class NativeV2EntryTests: XCTestCase {
     let counts = try await stats()
     XCTAssertEqual(counts["a"]?["GET api/v1/search/media/113"], 1)
     XCTAssertEqual(counts["a"]?["POST api/v1/download/add"], 1)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// P5.3 / P6.1 / P6.4：验证原生整理历史展开/确认删除、站点连通测试与消息中心分类过滤，零 WebView。
+  func testNativeHistorySitesAndMessagesFlows() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    tap(tabButton("我的", app: app), app: app)
+
+    let historyEntry = app.buttons["native-workspace-history"]
+    XCTAssertTrue(historyEntry.waitForExistence(timeout: 10))
+    tap(historyEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-history-scroll"].waitForExistence(timeout: 10))
+    let expandBtn = app.buttons["native-history-expand-801"]
+    XCTAssertTrue(expandBtn.waitForExistence(timeout: 10))
+    tap(expandBtn, app: app)
+    let deleteBtn = app.buttons["native-history-delete-801"]
+    XCTAssertTrue(deleteBtn.waitForExistence(timeout: 8))
+    tap(deleteBtn, app: app)
+    let confirmDelete = app.alerts["删除整理记录"].buttons["仅删除记录"]
+    XCTAssertTrue(confirmDelete.waitForExistence(timeout: 8))
+    confirmDelete.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-history-feedback"].firstMatch
+        .waitForExistence(timeout: 8))
+    app.navigationBars.buttons.firstMatch.tap()
+
+    let sitesEntry = app.buttons["native-workspace-sites"]
+    XCTAssertTrue(sitesEntry.waitForExistence(timeout: 10))
+    tap(sitesEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-sites-scroll"].waitForExistence(timeout: 10))
+    let testSiteBtn = app.buttons["native-site-test-3"]
+    XCTAssertTrue(testSiteBtn.waitForExistence(timeout: 10))
+    tap(testSiteBtn, app: app)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-site-test-passed"].firstMatch
+        .waitForExistence(timeout: 10))
+    app.navigationBars.buttons.firstMatch.tap()
+
+    let msgEntry = app.buttons["native-workspace-messages"]
+    XCTAssertTrue(msgEntry.waitForExistence(timeout: 10))
+    tap(msgEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-messages-scroll"].waitForExistence(timeout: 10))
+    let subFilter = app.buttons["native-messages-filter-订阅"]
+    XCTAssertTrue(subFilter.waitForExistence(timeout: 10))
+    tap(subFilter, app: app)
+    XCTAssertEqual(app.webViews.count, 0)
+
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["DELETE api/v1/history/transfer"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/site/test/3"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/message/web"], 1)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -1590,7 +1666,8 @@ final class NativeV2EntryTests: XCTestCase {
       .allElementsBoundByIndex.last(where: { $0.isHittable })
     let workspaceScroll = [
       "native-downloads-scroll", "native-subscriptions-scroll", "native-calendar-scroll",
-      "native-resource-search-scroll",
+      "native-resource-search-scroll", "native-history-scroll", "native-sites-scroll",
+      "native-messages-scroll",
     ].compactMap { identifier in
       app.scrollViews.matching(identifier: identifier).allElementsBoundByIndex.last(where: {
         $0.isHittable
