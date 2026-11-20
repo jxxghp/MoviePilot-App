@@ -265,6 +265,8 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           NativeSystemSettingsPage(session: session)
         case .users:
           NativeUsersPage(session: session)
+        case .pluginMarket:
+          NativePluginMarketPage(session: session)
         }
       }
       .overlay(alignment: .bottomLeading) {
@@ -620,6 +622,20 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
               }
               .buttonStyle(.plain)
               .accessibilityIdentifier("native-workspace-users")
+              CinematicFormDivider()
+              Button {
+                accountPath.append(.pluginMarket)
+              } label: {
+                CinematicFormRow(symbol: "bag.fill") {
+                  Text("插件市场")
+                  Spacer()
+                  Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.45))
+                }
+                .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("native-workspace-plugin-market")
             }
           }
           accountContent
@@ -662,6 +678,8 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           NativeSystemSettingsPage(session: session)
         case .users:
           NativeUsersPage(session: session)
+        case .pluginMarket:
+          NativePluginMarketPage(session: session)
         }
       }
       .navigationDestination(isPresented: $showsPlugins) {
@@ -1062,6 +1080,7 @@ private enum NativeWorkspaceDestination: Hashable {
   case workflows
   case settings
   case users
+  case pluginMarket
 }
 
 /// 发现导航栈只接收已加载的分区、可验证媒体身份或受控业务页面。
@@ -1082,6 +1101,7 @@ private enum NativeMediaDestination: Identifiable, Hashable {
   case workflows
   case settings
   case users
+  case pluginMarket
 
   /// 区分分区网格、详情与工作台页面路由。
   var id: String {
@@ -1102,6 +1122,7 @@ private enum NativeMediaDestination: Identifiable, Hashable {
     case .workflows: "workflows"
     case .settings: "settings"
     case .users: "users"
+    case .pluginMarket: "pluginMarket"
     }
   }
 }

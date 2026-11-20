@@ -265,6 +265,25 @@ final class NativeV2EntryTests: XCTestCase {
       capture("native-v2-live-users")
       app.navigationBars.buttons.firstMatch.tap()
     }
+    let marketEntry = app.buttons["native-workspace-plugin-market"]
+    reveal(marketEntry, app: app)
+    if marketEntry.waitForExistence(timeout: 8) {
+      tap(marketEntry, app: app)
+      XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 15))
+      let firstMarketInstall = app.buttons.matching(
+        NSPredicate(format: "identifier BEGINSWITH 'native-market-install-'")
+      ).firstMatch
+      _ = firstMarketInstall.waitForExistence(timeout: 12)
+      try await Task.sleep(nanoseconds: 500_000_000)
+      capture("native-v2-live-plugin-market")
+      let installedTab = app.buttons["native-plugin-mode-已安装管理"]
+      if installedTab.exists {
+        tap(installedTab, app: app)
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        capture("native-v2-live-plugin-installed")
+      }
+      app.navigationBars.buttons.firstMatch.tap()
+    }
     tap(tabButton("仪表盘", app: app), app: app)
     XCTAssertTrue(
       app.descendants(matching: .any)["native-dashboard-storage"].firstMatch.waitForExistence(
@@ -776,6 +795,55 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["a"]?["POST api/v1/subscribe/"], 1)
     XCTAssertEqual(counts["a"]?["GET api/v1/music/artist/art-301"], 1)
     XCTAssertEqual(counts["a"]?["GET api/v1/music/artist/art-301/albums"], 1)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// P7.1：验证管理员插件市场安装确认、已安装管理重置与卸载确认单次提交，零 WebView。
+  func testNativePluginMarketInstallResetAndUninstall() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    tap(tabButton("我的", app: app), app: app)
+
+    let marketEntry = app.buttons["native-workspace-plugin-market"]
+    reveal(marketEntry, app: app)
+    XCTAssertTrue(marketEntry.waitForExistence(timeout: 10))
+    tap(marketEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 10))
+
+    let installBtn = app.buttons["native-market-install-AutoSignIn"]
+    XCTAssertTrue(installBtn.waitForExistence(timeout: 10))
+    tap(installBtn, app: app)
+    let confirmInstall = app.alerts["安装插件"].buttons["确认安装"]
+    XCTAssertTrue(confirmInstall.waitForExistence(timeout: 8))
+    confirmInstall.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-plugin-market-feedback"].firstMatch
+        .waitForExistence(timeout: 10))
+
+    let installedMode = app.buttons["native-plugin-mode-已安装管理"]
+    tap(installedMode, app: app)
+    let resetBtn = app.buttons["native-installed-reset-DemoPlugin"]
+    XCTAssertTrue(resetBtn.waitForExistence(timeout: 10))
+    tap(resetBtn, app: app)
+    let confirmReset = app.alerts["重置插件"].buttons["确认重置"]
+    XCTAssertTrue(confirmReset.waitForExistence(timeout: 8))
+    confirmReset.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-plugin-market-feedback"].firstMatch
+        .waitForExistence(timeout: 10))
+
+    let uninstallBtn = app.buttons["native-installed-uninstall-DemoPlugin"]
+    XCTAssertTrue(uninstallBtn.waitForExistence(timeout: 8))
+    tap(uninstallBtn, app: app)
+    let confirmUninstall = app.alerts["卸载插件"].buttons["确认卸载"]
+    XCTAssertTrue(confirmUninstall.waitForExistence(timeout: 8))
+    confirmUninstall.tap()
+    XCTAssertEqual(app.webViews.count, 0)
+
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["GET api/v1/plugin/install/AutoSignIn"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/plugin/reset/DemoPlugin"], 1)
+    XCTAssertEqual(counts["a"]?["DELETE api/v1/plugin/DemoPlugin"], 1)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -2014,8 +2082,9 @@ final class NativeV2EntryTests: XCTestCase {
     let personScroll = app.scrollViews.matching(identifier: "native-person-detail-scroll")
       .allElementsBoundByIndex.last(where: { $0.isHittable })
     let workspaceScroll = [
-      "native-music-artist-scroll", "native-music-album-scroll", "native-music-scroll",
-      "native-subscribe-editor-scroll", "native-community-scroll", "native-explore-scroll",
+      "native-plugin-market-scroll", "native-music-artist-scroll", "native-music-album-scroll",
+      "native-music-scroll", "native-subscribe-editor-scroll", "native-community-scroll",
+      "native-explore-scroll",
       "native-downloads-scroll", "native-subscriptions-scroll", "native-calendar-scroll",
       "native-resource-search-scroll", "native-history-scroll", "native-sites-scroll",
       "native-messages-scroll", "native-files-scroll", "native-workflows-scroll",
