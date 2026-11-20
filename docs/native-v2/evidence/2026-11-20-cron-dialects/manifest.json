@@ -70,7 +70,7 @@
   "publication": "local only",
   "goal": "active",
   "defaultEntry": "legacy 1.x; DEBUG --native-v2",
-  "temporaryCache": "Reused for immediate glass-clarity validation; clean after that work, not yet removed.",
+  "temporaryCache": "Reused for immediately following glass validation, then removed on 2026-11-20.",
   "knownWarnings": [
     "Existing Invalid frame dimension; not resolved/suppressed",
     "Xcode diagnostic collector cannot find simctl"
@@ -81,5 +81,6 @@
     "Physical device",
     "Full VoiceOver/performance",
     "Complete plugin ecology and main WebView removal"
-  ]
+  ],
+  "temporaryCacheRemoved": true
 }

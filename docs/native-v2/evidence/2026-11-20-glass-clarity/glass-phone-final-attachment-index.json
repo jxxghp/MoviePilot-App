@@ -1,0 +1,44 @@
+[
+  {
+    "attachments" : [
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+        "deviceName" : "MoviePilot Native v2 Entry",
+        "exportedFileName" : "89C75C65-F007-46D2-A02B-874D9EBB282E.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "rex-weekday-dialect-choice-normal_0_7F70EF79-3152-4DE8-B066-587655CB4362.png",
+        "timestamp" : 1795133612.027
+      },
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+        "deviceName" : "MoviePilot Native v2 Entry",
+        "exportedFileName" : "32546DC2-A2CC-4285-ADF2-330C59CECF9D.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "rex-weekday-dialect-custom-normal_0_F6D881D8-DEB2-462F-8189-7B0A513FF175.png",
+        "timestamp" : 1795133587.256
+      },
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+        "deviceName" : "MoviePilot Native v2 Entry",
+        "exportedFileName" : "358DBFC1-D007-4BDE-AA61-5869D4A60C12.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "rex-weekday-dialect-expression-normal_0_CB30A393-7F41-48E2-8F2C-E01173687309.png",
+        "timestamp" : 1795133581.942
+      },
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "77E90161-AC2B-4930-8B76-436FF2E85FD8",
+        "deviceName" : "MoviePilot Native v2 Entry",
+        "exportedFileName" : "A5CAEF8B-2A0F-45C3-A781-7CAD3F84173A.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "rex-plugin-installed-list_0_3EE9070C-9837-4F90-8149-DC65A1007852.png",
+        "timestamp" : 1795133571.712
+      }
+    ],
+    "testIdentifier" : "NativeV2EntryTests/testPluginCronNumericWeekdayPreservesSource()",
+    "testIdentifierURL" : "test://com.apple.xcode/MoviePilot/MoviePilotUITests/NativeV2EntryTests/testPluginCronNumericWeekdayPreservesSource"
+  }
+]

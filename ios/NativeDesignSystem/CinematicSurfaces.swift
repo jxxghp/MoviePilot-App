@@ -26,7 +26,7 @@ struct CinematicBackground: View {
   }
 }
 
-/// 内容层的半透明材质分组；保持透底与对比度，不把导航层重玻璃重复叠在正文上。
+/// Rex 透明玻璃分组；让全局紫/玫瑰渐变透出，避免均匀灰雾遮住背景色彩。
 @MainActor
 struct CinematicPanel<Content: View>: View {
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -44,26 +44,52 @@ struct CinematicPanel<Content: View>: View {
   var body: some View {
     content
       .padding(padding)
-      .background {
-        if reduceTransparency {
-          shape.fill(CinematicStyle.solidSurface)
-        } else {
-          shape.fill(.ultraThinMaterial).overlay(shape.fill(.white.opacity(0.045)))
-        }
-      }
       .clipShape(shape)
+      .modifier(CinematicPanelSurface(reduceTransparency: reduceTransparency, contrast: contrast))
       .overlay(
         shape.strokeBorder(
-          .white.opacity(contrast == .increased ? 0.38 : 0.13),
+          LinearGradient(
+            colors: [
+              .white.opacity(contrast == .increased ? 0.42 : 0.20),
+              .white.opacity(contrast == .increased ? 0.28 : 0.075),
+              .white.opacity(contrast == .increased ? 0.35 : 0.12),
+            ], startPoint: .topLeading, endPoint: .bottomTrailing),
           lineWidth: contrast == .increased ? 1 : 0.7
         ).allowsHitTesting(false)
       )
-      .shadow(color: .black.opacity(0.08), radius: 12, y: 6)
+      .shadow(color: .black.opacity(0.06), radius: 12, y: 6)
   }
 
   /// 相关卡片、表单与状态面板采用相同的连续圆角。
   private var shape: RoundedRectangle {
     RoundedRectangle(cornerRadius: CinematicStyle.radius, style: .continuous)
+  }
+}
+
+/// 正文使用低遮罩的系统材质透出底色；导航的系统 Liquid Glass 不跨页面采样正文。
+@MainActor
+private struct CinematicPanelSurface: ViewModifier {
+  let reduceTransparency: Bool
+  let contrast: ColorSchemeContrast
+
+  /// 材质本身降低遮罩并添加轻微方向高光，避免大块灰雾或相邻卡片粘连。
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    let shape = RoundedRectangle(cornerRadius: CinematicStyle.radius, style: .continuous)
+    let sheen = Color(red: 0.82, green: 0.78, blue: 1)
+    if reduceTransparency {
+      content.background(CinematicStyle.solidSurface, in: shape)
+    } else {
+      content.background {
+        ZStack {
+          shape.fill(.ultraThinMaterial).opacity(contrast == .increased ? 0.45 : 0.22)
+          shape.fill(
+            LinearGradient(
+              colors: [sheen.opacity(0.085), sheen.opacity(0.055), sheen.opacity(0.065)],
+              startPoint: .topLeading, endPoint: .bottomTrailing))
+        }
+      }
+    }
   }
 }
 
