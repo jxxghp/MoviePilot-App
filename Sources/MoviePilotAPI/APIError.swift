@@ -18,9 +18,10 @@ public enum APIError: Error, Equatable, Sendable {
 }
 
 /// 端点显式选择包装协议；不根据插件 payload 恰好出现的 success/data 键猜测。
-public enum APIResponseContract: Sendable {
+public enum APIResponseContract: Equatable, Sendable {
   case envelope
   case payload
+  case eventStream
 }
 
 /// 传输层支持的 HTTP 方法；即使 GET 也可能有旧接口副作用，均不自动重试。
