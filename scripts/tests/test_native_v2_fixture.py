@@ -140,3 +140,27 @@ class NativeFixtureTests(unittest.TestCase):
         status, success = self.request(path, body + b"012345", form)
         self.assertEqual(status, 200)
         self.assertEqual(success["user_name"], "native-a")
+
+    def test_detail_status_person_and_subscribe_lifecycle(self):
+        """媒体状态、演职员/人物详情和合成订阅增删均严格遵守认证与权限边界。"""
+        base = "/a/api/v1/"
+        tok = "synthetic-native-a"
+        status, credits = self.request(base + "tmdb/credits/113/%E7%94%B5%E5%BD%B1", token=tok)
+        self.assertEqual((status, credits["data"][0]["id"]), (200, 501))
+        status, person = self.request(base + "tmdb/person/501", token=tok)
+        self.assertEqual((status, person["data"]["name"]), (200, "合成主演"))
+        status, works = self.request(base + "tmdb/person/credits/501?page=1", token=tok)
+        self.assertEqual((status, len(works["data"])), (200, 2))
+
+        query = json.dumps([{"media_source": "themoviedb", "media_id": "113", "mtype": "电影"}]).encode()
+        status, before = self.request(base + "media/status", query, token=tok)
+        self.assertEqual((status, before["data"][0]["server"], before["data"][0]["subscribed"]), (200, "Emby", False))
+
+        sub_body = json.dumps({
+            "name": "合成电影 113", "type": "电影", "year": "2025",
+            "media_source": "themoviedb", "media_id": "113", "season": None,
+        }).encode()
+        status, _ = self.request(base + "subscribe/", sub_body, token=tok)
+        self.assertEqual(status, 200)
+        status, after = self.request(base + "media/status", query, token=tok)
+        self.assertTrue(after["data"][0]["subscribed"])

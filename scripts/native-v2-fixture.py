@@ -11,7 +11,7 @@ import struct
 import threading
 import time
 import zlib
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 
 class NativeFixture(ThreadingHTTPServer):
@@ -21,7 +21,11 @@ class NativeFixture(ThreadingHTTPServer):
         """绑定 IPv4 回环；允许测试使用系统分配端口，不暴露局域网服务。"""
         self.lock = threading.Lock()
         self.profiles = {
-            name: {"mode": "new" if name == "new" else "ready", "counts": Counter()}
+            name: {
+                "mode": "new" if name == "new" else "ready",
+                "counts": Counter(),
+                "subscriptions": set(),
+            }
             for name in ("a", "b", "new", "slow")
         }
         self.unexpected = Counter()
@@ -39,7 +43,11 @@ class NativeHandler(BaseHTTPRequestHandler):
         self.dispatch()
 
     def do_POST(self):
-        """仅处理初始化、登录与合成状态控制，不接受网页代理请求。"""
+        """处理初始化、登录、媒体状态查询、合成订阅与测试状态控制。"""
+        self.dispatch()
+
+    def do_DELETE(self):
+        """处理受控合成订阅取消。"""
         self.dispatch()
 
     def reply(self, status, value, headers=None):
@@ -112,7 +120,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                 if name not in self.server.profiles or mode not in {
                     "ready", "new", "otp", "expired", "unavailable", "slow",
                     "discovery-only", "resource-search-only", "search-failed", "storage-failed",
-                    "partial-discovery-failed",
+                    "partial-discovery-failed", "subscribe-failed",
                 }:
                     raise ValueError()
             except (KeyError, ValueError, TypeError):
@@ -123,17 +131,34 @@ class NativeHandler(BaseHTTPRequestHandler):
                 profile["mode"] = mode
                 if config.get("reset"):
                     profile["counts"].clear()
+                    profile["subscriptions"].clear()
             self.reply(200, {"success": True})
             return
-        parts = path.strip("/").split("/")
+        parts = [unquote(segment) for segment in path.strip("/").split("/") if segment]
         name = parts[0] if parts else ""
         endpoint = "/".join(parts[1:])
         if name in self.server.profiles and self.command == "GET":
-            if endpoint in self.business_endpoints() or re.fullmatch(r"api/v1/media/1[0-9]{2}", endpoint):
+            if (
+                endpoint in self.business_endpoints()
+                or re.fullmatch(r"api/v1/media/1[0-9]{2}", endpoint)
+                or re.fullmatch(r"api/v1/tmdb/(?:credits|recommend|similar)/1[0-9]{2}/(?:电影|电视剧)", endpoint)
+                or re.fullmatch(r"api/v1/tmdb/person(?:/credits)?/[0-9]{3}", endpoint)
+            ):
                 self.business_endpoint(name, endpoint)
                 return
             if endpoint == "api/v1/system/img/0":
                 self.image_endpoint(name)
+                return
+        if name in self.server.profiles and self.command == "POST":
+            if endpoint == "api/v1/media/status":
+                self.media_status_endpoint(name, body)
+                return
+            if path == f"/{name}/api/v1/subscribe/":
+                self.subscribe_create_endpoint(name, body)
+                return
+        if name in self.server.profiles and self.command == "DELETE":
+            if re.fullmatch(r"api/v1/subscribe/media/1[0-9]{2}", endpoint):
+                self.subscribe_delete_endpoint(name, endpoint)
                 return
         allowed = {
             ("GET", "api/v1/login/initialization"),
@@ -200,6 +225,7 @@ class NativeHandler(BaseHTTPRequestHandler):
             endpoint.startswith("api/v1/discover/")
             or endpoint.startswith("api/v1/recommend/")
             or endpoint.startswith("api/v1/mediaserver/")
+            or endpoint.startswith("api/v1/tmdb/")
             or endpoint == "api/v1/media/search"
             or re.fullmatch(r"api/v1/media/1[0-9]{2}", endpoint)
         )
@@ -251,6 +277,15 @@ class NativeHandler(BaseHTTPRequestHandler):
                 "progress_enable": True, "progress": 37.5, "progress_text_i18n": "正在检查",
                 "next_run_i18n": "明天 03:00",
             }]
+        elif endpoint.startswith("api/v1/tmdb/credits/"):
+            value = [self.person(501, "合成主演", "主角"), self.person(502, "合成配角", "配角")]
+        elif endpoint.startswith("api/v1/tmdb/recommend/") or endpoint.startswith("api/v1/tmdb/similar/"):
+            value = [self.media(102, "电影"), self.media(111, "电视剧")]
+        elif re.fullmatch(r"api/v1/tmdb/person/[0-9]{3}", endpoint):
+            person_id = int(endpoint.rsplit("/", 1)[-1])
+            value = self.person(person_id, "合成主演" if person_id == 501 else f"合成人物 {person_id}", None)
+        elif re.fullmatch(r"api/v1/tmdb/person/credits/[0-9]{3}", endpoint):
+            value = [self.media(101, "电影"), self.media(111, "电视剧")]
         else:
             item_id = int(endpoint.rsplit("/", 1)[-1])
             media_type = query.get("type_name", [""])[0]
@@ -259,6 +294,91 @@ class NativeHandler(BaseHTTPRequestHandler):
                 return
             value = self.media(item_id, media_type)
         self.reply(200, {"success": True, "message": "", "data": value}, self.resource_headers(name))
+
+    def media_status_endpoint(self, name, body):
+        """按当前实例内存订阅集合回传轻量入库与订阅状态，不访问外部服务。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["POST api/v1/media/status"] += 1
+            mode = profile["mode"]
+            subscriptions = set(profile["subscriptions"])
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if not self.permissions(mode)["discovery"]:
+            self.reply(403, {"success": False})
+            return
+        try:
+            items = json.loads(body)
+        except (ValueError, TypeError):
+            self.reply(422, {"success": False})
+            return
+        results = []
+        for item in items:
+            media_id = str(item.get("media_id", ""))
+            mtype = item.get("mtype")
+            seasons = {
+                str(season): "normal"
+                for (sub_id, season) in subscriptions
+                if sub_id == media_id and season is not None
+            }
+            subscribed = (media_id, None) in subscriptions if mtype == "电影" else bool(seasons)
+            results.append({
+                "item_id": f"emby-{media_id}" if media_id == "113" else None,
+                "server": "Emby" if media_id == "113" else None,
+                "subscribed": subscribed,
+                "seasons": seasons,
+            })
+        self.reply(200, {"success": True, "message": "", "data": results}, self.resource_headers(name))
+
+    def subscribe_create_endpoint(self, name, body):
+        """单次记录合成订阅，测试确认与错误保留而不产生真实副作用。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["POST api/v1/subscribe/"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if not self.permissions(mode)["subscribe"]:
+            self.reply(403, {"success": False})
+            return
+        if mode == "subscribe-failed":
+            self.reply(503, {"success": False})
+            return
+        try:
+            payload = json.loads(body)
+            media_id = str(payload["media_id"])
+            season = payload.get("season")
+        except (KeyError, ValueError, TypeError):
+            self.reply(422, {"success": False})
+            return
+        with self.server.lock:
+            self.server.profiles[name]["subscriptions"].add((media_id, season))
+        self.reply(200, {"success": True, "message": "", "data": {"id": 9001}})
+
+    def subscribe_delete_endpoint(self, name, endpoint):
+        """单次移除合成订阅。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"DELETE {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if not self.permissions(mode)["subscribe"]:
+            self.reply(403, {"success": False})
+            return
+        if mode == "subscribe-failed":
+            self.reply(503, {"success": False})
+            return
+        query = parse_qs(urlsplit(self.path).query)
+        media_id = endpoint.rsplit("/", 1)[-1]
+        raw_season = query.get("season", [None])[0]
+        season = int(raw_season) if raw_season and raw_season.isdigit() else None
+        with self.server.lock:
+            self.server.profiles[name]["subscriptions"].discard((media_id, season))
+        self.reply(200, {"success": True, "message": "", "data": None})
 
     @staticmethod
     def resource_token(name):
@@ -285,7 +405,10 @@ class NativeHandler(BaseHTTPRequestHandler):
             with self.server.lock:
                 profile["counts"]["image-auth-rejected"] += 1
             self.reply(401, {"success": False})
-        elif not re.fullmatch(r"https://images\.example\.test/1[0-9]{2}/(?:poster|backdrop)\.png", reference):
+        elif not re.fullmatch(
+            r"https://images\.example\.test/(?:1[0-9]{2}|5[0-9]{2})/(?:poster|backdrop)\.png",
+            reference,
+        ):
             self.reply(400, {"success": False})
         else:
             with self.server.lock:
@@ -295,12 +418,43 @@ class NativeHandler(BaseHTTPRequestHandler):
     @staticmethod
     def media(item_id, media_type):
         """提供显式标记的合成记录，编号区分搜索、发现与详情请求。"""
-        return {
+        base = {
             "media_source": "themoviedb", "media_id": str(item_id), "tmdb_id": item_id,
             "type": media_type, "title": f"合成{media_type} {item_id}", "year": "2025",
+            "release_date": "2025-07-15",
+            "tagline": "跨越边界的原生体验",
+            "runtime": 124 if media_type == "电影" else None,
+            "number_of_seasons": 2 if media_type == "电视剧" else None,
+            "genres": [{"name": "科幻"}, {"name": "冒险"}],
+            "directors": [{"id": 503, "name": "合成导演", "source": "themoviedb"}],
             "poster_path": f"https://images.example.test/{item_id}/poster.png",
             "backdrop_path": f"https://images.example.test/{item_id}/backdrop.png",
             "overview": "本条记录用于验证原生客户端的检索与详情直连。", "vote_average": 8.3,
+        }
+        if media_type == "电视剧":
+            base["season_info"] = [
+                {
+                    "season_number": 1, "name": "第 1 季", "air_date": "2024-01-10",
+                    "episode_count": 12, "overview": "第一季合成简介。",
+                    "poster_path": f"https://images.example.test/{item_id}/poster.png",
+                },
+                {
+                    "season_number": 2, "name": "第 2 季", "air_date": "2025-03-18",
+                    "episode_count": 10, "overview": "第二季合成简介。",
+                    "poster_path": f"https://images.example.test/{item_id}/poster.png",
+                },
+            ]
+        return base
+
+    @staticmethod
+    def person(person_id, name, character):
+        """提供合成演职员与人物资料，用于验证原生演职员横栏与人物详情跳钻。"""
+        return {
+            "source": "themoviedb", "id": person_id, "name": name, "character": character,
+            "known_for_department": "Acting", "birthday": "1985-06-12",
+            "place_of_birth": "上海",
+            "biography": "用于验证原生人物详情页与参演作品网格的合成简介。",
+            "profile_path": f"https://images.example.test/{person_id}/poster.png",
         }
 
     def initialization(self, name, mode, body):
