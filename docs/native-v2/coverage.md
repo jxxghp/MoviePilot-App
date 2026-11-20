@@ -50,7 +50,8 @@
 | 原生影视详情与人物页（P3.4） | NativeMediaDetailPage / NativePersonDetailPage；全宽头图、入库状态徽标、权限门控显式订阅与二次确认取消、剧集分季独立订阅、演职员横栏、相似推荐、作品资料卡与人物参演作品网格（详情与搜索双入口）；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [P3.4 证据](evidence/2026-11-20-media-detail-person.md) | 详情内直达资源搜索（P3.3b）、媒体库直连原生播放（P7.3）与音乐详情（P3.5）仍待后续叶子 |
 | 原生下载、订阅与追剧日历（P5.1 / P4.1 / P4.4） | NativeDownloadsPage / NativeSubscriptionsPage / NativeCalendarPage + 发现页重复点击悬浮快捷菜单；16:9 缩略图下载进度横卡与启停/确认删除、分类计数与进度订阅卡与暂停/确认删除、周签条日历与当日播出卡片；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [工作台证据](evidence/2026-11-20-downloads-subscriptions-calendar.md) | 订阅规则弹窗/热门分享（P4.2–4.3）、下载高级限速/标签批处理仍待后续叶子 |
 | 原生资源搜索与下载确认（P3.3b） | NativeResourceSearchPage / NativeDownloadConfirmSheet + 详情页主操作栏搜索入口；精准媒体检索/关键词/最近结果、站点多选、免费/4K/1080p/中字筛选、排序、下载器与目录确认单次提交；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [P3.3b 证据](evidence/2026-11-20-resource-search.md) | 流式 SSE 搜索进度、字幕资源搜索与音乐资源搜索（P3.5）仍待后续叶子 |
-| 原生整理历史、站点管理与消息中心（P5.3 / P6.1 / P6.4） | NativeTransferHistoryPage / NativeSitesPage / NativeMessagesPage；整理记录分页搜索/状态筛选/路径展开/确认删除、站点非敏感清单/搜索/单站连通测试、消息时间线分类筛选与配图；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [运维与消息证据](evidence/2026-11-21-history-sites-messages.md) | 站点编辑与 Cookie 同步、整理重试/刮削弹窗、文件管理与工作流（P5.2/P5.4）、八类系统设置（P6.2）仍待后续叶子 |
+| 原生整理历史、站点管理与消息中心（P5.3 / P6.1 / P6.4） | NativeTransferHistoryPage / NativeSitesPage / NativeMessagesPage；整理记录分页搜索/状态筛选/路径展开/确认删除、站点非敏感清单/搜索/单站连通测试、消息时间线分类筛选与配图；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [运维与消息证据](evidence/2026-11-21-history-sites-messages.md) | 站点编辑与 Cookie 同步、整理重试/刮削弹窗仍待后续叶子 |
+| 原生文件管理与工作流（P5.2 / P5.4） | NativeFileManagerPage / NativeWorkflowsPage；多存储切换（本地/SMB等）、目录钻取/面包屑/新建目录/确认删除、工作流清单/调度状态/手动运行/启停/确认重置；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [文件与工作流证据](evidence/2026-11-21-files-workflows.md) | 文件整理/移动复制弹窗、工作流原生节点画布（P5.5）、八类系统设置与用户管理（P6.2/P6.3）仍待后续叶子 |
 
 ## 不在上述路由里、同样必须迁移的功能
 

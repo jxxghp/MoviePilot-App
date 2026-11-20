@@ -148,6 +148,22 @@ final class NativeV2EntryTests: XCTestCase {
       capture("native-v2-live-sites")
       app.navigationBars.buttons.firstMatch.tap()
     }
+    let filesEntry = app.buttons["native-workspace-files"]
+    if filesEntry.waitForExistence(timeout: 8) {
+      tap(filesEntry, app: app)
+      XCTAssertTrue(app.scrollViews["native-files-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 1_500_000_000)
+      capture("native-v2-live-files")
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+    let wfEntry = app.buttons["native-workspace-workflows"]
+    if wfEntry.waitForExistence(timeout: 8) {
+      tap(wfEntry, app: app)
+      XCTAssertTrue(app.scrollViews["native-workflows-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 1_500_000_000)
+      capture("native-v2-live-workflows")
+      app.navigationBars.buttons.firstMatch.tap()
+    }
     let msgEntry = app.buttons["native-workspace-messages"]
     if msgEntry.waitForExistence(timeout: 8) {
       tap(msgEntry, app: app)
@@ -428,6 +444,58 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["a"]?["DELETE api/v1/history/transfer"], 1)
     XCTAssertEqual(counts["a"]?["GET api/v1/site/test/3"], 1)
     XCTAssertEqual(counts["a"]?["GET api/v1/message/web"], 1)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// P5.2 / P5.4：验证原生多存储文件钻取/返回上级/删除确认，以及工作流手动运行与启用控制，零 WebView。
+  func testNativeFileManagerAndWorkflowFlows() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    tap(tabButton("我的", app: app), app: app)
+
+    let filesEntry = app.buttons["native-workspace-files"]
+    reveal(filesEntry, app: app)
+    XCTAssertTrue(filesEntry.waitForExistence(timeout: 10))
+    tap(filesEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-files-scroll"].waitForExistence(timeout: 10))
+    let mediaFolder = app.buttons["native-file-open-media"]
+    XCTAssertTrue(mediaFolder.waitForExistence(timeout: 10))
+    tap(mediaFolder, app: app)
+    let upBtn = app.buttons["native-files-up"]
+    XCTAssertTrue(upBtn.waitForExistence(timeout: 10))
+    tap(upBtn, app: app)
+    let delFile = app.buttons["native-file-delete-samplemkv"]
+    XCTAssertTrue(delFile.waitForExistence(timeout: 10))
+    tap(delFile, app: app)
+    let confirmDel = app.alerts["删除项目"].buttons["确认删除"]
+    XCTAssertTrue(confirmDel.waitForExistence(timeout: 8))
+    confirmDel.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-files-feedback"].firstMatch
+        .waitForExistence(timeout: 8))
+    app.navigationBars.buttons.firstMatch.tap()
+
+    let wfEntry = app.buttons["native-workspace-workflows"]
+    reveal(wfEntry, app: app)
+    XCTAssertTrue(wfEntry.waitForExistence(timeout: 10))
+    tap(wfEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-workflows-scroll"].waitForExistence(timeout: 10))
+    let runBtn = app.buttons["native-workflow-run-31"]
+    XCTAssertTrue(runBtn.waitForExistence(timeout: 10))
+    tap(runBtn, app: app)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-workflows-feedback"].firstMatch
+        .waitForExistence(timeout: 8))
+    let toggleBtn = app.buttons["native-workflow-toggle-31"]
+    XCTAssertTrue(toggleBtn.waitForExistence(timeout: 8))
+    tap(toggleBtn, app: app)
+    XCTAssertEqual(app.webViews.count, 0)
+
+    let counts = try await stats()
+    XCTAssertGreaterThanOrEqual(counts["a"]?["POST api/v1/storage/list"] ?? 0, 3)
+    XCTAssertEqual(counts["a"]?["POST api/v1/storage/delete"], 1)
+    XCTAssertEqual(counts["a"]?["POST api/v1/workflow/31/run"], 1)
+    XCTAssertEqual(counts["a"]?["POST api/v1/workflow/31/pause"], 1)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -1667,7 +1735,7 @@ final class NativeV2EntryTests: XCTestCase {
     let workspaceScroll = [
       "native-downloads-scroll", "native-subscriptions-scroll", "native-calendar-scroll",
       "native-resource-search-scroll", "native-history-scroll", "native-sites-scroll",
-      "native-messages-scroll",
+      "native-messages-scroll", "native-files-scroll", "native-workflows-scroll",
     ].compactMap { identifier in
       app.scrollViews.matching(identifier: identifier).allElementsBoundByIndex.last(where: {
         $0.isHittable
