@@ -107,6 +107,15 @@ final class NativeV2EntryTests: XCTestCase {
       capture("native-v2-live-subscriptions")
       app.navigationBars.buttons.firstMatch.tap()
     }
+    let resEntry = app.buttons["native-workspace-resources"]
+    if resEntry.waitForExistence(timeout: 8) {
+      tap(resEntry, app: app)
+      XCTAssertTrue(
+        app.scrollViews["native-resource-search-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 2_000_000_000)
+      capture("native-v2-live-resources")
+      app.navigationBars.buttons.firstMatch.tap()
+    }
     let dlEntry = app.buttons["native-workspace-downloads"]
     if dlEntry.waitForExistence(timeout: 8) {
       tap(dlEntry, app: app)
@@ -303,6 +312,46 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["a"]?["GET api/v1/download/stop/abc123def456"], 1)
     XCTAssertEqual(counts["a"]?["DELETE api/v1/download/abc123def456"], 1)
     XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/subscribe/calendar"] ?? 0, 2)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// P3.3b：验证详情页直达资源搜索、免费/画质过滤、确认弹窗取消及显式单次提交下载，零 WebView。
+  func testNativeResourceSearchAndDownloadConfirmation() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    let more = app.buttons["native-discover-more-热门电影"]
+    XCTAssertTrue(more.waitForExistence(timeout: 12))
+    tap(more, app: app)
+    let movie113 = app.buttons["native-discover-grid-poster-themoviedb|113|电影"]
+    for _ in 0..<6 where !movie113.exists { app.swipeUp() }
+    XCTAssertTrue(movie113.waitForExistence(timeout: 10))
+    tap(movie113, app: app)
+    let searchBtn = app.buttons["native-media-detail-search-resources"]
+    XCTAssertTrue(searchBtn.waitForExistence(timeout: 12))
+    tap(searchBtn, app: app)
+    XCTAssertTrue(app.scrollViews["native-resource-search-scroll"].waitForExistence(timeout: 10))
+    let freeFilter = app.buttons["native-resource-filter-免费"]
+    XCTAssertTrue(freeFilter.waitForExistence(timeout: 10))
+    tap(freeFilter, app: app)
+    let dlBtn = app.buttons.matching(
+      NSPredicate(format: "identifier BEGINSWITH 'native-resource-download-'")
+    ).firstMatch
+    XCTAssertTrue(dlBtn.waitForExistence(timeout: 10))
+    tap(dlBtn, app: app)
+    let cancelBtn = app.buttons["native-download-confirm-cancel"]
+    XCTAssertTrue(cancelBtn.waitForExistence(timeout: 8))
+    cancelBtn.tap()
+    tap(dlBtn, app: app)
+    let submitBtn = app.buttons["native-download-confirm-submit"]
+    XCTAssertTrue(submitBtn.waitForExistence(timeout: 8))
+    submitBtn.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-resource-feedback"].firstMatch
+        .waitForExistence(timeout: 10))
+    XCTAssertEqual(app.webViews.count, 0)
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["GET api/v1/search/media/113"], 1)
+    XCTAssertEqual(counts["a"]?["POST api/v1/download/add"], 1)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -1541,6 +1590,7 @@ final class NativeV2EntryTests: XCTestCase {
       .allElementsBoundByIndex.last(where: { $0.isHittable })
     let workspaceScroll = [
       "native-downloads-scroll", "native-subscriptions-scroll", "native-calendar-scroll",
+      "native-resource-search-scroll",
     ].compactMap { identifier in
       app.scrollViews.matching(identifier: identifier).allElementsBoundByIndex.last(where: {
         $0.isHittable

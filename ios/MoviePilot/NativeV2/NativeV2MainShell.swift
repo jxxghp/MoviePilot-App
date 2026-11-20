@@ -74,6 +74,9 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
   /// 订阅管理与追剧日历遵循订阅权限门禁。
   private var canSubscribe: Bool { snapshot.user.allows(.init(category: .subscribe)) }
 
+  /// PT 站点资源搜索遵循独立搜索权限门禁。
+  private var canSearchResources: Bool { snapshot.user.allows(.init(category: .search)) }
+
   /// 下载任务管理遵循管理员或管理权限门禁。
   private var canManageDownloads: Bool {
     snapshot.user.isSuperuser || snapshot.user.allows(.init(category: .manage))
@@ -219,6 +222,8 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           NativeDownloadsPage(session: session)
         case .calendar:
           NativeCalendarPage(session: session)
+        case .resources:
+          NativeResourceSearchPage(session: session, target: .lastResults)
         }
       }
       .overlay(alignment: .bottomLeading) {
@@ -277,6 +282,14 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           quickMenuRow(title: "追剧日历", symbol: "calendar", id: "native-quick-calendar") {
             showsDiscoverQuickMenu = false
             discoverPath.append(.calendar)
+          }
+        }
+        if canSearchResources {
+          quickMenuRow(
+            title: "资源搜索", symbol: "magnifyingglass.circle.fill", id: "native-quick-resources"
+          ) {
+            showsDiscoverQuickMenu = false
+            discoverPath.append(.resources)
           }
         }
         if snapshot.user.isSuperuser {
@@ -340,7 +353,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           Text("我的").font(.largeTitle.bold())
             .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
             .accessibilityAddTraits(.isHeader)
-          if canSubscribe || canManageDownloads {
+          if canSubscribe || canManageDownloads || canSearchResources {
             CinematicFormSection("媒体工作台") {
               if canSubscribe {
                 Button {
@@ -357,10 +370,24 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("native-workspace-subscriptions")
               }
-              if canSubscribe && canManageDownloads {
-                CinematicFormDivider()
+              if canSearchResources {
+                if canSubscribe { CinematicFormDivider() }
+                Button {
+                  accountPath.append(.resources)
+                } label: {
+                  CinematicFormRow(symbol: "magnifyingglass.circle.fill") {
+                    Text("资源搜索")
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                      .foregroundStyle(.white.opacity(0.45))
+                  }
+                  .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-workspace-resources")
               }
               if canManageDownloads {
+                if canSubscribe || canSearchResources { CinematicFormDivider() }
                 Button {
                   accountPath.append(.downloads)
                 } label: {
@@ -411,6 +438,8 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           NativeDownloadsPage(session: session)
         case .calendar:
           NativeCalendarPage(session: session)
+        case .resources:
+          NativeResourceSearchPage(session: session, target: .lastResults)
         }
       }
       .navigationDestination(isPresented: $showsPlugins) {
@@ -702,6 +731,7 @@ private enum NativeWorkspaceDestination: Hashable {
   case subscriptions
   case downloads
   case calendar
+  case resources
 }
 
 /// 发现导航栈只接收已加载的分区、可验证媒体身份或受控业务页面。
@@ -711,6 +741,7 @@ private enum NativeMediaDestination: Identifiable, Hashable {
   case subscriptions
   case downloads
   case calendar
+  case resources
 
   /// 区分分区网格、详情与工作台页面路由。
   var id: String {
@@ -720,6 +751,7 @@ private enum NativeMediaDestination: Identifiable, Hashable {
     case .subscriptions: "subscriptions"
     case .downloads: "downloads"
     case .calendar: "calendar"
+    case .resources: "resources"
     }
   }
 }

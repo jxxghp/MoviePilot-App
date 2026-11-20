@@ -204,8 +204,9 @@ class NativeHandler(BaseHTTPRequestHandler):
         if name in self.server.profiles and self.command == "GET":
             if (
                 endpoint in self.business_endpoints()
-                or path in {f"/{name}/api/v1/download/", f"/{name}/api/v1/subscribe/"}
+                or path in {f"/{name}/api/v1/download/", f"/{name}/api/v1/subscribe/", f"/{name}/api/v1/site/"}
                 or re.fullmatch(r"api/v1/download/(?:start|stop)/[a-z0-9]+", endpoint)
+                or re.fullmatch(r"api/v1/search/media/1[0-9]{2}", endpoint)
                 or re.fullmatch(r"api/v1/media/1[0-9]{2}", endpoint)
                 or re.fullmatch(r"api/v1/tmdb/(?:credits|recommend|similar)/1[0-9]{2}/(?:电影|电视剧)", endpoint)
                 or re.fullmatch(r"api/v1/tmdb/person(?:/credits)?/[0-9]{3}", endpoint)
@@ -218,6 +219,9 @@ class NativeHandler(BaseHTTPRequestHandler):
         if name in self.server.profiles and self.command == "POST":
             if endpoint == "api/v1/media/status":
                 self.media_status_endpoint(name, body)
+                return
+            if endpoint == "api/v1/download/add":
+                self.download_add_endpoint(name, body)
                 return
             if path == f"/{name}/api/v1/subscribe/":
                 self.subscribe_create_endpoint(name, body)
@@ -276,6 +280,9 @@ class NativeHandler(BaseHTTPRequestHandler):
             "api/v1/media/search",
             "api/v1/media/source",
             "api/v1/download/clients",
+            "api/v1/download/paths",
+            "api/v1/search/last",
+            "api/v1/search/title",
             "api/v1/subscribe/calendar",
             "api/v1/dashboard/statistic",
             "api/v1/dashboard/storage",
@@ -343,6 +350,32 @@ class NativeHandler(BaseHTTPRequestHandler):
             value = [{"name": "TMDB", "media_source": "themoviedb", "media_types": ["电影", "电视剧"]}]
         elif endpoint == "api/v1/download/clients":
             value = [{"name": "Qbittorrent", "type": "qbittorrent"}]
+        elif endpoint == "api/v1/download/paths":
+            value = [{"name": "电影库", "save_path": "local:/downloads/movies", "download_path": "/downloads/movies"}]
+        elif endpoint == "api/v1/site":
+            value = [{"id": 3, "name": "合成站", "is_active": True}]
+        elif endpoint in {"api/v1/search/last", "api/v1/search/title"} or endpoint.startswith("api/v1/search/media/"):
+            if not self.permissions(mode)["search"]:
+                self.reply(403, {"success": False})
+                return
+            value = [
+                {
+                    "torrent_info": {
+                        "site": 3, "site_name": "合成站",
+                        "title": "Synthetic.Movie.2025.2160p.WEB-DL.H265-SYN",
+                        "description": "合成资源 4K 中字免费种",
+                        "enclosure": "https://tracker.example.test/download/9001",
+                        "size": 12_884_901_888.0, "seeders": 64, "peers": 5, "grabs": 120,
+                        "downloadvolumefactor": 0.0, "uploadvolumefactor": 2.0,
+                        "date_elapsed": "2小时", "labels": ["中字", "官方"], "pri_order": 99,
+                        "media_source": "themoviedb", "media_id": "113",
+                    },
+                    "meta_info": {
+                        "resource_pix": "2160p", "video_encode": "H265",
+                        "edition": "WEB-DL", "season_episode": "",
+                    },
+                }
+            ]
         elif endpoint == "api/v1/download":
             with self.server.lock:
                 value = list(self.server.profiles[name]["downloads"])
@@ -546,6 +579,27 @@ class NativeHandler(BaseHTTPRequestHandler):
                 row for row in self.server.profiles[name]["downloads"] if row["hash"] != task_hash
             ]
         self.reply(200, {"success": True, "message": "", "data": None})
+
+    def download_add_endpoint(self, name, body):
+        """单次记录合成添加下载动作，严格校验搜索权限与请求体格式。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["POST api/v1/download/add"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if not self.permissions(mode)["search"]:
+            self.reply(403, {"success": False})
+            return
+        try:
+            payload = json.loads(body)
+            if not isinstance(payload.get("torrent_in"), dict) or not payload["torrent_in"].get("title"):
+                raise ValueError()
+        except (ValueError, TypeError):
+            self.reply(422, {"success": False})
+            return
+        self.reply(200, {"success": True, "message": "", "data": {"download_id": "syn-dl-9001"}})
 
     @staticmethod
     def resource_token(name):
