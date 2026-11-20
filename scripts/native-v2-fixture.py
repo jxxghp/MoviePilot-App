@@ -119,6 +119,15 @@ class NativeFixture(ThreadingHTTPServer):
                         "repo_url": "https://github.com/jxxghp/MoviePilot-Plugins", "install_count": 120,
                     }
                 ],
+                "agent_sessions": [
+                    {
+                        "session_id": "sess-1", "title": "合成科幻推荐", "message_count": 2,
+                        "messages": [
+                            {"id": "m1", "role": "user", "content": "推荐一部科幻片", "tools": []},
+                            {"id": "m2", "role": "assistant", "content": "推荐观看《合成电影 101》，评分 8.4。", "tools": [{"message": "已检索 TMDB 评分"}]},
+                        ],
+                    }
+                ],
             }
             for name in ("a", "b", "new", "slow")
         }
@@ -312,6 +321,15 @@ class NativeHandler(BaseHTTPRequestHandler):
                             "repo_url": "https://github.com/jxxghp/MoviePilot-Plugins", "install_count": 120,
                         }
                     ]
+                    profile["agent_sessions"] = [
+                        {
+                            "session_id": "sess-1", "title": "合成科幻推荐", "message_count": 2,
+                            "messages": [
+                                {"id": "m1", "role": "user", "content": "推荐一部科幻片", "tools": []},
+                                {"id": "m2", "role": "assistant", "content": "推荐观看《合成电影 101》，评分 8.4。", "tools": [{"message": "已检索 TMDB 评分"}]},
+                            ],
+                        }
+                    ]
             self.reply(200, {"success": True})
             return
         parts = [unquote(segment) for segment in path.strip("/").split("/") if segment]
@@ -337,6 +355,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                 or re.fullmatch(r"api/v1/subscribe/[0-9]+", endpoint)
                 or re.fullmatch(r"api/v1/music/album/[A-Za-z0-9_-]+", endpoint)
                 or re.fullmatch(r"api/v1/music/artist/[A-Za-z0-9_-]+(?:/albums)?", endpoint)
+                or re.fullmatch(r"api/v1/agent/sessions/[A-Za-z0-9_-]+", endpoint)
             ):
                 self.business_endpoint(name, endpoint)
                 return
@@ -374,6 +393,12 @@ class NativeHandler(BaseHTTPRequestHandler):
             if endpoint == "api/v1/subscribe/fork":
                 self.subscribe_fork_endpoint(name, body)
                 return
+            if endpoint == "api/v1/agent/stream":
+                self.agent_stream_endpoint(name, body)
+                return
+            if re.fullmatch(r"api/v1/agent/sessions/[A-Za-z0-9_-]+/stop", endpoint):
+                self.agent_stop_endpoint(name, endpoint)
+                return
         if name in self.server.profiles and self.command == "PUT":
             if path == f"/{name}/api/v1/subscribe/":
                 self.subscribe_update_endpoint(name, body)
@@ -396,6 +421,9 @@ class NativeHandler(BaseHTTPRequestHandler):
                 return
             if re.fullmatch(r"api/v1/plugin/[A-Za-z][A-Za-z0-9_]*", endpoint):
                 self.plugin_delete_endpoint(name, endpoint)
+                return
+            if re.fullmatch(r"api/v1/agent/sessions/[A-Za-z0-9_-]+", endpoint):
+                self.agent_session_delete_endpoint(name, endpoint)
                 return
         allowed = {
             ("GET", "api/v1/login/initialization"),
@@ -456,6 +484,8 @@ class NativeHandler(BaseHTTPRequestHandler):
             "api/v1/subscribe/calendar",
             "api/v1/subscribe/popular",
             "api/v1/subscribe/shares",
+            "api/v1/agent/commands",
+            "api/v1/agent/sessions",
             "api/v1/dashboard/statistic",
             "api/v1/dashboard/storage",
             "api/v1/dashboard/schedule",
@@ -556,6 +586,25 @@ class NativeHandler(BaseHTTPRequestHandler):
                 "image_url": "https://images.example.test/111/poster.png",
                 "overview": "专注于影视原声与器乐编排的合成艺人。",
             }
+        elif endpoint == "api/v1/agent/commands":
+            value = [
+                {"command": "/search", "description": "搜索影视资源"},
+                {"command": "/subscribe", "description": "查看订阅列表"},
+            ]
+        elif endpoint == "api/v1/agent/sessions":
+            with self.server.lock:
+                value = [
+                    {k: v for k, v in row.items() if k != "messages"}
+                    for row in self.server.profiles[name]["agent_sessions"]
+                ]
+        elif re.fullmatch(r"api/v1/agent/sessions/[A-Za-z0-9_-]+", endpoint):
+            sid = endpoint.rsplit("/", 1)[-1]
+            with self.server.lock:
+                matched = next((row for row in self.server.profiles[name]["agent_sessions"] if row["session_id"] == sid), None)
+            if matched is None:
+                self.reply(404, {"success": False})
+                return
+            value = dict(matched)
         elif endpoint in {
             "api/v1/discover/source",
             "api/v1/recommend/tmdb_trending",
@@ -1120,6 +1169,58 @@ class NativeHandler(BaseHTTPRequestHandler):
         with self.server.lock:
             self.server.profiles[name]["installed_plugins"] = [
                 row for row in self.server.profiles[name]["installed_plugins"] if row["id"] != plugin_id
+            ]
+        self.reply(200, {"success": True, "message": "", "data": None})
+
+    def agent_stream_endpoint(self, name, body):
+        """返回标准 text/event-stream SSE 合成回复帧，包含工具调用与文本增量。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["POST api/v1/agent/stream"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        try:
+            payload = json.loads(body)
+            sid = payload.get("session_id") or "sess-live"
+            text = payload.get("text") or ""
+        except (ValueError, TypeError):
+            self.reply(422, {"success": False})
+            return
+        frames = [
+            f'data: {json.dumps({"type": "tool", "message": "已检索本地媒体库与订阅", "session_id": sid}, ensure_ascii=False)}\n\n',
+            f'data: {json.dumps({"type": "delta", "delta": f"已收到「{text}」，", "session_id": sid}, ensure_ascii=False)}\n\n',
+            f'data: {json.dumps({"type": "delta", "delta": "推荐观看《合成电影 101》。", "session_id": sid}, ensure_ascii=False)}\n\n',
+            "data: [DONE]\n\n",
+        ]
+        raw = "".join(frames).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            self.wfile.write(raw)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def agent_stop_endpoint(self, name, endpoint):
+        """单次响应停止 Agent 任务请求。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"POST {endpoint}"] += 1
+        self.reply(200, {"success": True, "message": "已停止", "data": {"stopped": True}})
+
+    def agent_session_delete_endpoint(self, name, endpoint):
+        """单次删除指定 Agent 历史会话。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"DELETE {endpoint}"] += 1
+        sid = endpoint.rsplit("/", 1)[-1]
+        with self.server.lock:
+            self.server.profiles[name]["agent_sessions"] = [
+                row for row in self.server.profiles[name]["agent_sessions"] if row["session_id"] != sid
             ]
         self.reply(200, {"success": True, "message": "", "data": None})
 

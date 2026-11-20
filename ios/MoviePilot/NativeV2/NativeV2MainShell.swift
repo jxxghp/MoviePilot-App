@@ -257,6 +257,8 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           NativeSitesPage(session: session)
         case .messages:
           NativeMessagesPage(session: session)
+        case .agent:
+          NativeAgentChatPage(session: session)
         case .files:
           NativeFileManagerPage(session: session)
         case .workflows:
@@ -319,6 +321,10 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           quickMenuRow(title: "管理模块", symbol: "slider.horizontal.3", id: "native-quick-modules") {
             showsDiscoverQuickMenu = false
             showsModuleSheet = true
+          }
+          quickMenuRow(title: "智能助手", symbol: "sparkles", id: "native-quick-agent") {
+            showsDiscoverQuickMenu = false
+            discoverPath.append(.agent)
           }
         }
         if canSubscribe {
@@ -591,6 +597,20 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
               }
               .buttonStyle(.plain)
               .accessibilityIdentifier("native-workspace-messages")
+              CinematicFormDivider()
+              Button {
+                accountPath.append(.agent)
+              } label: {
+                CinematicFormRow(symbol: "sparkles") {
+                  Text("智能助手")
+                  Spacer()
+                  Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.45))
+                }
+                .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("native-workspace-agent")
             }
           }
           if snapshot.user.isSuperuser {
@@ -670,6 +690,8 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           NativeSitesPage(session: session)
         case .messages:
           NativeMessagesPage(session: session)
+        case .agent:
+          NativeAgentChatPage(session: session)
         case .files:
           NativeFileManagerPage(session: session)
         case .workflows:
@@ -1076,6 +1098,7 @@ private enum NativeWorkspaceDestination: Hashable {
   case history
   case sites
   case messages
+  case agent
   case files
   case workflows
   case settings
@@ -1097,6 +1120,7 @@ private enum NativeMediaDestination: Identifiable, Hashable {
   case history
   case sites
   case messages
+  case agent
   case files
   case workflows
   case settings
@@ -1118,6 +1142,7 @@ private enum NativeMediaDestination: Identifiable, Hashable {
     case .history: "history"
     case .sites: "sites"
     case .messages: "messages"
+    case .agent: "agent"
     case .files: "files"
     case .workflows: "workflows"
     case .settings: "settings"

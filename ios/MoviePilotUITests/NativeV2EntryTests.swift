@@ -247,6 +247,15 @@ final class NativeV2EntryTests: XCTestCase {
       capture("native-v2-live-messages")
       app.navigationBars.buttons.firstMatch.tap()
     }
+    let agentEntry = app.buttons["native-workspace-agent"]
+    reveal(agentEntry, app: app)
+    if agentEntry.waitForExistence(timeout: 8) {
+      tap(agentEntry, app: app)
+      XCTAssertTrue(app.scrollViews["native-agent-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 1_500_000_000)
+      capture("native-v2-live-agent")
+      app.navigationBars.buttons.firstMatch.tap()
+    }
     let settingsEntry = app.buttons["native-workspace-settings"]
     reveal(settingsEntry, app: app)
     if settingsEntry.waitForExistence(timeout: 8) {
@@ -844,6 +853,42 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["a"]?["GET api/v1/plugin/install/AutoSignIn"], 1)
     XCTAssertEqual(counts["a"]?["GET api/v1/plugin/reset/DemoPlugin"], 1)
     XCTAssertEqual(counts["a"]?["DELETE api/v1/plugin/DemoPlugin"], 1)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// P6.5：验证原生智能助手 SSE 流式回复解析、工具调用摘要与历史会话读取，零 WebView。
+  func testNativeAgentChatStreamAndSessionHistory() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    tap(tabButton("我的", app: app), app: app)
+
+    let agentEntry = app.buttons["native-workspace-agent"]
+    reveal(agentEntry, app: app)
+    XCTAssertTrue(agentEntry.waitForExistence(timeout: 10))
+    tap(agentEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-agent-scroll"].waitForExistence(timeout: 10))
+
+    let input = app.textFields["native-agent-input"]
+    XCTAssertTrue(input.waitForExistence(timeout: 10))
+    input.tap()
+    input.typeText("推荐电影")
+    let sendBtn = app.buttons["native-agent-send"]
+    XCTAssertTrue(sendBtn.waitForExistence(timeout: 8))
+    sendBtn.tap()
+    XCTAssertTrue(app.staticTexts["已检索本地媒体库与订阅"].waitForExistence(timeout: 10))
+
+    let sessionsBtn = app.buttons["native-agent-sessions"]
+    XCTAssertTrue(sessionsBtn.waitForExistence(timeout: 8))
+    tap(sessionsBtn, app: app)
+    let firstSession = app.buttons["native-agent-session-sess-1"]
+    XCTAssertTrue(firstSession.waitForExistence(timeout: 10))
+    firstSession.tap()
+    XCTAssertTrue(app.staticTexts["已检索 TMDB 评分"].waitForExistence(timeout: 10))
+    XCTAssertEqual(app.webViews.count, 0)
+
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["POST api/v1/agent/stream"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/agent/sessions/sess-1"], 1)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -2082,8 +2127,9 @@ final class NativeV2EntryTests: XCTestCase {
     let personScroll = app.scrollViews.matching(identifier: "native-person-detail-scroll")
       .allElementsBoundByIndex.last(where: { $0.isHittable })
     let workspaceScroll = [
-      "native-plugin-market-scroll", "native-music-artist-scroll", "native-music-album-scroll",
-      "native-music-scroll", "native-subscribe-editor-scroll", "native-community-scroll",
+      "native-agent-scroll", "native-plugin-market-scroll", "native-music-artist-scroll",
+      "native-music-album-scroll", "native-music-scroll", "native-subscribe-editor-scroll",
+      "native-community-scroll",
       "native-explore-scroll",
       "native-downloads-scroll", "native-subscriptions-scroll", "native-calendar-scroll",
       "native-resource-search-scroll", "native-history-scroll", "native-sites-scroll",
@@ -2182,6 +2228,7 @@ final class NativeV2EntryTests: XCTestCase {
       "native-cron-field-apply", "native-combobox-apply", "native-combobox-cancel",
       "native-modules-save", "native-modules-cancel",
       "native-subscribe-editor-save", "native-subscribe-editor-cancel",
+      "native-agent-sessions-close",
     ].contains(element.identifier) {
       // iPad 原生 sheet 的工具栏 AX 框可能仍用局部坐标；这是导航动作，不属于滚动内容。
       return app.windows.firstMatch.frame.contains(

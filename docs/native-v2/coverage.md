@@ -57,6 +57,7 @@
 | 原生订阅高级编辑与订阅广场（P4.2 / P4.3） | NativeSubscribeEditorSheet / NativeSubscribeCommunityPage；订阅画质/分辨率/特效/洗版/过滤词/集数/下载器单次更新、热门电影剧集订阅排行与社区分享浏览/搜索/确认复用；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [订阅高级与广场证据](evidence/2026-11-21-subscribe-editor-community.md) | 订阅活动日志/执行文件明细仍待后续叶子 |
 | 原生音乐探索与专辑/艺人详情（P3.5） | NativeMusicPage / NativeMusicAlbumDetailPage / NativeMusicArtistDetailPage；豆瓣音乐/本周榜单/热门专辑/近期新发 1:1 封面网格、专辑曲目与订阅单次提交/取消、艺人资料与作品网格；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [音乐证据](evidence/2026-11-21-music.md) | 音乐资源直搜与本地播放队列（P7.3）仍待后续叶子 |
 | 原生插件市场与生命周期管理（P7.1） | NativePluginMarketPage + NativePluginCatalogView 市场入口；插件市场分页拉取/筛选/搜索/确认安装更新、已安装运行态/配置跳转/确认重置卸载；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [插件市场证据](evidence/2026-11-21-plugin-market.md) | 插件克隆分身、JSON 数据页/仪表板（P2.3）与受控 Web 兼容容器（P2.4–2.5）仍待后续叶子 |
+| 原生 AI 智能助手对话面板（P6.5） | NativeAgentChatPage + `APIResponseContract.eventStream`；快捷提问、斜杠命令、SSE 工具与文本解析、历史会话切换/删除与任务停止；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [智能助手证据](evidence/2026-11-21-agent-chat.md) | 附件上传、选择卡片回调与远程插件助手形象仍待后续叶子 |
 
 ## 不在上述路由里、同样必须迁移的功能
 

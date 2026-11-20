@@ -64,7 +64,9 @@ public final class APIClient: Sendable {
 
   /// 供保真 JSON 解析器消费原始 payload；HTTP 边界与 typed API 相同，不猜测或跳过标准包装。
   public func requestPayload(_ endpoint: APIEndpoint) async throws -> APIResult<Data> {
-    guard case .payload = endpoint.responseContract else { throw APIError.invalidEndpoint }
+    guard endpoint.responseContract == .payload || endpoint.responseContract == .eventStream else {
+      throw APIError.invalidEndpoint
+    }
     let response = try await receive(endpoint)
     try Task.checkCancellation()
     return APIResult(
@@ -112,6 +114,8 @@ public final class APIClient: Sendable {
         value = try JSONDecoder().decode(APIEnvelope<Value>.self, from: response.data).value
       case .payload:
         value = try JSONDecoder().decode(type, from: response.data)
+      case .eventStream:
+        throw APIError.invalidEndpoint
       }
     } catch let error as APIError {
       throw error
@@ -134,6 +138,8 @@ public final class APIClient: Sendable {
         _ = try JSONDecoder().decode(APIEnvelope<JSONValue>.self, from: response.data)
       case .payload:
         _ = try JSONDecoder().decode(JSONValue.self, from: response.data)
+      case .eventStream:
+        break
       }
     } catch let error as APIError {
       throw error
@@ -153,7 +159,9 @@ public final class APIClient: Sendable {
     request.httpMethod = endpoint.method.rawValue
     request.httpBody = endpoint.body
     request.httpShouldHandleCookies = false
-    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    request.setValue(
+      endpoint.responseContract == .eventStream ? "text/event-stream" : "application/json",
+      forHTTPHeaderField: "Accept")
     request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
     request.setValue(language.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
     if endpoint.body != nil {
@@ -169,9 +177,14 @@ public final class APIClient: Sendable {
       try Self.checkStatus(http)
       let hasBody = http.statusCode != 204 && endpoint.method != .head
       if hasBody {
-        guard let mime = http.mimeType?.lowercased(),
-          mime == "application/json" || mime.hasPrefix("application/") && mime.hasSuffix("+json")
-        else { throw APIError.invalidResponse }
+        guard let mime = http.mimeType?.lowercased() else { throw APIError.invalidResponse }
+        if endpoint.responseContract == .eventStream {
+          guard mime == "text/event-stream" else { throw APIError.invalidResponse }
+        } else {
+          guard
+            mime == "application/json" || mime.hasPrefix("application/") && mime.hasSuffix("+json")
+          else { throw APIError.invalidResponse }
+        }
       }
       guard http.expectedContentLength <= endpoint.maximumResponseBytes else {
         throw APIError.responseTooLarge
