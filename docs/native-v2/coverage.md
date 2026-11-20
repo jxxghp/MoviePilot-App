@@ -59,6 +59,7 @@
 | 原生插件市场与生命周期管理（P7.1） | NativePluginMarketPage + NativePluginCatalogView 市场入口；插件市场分页拉取/筛选/搜索/确认安装更新、已安装运行态/配置跳转/确认重置卸载；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [插件市场证据](evidence/2026-11-21-plugin-market.md) | 插件克隆分身、JSON 数据页/仪表板（P2.3）与受控 Web 兼容容器（P2.4–2.5）仍待后续叶子 |
 | 原生 AI 智能助手对话面板（P6.5） | NativeAgentChatPage + `APIResponseContract.eventStream`；快捷提问、斜杠命令、SSE 工具与文本解析、历史会话切换/删除与任务停止；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [智能助手证据](evidence/2026-11-21-agent-chat.md) | 附件上传、选择卡片回调与远程插件助手形象仍待后续叶子 |
 | 原生插件 JSON 数据页、仪表板卡片与受控兼容容器（P2.3 / P2.4） | NativePluginDataPageView / NativePluginJSONRenderer / NativePluginApexChartView + NativeDashboardPage 插件扩展面板；有界递归解析渲染 Vuetify JSON 树与纯 SwiftUI 环形/柱状图表，Vue 远程组件插件采用显式同源非持久化受控容器门禁；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [插件数据页与仪表板证据](evidence/2026-11-21-plugin-pages-dashboard.md) | 多 `navKey` AppPage 侧栏与完整远程 SDK 桥接仍待后续叶子 |
+| 原生工作流节点画布与社区分享复用（P5.5） | NativeWorkflowCanvasPage + NativeWorkflowsPage 社区分享；纯 SwiftUI 点阵画布、三次贝塞尔有向连线、节点拖拽定位、缩放居中、动作目录新增、参数/连线编辑与单次保存，社区分享列表与二次确认复用，零 WebView；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [工作流画布证据](evidence/2026-11-21-workflow-canvas.md) | 条件表达式可视化编辑器与导入/导出文件仍待后续深化 |
 
 ## 不在上述路由里、同样必须迁移的功能
 

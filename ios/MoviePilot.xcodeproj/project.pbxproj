@@ -36,6 +36,7 @@
 		528DDA8EB6B423A11DB733E6 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0A361DAFEEE9F51B4F91B7 /* TokenStore.swift */; };
 		54E9EBAF180B0BCF04DE4FC6 /* VLCKit in Frameworks */ = {isa = PBXBuildFile; productRef = 91C7B8794D4CD7E0C76EDFF0 /* VLCKit */; };
 		584C60A56D7F371BBF233342 /* PreviewLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEBC6D74B0E889EA46A732AE /* PreviewLibrary.swift */; };
+		5927F511B04B6D1BA62E7ACD /* NativeWorkflowCanvasPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C1F71B18FE29C82A939B7C /* NativeWorkflowCanvasPage.swift */; };
 		5B239E611FBFE70668B9E86D /* LanguageBootstrap.js in Resources */ = {isa = PBXBuildFile; fileRef = 9F0DF2142B7D5B4A29F499BD /* LanguageBootstrap.js */; };
 		5D3E6E5DA1BB440CBDF5E6FA /* NativeSubscribeEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7566D9064F4C7139A064B5BD /* NativeSubscribeEditorSheet.swift */; };
 		6051CDC21EA5C85DA1DD6D3E /* NativeFileManagerPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4560BBC8ECE63C86B8D993DF /* NativeFileManagerPage.swift */; };
@@ -245,6 +246,7 @@
 		EEA3031D7DC4E14A074F6218 /* LegacyWebsiteStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyWebsiteStorage.swift; sourceTree = "<group>"; };
 		EF1A8D67F8876B6AECE70ECA /* StartupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupView.swift; sourceTree = "<group>"; };
 		EF6849CE05D1EC77AFA67129 /* NativeDownloadsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadsPage.swift; sourceTree = "<group>"; };
+		F1C1F71B18FE29C82A939B7C /* NativeWorkflowCanvasPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWorkflowCanvasPage.swift; sourceTree = "<group>"; };
 		F5CA3958D36BFB5E17CA6E7E /* NativeSubscribeCommunityPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscribeCommunityPage.swift; sourceTree = "<group>"; };
 		F9E36A848549750FC3109AA0 /* MoviePilotDesignPreview.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MoviePilotDesignPreview.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF26A18662E7326F40027471 /* NativePluginMarketPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginMarketPage.swift; sourceTree = "<group>"; };
@@ -350,6 +352,7 @@
 				68C6FA6CA18037E7B4A18B47 /* NativeSystemSettingsPage.swift */,
 				DD83F9ADCEC4810F8AB5FA50 /* NativeTransferHistoryPage.swift */,
 				92FC46BA3B51393FE1CBD566 /* NativeUsersPage.swift */,
+				F1C1F71B18FE29C82A939B7C /* NativeWorkflowCanvasPage.swift */,
 				2E76B95589CF91ADA4DD7FA6 /* NativeWorkflowsPage.swift */,
 			);
 			path = Pages;
@@ -758,6 +761,7 @@
 				8DF5E1BB381E11AE01C5C435 /* NativeV2RootView.swift in Sources */,
 				D2AE907740AD1CA35EDE9E4F /* NativeV2SceneDelegate.swift in Sources */,
 				B6CBAC2E829D1B24417062D3 /* NativeWebSheetController.swift in Sources */,
+				5927F511B04B6D1BA62E7ACD /* NativeWorkflowCanvasPage.swift in Sources */,
 				3CBB675738DCDAD4D0C9ADB9 /* NativeWorkflowsPage.swift in Sources */,
 				B54AB8C8D2E2ADEB1BB60A6B /* NavigationSymbols.swift in Sources */,
 				EB24867710544E7DFEBDA90C /* NotificationController.swift in Sources */,
