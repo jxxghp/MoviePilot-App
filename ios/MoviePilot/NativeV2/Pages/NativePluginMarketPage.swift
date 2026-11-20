@@ -355,6 +355,29 @@ struct NativePluginMarketPage: View {
               .accessibilityIdentifier("native-market-install-\(plugin.id)")
             }
           } else {
+            if plugin.hasPage {
+              NavigationLink {
+                NativePluginDataPageView(
+                  session: session, pluginID: plugin.id, pluginName: plugin.displayName)
+              } label: {
+                HStack(spacing: 4) {
+                  Image(systemName: "doc.text.magnifyingglass").font(.caption2.weight(.semibold))
+                  Text("数据页").font(.caption.weight(.semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+                .background {
+                  Capsule()
+                    .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.75))
+                    .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.6) }
+                }
+                .frame(minHeight: 32)
+              }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("native-installed-page-\(plugin.id)")
+            }
+
             Button {
               openForm(for: plugin)
             } label: {
@@ -651,6 +674,7 @@ private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
   let pluginAuthor: String?
   var installed: Bool
   var hasUpdate: Bool
+  let hasPage: Bool
   let state: Bool?
   let repoURL: String?
   let installCount: Int
@@ -692,6 +716,7 @@ private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
     pluginAuthor = try? container.decodeIfPresent(String.self, forKey: .pluginAuthor)
     installed = (try? container.decodeIfPresent(Bool.self, forKey: .installed)) ?? false
     hasUpdate = (try? container.decodeIfPresent(Bool.self, forKey: .hasUpdate)) ?? false
+    hasPage = (try? container.decodeIfPresent(Bool.self, forKey: .hasPage)) ?? false
     state = try? container.decodeIfPresent(Bool.self, forKey: .state)
     repoURL = try? container.decodeIfPresent(String.self, forKey: .repoURL)
     installCount = (try? container.decodeIfPresent(Int.self, forKey: .installCount)) ?? 0
@@ -706,6 +731,7 @@ private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
     case pluginAuthor = "plugin_author"
     case installed
     case hasUpdate = "has_update"
+    case hasPage = "has_page"
     case state
     case repoURL = "repo_url"
     case installCount = "install_count"

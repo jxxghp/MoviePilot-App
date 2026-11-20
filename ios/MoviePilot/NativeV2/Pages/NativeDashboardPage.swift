@@ -13,6 +13,7 @@ struct NativeDashboardPage: View {
   @State private var statistics: NativeDashboardStatistics?
   @State private var storage: NativeDashboardStorage?
   @State private var schedules: [NativeDashboardSchedule]?
+  @State private var pluginWidgets: [NativeDashboardPluginWidget] = []
   @State private var loading = false
   @State private var failedSections: [String] = []
 
@@ -33,6 +34,7 @@ struct NativeDashboardPage: View {
           if let statistics { librarySummary(statistics) }
           if let storage { storageSummary(storage) }
           if let schedules { serviceSummary(schedules) }
+          if !pluginWidgets.isEmpty { pluginDashboardSummary(pluginWidgets) }
         }
         .frame(maxWidth: 820, alignment: .leading)
         .padding(.horizontal, CinematicStyle.margin)
@@ -43,6 +45,7 @@ struct NativeDashboardPage: View {
       .scrollIndicators(.hidden)
       .modifier(NativeSoftTopScrollEdge())
       .refreshable { await load() }
+      .accessibilityIdentifier("native-dashboard-scroll")
     }
     .navigationTitle("")
     .navigationBarTitleDisplayMode(.inline)
@@ -279,6 +282,35 @@ struct NativeDashboardPage: View {
     .accessibilityElement(children: .combine)
   }
 
+  /// 插件仪表板动态卡片区：纯原生渲染 Vuetify JSON 与图表，不创建 WebView。
+  private func pluginDashboardSummary(_ widgets: [NativeDashboardPluginWidget]) -> some View {
+    VStack(alignment: .leading, spacing: 14) {
+      sectionTitle("插件扩展面板", detail: "\(widgets.count) 项")
+      ForEach(widgets) { widget in
+        VStack(alignment: .leading, spacing: 8) {
+          Text(widget.title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.84))
+            .padding(.horizontal, 2)
+          if widget.isVueRemote {
+            CinematicPanel(padding: 12) {
+              Label("「\(widget.title)」为远程组件卡片，请从插件管理打开兼容页查看", systemImage: "puzzlepiece.extension")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.75))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+          } else {
+            NativePluginJSONRenderer(session: session, nodes: widget.nodes)
+          }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("native-dashboard-plugin-\(widget.pluginID)")
+      }
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("native-dashboard-plugins")
+  }
+
   /// 大字允许标题和数量纵向排列，分区标题可通过 VoiceOver 快速导航。
   private func sectionTitle(_ title: String, detail: String) -> some View {
     let layout =
@@ -314,7 +346,8 @@ struct NativeDashboardPage: View {
     async let stats = read("statistic", as: NativeDashboardStatistics.self)
     async let disk = read("storage", as: NativeDashboardStorage.self)
     async let jobs = read("schedule", as: [NativeDashboardSchedule].self)
-    let (newStatistics, newStorage, newSchedules) = await (stats, disk, jobs)
+    async let widgets = loadPluginWidgets()
+    let (newStatistics, newStorage, newSchedules, newWidgets) = await (stats, disk, jobs, widgets)
     guard session.user.isSuperuser else { return }
     do {
       try session.checkActive()
@@ -326,6 +359,60 @@ struct NativeDashboardPage: View {
     if let newStatistics { statistics = newStatistics } else { failedSections.append("媒体库统计") }
     if let newStorage { storage = newStorage } else { failedSections.append("存储空间") }
     if let newSchedules { schedules = newSchedules } else { failedSections.append("后台服务") }
+    if let newWidgets { pluginWidgets = newWidgets }
+  }
+
+  /// 读取插件仪表板元信息并逐项有界解析 JSON 节点，失败时静默降级以免阻塞核心仪表盘分区。
+  private func loadPluginWidgets() async -> [NativeDashboardPluginWidget]? {
+    guard session.user.isSuperuser, !Task.isCancelled else { return nil }
+    do {
+      let metaEndpoint = try APIEndpoint(path: ["plugin", "dashboard", "meta"])
+      let metas = try await session.request(
+        metaEndpoint, as: [NativeDashboardPluginMeta].self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
+      var loaded: [NativeDashboardPluginWidget] = []
+      for meta in metas.prefix(6) where !meta.id.isEmpty {
+        try Task.checkCancellation()
+        let path: [String] =
+          if let key = meta.key, !key.isEmpty {
+            ["plugin", "dashboard", meta.id, key]
+          } else {
+            ["plugin", "dashboard", meta.id]
+          }
+        let endpoint = try APIEndpoint(path: path)
+        guard
+          let payload = try? await session.request(
+            endpoint, as: NativeDashboardPluginPayload.self,
+            requiring: PermissionRequirement(category: .admin)
+          ).value
+        else { continue }
+        var budget = 600
+        let nodes = NativePluginJSONNode.parseArray(
+          payload.elements ?? [], depth: 0, budget: &budget)
+        let isVue = (payload.renderMode ?? "vuetify").lowercased() == "vue"
+        guard isVue || !nodes.isEmpty else { continue }
+        let title =
+          if let name = payload.name, !name.isEmpty {
+            name
+          } else if let metaName = meta.name, !metaName.isEmpty {
+            metaName
+          } else {
+            meta.id
+          }
+        loaded.append(
+          NativeDashboardPluginWidget(
+            id: "\(meta.id)-\(meta.key ?? "")",
+            pluginID: meta.id,
+            title: title,
+            isVueRemote: isVue,
+            nodes: nodes
+          ))
+      }
+      return loaded
+    } catch {
+      return nil
+    }
   }
 
   /// 同时检查超级用户身份和会话权限，服务端仍执行实际 API 授权。
@@ -476,4 +563,33 @@ private struct NativeDashboardSchedule: Decodable, Sendable {
       case textI18n = "text_i18n"
     }
   }
+}
+
+/// 插件仪表板元信息条目（`GET /api/v1/plugin/dashboard/meta`）。
+private struct NativeDashboardPluginMeta: Decodable, Sendable {
+  let id: String
+  let name: String?
+  let key: String?
+}
+
+/// 插件仪表板内容载体（`GET /api/v1/plugin/dashboard/{id}[/{key}]`）。
+private struct NativeDashboardPluginPayload: Decodable, Sendable {
+  let name: String?
+  let renderMode: String?
+  let elements: [JSONValue]?
+
+  private enum CodingKeys: String, CodingKey {
+    case name
+    case renderMode = "render_mode"
+    case elements
+  }
+}
+
+/// 已解析的原生插件仪表板卡片模型。
+private struct NativeDashboardPluginWidget: Identifiable, Sendable {
+  let id: String
+  let pluginID: String
+  let title: String
+  let isVueRemote: Bool
+  let nodes: [NativePluginJSONNode]
 }
