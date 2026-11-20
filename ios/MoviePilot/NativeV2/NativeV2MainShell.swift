@@ -239,6 +239,8 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           }
         case .explore(let source):
           NativeExplorePage(session: session, initialSource: source)
+        case .music:
+          NativeMusicPage(session: session)
         case .subscriptions:
           NativeSubscriptionsPage(session: session)
         case .subscribeCommunity:
@@ -307,6 +309,10 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           quickMenuRow(title: "探索片库", symbol: "safari.fill", id: "native-quick-explore") {
             showsDiscoverQuickMenu = false
             discoverPath.append(.explore(.tmdbMovies))
+          }
+          quickMenuRow(title: "音乐发现", symbol: "music.note.list", id: "native-quick-music") {
+            showsDiscoverQuickMenu = false
+            discoverPath.append(.music)
           }
           quickMenuRow(title: "管理模块", symbol: "slider.horizontal.3", id: "native-quick-modules") {
             showsDiscoverQuickMenu = false
@@ -418,6 +424,20 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("native-workspace-explore")
+                CinematicFormDivider()
+                Button {
+                  accountPath.append(.music)
+                } label: {
+                  CinematicFormRow(symbol: "music.note.list") {
+                    Text("音乐发现")
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                      .foregroundStyle(.white.opacity(0.45))
+                  }
+                  .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-workspace-music")
               }
               if canSubscribe {
                 if canDiscover { CinematicFormDivider() }
@@ -616,6 +636,8 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
         switch destination {
         case .explore(let source):
           NativeExplorePage(session: session, initialSource: source)
+        case .music:
+          NativeMusicPage(session: session)
         case .subscriptions:
           NativeSubscriptionsPage(session: session)
         case .subscribeCommunity:
@@ -1027,6 +1049,7 @@ struct NativeMediaIdentity: Identifiable, Hashable {
 /// 账号页媒体工作台可推入的受控业务路由。
 private enum NativeWorkspaceDestination: Hashable {
   case explore(NativeExploreSourceKind)
+  case music
   case subscriptions
   case subscribeCommunity
   case downloads
@@ -1046,6 +1069,7 @@ private enum NativeMediaDestination: Identifiable, Hashable {
   case rail(NativeDiscoverRail)
   case media(NativeMediaIdentity)
   case explore(NativeExploreSourceKind)
+  case music
   case subscriptions
   case subscribeCommunity
   case downloads
@@ -1065,6 +1089,7 @@ private enum NativeMediaDestination: Identifiable, Hashable {
     case .rail(let rail): "rail:" + rail.id
     case .media(let identity): "media:" + identity.id
     case .explore(let source): "explore:" + source.rawValue
+    case .music: "music"
     case .subscriptions: "subscriptions"
     case .subscribeCommunity: "subscribeCommunity"
     case .downloads: "downloads"

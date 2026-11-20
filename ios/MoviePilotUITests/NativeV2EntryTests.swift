@@ -129,6 +129,25 @@ final class NativeV2EntryTests: XCTestCase {
       }
       app.navigationBars.buttons.firstMatch.tap()
     }
+    let musicEntry = app.buttons["native-workspace-music"]
+    if musicEntry.waitForExistence(timeout: 8) {
+      tap(musicEntry, app: app)
+      XCTAssertTrue(app.scrollViews["native-music-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 2_500_000_000)
+      capture("native-v2-live-music")
+      let firstAlbum = app.buttons.matching(
+        NSPredicate(format: "identifier BEGINSWITH 'native-music-card-'")
+      ).firstMatch
+      if firstAlbum.waitForExistence(timeout: 6) {
+        tap(firstAlbum, app: app)
+        if app.scrollViews["native-music-album-scroll"].waitForExistence(timeout: 12) {
+          try await Task.sleep(nanoseconds: 2_000_000_000)
+          capture("native-v2-live-music-album")
+          app.navigationBars.buttons.firstMatch.tap()
+        }
+      }
+      app.navigationBars.buttons.firstMatch.tap()
+    }
     let subsEntry = app.buttons["native-workspace-subscriptions"]
     if subsEntry.waitForExistence(timeout: 10) {
       tap(subsEntry, app: app)
@@ -712,6 +731,51 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["a"]?["GET api/v1/subscribe/popular"], 1)
     XCTAssertEqual(counts["a"]?["GET api/v1/subscribe/shares"], 1)
     XCTAssertEqual(counts["a"]?["POST api/v1/subscribe/fork"], 1)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// P3.5：验证原生音乐探索、专辑曲目详情、音乐订阅与艺术家详情跳转，零 WebView。
+  func testNativeMusicDiscoveryAlbumArtistAndSubscribe() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    tap(tabButton("我的", app: app), app: app)
+
+    let musicEntry = app.buttons["native-workspace-music"]
+    reveal(musicEntry, app: app)
+    XCTAssertTrue(musicEntry.waitForExistence(timeout: 10))
+    tap(musicEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-music-scroll"].waitForExistence(timeout: 10))
+
+    let chartTab = app.buttons["native-music-feed-热门专辑"]
+    XCTAssertTrue(chartTab.waitForExistence(timeout: 10))
+    tap(chartTab, app: app)
+    let albumCard = app.buttons["native-music-card-musicbrainz|alb-201"]
+    XCTAssertTrue(albumCard.waitForExistence(timeout: 10))
+    tap(albumCard, app: app)
+    XCTAssertTrue(app.scrollViews["native-music-album-scroll"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["序曲：星尘启航"].waitForExistence(timeout: 10))
+
+    let subBtn = app.buttons["native-music-album-subscribe"]
+    XCTAssertTrue(subBtn.waitForExistence(timeout: 8))
+    tap(subBtn, app: app)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-music-album-feedback"].firstMatch
+        .waitForExistence(timeout: 10))
+
+    let artistBtn = app.buttons["native-music-album-artist"]
+    XCTAssertTrue(artistBtn.waitForExistence(timeout: 8))
+    tap(artistBtn, app: app)
+    XCTAssertTrue(app.scrollViews["native-music-artist-scroll"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["native-music-artist-name"].waitForExistence(timeout: 10))
+    XCTAssertEqual(app.webViews.count, 0)
+
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["GET api/v1/recommend/music_douban"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/music/explore"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/music/album/alb-201"], 1)
+    XCTAssertEqual(counts["a"]?["POST api/v1/subscribe/"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/music/artist/art-301"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/music/artist/art-301/albums"], 1)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -1950,6 +2014,7 @@ final class NativeV2EntryTests: XCTestCase {
     let personScroll = app.scrollViews.matching(identifier: "native-person-detail-scroll")
       .allElementsBoundByIndex.last(where: { $0.isHittable })
     let workspaceScroll = [
+      "native-music-artist-scroll", "native-music-album-scroll", "native-music-scroll",
       "native-subscribe-editor-scroll", "native-community-scroll", "native-explore-scroll",
       "native-downloads-scroll", "native-subscriptions-scroll", "native-calendar-scroll",
       "native-resource-search-scroll", "native-history-scroll", "native-sites-scroll",
