@@ -77,11 +77,27 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertFalse(app.buttons["native-discover-grid-load-more"].exists)
     try await Task.sleep(nanoseconds: 1_000_000_000)
     capture("native-v2-live-grid-automatic-page")
-    // 采集真实媒体详情、仪表盘与媒体搜索画面，确认全页面风格与真实数据一致。
+    // 采集真实媒体详情、演职员/人物页、剧集分季、仪表盘与媒体搜索画面（全程只读，不修改真实订阅）。
     tap(nextPage, app: app)
     XCTAssertTrue(app.staticTexts["native-media-detail-title"].waitForExistence(timeout: 15))
     try await Task.sleep(nanoseconds: 2_000_000_000)
     capture("native-v2-live-detail")
+    let detailScroll = app.scrollViews.firstMatch
+    if detailScroll.exists {
+      detailScroll.swipeUp()
+      try await Task.sleep(nanoseconds: 1_000_000_000)
+      capture("native-v2-live-detail-cast")
+    }
+    let firstCast = app.buttons.matching(
+      NSPredicate(format: "identifier BEGINSWITH 'native-media-detail-cast-'")
+    ).firstMatch
+    if firstCast.exists {
+      tap(firstCast, app: app)
+      if app.staticTexts["native-person-detail-name"].waitForExistence(timeout: 15) {
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+        capture("native-v2-live-person")
+      }
+    }
     tap(tabButton("仪表盘", app: app), app: app)
     XCTAssertTrue(
       app.descendants(matching: .any)["native-dashboard-storage"].firstMatch.waitForExistence(
@@ -92,9 +108,25 @@ final class NativeV2EntryTests: XCTestCase {
     let query = app.textFields["native-media-search-query"]
     XCTAssertTrue(query.waitForExistence(timeout: 8))
     query.tap()
-    query.typeText("奥德赛\n")
-    try await Task.sleep(nanoseconds: 4_000_000_000)
+    query.typeText("超感神探\n")
+    try await Task.sleep(nanoseconds: 3_500_000_000)
     capture("native-v2-live-search")
+    let firstResult = app.buttons.matching(
+      NSPredicate(format: "identifier BEGINSWITH 'native-media-search-result-'")
+    ).firstMatch
+    if firstResult.waitForExistence(timeout: 8) {
+      tap(firstResult, app: app)
+      if app.staticTexts["native-media-detail-title"].waitForExistence(timeout: 15) {
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+        capture("native-v2-live-tv-detail")
+        let tvScroll = app.scrollViews.firstMatch
+        if tvScroll.exists {
+          tvScroll.swipeUp()
+          try await Task.sleep(nanoseconds: 1_000_000_000)
+          capture("native-v2-live-tv-seasons")
+        }
+      }
+    }
     XCTAssertEqual(app.webViews.count, 0)
     // 退出后内存身份销毁，测试脚本会清理含登录活动的原始结果包。
   }
@@ -131,6 +163,58 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["a"]?["GET api/v1/media/113"], 1)
     XCTAssertGreaterThan(counts["a"]?["image-served"] ?? 0, 0)
     XCTAssertNil(counts["a"]?["image-auth-rejected"])
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// P3.4 完整媒体详情：验证入库徽标、显式订阅与二次确认取消、演职员推入人物页以及剧集分季订阅。
+  func testNativeMediaDetailSubscribesAndNavigatesToPerson() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    let more = app.buttons["native-discover-more-热门电影"]
+    XCTAssertTrue(more.waitForExistence(timeout: 12))
+    tap(more, app: app)
+    let movie113 = app.buttons["native-discover-grid-poster-themoviedb|113|电影"]
+    for _ in 0..<6 where !movie113.exists { app.swipeUp() }
+    XCTAssertTrue(movie113.waitForExistence(timeout: 10))
+    tap(movie113, app: app)
+    XCTAssertTrue(app.staticTexts["native-media-detail-title"].waitForExistence(timeout: 10))
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-media-detail-library-badge"].firstMatch
+        .waitForExistence(timeout: 8))
+    let subscribe = app.buttons["native-media-detail-subscribe"]
+    XCTAssertTrue(subscribe.waitForExistence(timeout: 8))
+    tap(subscribe, app: app)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-media-detail-feedback"].firstMatch
+        .waitForExistence(timeout: 8))
+    tap(subscribe, app: app)
+    let confirmCancel = app.alerts["取消订阅"].buttons["取消订阅"]
+    XCTAssertTrue(confirmCancel.waitForExistence(timeout: 8))
+    confirmCancel.tap()
+    let castButton = app.buttons["native-media-detail-cast-501"]
+    reveal(castButton, app: app)
+    XCTAssertTrue(castButton.waitForExistence(timeout: 8))
+    tap(castButton, app: app)
+    let personName = app.staticTexts["native-person-detail-name"]
+    XCTAssertTrue(personName.waitForExistence(timeout: 10))
+    XCTAssertEqual(personName.label, "合成主演")
+    let tvWork = app.buttons["native-person-work-themoviedb|111|电视剧"]
+    reveal(tvWork, app: app)
+    XCTAssertTrue(tvWork.waitForExistence(timeout: 8))
+    tap(tvWork, app: app)
+    let seasonOne = app.buttons["native-media-detail-season-subscribe-1"]
+    reveal(seasonOne, app: app)
+    XCTAssertTrue(seasonOne.waitForExistence(timeout: 10))
+    tap(seasonOne, app: app)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-media-detail-feedback"].firstMatch
+        .waitForExistence(timeout: 8))
+    XCTAssertEqual(app.webViews.count, 0)
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["POST api/v1/subscribe/"], 2)
+    XCTAssertEqual(counts["a"]?["DELETE api/v1/subscribe/media/113"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/tmdb/person/501"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/tmdb/person/credits/501"], 1)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -1363,26 +1447,33 @@ final class NativeV2EntryTests: XCTestCase {
     let cronField = app.collectionViews["native-cron-field-form"]
     let cron = app.collectionViews["native-cron-form"]
     let combobox = app.collectionViews["native-combobox-form"]
+    let detailScroll = app.scrollViews.matching(identifier: "native-media-detail-scroll")
+      .allElementsBoundByIndex.last(where: { $0.isHittable })
+    let personScroll = app.scrollViews.matching(identifier: "native-person-detail-scroll")
+      .allElementsBoundByIndex.last(where: { $0.isHittable })
     let mediaSearch = app.scrollViews["native-media-search-scroll"]
     let discoverGrid = app.scrollViews["native-discover-grid"]
     let discoverPage = app.scrollViews["native-discover-page"]
     let scroll =
-      mediaSearch.exists
-      ? mediaSearch
-      : discoverGrid.exists
-        ? discoverGrid
-        : discoverPage.exists
-          ? discoverPage
-          : cronMode.exists
-            ? cronMode
-            : cronField.exists
-              ? cronField
-              : cron.exists
-                ? cron
-                : combobox.exists
-                  ? combobox
-                  : (app.buttons["native-plugin-selection-done"].exists ? forms.last : forms.first)
-                    ?? app
+      detailScroll
+      ?? personScroll
+      ?? (mediaSearch.exists && mediaSearch.isHittable
+        ? mediaSearch
+        : discoverGrid.exists && discoverGrid.isHittable
+          ? discoverGrid
+          : discoverPage.exists && discoverPage.isHittable
+            ? discoverPage
+            : cronMode.exists
+              ? cronMode
+              : cronField.exists
+                ? cronField
+                : cron.exists
+                  ? cron
+                  : combobox.exists
+                    ? combobox
+                    : (app.buttons["native-plugin-selection-done"].exists
+                      ? forms.last : forms.first)
+                      ?? app)
     for direction in [true, false] {
       for _ in 0..<12 {
         if visible(element, app: app, scroll: scroll) { return }

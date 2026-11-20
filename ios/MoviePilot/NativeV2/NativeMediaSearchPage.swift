@@ -490,11 +490,14 @@ struct NativeMediaSearchPage: View {
     }
   }
 
-  /// 参照 Cinematic 全局搜索的人物圆形头像横栏，保留名字与角色副标。
+  /// 参照 Cinematic 全局搜索的人物圆形头像横栏，支持推入原生人物详情页。
+  @ViewBuilder
   private func personTile(_ item: NativeMediaSearchItem) -> some View {
-    VStack(spacing: 6) {
+    let resolvedAvatar = NativeMediaDetailPage.resolveArtwork(
+      item.artworkReference, source: item.mediaSource ?? "themoviedb")
+    let content = VStack(spacing: 6) {
       Group {
-        if let reference = item.artworkReference {
+        if let reference = resolvedAvatar {
           NativeMediaArtwork(
             session: session, reference: reference, role: .poster, maximumWidth: 160)
         } else {
@@ -516,6 +519,21 @@ struct NativeMediaSearchPage: View {
     .multilineTextAlignment(.center)
     .accessibilityElement(children: .combine)
     .accessibilityIdentifier("native-media-search-result-\(item.id)")
+
+    if let personID = item.mediaID.flatMap(Int.init),
+      (item.mediaSource?.lowercased() ?? "themoviedb") == "themoviedb"
+    {
+      NavigationLink {
+        NativePersonDetailPage(
+          session: session, personID: personID, fallbackName: item.displayTitle,
+          fallbackAvatar: resolvedAvatar)
+      } label: {
+        content
+      }
+      .buttonStyle(.plain)
+    } else {
+      content
+    }
   }
 
   /// 来源目录用于可读的标签；没有目录名称时不展示内部标识。

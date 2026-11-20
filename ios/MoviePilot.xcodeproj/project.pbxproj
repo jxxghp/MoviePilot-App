@@ -75,6 +75,7 @@
 		E2CC1E5D7BA47467F0727E6B /* StartupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF1A8D67F8876B6AECE70ECA /* StartupView.swift */; };
 		E3AC1F3F475F11DC45745A36 /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDB18350D46A9411B179B162 /* Configuration.swift */; };
 		E4468F866BDEF9BB3036AF33 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 571C52ACC53E9ADFF2774ACA /* LaunchScreen.storyboard */; };
+		E6614181F752357720A889EB /* NativeMediaDetailPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2CBAA3DC386BDCFF67D1137 /* NativeMediaDetailPage.swift */; };
 		EB24867710544E7DFEBDA90C /* NotificationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E54307B2FD9DE9B104A4C0B /* NotificationController.swift */; };
 		EB4FBB378F5FB78066EDB77D /* StandaloneMenuBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18E5B7A511689BF6BE63B93 /* StandaloneMenuBridge.swift */; };
 		EBC0DFA944EF2796F87B7B76 /* SearchPageController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 679A44F3DC9A280BB5F36D51 /* SearchPageController.swift */; };
@@ -201,6 +202,7 @@
 		DDA1934688E4D109E194DB96 /* WidgetService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetService.swift; sourceTree = "<group>"; };
 		E07A2D5374C03798153CFA82 /* MoreMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreMenuController.swift; sourceTree = "<group>"; };
 		E27A900F0778C506F3B44F3E /* ConnectionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionController.swift; sourceTree = "<group>"; };
+		E2CBAA3DC386BDCFF67D1137 /* NativeMediaDetailPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaDetailPage.swift; sourceTree = "<group>"; };
 		E3BEFC3136EEA7192AD5C20D /* NavigationSymbols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationSymbols.swift; sourceTree = "<group>"; };
 		E93AFCC3E95380CC87531EFD /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		EC6B4DF852680FFE4FCB4A47 /* BottomNavigationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomNavigationView.swift; sourceTree = "<group>"; };
@@ -291,6 +293,7 @@
 			children = (
 				76B2E764B2FD72F7288DDD30 /* NativeDashboardPage.swift */,
 				64E08B040825C4BB1B965C7E /* NativeDiscoverPage.swift */,
+				E2CBAA3DC386BDCFF67D1137 /* NativeMediaDetailPage.swift */,
 			);
 			path = Pages;
 			sourceTree = "<group>";
@@ -669,6 +672,7 @@
 				9DF0F4028DD3BB274401298C /* NativeAppModel.swift in Sources */,
 				2ECCFA5FCDCC8BEB234D0B0D /* NativeDashboardPage.swift in Sources */,
 				DDCEE1C105B831849FC9B502 /* NativeDiscoverPage.swift in Sources */,
+				E6614181F752357720A889EB /* NativeMediaDetailPage.swift in Sources */,
 				D2F28E40B4CA7F797613B2BD /* NativeMediaSearchPage.swift in Sources */,
 				F9CFC187B7A882F2EE4BBA4E /* NativePanelController.swift in Sources */,
 				FA7D96C95BCA99B1CDDEABA8 /* NativePluginCatalogView.swift in Sources */,

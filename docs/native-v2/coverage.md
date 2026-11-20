@@ -46,7 +46,8 @@
 | 密码、OTP 与会话 | NativeSessionManager / NativeAuthenticationClient；手动登录、OTP、可选保持登录/密码记忆、401 过期、刷新身份与注销 | Passkey/OIDC/其它 MFA、后台同步与全部用户资料入口仍待 P6/P7 |
 | 首次管理员 | 原生固定用户名、密码/确认、随机 API Key、创建前再次探测、创建后明确登录 | GitHub Device Flow/PAT、系统强密码生成/AutoFill 完整体验尚未验收，不能把整个初始化页标为完成 |
 | 本机语言与账号入口 | 简体/繁体/英语即时切换；真实当前账号/服务和可执行的会话管理 | 媒体主页、应用中心、全局搜索/导航、用户级偏好与系统集成仍待对应业务叶子 |
-| 原生媒体主壳层（P3a） | NativeV2MainShell / NativeDiscoverPage / NativeDiscoverRailGrid / NativeDashboardPage / NativeMediaSearchPage / 基础 NativeMediaDetailPage；根级原生 TabView、同源图片代理（独立连接池 + TMDB 尺寸档位 + 剥离片段）、4 段滚动柔焦渐隐、继续观看/趋势/最新入库/媒体库、自动翻页与本机 3001 真实后端验收；见 [P3a 证据](evidence/2026-11-20-media-shell.md) | 详情页订阅/搜索资源/播放动作、季集/演职员/相似推荐与人物页（P3.4）；多来源发现与模块编排（P3.2b）；资源搜索与下载确认（P3.3b）；下载/订阅/日历/文件/工作流/设置/插件生态仍待后续叶子 |
+| 原生媒体主壳层（P3a） | NativeV2MainShell / NativeDiscoverPage / NativeDiscoverRailGrid / NativeDashboardPage / NativeMediaSearchPage / 基础 NativeMediaDetailPage；根级原生 TabView、同源图片代理（独立连接池 + TMDB 尺寸档位 + 剥离片段）、4 段滚动柔焦渐隐、继续观看/趋势/最新入库/媒体库、自动翻页与本机 3001 真实后端验收；见 [P3a 证据](evidence/2026-11-20-media-shell.md) | 多来源发现与模块编排（P3.2b）；资源搜索与下载确认（P3.3b）；下载/订阅/日历/文件/工作流/设置/插件生态仍待后续叶子 |
+| 原生影视详情与人物页（P3.4） | NativeMediaDetailPage / NativePersonDetailPage；全宽头图、入库状态徽标、权限门控显式订阅与二次确认取消、剧集分季独立订阅、演职员横栏、相似推荐、作品资料卡与人物参演作品网格（详情与搜索双入口）；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [P3.4 证据](evidence/2026-11-20-media-detail-person.md) | 详情内直达资源搜索（P3.3b）、媒体库直连原生播放（P7.3）与音乐详情（P3.5）仍待后续叶子 |
 
 ## 不在上述路由里、同样必须迁移的功能
 
