@@ -1,0 +1,1184 @@
+import Foundation
+import MoviePilotAPI
+import MoviePilotCore
+import MoviePilotSession
+import SwiftUI
+
+/// 原生工作流节点画布与参数编辑页：纯 SwiftUI 渲染节点图、贝塞尔连线、拖拽定位、节点新增与参数编辑，零 WebView。
+@MainActor
+struct NativeWorkflowCanvasPage: View {
+  let session: NativeSession
+  let workflowID: Int
+  let workflowTitle: String
+
+  @State private var detail: NativeWorkflowDetail?
+  @State private var actions: [NativeWorkflowNode] = []
+  @State private var flows: [NativeWorkflowEdge] = []
+  @State private var actionCatalog: [NativeWorkflowActionDef] = []
+  @State private var selectedNodeID: String?
+  @State private var isLoading = true
+  @State private var loadFailed = false
+  @State private var isSaving = false
+  @State private var reloadToken = 0
+  @State private var feedback: NativeWorkflowCanvasFeedback?
+
+  @State private var canvasOffset: CGSize = .zero
+  @State private var dragCanvasDelta: CGSize = .zero
+  @State private var canvasScale: CGFloat = 1.0
+  @State private var activeNodeDragID: String?
+  @State private var activeNodeDragDelta: CGSize = .zero
+
+  @State private var showsAddNodeSheet = false
+  @State private var showsInspectorSheet = false
+  @State private var showsLinkSheet = false
+
+  private let nodeWidth: CGFloat = 196
+  private let nodeHeight: CGFloat = 86
+
+  /// 深色紫玫瑰渐变、可缩放拖拽画布、节点卡片、底部选中工具条及顶部保存按钮。
+  var body: some View {
+    ZStack {
+      CinematicBackground()
+      mainContent
+    }
+    .navigationTitle(detail?.name ?? workflowTitle)
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbarBackground(.hidden, for: .navigationBar)
+    .toolbar {
+      ToolbarItemGroup(placement: .topBarTrailing) {
+        Button {
+          showsAddNodeSheet = true
+        } label: {
+          Image(systemName: "plus")
+        }
+        .accessibilityLabel("添加节点")
+        .accessibilityIdentifier("native-workflow-add-node")
+        .disabled(detail == nil)
+
+        Button {
+          Task { await saveWorkflow() }
+        } label: {
+          if isSaving {
+            ProgressView().controlSize(.small).tint(.white)
+          } else {
+            Text("保存").fontWeight(.semibold)
+          }
+        }
+        .accessibilityIdentifier("native-workflow-canvas-save")
+        .disabled(detail == nil || isSaving)
+      }
+    }
+    .sheet(isPresented: $showsAddNodeSheet) {
+      NativeWorkflowAddNodeSheet(catalog: actionCatalog) { def in
+        appendNode(from: def)
+      }
+    }
+    .sheet(isPresented: $showsInspectorSheet) {
+      if let selectedID = selectedNodeID,
+        let index = actions.firstIndex(where: { $0.id == selectedID })
+      {
+        NativeWorkflowNodeEditorSheet(node: $actions[index])
+      }
+    }
+    .sheet(isPresented: $showsLinkSheet) {
+      if let sourceID = selectedNodeID,
+        let sourceNode = actions.first(where: { $0.id == sourceID })
+      {
+        NativeWorkflowLinkSheet(
+          source: sourceNode,
+          candidates: actions.filter { $0.id != sourceID },
+          existingTargets: Set(flows.filter { $0.source == sourceID }.map(\.target)),
+          onToggleTarget: { targetID in
+            toggleEdge(from: sourceID, to: targetID)
+          }
+        )
+      }
+    }
+    .task(id: reloadToken) { await load() }
+  }
+
+  /// 加载态、失败态或交互式原生节点画布主视图。
+  @ViewBuilder
+  private var mainContent: some View {
+    if isLoading && detail == nil {
+      ProgressView("正在载入工作流画布…")
+        .tint(.white)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    } else if loadFailed && detail == nil {
+      VStack {
+        CinematicPanel {
+          VStack(alignment: .leading, spacing: 10) {
+            Label("暂时无法载入工作流详情", systemImage: "exclamationmark.triangle").font(.headline)
+            Button("重试") { reloadToken += 1 }
+              .frame(minHeight: 44)
+              .accessibilityIdentifier("native-workflow-canvas-retry")
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, CinematicStyle.margin)
+      }
+    } else {
+      VStack(spacing: 0) {
+        if let feedback {
+          feedbackBanner(feedback)
+            .padding(.horizontal, CinematicStyle.margin)
+            .padding(.top, 8)
+        }
+        canvasToolbar
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 8)
+        graphCanvas
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+        if let selected = selectedNode {
+          selectedInspectorBar(selected)
+            .padding(.horizontal, CinematicStyle.margin)
+            .padding(.bottom, 12)
+        } else {
+          nodeListStrip
+            .padding(.horizontal, CinematicStyle.margin)
+            .padding(.bottom, 12)
+        }
+      }
+    }
+  }
+
+  /// 当前选中的节点。
+  private var selectedNode: NativeWorkflowNode? {
+    guard let selectedNodeID else { return nil }
+    return actions.first(where: { $0.id == selectedNodeID })
+  }
+
+  /// 画布顶部摘要与缩放/居中控制条。
+  private var canvasToolbar: some View {
+    HStack(spacing: 10) {
+      Label("\(actions.count) 节点 · \(flows.count) 连线", systemImage: "flowchart")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.white.opacity(0.84))
+      Spacer(minLength: 4)
+      Button {
+        canvasScale = max(0.55, canvasScale - 0.15)
+      } label: {
+        Image(systemName: "minus.magnifyingglass")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.white)
+          .frame(width: 30, height: 30)
+          .background(.white.opacity(0.10), in: Circle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("缩小画布")
+
+      Button {
+        withAnimation(.easeInOut(duration: 0.2)) {
+          canvasScale = 1.0
+          centerCanvas()
+        }
+      } label: {
+        Text("\(Int((canvasScale * 100).rounded()))%")
+          .font(.caption2.monospacedDigit().weight(.semibold))
+          .foregroundStyle(.white.opacity(0.88))
+          .padding(.horizontal, 8)
+          .padding(.vertical, 5)
+          .background(.white.opacity(0.10), in: Capsule())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("重置画布视角")
+      .accessibilityIdentifier("native-workflow-canvas-reset-view")
+
+      Button {
+        canvasScale = min(1.6, canvasScale + 0.15)
+      } label: {
+        Image(systemName: "plus.magnifyingglass")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.white)
+          .frame(width: 30, height: 30)
+          .background(.white.opacity(0.10), in: Circle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("放大画布")
+    }
+  }
+
+  /// 纯 SwiftUI 交互式节点与连线画布。
+  private var graphCanvas: some View {
+    GeometryReader { proxy in
+      let totalOffset = CGSize(
+        width: canvasOffset.width + dragCanvasDelta.width,
+        height: canvasOffset.height + dragCanvasDelta.height)
+
+      ZStack(alignment: .topLeading) {
+        // 点阵背景 + 贝塞尔连线层
+        Canvas { context, size in
+          drawDotGrid(in: &context, size: size, offset: totalOffset, scale: canvasScale)
+          drawEdges(in: &context, offset: totalOffset, scale: canvasScale)
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier("native-workflow-canvas-area")
+        .onTapGesture {
+          selectedNodeID = nil
+        }
+        .gesture(
+          DragGesture(minimumDistance: 6)
+            .onChanged { value in
+              dragCanvasDelta = value.translation
+            }
+            .onEnded { value in
+              canvasOffset.width += value.translation.width
+              canvasOffset.height += value.translation.height
+              dragCanvasDelta = .zero
+            }
+        )
+
+        if actions.isEmpty {
+          VStack(spacing: 10) {
+            Image(systemName: "point.3.connected.trianglepath.dotted")
+              .font(.largeTitle)
+              .foregroundStyle(.white.opacity(0.55))
+            Text("当前工作流还没有节点")
+              .font(.headline)
+              .foregroundStyle(.white)
+            Text("点击右上角「+」添加动作节点并自动编排连线")
+              .font(.caption)
+              .foregroundStyle(.white.opacity(0.68))
+          }
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .allowsHitTesting(false)
+        } else {
+          ForEach(actions) { node in
+            let pt = screenCenter(for: node, offset: totalOffset, scale: canvasScale)
+            nodeCard(node)
+              .scaleEffect(canvasScale)
+              .position(pt)
+              .gesture(
+                DragGesture(minimumDistance: 4)
+                  .onChanged { value in
+                    activeNodeDragID = node.id
+                    activeNodeDragDelta = CGSize(
+                      width: value.translation.width / max(canvasScale, 0.3),
+                      height: value.translation.height / max(canvasScale, 0.3))
+                  }
+                  .onEnded { value in
+                    if let idx = actions.firstIndex(where: { $0.id == node.id }) {
+                      actions[idx].position.x += Double(
+                        value.translation.width / max(canvasScale, 0.3))
+                      actions[idx].position.y += Double(
+                        value.translation.height / max(canvasScale, 0.3))
+                    }
+                    activeNodeDragID = nil
+                    activeNodeDragDelta = .zero
+                  }
+              )
+          }
+        }
+      }
+      .clipped()
+      .onAppear {
+        if canvasOffset == .zero && !actions.isEmpty {
+          centerCanvas(in: proxy.size)
+        }
+      }
+      .onChange(of: actions.count) { _ in
+        if canvasOffset == .zero && !actions.isEmpty {
+          centerCanvas(in: proxy.size)
+        }
+      }
+    }
+  }
+
+  /// 单个工作流节点的透色紫玫瑰玻璃卡片。
+  private func nodeCard(_ node: NativeWorkflowNode) -> some View {
+    let selected = selectedNodeID == node.id
+    let paramCount = node.data.count
+    return Button {
+      selectedNodeID = node.id
+    } label: {
+      VStack(alignment: .leading, spacing: 5) {
+        HStack(spacing: 6) {
+          Circle()
+            .fill(
+              selected
+                ? Color(red: 0.78, green: 0.62, blue: 1.0)
+                : Color(red: 0.56, green: 0.88, blue: 0.76)
+            )
+            .frame(width: 8, height: 8)
+          Text(node.name)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+          Spacer(minLength: 2)
+        }
+        Text(node.type)
+          .font(.caption2.monospaced())
+          .foregroundStyle(Color(red: 0.86, green: 0.76, blue: 1.0))
+          .lineLimit(1)
+        HStack(spacing: 6) {
+          if !node.description.isEmpty {
+            Text(node.description)
+              .font(.caption2)
+              .foregroundStyle(.white.opacity(0.68))
+              .lineLimit(1)
+          } else {
+            Text("参数 \(paramCount) 项")
+              .font(.caption2)
+              .foregroundStyle(.white.opacity(0.64))
+          }
+          Spacer(minLength: 2)
+          if let timeout = node.timeout, timeout > 0 {
+            Text("\(timeout)s")
+              .font(.caption2.monospacedDigit())
+              .foregroundStyle(.white.opacity(0.58))
+          }
+        }
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 10)
+      .frame(width: nodeWidth, height: nodeHeight, alignment: .leading)
+      .background {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+          .fill(
+            selected
+              ? Color(red: 0.36, green: 0.24, blue: 0.58).opacity(0.84)
+              : Color(red: 0.16, green: 0.12, blue: 0.24).opacity(0.76)
+          )
+          .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+              .strokeBorder(
+                selected ? Color(red: 0.82, green: 0.68, blue: 1.0) : .white.opacity(0.20),
+                lineWidth: selected ? 1.5 : 0.8)
+          }
+      }
+      .shadow(color: .black.opacity(selected ? 0.35 : 0.18), radius: selected ? 12 : 6, y: 4)
+    }
+    .buttonStyle(.plain)
+    .accessibilityIdentifier("native-workflow-node-\(node.id)")
+  }
+
+  /// 未选中节点时的底部快捷节点列表条，方便无障碍与小屏直达选中。
+  private var nodeListStrip: some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 8) {
+        ForEach(actions) { node in
+          Button {
+            selectedNodeID = node.id
+          } label: {
+            Text(node.name)
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(.white.opacity(0.90))
+              .padding(.horizontal, 11)
+              .padding(.vertical, 7)
+              .background {
+                Capsule()
+                  .fill(.white.opacity(0.11))
+                  .overlay { Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.6) }
+              }
+          }
+          .buttonStyle(.plain)
+          .accessibilityIdentifier("native-workflow-chip-\(node.id)")
+        }
+      }
+    }
+  }
+
+  /// 选中节点后的底部玻璃属性工具栏。
+  private func selectedInspectorBar(_ node: NativeWorkflowNode) -> some View {
+    let outgoing = flows.filter { $0.source == node.id }.count
+    return CinematicPanel(padding: 12) {
+      VStack(alignment: .leading, spacing: 10) {
+        HStack {
+          VStack(alignment: .leading, spacing: 2) {
+            Text(node.name).font(.headline).foregroundStyle(.white)
+            Text("\(node.type) · 参数 \(node.data.count) 项 · 出边 \(outgoing) 条")
+              .font(.caption)
+              .foregroundStyle(.white.opacity(0.68))
+          }
+          Spacer()
+          Button {
+            selectedNodeID = nil
+          } label: {
+            Image(systemName: "xmark")
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(.white.opacity(0.70))
+              .frame(width: 30, height: 30)
+          }
+          .buttonStyle(.plain)
+        }
+        HStack(spacing: 8) {
+          Button {
+            showsInspectorSheet = true
+          } label: {
+            Label("编辑参数", systemImage: "slider.horizontal.3")
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(.white)
+              .padding(.horizontal, 12)
+              .padding(.vertical, 7)
+              .background {
+                Capsule()
+                  .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.78))
+                  .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.6) }
+              }
+              .frame(minHeight: 34)
+          }
+          .buttonStyle(.plain)
+          .accessibilityIdentifier("native-workflow-edit-node")
+
+          Button {
+            showsLinkSheet = true
+          } label: {
+            Label("连线", systemImage: "arrow.triangle.branch")
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(.white)
+              .padding(.horizontal, 12)
+              .padding(.vertical, 7)
+              .background {
+                Capsule()
+                  .fill(.white.opacity(0.14))
+                  .overlay { Capsule().strokeBorder(.white.opacity(0.20), lineWidth: 0.6) }
+              }
+              .frame(minHeight: 34)
+          }
+          .buttonStyle(.plain)
+          .accessibilityIdentifier("native-workflow-link-node")
+
+          Spacer()
+
+          Button(role: .destructive) {
+            deleteNode(node.id)
+          } label: {
+            Label("删除", systemImage: "trash")
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(Color(red: 1.0, green: 0.56, blue: 0.58))
+              .frame(minHeight: 34)
+          }
+          .buttonStyle(.plain)
+          .accessibilityIdentifier("native-workflow-delete-node")
+        }
+      }
+    }
+  }
+
+  /// 操作反馈横幅。
+  private func feedbackBanner(_ feedback: NativeWorkflowCanvasFeedback) -> some View {
+    CinematicPanel(padding: 10) {
+      HStack(spacing: 8) {
+        Image(
+          systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+        )
+        .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
+        Text(feedback.message).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+        Spacer(minLength: 0)
+        Button {
+          self.feedback = nil
+        } label: {
+          Image(systemName: "xmark").font(.caption.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.65)).frame(width: 28, height: 28)
+        }
+        .buttonStyle(.plain)
+      }
+    }
+    .accessibilityIdentifier("native-workflow-canvas-feedback")
+  }
+
+  /// 计算节点在画布视口中的屏幕中心坐标。
+  private func screenCenter(
+    for node: NativeWorkflowNode, offset: CGSize, scale: CGFloat
+  ) -> CGPoint {
+    let extra = activeNodeDragID == node.id ? activeNodeDragDelta : .zero
+    let worldX = CGFloat(node.position.x) + extra.width + nodeWidth / 2
+    let worldY = CGFloat(node.position.y) + extra.height + nodeHeight / 2
+    return CGPoint(x: worldX * scale + offset.width, y: worldY * scale + offset.height)
+  }
+
+  /// 绘制轻柔点阵参考网格。
+  private func drawDotGrid(
+    in context: inout GraphicsContext, size: CGSize, offset: CGSize, scale: CGFloat
+  ) {
+    let step = max(22 * scale, 14)
+    let startX = offset.width.truncatingRemainder(dividingBy: step)
+    let startY = offset.height.truncatingRemainder(dividingBy: step)
+    var y = startY
+    while y < size.height {
+      var x = startX
+      while x < size.width {
+        let rect = CGRect(x: x - 1, y: y - 1, width: 2, height: 2)
+        context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(0.11)))
+        x += step
+      }
+      y += step
+    }
+  }
+
+  /// 绘制节点间的三次贝塞尔有向连线与箭头。
+  private func drawEdges(in context: inout GraphicsContext, offset: CGSize, scale: CGFloat) {
+    let nodeMap = Dictionary(uniqueKeysWithValues: actions.map { ($0.id, $0) })
+    for edge in flows {
+      guard let src = nodeMap[edge.source], let dst = nodeMap[edge.target] else { continue }
+      let p1 = screenCenter(for: src, offset: offset, scale: scale)
+      let p2 = screenCenter(for: dst, offset: offset, scale: scale)
+      let horizontal = abs(p2.x - p1.x) >= abs(p2.y - p1.y)
+      let start =
+        horizontal
+        ? CGPoint(x: p1.x + (nodeWidth / 2) * scale, y: p1.y)
+        : CGPoint(x: p1.x, y: p1.y + (nodeHeight / 2) * scale)
+      let end =
+        horizontal
+        ? CGPoint(x: p2.x - (nodeWidth / 2) * scale, y: p2.y)
+        : CGPoint(x: p2.x, y: p2.y - (nodeHeight / 2) * scale)
+
+      var path = Path()
+      path.move(to: start)
+      if horizontal {
+        let ctrl = max(abs(end.x - start.x) * 0.45, 36 * scale)
+        path.addCurve(
+          to: end,
+          control1: CGPoint(x: start.x + ctrl, y: start.y),
+          control2: CGPoint(x: end.x - ctrl, y: end.y))
+      } else {
+        let ctrl = max(abs(end.y - start.y) * 0.45, 36 * scale)
+        path.addCurve(
+          to: end,
+          control1: CGPoint(x: start.x, y: start.y + ctrl),
+          control2: CGPoint(x: end.x, y: end.y - ctrl))
+      }
+
+      let active = selectedNodeID == src.id || selectedNodeID == dst.id
+      let color =
+        active
+        ? Color(red: 0.84, green: 0.68, blue: 1.0)
+        : Color(red: 0.68, green: 0.56, blue: 0.92).opacity(0.70)
+      context.stroke(path, with: .color(color), lineWidth: active ? 2.4 : 1.7)
+
+      let arrowSize: CGFloat = 6 * scale
+      var arrow = Path()
+      if horizontal {
+        arrow.move(to: end)
+        arrow.addLine(to: CGPoint(x: end.x - arrowSize * 1.4, y: end.y - arrowSize))
+        arrow.addLine(to: CGPoint(x: end.x - arrowSize * 1.4, y: end.y + arrowSize))
+      } else {
+        arrow.move(to: end)
+        arrow.addLine(to: CGPoint(x: end.x - arrowSize, y: end.y - arrowSize * 1.4))
+        arrow.addLine(to: CGPoint(x: end.x + arrowSize, y: end.y - arrowSize * 1.4))
+      }
+      arrow.closeSubpath()
+      context.fill(arrow, with: .color(color))
+    }
+  }
+
+  /// 将现有节点图居中并自动适配视口缩放。
+  private func centerCanvas(in size: CGSize = CGSize(width: 390, height: 480)) {
+    guard !actions.isEmpty else {
+      canvasOffset = .zero
+      return
+    }
+    let minX = actions.map { CGFloat($0.position.x) }.min() ?? 0
+    let maxX = actions.map { CGFloat($0.position.x) + nodeWidth }.max() ?? nodeWidth
+    let minY = actions.map { CGFloat($0.position.y) }.min() ?? 0
+    let spanX = max(maxX - minX, nodeWidth)
+    if actions.count >= 2 && spanX > size.width - 32 {
+      let fitScale = (size.width - 40) / spanX
+      canvasScale = min(1.0, max(0.62, fitScale))
+    }
+    canvasOffset = CGSize(
+      width: 20 - minX * canvasScale,
+      height: max(28, size.height * 0.14) - minY * canvasScale)
+  }
+
+  /// 从动作目录追加新节点，若当前已有选中节点则自动建立连线。
+  private func appendNode(from def: NativeWorkflowActionDef) {
+    let last = selectedNode ?? actions.last
+    let nextX = (last?.position.x ?? 20) + 40
+    let nextY = (last?.position.y ?? 20) + 128
+    let newID = "node_\(UUID().uuidString.prefix(8).lowercased())"
+    let node = NativeWorkflowNode(
+      id: newID,
+      type: def.type,
+      name: def.name,
+      description: def.description ?? "",
+      position: NativeWorkflowPosition(x: nextX, y: nextY),
+      data: def.data,
+      timeout: nil,
+      failPolicy: nil
+    )
+    actions.append(node)
+    if let source = last {
+      flows.append(
+        NativeWorkflowEdge(
+          id: "flow_\(source.id)_\(newID)",
+          source: source.id,
+          target: newID,
+          animated: true,
+          condition: nil))
+    }
+    selectedNodeID = newID
+    feedback = NativeWorkflowCanvasFeedback(
+      isError: false, message: "已添加节点「\(node.name)」，点击右上角保存生效。")
+  }
+
+  /// 切换两节点间的有向连线。
+  private func toggleEdge(from sourceID: String, to targetID: String) {
+    if let idx = flows.firstIndex(where: { $0.source == sourceID && $0.target == targetID }) {
+      flows.remove(at: idx)
+    } else {
+      flows.append(
+        NativeWorkflowEdge(
+          id: "flow_\(sourceID)_\(targetID)",
+          source: sourceID,
+          target: targetID,
+          animated: true,
+          condition: nil))
+    }
+  }
+
+  /// 删除节点及其关联出入边。
+  private func deleteNode(_ nodeID: String) {
+    actions.removeAll { $0.id == nodeID }
+    flows.removeAll { $0.source == nodeID || $0.target == nodeID }
+    if selectedNodeID == nodeID {
+      selectedNodeID = nil
+    }
+  }
+
+  /// 并发拉取 `GET /api/v1/workflow/{id}` 与 `GET /api/v1/workflow/actions`。
+  private func load() async {
+    isLoading = true
+    loadFailed = false
+    defer { isLoading = false }
+    do {
+      let detailEndpoint = try APIEndpoint(path: ["workflow", String(workflowID)])
+      let catalogEndpoint = try APIEndpoint(path: ["workflow", "actions"])
+      async let detailTask = session.request(detailEndpoint, as: NativeWorkflowDetail.self)
+      async let catalogTask = try? session.request(
+        catalogEndpoint, as: [NativeWorkflowActionDef].self)
+      let loadedDetail = try await detailTask.value
+      let loadedCatalog = await catalogTask?.value ?? []
+      try Task.checkCancellation()
+      detail = loadedDetail
+      actions = loadedDetail.normalizedActions
+      flows = loadedDetail.flows ?? []
+      actionCatalog = loadedCatalog
+      if selectedNodeID == nil, let first = actions.first {
+        selectedNodeID = first.id
+      }
+    } catch is CancellationError {
+      return
+    } catch {
+      loadFailed = true
+    }
+  }
+
+  /// 单次提交更新后的节点与连线（`PUT /api/v1/workflow/{id}`）。
+  private func saveWorkflow() async {
+    guard let detail, !isSaving else { return }
+    isSaving = true
+    defer { isSaving = false }
+    let payload = NativeWorkflowUpdatePayload(
+      id: detail.id,
+      name: detail.name,
+      description: detail.description,
+      timer: detail.timer,
+      triggerType: detail.triggerType,
+      eventType: detail.eventType,
+      state: detail.state,
+      actions: actions,
+      flows: flows
+    )
+    do {
+      let body = try JSONEncoder().encode(payload)
+      let endpoint = try APIEndpoint(
+        path: ["workflow", String(workflowID)], method: .put, body: body)
+      try await session.perform(endpoint)
+      try Task.checkCancellation()
+      feedback = NativeWorkflowCanvasFeedback(isError: false, message: "工作流节点与连线已保存。")
+    } catch is CancellationError {
+      return
+    } catch {
+      feedback = NativeWorkflowCanvasFeedback(isError: true, message: "保存工作流失败，请检查节点配置后重试。")
+    }
+  }
+}
+
+/// 添加工作流节点目录弹层。
+@MainActor
+private struct NativeWorkflowAddNodeSheet: View {
+  let catalog: [NativeWorkflowActionDef]
+  let onSelect: (NativeWorkflowActionDef) -> Void
+  @Environment(\.dismiss) private var dismiss
+  @State private var query = ""
+
+  private var filtered: [NativeWorkflowActionDef] {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !trimmed.isEmpty else { return catalog }
+    return catalog.filter {
+      $0.name.lowercased().contains(trimmed)
+        || $0.type.lowercased().contains(trimmed)
+        || ($0.description ?? "").lowercased().contains(trimmed)
+    }
+  }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(spacing: 10) {
+            if filtered.isEmpty {
+              CinematicPanel {
+                Text("暂无可选动作节点")
+                  .font(.subheadline)
+                  .foregroundStyle(.white.opacity(0.75))
+                  .frame(maxWidth: .infinity, minHeight: 100)
+              }
+            } else {
+              ForEach(filtered) { def in
+                Button {
+                  onSelect(def)
+                  dismiss()
+                } label: {
+                  CinematicPanel(padding: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                      HStack {
+                        Text(def.name).font(.headline).foregroundStyle(.white)
+                        Spacer()
+                        Image(systemName: "plus.circle.fill")
+                          .foregroundStyle(Color(red: 0.80, green: 0.68, blue: 1.0))
+                      }
+                      Text(def.type)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(Color(red: 0.82, green: 0.72, blue: 1.0))
+                      if let desc = def.description, !desc.isEmpty {
+                        Text(desc)
+                          .font(.caption)
+                          .foregroundStyle(.white.opacity(0.72))
+                          .lineLimit(2)
+                      }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                  }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-workflow-catalog-\(def.type)")
+              }
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 12)
+        }
+        .scrollIndicators(.hidden)
+      }
+      .navigationTitle("添加工作流节点")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .searchable(text: $query, prompt: "搜索动作名称或类名")
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("关闭") { dismiss() }
+            .accessibilityIdentifier("native-workflow-catalog-close")
+        }
+      }
+    }
+    .preferredColorScheme(.dark)
+  }
+}
+
+/// 单个工作流节点的原生参数编辑器弹层。
+@MainActor
+private struct NativeWorkflowNodeEditorSheet: View {
+  @Binding var node: NativeWorkflowNode
+  @Environment(\.dismiss) private var dismiss
+
+  @State private var nameText = ""
+  @State private var descText = ""
+  @State private var timeoutText = ""
+  @State private var stringParams: [(key: String, value: String)] = []
+  @State private var boolParams: [(key: String, value: Bool)] = []
+  @State private var newKey = ""
+  @State private var newValue = ""
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 14) {
+            CinematicPanel(padding: 14) {
+              VStack(alignment: .leading, spacing: 12) {
+                Text("基础属性").font(.headline).foregroundStyle(.white)
+                VStack(alignment: .leading, spacing: 4) {
+                  Text("节点名称").font(.caption).foregroundStyle(.white.opacity(0.72))
+                  TextField(
+                    "", text: $nameText,
+                    prompt: Text("输入节点名称").foregroundColor(.white.opacity(0.45))
+                  )
+                  .foregroundStyle(.white)
+                  .padding(10)
+                  .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                  .accessibilityIdentifier("native-workflow-node-name-field")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                  Text("节点描述").font(.caption).foregroundStyle(.white.opacity(0.72))
+                  TextField(
+                    "", text: $descText,
+                    prompt: Text("输入说明（可选）").foregroundColor(.white.opacity(0.45))
+                  )
+                  .foregroundStyle(.white)
+                  .padding(10)
+                  .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                  Text("超时时间（秒）").font(.caption).foregroundStyle(.white.opacity(0.72))
+                  TextField(
+                    "", text: $timeoutText,
+                    prompt: Text("默认不限制").foregroundColor(.white.opacity(0.45))
+                  )
+                  .keyboardType(.numberPad)
+                  .foregroundStyle(.white)
+                  .padding(10)
+                  .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                }
+              }
+            }
+
+            CinematicPanel(padding: 14) {
+              VStack(alignment: .leading, spacing: 12) {
+                Text("动作参数").font(.headline).foregroundStyle(.white)
+                ForEach(Array(boolParams.enumerated()), id: \.element.key) { idx, item in
+                  Toggle(
+                    item.key,
+                    isOn: Binding(
+                      get: { boolParams[idx].value },
+                      set: { boolParams[idx].value = $0 }
+                    )
+                  )
+                  .tint(Color(red: 0.62, green: 0.46, blue: 0.92))
+                }
+                ForEach(Array(stringParams.enumerated()), id: \.element.key) { idx, item in
+                  VStack(alignment: .leading, spacing: 4) {
+                    Text(item.key).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.72))
+                    TextField(
+                      "",
+                      text: Binding(
+                        get: { stringParams[idx].value },
+                        set: { stringParams[idx].value = $0 }
+                      ),
+                      prompt: Text("参数值").foregroundColor(.white.opacity(0.45))
+                    )
+                    .foregroundStyle(.white)
+                    .padding(10)
+                    .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                    .accessibilityIdentifier("native-workflow-param-\(item.key)")
+                  }
+                }
+
+                Divider().overlay(.white.opacity(0.10))
+                HStack(spacing: 8) {
+                  TextField(
+                    "", text: $newKey,
+                    prompt: Text("新增参数键").foregroundColor(.white.opacity(0.45))
+                  )
+                  .foregroundStyle(.white)
+                  .padding(8)
+                  .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                  TextField(
+                    "", text: $newValue,
+                    prompt: Text("参数值").foregroundColor(.white.opacity(0.45))
+                  )
+                  .foregroundStyle(.white)
+                  .padding(8)
+                  .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                  Button("添加") {
+                    let k = newKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !k.isEmpty else { return }
+                    stringParams.append((key: k, value: newValue))
+                    newKey = ""
+                    newValue = ""
+                  }
+                  .font(.caption.weight(.semibold))
+                  .foregroundStyle(Color(red: 0.84, green: 0.72, blue: 1.0))
+                }
+              }
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
+        }
+        .scrollIndicators(.hidden)
+      }
+      .navigationTitle("节点参数")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("取消") { dismiss() }
+            .accessibilityIdentifier("native-workflow-node-editor-cancel")
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+          Button("应用") {
+            applyChanges()
+            dismiss()
+          }
+          .fontWeight(.semibold)
+          .accessibilityIdentifier("native-workflow-node-editor-apply")
+        }
+      }
+      .onAppear { loadFields() }
+    }
+    .preferredColorScheme(.dark)
+  }
+
+  private func loadFields() {
+    nameText = node.name
+    descText = node.description
+    timeoutText = node.timeout.map(String.init) ?? ""
+    var strs: [(String, String)] = []
+    var bools: [(String, Bool)] = []
+    for key in node.data.keys.sorted() {
+      guard let val = node.data[key] else { continue }
+      switch val {
+      case .bool(let flag):
+        bools.append((key, flag))
+      case .string(let text):
+        strs.append((key, text))
+      case .number(let num):
+        let formatted =
+          abs(num.rounded() - num) < 0.001 ? String(Int(num.rounded())) : String(num)
+        strs.append((key, formatted))
+      default:
+        continue
+      }
+    }
+    stringParams = strs
+    boolParams = bools
+  }
+
+  private func applyChanges() {
+    let trimmedName = nameText.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmedName.isEmpty { node.name = trimmedName }
+    node.description = descText.trimmingCharacters(in: .whitespacesAndNewlines)
+    node.timeout = Int(timeoutText.trimmingCharacters(in: .whitespacesAndNewlines))
+    var updated = node.data
+    for (key, flag) in boolParams {
+      updated[key] = .bool(flag)
+    }
+    for (key, text) in stringParams {
+      if case .number = node.data[key], let parsed = Double(text) {
+        updated[key] = .number(parsed)
+      } else {
+        updated[key] = .string(text)
+      }
+    }
+    node.data = updated
+  }
+}
+
+/// 节点出边连线管理弹层。
+@MainActor
+private struct NativeWorkflowLinkSheet: View {
+  let source: NativeWorkflowNode
+  let candidates: [NativeWorkflowNode]
+  let existingTargets: Set<String>
+  let onToggleTarget: (String) -> Void
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(spacing: 10) {
+            ForEach(candidates) { target in
+              let linked = existingTargets.contains(target.id)
+              Button {
+                onToggleTarget(target.id)
+                dismiss()
+              } label: {
+                CinematicPanel(padding: 12) {
+                  HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                      Text(target.name).font(.headline).foregroundStyle(.white)
+                      Text(target.type).font(.caption2.monospaced()).foregroundStyle(
+                        .white.opacity(0.66))
+                    }
+                    Spacer()
+                    Image(systemName: linked ? "link.circle.fill" : "plus.circle")
+                      .foregroundStyle(
+                        linked
+                          ? Color(red: 0.56, green: 0.92, blue: 0.72)
+                          : Color(red: 0.80, green: 0.68, blue: 1.0))
+                  }
+                }
+              }
+              .buttonStyle(.plain)
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 12)
+        }
+      }
+      .navigationTitle("从「\(source.name)」连线")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("关闭") { dismiss() }
+        }
+      }
+    }
+    .preferredColorScheme(.dark)
+  }
+}
+
+/// 画布反馈提示载体。
+private struct NativeWorkflowCanvasFeedback {
+  let isError: Bool
+  let message: String
+}
+
+/// `GET /api/v1/workflow/{id}` 完整工作流详情模型。
+private struct NativeWorkflowDetail: Decodable, Sendable {
+  let id: Int
+  let name: String
+  let description: String?
+  let timer: String?
+  let triggerType: String?
+  let eventType: String?
+  let state: String?
+  let actions: [NativeWorkflowNode]?
+  let flows: [NativeWorkflowEdge]?
+
+  /// 若旧节点缺少坐标，则自动纵向错开布局避免重叠。
+  var normalizedActions: [NativeWorkflowNode] {
+    let raw = actions ?? []
+    let allZero = raw.count > 1 && raw.allSatisfy { $0.position.x == 0 && $0.position.y == 0 }
+    guard allZero else { return raw }
+    return raw.enumerated().map { idx, item in
+      var copy = item
+      copy.position = NativeWorkflowPosition(
+        x: Double(idx % 2) * 40 + 20, y: Double(idx) * 124 + 20)
+      return copy
+    }
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id, name, description, timer, state, actions, flows
+    case triggerType = "trigger_type"
+    case eventType = "event_type"
+  }
+}
+
+/// `PUT /api/v1/workflow/{id}` 更新载体。
+private struct NativeWorkflowUpdatePayload: Encodable, Sendable {
+  let id: Int
+  let name: String
+  let description: String?
+  let timer: String?
+  let triggerType: String?
+  let eventType: String?
+  let state: String?
+  let actions: [NativeWorkflowNode]
+  let flows: [NativeWorkflowEdge]
+
+  private enum CodingKeys: String, CodingKey {
+    case id, name, description, timer, state, actions, flows
+    case triggerType = "trigger_type"
+    case eventType = "event_type"
+  }
+}
+
+/// 画布节点位置。
+private struct NativeWorkflowPosition: Codable, Sendable {
+  var x: Double
+  var y: Double
+}
+
+/// 单个工作流动作节点。
+private struct NativeWorkflowNode: Codable, Sendable, Identifiable {
+  let id: String
+  let type: String
+  var name: String
+  var description: String
+  var position: NativeWorkflowPosition
+  var data: [String: JSONValue]
+  var timeout: Int?
+  var failPolicy: String?
+
+  init(
+    id: String, type: String, name: String, description: String,
+    position: NativeWorkflowPosition, data: [String: JSONValue],
+    timeout: Int?, failPolicy: String?
+  ) {
+    self.id = id
+    self.type = type
+    self.name = name
+    self.description = description
+    self.position = position
+    self.data = data
+    self.timeout = timeout
+    self.failPolicy = failPolicy
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? UUID().uuidString
+    type = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? "Action"
+    name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? type
+    description = (try? c.decodeIfPresent(String.self, forKey: .description)) ?? ""
+    position =
+      (try? c.decodeIfPresent(NativeWorkflowPosition.self, forKey: .position))
+      ?? NativeWorkflowPosition(x: 20, y: 20)
+    data = (try? c.decodeIfPresent([String: JSONValue].self, forKey: .data)) ?? [:]
+    timeout = try? c.decodeIfPresent(Int.self, forKey: .timeout)
+    failPolicy = try? c.decodeIfPresent(String.self, forKey: .failPolicy)
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id, type, name, description, position, data, timeout
+    case failPolicy = "fail_policy"
+  }
+}
+
+/// 节点有向连线。
+private struct NativeWorkflowEdge: Codable, Sendable, Identifiable {
+  let id: String
+  let source: String
+  let target: String
+  let animated: Bool?
+  let condition: String?
+
+  init(id: String, source: String, target: String, animated: Bool?, condition: String?) {
+    self.id = id
+    self.source = source
+    self.target = target
+    self.animated = animated
+    self.condition = condition
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    source = (try? c.decodeIfPresent(String.self, forKey: .source)) ?? ""
+    target = (try? c.decodeIfPresent(String.self, forKey: .target)) ?? ""
+    id = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? "flow_\(source)_\(target)"
+    animated = try? c.decodeIfPresent(Bool.self, forKey: .animated)
+    condition = try? c.decodeIfPresent(String.self, forKey: .condition)
+  }
+}
+
+/// `GET /api/v1/workflow/actions` 动作目录条目。
+private struct NativeWorkflowActionDef: Decodable, Sendable, Identifiable {
+  let type: String
+  let name: String
+  let description: String?
+  let data: [String: JSONValue]
+
+  var id: String { type }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    type = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? ""
+    name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? type
+    description = try? c.decodeIfPresent(String.self, forKey: .description)
+    data = (try? c.decodeIfPresent([String: JSONValue].self, forKey: .data)) ?? [:]
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case type, name, description, data
+  }
+}

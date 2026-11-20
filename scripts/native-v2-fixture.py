@@ -72,7 +72,22 @@ class NativeFixture(ThreadingHTTPServer):
                 "workflows": [
                     {
                         "id": 31, "name": "合成自动整理", "description": "定时检查下载目录",
-                        "timer": "*/15 * * * *", "state": "P", "run_count": 2, "result": None,
+                        "timer": "*/15 * * * *", "trigger_type": "timer", "state": "P", "run_count": 2, "result": None,
+                        "actions": [
+                            {
+                                "id": "act-scan", "type": "ScanFileAction", "name": "扫描下载目录",
+                                "description": "扫描新增媒体文件", "position": {"x": 24, "y": 24},
+                                "data": {"source": "/downloads", "loop": False}, "timeout": 60,
+                            },
+                            {
+                                "id": "act-transfer", "type": "TransferFileAction", "name": "自动整理入库",
+                                "description": "按分类转移至媒体库", "position": {"x": 24, "y": 156},
+                                "data": {"source": "/downloads", "target": "/video"}, "timeout": 120,
+                            },
+                        ],
+                        "flows": [
+                            {"id": "flow-1", "source": "act-scan", "target": "act-transfer", "animated": True}
+                        ],
                     }
                 ],
                 "env": {
@@ -292,7 +307,22 @@ class NativeHandler(BaseHTTPRequestHandler):
                     profile["workflows"] = [
                         {
                             "id": 31, "name": "合成自动整理", "description": "定时检查下载目录",
-                            "timer": "*/15 * * * *", "state": "P", "run_count": 2, "result": None,
+                            "timer": "*/15 * * * *", "trigger_type": "timer", "state": "P", "run_count": 2, "result": None,
+                            "actions": [
+                                {
+                                    "id": "act-scan", "type": "ScanFileAction", "name": "扫描下载目录",
+                                    "description": "扫描新增媒体文件", "position": {"x": 24, "y": 24},
+                                    "data": {"source": "/downloads", "loop": False}, "timeout": 60,
+                                },
+                                {
+                                    "id": "act-transfer", "type": "TransferFileAction", "name": "自动整理入库",
+                                    "description": "按分类转移至媒体库", "position": {"x": 24, "y": 156},
+                                    "data": {"source": "/downloads", "target": "/video"}, "timeout": 120,
+                                },
+                            ],
+                            "flows": [
+                                {"id": "flow-1", "source": "act-scan", "target": "act-transfer", "animated": True}
+                            ],
                         }
                     ]
                     profile["env"] = {
@@ -386,6 +416,9 @@ class NativeHandler(BaseHTTPRequestHandler):
             if re.fullmatch(r"api/v1/plugin/(?:install|reset)/[A-Za-z][A-Za-z0-9_]*", endpoint):
                 self.plugin_action_endpoint(name, endpoint)
                 return
+            if endpoint in {"api/v1/workflow/actions", "api/v1/workflow/shares"} or re.fullmatch(r"api/v1/workflow/[0-9]+", endpoint):
+                self.workflow_read_endpoint(name, endpoint)
+                return
             if endpoint == "api/v1/system/img/0":
                 self.image_endpoint(name)
                 return
@@ -401,6 +434,9 @@ class NativeHandler(BaseHTTPRequestHandler):
                 return
             if re.fullmatch(r"api/v1/workflow/[0-9]+/(?:run|start|pause|reset)", endpoint):
                 self.workflow_action_endpoint(name, endpoint)
+                return
+            if endpoint == "api/v1/workflow/fork":
+                self.workflow_fork_endpoint(name, body)
                 return
             if endpoint == "api/v1/system/env":
                 self.system_env_update_endpoint(name, body)
@@ -426,6 +462,9 @@ class NativeHandler(BaseHTTPRequestHandler):
                 return
             if re.fullmatch(r"api/v1/subscribe/status/[0-9]+", endpoint):
                 self.subscribe_status_endpoint(name, endpoint)
+                return
+            if re.fullmatch(r"api/v1/workflow/[0-9]+", endpoint):
+                self.workflow_update_endpoint(name, endpoint, body)
                 return
         if name in self.server.profiles and self.command == "DELETE":
             if endpoint == "api/v1/history/transfer":
@@ -1087,6 +1126,124 @@ class NativeHandler(BaseHTTPRequestHandler):
                     elif action == "reset":
                         wf["state"] = "W"
                         wf["result"] = None
+        self.reply(200, {"success": True, "message": "", "data": None})
+
+    def workflow_read_endpoint(self, name, endpoint):
+        """返回工作流详情（含 actions/flows）、动作目录或社区分享列表。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"GET {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a" and not self.permissions(mode)["manage"]:
+            self.reply(403, {"success": False})
+            return
+        if endpoint == "api/v1/workflow/actions":
+            catalog = [
+                {
+                    "type": "ScanFileAction",
+                    "name": "扫描目录",
+                    "description": "扫描指定目录并输出媒体文件列表",
+                    "data": {"source": "/downloads", "loop": False},
+                },
+                {
+                    "type": "TransferFileAction",
+                    "name": "整理文件",
+                    "description": "识别并整理文件至目标媒体库",
+                    "data": {"source": "/downloads", "target": "/video"},
+                },
+                {
+                    "type": "SendMessageAction",
+                    "name": "发送通知",
+                    "description": "将执行结果推送至消息渠道",
+                    "data": {"title": "工作流完成", "channel": "default"},
+                },
+            ]
+            self.reply(200, {"success": True, "message": "", "data": catalog})
+            return
+        if endpoint == "api/v1/workflow/shares":
+            shares = [
+                {
+                    "id": 901,
+                    "share_title": "每日热门榜单自动订阅",
+                    "share_comment": "定时抓取热门榜单并按评分过滤自动加入订阅",
+                    "share_user": "MoviePilot",
+                    "name": "每日热门榜单自动订阅",
+                    "description": "定时抓取热门榜单",
+                    "timer": "0 8 * * *",
+                    "trigger_type": "timer",
+                    "actions": "[]",
+                    "flows": "[]",
+                    "count": 128,
+                }
+            ]
+            self.reply(200, {"success": True, "message": "", "data": shares})
+            return
+        wf_id = int(endpoint.rsplit("/", 1)[-1])
+        with self.server.lock:
+            match = next((wf for wf in self.server.profiles[name]["workflows"] if wf["id"] == wf_id), None)
+        if not match:
+            self.reply(404, {"success": False})
+            return
+        self.reply(200, {"success": True, "message": "", "data": match})
+
+    def workflow_update_endpoint(self, name, endpoint, body):
+        """单次保存画布编辑后的工作流节点与连线。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"PUT {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a" and not self.permissions(mode)["manage"]:
+            self.reply(403, {"success": False})
+            return
+        try:
+            payload = json.loads(body)
+        except (ValueError, TypeError):
+            self.reply(422, {"success": False})
+            return
+        wf_id = int(endpoint.rsplit("/", 1)[-1])
+        with self.server.lock:
+            for wf in self.server.profiles[name]["workflows"]:
+                if wf["id"] == wf_id:
+                    wf["actions"] = payload.get("actions", wf.get("actions", []))
+                    wf["flows"] = payload.get("flows", wf.get("flows", []))
+        self.reply(200, {"success": True, "message": "", "data": None})
+
+    def workflow_fork_endpoint(self, name, body):
+        """单次复用社区工作流分享至本地清单。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["POST api/v1/workflow/fork"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a" and not self.permissions(mode)["manage"]:
+            self.reply(403, {"success": False})
+            return
+        try:
+            payload = json.loads(body)
+        except (ValueError, TypeError):
+            self.reply(422, {"success": False})
+            return
+        with self.server.lock:
+            self.server.profiles[name]["workflows"].append({
+                "id": 32,
+                "name": payload.get("share_title") or payload.get("name") or "复用工作流",
+                "description": payload.get("share_comment") or "",
+                "timer": payload.get("timer") or "0 8 * * *",
+                "trigger_type": "timer",
+                "state": "W",
+                "run_count": 0,
+                "result": None,
+                "actions": [],
+                "flows": [],
+            })
         self.reply(200, {"success": True, "message": "", "data": None})
 
     def system_env_update_endpoint(self, name, body):

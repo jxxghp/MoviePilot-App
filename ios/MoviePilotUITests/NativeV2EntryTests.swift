@@ -237,6 +237,25 @@ final class NativeV2EntryTests: XCTestCase {
       XCTAssertTrue(app.scrollViews["native-workflows-scroll"].waitForExistence(timeout: 15))
       try await Task.sleep(nanoseconds: 1_500_000_000)
       capture("native-v2-live-workflows")
+      let firstCanvas = app.buttons.matching(
+        NSPredicate(format: "identifier BEGINSWITH 'native-workflow-canvas-'")
+      ).firstMatch
+      if firstCanvas.waitForExistence(timeout: 5) {
+        tap(firstCanvas, app: app)
+        XCTAssertTrue(
+          app.descendants(matching: .any)["native-workflow-canvas-area"].firstMatch
+            .waitForExistence(timeout: 15))
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        capture("native-v2-live-workflow-canvas")
+        app.navigationBars.buttons.firstMatch.tap()
+        try await Task.sleep(nanoseconds: 500_000_000)
+      }
+      let sharesTab = app.buttons["native-workflow-mode-社区分享"]
+      if sharesTab.exists {
+        tap(sharesTab, app: app)
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+        capture("native-v2-live-workflow-shares")
+      }
       app.navigationBars.buttons.firstMatch.tap()
     }
     let msgEntry = app.buttons["native-workspace-messages"]
@@ -958,6 +977,71 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["a"]?["GET api/v1/plugin/dashboard/DemoPlugin"], 1)
     XCTAssertEqual(counts["a"]?["GET api/v1/plugin/page/DemoPlugin"], 1)
     XCTAssertEqual(counts["a"]?["GET api/v1/plugin/page/VueCompatDemo"], 1)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// P5.5：验证纯原生工作流节点画布、添加节点、参数编辑与单次保存，及社区工作流分享复用，零 WebView。
+  func testNativeWorkflowCanvasEditSaveAndCommunityFork() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    tap(tabButton("我的", app: app), app: app)
+
+    let wfEntry = app.buttons["native-workspace-workflows"]
+    reveal(wfEntry, app: app)
+    tap(wfEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-workflows-scroll"].waitForExistence(timeout: 10))
+
+    let canvasBtn = app.buttons["native-workflow-canvas-31"]
+    XCTAssertTrue(canvasBtn.waitForExistence(timeout: 10))
+    tap(canvasBtn, app: app)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-workflow-canvas-area"].firstMatch.waitForExistence(
+        timeout: 10))
+    XCTAssertTrue(app.buttons["native-workflow-node-act-scan"].waitForExistence(timeout: 10))
+
+    let addBtn = app.buttons["native-workflow-add-node"]
+    XCTAssertTrue(addBtn.waitForExistence(timeout: 8))
+    addBtn.tap()
+    let notifyAction = app.buttons["native-workflow-catalog-SendMessageAction"]
+    XCTAssertTrue(notifyAction.waitForExistence(timeout: 10))
+    notifyAction.tap()
+
+    let editBtn = app.buttons["native-workflow-edit-node"]
+    XCTAssertTrue(editBtn.waitForExistence(timeout: 10))
+    editBtn.tap()
+    let applyBtn = app.buttons["native-workflow-node-editor-apply"]
+    XCTAssertTrue(applyBtn.waitForExistence(timeout: 10))
+    applyBtn.tap()
+
+    let saveBtn = app.buttons["native-workflow-canvas-save"]
+    XCTAssertTrue(saveBtn.waitForExistence(timeout: 8))
+    saveBtn.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-workflow-canvas-feedback"].firstMatch
+        .waitForExistence(timeout: 10))
+    XCTAssertEqual(app.webViews.count, 0)
+
+    app.navigationBars.buttons.firstMatch.tap()
+    let sharesTab = app.buttons["native-workflow-mode-社区分享"]
+    XCTAssertTrue(sharesTab.waitForExistence(timeout: 10))
+    tap(sharesTab, app: app)
+    let forkBtn = app.buttons["native-workflow-fork-901"]
+    XCTAssertTrue(forkBtn.waitForExistence(timeout: 10))
+    tap(forkBtn, app: app)
+    let confirmFork = app.alerts["复用工作流"].buttons["确认复用"]
+    XCTAssertTrue(confirmFork.waitForExistence(timeout: 8))
+    confirmFork.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-workflows-feedback"].firstMatch.waitForExistence(
+        timeout: 10))
+    XCTAssertEqual(app.webViews.count, 0)
+
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["GET api/v1/workflow/31"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/workflow/actions"], 1)
+    XCTAssertEqual(counts["a"]?["PUT api/v1/workflow/31"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/workflow/shares"], 1)
+    XCTAssertEqual(counts["a"]?["POST api/v1/workflow/fork"], 1)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -2299,6 +2383,8 @@ final class NativeV2EntryTests: XCTestCase {
       "native-modules-save", "native-modules-cancel",
       "native-subscribe-editor-save", "native-subscribe-editor-cancel",
       "native-agent-sessions-close",
+      "native-workflow-node-editor-apply", "native-workflow-node-editor-cancel",
+      "native-workflow-catalog-close",
     ].contains(element.identifier) {
       // iPad 原生 sheet 的工具栏 AX 框可能仍用局部坐标；这是导航动作，不属于滚动内容。
       return app.windows.firstMatch.frame.contains(
