@@ -52,5 +52,85 @@
     "height": 1280,
     "source": "User-provided Rex screenshot, 2026-11-19",
     "usage": "Local design reference, not a rendered MoviePilot screen"
+  },
+  {
+    "reference": 7,
+    "file": "07-download-list.png",
+    "source_sha256": "39e2410baea4a692705197ce920e7f3e32d88c99a8e30f9598a2063a5173776d",
+    "width": 588,
+    "height": 1280,
+    "source": "User-provided Rex screenshot, 2026-11-20",
+    "usage": "Download queue list layout",
+    "normalized_sha256": "cb0184e0b55bd7594542bc3e657490bc855435faaca2053a9ebda5fbdd36367f"
+  },
+  {
+    "reference": 8,
+    "file": "08-media-search-list.png",
+    "source_sha256": "a6767509d8148debd23d92376df6744a91327171a5cad8e29116613662504591",
+    "width": 588,
+    "height": 1280,
+    "source": "User-provided Rex screenshot, 2026-11-20",
+    "usage": "Media search results list layout",
+    "normalized_sha256": "02a243f5b48b83b298e46de6c53b458daa5221bd86abadfa514b49c378f24825"
+  },
+  {
+    "reference": 9,
+    "file": "09-more-menu.png",
+    "source_sha256": "a5deaa69722f19c394fa52407919ba2a98b995120e63f4a91cf8a9c57ef18220",
+    "width": 588,
+    "height": 1280,
+    "source": "User-provided Rex screenshot, 2026-11-20",
+    "usage": "Discover tab repeat-tap all-sections menu",
+    "normalized_sha256": "d1bb14c68cfe7e05bf2462cb42f5299a0654670ca1cadbea2651405de422c6f5"
+  },
+  {
+    "reference": 10,
+    "file": "10-module-arrangement.png",
+    "source_sha256": "325837d7e56270e52ff232650250b2441681fed236ca516524ec9c2ebd9907c4",
+    "width": 588,
+    "height": 1280,
+    "source": "User-provided Rex screenshot, 2026-11-20",
+    "usage": "Module visibility and reordering for Discover/dashboard modules",
+    "normalized_sha256": "3676bb19dbf8c167d29bbd4315e04bcf5d11023249ae060d0c85e40926fa3b7c"
+  },
+  {
+    "reference": 11,
+    "file": "11-global-search.png",
+    "source_sha256": "d24845d52c029534237222bd72318fced1785332d276a2e43ba35a19d80b8c31",
+    "width": 588,
+    "height": 1280,
+    "source": "User-provided Rex screenshot, 2026-11-20",
+    "usage": "Global media search with filters, people and categorized poster/results cards",
+    "normalized_sha256": "a74fde1627884ec447eeec8fd077016abd5fcfbc3dcf945f8dfc9ca5cbcea1fb"
+  },
+  {
+    "reference": 12,
+    "file": "12-dashboard-overview.png",
+    "source_sha256": "dada1616c35790165a5be47462ea3d4f154cefcddc1ffba35399e3ebdb84095a",
+    "width": 588,
+    "height": 1280,
+    "source": "User-provided Rex screenshot, 2026-11-20",
+    "usage": "Dashboard with collection counts and viewing summary modules",
+    "normalized_sha256": "0258a1aec572306cb1d53bfbae792b46d1159b0c6ecb6a2bbdc7cfeb6c2e66b9"
+  },
+  {
+    "reference": 13,
+    "file": "13-calendar-dashboard.png",
+    "source_sha256": "bb81fbf55e94b3d63199c085509ea51e8d46d153c4ff4f079bcaee7c280886b2",
+    "width": 588,
+    "height": 1280,
+    "source": "User-provided Rex screenshot, 2026-11-20",
+    "usage": "Calendar view with date strip, viewing summary, history and watchlist modules",
+    "normalized_sha256": "add2069ba04f0ebc637e73c9bb3200ab64016c95a1a75f7b45b37d6b0a64782b"
+  },
+  {
+    "reference": 14,
+    "file": "14-library-categories.png",
+    "source_sha256": "90b68c8ea5074780b88df4622051139a9c0fe86e646d49ce21b02a296bdf7675",
+    "width": 588,
+    "height": 1280,
+    "source": "User-provided Rex screenshot, 2026-11-20",
+    "usage": "Media library with streaming services, category cards and poster grid",
+    "normalized_sha256": "9ea3df1cbebcdae3ea0a8c3237d754f1dc763c781bab7516e8d9a2983d668d43"
   }
 ]
