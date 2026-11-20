@@ -302,6 +302,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                 or re.fullmatch(r"api/v1/tmdb/(?:credits|recommend|similar)/1[0-9]{2}/(?:电影|电视剧)", endpoint)
                 or re.fullmatch(r"api/v1/tmdb/person(?:/credits)?/[0-9]{3}", endpoint)
                 or re.fullmatch(r"api/v1/user/config/[A-Za-z0-9_.-]+", endpoint)
+                or re.fullmatch(r"api/v1/subscribe/[0-9]+", endpoint)
             ):
                 self.business_endpoint(name, endpoint)
                 return
@@ -330,7 +331,13 @@ class NativeHandler(BaseHTTPRequestHandler):
             if path == f"/{name}/api/v1/subscribe/":
                 self.subscribe_create_endpoint(name, body)
                 return
+            if endpoint == "api/v1/subscribe/fork":
+                self.subscribe_fork_endpoint(name, body)
+                return
         if name in self.server.profiles and self.command == "PUT":
+            if path == f"/{name}/api/v1/subscribe/":
+                self.subscribe_update_endpoint(name, body)
+                return
             if re.fullmatch(r"api/v1/subscribe/status/[0-9]+", endpoint):
                 self.subscribe_status_endpoint(name, endpoint)
                 return
@@ -401,6 +408,8 @@ class NativeHandler(BaseHTTPRequestHandler):
             "api/v1/storage/options",
             "api/v1/system/env",
             "api/v1/subscribe/calendar",
+            "api/v1/subscribe/popular",
+            "api/v1/subscribe/shares",
             "api/v1/dashboard/statistic",
             "api/v1/dashboard/storage",
             "api/v1/dashboard/schedule",
@@ -549,6 +558,29 @@ class NativeHandler(BaseHTTPRequestHandler):
         elif endpoint == "api/v1/subscribe":
             with self.server.lock:
                 value = list(self.server.profiles[name]["sub_items"])
+        elif re.fullmatch(r"api/v1/subscribe/[0-9]+", endpoint):
+            sub_id = int(endpoint.rsplit("/", 1)[-1])
+            with self.server.lock:
+                matched = next((row for row in self.server.profiles[name]["sub_items"] if row["id"] == sub_id), None)
+            if matched is None:
+                self.reply(404, {"success": False})
+                return
+            value = dict(matched)
+        elif endpoint == "api/v1/subscribe/popular":
+            stype = query.get("stype", ["电影"])[0]
+            item = self.media(101 if stype == "电影" else 111, stype)
+            item["popularity"] = 420
+            value = [item]
+        elif endpoint == "api/v1/subscribe/shares":
+            value = [{
+                "id": 601, "subscribe_id": 702, "share_title": "合成 4K 杜比洗版",
+                "share_comment": "仅保留中字与杜比视界高码率版本", "share_user": "社区影迷",
+                "share_uid": "uid-601", "name": "合成追剧", "year": "2025", "type": "电视剧",
+                "media_source": "themoviedb", "media_id": "111", "season": 1,
+                "poster": "https://images.example.test/111/poster.png", "vote": 8.8,
+                "quality": "WEB-DL", "resolution": "4k", "effect": "杜比视界",
+                "include": "中字", "total_episode": 12, "count": 18,
+            }]
         elif endpoint == "api/v1/subscribe/calendar":
             start = query.get("start", ["2026-11-15"])[0]
             value = {
@@ -657,6 +689,53 @@ class NativeHandler(BaseHTTPRequestHandler):
         with self.server.lock:
             self.server.profiles[name]["subscriptions"].add((media_id, season))
         self.reply(200, {"success": True, "message": "", "data": {"id": 9001}})
+
+    def subscribe_update_endpoint(self, name, body):
+        """单次更新合成订阅的高级过滤与洗版字段。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["PUT api/v1/subscribe/"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if not self.permissions(mode)["subscribe"]:
+            self.reply(403, {"success": False})
+            return
+        try:
+            payload = json.loads(body)
+            sub_id = int(payload["id"])
+        except (KeyError, ValueError, TypeError):
+            self.reply(422, {"success": False})
+            return
+        with self.server.lock:
+            for item in self.server.profiles[name]["sub_items"]:
+                if item["id"] == sub_id:
+                    for key, val in payload.items():
+                        if key != "id":
+                            item[key] = val
+        self.reply(200, {"success": True, "message": "", "data": None})
+
+    def subscribe_fork_endpoint(self, name, body):
+        """单次响应分享订阅复用请求。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["POST api/v1/subscribe/fork"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if not self.permissions(mode)["subscribe"]:
+            self.reply(403, {"success": False})
+            return
+        try:
+            payload = json.loads(body)
+            if not isinstance(payload, dict) or not payload.get("name"):
+                raise ValueError()
+        except (ValueError, TypeError):
+            self.reply(422, {"success": False})
+            return
+        self.reply(200, {"success": True, "message": "", "data": {"id": 9002}})
 
     def subscribe_delete_endpoint(self, name, endpoint):
         """单次移除合成订阅。"""

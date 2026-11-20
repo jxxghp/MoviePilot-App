@@ -22,6 +22,7 @@
 		29D3DF44DA14967EB9C79979 /* NativeSystemSettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68C6FA6CA18037E7B4A18B47 /* NativeSystemSettingsPage.swift */; };
 		2BD57F8FAA89B6CE62520CDF /* CardMenuInteraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32C08F097B084258A76DECD1 /* CardMenuInteraction.swift */; };
 		2ECCFA5FCDCC8BEB234D0B0D /* NativeDashboardPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76B2E764B2FD72F7288DDD30 /* NativeDashboardPage.swift */; };
+		3B7D26D9189BEB1B9C008546 /* NativeSubscribeCommunityPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CA3958D36BFB5E17CA6E7E /* NativeSubscribeCommunityPage.swift */; };
 		3C9C4AF98C14ECF412DD19A5 /* NativeUsersPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92FC46BA3B51393FE1CBD566 /* NativeUsersPage.swift */; };
 		3CBB675738DCDAD4D0C9ADB9 /* NativeWorkflowsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E76B95589CF91ADA4DD7FA6 /* NativeWorkflowsPage.swift */; };
 		3D424A853E324626526E7C32 /* NativePluginCronEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 956812F9BDCA0C80A21A1D4D /* NativePluginCronEditor.swift */; };
@@ -33,6 +34,7 @@
 		54E9EBAF180B0BCF04DE4FC6 /* VLCKit in Frameworks */ = {isa = PBXBuildFile; productRef = 91C7B8794D4CD7E0C76EDFF0 /* VLCKit */; };
 		584C60A56D7F371BBF233342 /* PreviewLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEBC6D74B0E889EA46A732AE /* PreviewLibrary.swift */; };
 		5B239E611FBFE70668B9E86D /* LanguageBootstrap.js in Resources */ = {isa = PBXBuildFile; fileRef = 9F0DF2142B7D5B4A29F499BD /* LanguageBootstrap.js */; };
+		5D3E6E5DA1BB440CBDF5E6FA /* NativeSubscribeEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7566D9064F4C7139A064B5BD /* NativeSubscribeEditorSheet.swift */; };
 		6051CDC21EA5C85DA1DD6D3E /* NativeFileManagerPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4560BBC8ECE63C86B8D993DF /* NativeFileManagerPage.swift */; };
 		60C934B3A627113848AA3617 /* ThirdPartyNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = 074E2F176D7B19065BD0557F /* ThirdPartyNotices.txt */; };
 		6447B67E44DBCF084F5B0F8B /* Media.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A9582BF92DA6E267FB4C4B14 /* Media.xcassets */; };
@@ -188,6 +190,7 @@
 		6D565B6584319D5328EB3F39 /* WebCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebCoordinator.swift; sourceTree = "<group>"; };
 		6E34C8AE293060383912C15F /* PreviewMediaDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewMediaDetail.swift; sourceTree = "<group>"; };
 		6FA5AFA5548F3E007A5709E9 /* NativePluginComboboxEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginComboboxEditor.swift; sourceTree = "<group>"; };
+		7566D9064F4C7139A064B5BD /* NativeSubscribeEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscribeEditorSheet.swift; sourceTree = "<group>"; };
 		76B2E764B2FD72F7288DDD30 /* NativeDashboardPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDashboardPage.swift; sourceTree = "<group>"; };
 		77D6979872674A2654C34AE8 /* NativeExplorePage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeExplorePage.swift; sourceTree = "<group>"; };
 		7AFD1560F224ABDAD40A7D45 /* MediaPlaybackController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPlaybackController.swift; sourceTree = "<group>"; };
@@ -235,6 +238,7 @@
 		EEA3031D7DC4E14A074F6218 /* LegacyWebsiteStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyWebsiteStorage.swift; sourceTree = "<group>"; };
 		EF1A8D67F8876B6AECE70ECA /* StartupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupView.swift; sourceTree = "<group>"; };
 		EF6849CE05D1EC77AFA67129 /* NativeDownloadsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadsPage.swift; sourceTree = "<group>"; };
+		F5CA3958D36BFB5E17CA6E7E /* NativeSubscribeCommunityPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscribeCommunityPage.swift; sourceTree = "<group>"; };
 		F9E36A848549750FC3109AA0 /* MoviePilotDesignPreview.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MoviePilotDesignPreview.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -328,6 +332,8 @@
 				B6459B12BBE68089FA81AC88 /* NativeMessagesPage.swift */,
 				3E0B3A43D3BA4AA717CEB29B /* NativeResourceSearchPage.swift */,
 				5F33A2CBF14E52CA99816FE7 /* NativeSitesPage.swift */,
+				F5CA3958D36BFB5E17CA6E7E /* NativeSubscribeCommunityPage.swift */,
+				7566D9064F4C7139A064B5BD /* NativeSubscribeEditorSheet.swift */,
 				DA6542A83716C651A9A5510B /* NativeSubscriptionsPage.swift */,
 				68C6FA6CA18037E7B4A18B47 /* NativeSystemSettingsPage.swift */,
 				DD83F9ADCEC4810F8AB5FA50 /* NativeTransferHistoryPage.swift */,
@@ -726,6 +732,8 @@
 				D7EDEDB0DE9835F49D973665 /* NativePluginFormView.swift in Sources */,
 				84F5B4F5B036CE1992EE9C26 /* NativeResourceSearchPage.swift in Sources */,
 				1643E5D3ACDFDECB97B3BD54 /* NativeSitesPage.swift in Sources */,
+				3B7D26D9189BEB1B9C008546 /* NativeSubscribeCommunityPage.swift in Sources */,
+				5D3E6E5DA1BB440CBDF5E6FA /* NativeSubscribeEditorSheet.swift in Sources */,
 				FFBF4A25C55AF8B92FC3E416 /* NativeSubscriptionsPage.swift in Sources */,
 				29D3DF44DA14967EB9C79979 /* NativeSystemSettingsPage.swift in Sources */,
 				C38CDC369F7BE7AB52EF08E5 /* NativeTransferHistoryPage.swift in Sources */,

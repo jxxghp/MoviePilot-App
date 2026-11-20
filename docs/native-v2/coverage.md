@@ -54,6 +54,7 @@
 | 原生文件管理与工作流（P5.2 / P5.4） | NativeFileManagerPage / NativeWorkflowsPage；多存储切换（本地/SMB等）、目录钻取/面包屑/新建目录/确认删除、工作流清单/调度状态/手动运行/启停/确认重置；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [文件与工作流证据](evidence/2026-11-21-files-workflows.md) | 文件整理/移动复制弹窗、工作流原生节点画布（P5.5）仍待后续叶子 |
 | 原生系统设置中心与用户管理（P6.2 / P6.3） | NativeSystemSettingsPage / NativeUsersPage；超级管理员门控的 2×2 概览与三组非敏感环境设置读写/增量单次保存、用户角色/状态/2FA/权限清单与检索；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [设置与用户证据](evidence/2026-11-21-settings-users.md) | 其余八类高级设置子页（目录/分类/规则/通知等）与用户增改删/MFA/Passkey 仍待后续叶子 |
 | 原生多来源探索与发现模块编排（P3.2b） | NativeExplorePage / NativeDiscoverModulesSheet + 发现页分类探索卡片；TMDB / 豆瓣 / Bangumi 与插件扩展发现源多维筛选与自动翻页、发现模块开关显隐与拖拽排序持久化；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [探索与模块证据](evidence/2026-11-21-explore-modules.md) | 音乐多来源探索/专辑/艺术家详情（P3.5）仍待后续叶子 |
+| 原生订阅高级编辑与订阅广场（P4.2 / P4.3） | NativeSubscribeEditorSheet / NativeSubscribeCommunityPage；订阅画质/分辨率/特效/洗版/过滤词/集数/下载器单次更新、热门电影剧集订阅排行与社区分享浏览/搜索/确认复用；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [订阅高级与广场证据](evidence/2026-11-21-subscribe-editor-community.md) | 订阅活动日志/执行文件明细与音乐订阅（P3.5）仍待后续叶子 |
 
 ## 不在上述路由里、同样必须迁移的功能
 

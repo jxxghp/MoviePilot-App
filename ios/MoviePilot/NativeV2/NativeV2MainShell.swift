@@ -241,6 +241,8 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           NativeExplorePage(session: session, initialSource: source)
         case .subscriptions:
           NativeSubscriptionsPage(session: session)
+        case .subscribeCommunity:
+          NativeSubscribeCommunityPage(session: session)
         case .downloads:
           NativeDownloadsPage(session: session)
         case .calendar:
@@ -432,6 +434,20 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("native-workspace-subscriptions")
+                CinematicFormDivider()
+                Button {
+                  accountPath.append(.subscribeCommunity)
+                } label: {
+                  CinematicFormRow(symbol: "flame.fill") {
+                    Text("订阅广场")
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                      .foregroundStyle(.white.opacity(0.45))
+                  }
+                  .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-workspace-subscribe-community")
               }
               if canSearchResources {
                 if canSubscribe { CinematicFormDivider() }
@@ -602,6 +618,8 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           NativeExplorePage(session: session, initialSource: source)
         case .subscriptions:
           NativeSubscriptionsPage(session: session)
+        case .subscribeCommunity:
+          NativeSubscribeCommunityPage(session: session)
         case .downloads:
           NativeDownloadsPage(session: session)
         case .calendar:
@@ -1010,6 +1028,7 @@ struct NativeMediaIdentity: Identifiable, Hashable {
 private enum NativeWorkspaceDestination: Hashable {
   case explore(NativeExploreSourceKind)
   case subscriptions
+  case subscribeCommunity
   case downloads
   case calendar
   case resources
@@ -1028,6 +1047,7 @@ private enum NativeMediaDestination: Identifiable, Hashable {
   case media(NativeMediaIdentity)
   case explore(NativeExploreSourceKind)
   case subscriptions
+  case subscribeCommunity
   case downloads
   case calendar
   case resources
@@ -1046,6 +1066,7 @@ private enum NativeMediaDestination: Identifiable, Hashable {
     case .media(let identity): "media:" + identity.id
     case .explore(let source): "explore:" + source.rawValue
     case .subscriptions: "subscriptions"
+    case .subscribeCommunity: "subscribeCommunity"
     case .downloads: "downloads"
     case .calendar: "calendar"
     case .resources: "resources"
