@@ -5,7 +5,7 @@
 - 创建日期：2026-11-19；Codex 长期 Goal：active。
 - 开发仓库与分支：MoviePilot-App / v2，从最新 origin/main 的 682e9532c384af457a275ef5dfe66cbe0672a5cb 建立。
 - 战略目标：主体全部原生 UI + 直接后端 API + 原生 JSON 插件渲染 + 既有 Web 插件兼容，达到现有功能完整覆盖后切换为默认客户端。
-- 当前接续叶子：**P2.3 / P2.4 原生插件 JSON 数据页、仪表板组件与受控兼容容器**（紧接已完成本地 iPhone/iPad 与本机 3001 真实后端逐图验收的 **P6.5 原生 AI Agent 流式对话面板**、**P7.1 原生插件市场与生命周期管理**、**P3.5 原生音乐探索与专辑/艺人详情**、**P4.2 / P4.3 订阅高级编辑与订阅广场/社区分享**、**P3.2b 多来源发现、推荐与模块编排**、**P6.2 / P6.3 系统设置中心与用户权限管理**、**P5.2 / P5.4 文件管理与工作流**、**P5.3 / P6.1 / P6.4 整理历史/站点管理/消息中心**、**P3.3b 资源搜索与下载确认**、**P5.1 / P4.1 / P4.4 下载/订阅/追剧日历**、**P3.4 完整原生影视详情与人物页** 及 **P3a 原生媒体主壳层**）。保持单一深色渐变玻璃风格，不切 1.x 默认入口；其余原生工作流节点画布、系统集成解耦与 P8 切换门禁继续保留。
+- 当前接续叶子：**P5.5 原生工作流节点画布与参数编辑**（紧接已完成本地 iPhone/iPad 与本机 3001 真实后端逐图验收的 **P2.3 / P2.4 原生插件 JSON 数据页、仪表板组件与受控兼容容器**、**P6.5 原生 AI Agent 流式对话面板**、**P7.1 原生插件市场与生命周期管理**、**P3.5 原生音乐探索与专辑/艺人详情**、**P4.2 / P4.3 订阅高级编辑与订阅广场/社区分享**、**P3.2b 多来源发现、推荐与模块编排**、**P6.2 / P6.3 系统设置中心与用户权限管理**、**P5.2 / P5.4 文件管理与工作流**、**P5.3 / P6.1 / P6.4 整理历史/站点管理/消息中心**、**P3.3b 资源搜索与下载确认**、**P5.1 / P4.1 / P4.4 下载/订阅/追剧日历**、**P3.4 完整原生影视详情与人物页** 及 **P3a 原生媒体主壳层**）。保持单一深色渐变玻璃风格，不切 1.x 默认入口；其余扩展设置子页、系统集成解耦与 P8 切换门禁继续保留。
 - 单一深色渐变玻璃视觉方向已由用户参考图明确，不再制作多主题。P0.2 已输出发现/网格/详情/工作台/设置/表单的同体系原生预览；P1.4 继续把这套组件贯通真实页面。页面细节反馈不阻塞 P2.1 纯模型推进。
 - 当前分支只在本地实施；推送、PR、Release 与真机正式替换需要适用的交付授权。
 
@@ -57,10 +57,15 @@
 
 ## 当前叶子合同
 
-### P2.3 / P2.4 原生插件 JSON 数据页、仪表板组件与受控兼容容器（当前激活）
+### P5.5 原生工作流节点画布与参数编辑（当前激活）
 
-- 成果：在原生插件体系中落地 `NativePluginDataPageView`（直连 `GET /api/v1/plugin/page/{id}`，递归原生渲染 Vuetify JSON 树：`VRow`/`VCol`/`VCard`/`VAlert`/`VChip`/`VTable`/`VList`/`VProgressLinear`/`VBtn`/`div`/`span` 等布局、表格、卡片、进度条、提示与动作事件，统一深色紫玫瑰透色玻璃风格，对含 Vue 远程组件或不可识别自定义脚本的插件明确提供受控隔离 `NativePluginCompatWebView` 兼容容器且仅在此显式入口创建 WebView），并在 `NativePluginMarketPage` / `NativePluginCatalogView` 接入「数据页」入口与「仪表板插件卡片」预览（`GET /api/v1/plugin/dashboard/meta` + `GET /api/v1/plugin/dashboard/{id}/{key}`）。
-- 验收：API-only 夹具（iPhone 17 / iPad Pro）验证原生 JSON 插件数据页表格/卡片/提示/动作渲染（零 WebView）与仪表板插件卡片直读；本机 `3001` 真实后端只读逐图验收真实插件（如 `站点数据统计` / `猫眼榜单订阅`）数据页与仪表板卡片。
+- 成果：在 `NativeWorkflowsPage` 接入原生交互式工作流节点画布（`NativeWorkflowCanvasPage`，纯 SwiftUI `Canvas` + 手势缩放平移/节点选中拖拽/贝塞尔连线 + 节点目录新增/参数表单编辑/连线编辑 + 单次 `PUT /api/v1/workflow/{id}` 保存）及社区工作流分享浏览与复用（`GET /api/v1/workflow/shares` + `POST /api/v1/workflow/fork`），严禁使用任何 WebView 实现画布。
+- 验收：API-only 夹具（iPhone 17 / iPad Pro）验证进入工作流节点画布、添加节点、编辑节点参数并单次 `PUT` 保存，以及浏览社区分享并确认复用（零 WebView、`unexpected == [:]`）；本机 `3001` 真实后端只读逐图验收工作流画布与社区分享页。
+
+### P2.3 / P2.4 原生插件 JSON 数据页、仪表板组件与受控兼容容器（本地与本机 3001 验收完成）
+
+- 成果：落地 `NativePluginDataPageView`、`NativePluginJSONRenderer` 与纯 SwiftUI 多段环形/横向柱状图表 `NativePluginApexChartView`，支持 Vuetify JSON 数据页原生递归渲染与仪表板插件扩展卡片直读（`GET /api/v1/plugin/dashboard/meta` + `GET /api/v1/plugin/dashboard/{id}[/{key}]`），并对 `render_mode == "vue"` 远程插件施加显式同源非持久化受控兼容容器门禁（未点击前零 WebView）。
+- 结果：27 项 Python 测试、严格格式检查、敏感命名 0 匹配、iPhone 17 / iPad Pro 11-inch API-only 全链路 UI 验收及本机 3001 真实后端逐图验收（站点数据统计、猫眼榜单订阅与仪表板插件卡片）全部通过。[验收证据](evidence/2026-11-21-plugin-pages-dashboard.md)。
 
 ### P6.5 原生 AI Agent 对话与交互面板（本地与本机 3001 验收完成）
 

@@ -115,9 +115,15 @@ class NativeFixture(ThreadingHTTPServer):
                     {
                         "id": "DemoPlugin", "plugin_name": "合成演示插件", "plugin_desc": "用于生命周期重置与卸载测试",
                         "plugin_version": "1.0.0", "plugin_label": "工具", "plugin_author": "MoviePilot",
-                        "installed": True, "has_update": False, "state": True,
+                        "installed": True, "has_update": False, "has_page": True, "state": True,
                         "repo_url": "https://github.com/jxxghp/MoviePilot-Plugins", "install_count": 120,
-                    }
+                    },
+                    {
+                        "id": "VueCompatDemo", "plugin_name": "合成远程组件插件", "plugin_desc": "用于受控兼容容器隔离验证",
+                        "plugin_version": "1.2.0", "plugin_label": "扩展", "plugin_author": "MoviePilot",
+                        "installed": True, "has_update": False, "has_page": True, "state": True,
+                        "repo_url": "https://github.com/jxxghp/MoviePilot-Plugins", "install_count": 88,
+                    },
                 ],
                 "agent_sessions": [
                     {
@@ -317,9 +323,15 @@ class NativeHandler(BaseHTTPRequestHandler):
                         {
                             "id": "DemoPlugin", "plugin_name": "合成演示插件", "plugin_desc": "用于生命周期重置与卸载测试",
                             "plugin_version": "1.0.0", "plugin_label": "工具", "plugin_author": "MoviePilot",
-                            "installed": True, "has_update": False, "state": True,
+                            "installed": True, "has_update": False, "has_page": True, "state": True,
                             "repo_url": "https://github.com/jxxghp/MoviePilot-Plugins", "install_count": 120,
-                        }
+                        },
+                        {
+                            "id": "VueCompatDemo", "plugin_name": "合成远程组件插件", "plugin_desc": "用于受控兼容容器隔离验证",
+                            "plugin_version": "1.2.0", "plugin_label": "扩展", "plugin_author": "MoviePilot",
+                            "installed": True, "has_update": False, "has_page": True, "state": True,
+                            "repo_url": "https://github.com/jxxghp/MoviePilot-Plugins", "install_count": 88,
+                        },
                     ]
                     profile["agent_sessions"] = [
                         {
@@ -361,6 +373,15 @@ class NativeHandler(BaseHTTPRequestHandler):
                 return
             if path == f"/{name}/api/v1/plugin/":
                 self.plugin_list_endpoint(name)
+                return
+            if endpoint == "api/v1/plugin/dashboard/meta":
+                self.plugin_dashboard_meta_endpoint(name)
+                return
+            if re.fullmatch(r"api/v1/plugin/dashboard/[A-Za-z][A-Za-z0-9_]*(?:/[A-Za-z0-9_-]+)?", endpoint):
+                self.plugin_dashboard_endpoint(name, endpoint)
+                return
+            if re.fullmatch(r"api/v1/plugin/page/[A-Za-z][A-Za-z0-9_]*", endpoint):
+                self.plugin_page_endpoint(name, endpoint)
                 return
             if re.fullmatch(r"api/v1/plugin/(?:install|reset)/[A-Za-z][A-Za-z0-9_]*", endpoint):
                 self.plugin_action_endpoint(name, endpoint)
@@ -1171,6 +1192,146 @@ class NativeHandler(BaseHTTPRequestHandler):
                 row for row in self.server.profiles[name]["installed_plugins"] if row["id"] != plugin_id
             ]
         self.reply(200, {"success": True, "message": "", "data": None})
+
+    def plugin_page_endpoint(self, name, endpoint):
+        """返回插件原生 Vuetify JSON 页面或 Vue 远程组件声明。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"GET {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a":
+            self.reply(403, {"success": False})
+            return
+        plugin_id = endpoint.rsplit("/", 1)[-1]
+        if plugin_id == "VueCompatDemo":
+            self.reply(200, {"success": True, "message": "", "data": {"render_mode": "vue", "page": []}})
+            return
+        page = [
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VAlert",
+                        "props": {"type": "success"},
+                        "text": "合成插件运行正常，今日已整理 12 项资源。",
+                    },
+                    {
+                        "component": "VApexChart",
+                        "props": {
+                            "options": {
+                                "chart": {"type": "pie"},
+                                "title": {"text": "今日站点上传占比 (GB)"},
+                                "labels": ["合成站 A", "合成站 B", "合成站 C"],
+                            },
+                            "series": [42.5, 28.0, 14.5],
+                        },
+                    },
+                    {
+                        "component": "VTable",
+                        "content": [
+                            {
+                                "component": "thead",
+                                "content": [
+                                    {
+                                        "component": "tr",
+                                        "content": [
+                                            {"component": "th", "text": "站点"},
+                                            {"component": "th", "text": "状态"},
+                                            {"component": "th", "text": "今日上传"},
+                                        ],
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "tbody",
+                                "content": [
+                                    {
+                                        "component": "tr",
+                                        "content": [
+                                            {"component": "td", "text": "合成站 A"},
+                                            {"component": "td", "text": "正常"},
+                                            {"component": "td", "text": "42.5 GB"},
+                                        ],
+                                    },
+                                    {
+                                        "component": "tr",
+                                        "content": [
+                                            {"component": "td", "text": "合成站 B"},
+                                            {"component": "td", "text": "正常"},
+                                            {"component": "td", "text": "28.0 GB"},
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            }
+        ]
+        self.reply(200, {"success": True, "message": "", "data": {"render_mode": "vuetify", "page": page}})
+
+    def plugin_dashboard_meta_endpoint(self, name):
+        """返回插件仪表板元信息清单。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["GET api/v1/plugin/dashboard/meta"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a":
+            self.reply(403, {"success": False})
+            return
+        self.reply(
+            200,
+            {
+                "success": True,
+                "message": "",
+                "data": [{"id": "DemoPlugin", "name": "合成插件统计", "key": ""}],
+            },
+        )
+
+    def plugin_dashboard_endpoint(self, name, endpoint):
+        """返回原生 Vuetify 图表格式的插件仪表板卡片。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"GET {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a":
+            self.reply(403, {"success": False})
+            return
+        self.reply(
+            200,
+            {
+                "success": True,
+                "message": "",
+                "data": {
+                    "id": "DemoPlugin",
+                    "name": "合成插件统计",
+                    "key": "",
+                    "render_mode": "vuetify",
+                    "elements": [
+                        {
+                            "component": "VApexChart",
+                            "props": {
+                                "options": {
+                                    "chart": {"type": "donut"},
+                                    "title": {"text": "近 7 日任务分布"},
+                                    "labels": ["自动整理", "站点签到", "字幕刮削"],
+                                },
+                                "series": [18, 12, 6],
+                            },
+                        }
+                    ],
+                },
+            },
+        )
 
     def agent_stream_endpoint(self, name, body):
         """返回标准 text/event-stream SSE 合成回复帧，包含工具调用与文本增量。"""

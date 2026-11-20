@@ -290,6 +290,24 @@ final class NativeV2EntryTests: XCTestCase {
         tap(installedTab, app: app)
         try await Task.sleep(nanoseconds: 1_500_000_000)
         capture("native-v2-live-plugin-installed")
+        let statPage = app.buttons["native-installed-page-SiteStatistic"]
+        if statPage.waitForExistence(timeout: 5) {
+          tap(statPage, app: app)
+          XCTAssertTrue(app.scrollViews["native-plugin-page-scroll"].waitForExistence(timeout: 15))
+          try await Task.sleep(nanoseconds: 2_000_000_000)
+          capture("native-v2-live-plugin-page-statistic")
+          app.navigationBars.buttons.firstMatch.tap()
+          try await Task.sleep(nanoseconds: 500_000_000)
+        }
+        let maoyanPage = app.buttons["native-installed-page-MaoyanRank"]
+        if maoyanPage.waitForExistence(timeout: 5) {
+          tap(maoyanPage, app: app)
+          XCTAssertTrue(app.scrollViews["native-plugin-page-scroll"].waitForExistence(timeout: 15))
+          try await Task.sleep(nanoseconds: 2_000_000_000)
+          capture("native-v2-live-plugin-page-maoyan")
+          app.navigationBars.buttons.firstMatch.tap()
+          try await Task.sleep(nanoseconds: 500_000_000)
+        }
       }
       app.navigationBars.buttons.firstMatch.tap()
     }
@@ -299,6 +317,12 @@ final class NativeV2EntryTests: XCTestCase {
         timeout: 15))
     try await Task.sleep(nanoseconds: 1_000_000_000)
     capture("native-v2-live-dashboard")
+    let pluginDash = app.descendants(matching: .any)["native-dashboard-plugins"].firstMatch
+    if pluginDash.waitForExistence(timeout: 8) {
+      reveal(pluginDash, app: app)
+      try await Task.sleep(nanoseconds: 800_000_000)
+      capture("native-v2-live-dashboard-plugins")
+    }
     tap(tabButton("搜索", app: app), app: app)
     let query = app.textFields["native-media-search-query"]
     XCTAssertTrue(query.waitForExistence(timeout: 8))
@@ -889,6 +913,51 @@ final class NativeV2EntryTests: XCTestCase {
     let counts = try await stats()
     XCTAssertEqual(counts["a"]?["POST api/v1/agent/stream"], 1)
     XCTAssertEqual(counts["a"]?["GET api/v1/agent/sessions/sess-1"], 1)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// P2.3/P2.4：验证插件 Vuetify JSON 数据页原生图表/表格、Vue 远程插件门禁与仪表板插件卡片零 WebView。
+  func testNativePluginDataPageChartsAndVueCompatGate() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+
+    tap(tabButton("仪表盘", app: app), app: app)
+    let pluginDash = app.descendants(matching: .any)["native-dashboard-plugin-DemoPlugin"]
+      .firstMatch
+    XCTAssertTrue(pluginDash.waitForExistence(timeout: 12))
+    XCTAssertEqual(app.webViews.count, 0)
+
+    tap(tabButton("我的", app: app), app: app)
+    let marketEntry = app.buttons["native-workspace-plugin-market"]
+    reveal(marketEntry, app: app)
+    tap(marketEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 10))
+
+    let installedMode = app.buttons["native-plugin-mode-已安装管理"]
+    tap(installedMode, app: app)
+
+    let demoPageBtn = app.buttons["native-installed-page-DemoPlugin"]
+    XCTAssertTrue(demoPageBtn.waitForExistence(timeout: 10))
+    tap(demoPageBtn, app: app)
+    XCTAssertTrue(app.scrollViews["native-plugin-page-scroll"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["今日站点上传占比 (GB)"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["合成站 A"].waitForExistence(timeout: 8))
+    XCTAssertEqual(app.webViews.count, 0)
+    app.navigationBars.buttons.firstMatch.tap()
+
+    let vuePageBtn = app.buttons["native-installed-page-VueCompatDemo"]
+    reveal(vuePageBtn, app: app)
+    XCTAssertTrue(vuePageBtn.waitForExistence(timeout: 10))
+    tap(vuePageBtn, app: app)
+    XCTAssertTrue(app.buttons["native-plugin-open-compat"].waitForExistence(timeout: 10))
+    // 门禁要求：未点击显式打开按钮前，不能提前创建任何 WebView。
+    XCTAssertEqual(app.webViews.count, 0)
+
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["GET api/v1/plugin/dashboard/meta"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/plugin/dashboard/DemoPlugin"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/plugin/page/DemoPlugin"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/plugin/page/VueCompatDemo"], 1)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -2127,6 +2196,7 @@ final class NativeV2EntryTests: XCTestCase {
     let personScroll = app.scrollViews.matching(identifier: "native-person-detail-scroll")
       .allElementsBoundByIndex.last(where: { $0.isHittable })
     let workspaceScroll = [
+      "native-plugin-page-scroll", "native-dashboard-scroll",
       "native-agent-scroll", "native-plugin-market-scroll", "native-music-artist-scroll",
       "native-music-album-scroll", "native-music-scroll", "native-subscribe-editor-scroll",
       "native-community-scroll",
