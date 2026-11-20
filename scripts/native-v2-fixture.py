@@ -103,6 +103,22 @@ class NativeFixture(ThreadingHTTPServer):
                     },
                 ],
                 "user_configs": {},
+                "market_plugins": [
+                    {
+                        "id": "AutoSignIn", "plugin_name": "站点自动签到", "plugin_desc": "定时执行站点签到与刷流任务",
+                        "plugin_version": "2.4.0", "plugin_label": "站点,定时", "plugin_author": "MoviePilot",
+                        "installed": False, "has_update": False, "state": False,
+                        "repo_url": "https://github.com/jxxghp/MoviePilot-Plugins", "install_count": 3200,
+                    }
+                ],
+                "installed_plugins": [
+                    {
+                        "id": "DemoPlugin", "plugin_name": "合成演示插件", "plugin_desc": "用于生命周期重置与卸载测试",
+                        "plugin_version": "1.0.0", "plugin_label": "工具", "plugin_author": "MoviePilot",
+                        "installed": True, "has_update": False, "state": True,
+                        "repo_url": "https://github.com/jxxghp/MoviePilot-Plugins", "install_count": 120,
+                    }
+                ],
             }
             for name in ("a", "b", "new", "slow")
         }
@@ -280,6 +296,22 @@ class NativeHandler(BaseHTTPRequestHandler):
                         "VERSION": "v3.0.0-synthetic",
                     }
                     profile["user_configs"] = {}
+                    profile["market_plugins"] = [
+                        {
+                            "id": "AutoSignIn", "plugin_name": "站点自动签到", "plugin_desc": "定时执行站点签到与刷流任务",
+                            "plugin_version": "2.4.0", "plugin_label": "站点,定时", "plugin_author": "MoviePilot",
+                            "installed": False, "has_update": False, "state": False,
+                            "repo_url": "https://github.com/jxxghp/MoviePilot-Plugins", "install_count": 3200,
+                        }
+                    ]
+                    profile["installed_plugins"] = [
+                        {
+                            "id": "DemoPlugin", "plugin_name": "合成演示插件", "plugin_desc": "用于生命周期重置与卸载测试",
+                            "plugin_version": "1.0.0", "plugin_label": "工具", "plugin_author": "MoviePilot",
+                            "installed": True, "has_update": False, "state": True,
+                            "repo_url": "https://github.com/jxxghp/MoviePilot-Plugins", "install_count": 120,
+                        }
+                    ]
             self.reply(200, {"success": True})
             return
         parts = [unquote(segment) for segment in path.strip("/").split("/") if segment]
@@ -307,6 +339,12 @@ class NativeHandler(BaseHTTPRequestHandler):
                 or re.fullmatch(r"api/v1/music/artist/[A-Za-z0-9_-]+(?:/albums)?", endpoint)
             ):
                 self.business_endpoint(name, endpoint)
+                return
+            if path == f"/{name}/api/v1/plugin/":
+                self.plugin_list_endpoint(name)
+                return
+            if re.fullmatch(r"api/v1/plugin/(?:install|reset)/[A-Za-z][A-Za-z0-9_]*", endpoint):
+                self.plugin_action_endpoint(name, endpoint)
                 return
             if endpoint == "api/v1/system/img/0":
                 self.image_endpoint(name)
@@ -355,6 +393,9 @@ class NativeHandler(BaseHTTPRequestHandler):
                 return
             if re.fullmatch(r"api/v1/download/[a-z0-9]+", endpoint):
                 self.download_delete_endpoint(name, endpoint)
+                return
+            if re.fullmatch(r"api/v1/plugin/[A-Za-z][A-Za-z0-9_]*", endpoint):
+                self.plugin_delete_endpoint(name, endpoint)
                 return
         allowed = {
             ("GET", "api/v1/login/initialization"),
@@ -1018,6 +1059,68 @@ class NativeHandler(BaseHTTPRequestHandler):
         cfg_key = endpoint.rsplit("/", 1)[-1]
         with self.server.lock:
             self.server.profiles[name]["user_configs"][cfg_key] = payload
+        self.reply(200, {"success": True, "message": "", "data": None})
+
+    def plugin_list_endpoint(self, name):
+        """按管理员权限返回插件市场或已安装原始数组载荷。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["GET api/v1/plugin/"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a":
+            self.reply(403, {"success": False})
+            return
+        state = parse_qs(urlsplit(self.path).query).get("state", ["installed"])[0]
+        with self.server.lock:
+            rows = list(
+                self.server.profiles[name]["market_plugins"]
+                if state == "market"
+                else self.server.profiles[name]["installed_plugins"]
+            )
+        self.reply(200, {"success": True, "message": "", "data": rows})
+
+    def plugin_action_endpoint(self, name, endpoint):
+        """单次响应管理员插件安装或重置请求。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"GET {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a":
+            self.reply(403, {"success": False})
+            return
+        parts_ep = endpoint.split("/")
+        action, plugin_id = parts_ep[3], parts_ep[4]
+        if action == "install":
+            with self.server.lock:
+                for row in self.server.profiles[name]["market_plugins"]:
+                    if row["id"] == plugin_id:
+                        row["installed"] = True
+                        row["has_update"] = False
+        self.reply(200, {"success": True, "message": "", "data": {"restart_required": False}})
+
+    def plugin_delete_endpoint(self, name, endpoint):
+        """单次响应管理员卸载插件请求。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"DELETE {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a":
+            self.reply(403, {"success": False})
+            return
+        plugin_id = endpoint.rsplit("/", 1)[-1]
+        with self.server.lock:
+            self.server.profiles[name]["installed_plugins"] = [
+                row for row in self.server.profiles[name]["installed_plugins"] if row["id"] != plugin_id
+            ]
         self.reply(200, {"success": True, "message": "", "data": None})
 
     @staticmethod

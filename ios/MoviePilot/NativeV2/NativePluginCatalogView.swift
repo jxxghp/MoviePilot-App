@@ -81,6 +81,16 @@ struct NativePluginCatalogView: View {
     .navigationTitle(L10n.text("插件"))
     .navigationBarTitleDisplayMode(.large)
     .toolbarBackground(.hidden, for: .navigationBar)
+    .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        NavigationLink {
+          NativePluginMarketPage(session: session)
+        } label: {
+          Label("插件市场", systemImage: "bag.fill")
+        }
+        .accessibilityIdentifier("native-plugin-market-open")
+      }
+    }
     .navigationDestination(
       isPresented: Binding(get: { selection != nil }, set: { if !$0 { selection = nil } })
     ) {

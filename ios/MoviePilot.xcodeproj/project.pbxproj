@@ -55,6 +55,7 @@
 		8DF5E1BB381E11AE01C5C435 /* NativeV2RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57AF1DC6B88739AE85862902 /* NativeV2RootView.swift */; };
 		98EB4831D3C52B37D00D990D /* NativePluginComboboxEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FA5AFA5548F3E007A5709E9 /* NativePluginComboboxEditor.swift */; };
 		9BD599FADF9CBC9FC7525262 /* PreviewMediaDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E34C8AE293060383912C15F /* PreviewMediaDetail.swift */; };
+		9D0CE41BA43CAC19187B26D4 /* NativePluginMarketPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF26A18662E7326F40027471 /* NativePluginMarketPage.swift */; };
 		9DF0F4028DD3BB274401298C /* NativeAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A041E4198BE71B63A2B109 /* NativeAppModel.swift */; };
 		A0AB51CE161F94808B6EE599 /* AccountAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 274895617146E30E9DDE5876 /* AccountAppearance.swift */; };
 		A642DFCFFE0254BB381EE957 /* MoviePilotCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0A56C13BC20DA849FEC8E121 /* MoviePilotCore */; };
@@ -242,6 +243,7 @@
 		EF6849CE05D1EC77AFA67129 /* NativeDownloadsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadsPage.swift; sourceTree = "<group>"; };
 		F5CA3958D36BFB5E17CA6E7E /* NativeSubscribeCommunityPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscribeCommunityPage.swift; sourceTree = "<group>"; };
 		F9E36A848549750FC3109AA0 /* MoviePilotDesignPreview.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MoviePilotDesignPreview.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FF26A18662E7326F40027471 /* NativePluginMarketPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginMarketPage.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -333,6 +335,7 @@
 				E2CBAA3DC386BDCFF67D1137 /* NativeMediaDetailPage.swift */,
 				B6459B12BBE68089FA81AC88 /* NativeMessagesPage.swift */,
 				08443236F43B97DD00EC6B5A /* NativeMusicPage.swift */,
+				FF26A18662E7326F40027471 /* NativePluginMarketPage.swift */,
 				3E0B3A43D3BA4AA717CEB29B /* NativeResourceSearchPage.swift */,
 				5F33A2CBF14E52CA99816FE7 /* NativeSitesPage.swift */,
 				F5CA3958D36BFB5E17CA6E7E /* NativeSubscribeCommunityPage.swift */,
@@ -734,6 +737,7 @@
 				98EB4831D3C52B37D00D990D /* NativePluginComboboxEditor.swift in Sources */,
 				3D424A853E324626526E7C32 /* NativePluginCronEditor.swift in Sources */,
 				D7EDEDB0DE9835F49D973665 /* NativePluginFormView.swift in Sources */,
+				9D0CE41BA43CAC19187B26D4 /* NativePluginMarketPage.swift in Sources */,
 				84F5B4F5B036CE1992EE9C26 /* NativeResourceSearchPage.swift in Sources */,
 				1643E5D3ACDFDECB97B3BD54 /* NativeSitesPage.swift in Sources */,
 				3B7D26D9189BEB1B9C008546 /* NativeSubscribeCommunityPage.swift in Sources */,
