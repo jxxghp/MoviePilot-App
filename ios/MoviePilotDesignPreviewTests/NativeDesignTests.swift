@@ -9,10 +9,10 @@ final class NativeDesignTests: XCTestCase {
     let app = launch()
     let hero = app.buttons["preview-hero-detail"]
     require(hero, app: app, timeout: 10)
-    capture("rex-native-discover")
+    capture("cinematic-native-discover")
     hero.tap()
     XCTAssertTrue(app.buttons["preview-search-resources"].waitForExistence(timeout: 5))
-    capture("rex-native-detail")
+    capture("cinematic-native-detail")
     reveal(app.buttons["preview-search-resources"], app: app)
     app.buttons["preview-search-resources"].tap()
     let queue = app.buttons["preview-queue-action"]
@@ -29,7 +29,7 @@ final class NativeDesignTests: XCTestCase {
   func testDashboard() {
     let app = launch(screen: "dashboard")
     XCTAssertTrue(app.staticTexts["下载速率"].waitForExistence(timeout: 10))
-    capture("rex-native-dashboard")
+    capture("cinematic-native-dashboard")
     XCTAssertEqual(app.webViews.count, 0)
     app.terminate()
   }
@@ -40,9 +40,9 @@ final class NativeDesignTests: XCTestCase {
     XCUIDevice.shared.orientation = .landscapeLeft
     require(app.staticTexts["下载速率"], app: app)
     XCTAssertGreaterThan(app.windows.firstMatch.frame.width, app.windows.firstMatch.frame.height)
-    capture("rex-native-landscape-initial")
+    capture("cinematic-native-landscape-initial")
     reveal(app.staticTexts["存储空间"], app: app)
-    capture("rex-native-landscape")
+    capture("cinematic-native-landscape")
     app.terminate()
     XCUIDevice.shared.orientation = .portrait
   }
@@ -51,12 +51,12 @@ final class NativeDesignTests: XCTestCase {
   func testSettingsAndPluginForm() {
     let app = launch(screen: "settings")
     XCTAssertTrue(app.buttons["preview-plugin-form"].waitForExistence(timeout: 10))
-    capture("rex-native-settings")
+    capture("cinematic-native-settings")
     reveal(app.buttons["preview-plugin-form"], app: app)
     app.buttons["preview-plugin-form"].tap()
     let row = app.switches["preview-plugin-enabled"]
     require(row, app: app)
-    capture("rex-native-plugin-form")
+    capture("cinematic-native-plugin-form")
     let control = row.switches.firstMatch
     if control.exists { control.tap() } else { row.tap() }
     XCTAssertEqual(row.value as? String, "0")
@@ -74,7 +74,7 @@ final class NativeDesignTests: XCTestCase {
     let app = launch(screen: "subscriptions")
     let poster = app.buttons["preview-poster-rings"]
     XCTAssertTrue(poster.waitForExistence(timeout: 10))
-    capture("rex-native-subscriptions")
+    capture("cinematic-native-subscriptions")
     poster.tap()
     XCTAssertTrue(app.buttons["取消订阅"].waitForExistence(timeout: 5))
     app.buttons["取消订阅"].tap()
@@ -90,14 +90,14 @@ final class NativeDesignTests: XCTestCase {
     section.tap()
     let firstPoster = app.buttons["preview-poster-rings"]
     XCTAssertTrue(firstPoster.waitForExistence(timeout: 5))
-    capture("rex-native-poster-grid")
+    capture("cinematic-native-poster-grid")
     firstPoster.tap()
     XCTAssertTrue(app.buttons["preview-search-resources"].waitForExistence(timeout: 5))
     XCTAssertEqual(app.webViews.count, 0)
     app.terminate()
   }
 
-  /// 系统浅色设置不能切换固定 Rex 风格，大字号仍可滚动到配置与保存。
+  /// 系统浅色设置不能切换固定 Cinematic 风格，大字号仍可滚动到配置与保存。
   func testSingleStyleAndLargeText() {
     let app = launch(
       screen: "settings",
@@ -110,7 +110,7 @@ final class NativeDesignTests: XCTestCase {
     form.tap()
     let save = app.buttons["preview-plugin-save"]
     reveal(save, app: app)
-    capture("rex-native-large-text")
+    capture("cinematic-native-large-text")
     save.tap()
     XCTAssertTrue(app.alerts["配置已保存"].waitForExistence(timeout: 5))
     app.terminate()
@@ -144,9 +144,9 @@ final class NativeDesignTests: XCTestCase {
       }
     }
     if !element.exists || !element.isHittable {
-      capture("rex-native-scroll-failure")
+      capture("cinematic-native-scroll-failure")
       let hierarchy = XCTAttachment(string: app.debugDescription)
-      hierarchy.name = "rex-native-scroll-hierarchy"
+      hierarchy.name = "cinematic-native-scroll-hierarchy"
       hierarchy.lifetime = .keepAlways
       add(hierarchy)
     }
@@ -161,9 +161,9 @@ final class NativeDesignTests: XCTestCase {
   ) {
     let exists = element.waitForExistence(timeout: timeout)
     if !exists {
-      capture("rex-native-failure")
+      capture("cinematic-native-failure")
       let hierarchy = XCTAttachment(string: app.debugDescription)
-      hierarchy.name = "rex-native-failure-hierarchy"
+      hierarchy.name = "cinematic-native-failure-hierarchy"
       hierarchy.lifetime = .keepAlways
       add(hierarchy)
     }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Rex 单一视觉体系的基础常量；不读取旧版主题、主色或壁纸偏好。
+/// Cinematic 单一视觉体系的基础常量；不读取旧版主题、主色或壁纸偏好。
 @MainActor
 enum CinematicStyle {
   static let margin: CGFloat = 20
@@ -26,7 +26,7 @@ struct CinematicBackground: View {
   }
 }
 
-/// Rex 透明玻璃分组；让全局紫/玫瑰渐变透出，避免均匀灰雾遮住背景色彩。
+/// Cinematic 透明玻璃分组；让全局紫/玫瑰渐变透出，避免均匀灰雾遮住背景色彩。
 @MainActor
 struct CinematicPanel<Content: View>: View {
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -72,7 +72,7 @@ private struct CinematicPanelSurface: ViewModifier {
   let reduceTransparency: Bool
   let contrast: ColorSchemeContrast
 
-  /// 降低偏灰材质的覆盖，改用随渐变变化的紫玫瑰染色保留 Rex 的通透层次。
+  /// 降低偏灰材质的覆盖，改用随渐变变化的紫玫瑰染色保留 既定深色渐变玻璃的通透层次。
   @ViewBuilder
   func body(content: Content) -> some View {
     let shape = RoundedRectangle(cornerRadius: CinematicStyle.radius, style: .continuous)

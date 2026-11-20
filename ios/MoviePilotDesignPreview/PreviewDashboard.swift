@@ -1,7 +1,7 @@
 import Charts
 import SwiftUI
 
-/// 工作台将 MoviePilot 的服务/媒体/任务语义放入 Rex 式透底卡片，数据仅供设计。
+/// 工作台将 MoviePilot 的服务/媒体/任务语义放入 深色渐变玻璃式透底卡片，数据仅供设计。
 @MainActor
 struct PreviewDashboard: View {
   @EnvironmentObject private var library: PreviewLibrary

@@ -24,7 +24,7 @@ struct NativePluginComboboxEditor: View {
     _draft = State(initialValue: draft)
   }
 
-  /// 复用 Rex 连续渐变和轻薄玻璃分组，长列表及最大字号由原生 Form 自适应。
+  /// 复用 Cinematic 连续渐变和轻薄玻璃分组，长列表及最大字号由原生 Form 自适应。
   var body: some View {
     NavigationStack {
       ZStack {

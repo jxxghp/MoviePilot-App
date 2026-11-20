@@ -370,7 +370,7 @@ private struct NativePluginSelectionView: View {
   let update: (PluginJSONValue, String) -> Void
   @Environment(\.dismiss) private var dismiss
 
-  /// 弹层的背景和表单继续采用同一 Rex 风格，按钮不再嵌套额外玻璃层。
+  /// 弹层的背景和表单继续采用同一 Cinematic 风格，按钮不再嵌套额外玻璃层。
   var body: some View {
     NavigationStack {
       ZStack {

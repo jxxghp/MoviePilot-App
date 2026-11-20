@@ -66,6 +66,184 @@ struct APIClientTests {
     #expect(APIURLProtocol.state.requests().count == 1)
   }
 
+  /// 首次取图使用固定读取取得资源 Cookie；图片代理请求仅使用该 Cookie。
+  @Test func requestsAuthenticatedSameOriginImageProxy() async throws {
+    let cookie = try Self.resourceCookie()
+    APIURLProtocol.state.prepare(
+      body: Data([0x89, 0x50]), headers: ["Content-Type": "image/png"],
+      refreshCookie: "\(cookie); Path=/; HttpOnly; Secure; SameSite=Lax")
+    let source = try #require(URL(string: "https://images.example/poster?q=a+b&size=2"))
+    let image = try await Self.client().requestImage(source, maximumWidth: 420)
+    #expect(image.data == Data([0x89, 0x50]) && image.mimeType == "image/png")
+    let requests = APIURLProtocol.state.requests().map(\.request)
+    let refresh = try #require(requests.first)
+    let captured = try #require(requests.last)
+    #expect(refresh.url?.path == "/moviepilot/api/v1/media/source")
+    #expect(refresh.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic.token")
+    #expect(refresh.value(forHTTPHeaderField: "Cookie") == nil)
+    #expect(captured.url?.host == "example.test")
+    #expect(captured.url?.path == "/moviepilot/api/v1/system/img/0")
+    let capturedURL = try #require(captured.url)
+    let components = try #require(
+      URLComponents(url: capturedURL, resolvingAgainstBaseURL: false))
+    let query = try #require(components.queryItems)
+    #expect(query.first(where: { $0.name == "imgurl" })?.value == source.absoluteString)
+    #expect(query.first(where: { $0.name == "cache" })?.value == "false")
+    #expect(query.first(where: { $0.name == "maxWidth" })?.value == "420")
+    #expect(captured.value(forHTTPHeaderField: "Authorization") == nil)
+    #expect(captured.value(forHTTPHeaderField: "Cache-Control") == "no-store")
+    #expect(captured.value(forHTTPHeaderField: "Accept") == "image/jpeg, image/png, image/webp")
+    #expect(captured.value(forHTTPHeaderField: "Cookie") == cookie)
+    #expect(requests.count == 2)
+  }
+
+  /// 普通 GET 只读取资源 Cookie，不发送它；同源新客户端也不能复用另一个会话的 Cookie。
+  @Test func scopesResourceCookieToTheClientAndImageEndpoint() async throws {
+    let cookie = try Self.resourceCookie()
+    let first = try await Self.clientWithResourceCookie(cookie: cookie)
+    let second = try Self.client(token: "synthetic.second")
+    let source = try #require(URL(string: "https://images.example/poster.png"))
+    APIURLProtocol.state.prepare(
+      body: Data([0x89, 0x50]), headers: ["Content-Type": "image/png"])
+    _ = try await first.requestImage(source)
+    let imageRequest = try #require(APIURLProtocol.state.requests().first?.request)
+    #expect(imageRequest.value(forHTTPHeaderField: "Cookie") == cookie)
+    #expect(APIURLProtocol.state.requests().count == 1)
+
+    APIURLProtocol.state.prepare(body: Data(#"{"success":true,"message":"","data":[]}"#.utf8))
+    _ = try await first.request(APIEndpoint(path: ["media", "source"]), as: [JSONValue].self)
+    await #expect(throws: APIError.unauthorized) { try await second.requestImage(source) }
+    let requests = APIURLProtocol.state.requests().map(\.request)
+    #expect(requests.count == 2)
+    #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "Cookie") == nil })
+    #expect(requests.last?.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic.second")
+  }
+
+  /// 资源 Cookie 不接受其它用途、共享域或非 HttpOnly 响应，取图失败不会发送认证令牌。
+  @Test func rejectsUnscopedOrUnusableResourceCookies() async throws {
+    let cookie = try Self.resourceCookie()
+    let access = try Self.resourceCookie(purpose: "authentication")
+    let expired = try Self.resourceCookie(expiration: 1)
+    let source = try #require(URL(string: "https://images.example/poster.png"))
+    for value in [
+      "\(cookie); Path=/; HttpOnly; Domain=example.test",
+      "\(cookie); Path=/; HttpOnly; Domain=outside.test",
+      "\(cookie); Path=/",
+      "\(cookie); Path=/other; HttpOnly",
+      "\(access); Path=/; HttpOnly",
+      "\(expired); Path=/; HttpOnly",
+    ] {
+      APIURLProtocol.state.prepare(body: Data(), refreshCookie: value)
+      await #expect(throws: APIError.unauthorized) { try await Self.client().requestImage(source) }
+      let requests = APIURLProtocol.state.requests().map(\.request)
+      #expect(requests.count == 1 && requests.first?.url?.path.hasSuffix("/media/source") == true)
+    }
+  }
+
+  /// 图片源与缩放参数在请求前校验，不会把令牌发给非 HTTP(S) 或含凭据来源。
+  @Test func rejectsUnsafeImageSourcesBeforeRequest() async throws {
+    APIURLProtocol.state.prepare(body: Data())
+    for value in [
+      "file:///private/poster.png", "https://reader:secret@images.example/poster.jpg",
+      "https://images.example/poster.jpg#fragment",
+    ] {
+      let source = try #require(URL(string: value))
+      await #expect(throws: APIError.invalidEndpoint) {
+        try await Self.client().requestImage(source)
+      }
+    }
+    let source = try #require(URL(string: "https://images.example/poster.jpg"))
+    await #expect(throws: APIError.invalidEndpoint) {
+      try await Self.client().requestImage(source, maximumWidth: 2049)
+    }
+    let unauthenticated = try Self.client(token: nil)
+    await #expect(throws: APIError.invalidCredential) {
+      try await unauthenticated.requestImage(source)
+    }
+    #expect(APIURLProtocol.state.requests().isEmpty)
+  }
+
+  /// 只接受明确的 JPEG、PNG、WebP 响应类型，拒绝 SVG、HTML 与伪装 JSON。
+  @Test func rejectsNonRasterAndUnlistedImageMimeTypes() async throws {
+    let source = try #require(URL(string: "https://images.example/poster.jpg"))
+    let client = try await Self.clientWithResourceCookie()
+    for mime in ["image/svg+xml", "text/html", "application/json"] {
+      APIURLProtocol.state.prepare(body: Data("<svg/>".utf8), headers: ["Content-Type": mime])
+      await #expect(throws: APIError.invalidResponse) {
+        try await client.requestImage(source)
+      }
+      #expect(APIURLProtocol.state.requests().count == 1)
+    }
+  }
+
+  /// 响应体超出 8 MiB 时在流式读取过程中拒绝，且不缓存或重试大图。
+  @Test func enforcesImageResponseByteLimit() async throws {
+    let source = try #require(URL(string: "https://images.example/poster.jpg"))
+    let client = try await Self.clientWithResourceCookie()
+    APIURLProtocol.state.prepare(
+      body: Data(repeating: 0, count: APIImage.maximumBytes + 1),
+      headers: ["Content-Type": "image/jpeg"])
+    await #expect(throws: APIError.responseTooLarge) {
+      try await client.requestImage(source)
+    }
+    #expect(APIURLProtocol.state.requests().count == 1)
+  }
+
+  /// 图片代理的重定向被拒绝，避免将资源 Cookie 带到第二个路径或来源。
+  @Test func refusesImageProxyRedirects() async throws {
+    let source = try #require(URL(string: "https://images.example/poster.jpg"))
+    let client = try await Self.clientWithResourceCookie()
+    APIURLProtocol.state.prepare(
+      status: 307, body: Data([0xFF, 0xD8]), headers: ["Content-Type": "image/jpeg"],
+      redirect: URL(string: "https://redirect.example/leak"))
+    await #expect(throws: APIError.redirectRefused) {
+      try await client.requestImage(source)
+    }
+    #expect(APIURLProtocol.state.requests().count == 1)
+  }
+
+  /// 挂起的图片请求在调用方取消时终止，响应迟到前不交付图片数据。
+  @Test func cancelsImageProjection() async throws {
+    let client = try await Self.clientWithResourceCookie()
+    APIURLProtocol.state.prepare(body: Data(), headers: ["Content-Type": "image/png"], hold: true)
+    let source = try #require(URL(string: "https://images.example/poster.png"))
+    let task = Task { try await client.requestImage(source) }
+    for _ in 0..<200 {
+      if !APIURLProtocol.state.requests().isEmpty { break }
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(!APIURLProtocol.state.requests().isEmpty)
+    task.cancel()
+    await #expect(throws: CancellationError.self) { try await task.value }
+    #expect(APIURLProtocol.state.requests().count == 1)
+  }
+
+  /// 合成 JWT 只模拟后端 Cookie 的传输形状，不含真实签名或身份。
+  private static func resourceCookie(
+    name: String = "MoviePilot", purpose: String = "resource", expiration: Int = 4_102_444_800
+  ) throws -> String {
+    let payload = try JSONEncoder().encode([
+      "purpose": JSONValue.string(purpose), "exp": .number(Double(expiration)),
+    ])
+    .base64EncodedString().replacingOccurrences(of: "=", with: "")
+    .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+    return "\(name)=test.\(payload).signature"
+  }
+
+  /// 用普通同源 API 响应引入 Cookie，不绕过产品解析或直接注入缓存。
+  private static func clientWithResourceCookie(cookie: String? = nil) async throws -> APIClient {
+    let header = try cookie ?? resourceCookie()
+    APIURLProtocol.state.prepare(
+      body: Data(#"{"success":true,"message":"","data":[]}"#.utf8),
+      headers: [
+        "Content-Type": "application/json", "Set-Cookie": "\(header); Path=/; HttpOnly; Secure",
+      ])
+    let client = try Self.client()
+    _ = try await client.request(
+      APIEndpoint(path: ["discover", "tmdb_movies"]), as: [JSONValue].self)
+    return client
+  }
+
   /// 两个独立客户端只带各自令牌；配置中残留的 Cookie、附加头和凭据存储不能继承。
   @Test func isolatesIdentityAndRetainsCollectionMetadata() async throws {
     APIURLProtocol.state.prepare(
@@ -352,16 +530,19 @@ private final class APIURLState: @unchecked Sendable {
   private var reply = APIURLReply(
     status: 200, body: Data(), headers: [:], redirect: nil, hold: false, error: nil)
   private var captured: [APICapturedRequest] = []
+  private var refreshCookie: String?
 
   /// 每个测试从独立响应和空捕获开始，悬挂只用于验证取消传播。
   func prepare(
     status: Int = 200, body: Data,
     headers: [String: String] = ["Content-Type": "application/json"],
-    redirect: URL? = nil, hold: Bool = false, error: URLError.Code? = nil
+    redirect: URL? = nil, hold: Bool = false, error: URLError.Code? = nil,
+    refreshCookie: String? = nil
   ) {
     lock.withLock {
       reply = APIURLReply(
         status: status, body: body, headers: headers, redirect: redirect, hold: hold, error: error)
+      self.refreshCookie = refreshCookie
       captured = []
     }
   }
@@ -370,6 +551,12 @@ private final class APIURLState: @unchecked Sendable {
   func answer(_ request: URLRequest, body: Data) -> APIURLReply {
     lock.withLock {
       captured.append(APICapturedRequest(request: request, body: body))
+      if let refreshCookie, request.url?.path.hasSuffix("/media/source") == true {
+        return APIURLReply(
+          status: 200, body: Data(#"{"success":true,"message":"","data":[]}"#.utf8),
+          headers: ["Content-Type": "application/json", "Set-Cookie": refreshCookie],
+          redirect: nil, hold: false, error: nil)
+      }
       if request.url == reply.redirect {
         return APIURLReply(
           status: 200, body: reply.body, headers: reply.headers, redirect: nil, hold: false,

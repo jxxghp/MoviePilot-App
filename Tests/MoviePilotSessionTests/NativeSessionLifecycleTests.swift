@@ -76,6 +76,46 @@ struct NativeSessionLifecycleTests {
     #expect(auth.loginCount == 1)
   }
 
+  /// 资源 Cookie 过期不会清除主令牌；切换实例后旧句柄仍拦截后续取图。
+  @Test func imageProxyUnauthorizedPreservesCurrentSession() async throws {
+    let instance = try SessionLifecycleTestData.instance()
+    let store = SessionTestTokenStore()
+    let auth = try ControlledAuthentication(instance: instance, token: "synthetic.image-session")
+    let manager = SessionLifecycleTestData.manager(tokens: store, clients: [auth])
+    let session = try await manager.login(
+      to: instance, username: "reader", password: "synthetic-only", remember: true)
+    let source = try #require(URL(string: "https://images.example/poster.jpg"))
+    // 合成短效凭据用于模拟资源响应，不包含真实服务器签名。
+    let payload = Data(#"{"purpose":"resource","exp":4102444800}"#.utf8)
+      .base64EncodedString().replacingOccurrences(of: "=", with: "")
+    let cookie = "MoviePilot=test.\(payload).signature"
+    LifecycleHTTPProtocol.state.prepare(
+      body: Data(#"{"success":true,"message":"","data":[]}"#.utf8),
+      headers: [
+        "Content-Type": "application/json", "Set-Cookie": "\(cookie); Path=/; HttpOnly; Secure",
+      ])
+    let endpoint = try APIEndpoint(path: ["discover", "tmdb_movies"])
+    let _: APIResult<[String]> = try await session.request(endpoint)
+    LifecycleHTTPProtocol.state.prepare(
+      status: 401, body: Data(), headers: ["Content-Type": "image/jpeg"])
+    await #expect(throws: APIError.unauthorized) {
+      try await session.requestImage(source)
+    }
+    let imageRequest = try #require(LifecycleHTTPProtocol.state.requests().first?.request)
+    #expect(imageRequest.url?.path.hasSuffix("/system/img/0") == true)
+    #expect(imageRequest.value(forHTTPHeaderField: "Cookie") == cookie)
+    #expect(imageRequest.value(forHTTPHeaderField: "Authorization") == nil)
+    #expect(manager.currentSession === session)
+    #expect(manager.state == .authenticated(session.snapshot))
+    #expect(store.values[instance.id] == "synthetic.image-session")
+    let requestCount = LifecycleHTTPProtocol.state.requests().count
+    manager.disconnect()
+    await #expect(throws: NativeSessionFailure.invalidated) {
+      try await session.requestImage(source)
+    }
+    #expect(LifecycleHTTPProtocol.state.requests().count == requestCount)
+  }
+
   /// A→B→A 全部恢复后，保存记录独立且旧会话句柄与确认无法复用。
   @Test func switchesBetweenInstancesWithNewGenerations() async throws {
     let a = try SessionLifecycleTestData.instance()

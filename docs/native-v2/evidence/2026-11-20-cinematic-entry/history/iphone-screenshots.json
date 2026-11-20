@@ -95,15 +95,15 @@
     "documentRetained": false
   },
   {
-    "name": "rex-entry-initialization-system-light",
-    "test": "NativeV2EntryTests/testRexFormControlsAndSecretConcealment()",
+    "name": "cinematic-entry-initialization-system-light",
+    "test": "NativeV2EntryTests/testCinematicFormControlsAndSecretConcealment()",
     "sourceAttachment": "654A71A6-55C1-4C5D-9CD5-B5EF996B2EE2.png",
     "sourceSHA256": "fbdd6b392cbdc74d8d5c24080329433e596ec301681bc0325dc46681b8754518",
     "sourceSize": [
       1206,
       2622
     ],
-    "documentFile": "history/full-suite-iphone/rex-entry-initialization-system-light.png",
+    "documentFile": "history/full-suite-iphone/cinematic-entry-initialization-system-light.png",
     "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
     "sourceExifOrientation": 1,
     "documentSize": [
@@ -114,15 +114,15 @@
     "documentRetained": false
   },
   {
-    "name": "rex-entry-connection-system-light",
-    "test": "NativeV2EntryTests/testRexFormControlsAndSecretConcealment()",
+    "name": "cinematic-entry-connection-system-light",
+    "test": "NativeV2EntryTests/testCinematicFormControlsAndSecretConcealment()",
     "sourceAttachment": "D5A17C98-484A-485A-B0B3-FBD4720F9BB9.png",
     "sourceSHA256": "5b58fecd8a86e7a6038aaa18fb66a046981c79c2e8b5f7cf7d49aeb91045920f",
     "sourceSize": [
       1206,
       2622
     ],
-    "documentFile": "history/full-suite-iphone/rex-entry-connection-system-light.png",
+    "documentFile": "history/full-suite-iphone/cinematic-entry-connection-system-light.png",
     "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
     "sourceExifOrientation": 1,
     "documentSize": [

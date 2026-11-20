@@ -1,7 +1,7 @@
 [
   {
-    "name": "rex-entry-initialization-system-light",
-    "test": "NativeV2EntryTests/testRexFormControlsAndSecretConcealment()",
+    "name": "cinematic-entry-initialization-system-light",
+    "test": "NativeV2EntryTests/testCinematicFormControlsAndSecretConcealment()",
     "sourceAttachment": "DEBE21E2-FB59-4E51-8125-D0CC9F2CD29D.png",
     "sourceSHA256": "73d0605f12e40c68b0832c5e90bc5b7600aeb9ac6ddfe135d94b8042f858170a",
     "sourceSize": [
@@ -13,13 +13,13 @@
       588,
       1278
     ],
-    "documentFile": "accessibility/rex-entry-initialization-system-light.png",
+    "documentFile": "accessibility/cinematic-entry-initialization-system-light.png",
     "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
     "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize"
   },
   {
-    "name": "rex-entry-connection-system-light",
-    "test": "NativeV2EntryTests/testRexFormControlsAndSecretConcealment()",
+    "name": "cinematic-entry-connection-system-light",
+    "test": "NativeV2EntryTests/testCinematicFormControlsAndSecretConcealment()",
     "sourceAttachment": "3E8FA033-1383-4EDE-BCF7-995893E4B459.png",
     "sourceSHA256": "a29447c649d3b5beb55d35abaf85560c13db7d8eeb853949f97b527bae33fc5e",
     "sourceSize": [
@@ -31,7 +31,7 @@
       588,
       1278
     ],
-    "documentFile": "accessibility/rex-entry-connection-system-light.png",
+    "documentFile": "accessibility/cinematic-entry-connection-system-light.png",
     "device": "77E90161-AC2B-4930-8B76-436FF2E85FD8",
     "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize"
   },

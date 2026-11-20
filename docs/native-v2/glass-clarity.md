@@ -1,12 +1,12 @@
-# P1.4b Rex 表单玻璃通透度
+# P1.4b Cinematic 表单玻璃通透度
 
-2026-11-20 用户指出已实现的表单卡片偏灰；降低中性材质遮罩并添加紫/玫瑰色相之后，用户确认最新设置页效果合适，要求作为后续界面的统一基准。本叶子视觉结论转为通过，仍只做 Rex 一种风格。
+2026-11-20 用户指出已实现的表单卡片偏灰；降低中性材质遮罩并添加紫/玫瑰色相之后，用户确认最新设置页效果合适，要求作为后续界面的统一基准。本叶子视觉结论转为通过，仍只做 单一深色渐变玻璃风格。
 
 ## 逐图检查与原因
 
-参考为用户六张 Rex 原图，重点 [播放表单](references/rex/01-playback-form.png)。当前基线使用本轮真实 API-only 原生截图：[完整来源表单](evidence/2026-11-20-cron-dialects/ipad-baseline/rex-cron-source-form.png)、[原生字段](evidence/2026-11-20-cron-dialects/phone-2/rex-weekday-dialect-custom-normal.png)。数据均已标识来源/合成边界。
+参考为用户六张 视觉参考原图，重点 [播放表单](references/visual/01-playback-form.png)。当前基线使用本轮真实 API-only 原生截图：[完整来源表单](evidence/2026-11-20-cron-dialects/ipad-baseline/cinematic-cron-source-form.png)、[原生字段](evidence/2026-11-20-cron-dialects/phone-2/cinematic-weekday-dialect-custom-normal.png)。数据均已标识来源/合成边界。
 
-1. Rex 的卡片能明显透出下方紫色/玫瑰色变化；当前 CinematicPanel 使用 ultraThinMaterial 再叠 4.5% 均匀白填充，正文卡片成为偏中性灰的雾面，削弱连续渐变。
+1. 既定深色渐变玻璃的卡片能明显透出下方紫色/玫瑰色变化；当前 CinematicPanel 使用 ultraThinMaterial 再叠 4.5% 均匀白填充，正文卡片成为偏中性灰的雾面，削弱连续渐变。
 2. 当前表面几乎均匀，细灰边和投影不能替代真实玻璃的边缘折射/高光；导航按钮有系统玻璃，正文分组却显得更厚、更灰，层次不协调。
 3. 既有内部“视觉 passed”没有充分抓住材质差异。用户本轮反馈重新打开此项验收，不能继续用“已经使用 Material”或测试通过当作视觉相似的证明。
 
@@ -27,4 +27,4 @@
 
 回滚只撤销共享材质及玻璃容器接线，不影响 Cron、完整草稿、会话、插件协议或默认 1.x。检查结果和当前用户反馈会写入 design-qa.md；不能抹掉修正前图与内部误判历史。
 
-本地结果见 [P1.4b 修正记录与同屏对比](evidence/2026-11-20-glass-clarity.md) 及 [iPhone/iPad 调整后截图](evidence/2026-11-20-glass-revision/)。用户复核最新设置效果并明确确认，P1.4b 已关闭；以后新增卡片沿用透色与材质层级。其它页面仍需按对应 Rex 图分别做布局验收。
+本地结果见 [P1.4b 修正记录与同屏对比](evidence/2026-11-20-glass-clarity.md) 及 [iPhone/iPad 调整后截图](evidence/2026-11-20-glass-revision/)。用户复核最新设置效果并明确确认，P1.4b 已关闭；以后新增卡片沿用透色与材质层级。其它页面仍需按对应 Cinematic 图分别做布局验收。

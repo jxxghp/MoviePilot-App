@@ -26,80 +26,100 @@ struct NativeV2RootView: View {
     manager = model.manager
   }
 
-  /// 单一 Rex 背景贯通安全区；系统表单继续承担键盘、旋转和辅助功能布局。
+  /// 单一 Cinematic 背景贯通安全区；已认证主壳由 TabView 承载各标签独立导航栈。
   var body: some View {
-    NavigationStack {
-      ZStack {
-        CinematicBackground()
-        ScrollViewReader { scroll in
-          Form {
-            brand.id("native-v2-top")
-            if let message = model.messageKey {
-              CinematicFormSection {
-                CinematicFormRow(symbol: "info.circle") {
-                  Text(L10n.text(message)).font(.callout)
-                    .accessibilityIdentifier("native-v2-message")
-                    .accessibilityAddTraits(.updatesFrequently)
-                }
-                if case .failed(_, .api) = manager.state, let selected = model.selected {
-                  CinematicFormDivider()
-                  CinematicFormRow {
-                    rowAction("重试连接", id: "native-v2-retry") { model.connect(selected) }
-                  }
-                }
-              }
-            }
-            if model.busy {
-              CinematicFormSection {
-                CinematicFormRow {
-                  HStack(spacing: 12) {
-                    ProgressView()
-                    Text(L10n.text("正在连接…"))
-                  }
-                  .accessibilityElement(children: .combine)
-                  .accessibilityIdentifier("native-v2-progress")
-                }
-              }
-            }
-            if case .authenticated(let snapshot) = manager.state {
-              account(snapshot)
-            } else if model.form == .connection {
-              connection
-            } else {
-              authentication
+    Group {
+      if case .authenticated(let snapshot) = manager.state,
+        let session = manager.currentSession, session.scope == snapshot.scope
+      {
+        NativeV2MainShell(
+          session: session,
+          snapshot: snapshot,
+          showsPlugins: $showsPlugins,
+          accountContent: account(snapshot),
+          pluginDestination: {
+            if let current = manager.currentSession, current.scope == pluginScope {
+              NativePluginCatalogView(session: current)
             }
           }
-          .scrollContentBackground(.hidden)
-          .scrollDismissesKeyboard(.interactively)
-          .frame(maxWidth: 680)
-          .onChange(of: authenticated) { _ in scroll.scrollTo("native-v2-top", anchor: .top) }
-          .onChange(of: model.form) { _ in scroll.scrollTo("native-v2-top", anchor: .top) }
+        )
+        .id(snapshot.scope.generation)
+      } else {
+        NavigationStack {
+          ZStack {
+            CinematicBackground()
+            ScrollViewReader { scroll in
+              Form {
+                brand.id("native-v2-top")
+                if let message = model.messageKey {
+                  CinematicFormSection {
+                    CinematicFormRow(symbol: "info.circle") {
+                      Text(L10n.text(message)).font(.callout)
+                        .accessibilityIdentifier("native-v2-message")
+                        .accessibilityAddTraits(.updatesFrequently)
+                    }
+                    if case .failed(_, .api) = manager.state, let selected = model.selected {
+                      CinematicFormDivider()
+                      CinematicFormRow {
+                        rowAction("重试连接", id: "native-v2-retry") { model.connect(selected) }
+                      }
+                    }
+                  }
+                }
+                if model.busy {
+                  CinematicFormSection {
+                    CinematicFormRow {
+                      HStack(spacing: 12) {
+                        ProgressView()
+                        Text(L10n.text("正在连接…"))
+                      }
+                      .accessibilityElement(children: .combine)
+                      .accessibilityIdentifier("native-v2-progress")
+                    }
+                  }
+                }
+                if case .authenticated = manager.state {
+                  CinematicFormSection {
+                    CinematicFormRow {
+                      HStack(spacing: 12) {
+                        ProgressView()
+                        Text("正在准备 MoviePilot…")
+                      }
+                      .accessibilityElement(children: .combine)
+                    }
+                  }
+                } else if model.form == .connection {
+                  connection
+                } else {
+                  authentication
+                }
+              }
+              .scrollContentBackground(.hidden)
+              .scrollDismissesKeyboard(.interactively)
+              .frame(maxWidth: 680)
+              .onChange(of: authenticated) { _ in scroll.scrollTo("native-v2-top", anchor: .top) }
+              .onChange(of: model.form) { _ in scroll.scrollTo("native-v2-top", anchor: .top) }
+            }
+          }
+          .navigationTitle(title)
+          .navigationBarTitleDisplayMode(.inline)
+          .toolbar { toolbar }
         }
       }
-      .navigationTitle(title)
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
-      .toolbar { toolbar }
-      .navigationDestination(isPresented: $showsPlugins) {
-        if let session = manager.currentSession, session.scope == pluginScope {
-          NativePluginCatalogView(session: session)
-        }
+    }
+    .alert(
+      L10n.text("删除服务？"),
+      isPresented: Binding(
+        get: { pendingForget != nil }, set: { if !$0 { pendingForget = nil } }),
+      presenting: pendingForget
+    ) { instance in
+      Button(L10n.text("删除"), role: .destructive) {
+        pendingForget = nil
+        model.forget(instance)
       }
-      .tint(.white)
-      .alert(
-        L10n.text("删除服务？"),
-        isPresented: Binding(
-          get: { pendingForget != nil }, set: { if !$0 { pendingForget = nil } }),
-        presenting: pendingForget
-      ) { instance in
-        Button(L10n.text("删除"), role: .destructive) {
-          pendingForget = nil
-          model.forget(instance)
-        }
-        Button(L10n.text("取消"), role: .cancel) { pendingForget = nil }
-      } message: { _ in
-        Text(L10n.text("将移除此服务的本机登录信息和缓存。"))
-      }
+      Button(L10n.text("取消"), role: .cancel) { pendingForget = nil }
+    } message: { _ in
+      Text(L10n.text("将移除此服务的本机登录信息和缓存。"))
     }
     .environment(\.locale, Locale(identifier: model.language.rawValue))
     .preferredColorScheme(.dark)
@@ -130,7 +150,7 @@ struct NativeV2RootView: View {
 
   /// 标题只反映真实可用的入口，不把此基础阶段命名为完整首页。
   private var title: String {
-    if case .authenticated = manager.state { return L10n.text("账号与服务") }
+    if case .authenticated = manager.state { return "" }
     switch model.form {
     case .connection: return L10n.text("连接服务")
     case .login: return L10n.text("登录")
@@ -406,6 +426,14 @@ struct NativeV2RootView: View {
   /// 首个真实原生页面只展示已验证身份及可执行的会话管理操作。
   private func account(_ snapshot: NativeSessionSnapshot) -> some View {
     Group {
+      if let message = model.messageKey {
+        CinematicFormSection {
+          CinematicFormRow(symbol: "info.circle") {
+            Text(L10n.text(message)).font(.callout)
+              .accessibilityIdentifier("native-v2-message")
+          }
+        }
+      }
       CinematicFormSection(L10n.text("当前账号")) {
         CinematicFormRow(symbol: "person.crop.circle.fill") {
           Text(snapshot.user.name)
@@ -430,6 +458,24 @@ struct NativeV2RootView: View {
         }
       }
       CinematicFormSection {
+        CinematicFormRow(symbol: "globe") {
+          Menu {
+            languageOptions
+          } label: {
+            HStack {
+              Text(L10n.text("语言"))
+              Spacer()
+              Text(model.language.title).foregroundStyle(.secondary)
+              Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(
+                .secondary)
+            }
+            .foregroundStyle(.white)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+          }
+          .accessibilityIdentifier("native-v2-language")
+        }
+        CinematicFormDivider()
         if snapshot.user.isSuperuser {
           CinematicFormRow(symbol: "puzzlepiece.extension") {
             rowAction("插件", id: "native-v2-plugins") {
@@ -483,7 +529,7 @@ struct NativeV2RootView: View {
   /// 换地址在忙碌时仍可取消；语言始终用自身名称，误选后也能找回。
   @ToolbarContentBuilder
   private var toolbar: some ToolbarContent {
-    if model.form != .connection {
+    if !authenticated, model.form != .connection {
       ToolbarItem(placement: .navigationBarLeading) {
         Button {
           model.changeServer()
@@ -494,31 +540,40 @@ struct NativeV2RootView: View {
         .accessibilityIdentifier("native-v2-change-server")
       }
     }
-    ToolbarItem(placement: .navigationBarTrailing) {
-      Menu {
-        ForEach(AppLanguage.allCases, id: \.self) { language in
-          Button {
-            model.selectLanguage(language)
-          } label: {
-            if model.language == language {
-              Label(language.title, systemImage: "checkmark")
-            } else {
-              Text(language.title)
-            }
-          }
+    if !authenticated {
+      ToolbarItem(placement: .navigationBarTrailing) {
+        Menu {
+          languageOptions
+        } label: {
+          Image(systemName: "globe")
         }
-      } label: {
-        Image(systemName: "globe")
+        .accessibilityLabel(L10n.text("语言"))
+        .accessibilityIdentifier("native-v2-language")
       }
-      .accessibilityLabel(L10n.text("语言"))
-      .accessibilityIdentifier("native-v2-language")
     }
-    ToolbarItemGroup(placement: .keyboard) {
-      Spacer()
-      Button(L10n.text("完成")) {
-        focused = nil
-        UIApplication.shared.sendAction(
-          #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    if !authenticated {
+      ToolbarItemGroup(placement: .keyboard) {
+        Spacer()
+        Button(L10n.text("完成")) {
+          focused = nil
+          UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        }
+      }
+    }
+  }
+
+  /// 登录前工具栏和登录后账号页提供同一组系统语言选项。
+  private var languageOptions: some View {
+    ForEach(AppLanguage.allCases, id: \.self) { language in
+      Button {
+        model.selectLanguage(language)
+      } label: {
+        if model.language == language {
+          Label(language.title, systemImage: "checkmark")
+        } else {
+          Text(language.title)
+        }
       }
     }
   }

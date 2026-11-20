@@ -31,7 +31,7 @@
 
 按用户指定 `swiftui-liquid-glass`，复核技能全文/引用与 Apple 官方 glass / GlassEffectContainer 指引。内容共享 Material 面板和细边缘，系统导航承载原生 Liquid Glass；没有为表单每个字段重复叠重玻璃。低系统/降低透明度的共享降级继续同一配色，不增加主题。
 
-实际打开 [完整 Rex 对照](2026-11-20-plugin-rendering/rex-comparison.png)、[表面局部对照](2026-11-20-plugin-rendering/rex-form-detail.png)、[设备总览](2026-11-20-plugin-rendering/device-board.png) 和最终 iPad 横屏原图：背景连续、同色透底分组、圆角/细分隔、字体与层次/触控/弹层均保持同一体系；原始长标签自然换行，大字通过滚动访问。配置页没有媒体语义，不加入装饰海报；媒体页的真实海报要求继续 P3。
+实际打开 [完整 Cinematic 对照](2026-11-20-plugin-rendering/cinematic-comparison.png)、[表面局部对照](2026-11-20-plugin-rendering/cinematic-form-detail.png)、[设备总览](2026-11-20-plugin-rendering/device-board.png) 和最终 iPad 横屏原图：背景连续、同色透底分组、圆角/细分隔、字体与层次/触控/弹层均保持同一体系；原始长标签自然换行，大字通过滚动访问。配置页没有媒体语义，不加入装饰海报；媒体页的真实海报要求继续 P3。
 
 图像只做 EXIF 方向转正、去元数据与等比缩小；没有手画系统状态栏、压缩纵横比或拼接虚构页面。截图分别标明来源原表单、合成扩展与辅助设置，未冒充生产数据。此次界面视觉检查通过，全部产品视觉/性能/可访问性仍按 P8 验收。
 
@@ -47,6 +47,6 @@
 
 源码/输入与日志摘要、设备汇总、命令和本地产物位置见 [机器记录](2026-11-20-plugin-rendering/manifest.json)。回环服务只含合成数据；大构建/日志/结果位于外置盘，安装验收使用工作区允许的独立内部缓存，完成后清理。专用模拟器数据保留，测试辅助设置恢复，不修改真实账号或其它设备。
 
-仍有既有系统 Form/键盘工具栏相关 `Invalid frame dimension` 运行警告；此前独立原生程序复现证据仍在 [P1.4a](2026-11-20-rex-entry.md)。本轮未关闭诊断/未声称修复，继续 P8。Xcode 的 XCTest 16→17 链接提示、无 AppIntents 提取提示及诊断收集器找不到 simctl 的环境错误保留在原始日志；测试执行/结果由 xcresult 实际通过/失败/跳过数判定，环境诊断不能冒充代码失败或通过。
+仍有既有系统 Form/键盘工具栏相关 `Invalid frame dimension` 运行警告；此前独立原生程序复现证据仍在 [P1.4a](2026-11-20-cinematic-entry.md)。本轮未关闭诊断/未声称修复，继续 P8。Xcode 的 XCTest 16→17 链接提示、无 AppIntents 提取提示及诊断收集器找不到 simctl 的环境错误保留在原始日志；测试执行/结果由 xcresult 实际通过/失败/跳过数判定，环境诊断不能冒充代码失败或通过。
 
 P2.2b.2 继续 Cron/复杂输入与完整规则、更多真实表单/表达式/槽；P2.3 数据页/图表/仪表板、P2.4 Web 插件专用兼容、P2.5 AppPage/SDK 和完整官方/第三方矩阵均未完成。生产后端/插件副作用、真实设备、最低系统运行、完整 VoiceOver/性能与主体全部 WebView 移除继续总验收。默认 1.x 不切换；回滚可移除本叶子入口/页面/计划，既有会话和完整草稿底座可独立保留。长期 Goal 保持 active。

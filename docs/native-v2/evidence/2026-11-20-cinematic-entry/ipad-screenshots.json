@@ -1,14 +1,14 @@
 [
   {
-    "name": "rex-entry-initialization-system-light",
-    "test": "NativeV2EntryTests/testRexFormControlsAndSecretConcealment()",
+    "name": "cinematic-entry-initialization-system-light",
+    "test": "NativeV2EntryTests/testCinematicFormControlsAndSecretConcealment()",
     "sourceAttachment": "47DCD6EB-8F4F-41D3-AB9D-105A8E360080.png",
     "sourceSHA256": "eaf52a0730a278c9d7c801b2bce9c3749dd06ada35996471902ae6fb7c5b1478",
     "sourceSize": [
       1668,
       2420
     ],
-    "documentFile": "ipad/rex-entry-initialization-system-light.png",
+    "documentFile": "ipad/cinematic-entry-initialization-system-light.png",
     "device": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
     "sourceExifOrientation": 1,
     "documentSize": [
@@ -18,15 +18,15 @@
     "normalization": "Apply EXIF pixel orientation; strip metadata; proportional sRGB resize"
   },
   {
-    "name": "rex-entry-connection-system-light",
-    "test": "NativeV2EntryTests/testRexFormControlsAndSecretConcealment()",
+    "name": "cinematic-entry-connection-system-light",
+    "test": "NativeV2EntryTests/testCinematicFormControlsAndSecretConcealment()",
     "sourceAttachment": "FBF67DC7-312B-4779-9136-DBFDDC6FECC4.png",
     "sourceSHA256": "97e2bf99db8a28f856e5b4d084060a5cf3666db9f8867c4411fa18770837d07c",
     "sourceSize": [
       1668,
       2420
     ],
-    "documentFile": "ipad/rex-entry-connection-system-light.png",
+    "documentFile": "ipad/cinematic-entry-connection-system-light.png",
     "device": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",
     "sourceExifOrientation": 1,
     "documentSize": [

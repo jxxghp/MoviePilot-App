@@ -37,4 +37,4 @@ zsh scripts/test-core.sh --scratch-path /Volumes/DISK/TmpBuild/moviepilot-ios-v2
 
 本叶子不接 UI/后端、不做保存/表达式求值/事件执行，不将源码样例当成真实插件生态通过。未知能力不会被当成已支持；下游必须建立真实组件注册、权限/会话和完整保存门禁。
 
-P1.4a 接续真实原生账号/实例界面的 Rex 统一组件，随后 P2.2 连接原始字节响应和原生动态表单。API 接线必须复用现有受限传输，不能先用 Double 解码丢精度；长期 Goal 保持 active。
+P1.4a 接续真实原生账号/实例界面的 Cinematic 统一组件，随后 P2.2 连接原始字节响应和原生动态表单。API 接线必须复用现有受限传输，不能先用 Double 解码丢精度；长期 Goal 保持 active。
