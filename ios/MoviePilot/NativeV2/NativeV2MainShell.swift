@@ -230,6 +230,10 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           NativeSitesPage(session: session)
         case .messages:
           NativeMessagesPage(session: session)
+        case .files:
+          NativeFileManagerPage(session: session)
+        case .workflows:
+          NativeWorkflowsPage(session: session)
         }
       }
       .overlay(alignment: .bottomLeading) {
@@ -453,6 +457,34 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("native-workspace-sites")
+                CinematicFormDivider()
+                Button {
+                  accountPath.append(.files)
+                } label: {
+                  CinematicFormRow(symbol: "folder.fill") {
+                    Text("文件管理")
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                      .foregroundStyle(.white.opacity(0.45))
+                  }
+                  .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-workspace-files")
+                CinematicFormDivider()
+                Button {
+                  accountPath.append(.workflows)
+                } label: {
+                  CinematicFormRow(symbol: "flowchart") {
+                    Text("工作流")
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                      .foregroundStyle(.white.opacity(0.45))
+                  }
+                  .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-workspace-workflows")
               }
               CinematicFormDivider()
               Button {
@@ -496,6 +528,10 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           NativeSitesPage(session: session)
         case .messages:
           NativeMessagesPage(session: session)
+        case .files:
+          NativeFileManagerPage(session: session)
+        case .workflows:
+          NativeWorkflowsPage(session: session)
         }
       }
       .navigationDestination(isPresented: $showsPlugins) {
@@ -791,6 +827,8 @@ private enum NativeWorkspaceDestination: Hashable {
   case history
   case sites
   case messages
+  case files
+  case workflows
 }
 
 /// 发现导航栈只接收已加载的分区、可验证媒体身份或受控业务页面。
@@ -804,6 +842,8 @@ private enum NativeMediaDestination: Identifiable, Hashable {
   case history
   case sites
   case messages
+  case files
+  case workflows
 
   /// 区分分区网格、详情与工作台页面路由。
   var id: String {
@@ -817,6 +857,8 @@ private enum NativeMediaDestination: Identifiable, Hashable {
     case .history: "history"
     case .sites: "sites"
     case .messages: "messages"
+    case .files: "files"
+    case .workflows: "workflows"
     }
   }
 }

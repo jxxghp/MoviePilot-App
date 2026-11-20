@@ -65,6 +65,16 @@ class NativeFixture(ThreadingHTTPServer):
                         "media_source": "themoviedb", "media_id": "111",
                     }
                 ],
+                "files": [
+                    {"storage": "local", "type": "dir", "path": "/media/", "name": "media"},
+                    {"storage": "local", "type": "file", "path": "/sample.mkv", "name": "sample.mkv", "extension": "mkv", "size": 1_073_741_824},
+                ],
+                "workflows": [
+                    {
+                        "id": 31, "name": "合成自动整理", "description": "定时检查下载目录",
+                        "timer": "*/15 * * * *", "state": "P", "run_count": 2, "result": None,
+                    }
+                ],
             }
             for name in ("a", "b", "new", "slow")
         }
@@ -216,6 +226,16 @@ class NativeHandler(BaseHTTPRequestHandler):
                             "media_source": "themoviedb", "media_id": "111",
                         }
                     ]
+                    profile["files"] = [
+                        {"storage": "local", "type": "dir", "path": "/media/", "name": "media"},
+                        {"storage": "local", "type": "file", "path": "/sample.mkv", "name": "sample.mkv", "extension": "mkv", "size": 1_073_741_824},
+                    ]
+                    profile["workflows"] = [
+                        {
+                            "id": 31, "name": "合成自动整理", "description": "定时检查下载目录",
+                            "timer": "*/15 * * * *", "state": "P", "run_count": 2, "result": None,
+                        }
+                    ]
             self.reply(200, {"success": True})
             return
         parts = [unquote(segment) for segment in path.strip("/").split("/") if segment]
@@ -224,7 +244,12 @@ class NativeHandler(BaseHTTPRequestHandler):
         if name in self.server.profiles and self.command == "GET":
             if (
                 endpoint in self.business_endpoints()
-                or path in {f"/{name}/api/v1/download/", f"/{name}/api/v1/subscribe/", f"/{name}/api/v1/site/"}
+                or path in {
+                    f"/{name}/api/v1/download/",
+                    f"/{name}/api/v1/subscribe/",
+                    f"/{name}/api/v1/site/",
+                    f"/{name}/api/v1/workflow/",
+                }
                 or re.fullmatch(r"api/v1/download/(?:start|stop)/[a-z0-9]+", endpoint)
                 or re.fullmatch(r"api/v1/site/test/[0-9]+", endpoint)
                 or re.fullmatch(r"api/v1/search/media/1[0-9]{2}", endpoint)
@@ -243,6 +268,12 @@ class NativeHandler(BaseHTTPRequestHandler):
                 return
             if endpoint == "api/v1/download/add":
                 self.download_add_endpoint(name, body)
+                return
+            if endpoint in {"api/v1/storage/list", "api/v1/storage/mkdir", "api/v1/storage/delete"}:
+                self.storage_endpoint(name, endpoint, body)
+                return
+            if re.fullmatch(r"api/v1/workflow/[0-9]+/(?:run|start|pause|reset)", endpoint):
+                self.workflow_action_endpoint(name, endpoint)
                 return
             if path == f"/{name}/api/v1/subscribe/":
                 self.subscribe_create_endpoint(name, body)
@@ -309,6 +340,7 @@ class NativeHandler(BaseHTTPRequestHandler):
             "api/v1/search/title",
             "api/v1/history/transfer",
             "api/v1/message/web",
+            "api/v1/storage/options",
             "api/v1/subscribe/calendar",
             "api/v1/dashboard/statistic",
             "api/v1/dashboard/storage",
@@ -386,6 +418,11 @@ class NativeHandler(BaseHTTPRequestHandler):
             with self.server.lock:
                 rows = list(self.server.profiles[name]["history"])
             value = {"list": rows, "total": len(rows)}
+        elif endpoint == "api/v1/storage/options":
+            value = [{"type": "local", "name": "本地"}, {"type": "smb", "name": "SMB网络共享"}]
+        elif endpoint == "api/v1/workflow":
+            with self.server.lock:
+                value = list(self.server.profiles[name]["workflows"])
         elif endpoint == "api/v1/message/web":
             value = [
                 {
@@ -663,6 +700,76 @@ class NativeHandler(BaseHTTPRequestHandler):
             self.server.profiles[name]["history"] = [
                 row for row in self.server.profiles[name]["history"] if row["id"] != record_id
             ]
+        self.reply(200, {"success": True, "message": "", "data": None})
+
+    def storage_endpoint(self, name, endpoint, body):
+        """受控合成多存储目录列表、建目录与删除操作。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"POST {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a" and not self.permissions(mode)["manage"]:
+            self.reply(403, {"success": False})
+            return
+        try:
+            payload = json.loads(body)
+        except (ValueError, TypeError):
+            self.reply(422, {"success": False})
+            return
+        if endpoint == "api/v1/storage/list":
+            path_val = payload.get("path", "/")
+            if path_val == "/media/":
+                items = [{"storage": payload.get("storage", "local"), "type": "file", "path": "/media/clip.mkv", "name": "clip.mkv", "extension": "mkv", "size": 524_288_000}]
+            else:
+                with self.server.lock:
+                    items = list(self.server.profiles[name]["files"])
+            self.reply(200, {"success": True, "message": "", "data": items})
+        elif endpoint == "api/v1/storage/mkdir":
+            folder = parse_qs(urlsplit(self.path).query).get("name", [""])[0]
+            with self.server.lock:
+                self.server.profiles[name]["files"].append({
+                    "storage": payload.get("storage", "local"), "type": "dir",
+                    "path": f"/{folder}/", "name": folder,
+                })
+            self.reply(200, {"success": True, "message": "", "data": None})
+        else:
+            target_path = payload.get("path")
+            with self.server.lock:
+                self.server.profiles[name]["files"] = [
+                    item for item in self.server.profiles[name]["files"] if item["path"] != target_path
+                ]
+            self.reply(200, {"success": True, "message": "", "data": None})
+
+    def workflow_action_endpoint(self, name, endpoint):
+        """单次响应工作流运行、启停与重置请求。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"POST {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a" and not self.permissions(mode)["manage"]:
+            self.reply(403, {"success": False})
+            return
+        parts_ep = endpoint.split("/")
+        wf_id, action = int(parts_ep[3]), parts_ep[4]
+        with self.server.lock:
+            for wf in self.server.profiles[name]["workflows"]:
+                if wf["id"] == wf_id:
+                    if action == "run":
+                        wf["run_count"] += 1
+                        wf["state"] = "S"
+                    elif action == "start":
+                        wf["state"] = "W"
+                    elif action == "pause":
+                        wf["state"] = "P"
+                    elif action == "reset":
+                        wf["state"] = "W"
+                        wf["result"] = None
         self.reply(200, {"success": True, "message": "", "data": None})
 
     @staticmethod
