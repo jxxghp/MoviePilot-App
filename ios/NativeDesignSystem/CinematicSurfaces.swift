@@ -66,26 +66,28 @@ struct CinematicPanel<Content: View>: View {
   }
 }
 
-/// 正文使用低遮罩的系统材质透出底色；导航的系统 Liquid Glass 不跨页面采样正文。
+/// 正文以轻系统材质和紫玫瑰染色透出底色；导航玻璃不跨页面采样正文。
 @MainActor
 private struct CinematicPanelSurface: ViewModifier {
   let reduceTransparency: Bool
   let contrast: ColorSchemeContrast
 
-  /// 材质本身降低遮罩并添加轻微方向高光，避免大块灰雾或相邻卡片粘连。
+  /// 降低偏灰材质的覆盖，改用随渐变变化的紫玫瑰染色保留 Rex 的通透层次。
   @ViewBuilder
   func body(content: Content) -> some View {
     let shape = RoundedRectangle(cornerRadius: CinematicStyle.radius, style: .continuous)
-    let sheen = Color(red: 0.82, green: 0.78, blue: 1)
+    let lilac = Color(red: 0.76, green: 0.69, blue: 0.94)
+    let violet = Color(red: 0.58, green: 0.41, blue: 0.70)
+    let rose = Color(red: 0.70, green: 0.39, blue: 0.59)
     if reduceTransparency {
       content.background(CinematicStyle.solidSurface, in: shape)
     } else {
       content.background {
         ZStack {
-          shape.fill(.ultraThinMaterial).opacity(contrast == .increased ? 0.45 : 0.22)
+          shape.fill(.ultraThinMaterial).opacity(contrast == .increased ? 0.45 : 0.10)
           shape.fill(
             LinearGradient(
-              colors: [sheen.opacity(0.085), sheen.opacity(0.055), sheen.opacity(0.065)],
+              colors: [lilac.opacity(0.045), violet.opacity(0.09), rose.opacity(0.105)],
               startPoint: .topLeading, endPoint: .bottomTrailing))
         }
       }
