@@ -29,7 +29,9 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
   @State private var discoveryAttempt = 0
   @State private var mediaIdentities: [String: NativeMediaIdentity] = [:]
   @State private var discoverPath: [NativeMediaDestination] = []
+  @State private var accountPath: [NativeWorkspaceDestination] = []
   @State private var searchPath: [NativeMediaIdentity] = []
+  @State private var showsDiscoverQuickMenu = false
 
   /// 保留 root 原有账号动作与插件路由，主导航由系统 TabView 承载各标签独立栈。
   init(
@@ -69,10 +71,34 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
   /// 影视发现、媒体搜索与详情沿用现有发现权限，PT 资源搜索属于单独的权限。
   private var canDiscover: Bool { snapshot.user.allows(.init(category: .discovery)) }
 
+  /// 订阅管理与追剧日历遵循订阅权限门禁。
+  private var canSubscribe: Bool { snapshot.user.allows(.init(category: .subscribe)) }
+
+  /// 下载任务管理遵循管理员或管理权限门禁。
+  private var canManageDownloads: Bool {
+    snapshot.user.isSuperuser || snapshot.user.allows(.init(category: .manage))
+  }
+
+  /// 重复点击当前“发现”标签时弹出深色透色快捷菜单（参照视觉参考 09）。
+  private var tabSelection: Binding<Page> {
+    Binding(
+      get: { selectedTab },
+      set: { next in
+        if next == .discover && selectedTab == .discover && discoverPath.isEmpty {
+          withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
+            showsDiscoverQuickMenu.toggle()
+          }
+        } else {
+          showsDiscoverQuickMenu = false
+          selectedTab = next
+        }
+      })
+  }
+
   /// 原生 TabView 管理页面切换与底部标签栏，不另绘胶囊或缩窄系统按钮。
   @ViewBuilder private var page: some View {
     if #available(iOS 18, *) {
-      TabView(selection: $selectedTab) {
+      TabView(selection: tabSelection) {
         if canDiscover {
           Tab("发现", systemImage: "sparkles.tv", value: Page.discover) {
             discoveryTab
@@ -187,20 +213,186 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           } destination: { identity in
             NativeMediaDetailPage(session: session, identity: identity)
           }
+        case .subscriptions:
+          NativeSubscriptionsPage(session: session)
+        case .downloads:
+          NativeDownloadsPage(session: session)
+        case .calendar:
+          NativeCalendarPage(session: session)
+        }
+      }
+      .overlay(alignment: .bottomLeading) {
+        if showsDiscoverQuickMenu && discoverPath.isEmpty {
+          discoverQuickMenuOverlay
         }
       }
     }
   }
 
+  /// 参照视觉参考 09 的深色透色悬浮快捷菜单，直达订阅、下载、日历与仪表盘。
+  private var discoverQuickMenuOverlay: some View {
+    ZStack(alignment: .bottomLeading) {
+      Color.black.opacity(0.28)
+        .ignoresSafeArea()
+        .onTapGesture {
+          withAnimation(.easeOut(duration: 0.2)) { showsDiscoverQuickMenu = false }
+        }
+      VStack(alignment: .leading, spacing: 0) {
+        HStack(spacing: 10) {
+          Image(systemName: "server.rack")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Color(red: 0.78, green: 0.66, blue: 1.0))
+            .frame(width: 28, height: 28)
+            .background { Circle().fill(.white.opacity(0.12)) }
+          Text(snapshot.instance.address.url.host ?? "MoviePilot")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+          Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        Divider().overlay(.white.opacity(0.10))
+        Text("打开")
+          .font(.caption)
+          .foregroundStyle(.white.opacity(0.50))
+          .padding(.horizontal, 16)
+          .padding(.top, 10)
+          .padding(.bottom, 4)
+        if canSubscribe {
+          quickMenuRow(title: "我的订阅", symbol: "bookmark.fill", id: "native-quick-subscriptions") {
+            showsDiscoverQuickMenu = false
+            discoverPath.append(.subscriptions)
+          }
+        }
+        if canManageDownloads {
+          quickMenuRow(
+            title: "正在下载", symbol: "arrow.down.circle.fill", id: "native-quick-downloads"
+          ) {
+            showsDiscoverQuickMenu = false
+            discoverPath.append(.downloads)
+          }
+        }
+        if canSubscribe {
+          quickMenuRow(title: "追剧日历", symbol: "calendar", id: "native-quick-calendar") {
+            showsDiscoverQuickMenu = false
+            discoverPath.append(.calendar)
+          }
+        }
+        if snapshot.user.isSuperuser {
+          quickMenuRow(title: "仪表盘", symbol: "chart.bar.xaxis", id: "native-quick-dashboard") {
+            showsDiscoverQuickMenu = false
+            selectedTab = .dashboard
+          }
+        }
+      }
+      .padding(.bottom, 8)
+      .frame(width: 256)
+      .background {
+        RoundedRectangle(cornerRadius: 24, style: .continuous)
+          .fill(.ultraThinMaterial)
+          .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+              .fill(Color(red: 28 / 255, green: 24 / 255, blue: 38 / 255).opacity(0.72))
+          }
+          .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+              .strokeBorder(.white.opacity(0.16), lineWidth: 0.7)
+          }
+      }
+      .shadow(color: .black.opacity(0.42), radius: 22, y: 10)
+      .padding(.leading, 18)
+      .padding(.bottom, 16)
+      .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+    .accessibilityIdentifier("native-discover-quick-menu")
+  }
+
+  /// 悬浮快捷菜单中的单个原生入口行。
+  private func quickMenuRow(
+    title: String, symbol: String, id: String, action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      HStack(spacing: 12) {
+        Image(systemName: symbol)
+          .font(.body.weight(.medium))
+          .frame(width: 22)
+          .foregroundStyle(.white.opacity(0.92))
+        Text(title)
+          .font(.body.weight(.medium))
+          .foregroundStyle(.white)
+        Spacer()
+      }
+      .padding(.horizontal, 16)
+      .frame(minHeight: 46)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityIdentifier(id)
+  }
+
   /// 账号页与插件管理位于同一独立导航栈，底层保留连续 Cinematic 紫玫瑰渐变。
   private var accountTab: some View {
-    NavigationStack {
+    NavigationStack(path: $accountPath) {
       ZStack {
         CinematicBackground()
         Form {
           Text("我的").font(.largeTitle.bold())
             .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
             .accessibilityAddTraits(.isHeader)
+          if canSubscribe || canManageDownloads {
+            CinematicFormSection("媒体工作台") {
+              if canSubscribe {
+                Button {
+                  accountPath.append(.subscriptions)
+                } label: {
+                  CinematicFormRow(symbol: "bookmark.fill") {
+                    Text("我的订阅")
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                      .foregroundStyle(.white.opacity(0.45))
+                  }
+                  .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-workspace-subscriptions")
+              }
+              if canSubscribe && canManageDownloads {
+                CinematicFormDivider()
+              }
+              if canManageDownloads {
+                Button {
+                  accountPath.append(.downloads)
+                } label: {
+                  CinematicFormRow(symbol: "arrow.down.circle.fill") {
+                    Text("正在下载")
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                      .foregroundStyle(.white.opacity(0.45))
+                  }
+                  .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-workspace-downloads")
+              }
+              if canSubscribe {
+                CinematicFormDivider()
+                Button {
+                  accountPath.append(.calendar)
+                } label: {
+                  CinematicFormRow(symbol: "calendar") {
+                    Text("追剧日历")
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                      .foregroundStyle(.white.opacity(0.45))
+                  }
+                  .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-workspace-calendar")
+              }
+            }
+          }
           accountContent
         }
         .scrollContentBackground(.hidden)
@@ -211,6 +403,16 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
       .navigationTitle("")
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
+      .navigationDestination(for: NativeWorkspaceDestination.self) { destination in
+        switch destination {
+        case .subscriptions:
+          NativeSubscriptionsPage(session: session)
+        case .downloads:
+          NativeDownloadsPage(session: session)
+        case .calendar:
+          NativeCalendarPage(session: session)
+        }
+      }
       .navigationDestination(isPresented: $showsPlugins) {
         pluginDestination()
       }
@@ -495,16 +697,29 @@ struct NativeMediaIdentity: Identifiable, Hashable {
   var id: String { [source, mediaID, type].joined(separator: "|") }
 }
 
-/// 发现导航栈只接收已加载的分区或可验证的媒体身份。
+/// 账号页媒体工作台可推入的受控业务路由。
+private enum NativeWorkspaceDestination: Hashable {
+  case subscriptions
+  case downloads
+  case calendar
+}
+
+/// 发现导航栈只接收已加载的分区、可验证媒体身份或受控业务页面。
 private enum NativeMediaDestination: Identifiable, Hashable {
   case rail(NativeDiscoverRail)
   case media(NativeMediaIdentity)
+  case subscriptions
+  case downloads
+  case calendar
 
-  /// 区分分区网格与详情路由。
+  /// 区分分区网格、详情与工作台页面路由。
   var id: String {
     switch self {
     case .rail(let rail): "rail:" + rail.id
     case .media(let identity): "media:" + identity.id
+    case .subscriptions: "subscriptions"
+    case .downloads: "downloads"
+    case .calendar: "calendar"
     }
   }
 }

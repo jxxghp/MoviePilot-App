@@ -77,12 +77,12 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertFalse(app.buttons["native-discover-grid-load-more"].exists)
     try await Task.sleep(nanoseconds: 1_000_000_000)
     capture("native-v2-live-grid-automatic-page")
-    // 采集真实媒体详情、演职员/人物页、剧集分季、仪表盘与媒体搜索画面（全程只读，不修改真实订阅）。
+    // 采集真实媒体详情、演职员/人物页、剧集分季、下载/订阅/日历工作台、仪表盘与媒体搜索画面（全程只读）。
     tap(nextPage, app: app)
     XCTAssertTrue(app.staticTexts["native-media-detail-title"].waitForExistence(timeout: 15))
     try await Task.sleep(nanoseconds: 2_000_000_000)
     capture("native-v2-live-detail")
-    let detailScroll = app.scrollViews.firstMatch
+    let detailScroll = app.scrollViews["native-media-detail-scroll"]
     if detailScroll.exists {
       detailScroll.swipeUp()
       try await Task.sleep(nanoseconds: 1_000_000_000)
@@ -97,6 +97,31 @@ final class NativeV2EntryTests: XCTestCase {
         try await Task.sleep(nanoseconds: 2_000_000_000)
         capture("native-v2-live-person")
       }
+    }
+    tap(tabButton("我的", app: app), app: app)
+    let subsEntry = app.buttons["native-workspace-subscriptions"]
+    if subsEntry.waitForExistence(timeout: 10) {
+      tap(subsEntry, app: app)
+      XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 2_500_000_000)
+      capture("native-v2-live-subscriptions")
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+    let dlEntry = app.buttons["native-workspace-downloads"]
+    if dlEntry.waitForExistence(timeout: 8) {
+      tap(dlEntry, app: app)
+      XCTAssertTrue(app.scrollViews["native-downloads-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 2_000_000_000)
+      capture("native-v2-live-downloads")
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+    let calEntry = app.buttons["native-workspace-calendar"]
+    if calEntry.waitForExistence(timeout: 8) {
+      tap(calEntry, app: app)
+      XCTAssertTrue(app.scrollViews["native-calendar-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 2_000_000_000)
+      capture("native-v2-live-calendar")
+      app.navigationBars.buttons.firstMatch.tap()
     }
     tap(tabButton("仪表盘", app: app), app: app)
     XCTAssertTrue(
@@ -215,6 +240,69 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["a"]?["DELETE api/v1/subscribe/media/113"], 1)
     XCTAssertEqual(counts["a"]?["GET api/v1/tmdb/person/501"], 1)
     XCTAssertEqual(counts["a"]?["GET api/v1/tmdb/person/credits/501"], 1)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// P5.1 / P4.1 / P4.4：验证原生下载启停/确认删除、订阅筛选/暂停/确认删除与追剧日历切周，零 WebView。
+  func testNativeDownloadsSubscriptionsAndCalendarFlows() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    tap(tabButton("我的", app: app), app: app)
+
+    let subsEntry = app.buttons["native-workspace-subscriptions"]
+    XCTAssertTrue(subsEntry.waitForExistence(timeout: 10))
+    tap(subsEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 10))
+    let subToggle = app.buttons["native-subscribe-toggle-702"]
+    XCTAssertTrue(subToggle.waitForExistence(timeout: 10))
+    tap(subToggle, app: app)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-subscriptions-feedback"].firstMatch
+        .waitForExistence(timeout: 8))
+    let subDelete = app.buttons["native-subscribe-delete-701"]
+    XCTAssertTrue(subDelete.waitForExistence(timeout: 8))
+    tap(subDelete, app: app)
+    let confirmSubDelete = app.alerts["取消订阅"].buttons["取消订阅"]
+    XCTAssertTrue(confirmSubDelete.waitForExistence(timeout: 8))
+    confirmSubDelete.tap()
+    app.navigationBars.buttons.firstMatch.tap()
+
+    let dlEntry = app.buttons["native-workspace-downloads"]
+    XCTAssertTrue(dlEntry.waitForExistence(timeout: 10))
+    tap(dlEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-downloads-scroll"].waitForExistence(timeout: 10))
+    let dlToggle = app.buttons["native-download-toggle-abc123def456"]
+    XCTAssertTrue(dlToggle.waitForExistence(timeout: 10))
+    tap(dlToggle, app: app)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-downloads-feedback"].firstMatch
+        .waitForExistence(timeout: 8))
+    let dlDelete = app.buttons["native-download-delete-abc123def456"]
+    XCTAssertTrue(dlDelete.waitForExistence(timeout: 8))
+    tap(dlDelete, app: app)
+    let confirmDlDelete = app.alerts["删除下载任务"].buttons["删除任务与文件"]
+    XCTAssertTrue(confirmDlDelete.waitForExistence(timeout: 8))
+    confirmDlDelete.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-downloads-empty"].firstMatch
+        .waitForExistence(timeout: 10))
+    app.navigationBars.buttons.firstMatch.tap()
+
+    let calEntry = app.buttons["native-workspace-calendar"]
+    XCTAssertTrue(calEntry.waitForExistence(timeout: 10))
+    tap(calEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-calendar-scroll"].waitForExistence(timeout: 10))
+    let nextWeek = app.buttons["native-calendar-next-week"]
+    XCTAssertTrue(nextWeek.waitForExistence(timeout: 8))
+    tap(nextWeek, app: app)
+    XCTAssertEqual(app.webViews.count, 0)
+
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["PUT api/v1/subscribe/status/702"], 1)
+    XCTAssertEqual(counts["a"]?["DELETE api/v1/subscribe/701"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/download/stop/abc123def456"], 1)
+    XCTAssertEqual(counts["a"]?["DELETE api/v1/download/abc123def456"], 1)
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/subscribe/calendar"] ?? 0, 2)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -1451,12 +1539,20 @@ final class NativeV2EntryTests: XCTestCase {
       .allElementsBoundByIndex.last(where: { $0.isHittable })
     let personScroll = app.scrollViews.matching(identifier: "native-person-detail-scroll")
       .allElementsBoundByIndex.last(where: { $0.isHittable })
+    let workspaceScroll = [
+      "native-downloads-scroll", "native-subscriptions-scroll", "native-calendar-scroll",
+    ].compactMap { identifier in
+      app.scrollViews.matching(identifier: identifier).allElementsBoundByIndex.last(where: {
+        $0.isHittable
+      })
+    }.first
     let mediaSearch = app.scrollViews["native-media-search-scroll"]
     let discoverGrid = app.scrollViews["native-discover-grid"]
     let discoverPage = app.scrollViews["native-discover-page"]
     let scroll =
       detailScroll
       ?? personScroll
+      ?? workspaceScroll
       ?? (mediaSearch.exists && mediaSearch.isHittable
         ? mediaSearch
         : discoverGrid.exists && discoverGrid.isHittable
