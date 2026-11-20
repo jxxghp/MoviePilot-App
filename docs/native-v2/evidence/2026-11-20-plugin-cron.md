@@ -1,10 +1,10 @@
 # P2.2b.2a 原生 Cron 配置验收
 
-本地 `MoviePilot-App / v2` 从 `350544d` 接续，2026-11-20。实施前先建立 [Cron 叶子方案](../plugin-cron.md)，复核用户固定 Rex 风格和指定 swiftui-liquid-glass 技能。仅本地开发，没有推送、发布或覆盖真机正式 App；默认入口仍为 1.x。
+本地 `MoviePilot-App / v2` 从 `350544d` 接续，2026-11-20。实施前先建立 [Cron 叶子方案](../plugin-cron.md)，复核用户固定 Cinematic 风格和指定 swiftui-liquid-glass 技能。仅本地开发，没有推送、发布或覆盖真机正式 App；默认入口仍为 1.x。
 
 ## 可用结果与兼容边界
 
-- VCronField 接入真实 NativeFormPlan / SwiftUI / 保存验证分支。原生文本输入、清除、预设和分钟/小时/日期/月份/星期字段编辑共享 Rex 渐变、玻璃分组及系统导航；没有新增 WebView、网页桥或脚本执行器。
+- VCronField 接入真实 NativeFormPlan / SwiftUI / 保存验证分支。原生文本输入、清除、预设和分钟/小时/日期/月份/星期字段编辑共享 Cinematic 渐变、玻璃分组及系统导航；没有新增 WebView、网页桥或脚本执行器。
 - 计划与字段各有独立本地草稿：应用字段只更新计划，应用计划只更新父表单；最终明确“保存”才通过现有会话 PUT 物理插件 ID。取消/原样应用不把数字、null、缺失键或已有词法变成字符串/默认周期；清除才写 null。
 - 不复制插件调度规则。SiteUserDetail 等现有插件允许数字小时间隔；完整自定义值仍原样交给插件。五字段分析只服务编辑器，不强迫所有值通过标准 Cron，不根据手机时区承诺执行时间。星期新生成值使用 mon–sun；已有数字、别名、空格和前导零不自动规范化。
 - 四个完整官方 get_form 为 LibraryScraper、DoubanRank、RSSSubscribe、AutoClean，均由固定 Git 对象 AST 提取，没有运行插件或精简为有利样例。来源见 [夹具记录](../../../Tests/MoviePilotPluginUITests/Fixtures/provenance.json)。回环服务另外明确加入分身、未知字段/大整数、数字/null/缺失等合成边界，不冒充生产实例。
@@ -37,17 +37,17 @@
 
 合并有效证据覆盖 **10 个不同设备/用例组合**、13 次成功执行（含重复复核），保留 5 次中间失败。最终两个批次专门重验改变过的页面/模式；未受改动影响的类型兼容与旧表单门禁保留此前通过证据。这不是单一“10 项全绿”批次。所有批次实际执行，0 跳过。
 
-## Rex 视觉与原生交互
+## Cinematic 视觉与原生交互
 
-实际打开 [Rex / 原生计划 / 模式页并排图](2026-11-20-plugin-cron/rex-comparison.png)，检查连续深蓝紫/玫瑰渐变、透底玻璃、圆角与细分隔、文字/提示层级、间距和系统导航。内容用共享 Material 面板，导航用系统 Liquid Glass；不在每个字段重叠玻璃，不新增主题。
+实际打开 [Cinematic / 原生计划 / 模式页并排图](2026-11-20-plugin-cron/cinematic-comparison.png)，检查连续深蓝紫/玫瑰渐变、透底玻璃、圆角与细分隔、文字/提示层级、间距和系统导航。内容用共享 Material 面板，导航用系统 Liquid Glass；不在每个字段重叠玻璃，不新增主题。
 
-同时检查 [iPhone 最大字号横屏](2026-11-20-plugin-cron/iphone/rex-cron-largest-expression.png)、[iPad 最大字号选值](2026-11-20-plugin-cron/ipad-accessibility/rex-cron-largest-weekday.png) 和 [iPad 降低透明度/间隔编辑](2026-11-20-plugin-cron/ipad-accessibility/rex-cron-minute-step.png)。大字自然增高并通过原生滚动访问；降低透明度保持同色实面和对比度分隔。被滚出视口的下方字段没有裁掉或拼成假屏。模式选择从溢出菜单改成有实际按钮/选中语义的完整选择页，取消/返回仍保持独立草稿。
+同时检查 [iPhone 最大字号横屏](2026-11-20-plugin-cron/iphone/cinematic-cron-largest-expression.png)、[iPad 最大字号选值](2026-11-20-plugin-cron/ipad-accessibility/cinematic-cron-largest-weekday.png) 和 [iPad 降低透明度/间隔编辑](2026-11-20-plugin-cron/ipad-accessibility/cinematic-cron-minute-step.png)。大字自然增高并通过原生滚动访问；降低透明度保持同色实面和对比度分隔。被滚出视口的下方字段没有裁掉或拼成假屏。模式选择从溢出菜单改成有实际按钮/选中语义的完整选择页，取消/返回仍保持独立草稿。
 
 截图只做 EXIF 方向转正、去元数据和等比缩小，比较图的标签在截图之外。额外模式页由 simctl 在真实 XCTest 等待该页时直接抓取；来源原图摘要单独记录。配置页没有媒体内容，不塞装饰海报；发现/详情等页面的真实海报要求继续 P3。此叶子的视觉与操作检查通过，不代替全产品或完整 VoiceOver 验收。
 
 ## 留存与继续
 
-既有系统 Form/键盘工具栏 `Invalid frame dimension` 运行警告仍存在，未关闭诊断或宣称修复；独立复现与 P8 门禁继续见 [P1.4a](2026-11-20-rex-entry.md)。XCTest 16→17 链接提示、无 AppIntents 提取提示以及诊断收集器找不到 simctl 的环境错误留在原始日志，测试状态按 xcresult 实际计数判断。
+既有系统 Form/键盘工具栏 `Invalid frame dimension` 运行警告仍存在，未关闭诊断或宣称修复；独立复现与 P8 门禁继续见 [P1.4a](2026-11-20-cinematic-entry.md)。XCTest 16→17 链接提示、无 AppIntents 提取提示以及诊断收集器找不到 simctl 的环境错误留在原始日志，测试状态按 xcresult 实际计数判断。
 
 结果/日志归档至外置盘；结束后恢复专用 iPad 的逐键辅助设置、关闭两台专用模拟器并清理本任务内部构建/结果缓存，保留模拟器数据和共享依赖。回滚边界见 [叶子方案](../plugin-cron.md)。
 

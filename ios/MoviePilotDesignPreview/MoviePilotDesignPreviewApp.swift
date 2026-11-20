@@ -5,7 +5,7 @@ import SwiftUI
 @MainActor
 struct MoviePilotDesignPreviewApp: App {
   @StateObject private var library = PreviewLibrary()
-  /// 单一 Rex 深色风格固定在根部，不读取系统/旧版主题偏好。
+  /// 单一 Cinematic 深色风格固定在根部，不读取系统/旧版主题偏好。
   var body: some Scene {
     WindowGroup { PreviewRoot().environmentObject(library).preferredColorScheme(.dark) }
   }

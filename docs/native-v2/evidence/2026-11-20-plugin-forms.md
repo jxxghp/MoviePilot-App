@@ -41,4 +41,4 @@ xcrun swift build --target MoviePilotPluginForms --triple arm64-apple-ios16.0-si
 
 ## 继续验收
 
-本叶子不证明动态 UI 已渲染或插件生态已完整兼容；真实组件/属性/布局、条件/插值/脚本、槽、复杂选择/规则、真实后端插件、全部界面及可访问性继续 P2.2b 和后续叶子。UI 必须复用 Rex 唯一风格并使用 swiftui-liquid-glass；不新增主题或网页主体回退。长期 Goal 保持 active。
+本叶子不证明动态 UI 已渲染或插件生态已完整兼容；真实组件/属性/布局、条件/插值/脚本、槽、复杂选择/规则、真实后端插件、全部界面及可访问性继续 P2.2b 和后续叶子。UI 必须复用 单一深色渐变玻璃风格并使用 swiftui-liquid-glass；不新增主题或网页主体回退。长期 Goal 保持 active。

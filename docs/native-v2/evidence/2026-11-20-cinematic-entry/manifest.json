@@ -6,7 +6,7 @@
   "results": {
     "fullIPhone": {
       "summary": "iphone-tests.json",
-      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/rex-entry-evidence-20261120/final-iphone.xcresult",
+      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/cinematic-entry-evidence-20261120/final-iphone.xcresult",
       "passed": 7,
       "failed": 0,
       "skipped": 0,
@@ -39,7 +39,7 @@
     },
     "fullIPad": {
       "summary": "ipad-tests.json",
-      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/rex-entry-evidence-20261120/final-ipad.xcresult",
+      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/cinematic-entry-evidence-20261120/final-ipad.xcresult",
       "passed": 7,
       "failed": 0,
       "skipped": 0,
@@ -72,7 +72,7 @@
     },
     "contrastIPad": {
       "summary": "contrast-ipad-tests.json",
-      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/rex-entry-evidence-20261120/contrast-ipad.xcresult",
+      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/cinematic-entry-evidence-20261120/contrast-ipad.xcresult",
       "passed": 3,
       "failed": 0,
       "skipped": 0,
@@ -93,7 +93,7 @@
     },
     "contrastIPhone": {
       "summary": "contrast-iphone-tests.json",
-      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/rex-entry-evidence-20261120/contrast-iphone.xcresult",
+      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/cinematic-entry-evidence-20261120/contrast-iphone.xcresult",
       "passed": 1,
       "failed": 0,
       "skipped": 0,
@@ -106,7 +106,7 @@
     },
     "accessibility": {
       "summary": "accessibility-tests.json",
-      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/rex-entry-evidence-20261120/entry-accessibility.xcresult",
+      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/cinematic-entry-evidence-20261120/entry-accessibility.xcresult",
       "passed": 2,
       "failed": 0,
       "skipped": 0,
@@ -123,7 +123,7 @@
     },
     "preview": {
       "summary": "preview-tests.json",
-      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/rex-entry-evidence-20261120/preview-final.xcresult",
+      "resultBundle": "/Volumes/DISK/TmpBuild/moviepilot-ios-v2/cinematic-entry-evidence-20261120/preview-final.xcresult",
       "passed": 3,
       "failed": 0,
       "skipped": 0,
@@ -150,7 +150,7 @@
       "-configuration",
       "Debug",
       "-derivedDataPath",
-      "/Users/jxxghp/Library/Caches/MoviePilotSimulator/native-v2-rex-entry-20261120/DerivedData",
+      "/Users/jxxghp/Library/Caches/MoviePilotSimulator/native-v2-cinematic-entry-20261120/DerivedData",
       "-clonedSourcePackagesDirPath",
       "/Volumes/DISK/Xcode/SourcePackages",
       "-parallel-testing-enabled",
@@ -164,12 +164,12 @@
       "0288C554-8AA0-4DCB-A459-F3673D7C2D6D"
     ],
     "contrastFilters": [
-      "testRexFormControlsAndSecretConcealment",
+      "testCinematicFormControlsAndSecretConcealment",
       "testSeparateInstancesRestorationAndExplicitPasswordMemory",
       "testUnavailableRetryCancellationAndLargeText"
     ],
     "accessibilityFilters": [
-      "testRexFormControlsAndSecretConcealment",
+      "testCinematicFormControlsAndSecretConcealment",
       "testUnavailableRetryCancellationAndLargeText"
     ],
     "previewFilters": [

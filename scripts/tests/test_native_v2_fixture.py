@@ -58,6 +58,62 @@ class NativeFixtureTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(identity["data"]["name"], "native-a")
 
+    def test_media_permissions_pagination_and_null_dashboard_count(self):
+        """影视发现权限不等于 PT 搜索权限，分页与未报告统计保留后端语义。"""
+        _, ready_identity = self.request("/b/api/v1/user/current", token="synthetic-native-b")
+        self.assertTrue(ready_identity["data"]["permissions"]["discovery"])
+        self.assertTrue(ready_identity["data"]["permissions"]["search"])
+
+        self.request("/__native/config", b'{"profile":"b","mode":"search-failed"}')
+        _, failed_identity = self.request("/b/api/v1/user/current", token="synthetic-native-b")
+        self.assertTrue(failed_identity["data"]["permissions"]["discovery"])
+        self.assertEqual(
+            self.request(
+                "/b/api/v1/media/search?title=galaxy&type=media&count=8&page=1",
+                token="synthetic-native-b",
+            )[0],
+            503,
+        )
+
+        self.request("/__native/config", b'{"profile":"b","mode":"discovery-only"}')
+        status, identity = self.request("/b/api/v1/user/current", token="synthetic-native-b")
+        self.assertEqual(status, 200)
+        self.assertTrue(identity["data"]["permissions"]["discovery"])
+        self.assertFalse(identity["data"]["permissions"]["search"])
+
+        base = "/b/api/v1/"
+        search = "media/search?title=galaxy&type=media&count=8&page="
+        status, first = self.request(base + search + "1", token="synthetic-native-b")
+        self.assertEqual((status, len(first["data"])), (200, 8))
+        status, second = self.request(base + search + "2", token="synthetic-native-b")
+        self.assertEqual((status, len(second["data"])), (200, 1))
+        status, discovered = self.request(
+            base + "discover/tmdb_movies?page=2", token="synthetic-native-b"
+        )
+        self.assertEqual((status, len(discovered["data"])), (200, 1))
+
+        self.request("/__native/config", b'{"profile":"b","mode":"resource-search-only"}')
+        _, restricted = self.request("/b/api/v1/user/current", token="synthetic-native-b")
+        self.assertFalse(restricted["data"]["permissions"]["discovery"])
+        self.assertTrue(restricted["data"]["permissions"]["search"])
+        self.assertEqual(
+            self.request(base + "discover/tmdb_movies?page=1", token="synthetic-native-b")[0],
+            403,
+        )
+        self.assertEqual(
+            self.request(base + "recommend/tmdb_trending?page=1", token="synthetic-native-b")[0],
+            403,
+        )
+        self.assertEqual(
+            self.request(base + "mediaserver/clients", token="synthetic-native-b")[0],
+            403,
+        )
+        self.assertEqual(self.request(base + search + "1", token="synthetic-native-b")[0], 403)
+
+        _, dashboard = self.request("/a/api/v1/dashboard/statistic", token="synthetic-native-a")
+        self.assertIsNone(dashboard["data"]["episode_count"])
+        self.assertEqual(dashboard["data"]["episode_count_month"], 4)
+
     def test_initialization_needs_confirmation_and_never_returns_token(self):
         """创建、重复创建与普通登录分开，完整确认字段不可缺少。"""
         data = {"username": "native-new", "password": "fixture-new123", "api_key": "a" * 64}

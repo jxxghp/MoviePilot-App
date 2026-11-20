@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Rex 表单的原生分组行；输入控件保留自身焦点、辅助功能与自动填充语义。
+/// Cinematic 表单的原生分组行；输入控件保留自身焦点、辅助功能与自动填充语义。
 @MainActor
 struct CinematicFormRow<Content: View>: View {
   @ScaledMetric(relativeTo: .body) private var symbolWidth = 24.0

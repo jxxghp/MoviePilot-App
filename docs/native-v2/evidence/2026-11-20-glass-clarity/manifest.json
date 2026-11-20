@@ -90,14 +90,14 @@
     "attempt-1-rejected/rejected-cross-page-glass.png": "1ef497e0bd8803de5133a5c6845a85b0195d81f22c64abbcc3534713e52da047",
     "attempt-2-too-faint/phone-weekday-custom.png": "c67aed6a68fa3177437c6bd9c7531c2b1ee0677e8fc9531a181cfd1829e36528",
     "attempt-2-too-faint/comparison.png": "271b32238b0fa29155f89003d63a80ee2cf90b5f684ad55f91af35ba9cf011e3",
-    "final/rex-native-settings.png": "1e2786b806ea406e630b41f182bc370dca2fd1e05de5715eff0f6ccabc252080",
+    "final/cinematic-native-settings.png": "1e2786b806ea406e630b41f182bc370dca2fd1e05de5715eff0f6ccabc252080",
     "final/phone-weekday-custom.png": "c21be89205ef8794ca958f5fdb66acc4ef00c2c934022a5679a3657737a73bb3",
-    "final/rex-native-dashboard.png": "b753517c8af933a9428db5bc718d32d5923a5027f537467e9f8516cee78652f3",
-    "final/rex-weekday-dialect-expression-normal.png": "2449f89efeb247a79617b36fe977721acacbb41ac2ab778e382e2bab03f2bd3a",
-    "final/rex-native-large-text.png": "97d29d1a9b1600733aca6a75d946def18d3f0a275691de33793aa4a3b8849eab",
-    "final/rex-weekday-dialect-choice-normal.png": "0b00d8f4d000e99a738ff1c046d9388102031924f9071c0b56fd274ba2fa7f65",
-    "final/rex-native-plugin-form.png": "8fddc1e3583c33cd1ed6ba297369a4749e77bc923d2f7409df875ea6b9885b28",
-    "final/rex-weekday-dialect-custom-normal.png": "c21be89205ef8794ca958f5fdb66acc4ef00c2c934022a5679a3657737a73bb3"
+    "final/cinematic-native-dashboard.png": "b753517c8af933a9428db5bc718d32d5923a5027f537467e9f8516cee78652f3",
+    "final/cinematic-weekday-dialect-expression-normal.png": "2449f89efeb247a79617b36fe977721acacbb41ac2ab778e382e2bab03f2bd3a",
+    "final/cinematic-native-large-text.png": "97d29d1a9b1600733aca6a75d946def18d3f0a275691de33793aa4a3b8849eab",
+    "final/cinematic-weekday-dialect-choice-normal.png": "0b00d8f4d000e99a738ff1c046d9388102031924f9071c0b56fd274ba2fa7f65",
+    "final/cinematic-native-plugin-form.png": "8fddc1e3583c33cd1ed6ba297369a4749e77bc923d2f7409df875ea6b9885b28",
+    "final/cinematic-weekday-dialect-custom-normal.png": "c21be89205ef8794ca958f5fdb66acc4ef00c2c934022a5679a3657737a73bb3"
   },
   "accessibilityOriginal": {
     "device": "0288C554-8AA0-4DCB-A459-F3673D7C2D6D",

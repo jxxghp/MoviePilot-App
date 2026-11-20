@@ -7,6 +7,280 @@ final class NativeV2EntryTests: XCTestCase {
   private let base = "http://127.0.0.1:5330/"
   private let arguments = ["--native-v2", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
 
+  /// 显式交互运行时才从一次性回环通道取得凭据；App 自己连接真实后端执行只读浏览。
+  func testLiveBackendReadOnlyMediaScreens() async throws {
+    let environment = ProcessInfo.processInfo.environment
+    guard let port = environment["MOVIEPILOT_NATIVE_V2_LIVE_INPUT_PORT"],
+      let number = Int(port), (1024...65535).contains(number),
+      let nonce = environment["MOVIEPILOT_NATIVE_V2_LIVE_NONCE"], nonce.count >= 32
+    else { throw XCTSkip("仅由交互式本机验收脚本运行，不从文件或测试源码获取真实凭据。") }
+    continueAfterFailure = false
+    var request = URLRequest(url: URL(string: "http://127.0.0.1:\(number)/session-input")!)
+    request.setValue(nonce, forHTTPHeaderField: "X-MoviePilot-Live-Test")
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+      return XCTFail("一次性本机输入通道不可用。")
+    }
+    var input: LiveBackendInput? = try JSONDecoder().decode(LiveBackendInput.self, from: data)
+    let app = XCUIApplication()
+    defer {
+      input = nil
+      app.terminate()
+    }
+    app.launchArguments = arguments + ["-moviepilot.instance.selected.v1", ""]
+    app.launch()
+    let address = app.textFields["native-v2-address"]
+    XCTAssertTrue(address.waitForExistence(timeout: 15))
+    tap(address, app: app)
+    let clear = app.buttons["native-v2-clear-address"]
+    if clear.exists { clear.tap() }
+    address.typeText("http://127.0.0.1:3001/\n")
+    let nextPageIdentities = try XCTUnwrap(input?.nextPageIdentities)
+    let discoverTab = tabButton("发现", app: app)
+    let username = app.textFields["native-v2-username"]
+    if !discoverTab.waitForExistence(timeout: 5) {
+      XCTAssertTrue(username.waitForExistence(timeout: 15))
+      tap(username, app: app)
+      username.typeText(try XCTUnwrap(input?.username) + "\n")
+      app.secureTextFields["native-v2-password"].typeText(try XCTUnwrap(input?.password) + "\n")
+      input = nil
+      dismissKeyboard(app)
+      if app.switches["native-v2-remember-session"].value as? String == "1" {
+        toggle("native-v2-remember-session", to: false, app: app)
+      }
+      tap(app.buttons["native-v2-login"], app: app)
+      XCTAssertTrue(tabButton("发现", app: app).waitForExistence(timeout: 20))
+    } else {
+      input = nil
+    }
+    let more = app.buttons["native-discover-more-热门电影"]
+    XCTAssertTrue(more.waitForExistence(timeout: 40))
+    // 等待实际后端图片代理完成首屏解码，不用合成海报代替线上媒体素材。
+    try await Task.sleep(nanoseconds: 4_000_000_000)
+    captureDiscoverScrollPhases(app, prefix: "native-v2-live-discover")
+    tap(more, app: app)
+    let grid = app.scrollViews["native-discover-grid"]
+    XCTAssertTrue(grid.waitForExistence(timeout: 8))
+    capture("native-v2-live-grid-before-pagination")
+    let expected = NSPredicate(
+      format: "identifier IN %@",
+      nextPageIdentities.map {
+        "native-discover-grid-poster-" + $0
+      })
+    let nextPage = app.buttons.matching(expected).firstMatch
+    for _ in 0..<10 where !nextPage.exists {
+      grid.swipeUp()
+      try await Task.sleep(nanoseconds: 500_000_000)
+    }
+    capture("native-v2-live-grid-pagination-state")
+    XCTAssertTrue(nextPage.waitForExistence(timeout: 20))
+    XCTAssertFalse(app.buttons["native-discover-grid-load-more"].exists)
+    try await Task.sleep(nanoseconds: 1_000_000_000)
+    capture("native-v2-live-grid-automatic-page")
+    // 采集真实媒体详情、仪表盘与媒体搜索画面，确认全页面风格与真实数据一致。
+    tap(nextPage, app: app)
+    XCTAssertTrue(app.staticTexts["native-media-detail-title"].waitForExistence(timeout: 15))
+    try await Task.sleep(nanoseconds: 2_000_000_000)
+    capture("native-v2-live-detail")
+    tap(tabButton("仪表盘", app: app), app: app)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-dashboard-storage"].firstMatch.waitForExistence(
+        timeout: 15))
+    try await Task.sleep(nanoseconds: 1_000_000_000)
+    capture("native-v2-live-dashboard")
+    tap(tabButton("搜索", app: app), app: app)
+    let query = app.textFields["native-media-search-query"]
+    XCTAssertTrue(query.waitForExistence(timeout: 8))
+    query.tap()
+    query.typeText("奥德赛\n")
+    try await Task.sleep(nanoseconds: 4_000_000_000)
+    capture("native-v2-live-search")
+    XCTAssertEqual(app.webViews.count, 0)
+    // 退出后内存身份销毁，测试脚本会清理含登录活动的原始结果包。
+  }
+
+  /// 只存在于测试运行器内存中的输入，不保存主 Token、真实资料或服务端响应正文。
+  private struct LiveBackendInput: Decodable {
+    let username: String
+    let password: String
+    let nextPageIdentities: [String]
+  }
+
+  /// 从发现栏打开全部、加载下一页并进入选中作品；图片只由当前服务代理。
+  func testNativeDiscoverLoadsArtworkAndPaginatedDetail() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    let more = app.buttons["native-discover-more-热门电影"]
+    XCTAssertTrue(more.waitForExistence(timeout: 12))
+    try await waitForArtwork("a", minimum: 4)
+    captureDiscoverScrollPhases(app, prefix: "native-v2-discover")
+    tap(more, app: app)
+    let added = app.buttons["native-discover-grid-poster-themoviedb|113|电影"]
+    for _ in 0..<6 where !added.exists { app.swipeUp() }
+    XCTAssertTrue(added.waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["native-discover-grid-load-more"].exists)
+    capture("native-v2-discover-grid")
+    tap(added, app: app)
+    let title = app.staticTexts["native-media-detail-title"]
+    XCTAssertTrue(title.waitForExistence(timeout: 10))
+    XCTAssertEqual(title.label, "合成电影 113")
+    capture("native-v2-discover-detail")
+    XCTAssertEqual(app.webViews.count, 0)
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["discover:tmdb_movies:2"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/media/113"], 1)
+    XCTAssertGreaterThan(counts["a"]?["image-served"] ?? 0, 0)
+    XCTAssertNil(counts["a"]?["image-auth-rejected"])
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// 单条发现源失败仍保留可用轨道；重试更新全部轨道且不注入预览样例。
+  func testNativeDiscoverRetainsAvailableRailsAndRetriesPartialFailure() async throws {
+    let app = try await signInToNativeBusiness(mode: "partial-discovery-failed")
+    defer { app.terminate() }
+    XCTAssertTrue(app.buttons["native-discover-more-热门电影"].waitForExistence(timeout: 12))
+    let retry = app.buttons["native-discover-retry"]
+    XCTAssertTrue(retry.waitForExistence(timeout: 8))
+    XCTAssertFalse(app.buttons["native-discover-more-热门剧集"].exists)
+    try await configure("a", mode: "ready")
+    tap(retry, app: app)
+    XCTAssertTrue(app.buttons["native-discover-more-热门剧集"].waitForExistence(timeout: 10))
+    XCTAssertFalse(retry.exists)
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["discover:tmdb_movies:1"], 2)
+    XCTAssertEqual(counts["a"]?["discover:tmdb_tvs:1"], 2)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// 仅有发现权限也可原生搜索，草稿不发请求，失败由用户重试并继续分页。
+  func testNativeMediaSearchOnlySubmitsOnActionAndRetries() async throws {
+    let app = try await signInToNativeBusiness("b", mode: "discovery-only")
+    defer { app.terminate() }
+    let search = tabButton("搜索", app: app)
+    XCTAssertTrue(search.waitForExistence(timeout: 8))
+    tap(search, app: app)
+    let field = app.textFields["native-media-search-query"]
+    XCTAssertTrue(field.waitForExistence(timeout: 8))
+    field.tap()
+    field.typeText("galaxy")
+    let draft = try await stats()
+    XCTAssertNil(draft["b"]?["GET api/v1/media/search"])
+
+    try await configure("b", mode: "search-failed")
+    capture("native-v2-global-search")
+    field.typeText("\n")
+    let retry = app.buttons["native-media-search-retry"]
+    XCTAssertTrue(retry.waitForExistence(timeout: 10))
+    let failed = try await stats()
+    XCTAssertEqual(failed["b"]?["search:galaxy:1"], 1)
+    try await configure("b", mode: "discovery-only")
+    tap(retry, app: app)
+    let firstResult = app.buttons["native-media-search-result-电影:themoviedb:121"]
+    XCTAssertTrue(firstResult.waitForExistence(timeout: 10))
+    capture("native-v2-media-search")
+    let lastResult = app.buttons["native-media-search-result-电影:themoviedb:129"]
+    let scroll = app.scrollViews["native-media-search-scroll"]
+    for _ in 0..<8 where !lastResult.exists { scroll.swipeUp() }
+    XCTAssertFalse(app.buttons["native-media-search-more"].exists)
+    tap(lastResult, app: app)
+    let title = app.staticTexts["native-media-detail-title"]
+    XCTAssertTrue(title.waitForExistence(timeout: 10))
+    XCTAssertEqual(title.label, "合成电影 129")
+    XCTAssertEqual(app.webViews.count, 0)
+    let counts = try await stats()
+    XCTAssertEqual(counts["b"]?["search:galaxy:1"], 2)
+    XCTAssertEqual(counts["b"]?["search:galaxy:2"], 1)
+    XCTAssertEqual(counts["b"]?["GET api/v1/media/129"], 1)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// 一项存储读取失败不会隐藏媒体库和服务，管理员可通过可见重试恢复存储统计。
+  func testNativeDashboardRetainsStatisticsDuringPartialFailure() async throws {
+    let app = try await signInToNativeBusiness(mode: "storage-failed")
+    defer { app.terminate() }
+    tap(tabButton("仪表盘", app: app), app: app)
+    let episodes = app.descendants(matching: .any)["native-dashboard-metric-episodes"].firstMatch
+    let retry = app.buttons["native-dashboard-retry"]
+    XCTAssertTrue(episodes.waitForExistence(timeout: 10))
+    XCTAssertTrue((episodes.value as? String)?.contains("总量暂未获取") == true)
+    XCTAssertTrue(retry.exists)
+    try await configure("a", mode: "ready")
+    tap(retry, app: app)
+    let storage = app.descendants(matching: .any)["native-dashboard-storage"].firstMatch
+    XCTAssertTrue(storage.waitForExistence(timeout: 10))
+    capture("native-v2-dashboard")
+    XCTAssertTrue(app.staticTexts["合成媒体库扫描"].exists)
+    XCTAssertFalse(retry.exists)
+    XCTAssertEqual(app.webViews.count, 0)
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["GET api/v1/dashboard/storage"], 2)
+    XCTAssertEqual(counts["a"]?["GET api/v1/dashboard/statistic"], 2)
+    XCTAssertEqual(counts["a"]?["GET api/v1/dashboard/schedule"], 2)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// 单独授权 PT 搜索的普通账号仍能管理本身会话，影视和管理端点保持不可达。
+  func testNativeBusinessHidesUnpermittedEntries() async throws {
+    let app = try await signInToNativeBusiness("b", mode: "resource-search-only")
+    defer { app.terminate() }
+    assertAccount("b", app: app)
+    capture("native-v2-account")
+    XCTAssertFalse(tabButton("发现", app: app).exists)
+    XCTAssertFalse(tabButton("搜索", app: app).exists)
+    XCTAssertFalse(tabButton("仪表盘", app: app).exists)
+    let counts = try await stats()
+    XCTAssertTrue(
+      counts["b"]?.keys.allSatisfy {
+        !$0.contains("/discover/") && !$0.contains("/media/") && !$0.contains("/dashboard/")
+      } == true)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// 从真实连接与登录进入当前会话，等待业务壳出现但保留它的默认选项。
+  private func signInToNativeBusiness(_ profile: String = "a", mode: String = "ready")
+    async throws -> XCUIApplication
+  {
+    try await configure(profile, mode: mode, reset: true)
+    let app = try cleanPicker()
+    connect(profile, app: app)
+    enterCredentials(profile, app: app)
+    tap(app.buttons["native-v2-login"], app: app)
+    XCTAssertTrue(tabButton("我的", app: app).waitForExistence(timeout: 15))
+    return app
+  }
+
+  /// iPhone 底栏与 iPad 顶部浮动标签栏结构不同，统一解析当前平台的原生标签按钮。
+  private func tabButton(_ label: String, app: XCUIApplication) -> XCUIElement {
+    let tabBarButton = app.tabBars.buttons[label]
+    if tabBarButton.exists { return tabBarButton }
+    return app.buttons[label].firstMatch
+  }
+
+  /// 等待主画面上的真实图片代理回执，确保截图记录的是已渲染海报。
+  private func waitForArtwork(_ profile: String, minimum: Int) async throws {
+    let deadline = Date.now.addingTimeInterval(12)
+    while Date.now < deadline {
+      let current = try await stats()
+      if (current[profile]?["image-served"] ?? 0) >= minimum { return }
+      try await Task.sleep(nanoseconds: 200_000_000)
+    }
+    XCTFail("未收到足够的图片代理回执，未能确认海报加载。")
+  }
+
+  /// 以同一原生拖动距离采集首屏、文字上移、主视觉退出和正文四个连续位置。
+  private func captureDiscoverScrollPhases(_ app: XCUIApplication, prefix: String) {
+    let window = app.windows.firstMatch.frame
+    let origin = app.coordinate(withNormalizedOffset: .zero)
+    capture(prefix + "-phase-1")
+    for phase in 2...4 {
+      origin.withOffset(CGVector(dx: window.midX, dy: window.height * 0.70)).press(
+        forDuration: 0.05,
+        thenDragTo: origin.withOffset(CGVector(dx: window.midX, dy: window.height * 0.445)),
+        withVelocity: .slow, thenHoldForDuration: 0.2)
+      capture(prefix + "-phase-\(phase)")
+    }
+  }
+
   /// 来源节点的 0 不应被预选为周一，无改保存保留空格原文，主动选周日后才写 sun。
   func testPluginCronNumericWeekdayPreservesSource() async throws {
     let app = try await pluginAccount()
@@ -36,14 +310,14 @@ final class NativeV2EntryTests: XCTestCase {
     openCron("cron", app: app)
     XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, original)
     reveal(app.staticTexts["数字星期由插件解释；改选时使用星期名称。"].firstMatch, app: app)
-    capture("rex-weekday-dialect-expression-" + evidenceLabel)
+    capture("cinematic-weekday-dialect-expression-" + evidenceLabel)
     tap(app.buttons["native-cron-unit-weekday"], app: app)
     XCTAssertTrue(app.buttons["native-cron-mode"].label.contains("自定义"))
     let custom = app.textFields["native-cron-custom-field"]
     reveal(custom, app: app)
     XCTAssertEqual(custom.value as? String, "0")
     XCTAssertFalse(app.buttons["native-cron-choice-weekday-0"].exists)
-    capture("rex-weekday-dialect-custom-" + evidenceLabel)
+    capture("cinematic-weekday-dialect-custom-" + evidenceLabel)
     tap(app.buttons["native-cron-field-apply"], app: app)
     tap(app.buttons["native-cron-apply"], app: app)
     XCTAssertFalse(app.buttons["native-plugin-form-back"].exists)
@@ -57,7 +331,7 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertFalse(app.buttons["native-cron-field-apply"].isEnabled)
     tap(app.buttons["native-cron-choice-weekday-6"], app: app)
     XCTAssertTrue(app.buttons["native-cron-field-apply"].isEnabled)
-    capture("rex-weekday-dialect-choice-" + evidenceLabel)
+    capture("cinematic-weekday-dialect-choice-" + evidenceLabel)
     tap(app.buttons["native-cron-field-apply"], app: app)
     tap(app.buttons["native-cron-apply"], app: app)
     tap(app.buttons["native-plugin-form-save"], app: app)
@@ -76,17 +350,17 @@ final class NativeV2EntryTests: XCTestCase {
   func testPluginCronSourceBuilderSavesCompletePhysicalForm() async throws {
     let app = try await pluginAccount()
     openPlugin("LibraryScraper_copy", app: app)
-    capture("rex-cron-source-form")
+    capture("cinematic-cron-source-form")
     openCron("cron", app: app)
     XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, "0 0 */7 * *")
-    capture("rex-cron-expression-editor")
+    capture("cinematic-cron-expression-editor")
     tap(app.buttons["native-cron-unit-day"], app: app)
     XCTAssertTrue(app.navigationBars["日期"].waitForExistence(timeout: 5))
     chooseCronMode("月底", app: app)
     XCTAssertEqual(app.staticTexts["native-cron-field-preview"].label, "last")
     tap(app.buttons["native-cron-field-apply"], app: app)
     XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, "0 0 last * *")
-    capture("rex-cron-last-day")
+    capture("cinematic-cron-last-day")
     tap(app.buttons["native-cron-apply"], app: app)
     reveal(app.textFields["native-plugin-field-cron"], app: app)
     XCTAssertEqual(app.textFields["native-plugin-field-cron"].value as? String, "0 0 last * *")
@@ -122,7 +396,7 @@ final class NativeV2EntryTests: XCTestCase {
     openPlugin("CronCompatibilityFixture", app: app)
     openCron("cron", app: app)
     XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, "6")
-    capture("rex-cron-plugin-specific-value")
+    capture("cinematic-cron-plugin-specific-value")
     tap(app.buttons["native-cron-apply"], app: app)
     XCTAssertFalse(app.buttons["native-plugin-form-back"].exists)
     openCron("empty", app: app)
@@ -176,7 +450,7 @@ final class NativeV2EntryTests: XCTestCase {
     incrementCronStep(app)
     incrementCronStep(app)
     XCTAssertEqual(app.staticTexts["native-cron-field-preview"].label, "*/17")
-    capture("rex-cron-minute-step")
+    capture("cinematic-cron-minute-step")
     app.navigationBars["分钟"].buttons.element(boundBy: 0).tap()
     XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, "*/15 * * * *")
     tap(app.buttons["native-cron-unit-minute"], app: app)
@@ -219,11 +493,11 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertFalse(app.buttons["native-cron-field-apply"].isEnabled)
     tap(app.buttons["native-cron-choice-weekday-6"], app: app)
     XCTAssertTrue(app.buttons["native-cron-field-apply"].isEnabled)
-    capture("rex-cron-largest-weekday")
+    capture("cinematic-cron-largest-weekday")
     tap(app.buttons["native-cron-field-apply"], app: app)
     reveal(app.textFields["native-cron-expression"], app: app)
     XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, "0 9 * * sun")
-    capture("rex-cron-largest-expression")
+    capture("cinematic-cron-largest-expression")
     tap(app.buttons["native-cron-apply"], app: app)
     tap(app.buttons["native-plugin-form-save"], app: app)
     reveal(app.staticTexts["native-plugin-form-saved"], app: app)
@@ -268,7 +542,7 @@ final class NativeV2EntryTests: XCTestCase {
     tap(app.buttons["native-cron-field-apply"], app: app)
     reveal(app.textFields["native-cron-expression"], app: app)
     XCTAssertEqual(app.textFields["native-cron-expression"].value as? String, "0 1-22 * jan-mar *")
-    capture("rex-cron-range-month-custom")
+    capture("cinematic-cron-range-month-custom")
     tap(app.buttons["native-cron-cancel"], app: app)
     XCTAssertEqual(app.textFields["native-plugin-field-cron"].value as? String, "0 0 */7 * *")
     let state = try await pluginState()
@@ -317,7 +591,7 @@ final class NativeV2EntryTests: XCTestCase {
     let plugin = "CertManagerCombobox_copy"
     openPlugin(plugin, initialControl: "native-plugin-field-dns_provider", app: app)
     openCombobox("dns_provider", app: app)
-    capture("rex-combobox-source-object")
+    capture("cinematic-combobox-source-object")
     tap(app.buttons["native-combobox-option-2"], app: app)
     tap(app.buttons["native-combobox-cancel"], app: app)
     XCTAssertTrue(app.buttons["native-plugin-field-dns_provider"].label.contains("历史 DNS 预设"))
@@ -342,7 +616,7 @@ final class NativeV2EntryTests: XCTestCase {
     let input = app.textFields["native-combobox-input"]
     tap(input, app: app)
     input.typeText(" dns_custom ")
-    capture("rex-combobox-custom-input")
+    capture("cinematic-combobox-custom-input")
     // 不先按加号，应用必须接收尚在输入框的文字，且保留空格。
     tap(app.buttons["native-combobox-apply"], app: app)
     state = try await pluginState()
@@ -382,7 +656,7 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["native-combobox-current-3"].label.contains("TV"))
     tap(app.buttons["native-combobox-remove-0"], app: app)
     addComboboxInput("Anime", app: app)
-    capture("rex-combobox-multiple-values")
+    capture("cinematic-combobox-multiple-values")
     tap(app.buttons["native-combobox-apply"], app: app)
     tap(app.buttons["native-plugin-form-save"], app: app)
     reveal(app.staticTexts["native-plugin-form-saved"], app: app)
@@ -455,7 +729,7 @@ final class NativeV2EntryTests: XCTestCase {
     app.terminate()
   }
 
-  /// 最大字号与横屏下候选列表、键盘和应用动作都必须可达，继续使用统一 Rex 表面。
+  /// 最大字号与横屏下候选列表、键盘和应用动作都必须可达，继续使用统一 Cinematic 表面。
   func testPluginComboboxLargestTypeRemainsReachable() async throws {
     let app = try await pluginAccount(extra: [
       "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
@@ -469,7 +743,7 @@ final class NativeV2EntryTests: XCTestCase {
       "CertManagerCombobox_copy", initialControl: "native-plugin-field-dns_provider", app: app)
     openCombobox("dns_provider", app: app)
     tap(app.buttons["native-combobox-option-13"], app: app)
-    capture("rex-combobox-largest-landscape")
+    capture("cinematic-combobox-largest-landscape")
     let input = app.textFields["native-combobox-input"]
     tap(input, app: app)
     input.typeText("dns_custom")
@@ -501,18 +775,18 @@ final class NativeV2EntryTests: XCTestCase {
   func testPluginSourceFormSavesCompletePhysicalConfiguration() async throws {
     let app = try await pluginAccount()
     openPlugin("MediaDirWatcher_copy", app: app)
-    capture("rex-plugin-form-source-top")
+    capture("cinematic-plugin-form-source-top")
     toggle("native-plugin-field-enabled", to: true, app: app)
     tap(app.buttons["native-plugin-field-media_type"], app: app)
     XCTAssertTrue(app.buttons["native-plugin-option-1"].waitForExistence(timeout: 5))
-    capture("rex-plugin-form-single-selection")
+    capture("cinematic-plugin-form-single-selection")
     tap(app.buttons["native-plugin-option-1"], app: app)
     replacePluginInput("scan_interval", with: "7", app: app)
     let paths = app.textViews["native-plugin-field-monitor_paths"]
     tap(paths, app: app)
     paths.typeText("/media/Films\n/media/TV")
     dismissKeyboard(app)
-    capture("rex-plugin-form-source-fields")
+    capture("cinematic-plugin-form-source-fields")
     tap(app.buttons["native-plugin-form-save"], app: app)
     reveal(app.staticTexts["native-plugin-form-saved"], app: app)
     var state = try await pluginState()
@@ -549,7 +823,7 @@ final class NativeV2EntryTests: XCTestCase {
     try await configurePlugins(mode: "fail_save_once")
     tap(app.buttons["native-plugin-form-save"], app: app)
     reveal(app.staticTexts["native-plugin-form-error"], app: app)
-    capture("rex-plugin-form-save-failure")
+    capture("cinematic-plugin-form-save-failure")
     var state = try await pluginState()
     XCTAssertEqual(
       (state["counts"] as? [String: Int])?["PUT a/api/v1/plugin/MediaDirWatcher_copy"], 1)
@@ -576,7 +850,7 @@ final class NativeV2EntryTests: XCTestCase {
     openPlugin("UnsupportedFixture", app: app)
     reveal(app.staticTexts["native-plugin-form-blocked"], app: app)
     XCTAssertFalse(app.buttons["native-plugin-form-save"].isEnabled)
-    capture("rex-plugin-form-unsupported")
+    capture("cinematic-plugin-form-unsupported")
     toggle("native-plugin-field-enabled", to: true, app: app)
     XCTAssertFalse(app.buttons["native-plugin-form-save"].isEnabled)
     tap(app.buttons["native-plugin-form-back"], app: app)
@@ -601,7 +875,7 @@ final class NativeV2EntryTests: XCTestCase {
     tap(app.buttons["native-plugin-option-1"], app: app)
     tap(app.buttons["native-plugin-option-2"], app: app)
     tap(app.buttons["native-plugin-option-0"], app: app)
-    capture("rex-plugin-form-multiple-selection")
+    capture("cinematic-plugin-form-multiple-selection")
     tap(app.buttons["native-plugin-selection-done"], app: app)
     toggle("native-plugin-field-enabled", to: true, app: app)
     reveal(app.textFields["native-plugin-field-path"], app: app)
@@ -618,7 +892,7 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertFalse(app.buttons["native-plugin-form-save"].isEnabled)
     replacePluginInput("amount", with: "7", app: app)
     XCTAssertTrue(app.buttons["native-plugin-form-save"].isEnabled)
-    capture("rex-plugin-form-conditional-controls")
+    capture("cinematic-plugin-form-conditional-controls")
     tap(app.buttons["native-plugin-form-save"], app: app)
     reveal(app.staticTexts["native-plugin-form-saved"], app: app)
     let state = try await pluginState()
@@ -667,10 +941,10 @@ final class NativeV2EntryTests: XCTestCase {
     openPlugin("MediaDirWatcher_copy", app: app)
     XCUIDevice.shared.orientation = .landscapeLeft
     tap(app.buttons["native-plugin-field-media_type"], app: app)
-    capture("rex-plugin-form-landscape-largest-selection")
+    capture("cinematic-plugin-form-landscape-largest-selection")
     tap(app.buttons["native-plugin-option-2"], app: app)
     replacePluginInput("scan_interval", with: "8", app: app)
-    capture("rex-plugin-form-landscape-largest")
+    capture("cinematic-plugin-form-landscape-largest")
     tap(app.buttons["native-plugin-form-save"], app: app)
     reveal(app.staticTexts["native-plugin-form-saved"], app: app)
     let state = try await pluginState()
@@ -705,7 +979,7 @@ final class NativeV2EntryTests: XCTestCase {
     let row = app.buttons["native-plugin-" + id]
     reveal(row, app: app)
     XCTAssertTrue(row.waitForExistence(timeout: 10))
-    capture("rex-plugin-installed-list")
+    capture("cinematic-plugin-installed-list")
     tap(row, app: app)
     XCTAssertTrue(app.buttons["native-plugin-form-save"].waitForExistence(timeout: 10))
     reveal(app.descendants(matching: .any)[initialControl].firstMatch, app: app)
@@ -738,15 +1012,15 @@ final class NativeV2EntryTests: XCTestCase {
     return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
   }
 
-  /// 浅色系统偏好下仍为 Rex 单一风格，玻璃表单中的秘密可检查且暂离后恢复遮盖。
-  func testRexFormControlsAndSecretConcealment() async throws {
+  /// 浅色系统偏好下仍为 单一深色渐变玻璃风格，玻璃表单中的秘密可检查且暂离后恢复遮盖。
+  func testCinematicFormControlsAndSecretConcealment() async throws {
     try await configure("new", mode: "new", reset: true)
     let app = try cleanPicker(extra: ["-AppleInterfaceStyle", "Light"])
-    capture("rex-entry-connection-system-light")
+    capture("cinematic-entry-connection-system-light")
     connect("new", app: app)
     let key = app.secureTextFields["native-v2-api-key"]
     reveal(key, app: app)
-    capture("rex-entry-initialization-system-light")
+    capture("cinematic-entry-initialization-system-light")
     for identifier in [
       "native-v2-show-api-key", "native-v2-copy-api-key", "native-v2-show-password",
     ] {
@@ -1089,16 +1363,26 @@ final class NativeV2EntryTests: XCTestCase {
     let cronField = app.collectionViews["native-cron-field-form"]
     let cron = app.collectionViews["native-cron-form"]
     let combobox = app.collectionViews["native-combobox-form"]
+    let mediaSearch = app.scrollViews["native-media-search-scroll"]
+    let discoverGrid = app.scrollViews["native-discover-grid"]
+    let discoverPage = app.scrollViews["native-discover-page"]
     let scroll =
-      cronMode.exists
-      ? cronMode
-      : cronField.exists
-        ? cronField
-        : cron.exists
-          ? cron
-          : combobox.exists
-            ? combobox
-            : (app.buttons["native-plugin-selection-done"].exists ? forms.last : forms.first) ?? app
+      mediaSearch.exists
+      ? mediaSearch
+      : discoverGrid.exists
+        ? discoverGrid
+        : discoverPage.exists
+          ? discoverPage
+          : cronMode.exists
+            ? cronMode
+            : cronField.exists
+              ? cronField
+              : cron.exists
+                ? cron
+                : combobox.exists
+                  ? combobox
+                  : (app.buttons["native-plugin-selection-done"].exists ? forms.last : forms.first)
+                    ?? app
     for direction in [true, false] {
       for _ in 0..<12 {
         if visible(element, app: app, scroll: scroll) { return }
@@ -1172,6 +1456,18 @@ final class NativeV2EntryTests: XCTestCase {
           && element.isHittable
       }
     }
+    if ["发现", "我的", "仪表盘", "搜索"].contains(element.label),
+      app.windows.firstMatch.frame.contains(CGPoint(x: element.frame.midX, y: element.frame.midY)),
+      element.isHittable
+    {
+      return true
+    }
+    for tabBar in app.tabBars.allElementsBoundByIndex {
+      let center = CGPoint(x: element.frame.midX, y: element.frame.midY)
+      if tabBar.frame.contains(center), element.isHittable {
+        return true
+      }
+    }
     return viewport(app, scroll: scroll).contains(
       CGPoint(x: element.frame.midX, y: element.frame.midY)) && element.isHittable
   }
@@ -1187,6 +1483,12 @@ final class NativeV2EntryTests: XCTestCase {
 
   /// 已认证账号标签必须属于本次服务，同时检查运行中的可访问性树没有 WebView。
   private func assertAccount(_ name: String, app: XCUIApplication) {
+    let accountTab = tabButton("我的", app: app)
+    if !app.descendants(matching: .any)["native-v2-account"].firstMatch.exists,
+      accountTab.exists
+    {
+      tap(accountTab, app: app)
+    }
     let account = app.descendants(matching: .any)["native-v2-account"].firstMatch
     reveal(account, app: app)
     XCTAssertTrue(account.waitForExistence(timeout: 15))

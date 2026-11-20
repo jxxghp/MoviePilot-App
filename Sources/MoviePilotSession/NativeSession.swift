@@ -80,6 +80,19 @@ public final class NativeSession {
     }
   }
 
+  /// 图片权限失败只影响图片；JSON 业务请求或账号刷新仍负责确认登录过期。
+  public func requestImage(_ sourceURL: URL, maximumWidth: Int? = nil) async throws -> APIImage {
+    try checkActive()
+    do {
+      let image = try await api.requestImage(sourceURL, maximumWidth: maximumWidth)
+      try checkActive()
+      return image
+    } catch {
+      try checkActive()
+      throw error
+    }
+  }
+
   /// 写入只发一次；返回只说明端点接受动作，不能自动重试或推断后台任务已结束。
   public func perform(
     _ endpoint: APIEndpoint, requiring permission: PermissionRequirement? = nil

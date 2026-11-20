@@ -67,7 +67,7 @@ struct NativePluginCronEditor: View {
     _expression = State(initialValue: text)
   }
 
-  /// 五字段编辑、预设与自定义输入都承载在同一 Rex 渐变和原生导航中。
+  /// 五字段编辑、预设与自定义输入都承载在同一 Cinematic 渐变和原生导航中。
   var body: some View {
     NavigationStack(path: $path) {
       ZStack {
