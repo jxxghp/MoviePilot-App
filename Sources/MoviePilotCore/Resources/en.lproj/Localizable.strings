@@ -394,3 +394,12 @@
 
 /* v2 插件数字星期方言 */
 "数字星期由插件解释；改选时使用星期名称。" = "Numeric weekdays follow the plugin’s rules. Choose weekday names to change them.";
+
+/* v2 原生插件组合框 */
+"搜索或输入自定义值" = "Search or enter a custom value";
+"预设选项" = "Presets";
+"没有匹配项，可直接添加输入值。" = "No matches. You can add the entered value.";
+"无法应用，修改已保留。" = "Unable to apply. Your changes are kept.";
+"选择或输入" = "Select or enter";
+"空值" = "Empty value";
+"选中项过多" = "Too many items selected";

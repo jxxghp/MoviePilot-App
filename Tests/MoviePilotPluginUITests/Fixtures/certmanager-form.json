@@ -1,0 +1,690 @@
+{
+  "render_mode": "vuetify",
+  "conf": [
+    {
+      "component": "VForm",
+      "content": [
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 4
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "enabled",
+                    "label": "启用插件"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 4
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "notify",
+                    "label": "发送通知"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 4
+              },
+              "content": [
+                {
+                  "component": "VTextField",
+                  "props": {
+                    "model": "cron",
+                    "label": "续期检查周期",
+                    "placeholder": "0 4 * * *"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VAlert",
+                  "props": {
+                    "type": "info",
+                    "variant": "tonal",
+                    "text": "证书默认部署到 /config/certs/latest/，与 MoviePilot 镜像的 nginx 配置一致。如你的 nginx 使用其他路径，请修改下方证书目录。"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VTextField",
+                  "props": {
+                    "model": "acme_home",
+                    "label": "acme.sh 目录",
+                    "placeholder": "/config/acme.sh"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VTextField",
+                  "props": {
+                    "model": "cert_dir",
+                    "label": "证书部署目录",
+                    "placeholder": "/config/certs/latest"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VBtn",
+                  "props": {
+                    "color": "primary",
+                    "variant": "flat",
+                    "block": true,
+                    "prepend-icon": "mdi-download-box",
+                    "onclick": "function(e) { if (!confirm('将从 acme.sh 官方仓库下载并安装到指定目录，已安装时执行升级。是否继续？')) return; window.MoviePilotAPI.post('plugin/CertManager/install', {}).then(function(r) { alert(r && r.message ? r.message : '安装完成') }).catch(function(err) { console.error(err); alert('安装失败，请查看日志') }) }"
+                  },
+                  "text": "一键安装 / 升级 acme.sh"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VAlert",
+                  "props": {
+                    "type": "info",
+                    "variant": "tonal",
+                    "text": "acme.sh 是申请证书所需的命令行工具。点击上方按钮即可自动下载安装，无需手动执行命令；已安装时会升级到最新版，原有账号与证书配置会保留。"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VDivider",
+                  "props": {
+                    "class": "my-2"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VAlert",
+                  "props": {
+                    "type": "warning",
+                    "variant": "tonal",
+                    "text": "以下配置用于「自动申请」与「自动续期」。只做手动部署的用户可以跳过。"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VTextField",
+                  "props": {
+                    "model": "domain",
+                    "label": "证书域名",
+                    "placeholder": "example.com",
+                    "hint": "多个域名用英文逗号分隔，泛域名写 *.example.com",
+                    "persistent-hint": true
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VCombobox",
+                  "props": {
+                    "model": "dns_provider",
+                    "label": "DNS 服务商",
+                    "items": [
+                      {
+                        "title": "阿里云（Aliyun）",
+                        "value": "dns_ali"
+                      },
+                      {
+                        "title": "腾讯云 DNSPod",
+                        "value": "dns_dp"
+                      },
+                      {
+                        "title": "Cloudflare",
+                        "value": "dns_cf"
+                      },
+                      {
+                        "title": "华为云",
+                        "value": "dns_huaweicloud"
+                      },
+                      {
+                        "title": "百度云",
+                        "value": "dns_baidu"
+                      },
+                      {
+                        "title": "GoDaddy",
+                        "value": "dns_gd"
+                      },
+                      {
+                        "title": "NameSilo",
+                        "value": "dns_namesilo"
+                      },
+                      {
+                        "title": "Namecheap",
+                        "value": "dns_namecheap"
+                      },
+                      {
+                        "title": "Porkbun",
+                        "value": "dns_porkbun"
+                      },
+                      {
+                        "title": "西部数码",
+                        "value": "dns_west_cn"
+                      },
+                      {
+                        "title": "DNSPod 国际版",
+                        "value": "dns_dpi"
+                      },
+                      {
+                        "title": "AWS Route53",
+                        "value": "dns_aws"
+                      },
+                      {
+                        "title": "Azure DNS",
+                        "value": "dns_azure"
+                      },
+                      {
+                        "title": "Google Cloud DNS",
+                        "value": "dns_gcloud"
+                      }
+                    ],
+                    "item-title": "title",
+                    "item-value": "value",
+                    "hint": "可从列表选择，也可直接输入 acme.sh 的脚本名（如 dns_xxx）。常用：dns_ali 阿里云、dns_dp 腾讯云、dns_cf Cloudflare",
+                    "persistent-hint": true
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VAlert",
+                  "props": {
+                    "type": "info",
+                    "variant": "tonal",
+                    "text": "凭据字段名随服务商不同。阿里云填 AccessKey ID 与 AccessKey Secret；腾讯云填 DNSPod ID 与 Token；Cloudflare 填 API Token。不确定时点击下方按钮查询。"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VBtn",
+                  "props": {
+                    "color": "info",
+                    "variant": "tonal",
+                    "block": true,
+                    "prepend-icon": "mdi-help-circle-outline",
+                    "onclick": "function(e) { window.MoviePilotAPI.post('plugin/CertManager/credentials', {provider: model.dns_provider}).then(function(r) { if (!r || r.success === false) { alert(r && r.message ? r.message : '查询失败'); return } var lines = [r.message, '']; for (var i = 0; i < r.fields.length; i++) { lines.push((i + 1) + '. ' + r.fields[i]) } lines.push(''); lines.push('按顺序填入下方两个输入框；'); lines.push('超过两个字段时，其余字段请写入脚本的 account.conf。'); alert(lines.join('\\n')) }).catch(function(err) { console.error(err); alert('查询失败，请查看日志') }) }"
+                  },
+                  "text": "查询当前服务商需要哪些凭据"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VTextField",
+                  "props": {
+                    "model": "dns_key",
+                    "label": "凭据 1（Key / ID / Token）",
+                    "placeholder": "如阿里云的 AccessKey ID",
+                    "hint": "阿里云填 Ali_Key 的值",
+                    "persistent-hint": true
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VTextField",
+                  "props": {
+                    "model": "dns_secret",
+                    "label": "凭据 2（Secret / Token）",
+                    "placeholder": "如阿里云的 AccessKey Secret",
+                    "hint": "阿里云填 Ali_Secret 的值",
+                    "persistent-hint": true
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VAlert",
+                  "props": {
+                    "type": "success",
+                    "variant": "tonal",
+                    "text": "示例（阿里云）：凭据 1 填 LTAI5tExampleKeyId0000，凭据 2 填 AccessKey Secret。建议使用只有 DNS 解析权限的子账号密钥。"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VBtn",
+                  "props": {
+                    "color": "primary",
+                    "variant": "tonal",
+                    "block": true,
+                    "prepend-icon": "mdi-download",
+                    "onclick": "function(e) { window.MoviePilotAPI.post('plugin/CertManager/dnsapi', {provider: model.dns_provider}).then(function(r) { alert(r && r.message ? r.message : '下载完成') }).catch(function(err) { console.error(err); alert('下载失败') }) }"
+                  },
+                  "text": "下载 DNS 插件脚本"
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VBtn",
+                  "props": {
+                    "color": "success",
+                    "variant": "flat",
+                    "block": true,
+                    "prepend-icon": "mdi-check-circle",
+                    "onclick": "function(e) { window.MoviePilotAPI.post('plugin/CertManager/verify', {domain: model.domain, dns_provider: model.dns_provider, dns_key: model.dns_key, dns_secret: model.dns_secret}).then(function(r) { var lines = []; if (r && r.checks) { for (var i = 0; i < r.checks.length; i++) { var c = r.checks[i]; lines.push((c.ok ? '[通过] ' : '[失败] ') + c.name + ': ' + c.message) } } if (r && r.message) { lines.push(''); lines.push('结论: ' + r.message) } alert(lines.length ? lines.join('\\n') : '检测未返回结果') }).catch(function(err) { console.error(err); alert('检测失败，请查看日志') }) }"
+                  },
+                  "text": "检测配置"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VBtn",
+                  "props": {
+                    "color": "warning",
+                    "variant": "flat",
+                    "block": true,
+                    "prepend-icon": "mdi-certificate",
+                    "onclick": "function(e) { if (!confirm('将向 DNS 服务商写入验证记录并申请证书，过程可能需要 1-3 分钟。是否继续？')) return; window.MoviePilotAPI.post('plugin/CertManager/issue', {domain: model.domain, dns_provider: model.dns_provider, dns_key: model.dns_key, dns_secret: model.dns_secret}).then(function(r) { alert(r && r.message ? r.message : '申请完成，请查看日志') }).catch(function(err) { console.error(err); alert('申请失败，请查看日志') }) }"
+                  },
+                  "text": "申请证书"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VAlert",
+                  "props": {
+                    "type": "info",
+                    "variant": "tonal",
+                    "text": "检测会依次校验域名格式、acme.sh、DNS 插件脚本、凭据填写，最后向 DNS 服务商写入并删除一条测试 TXT 记录，确认凭据真实可用。建议申请证书前先检测一次。"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VAlert",
+                  "props": {
+                    "type": "info",
+                    "variant": "tonal",
+                    "text": "内置列表只提供常用服务商快捷选项，acme.sh 实际支持 190 多个服务商。若你的服务商不在列表中，直接输入其脚本名并点击上方按钮下载即可。"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VSelect",
+                  "props": {
+                    "model": "key_length",
+                    "label": "密钥类型",
+                    "items": [
+                      {
+                        "title": "EC 256 位（推荐）",
+                        "value": "ec-256"
+                      },
+                      {
+                        "title": "EC 384 位",
+                        "value": "ec-384"
+                      },
+                      {
+                        "title": "RSA 2048 位",
+                        "value": "2048"
+                      },
+                      {
+                        "title": "RSA 4096 位",
+                        "value": "4096"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VDivider",
+                  "props": {
+                    "class": "my-2"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VAlert",
+                  "props": {
+                    "type": "info",
+                    "variant": "tonal",
+                    "text": "手动部署证书：如果你已有证书文件，把内容粘贴到下方文本框并点击部署，插件会自动校验匹配性并重载 nginx。使用「申请证书」的用户无需填写这里。"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VTextarea",
+                  "props": {
+                    "model": "deploy_cert",
+                    "label": "证书内容（fullchain.pem）",
+                    "rows": 5,
+                    "placeholder": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VTextarea",
+                  "props": {
+                    "model": "deploy_key",
+                    "label": "私钥内容（privkey.pem）",
+                    "rows": 5,
+                    "placeholder": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VBtn",
+                  "props": {
+                    "color": "primary",
+                    "variant": "flat",
+                    "block": true,
+                    "prepend-icon": "mdi-upload",
+                    "onclick": "function(e) { if (!model.deploy_cert || !model.deploy_key) { alert('请先粘贴证书内容与私钥内容'); return } window.MoviePilotAPI.post('plugin/CertManager/deploy', {cert: model.deploy_cert, key: model.deploy_key}).then(function(r) { if (r && r.success === false) { alert(r.message || '部署失败') } else { alert(r && r.message ? r.message : '部署成功'); model.deploy_cert = ''; model.deploy_key = '' } }).catch(function(err) { console.error(err); alert('部署失败，请查看日志') }) }"
+                  },
+                  "text": "部署证书"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "model": {
+    "enabled": false,
+    "notify": true,
+    "cron": "0 4 * * *",
+    "acme_home": "/config/acme.sh",
+    "cert_dir": "/config/certs/latest",
+    "domain": "",
+    "dns_provider": "dns_ali",
+    "dns_key": "",
+    "dns_secret": "",
+    "key_length": "ec-256"
+  }
+}

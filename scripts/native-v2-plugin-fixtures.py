@@ -97,6 +97,18 @@ def specifications() -> list[dict]:
          "method": "get_form", "surface": "form"}
         for name in ("libraryscraper", "doubanrank", "rsssubscribe", "autoclean")
     ] + [
+        {"file": name, "source": "plugins.v3/certmanager/__init__.py", "surface": "form",
+         "source_symbols": {"self._DNS_PROVIDERS": {"class": "CertManager", "name": "_DNS_PROVIDERS"}},
+         **selector}
+        for name, selector in [
+            ("certmanager-form.json", {"method": "get_form"}),
+            ("certmanager-combobox-node.json", {"component": "VCombobox", "model": {
+                "dns_provider": {"title": "历史 DNS 预设", "value": "dns_legacy", "future": 9007199254740993}}}),
+        ]
+    ] + [
+        {"file": "libraryintegrity-combobox-node.json", "source": "plugins.v3/libraryintegrity/page.py",
+         "component": "VCombobox", "surface": "form", "model": {"libraries": ["旧媒体库", {
+             "title": "历史对象", "value": "legacy", "future": 9007199254740993}]}},
         {"file": "libraryintegrity-cron-node.json", "source": "plugins.v3/libraryintegrity/page.py",
          "component": "VCronField", "surface": "form", "model": {"cron": " 0 3 * * 0  "}},
         {"file": "mediadirwatcher-form.json", "source": "plugins.v3/mediadirwatcher/__init__.py",
@@ -128,6 +140,25 @@ def specifications() -> list[dict]:
     ]
 
 
+def source_symbols(tree: ast.AST, spec: dict) -> tuple[dict, dict]:
+    """仅投影指定类的唯一字面量常量，不导入代码、不求值 self 或运行任何方法。"""
+    symbols = dict(spec.get("symbols", {}))
+    provenance = {}
+    for symbol, target in spec.get("source_symbols", {}).items():
+        classes = [node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == target["class"]]
+        if len(classes) != 1 or symbol in symbols:
+            raise UnsupportedExpression("来源类必须唯一且不可覆盖合成符号")
+        assignments = [node for node in classes[0].body if isinstance(node, ast.Assign)
+                       and any(isinstance(name, ast.Name) and name.id == target["name"] for name in node.targets)]
+        if len(assignments) != 1:
+            raise UnsupportedExpression("来源常量必须是唯一类级赋值")
+        assignment = assignments[0]
+        value = literal(assignment.value, {})
+        symbols[symbol] = value
+        provenance[symbol] = {**target, "line": assignment.lineno, "value": value}
+    return symbols, provenance
+
+
 def generate(repository: Path, ref: str, output: Path) -> None:
     """先完成所有静态投影再写夹具，避免源格式变化导致半套结果。"""
     def git(*args: str) -> str:
@@ -139,8 +170,10 @@ def generate(repository: Path, ref: str, output: Path) -> None:
     manifest = {"revision": revision, "method": "AST data only; no plugin imports or execution", "fixtures": []}
     for spec in specifications():
         source = git("show", revision + ":" + spec["source"])
-        node = select(ast.parse(source), spec)
-        value = literal(node, spec.get("symbols", {}))
+        tree = ast.parse(source)
+        symbols, constants = source_symbols(tree, spec)
+        node = select(tree, {**spec, "symbols": symbols})
+        value = literal(node, symbols)
         surface = spec["surface"]
         if spec.get("method"):
             conf, model = value
@@ -155,13 +188,16 @@ def generate(repository: Path, ref: str, output: Path) -> None:
                        "cols": {"cols": 12, "md": 6}, "elements": [value]}
         encoded = json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
         pending[spec["file"]] = encoded
-        manifest["fixtures"].append({
+        entry = {
             "file": spec["file"], "surface": surface, "source": spec["source"],
             "line": node.lineno, "source_sha256": hashlib.sha256(source.encode()).hexdigest(),
             "fixture_sha256": hashlib.sha256(encoded.encode()).hexdigest(),
             "symbols": spec.get("symbols", {}),
             "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly.",
-        })
+        }
+        if constants:
+            entry["source_symbols"] = constants
+        manifest["fixtures"].append(entry)
     output.mkdir(parents=True, exist_ok=True)
     for name, content in pending.items():
         (output / name).write_text(content)
@@ -172,7 +208,7 @@ def main() -> None:
     """命令行显式指定来源与输出，默认引用本叶子已复核的固定版本。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plugins-repo", type=Path, required=True)
-    parser.add_argument("--ref", default="be185c5e180cd4752d46384f66ef44f522a9bcb6")
+    parser.add_argument("--ref", default="f49286841b00ca6617a430d369b6b5e8f49c875e")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     generate(args.plugins_repo, args.ref, args.output)

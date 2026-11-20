@@ -120,6 +120,11 @@ struct NativePluginFormView: View {
           NativePluginCronEditor(field: field, value: read(field.key)) { expression in
             update(.string(expression), field.key)
           }
+        } else if case .combobox(let field, let draft) = element.control {
+          NativePluginComboboxEditor(field: field, draft: draft) { value in
+            update(value, field.key)
+            return !localFailure
+          }
         } else {
           NativePluginSelectionView(element: element, read: read, update: update)
         }
@@ -222,6 +227,23 @@ private struct NativePluginControlView: View {
           Text(selectionText(field, options: options, multiple: multiple)).foregroundStyle(
             .secondary
           ).multilineTextAlignment(.trailing)
+          Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(.secondary)
+        }.frame(minHeight: 44).contentShape(Rectangle())
+      }.buttonStyle(.plain).disabled(field.disabled).accessibilityIdentifier(
+        "native-plugin-field-" + field.key)
+      hint(field)
+    case .combobox(let field, let draft):
+      Button {
+        select(element)
+      } label: {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+          Text(field.label).multilineTextAlignment(.leading)
+          Spacer(minLength: 4)
+          Text(
+            draft.selected.isEmpty
+              ? (field.placeholder.isEmpty ? L10n.text("选择或输入") : field.placeholder)
+              : draft.selected.map(\.title).joined(separator: "、")
+          ).foregroundStyle(.secondary).multilineTextAlignment(.trailing).lineLimit(2)
           Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(.secondary)
         }.frame(minHeight: 44).contentShape(Rectangle())
       }.buttonStyle(.plain).disabled(field.disabled).accessibilityIdentifier(

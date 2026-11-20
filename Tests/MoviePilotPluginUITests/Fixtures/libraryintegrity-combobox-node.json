@@ -1,0 +1,27 @@
+{
+  "render_mode": "vuetify",
+  "conf": [
+    {
+      "component": "VCombobox",
+      "props": {
+        "model": "libraries",
+        "label": "Emby 媒体库名称",
+        "multiple": true,
+        "chips": true,
+        "clearable": true,
+        "hint": "输入后回车；留空表示全部影视库（不含家庭视频库）",
+        "persistent-hint": true
+      }
+    }
+  ],
+  "model": {
+    "libraries": [
+      "旧媒体库",
+      {
+        "title": "历史对象",
+        "value": "legacy",
+        "future": 9007199254740993
+      }
+    ]
+  }
+}

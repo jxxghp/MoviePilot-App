@@ -76,6 +76,18 @@ class PluginFixtureTests(unittest.TestCase):
         node = MODULE.select(tree, {"component": "VApexChart", "props_symbol": "trend", "symbols": {"trend": {}}})
         self.assertEqual(MODULE.literal(node, {"trend": {}})["props"], {})
 
+    def test_source_constants_are_literal_unique_and_traced(self):
+        """真实预设来自指定类常量；重复赋值、调用和其它类不能被偷偷运行或替代。"""
+        spec = {"source_symbols": {"self._ITEMS": {"class": "Example", "name": "_ITEMS"}}}
+        tree = ast.parse("class Example:\n _ITEMS = [{'title':'来源', 'value':1}]\n")
+        symbols, evidence = MODULE.source_symbols(tree, spec)
+        self.assertEqual(symbols["self._ITEMS"], [{"title": "来源", "value": 1}])
+        self.assertEqual(evidence["self._ITEMS"]["line"], 2)
+        for text in ["class Example:\n _ITEMS = run()\n",
+                     "class Example:\n _ITEMS=[]\n _ITEMS=[1]\n", "class Other:\n _ITEMS=[]\n"]:
+            with self.subTest(source=text), self.assertRaises(MODULE.UnsupportedExpression):
+                MODULE.source_symbols(ast.parse(text), spec)
+
     @staticmethod
     def git(root, *args):
         """隔离测试仓库身份与 hooks，不修改用户 Git 配置、不签名、不访问远端。"""

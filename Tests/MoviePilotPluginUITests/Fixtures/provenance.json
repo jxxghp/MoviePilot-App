@@ -1,5 +1,5 @@
 {
-  "revision": "be185c5e180cd4752d46384f66ef44f522a9bcb6",
+  "revision": "f49286841b00ca6617a430d369b6b5e8f49c875e",
   "method": "AST data only; no plugin imports or execution",
   "fixtures": [
     {
@@ -39,6 +39,166 @@
       "line": 283,
       "source_sha256": "f6e0cfebbb0ff50aea9d2be0e10403719b6a28ee3c1dc8735ffea2d140f44254",
       "fixture_sha256": "fad8a86909c27cac6b3e9035b7a3b7deaf8458b5e3a5bc5c4ee11d0dd6246999",
+      "symbols": {},
+      "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly."
+    },
+    {
+      "file": "certmanager-form.json",
+      "surface": "form",
+      "source": "plugins.v3/certmanager/__init__.py",
+      "line": 273,
+      "source_sha256": "885957b632af78079ef1cb564ef63aa2d9a220e921db159d4605fda3fdcc4085",
+      "fixture_sha256": "e18db31d5b877994661648ed6a2ca379d052948d3affa294b1cd3f8dbec02b38",
+      "symbols": {},
+      "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly.",
+      "source_symbols": {
+        "self._DNS_PROVIDERS": {
+          "class": "CertManager",
+          "name": "_DNS_PROVIDERS",
+          "line": 70,
+          "value": [
+            {
+              "title": "阿里云（Aliyun）",
+              "value": "dns_ali"
+            },
+            {
+              "title": "腾讯云 DNSPod",
+              "value": "dns_dp"
+            },
+            {
+              "title": "Cloudflare",
+              "value": "dns_cf"
+            },
+            {
+              "title": "华为云",
+              "value": "dns_huaweicloud"
+            },
+            {
+              "title": "百度云",
+              "value": "dns_baidu"
+            },
+            {
+              "title": "GoDaddy",
+              "value": "dns_gd"
+            },
+            {
+              "title": "NameSilo",
+              "value": "dns_namesilo"
+            },
+            {
+              "title": "Namecheap",
+              "value": "dns_namecheap"
+            },
+            {
+              "title": "Porkbun",
+              "value": "dns_porkbun"
+            },
+            {
+              "title": "西部数码",
+              "value": "dns_west_cn"
+            },
+            {
+              "title": "DNSPod 国际版",
+              "value": "dns_dpi"
+            },
+            {
+              "title": "AWS Route53",
+              "value": "dns_aws"
+            },
+            {
+              "title": "Azure DNS",
+              "value": "dns_azure"
+            },
+            {
+              "title": "Google Cloud DNS",
+              "value": "dns_gcloud"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "file": "certmanager-combobox-node.json",
+      "surface": "form",
+      "source": "plugins.v3/certmanager/__init__.py",
+      "line": 490,
+      "source_sha256": "885957b632af78079ef1cb564ef63aa2d9a220e921db159d4605fda3fdcc4085",
+      "fixture_sha256": "98d1e0fdff9731e0488bd3e3f1df3a6f33e973ae27c1fc0bc73595223ff9bd98",
+      "symbols": {},
+      "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly.",
+      "source_symbols": {
+        "self._DNS_PROVIDERS": {
+          "class": "CertManager",
+          "name": "_DNS_PROVIDERS",
+          "line": 70,
+          "value": [
+            {
+              "title": "阿里云（Aliyun）",
+              "value": "dns_ali"
+            },
+            {
+              "title": "腾讯云 DNSPod",
+              "value": "dns_dp"
+            },
+            {
+              "title": "Cloudflare",
+              "value": "dns_cf"
+            },
+            {
+              "title": "华为云",
+              "value": "dns_huaweicloud"
+            },
+            {
+              "title": "百度云",
+              "value": "dns_baidu"
+            },
+            {
+              "title": "GoDaddy",
+              "value": "dns_gd"
+            },
+            {
+              "title": "NameSilo",
+              "value": "dns_namesilo"
+            },
+            {
+              "title": "Namecheap",
+              "value": "dns_namecheap"
+            },
+            {
+              "title": "Porkbun",
+              "value": "dns_porkbun"
+            },
+            {
+              "title": "西部数码",
+              "value": "dns_west_cn"
+            },
+            {
+              "title": "DNSPod 国际版",
+              "value": "dns_dpi"
+            },
+            {
+              "title": "AWS Route53",
+              "value": "dns_aws"
+            },
+            {
+              "title": "Azure DNS",
+              "value": "dns_azure"
+            },
+            {
+              "title": "Google Cloud DNS",
+              "value": "dns_gcloud"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "file": "libraryintegrity-combobox-node.json",
+      "surface": "form",
+      "source": "plugins.v3/libraryintegrity/page.py",
+      "line": 109,
+      "source_sha256": "22fa8b27d3eafdf362073def295f54f7609eeb225ee213f61773fc07617d01a6",
+      "fixture_sha256": "fc3f58e6ebeeb8ec30ed1385bf1145b4a6b096c5f65d3d7bac7e1e779b73de0f",
       "symbols": {},
       "note": "Envelope/model are synthetic unless get_form tuple; approved dynamic values replaced explicitly."
     },

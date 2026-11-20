@@ -32,7 +32,8 @@
 | VForm/VContainer/VRow/VCol/VCard/VCardText/div | 按源码顺序重排；行/卡形成玻璃分组，统一阅读宽度；常见间距/字体类映射至原生设计规范 | 任意 CSS/style、自定义隐藏类、布局绑定不能静默接受 |
 | VSwitch/VCheckbox/VCheckboxBtn | 原生布尔开关、完整字段键、disabled/readonly、标签/说明 | 自定义 true/false 值与复杂控件规则 |
 | VTextField/VTextarea | TextField/SecureField/TextEditor；文本/密码/数字、提示/后缀、清除、必填/长度和精确 min/max | 其它输入类型、规则脚本、显式数值 step（any 除外）、Cron/自定义编辑器 |
-| VSelect | 原生单/多选弹层，标量或 title/value 对象、可选 item-title/item-value、清除；原始类型/旧未知值保留 | 自定义选项 props/slots、return-object、自动完成/组合输入 |
+| VSelect | 原生单/多选弹层，标量或 title/value 对象、可选 item-title/item-value、清除；原始类型/旧未知值保留 | 自定义选项 props/slots、自动完成/组合输入 |
+| VCombobox | 原生过滤/自定义值编辑器；单/多选、默认对象/显式标量回传、禁用项、标准投影路径、完整草稿取消/应用/保存；选项/当前项各上限 1,000 | 函数比较器、分隔符/自动项选择、选项树/未知 props 与整个插件表单其它未支持脚本/规则；详见 [P2.2b.2b.1](plugin-combobox.md) |
 | 展示 | VAlert、纯文本、分隔；同风格加载/失败/成功/空态 | HTML、复杂展示组件与数据页组件 |
 | 条件 | 有界只读字段/静态成员、长度、括号、!、&&/\|\|、关系/严格与宽松标量比较、三元；保留短路 | 函数/方法调用、动态索引、算术、赋值、脚本/任意 JS；完整表达式兼容仍需后续方案 |
 | 保存 | 同一 NativeFormPlan 被 UI 与 NativeFormValidator 使用；所有待实现能力阻断完整 PUT | 不能按支持字段过滤后提交；隐藏未知节点也阻断 |
