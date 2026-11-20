@@ -234,6 +234,10 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           NativeFileManagerPage(session: session)
         case .workflows:
           NativeWorkflowsPage(session: session)
+        case .settings:
+          NativeSystemSettingsPage(session: session)
+        case .users:
+          NativeUsersPage(session: session)
         }
       }
       .overlay(alignment: .bottomLeading) {
@@ -502,6 +506,37 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
               .accessibilityIdentifier("native-workspace-messages")
             }
           }
+          if snapshot.user.isSuperuser {
+            CinematicFormSection("系统管理") {
+              Button {
+                accountPath.append(.settings)
+              } label: {
+                CinematicFormRow(symbol: "gearshape.fill") {
+                  Text("系统设置")
+                  Spacer()
+                  Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.45))
+                }
+                .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("native-workspace-settings")
+              CinematicFormDivider()
+              Button {
+                accountPath.append(.users)
+              } label: {
+                CinematicFormRow(symbol: "person.2.fill") {
+                  Text("用户管理")
+                  Spacer()
+                  Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.45))
+                }
+                .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("native-workspace-users")
+            }
+          }
           accountContent
         }
         .scrollContentBackground(.hidden)
@@ -532,6 +567,10 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           NativeFileManagerPage(session: session)
         case .workflows:
           NativeWorkflowsPage(session: session)
+        case .settings:
+          NativeSystemSettingsPage(session: session)
+        case .users:
+          NativeUsersPage(session: session)
         }
       }
       .navigationDestination(isPresented: $showsPlugins) {
@@ -829,6 +868,8 @@ private enum NativeWorkspaceDestination: Hashable {
   case messages
   case files
   case workflows
+  case settings
+  case users
 }
 
 /// 发现导航栈只接收已加载的分区、可验证媒体身份或受控业务页面。
@@ -844,6 +885,8 @@ private enum NativeMediaDestination: Identifiable, Hashable {
   case messages
   case files
   case workflows
+  case settings
+  case users
 
   /// 区分分区网格、详情与工作台页面路由。
   var id: String {
@@ -859,6 +902,8 @@ private enum NativeMediaDestination: Identifiable, Hashable {
     case .messages: "messages"
     case .files: "files"
     case .workflows: "workflows"
+    case .settings: "settings"
+    case .users: "users"
     }
   }
 }

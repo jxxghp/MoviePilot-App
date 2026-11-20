@@ -172,6 +172,24 @@ final class NativeV2EntryTests: XCTestCase {
       capture("native-v2-live-messages")
       app.navigationBars.buttons.firstMatch.tap()
     }
+    let settingsEntry = app.buttons["native-workspace-settings"]
+    reveal(settingsEntry, app: app)
+    if settingsEntry.waitForExistence(timeout: 8) {
+      tap(settingsEntry, app: app)
+      XCTAssertTrue(app.scrollViews["native-settings-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 1_500_000_000)
+      capture("native-v2-live-settings")
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+    let usersEntry = app.buttons["native-workspace-users"]
+    reveal(usersEntry, app: app)
+    if usersEntry.waitForExistence(timeout: 8) {
+      tap(usersEntry, app: app)
+      XCTAssertTrue(app.scrollViews["native-users-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 1_500_000_000)
+      capture("native-v2-live-users")
+      app.navigationBars.buttons.firstMatch.tap()
+    }
     tap(tabButton("仪表盘", app: app), app: app)
     XCTAssertTrue(
       app.descendants(matching: .any)["native-dashboard-storage"].firstMatch.waitForExistence(
@@ -496,6 +514,48 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["a"]?["POST api/v1/storage/delete"], 1)
     XCTAssertEqual(counts["a"]?["POST api/v1/workflow/31/run"], 1)
     XCTAssertEqual(counts["a"]?["POST api/v1/workflow/31/pause"], 1)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// P6.2 / P6.3：验证管理员系统设置白名单读写/增量单次保存与用户权限清单浏览，零 WebView。
+  func testNativeSystemSettingsAndUsersFlows() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    tap(tabButton("我的", app: app), app: app)
+
+    let settingsEntry = app.buttons["native-workspace-settings"]
+    reveal(settingsEntry, app: app)
+    XCTAssertTrue(settingsEntry.waitForExistence(timeout: 10))
+    tap(settingsEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-settings-scroll"].waitForExistence(timeout: 10))
+    let saveBtn = app.buttons["native-settings-save"]
+    XCTAssertTrue(saveBtn.waitForExistence(timeout: 10))
+    XCTAssertFalse(saveBtn.isEnabled)
+    toggle("native-settings-image-cache", to: false, app: app)
+    XCTAssertTrue(saveBtn.isEnabled)
+    tap(saveBtn, app: app)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-settings-feedback"].firstMatch
+        .waitForExistence(timeout: 10))
+    XCTAssertFalse(saveBtn.isEnabled)
+    app.navigationBars.buttons.firstMatch.tap()
+
+    let usersEntry = app.buttons["native-workspace-users"]
+    reveal(usersEntry, app: app)
+    XCTAssertTrue(usersEntry.waitForExistence(timeout: 10))
+    tap(usersEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-users-scroll"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["native-a"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["native-b"].exists)
+    let refreshBtn = app.buttons["native-users-refresh"]
+    XCTAssertTrue(refreshBtn.exists)
+    tap(refreshBtn, app: app)
+    XCTAssertEqual(app.webViews.count, 0)
+
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["GET api/v1/system/env"], 1)
+    XCTAssertEqual(counts["a"]?["POST api/v1/system/env"], 1)
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/user"] ?? 0, 2)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -1736,6 +1796,7 @@ final class NativeV2EntryTests: XCTestCase {
       "native-downloads-scroll", "native-subscriptions-scroll", "native-calendar-scroll",
       "native-resource-search-scroll", "native-history-scroll", "native-sites-scroll",
       "native-messages-scroll", "native-files-scroll", "native-workflows-scroll",
+      "native-settings-scroll", "native-users-scroll",
     ].compactMap { identifier in
       app.scrollViews.matching(identifier: identifier).allElementsBoundByIndex.last(where: {
         $0.isHittable

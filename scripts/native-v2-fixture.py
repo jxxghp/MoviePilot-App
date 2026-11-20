@@ -75,6 +75,33 @@ class NativeFixture(ThreadingHTTPServer):
                         "timer": "*/15 * * * *", "state": "P", "run_count": 2, "result": None,
                     }
                 ],
+                "env": {
+                    "RECOGNIZE_SOURCE": "themoviedb",
+                    "SEARCH_SOURCE": "themoviedb",
+                    "SCRAP_FOLLOW_TMDB": True,
+                    "SUBSCRIBE_MODE": "spider",
+                    "SUBSCRIBE_RSS_INTERVAL": 30,
+                    "SUBSCRIBE_SEARCH": False,
+                    "TORRENT_TAG": "MOVIEPILOT",
+                    "MEDIASERVER_SYNC_INTERVAL": 6,
+                    "GLOBAL_IMAGE_CACHE": True,
+                    "DEBUG": False,
+                    "LOG_LEVEL": "INFO",
+                    "TZ": "Asia/Shanghai",
+                    "VERSION": "v3.0.0-synthetic",
+                },
+                "users": [
+                    {
+                        "id": 10, "name": "native-a", "email": "admin@example.test",
+                        "is_active": True, "is_superuser": True, "is_otp": True,
+                        "permissions": {"discovery": True, "search": True, "subscribe": True, "manage": True},
+                    },
+                    {
+                        "id": 20, "name": "native-b", "email": "member@example.test",
+                        "is_active": True, "is_superuser": False, "is_otp": False,
+                        "permissions": {"discovery": True, "search": True, "subscribe": True, "manage": False},
+                    },
+                ],
             }
             for name in ("a", "b", "new", "slow")
         }
@@ -236,6 +263,21 @@ class NativeHandler(BaseHTTPRequestHandler):
                             "timer": "*/15 * * * *", "state": "P", "run_count": 2, "result": None,
                         }
                     ]
+                    profile["env"] = {
+                        "RECOGNIZE_SOURCE": "themoviedb",
+                        "SEARCH_SOURCE": "themoviedb",
+                        "SCRAP_FOLLOW_TMDB": True,
+                        "SUBSCRIBE_MODE": "spider",
+                        "SUBSCRIBE_RSS_INTERVAL": 30,
+                        "SUBSCRIBE_SEARCH": False,
+                        "TORRENT_TAG": "MOVIEPILOT",
+                        "MEDIASERVER_SYNC_INTERVAL": 6,
+                        "GLOBAL_IMAGE_CACHE": True,
+                        "DEBUG": False,
+                        "LOG_LEVEL": "INFO",
+                        "TZ": "Asia/Shanghai",
+                        "VERSION": "v3.0.0-synthetic",
+                    }
             self.reply(200, {"success": True})
             return
         parts = [unquote(segment) for segment in path.strip("/").split("/") if segment]
@@ -249,6 +291,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                     f"/{name}/api/v1/subscribe/",
                     f"/{name}/api/v1/site/",
                     f"/{name}/api/v1/workflow/",
+                    f"/{name}/api/v1/user/",
                 }
                 or re.fullmatch(r"api/v1/download/(?:start|stop)/[a-z0-9]+", endpoint)
                 or re.fullmatch(r"api/v1/site/test/[0-9]+", endpoint)
@@ -274,6 +317,9 @@ class NativeHandler(BaseHTTPRequestHandler):
                 return
             if re.fullmatch(r"api/v1/workflow/[0-9]+/(?:run|start|pause|reset)", endpoint):
                 self.workflow_action_endpoint(name, endpoint)
+                return
+            if endpoint == "api/v1/system/env":
+                self.system_env_update_endpoint(name, body)
                 return
             if path == f"/{name}/api/v1/subscribe/":
                 self.subscribe_create_endpoint(name, body)
@@ -341,6 +387,7 @@ class NativeHandler(BaseHTTPRequestHandler):
             "api/v1/history/transfer",
             "api/v1/message/web",
             "api/v1/storage/options",
+            "api/v1/system/env",
             "api/v1/subscribe/calendar",
             "api/v1/dashboard/statistic",
             "api/v1/dashboard/storage",
@@ -375,7 +422,7 @@ class NativeHandler(BaseHTTPRequestHandler):
         if requires_discovery and not self.permissions(mode)["discovery"]:
             self.reply(403, {"success": False})
             return
-        if endpoint.startswith("api/v1/dashboard/") and name != "a":
+        if (endpoint.startswith("api/v1/dashboard/") or endpoint in {"api/v1/system/env", "api/v1/user"}) and name != "a":
             self.reply(403, {"success": False})
             return
         if (mode, endpoint) in {
@@ -423,6 +470,12 @@ class NativeHandler(BaseHTTPRequestHandler):
         elif endpoint == "api/v1/workflow":
             with self.server.lock:
                 value = list(self.server.profiles[name]["workflows"])
+        elif endpoint == "api/v1/system/env":
+            with self.server.lock:
+                value = dict(self.server.profiles[name]["env"])
+        elif endpoint == "api/v1/user":
+            with self.server.lock:
+                value = list(self.server.profiles[name]["users"])
         elif endpoint == "api/v1/message/web":
             value = [
                 {
@@ -770,6 +823,29 @@ class NativeHandler(BaseHTTPRequestHandler):
                     elif action == "reset":
                         wf["state"] = "W"
                         wf["result"] = None
+        self.reply(200, {"success": True, "message": "", "data": None})
+
+    def system_env_update_endpoint(self, name, body):
+        """单次更新受控白名单系统设置项，仅管理员可调用。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["POST api/v1/system/env"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a":
+            self.reply(403, {"success": False})
+            return
+        try:
+            updates = json.loads(body)
+            if not isinstance(updates, dict) or not updates:
+                raise ValueError()
+        except (ValueError, TypeError):
+            self.reply(422, {"success": False})
+            return
+        with self.server.lock:
+            self.server.profiles[name]["env"].update(updates)
         self.reply(200, {"success": True, "message": "", "data": None})
 
     @staticmethod
