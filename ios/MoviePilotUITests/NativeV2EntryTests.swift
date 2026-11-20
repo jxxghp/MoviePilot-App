@@ -135,6 +135,32 @@ final class NativeV2EntryTests: XCTestCase {
       XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 15))
       try await Task.sleep(nanoseconds: 2_500_000_000)
       capture("native-v2-live-subscriptions")
+      let firstEdit = app.buttons.matching(
+        NSPredicate(format: "identifier BEGINSWITH 'native-subscribe-edit-'")
+      ).firstMatch
+      if firstEdit.waitForExistence(timeout: 5) {
+        tap(firstEdit, app: app)
+        if app.scrollViews["native-subscribe-editor-scroll"].waitForExistence(timeout: 10) {
+          try await Task.sleep(nanoseconds: 1_000_000_000)
+          capture("native-v2-live-subscribe-editor")
+          app.buttons["native-subscribe-editor-cancel"].tap()
+        }
+      }
+      let communityBtn = app.buttons["native-subscriptions-community"]
+      if communityBtn.waitForExistence(timeout: 5) {
+        tap(communityBtn, app: app)
+        if app.scrollViews["native-community-scroll"].waitForExistence(timeout: 12) {
+          try await Task.sleep(nanoseconds: 2_500_000_000)
+          capture("native-v2-live-community-popular")
+          let sharesTab = app.buttons["native-community-tab-社区分享"]
+          if sharesTab.exists {
+            tap(sharesTab, app: app)
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+            capture("native-v2-live-community-shares")
+          }
+          app.navigationBars.buttons.firstMatch.tap()
+        }
+      }
       app.navigationBars.buttons.firstMatch.tap()
     }
     let resEntry = app.buttons["native-workspace-resources"]
@@ -632,6 +658,60 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["a"]?["GET api/v1/recommend/douban_showing"], 1)
     XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/discover/douban_movies"] ?? 0, 1)
     XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/discover/bangumi"] ?? 0, 1)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// P4.2 / P4.3：验证订阅高级规则编辑单次 PUT、热门订阅浏览与社区分享确认复用，零 WebView。
+  func testNativeSubscribeEditorAndCommunityForkFlows() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    tap(tabButton("我的", app: app), app: app)
+
+    let subsEntry = app.buttons["native-workspace-subscriptions"]
+    reveal(subsEntry, app: app)
+    XCTAssertTrue(subsEntry.waitForExistence(timeout: 10))
+    tap(subsEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 10))
+
+    let editBtn = app.buttons["native-subscribe-edit-702"]
+    XCTAssertTrue(editBtn.waitForExistence(timeout: 10))
+    tap(editBtn, app: app)
+    XCTAssertTrue(app.scrollViews["native-subscribe-editor-scroll"].waitForExistence(timeout: 10))
+    let saveBtn = app.buttons["native-subscribe-editor-save"]
+    XCTAssertTrue(saveBtn.waitForExistence(timeout: 8))
+    XCTAssertFalse(saveBtn.isEnabled)
+    toggle("native-subscribe-editor-best-version", to: true, app: app)
+    XCTAssertTrue(saveBtn.isEnabled)
+    tap(saveBtn, app: app)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-subscriptions-feedback"].firstMatch
+        .waitForExistence(timeout: 10))
+
+    let communityBtn = app.buttons["native-subscriptions-community"]
+    XCTAssertTrue(communityBtn.waitForExistence(timeout: 8))
+    tap(communityBtn, app: app)
+    XCTAssertTrue(app.scrollViews["native-community-scroll"].waitForExistence(timeout: 10))
+    XCTAssertTrue(
+      app.buttons["native-community-popular-themoviedb|101|电影"].waitForExistence(timeout: 10))
+    let sharesTab = app.buttons["native-community-tab-社区分享"]
+    tap(sharesTab, app: app)
+    let forkBtn = app.buttons["native-share-fork-601"]
+    XCTAssertTrue(forkBtn.waitForExistence(timeout: 10))
+    tap(forkBtn, app: app)
+    let confirmFork = app.alerts["复用订阅"].buttons["确认复用"]
+    XCTAssertTrue(confirmFork.waitForExistence(timeout: 8))
+    confirmFork.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-community-feedback"].firstMatch
+        .waitForExistence(timeout: 10))
+    XCTAssertEqual(app.webViews.count, 0)
+
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["GET api/v1/subscribe/702"], 1)
+    XCTAssertEqual(counts["a"]?["PUT api/v1/subscribe/"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/subscribe/popular"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/subscribe/shares"], 1)
+    XCTAssertEqual(counts["a"]?["POST api/v1/subscribe/fork"], 1)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -1870,10 +1950,11 @@ final class NativeV2EntryTests: XCTestCase {
     let personScroll = app.scrollViews.matching(identifier: "native-person-detail-scroll")
       .allElementsBoundByIndex.last(where: { $0.isHittable })
     let workspaceScroll = [
-      "native-explore-scroll", "native-downloads-scroll", "native-subscriptions-scroll",
-      "native-calendar-scroll", "native-resource-search-scroll", "native-history-scroll",
-      "native-sites-scroll", "native-messages-scroll", "native-files-scroll",
-      "native-workflows-scroll", "native-settings-scroll", "native-users-scroll",
+      "native-subscribe-editor-scroll", "native-community-scroll", "native-explore-scroll",
+      "native-downloads-scroll", "native-subscriptions-scroll", "native-calendar-scroll",
+      "native-resource-search-scroll", "native-history-scroll", "native-sites-scroll",
+      "native-messages-scroll", "native-files-scroll", "native-workflows-scroll",
+      "native-settings-scroll", "native-users-scroll",
     ].compactMap { identifier in
       app.scrollViews.matching(identifier: identifier).allElementsBoundByIndex.last(where: {
         $0.isHittable
@@ -1966,6 +2047,7 @@ final class NativeV2EntryTests: XCTestCase {
       "native-plugin-selection-done", "native-cron-apply", "native-cron-cancel",
       "native-cron-field-apply", "native-combobox-apply", "native-combobox-cancel",
       "native-modules-save", "native-modules-cancel",
+      "native-subscribe-editor-save", "native-subscribe-editor-cancel",
     ].contains(element.identifier) {
       // iPad 原生 sheet 的工具栏 AX 框可能仍用局部坐标；这是导航动作，不属于滚动内容。
       return app.windows.firstMatch.frame.contains(

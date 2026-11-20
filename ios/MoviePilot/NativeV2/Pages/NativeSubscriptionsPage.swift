@@ -27,6 +27,7 @@ struct NativeSubscriptionsPage: View {
   @State private var loadFailed = false
   @State private var attempt = 0
   @State private var mutatingID: Int?
+  @State private var editingItem: NativeSubscribeItem?
   @State private var pendingDelete: NativeSubscribeItem?
   @State private var feedback: NativeSubscribeFeedback?
 
@@ -71,7 +72,14 @@ struct NativeSubscriptionsPage: View {
     .toolbarBackground(.hidden, for: .navigationBar)
     .searchable(text: $searchText, prompt: "筛选订阅片名")
     .toolbar {
-      ToolbarItem(placement: .topBarTrailing) {
+      ToolbarItemGroup(placement: .topBarTrailing) {
+        NavigationLink {
+          NativeSubscribeCommunityPage(session: session)
+        } label: {
+          Image(systemName: "flame.fill")
+        }
+        .accessibilityLabel("订阅广场")
+        .accessibilityIdentifier("native-subscriptions-community")
         Button {
           attempt += 1
         } label: {
@@ -82,6 +90,12 @@ struct NativeSubscriptionsPage: View {
       }
     }
     .task(id: attempt) { await load() }
+    .sheet(item: $editingItem) { item in
+      NativeSubscribeEditorSheet(session: session, subscribeID: item.id, title: item.displayTitle) {
+        feedback = NativeSubscribeFeedback(isError: false, message: "订阅规则已更新。")
+        attempt += 1
+      }
+    }
     .alert(
       "取消订阅",
       isPresented: Binding(
@@ -255,6 +269,27 @@ struct NativeSubscriptionsPage: View {
             .buttonStyle(.plain)
             .disabled(mutatingID != nil)
             .accessibilityIdentifier("native-subscribe-toggle-\(item.id)")
+
+            Button {
+              editingItem = item
+            } label: {
+              HStack(spacing: 4) {
+                Image(systemName: "slider.horizontal.3").font(.caption2.weight(.semibold))
+                Text("编辑").font(.caption.weight(.semibold))
+              }
+              .foregroundStyle(.white)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 5)
+              .background {
+                Capsule()
+                  .fill(.white.opacity(0.11))
+                  .overlay { Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 0.6) }
+              }
+              .frame(minHeight: 32)
+            }
+            .buttonStyle(.plain)
+            .disabled(mutatingID != nil)
+            .accessibilityIdentifier("native-subscribe-edit-\(item.id)")
 
             Button(role: .destructive) {
               pendingDelete = item
