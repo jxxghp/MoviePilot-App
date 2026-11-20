@@ -102,6 +102,7 @@ class NativeFixture(ThreadingHTTPServer):
                         "permissions": {"discovery": True, "search": True, "subscribe": True, "manage": False},
                     },
                 ],
+                "user_configs": {},
             }
             for name in ("a", "b", "new", "slow")
         }
@@ -278,6 +279,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                         "TZ": "Asia/Shanghai",
                         "VERSION": "v3.0.0-synthetic",
                     }
+                    profile["user_configs"] = {}
             self.reply(200, {"success": True})
             return
         parts = [unquote(segment) for segment in path.strip("/").split("/") if segment]
@@ -299,6 +301,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                 or re.fullmatch(r"api/v1/media/1[0-9]{2}", endpoint)
                 or re.fullmatch(r"api/v1/tmdb/(?:credits|recommend|similar)/1[0-9]{2}/(?:电影|电视剧)", endpoint)
                 or re.fullmatch(r"api/v1/tmdb/person(?:/credits)?/[0-9]{3}", endpoint)
+                or re.fullmatch(r"api/v1/user/config/[A-Za-z0-9_.-]+", endpoint)
             ):
                 self.business_endpoint(name, endpoint)
                 return
@@ -320,6 +323,9 @@ class NativeHandler(BaseHTTPRequestHandler):
                 return
             if endpoint == "api/v1/system/env":
                 self.system_env_update_endpoint(name, body)
+                return
+            if re.fullmatch(r"api/v1/user/config/[A-Za-z0-9_.-]+", endpoint):
+                self.user_config_update_endpoint(name, endpoint, body)
                 return
             if path == f"/{name}/api/v1/subscribe/":
                 self.subscribe_create_endpoint(name, body)
@@ -371,9 +377,15 @@ class NativeHandler(BaseHTTPRequestHandler):
     def business_endpoints():
         """列出 smoke 验收允许的媒体、来源与管理员仪表盘只读端点。"""
         return {
+            "api/v1/discover/source",
             "api/v1/discover/tmdb_movies",
             "api/v1/discover/tmdb_tvs",
+            "api/v1/discover/douban_movies",
+            "api/v1/discover/douban_tvs",
+            "api/v1/discover/bangumi",
             "api/v1/recommend/tmdb_trending",
+            "api/v1/recommend/douban_showing",
+            "api/v1/recommend/douban_movie_top250",
             "api/v1/mediaserver/clients",
             "api/v1/mediaserver/playing",
             "api/v1/mediaserver/latest",
@@ -438,6 +450,18 @@ class NativeHandler(BaseHTTPRequestHandler):
             ids = range(first_id, first_id + 12) if page == "1" else [first_id + 12] if page == "2" else []
             value = [self.media(item_id, "电影" if is_movie else "电视剧") for item_id in ids]
         elif endpoint in {
+            "api/v1/discover/douban_movies",
+            "api/v1/discover/douban_tvs",
+            "api/v1/discover/bangumi",
+            "api/v1/recommend/douban_showing",
+            "api/v1/recommend/douban_movie_top250",
+        }:
+            is_movie = "movie" in endpoint or "showing" in endpoint
+            first_id = 131 if is_movie else 141
+            ids = range(first_id, first_id + 6) if page == "1" else []
+            value = [self.media(item_id, "电影" if is_movie else "电视剧") for item_id in ids]
+        elif endpoint in {
+            "api/v1/discover/source",
             "api/v1/recommend/tmdb_trending",
             "api/v1/mediaserver/clients",
             "api/v1/mediaserver/playing",
@@ -445,6 +469,10 @@ class NativeHandler(BaseHTTPRequestHandler):
             "api/v1/mediaserver/library",
         }:
             value = []
+        elif endpoint.startswith("api/v1/user/config/"):
+            cfg_key = endpoint.rsplit("/", 1)[-1]
+            with self.server.lock:
+                value = {"value": self.server.profiles[name]["user_configs"].get(cfg_key)}
         elif endpoint == "api/v1/media/search":
             if title == "galaxy" and page in {"1", "2"}:
                 ids = range(121, 129) if page == "1" else [129]
@@ -846,6 +874,25 @@ class NativeHandler(BaseHTTPRequestHandler):
             return
         with self.server.lock:
             self.server.profiles[name]["env"].update(updates)
+        self.reply(200, {"success": True, "message": "", "data": None})
+
+    def user_config_update_endpoint(self, name, endpoint, body):
+        """单次持久化当前用户的界面模块编排配置。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"POST {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        try:
+            payload = json.loads(body) if body else None
+        except (ValueError, TypeError):
+            self.reply(422, {"success": False})
+            return
+        cfg_key = endpoint.rsplit("/", 1)[-1]
+        with self.server.lock:
+            self.server.profiles[name]["user_configs"][cfg_key] = payload
         self.reply(200, {"success": True, "message": "", "data": None})
 
     @staticmethod

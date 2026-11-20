@@ -8,6 +8,7 @@ struct NativeDiscoverContent {
   let continueWatching: [NativeDiscoverProgress]
   let providers: [NativeDiscoverProvider]
   let categories: [NativeDiscoverCategory]
+  let moduleOrder: [NativeDiscoverModuleID]
   let isLoading: Bool
   let loadFailed: Bool
 
@@ -20,7 +21,9 @@ struct NativeDiscoverContent {
     featuredItems: [NativeDiscoverFeature]? = nil,
     rails: [NativeDiscoverRail],
     continueWatching: [NativeDiscoverProgress], providers: [NativeDiscoverProvider],
-    categories: [NativeDiscoverCategory], isLoading: Bool = false, loadFailed: Bool = false
+    categories: [NativeDiscoverCategory],
+    moduleOrder: [NativeDiscoverModuleID] = NativeDiscoverModuleID.allCases,
+    isLoading: Bool = false, loadFailed: Bool = false
   ) {
     if let featuredItems {
       self.featuredItems = featuredItems
@@ -33,6 +36,7 @@ struct NativeDiscoverContent {
     self.continueWatching = continueWatching
     self.providers = providers
     self.categories = categories
+    self.moduleOrder = moduleOrder
     self.isLoading = isLoading
     self.loadFailed = loadFailed
   }
@@ -190,12 +194,35 @@ private struct NativeDiscoverScrollObservation: ViewModifier {
     if #available(iOS 18, *) {
       content.onScrollGeometryChange(for: CGFloat.self) { geometry in
         let raw = -(geometry.contentOffset.y + geometry.contentInsets.top)
-        return (raw * 2).rounded() / 2
+        // 主视觉完全退场后（超过 720pt）底色与柔焦均已定格，截断深滚动偏移避免无意义重算与布局振荡。
+        let clamped = max(min(raw, 240), -720)
+        return (clamped * 2).rounded() / 2
       } action: { _, value in
-        offset = value
+        if abs(offset - value) >= 0.5 { offset = value }
       }
     } else {
-      content.onPreferenceChange(NativeDiscoverScrollOffsetKey.self) { offset = $0 }
+      content.onPreferenceChange(NativeDiscoverScrollOffsetKey.self) { raw in
+        let clamped = max(min(raw, 240), -720)
+        if abs(offset - clamped) >= 0.5 { offset = clamped }
+      }
+    }
+  }
+}
+
+/// 仅在 iOS 18 以下附加滚动位置偏好探测，iOS 18+ 完全交给系统 onScrollGeometryChange 避免布局反馈环。
+private struct NativeDiscoverLegacyScrollProbe: ViewModifier {
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if #available(iOS 18, *) {
+      content
+    } else {
+      content.background {
+        GeometryReader { geometry in
+          Color.clear.preference(
+            key: NativeDiscoverScrollOffsetKey.self,
+            value: geometry.frame(in: .named("native-discover-scroll")).minY)
+        }
+      }
     }
   }
 }
@@ -240,6 +267,7 @@ struct NativeDiscoverPage: View {
   let onOpenRail: ((String) -> Void)?
   let onOpenProvider: ((String) -> Void)?
   let onOpenCategory: ((String) -> Void)?
+  let onManageModules: (() -> Void)?
   let onRetry: () -> Void
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -260,6 +288,7 @@ struct NativeDiscoverPage: View {
     onOpenRail: ((String) -> Void)? = nil,
     onOpenProvider: ((String) -> Void)? = nil,
     onOpenCategory: ((String) -> Void)? = nil,
+    onManageModules: (() -> Void)? = nil,
     onRetry: @escaping () -> Void = {}
   ) {
     self.session = session
@@ -271,6 +300,7 @@ struct NativeDiscoverPage: View {
     self.onOpenRail = onOpenRail
     self.onOpenProvider = onOpenProvider
     self.onOpenCategory = onOpenCategory
+    self.onManageModules = onManageModules
     self.onRetry = onRetry
   }
 
@@ -307,9 +337,30 @@ struct NativeDiscoverPage: View {
                 previewMarker.padding(.horizontal, CinematicStyle.margin)
               }
               if hasContent {
-                if !content.continueWatching.isEmpty { continueWatching }
-                ForEach(populatedRails) { rail in posterRail(rail) }
-                if hasLibrary { mediaLibrary }
+                orderedSections(populatedRails: populatedRails, hasLibrary: hasLibrary)
+                if let onManageModules {
+                  HStack {
+                    Spacer()
+                    Button(action: onManageModules) {
+                      Label("管理发现模块", systemImage: "slider.horizontal.3")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background {
+                          Capsule()
+                            .fill(.white.opacity(0.10))
+                            .overlay {
+                              Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 0.6)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("native-discover-manage-modules")
+                    Spacer()
+                  }
+                  .padding(.top, 4)
+                }
               }
               if !hasContent || content.loadFailed {
                 discoveryStatus.padding(.horizontal, CinematicStyle.margin)
@@ -318,13 +369,7 @@ struct NativeDiscoverPage: View {
           }
           .frame(maxWidth: .infinity)
           .padding(.bottom, 28)
-          .background {
-            GeometryReader { geometry in
-              Color.clear.preference(
-                key: NativeDiscoverScrollOffsetKey.self,
-                value: geometry.frame(in: .named("native-discover-scroll")).minY)
-            }
-          }
+          .modifier(NativeDiscoverLegacyScrollProbe())
         }
         .coordinateSpace(name: "native-discover-scroll")
         .scrollIndicators(.hidden)
@@ -339,6 +384,55 @@ struct NativeDiscoverPage: View {
       if selectedFeatureIndex >= ids.count { selectedFeatureIndex = 0 }
     }
     .accessibilityIdentifier("native-discover-page")
+  }
+
+  /// 按用户持久化的模块顺序渲染发现区块，先过滤出非空项避免 LazyVStack 产生空占位节点。
+  @ViewBuilder
+  private func orderedSections(
+    populatedRails: [NativeDiscoverRail], hasLibrary: Bool
+  ) -> some View {
+    let railsByID = Dictionary(uniqueKeysWithValues: populatedRails.map { ($0.id, $0) })
+    let activeModules = content.moduleOrder.filter { module in
+      switch module {
+      case .continueWatching: !content.continueWatching.isEmpty
+      case .movies: railsByID["movies"] != nil
+      case .television: railsByID["television"] != nil
+      case .trending: railsByID["trending"] != nil
+      case .doubanShowing: railsByID["doubanShowing"] != nil
+      case .doubanTop250: railsByID["doubanTop250"] != nil
+      case .latest: railsByID["latest"] != nil
+      case .mediaLibrary: hasLibrary
+      }
+    }
+    ForEach(activeModules, id: \.self) { module in
+      switch module {
+      case .continueWatching:
+        continueWatching
+      case .movies:
+        if let rail = railsByID["movies"] { posterRail(rail) }
+      case .television:
+        if let rail = railsByID["television"] { posterRail(rail) }
+      case .trending:
+        if let rail = railsByID["trending"] { posterRail(rail) }
+      case .doubanShowing:
+        if let rail = railsByID["doubanShowing"] { posterRail(rail) }
+      case .doubanTop250:
+        if let rail = railsByID["doubanTop250"] { posterRail(rail) }
+      case .latest:
+        if let rail = railsByID["latest"] { posterRail(rail) }
+      case .mediaLibrary:
+        mediaLibrary
+      }
+    }
+    let knownRailIDs: Set<String> = [
+      "movies", "television", "trending", "doubanShowing", "doubanTop250", "latest",
+    ]
+    let extraRails = populatedRails.filter { !knownRailIDs.contains($0.id) }
+    if !extraRails.isEmpty {
+      ForEach(extraRails) { rail in
+        posterRail(rail)
+      }
+    }
   }
 
   /// 当前主视觉与轮播索引保持同步，数据刷新时自动回落至首条有效条目。
@@ -723,11 +817,11 @@ struct NativeDiscoverPage: View {
     return nil
   }
 
-  /// 媒体库先显示来源平台玻璃横卡，再显示带真实分类海报的浏览入口。
+  /// 媒体库先显示来源平台玻璃横卡，再显示带真实分类海报的多来源探索入口。
   private var mediaLibrary: some View {
     VStack(alignment: .leading, spacing: 14) {
-      sectionHeader("媒体库")
       if !content.providers.isEmpty {
+        sectionHeader("媒体库")
         ScrollView(.horizontal) {
           LazyHStack(spacing: 12) {
             ForEach(content.providers) { provider in
@@ -753,25 +847,34 @@ struct NativeDiscoverPage: View {
         .scrollIndicators(.hidden)
       }
       if !content.categories.isEmpty {
-        LazyVGrid(
-          columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 290 : 150))],
-          spacing: 12
-        ) {
-          ForEach(content.categories) { category in
-            Group {
-              if let onOpenCategory {
-                Button {
-                  onOpenCategory(category.id)
-                } label: {
-                  categoryArtwork(category)
+        sectionHeader("分类探索")
+        let perRow = dynamicTypeSize.isAccessibilitySize ? 1 : 2
+        let rows = stride(from: 0, to: content.categories.count, by: perRow).map {
+          Array(content.categories[$0..<min($0 + perRow, content.categories.count)])
+        }
+        VStack(spacing: 12) {
+          ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+            HStack(spacing: 12) {
+              ForEach(row) { category in
+                Group {
+                  if let onOpenCategory {
+                    Button {
+                      onOpenCategory(category.id)
+                    } label: {
+                      categoryArtwork(category)
+                    }
+                    .buttonStyle(.plain)
+                  } else {
+                    categoryArtwork(category)
+                  }
                 }
-                .buttonStyle(.plain)
-              } else {
-                categoryArtwork(category)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("native-discover-category-\(category.id)")
+              }
+              if row.count < perRow {
+                Color.clear.frame(maxWidth: .infinity)
               }
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("native-discover-category-\(category.id)")
           }
         }
         .padding(.horizontal, CinematicStyle.margin)

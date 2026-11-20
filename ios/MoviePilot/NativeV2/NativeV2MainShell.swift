@@ -32,6 +32,9 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
   @State private var accountPath: [NativeWorkspaceDestination] = []
   @State private var searchPath: [NativeMediaIdentity] = []
   @State private var showsDiscoverQuickMenu = false
+  @State private var discoverModules = NativeDiscoverModuleItem.defaults
+  @State private var showsModuleSheet = false
+  @State private var pendingModuleRefetch = false
 
   /// 保留 root 原有账号动作与插件路由，主导航由系统 TabView 承载各标签独立栈。
   init(
@@ -203,9 +206,27 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
             discoverPath.append(.rail(rail))
           }
         },
+        onOpenCategory: { categoryID in
+          let source = NativeExploreSourceKind(rawValue: categoryID) ?? .tmdbMovies
+          discoverPath.append(.explore(source))
+        },
+        onManageModules: { showsModuleSheet = true },
         onRetry: { discoveryAttempt += 1 }
       )
       .toolbarBackground(.hidden, for: .navigationBar)
+      .sheet(
+        isPresented: $showsModuleSheet,
+        onDismiss: {
+          if pendingModuleRefetch {
+            pendingModuleRefetch = false
+            discoveryAttempt += 1
+          }
+        }
+      ) {
+        NativeDiscoverModulesSheet(initialModules: discoverModules) { updated in
+          await saveDiscoverModules(updated)
+        }
+      }
       .navigationDestination(for: NativeMediaDestination.self) { destination in
         switch destination {
         case .media(let identity):
@@ -216,6 +237,8 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           } destination: { identity in
             NativeMediaDetailPage(session: session, identity: identity)
           }
+        case .explore(let source):
+          NativeExplorePage(session: session, initialSource: source)
         case .subscriptions:
           NativeSubscriptionsPage(session: session)
         case .downloads:
@@ -278,6 +301,16 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           .padding(.horizontal, 16)
           .padding(.top, 10)
           .padding(.bottom, 4)
+        if canDiscover {
+          quickMenuRow(title: "探索片库", symbol: "safari.fill", id: "native-quick-explore") {
+            showsDiscoverQuickMenu = false
+            discoverPath.append(.explore(.tmdbMovies))
+          }
+          quickMenuRow(title: "管理模块", symbol: "slider.horizontal.3", id: "native-quick-modules") {
+            showsDiscoverQuickMenu = false
+            showsModuleSheet = true
+          }
+        }
         if canSubscribe {
           quickMenuRow(title: "我的订阅", symbol: "bookmark.fill", id: "native-quick-subscriptions") {
             showsDiscoverQuickMenu = false
@@ -367,9 +400,25 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           Text("我的").font(.largeTitle.bold())
             .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
             .accessibilityAddTraits(.isHeader)
-          if canSubscribe || canManageDownloads || canSearchResources {
+          if canDiscover || canSubscribe || canManageDownloads || canSearchResources {
             CinematicFormSection("媒体工作台") {
+              if canDiscover {
+                Button {
+                  accountPath.append(.explore(.tmdbMovies))
+                } label: {
+                  CinematicFormRow(symbol: "safari.fill") {
+                    Text("探索片库")
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                      .foregroundStyle(.white.opacity(0.45))
+                  }
+                  .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-workspace-explore")
+              }
               if canSubscribe {
+                if canDiscover { CinematicFormDivider() }
                 Button {
                   accountPath.append(.subscriptions)
                 } label: {
@@ -549,6 +598,8 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
       .toolbarBackground(.hidden, for: .navigationBar)
       .navigationDestination(for: NativeWorkspaceDestination.self) { destination in
         switch destination {
+        case .explore(let source):
+          NativeExplorePage(session: session, initialSource: source)
         case .subscriptions:
           NativeSubscriptionsPage(session: session)
         case .downloads:
@@ -586,17 +637,31 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
     discovery = NativeDiscoverContent(
       featuredItems: discovery.featuredItems, rails: discovery.rails,
       continueWatching: discovery.continueWatching, providers: discovery.providers,
-      categories: discovery.categories, isLoading: true, loadFailed: discovery.loadFailed
+      categories: discovery.categories,
+      moduleOrder: discoverModules.filter(\.enabled).map(\.id),
+      isLoading: true, loadFailed: discovery.loadFailed
     )
 
+    async let modulesTask = try? requestDiscoverModules()
     async let moviesTask = try? requestDiscoverMedia("tmdb_movies", page: 1)
     async let tvTask = try? requestDiscoverMedia("tmdb_tvs", page: 1)
     async let trendingTask = try? requestRecommendMedia("tmdb_trending", page: 1)
     async let clientsTask = try? requestMediaServerClients()
-    let (movies, television, trending, clients) = await (
-      moviesTask, tvTask, trendingTask, clientsTask
+    let (loadedModules, movies, television, trending, clients) = await (
+      modulesTask, moviesTask, tvTask, trendingTask, clientsTask
     )
     guard !Task.isCancelled, discoveryGeneration == generation else { return }
+
+    let resolvedModules = NativeDiscoverModuleItem.normalized(loadedModules ?? discoverModules)
+    discoverModules = resolvedModules
+    let enabledSet = Set(resolvedModules.filter(\.enabled).map(\.id))
+
+    async let doubanShowingTask: [NativeDiscoverAPIItem]? =
+      enabledSet.contains(.doubanShowing)
+      ? (try? requestRecommendMedia("douban_showing", page: 1)) : nil
+    async let doubanTopTask: [NativeDiscoverAPIItem]? =
+      enabledSet.contains(.doubanTop250)
+      ? (try? requestRecommendMedia("douban_movie_top250", page: 1)) : nil
 
     var continueWatching: [NativeDiscoverProgress] = []
     var latestItems: [NativeDiscoverMedia] = []
@@ -612,21 +677,30 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
       providers = (libraryRows ?? []).compactMap(projectLibraryProvider)
     }
 
+    let (doubanShowing, doubanTop) = await (doubanShowingTask, doubanTopTask)
+    guard !Task.isCancelled, discoveryGeneration == generation else { return }
+
     var rails: [NativeDiscoverRail] = []
     var identities: [String: NativeMediaIdentity] = [:]
-    if let movies {
+    let projectedMovies = movies.map {
+      projectPage($0, fallbackType: "电影", identities: &identities)
+    }
+    let projectedTVs = television.map {
+      projectPage($0, fallbackType: "电视剧", identities: &identities)
+    }
+    if let projectedMovies {
       rails.append(
         NativeDiscoverRail(
           id: "movies", title: "热门电影",
-          items: projectPage(movies, fallbackType: "电影", identities: &identities),
-          hasMore: !movies.isEmpty))
+          items: projectedMovies,
+          hasMore: !projectedMovies.isEmpty))
     }
-    if let television {
+    if let projectedTVs {
       rails.append(
         NativeDiscoverRail(
           id: "television", title: "热门剧集",
-          items: projectPage(television, fallbackType: "电视剧", identities: &identities),
-          hasMore: !television.isEmpty))
+          items: projectedTVs,
+          hasMore: !projectedTVs.isEmpty))
     }
     if let trending, !trending.isEmpty {
       rails.append(
@@ -635,9 +709,38 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           items: projectPage(trending, fallbackType: "电影", identities: &identities),
           hasMore: true, style: .backdrop))
     }
+    if let doubanShowing, !doubanShowing.isEmpty {
+      rails.append(
+        NativeDiscoverRail(
+          id: "doubanShowing", title: "豆瓣热映",
+          items: projectPage(doubanShowing, fallbackType: "电影", identities: &identities),
+          hasMore: true))
+    }
+    if let doubanTop, !doubanTop.isEmpty {
+      rails.append(
+        NativeDiscoverRail(
+          id: "doubanTop250", title: "豆瓣 Top250",
+          items: projectPage(doubanTop, fallbackType: "电影", identities: &identities),
+          hasMore: true))
+    }
     if !latestItems.isEmpty {
       rails.append(NativeDiscoverRail(id: "latest", title: "最新入库", items: latestItems))
     }
+
+    let exploreCategories: [NativeDiscoverCategory] = [
+      NativeDiscoverCategory(
+        id: NativeExploreSourceKind.tmdbMovies.rawValue, title: "TMDB 电影",
+        posterReference: projectedMovies?.first?.posterReference),
+      NativeDiscoverCategory(
+        id: NativeExploreSourceKind.tmdbTVs.rawValue, title: "TMDB 剧集",
+        posterReference: projectedTVs?.first?.posterReference),
+      NativeDiscoverCategory(
+        id: NativeExploreSourceKind.doubanMovies.rawValue, title: "豆瓣片库",
+        posterReference: projectedMovies?.dropFirst().first?.posterReference),
+      NativeDiscoverCategory(
+        id: NativeExploreSourceKind.bangumi.rawValue, title: "Bangumi 番剧",
+        posterReference: projectedTVs?.dropFirst().first?.posterReference),
+    ]
 
     let heroPool: [(NativeDiscoverAPIItem, String)] =
       (trending?.isEmpty == false
@@ -667,8 +770,48 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
     }
     discovery = NativeDiscoverContent(
       featuredItems: featuredItems, rails: rails, continueWatching: continueWatching,
-      providers: providers, categories: [], loadFailed: movies == nil || television == nil)
+      providers: providers, categories: exploreCategories,
+      moduleOrder: resolvedModules.filter(\.enabled).map(\.id),
+      loadFailed: movies == nil || television == nil)
     mediaIdentities = identities
+  }
+
+  /// 读取当前用户持久化的发现模块显隐与顺序配置。
+  private func requestDiscoverModules() async throws -> [NativeDiscoverModuleItem]? {
+    let endpoint = try APIEndpoint(path: ["user", "config", "NativeDiscoverModules"])
+    let wrapper = try await session.request(
+      endpoint, as: NativeUserConfigValue<[NativeDiscoverModuleItem]>.self
+    ).value
+    return wrapper.value
+  }
+
+  /// 单次持久化发现模块显隐与排序，并在需要时重新拉取新启用的豆瓣榜单。
+  private func saveDiscoverModules(_ updated: [NativeDiscoverModuleItem]) async -> Bool {
+    do {
+      let body = try JSONEncoder().encode(updated)
+      let endpoint = try APIEndpoint(
+        path: ["user", "config", "NativeDiscoverModules"], method: .post, body: body)
+      try await session.perform(endpoint)
+      let needsRefetch = updated.contains { item in
+        item.enabled
+          && (item.id == .doubanShowing || item.id == .doubanTop250)
+          && !discovery.rails.contains(where: { $0.id == item.id.rawValue })
+      }
+      discoverModules = updated
+      if needsRefetch {
+        pendingModuleRefetch = true
+      } else {
+        discovery = NativeDiscoverContent(
+          featuredItems: discovery.featuredItems, rails: discovery.rails,
+          continueWatching: discovery.continueWatching, providers: discovery.providers,
+          categories: discovery.categories,
+          moduleOrder: updated.filter(\.enabled).map(\.id),
+          isLoading: discovery.isLoading, loadFailed: discovery.loadFailed)
+      }
+      return true
+    } catch {
+      return false
+    }
   }
 
   /// 后端发现没有总页数，以空页结束，单条失败不会阻止另一条轨道展示。
@@ -756,6 +899,12 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
       fallbackType = "电视剧"
     case "trending":
       rows = try await requestRecommendMedia("tmdb_trending", page: page)
+      fallbackType = "电影"
+    case "doubanShowing":
+      rows = try await requestRecommendMedia("douban_showing", page: page)
+      fallbackType = "电影"
+    case "doubanTop250":
+      rows = try await requestRecommendMedia("douban_movie_top250", page: page)
       fallbackType = "电影"
     default: throw APIError.invalidEndpoint
     }
@@ -859,6 +1008,7 @@ struct NativeMediaIdentity: Identifiable, Hashable {
 
 /// 账号页媒体工作台可推入的受控业务路由。
 private enum NativeWorkspaceDestination: Hashable {
+  case explore(NativeExploreSourceKind)
   case subscriptions
   case downloads
   case calendar
@@ -876,6 +1026,7 @@ private enum NativeWorkspaceDestination: Hashable {
 private enum NativeMediaDestination: Identifiable, Hashable {
   case rail(NativeDiscoverRail)
   case media(NativeMediaIdentity)
+  case explore(NativeExploreSourceKind)
   case subscriptions
   case downloads
   case calendar
@@ -893,6 +1044,7 @@ private enum NativeMediaDestination: Identifiable, Hashable {
     switch self {
     case .rail(let rail): "rail:" + rail.id
     case .media(let identity): "media:" + identity.id
+    case .explore(let source): "explore:" + source.rawValue
     case .subscriptions: "subscriptions"
     case .downloads: "downloads"
     case .calendar: "calendar"
@@ -906,6 +1058,11 @@ private enum NativeMediaDestination: Identifiable, Hashable {
     case .users: "users"
     }
   }
+}
+
+/// `GET /api/v1/user/config/{key}` 统一返回值解码包装。
+private struct NativeUserConfigValue<Value: Decodable & Sendable>: Decodable, Sendable {
+  let value: Value?
 }
 
 /// 搜索结果和发现海报显示后端提供的 HTTPS 图片，并交由当前 MoviePilot 实例代理。

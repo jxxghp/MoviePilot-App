@@ -58,6 +58,22 @@ final class NativeV2EntryTests: XCTestCase {
     // 等待实际后端图片代理完成首屏解码，不用合成海报代替线上媒体素材。
     try await Task.sleep(nanoseconds: 4_000_000_000)
     captureDiscoverScrollPhases(app, prefix: "native-v2-live-discover")
+    let manageModulesBtn = app.buttons["native-discover-manage-modules"]
+    let discoverScroll = app.scrollViews["native-discover-page"]
+    for _ in 0..<8 where !manageModulesBtn.exists {
+      discoverScroll.swipeUp()
+    }
+    if manageModulesBtn.waitForExistence(timeout: 5) {
+      tap(manageModulesBtn, app: app)
+      if app.buttons["native-modules-cancel"].waitForExistence(timeout: 8) {
+        try await Task.sleep(nanoseconds: 600_000_000)
+        capture("native-v2-live-modules")
+        app.buttons["native-modules-cancel"].tap()
+      }
+    }
+    for _ in 0..<6 where !more.isHittable {
+      discoverScroll.swipeDown()
+    }
     tap(more, app: app)
     let grid = app.scrollViews["native-discover-grid"]
     XCTAssertTrue(grid.waitForExistence(timeout: 8))
@@ -99,6 +115,20 @@ final class NativeV2EntryTests: XCTestCase {
       }
     }
     tap(tabButton("我的", app: app), app: app)
+    let exploreEntry = app.buttons["native-workspace-explore"]
+    if exploreEntry.waitForExistence(timeout: 10) {
+      tap(exploreEntry, app: app)
+      XCTAssertTrue(app.scrollViews["native-explore-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 2_500_000_000)
+      capture("native-v2-live-explore")
+      let doubanTab = app.buttons["native-explore-source-douban_movies"]
+      if doubanTab.exists {
+        tap(doubanTab, app: app)
+        try await Task.sleep(nanoseconds: 2_500_000_000)
+        capture("native-v2-live-explore-douban")
+      }
+      app.navigationBars.buttons.firstMatch.tap()
+    }
     let subsEntry = app.buttons["native-workspace-subscriptions"]
     if subsEntry.waitForExistence(timeout: 10) {
       tap(subsEntry, app: app)
@@ -556,6 +586,52 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["a"]?["GET api/v1/system/env"], 1)
     XCTAssertEqual(counts["a"]?["POST api/v1/system/env"], 1)
     XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/user"] ?? 0, 2)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// P3.2b：验证多来源片库探索筛选切换与发现页模块编排开关持久化，零 WebView。
+  func testNativeExploreSourcesAndModuleArrangement() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+
+    let manageBtn = app.buttons["native-discover-manage-modules"]
+    let discoverScroll = app.scrollViews["native-discover-page"]
+    XCTAssertTrue(discoverScroll.waitForExistence(timeout: 12))
+    for _ in 0..<8 where !manageBtn.exists { discoverScroll.swipeUp() }
+    XCTAssertTrue(manageBtn.waitForExistence(timeout: 8))
+    tap(manageBtn, app: app)
+    XCTAssertTrue(app.buttons["native-modules-save"].waitForExistence(timeout: 8))
+    toggle("native-module-toggle-doubanShowing", to: true, app: app)
+    tap(app.buttons["native-modules-save"], app: app)
+    XCTAssertTrue(app.buttons["native-discover-more-豆瓣热映"].waitForExistence(timeout: 12))
+
+    tap(tabButton("我的", app: app), app: app)
+    let exploreEntry = app.buttons["native-workspace-explore"]
+    reveal(exploreEntry, app: app)
+    XCTAssertTrue(exploreEntry.waitForExistence(timeout: 10))
+    tap(exploreEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-explore-scroll"].waitForExistence(timeout: 10))
+    let doubanBtn = app.buttons["native-explore-source-douban_movies"]
+    XCTAssertTrue(doubanBtn.waitForExistence(timeout: 10))
+    tap(doubanBtn, app: app)
+    XCTAssertTrue(
+      app.buttons["native-explore-poster-themoviedb|131|电影"].waitForExistence(timeout: 10))
+    let sourceBar = app.scrollViews["native-explore-source-bar"]
+    let bgmBtn = app.buttons["native-explore-source-bangumi"]
+    XCTAssertTrue(bgmBtn.waitForExistence(timeout: 8))
+    if sourceBar.exists && bgmBtn.frame.maxX > app.windows.firstMatch.frame.maxX - 8 {
+      sourceBar.swipeLeft()
+    }
+    bgmBtn.tap()
+    XCTAssertTrue(
+      app.buttons["native-explore-poster-themoviedb|141|电视剧"].waitForExistence(timeout: 10))
+    XCTAssertEqual(app.webViews.count, 0)
+
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["POST api/v1/user/config/NativeDiscoverModules"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/recommend/douban_showing"], 1)
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/discover/douban_movies"] ?? 0, 1)
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/discover/bangumi"] ?? 0, 1)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -1788,15 +1864,16 @@ final class NativeV2EntryTests: XCTestCase {
     let cronField = app.collectionViews["native-cron-field-form"]
     let cron = app.collectionViews["native-cron-form"]
     let combobox = app.collectionViews["native-combobox-form"]
+    let modulesList = app.collectionViews["native-modules-list"]
     let detailScroll = app.scrollViews.matching(identifier: "native-media-detail-scroll")
       .allElementsBoundByIndex.last(where: { $0.isHittable })
     let personScroll = app.scrollViews.matching(identifier: "native-person-detail-scroll")
       .allElementsBoundByIndex.last(where: { $0.isHittable })
     let workspaceScroll = [
-      "native-downloads-scroll", "native-subscriptions-scroll", "native-calendar-scroll",
-      "native-resource-search-scroll", "native-history-scroll", "native-sites-scroll",
-      "native-messages-scroll", "native-files-scroll", "native-workflows-scroll",
-      "native-settings-scroll", "native-users-scroll",
+      "native-explore-scroll", "native-downloads-scroll", "native-subscriptions-scroll",
+      "native-calendar-scroll", "native-resource-search-scroll", "native-history-scroll",
+      "native-sites-scroll", "native-messages-scroll", "native-files-scroll",
+      "native-workflows-scroll", "native-settings-scroll", "native-users-scroll",
     ].compactMap { identifier in
       app.scrollViews.matching(identifier: identifier).allElementsBoundByIndex.last(where: {
         $0.isHittable
@@ -1806,7 +1883,8 @@ final class NativeV2EntryTests: XCTestCase {
     let discoverGrid = app.scrollViews["native-discover-grid"]
     let discoverPage = app.scrollViews["native-discover-page"]
     let scroll =
-      detailScroll
+      (modulesList.exists ? modulesList : nil)
+      ?? detailScroll
       ?? personScroll
       ?? workspaceScroll
       ?? (mediaSearch.exists && mediaSearch.isHittable
@@ -1887,6 +1965,7 @@ final class NativeV2EntryTests: XCTestCase {
     if [
       "native-plugin-selection-done", "native-cron-apply", "native-cron-cancel",
       "native-cron-field-apply", "native-combobox-apply", "native-combobox-cancel",
+      "native-modules-save", "native-modules-cancel",
     ].contains(element.identifier) {
       // iPad 原生 sheet 的工具栏 AX 框可能仍用局部坐标；这是导航动作，不属于滚动内容。
       return app.windows.firstMatch.frame.contains(
