@@ -48,6 +48,7 @@
 | 本机语言与账号入口 | 简体/繁体/英语即时切换；真实当前账号/服务和可执行的会话管理 | 媒体主页、应用中心、全局搜索/导航、用户级偏好与系统集成仍待对应业务叶子 |
 | 原生媒体主壳层（P3a） | NativeV2MainShell / NativeDiscoverPage / NativeDiscoverRailGrid / NativeDashboardPage / NativeMediaSearchPage / 基础 NativeMediaDetailPage；根级原生 TabView、同源图片代理（独立连接池 + TMDB 尺寸档位 + 剥离片段）、4 段滚动柔焦渐隐、继续观看/趋势/最新入库/媒体库、自动翻页与本机 3001 真实后端验收；见 [P3a 证据](evidence/2026-11-20-media-shell.md) | 多来源发现与模块编排（P3.2b）；资源搜索与下载确认（P3.3b）；下载/订阅/日历/文件/工作流/设置/插件生态仍待后续叶子 |
 | 原生影视详情与人物页（P3.4） | NativeMediaDetailPage / NativePersonDetailPage；全宽头图、入库状态徽标、权限门控显式订阅与二次确认取消、剧集分季独立订阅、演职员横栏、相似推荐、作品资料卡与人物参演作品网格（详情与搜索双入口）；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [P3.4 证据](evidence/2026-11-20-media-detail-person.md) | 详情内直达资源搜索（P3.3b）、媒体库直连原生播放（P7.3）与音乐详情（P3.5）仍待后续叶子 |
+| 原生下载、订阅与追剧日历（P5.1 / P4.1 / P4.4） | NativeDownloadsPage / NativeSubscriptionsPage / NativeCalendarPage + 发现页重复点击悬浮快捷菜单；16:9 缩略图下载进度横卡与启停/确认删除、分类计数与进度订阅卡与暂停/确认删除、周签条日历与当日播出卡片；iPhone/iPad API-only 验收与本机 3001 真实后端逐图验收通过；见 [工作台证据](evidence/2026-11-20-downloads-subscriptions-calendar.md) | 订阅规则弹窗/热门分享（P4.2–4.3）、下载高级限速/标签批处理与资源搜索添加下载（P3.3b）仍待后续叶子 |
 
 ## 不在上述路由里、同样必须迁移的功能
 

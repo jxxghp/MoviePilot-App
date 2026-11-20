@@ -25,6 +25,36 @@ class NativeFixture(ThreadingHTTPServer):
                 "mode": "new" if name == "new" else "ready",
                 "counts": Counter(),
                 "subscriptions": set(),
+                "sub_items": [
+                    {
+                        "id": 701, "name": "合成订阅电影", "year": "2025", "type": "电影",
+                        "season": None, "poster": "https://images.example.test/101/poster.png",
+                        "media_source": "themoviedb", "media_id": "101", "state": "R",
+                        "vote": 8.4, "best_version": 0,
+                    },
+                    {
+                        "id": 702, "name": "合成追剧", "year": "2025", "type": "电视剧",
+                        "season": 1, "poster": "https://images.example.test/111/poster.png",
+                        "media_source": "themoviedb", "media_id": "111", "state": "R",
+                        "vote": 8.8, "total_episode": 12, "lack_episode": 3,
+                        "completed_episode": 9, "best_version": 0,
+                    },
+                ],
+                "downloads": [
+                    {
+                        "downloader": "Qbittorrent", "hash": "abc123def456",
+                        "title": "Synthetic.Show.S01.2160p", "name": "合成追剧", "year": "2025",
+                        "season_episode": "S01", "site_name": "合成站", "size": 42_949_672_960.0,
+                        "progress": 42.5, "state": "downloading", "upspeed": "512.0K",
+                        "dlspeed": "12.4M", "left_time": "18分20秒",
+                        "media": {
+                            "type": "电视剧", "title": "合成追剧", "season": "S01",
+                            "episode": "E09", "backdrop": "https://images.example.test/111/backdrop.png",
+                            "poster": "https://images.example.test/111/poster.png",
+                            "media_source": "themoviedb", "media_id": "111",
+                        },
+                    }
+                ],
             }
             for name in ("a", "b", "new", "slow")
         }
@@ -47,7 +77,11 @@ class NativeHandler(BaseHTTPRequestHandler):
         self.dispatch()
 
     def do_DELETE(self):
-        """处理受控合成订阅取消。"""
+        """处理受控合成订阅取消与下载任务删除。"""
+        self.dispatch()
+
+    def do_PUT(self):
+        """处理受控合成订阅状态切换。"""
         self.dispatch()
 
     def reply(self, status, value, headers=None):
@@ -132,6 +166,36 @@ class NativeHandler(BaseHTTPRequestHandler):
                 if config.get("reset"):
                     profile["counts"].clear()
                     profile["subscriptions"].clear()
+                    profile["sub_items"] = [
+                        {
+                            "id": 701, "name": "合成订阅电影", "year": "2025", "type": "电影",
+                            "season": None, "poster": "https://images.example.test/101/poster.png",
+                            "media_source": "themoviedb", "media_id": "101", "state": "R",
+                            "vote": 8.4, "best_version": 0,
+                        },
+                        {
+                            "id": 702, "name": "合成追剧", "year": "2025", "type": "电视剧",
+                            "season": 1, "poster": "https://images.example.test/111/poster.png",
+                            "media_source": "themoviedb", "media_id": "111", "state": "R",
+                            "vote": 8.8, "total_episode": 12, "lack_episode": 3,
+                            "completed_episode": 9, "best_version": 0,
+                        },
+                    ]
+                    profile["downloads"] = [
+                        {
+                            "downloader": "Qbittorrent", "hash": "abc123def456",
+                            "title": "Synthetic.Show.S01.2160p", "name": "合成追剧", "year": "2025",
+                            "season_episode": "S01", "site_name": "合成站", "size": 42_949_672_960.0,
+                            "progress": 42.5, "state": "downloading", "upspeed": "512.0K",
+                            "dlspeed": "12.4M", "left_time": "18分20秒",
+                            "media": {
+                                "type": "电视剧", "title": "合成追剧", "season": "S01",
+                                "episode": "E09", "backdrop": "https://images.example.test/111/backdrop.png",
+                                "poster": "https://images.example.test/111/poster.png",
+                                "media_source": "themoviedb", "media_id": "111",
+                            },
+                        }
+                    ]
             self.reply(200, {"success": True})
             return
         parts = [unquote(segment) for segment in path.strip("/").split("/") if segment]
@@ -140,6 +204,8 @@ class NativeHandler(BaseHTTPRequestHandler):
         if name in self.server.profiles and self.command == "GET":
             if (
                 endpoint in self.business_endpoints()
+                or path in {f"/{name}/api/v1/download/", f"/{name}/api/v1/subscribe/"}
+                or re.fullmatch(r"api/v1/download/(?:start|stop)/[a-z0-9]+", endpoint)
                 or re.fullmatch(r"api/v1/media/1[0-9]{2}", endpoint)
                 or re.fullmatch(r"api/v1/tmdb/(?:credits|recommend|similar)/1[0-9]{2}/(?:电影|电视剧)", endpoint)
                 or re.fullmatch(r"api/v1/tmdb/person(?:/credits)?/[0-9]{3}", endpoint)
@@ -156,9 +222,19 @@ class NativeHandler(BaseHTTPRequestHandler):
             if path == f"/{name}/api/v1/subscribe/":
                 self.subscribe_create_endpoint(name, body)
                 return
+        if name in self.server.profiles and self.command == "PUT":
+            if re.fullmatch(r"api/v1/subscribe/status/[0-9]+", endpoint):
+                self.subscribe_status_endpoint(name, endpoint)
+                return
         if name in self.server.profiles and self.command == "DELETE":
             if re.fullmatch(r"api/v1/subscribe/media/1[0-9]{2}", endpoint):
                 self.subscribe_delete_endpoint(name, endpoint)
+                return
+            if re.fullmatch(r"api/v1/subscribe/[0-9]+", endpoint):
+                self.subscribe_delete_by_id_endpoint(name, endpoint)
+                return
+            if re.fullmatch(r"api/v1/download/[a-z0-9]+", endpoint):
+                self.download_delete_endpoint(name, endpoint)
                 return
         allowed = {
             ("GET", "api/v1/login/initialization"),
@@ -199,6 +275,8 @@ class NativeHandler(BaseHTTPRequestHandler):
             "api/v1/mediaserver/library",
             "api/v1/media/search",
             "api/v1/media/source",
+            "api/v1/download/clients",
+            "api/v1/subscribe/calendar",
             "api/v1/dashboard/statistic",
             "api/v1/dashboard/storage",
             "api/v1/dashboard/schedule",
@@ -263,6 +341,37 @@ class NativeHandler(BaseHTTPRequestHandler):
                 value = []
         elif endpoint == "api/v1/media/source":
             value = [{"name": "TMDB", "media_source": "themoviedb", "media_types": ["电影", "电视剧"]}]
+        elif endpoint == "api/v1/download/clients":
+            value = [{"name": "Qbittorrent", "type": "qbittorrent"}]
+        elif endpoint == "api/v1/download":
+            with self.server.lock:
+                value = list(self.server.profiles[name]["downloads"])
+        elif re.fullmatch(r"api/v1/download/(?:start|stop)/[a-z0-9]+", endpoint):
+            parts_ep = endpoint.split("/")
+            action, task_hash = parts_ep[3], parts_ep[4]
+            with self.server.lock:
+                for row in self.server.profiles[name]["downloads"]:
+                    if row["hash"] == task_hash:
+                        row["state"] = "downloading" if action == "start" else "unavailable"
+            value = None
+        elif endpoint == "api/v1/subscribe":
+            with self.server.lock:
+                value = list(self.server.profiles[name]["sub_items"])
+        elif endpoint == "api/v1/subscribe/calendar":
+            start = query.get("start", ["2026-11-15"])[0]
+            value = {
+                "items": [{
+                    "date": start,
+                    "episodes": [{"episode_number": 10, "name": "合成首播集"}],
+                    "runtime": 45,
+                    "subscribe": {
+                        "id": 702, "name": "合成追剧", "season": 1,
+                        "poster": "https://images.example.test/111/poster.png",
+                        "total_episode": 12, "completed_episode": 9,
+                    },
+                }],
+                "total": 1,
+            }
         elif endpoint == "api/v1/dashboard/statistic":
             value = {
                 "movie_count": 12, "tv_count": 8, "episode_count": None,
@@ -378,6 +487,64 @@ class NativeHandler(BaseHTTPRequestHandler):
         season = int(raw_season) if raw_season and raw_season.isdigit() else None
         with self.server.lock:
             self.server.profiles[name]["subscriptions"].discard((media_id, season))
+        self.reply(200, {"success": True, "message": "", "data": None})
+
+    def subscribe_status_endpoint(self, name, endpoint):
+        """单次切换合成订阅暂停或恢复状态。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"PUT {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if not self.permissions(mode)["subscribe"]:
+            self.reply(403, {"success": False})
+            return
+        sub_id = int(endpoint.rsplit("/", 1)[-1])
+        next_state = parse_qs(urlsplit(self.path).query).get("state", ["R"])[0]
+        with self.server.lock:
+            for item in self.server.profiles[name]["sub_items"]:
+                if item["id"] == sub_id:
+                    item["state"] = next_state
+        self.reply(200, {"success": True, "message": "", "data": None})
+
+    def subscribe_delete_by_id_endpoint(self, name, endpoint):
+        """单次按 ID 删除合成订阅。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"DELETE {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if not self.permissions(mode)["subscribe"]:
+            self.reply(403, {"success": False})
+            return
+        sub_id = int(endpoint.rsplit("/", 1)[-1])
+        with self.server.lock:
+            self.server.profiles[name]["sub_items"] = [
+                item for item in self.server.profiles[name]["sub_items"] if item["id"] != sub_id
+            ]
+        self.reply(200, {"success": True, "message": "", "data": None})
+
+    def download_delete_endpoint(self, name, endpoint):
+        """单次删除合成下载任务。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"DELETE {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a" and not self.permissions(mode)["manage"]:
+            self.reply(403, {"success": False})
+            return
+        task_hash = endpoint.rsplit("/", 1)[-1]
+        with self.server.lock:
+            self.server.profiles[name]["downloads"] = [
+                row for row in self.server.profiles[name]["downloads"] if row["hash"] != task_hash
+            ]
         self.reply(200, {"success": True, "message": "", "data": None})
 
     @staticmethod
