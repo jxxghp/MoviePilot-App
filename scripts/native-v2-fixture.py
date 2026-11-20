@@ -303,6 +303,8 @@ class NativeHandler(BaseHTTPRequestHandler):
                 or re.fullmatch(r"api/v1/tmdb/person(?:/credits)?/[0-9]{3}", endpoint)
                 or re.fullmatch(r"api/v1/user/config/[A-Za-z0-9_.-]+", endpoint)
                 or re.fullmatch(r"api/v1/subscribe/[0-9]+", endpoint)
+                or re.fullmatch(r"api/v1/music/album/[A-Za-z0-9_-]+", endpoint)
+                or re.fullmatch(r"api/v1/music/artist/[A-Za-z0-9_-]+(?:/albums)?", endpoint)
             ):
                 self.business_endpoint(name, endpoint)
                 return
@@ -345,7 +347,7 @@ class NativeHandler(BaseHTTPRequestHandler):
             if endpoint == "api/v1/history/transfer":
                 self.history_delete_endpoint(name, body)
                 return
-            if re.fullmatch(r"api/v1/subscribe/media/1[0-9]{2}", endpoint):
+            if re.fullmatch(r"api/v1/subscribe/media/[A-Za-z0-9_-]+", endpoint):
                 self.subscribe_delete_endpoint(name, endpoint)
                 return
             if re.fullmatch(r"api/v1/subscribe/[0-9]+", endpoint):
@@ -393,6 +395,9 @@ class NativeHandler(BaseHTTPRequestHandler):
             "api/v1/recommend/tmdb_trending",
             "api/v1/recommend/douban_showing",
             "api/v1/recommend/douban_movie_top250",
+            "api/v1/recommend/music_douban",
+            "api/v1/recommend/music_weekly",
+            "api/v1/music/explore",
             "api/v1/mediaserver/clients",
             "api/v1/mediaserver/playing",
             "api/v1/mediaserver/latest",
@@ -437,6 +442,7 @@ class NativeHandler(BaseHTTPRequestHandler):
             or endpoint.startswith("api/v1/recommend/")
             or endpoint.startswith("api/v1/mediaserver/")
             or endpoint.startswith("api/v1/tmdb/")
+            or endpoint.startswith("api/v1/music/")
             or endpoint == "api/v1/media/search"
             or re.fullmatch(r"api/v1/media/1[0-9]{2}", endpoint)
         )
@@ -469,6 +475,46 @@ class NativeHandler(BaseHTTPRequestHandler):
             first_id = 131 if is_movie else 141
             ids = range(first_id, first_id + 6) if page == "1" else []
             value = [self.media(item_id, "电影" if is_movie else "电视剧") for item_id in ids]
+        elif endpoint in {
+            "api/v1/recommend/music_douban",
+            "api/v1/recommend/music_weekly",
+            "api/v1/music/explore",
+        }:
+            value = [{
+                "type": "音乐", "music_type": "album",
+                "media_source": "musicbrainz", "media_id": "alb-201", "album_id": "alb-201",
+                "title": "合成星际原声带", "artist": "合成乐团", "artists": ["合成乐团"],
+                "artist_ids": ["art-301"], "year": 2025, "rating": 9.1,
+                "cover_url": "https://images.example.test/101/poster.png",
+            }]
+        elif re.fullmatch(r"api/v1/music/album/[A-Za-z0-9_-]+", endpoint):
+            value = {
+                "type": "音乐", "music_type": "album",
+                "media_source": "musicbrainz", "media_id": "alb-201",
+                "title": "合成星际原声带", "artist": "合成乐团", "artists": ["合成乐团"],
+                "artist_ids": ["art-301"], "album_type": "Album", "year": 2025,
+                "total_tracks": 2, "cover_url": "https://images.example.test/101/poster.png",
+                "overview": "面向原生音乐详情验证的合成专辑曲目。",
+                "tracks": [
+                    {"title": "序曲：星尘启航", "track_number": 1, "duration": 215, "artist": "合成乐团"},
+                    {"title": "终章：漫游银河", "track_number": 2, "duration": 268, "artist": "合成乐团"},
+                ],
+            }
+        elif re.fullmatch(r"api/v1/music/artist/[A-Za-z0-9_-]+/albums", endpoint):
+            value = [{
+                "type": "音乐", "music_type": "album",
+                "media_source": "musicbrainz", "media_id": "alb-201", "album_id": "alb-201",
+                "title": "合成星际原声带", "artist": "合成乐团", "artist_ids": ["art-301"],
+                "year": 2025, "cover_url": "https://images.example.test/101/poster.png",
+            }]
+        elif re.fullmatch(r"api/v1/music/artist/[A-Za-z0-9_-]+", endpoint):
+            value = {
+                "type": "音乐", "music_type": "artist",
+                "media_source": "musicbrainz", "media_id": "art-301",
+                "name": "合成乐团", "country": "CN", "life_span": "2018 - 至今",
+                "image_url": "https://images.example.test/111/poster.png",
+                "overview": "专注于影视原声与器乐编排的合成艺人。",
+            }
         elif endpoint in {
             "api/v1/discover/source",
             "api/v1/recommend/tmdb_trending",

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		02938EC7396846498DBB3C3F /* NativeDownloadsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF6849CE05D1EC77AFA67129 /* NativeDownloadsPage.swift */; };
+		08E6A5EB18261F0E3B4964F6 /* NativeMusicPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08443236F43B97DD00EC6B5A /* NativeMusicPage.swift */; };
 		0B79AFE6E3E507A780FAEDAB /* LoginController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8072C0F89DB70887DB4A4AEC /* LoginController.swift */; };
 		0EE2961899BD600DE410D4E8 /* MediaPlaybackController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AFD1560F224ABDAD40A7D45 /* MediaPlaybackController.swift */; };
 		0F2E336EB862CF10739E6811 /* PasskeyAuthenticator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C14F52952629F4DE2A12E6E /* PasskeyAuthenticator.swift */; };
@@ -144,6 +145,7 @@
 /* Begin PBXFileReference section */
 		018FA9D54CDFDB2AC49D2983 /* NativeMediaSearchPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaSearchPage.swift; sourceTree = "<group>"; };
 		074E2F176D7B19065BD0557F /* ThirdPartyNotices.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = ThirdPartyNotices.txt; sourceTree = "<group>"; };
+		08443236F43B97DD00EC6B5A /* NativeMusicPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMusicPage.swift; sourceTree = "<group>"; };
 		093747F8F5F5A6F3F70FF06A /* LegacyWebSceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyWebSceneDelegate.swift; sourceTree = "<group>"; };
 		0DD9443E3204854D988B91A8 /* NativeDesignTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDesignTests.swift; sourceTree = "<group>"; };
 		11C1FABE88ED006EC70944CD /* InstanceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstanceStore.swift; sourceTree = "<group>"; };
@@ -330,6 +332,7 @@
 				4560BBC8ECE63C86B8D993DF /* NativeFileManagerPage.swift */,
 				E2CBAA3DC386BDCFF67D1137 /* NativeMediaDetailPage.swift */,
 				B6459B12BBE68089FA81AC88 /* NativeMessagesPage.swift */,
+				08443236F43B97DD00EC6B5A /* NativeMusicPage.swift */,
 				3E0B3A43D3BA4AA717CEB29B /* NativeResourceSearchPage.swift */,
 				5F33A2CBF14E52CA99816FE7 /* NativeSitesPage.swift */,
 				F5CA3958D36BFB5E17CA6E7E /* NativeSubscribeCommunityPage.swift */,
@@ -725,6 +728,7 @@
 				E6614181F752357720A889EB /* NativeMediaDetailPage.swift in Sources */,
 				D2F28E40B4CA7F797613B2BD /* NativeMediaSearchPage.swift in Sources */,
 				B3D2A711BFF5C857E13FF960 /* NativeMessagesPage.swift in Sources */,
+				08E6A5EB18261F0E3B4964F6 /* NativeMusicPage.swift in Sources */,
 				F9CFC187B7A882F2EE4BBA4E /* NativePanelController.swift in Sources */,
 				FA7D96C95BCA99B1CDDEABA8 /* NativePluginCatalogView.swift in Sources */,
 				98EB4831D3C52B37D00D990D /* NativePluginComboboxEditor.swift in Sources */,
