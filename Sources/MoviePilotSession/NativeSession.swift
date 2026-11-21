@@ -133,6 +133,45 @@ public final class NativeSession {
     }
   }
 
+  /// 真流式 SSE 订阅（如智能助手对话），在发起前验证活跃会话与权限。
+  public func streamEvents(
+    _ endpoint: APIEndpoint,
+    extraHeaders: [String: String] = [:],
+    requiring permission: PermissionRequirement? = nil
+  ) throws -> AsyncThrowingStream<APISSEEvent, Error> {
+    try checkActive(requiring: permission)
+    return api.streamEvents(endpoint, extraHeaders: extraHeaders)
+  }
+
+  /// 标准 multipart 文件上传（用于智能助手图片/语音/文档附件），受同一会话活跃检查约束。
+  public func uploadMultipart<Value: Decodable & Sendable>(
+    _ endpoint: APIEndpoint,
+    fieldName: String = "file",
+    fileName: String,
+    mimeType: String,
+    fileData: Data,
+    formFields: [String: String] = [:],
+    as type: Value.Type = Value.self,
+    requiring permission: PermissionRequirement? = nil
+  ) async throws -> APIResult<Value> {
+    try checkActive(requiring: permission)
+    do {
+      let value = try await api.uploadMultipart(
+        endpoint, fieldName: fieldName, fileName: fileName, mimeType: mimeType,
+        fileData: fileData, formFields: formFields, as: type)
+      try checkActive(requiring: permission)
+      return value
+    } catch {
+      try fail(error)
+    }
+  }
+
+  /// 导出当前同源短效资源 Cookie（供 Vue 远程插件容器加载受保护 ESM 脚本）。
+  public func resolveResourceCookie() async throws -> APIExportedResourceCookie? {
+    try checkActive()
+    return try await api.resolveResourceCookie()
+  }
+
   /// 写入只发一次；返回只说明端点接受动作，不能自动重试或推断后台任务已结束。
   public func perform(
     _ endpoint: APIEndpoint, requiring permission: PermissionRequirement? = nil
