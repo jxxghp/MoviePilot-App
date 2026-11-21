@@ -8,7 +8,6 @@ import UIKit
 final class NativeV2SceneDelegate: UIResponder, UIWindowSceneDelegate {
   var window: UIWindow?
   private var model: NativeAppModel?
-  private var privacyCover: UIView?
   private var appearanceCancellable: AnyCancellable?
 
   /// 复用本机地址簿，从原生会话探测开始，并承接冷启动 URL 深链与主屏幕快捷项。
@@ -61,23 +60,13 @@ final class NativeV2SceneDelegate: UIResponder, UIWindowSceneDelegate {
     completionHandler(receiveHomeShortcut(shortcutItem))
   }
 
-  /// 系统快照前用不透明材质遮盖认证草稿和账号资料。
+  /// 退至后台前仅收起键盘，不再用纯色遮罩盖住全屏，确保 iOS 多任务切换器保留真实界面内容缩略图。
   func sceneWillResignActive(_ scene: UIScene) {
-    guard let window, privacyCover == nil else { return }
-    window.endEditing(true)
-    let scheme: ColorScheme =
-      window.traitCollection.userInterfaceStyle == .light ? .light : .dark
-    let cover = UIView(frame: window.bounds)
-    cover.backgroundColor = UIColor(NativeAppearanceStore.shared.solidBackgroundColor(for: scheme))
-    cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-    window.addSubview(cover)
-    privacyCover = cover
+    window?.endEditing(true)
   }
 
-  /// 回到前台撤掉遮盖并复查待消费的通知/小组件/快捷项意图。
+  /// 回到前台复查待消费的通知/小组件/快捷项意图。
   func sceneDidBecomeActive(_ scene: UIScene) {
-    privacyCover?.removeFromSuperview()
-    privacyCover = nil
     model?.resumeSystemIntegrations()
   }
 

@@ -137,14 +137,6 @@ struct NativeSystemModulesPage: View {
           }
           .disabled(scrapingSwitches == originalScrapingSwitches || isSavingScraping)
           .accessibilityIdentifier("native-sysmod-scraping-save")
-        } else {
-          Button {
-            reloadToken += 1
-          } label: {
-            Image(systemName: "arrow.clockwise")
-          }
-          .accessibilityLabel("刷新当前配置")
-          .accessibilityIdentifier("native-sysmod-refresh")
         }
       }
     }

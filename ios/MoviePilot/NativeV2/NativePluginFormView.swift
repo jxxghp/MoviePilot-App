@@ -359,7 +359,7 @@ private struct NativePluginInputView: View {
   }
 
   /// 占位内容与文字/背景保持足够对比度，不依赖系统浅色主题。
-  private var prompt: Text { Text(field.placeholder).foregroundColor(.white.opacity(0.70)) }
+  private var prompt: Text { Text(field.placeholder).foregroundColor(.secondary) }
 }
 
 /// 单/多选共用原生弹层，单选选中即返回，多选保留完成动作和未知旧值。

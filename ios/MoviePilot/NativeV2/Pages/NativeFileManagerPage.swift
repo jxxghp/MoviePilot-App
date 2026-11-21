@@ -7,6 +7,19 @@ import SwiftUI
 /// 原生多存储文件浏览器：支持存储切换、目录钻取、面包屑返回、新建文件夹与二次确认删除。
 @MainActor
 struct NativeFileManagerPage: View {
+  private enum FileFilter: String, CaseIterable, Identifiable {
+    case all = "全部项目"
+    case directories = "仅文件夹"
+    case files = "仅文件"
+    var id: String { rawValue }
+  }
+
+  private enum FileSort: String, CaseIterable, Identifiable {
+    case nameAsc = "按名称"
+    case sizeDesc = "按体积从大到小"
+    var id: String { rawValue }
+  }
+
   let session: NativeSession
 
   @State private var storages: [NativeStorageOption] = [
@@ -17,6 +30,8 @@ struct NativeFileManagerPage: View {
     NativeFileItem(storage: "local", type: "dir", path: "/", name: "根目录")
   ]
   @State private var items: [NativeFileItem] = []
+  @State private var fileFilter: FileFilter = .all
+  @State private var fileSort: FileSort = .nameAsc
   @State private var isLoading = true
   @State private var loadFailed = false
   @State private var attempt = 0
@@ -76,16 +91,37 @@ struct NativeFileManagerPage: View {
               Label("新建文件夹", systemImage: "folder.badge.plus")
             }
           }
-          Button {
-            attempt += 1
-          } label: {
-            Label("刷新当前目录", systemImage: "arrow.clockwise")
+          Section("筛选") {
+            ForEach(FileFilter.allCases) { option in
+              Button {
+                fileFilter = option
+              } label: {
+                if fileFilter == option {
+                  Label(option.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(option.rawValue)
+                }
+              }
+            }
+          }
+          Section("排序") {
+            ForEach(FileSort.allCases) { option in
+              Button {
+                fileSort = option
+              } label: {
+                if fileSort == option {
+                  Label(option.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(option.rawValue)
+                }
+              }
+            }
           }
         } label: {
-          Image(systemName: "ellipsis")
+          Image(systemName: "line.3.horizontal.decrease.circle")
         }
-        .accessibilityLabel("更多文件操作")
-        .accessibilityIdentifier("native-files-refresh")
+        .accessibilityLabel("筛选、排序与文件操作")
+        .accessibilityIdentifier("native-files-filter-menu")
       }
     }
     .task { await loadStorages() }
@@ -131,11 +167,23 @@ struct NativeFileManagerPage: View {
       ?? NativeFileItem(storage: activeStorage, type: "dir", path: "/", name: "根目录")
   }
 
-  /// 文件夹优先排列，其次按名称排序。
+  /// 按当前筛选与排序条件整理目录与文件列表（文件夹始终置前）。
   private var sortedItems: [NativeFileItem] {
-    items.sorted { lhs, rhs in
+    let filtered = items.filter { item in
+      switch fileFilter {
+      case .all: true
+      case .directories: item.isDirectory
+      case .files: !item.isDirectory
+      }
+    }
+    return filtered.sorted { lhs, rhs in
       if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
-      return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+      switch fileSort {
+      case .nameAsc:
+        return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+      case .sizeDesc:
+        return (lhs.size ?? 0) > (rhs.size ?? 0)
+      }
     }
   }
 

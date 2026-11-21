@@ -7,11 +7,28 @@ import SwiftUI
 /// 原生下载管理页：参照深色渐变玻璃任务横卡，直连 MoviePilot 下载器查询与启停删控制。
 @MainActor
 struct NativeDownloadsPage: View {
+  private enum StatusFilter: String, CaseIterable, Identifiable {
+    case all = "全部任务"
+    case active = "进行中"
+    case paused = "已暂停"
+    var id: String { rawValue }
+  }
+
+  private enum SortMode: String, CaseIterable, Identifiable {
+    case defaultOrder = "默认顺序"
+    case progressDesc = "进度从高到低"
+    case sizeDesc = "体积从大到小"
+    case titleAsc = "名称排序"
+    var id: String { rawValue }
+  }
+
   let session: NativeSession
 
   @State private var clients: [NativeDownloaderClient] = []
   @State private var selectedClient: String?
   @State private var tasks: [NativeDownloadTask] = []
+  @State private var statusFilter: StatusFilter = .all
+  @State private var sortMode: SortMode = .defaultOrder
   @State private var isLoading = true
   @State private var loadFailed = false
   @State private var attempt = 0
@@ -37,11 +54,11 @@ struct NativeDownloadsPage: View {
               .frame(maxWidth: .infinity, minHeight: 220)
           } else if loadFailed && tasks.isEmpty {
             failureCard
-          } else if tasks.isEmpty {
+          } else if displayedTasks.isEmpty {
             emptyCard
           } else {
             LazyVStack(spacing: 14) {
-              ForEach(tasks) { task in
+              ForEach(displayedTasks) { task in
                 downloadRow(task)
               }
             }
@@ -63,16 +80,37 @@ struct NativeDownloadsPage: View {
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Menu {
-          Button {
-            attempt += 1
-          } label: {
-            Label("刷新下载任务", systemImage: "arrow.clockwise")
+          Section("任务状态") {
+            ForEach(StatusFilter.allCases) { option in
+              Button {
+                statusFilter = option
+              } label: {
+                if statusFilter == option {
+                  Label(option.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(option.rawValue)
+                }
+              }
+            }
+          }
+          Section("排序方式") {
+            ForEach(SortMode.allCases) { option in
+              Button {
+                sortMode = option
+              } label: {
+                if sortMode == option {
+                  Label(option.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(option.rawValue)
+                }
+              }
+            }
           }
         } label: {
-          Image(systemName: "ellipsis")
+          Image(systemName: "line.3.horizontal.decrease.circle")
         }
-        .accessibilityLabel("更多下载操作")
-        .accessibilityIdentifier("native-downloads-refresh")
+        .accessibilityLabel("筛选与排序")
+        .accessibilityIdentifier("native-downloads-filter-menu")
       }
     }
     .task(id: "\(attempt)|\(selectedClient ?? "")") { await load() }
@@ -90,6 +128,29 @@ struct NativeDownloadsPage: View {
       Button("取消", role: .cancel) {}
     } message: { task in
       Text("确认删除「\(task.displayTitle)」及其下载文件吗？此操作无法撤销。")
+    }
+  }
+
+  /// 按所选状态筛选与排序后的下载任务列表。
+  private var displayedTasks: [NativeDownloadTask] {
+    let filtered = tasks.filter { task in
+      switch statusFilter {
+      case .all: true
+      case .active: !task.isPaused
+      case .paused: task.isPaused
+      }
+    }
+    switch sortMode {
+    case .defaultOrder:
+      return filtered
+    case .progressDesc:
+      return filtered.sorted { ($0.progress ?? 0) > ($1.progress ?? 0) }
+    case .sizeDesc:
+      return filtered.sorted { ($0.size ?? 0) > ($1.size ?? 0) }
+    case .titleAsc:
+      return filtered.sorted {
+        $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending
+      }
     }
   }
 

@@ -75,28 +75,24 @@ struct NativeMessagesPage: View {
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Menu {
-          Button {
-            attempt += 1
-          } label: {
-            Label("刷新消息中心", systemImage: "arrow.clockwise")
-          }
-          Divider()
-          ForEach(Category.allCases) { option in
-            Button {
-              category = option
-            } label: {
-              if category == option {
-                Label(option.rawValue, systemImage: "checkmark")
-              } else {
-                Text(option.rawValue)
+          Section("筛选消息") {
+            ForEach(Category.allCases) { option in
+              Button {
+                category = option
+              } label: {
+                if category == option {
+                  Label(option.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(option.rawValue)
+                }
               }
             }
           }
         } label: {
-          Image(systemName: "ellipsis")
+          Image(systemName: "line.3.horizontal.decrease.circle")
         }
-        .accessibilityLabel("更多消息操作")
-        .accessibilityIdentifier("native-messages-refresh")
+        .accessibilityLabel("筛选消息")
+        .accessibilityIdentifier("native-messages-filter")
       }
     }
     .task(id: attempt) { await reload() }

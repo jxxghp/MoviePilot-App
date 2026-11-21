@@ -24,6 +24,7 @@ struct NativeTransferHistoryPage: View {
   @State private var nextPage = 1
   @State private var hasMore = false
   @State private var filter: StatusFilter = .all
+  @State private var sortAscending = false
   @State private var searchText = ""
   @State private var expandedIDs: Set<Int> = []
   @State private var isLoading = true
@@ -92,33 +93,44 @@ struct NativeTransferHistoryPage: View {
       }
       ToolbarItem(placement: .topBarTrailing) {
         Menu {
-          Button {
-            showsQueueSheet = true
-          } label: {
-            Label("查看整理队列", systemImage: "tray.full")
+          Section("整理状态") {
+            ForEach(StatusFilter.allCases) { option in
+              Button {
+                filter = option
+              } label: {
+                if filter == option {
+                  Label(option.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(option.rawValue)
+                }
+              }
+            }
           }
-          Button {
-            attempt += 1
-          } label: {
-            Label("刷新整理历史", systemImage: "arrow.clockwise")
-          }
-          Divider()
-          ForEach(StatusFilter.allCases) { option in
+          Section("排序方式") {
             Button {
-              filter = option
+              sortAscending = false
             } label: {
-              if filter == option {
-                Label(option.rawValue, systemImage: "checkmark")
+              if !sortAscending {
+                Label("最新优先", systemImage: "checkmark")
               } else {
-                Text(option.rawValue)
+                Text("最新优先")
+              }
+            }
+            Button {
+              sortAscending = true
+            } label: {
+              if sortAscending {
+                Label("最早优先", systemImage: "checkmark")
+              } else {
+                Text("最早优先")
               }
             }
           }
         } label: {
-          Image(systemName: "ellipsis")
+          Image(systemName: "line.3.horizontal.decrease.circle")
         }
-        .accessibilityLabel("更多整理记录操作")
-        .accessibilityIdentifier("native-history-refresh")
+        .accessibilityLabel("筛选与排序")
+        .accessibilityIdentifier("native-history-filter-menu")
       }
     }
     .sheet(isPresented: $showsQueueSheet) {
@@ -147,10 +159,10 @@ struct NativeTransferHistoryPage: View {
     session.user.isSuperuser || session.user.allows(.init(category: .manage))
   }
 
-  /// 经本地状态与关键词过滤后的可见列表。
+  /// 经本地状态、关键词与时间排序后的可见列表。
   private var displayedRecords: [NativeTransferRecord] {
     let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    return records.filter { record in
+    let matched = records.filter { record in
       let statusMatches: Bool =
         switch filter {
         case .all: true
@@ -163,6 +175,7 @@ struct NativeTransferHistoryPage: View {
         || (record.src?.lowercased().contains(trimmed) ?? false)
         || (record.dest?.lowercased().contains(trimmed) ?? false)
     }
+    return sortAscending ? matched.reversed() : matched
   }
 
   /// 顶部常驻玻璃搜索框：输入实时筛选，回车触发后端片名检索。

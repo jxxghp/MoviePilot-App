@@ -130,6 +130,7 @@ struct NativePluginCatalogView: View {
           }
         }
       }.scrollContentBackground(.hidden).frame(maxWidth: 680)
+        .refreshable { await load() }
     }
     .navigationTitle(L10n.text("插件"))
     .navigationBarTitleDisplayMode(.large)
@@ -152,22 +153,26 @@ struct NativePluginCatalogView: View {
     .task(id: reload) { await load() }
   }
 
-  /// 显式 state/尾斜杠与现有 API 一致；单个非法身份导致整体失败，不能偷偷漏插件。
+  /// 提升响应上限并逐条容错解码，避免单条非常规插件元数据或较大插件列表导致整个配置页报错。
   private func load() async {
     loading = true
     failed = false
     defer { loading = false }
     do {
-      let result: APIResult<[NativeInstalledPlugin]> = try await session.request(
-        APIEndpoint(
-          path: ["plugin"], query: [.init(name: "state", value: "installed")],
-          responseContract: .payload, trailingSlash: true),
+      let endpoint = try APIEndpoint(
+        path: ["plugin"],
+        query: [.init(name: "state", value: "installed")],
+        responseContract: .payload,
+        maximumResponseBytes: 12 * 1024 * 1024,
+        timeout: 30,
+        trailingSlash: true)
+      let result: APIResult<[LossyInstalledPluginRow]> = try await session.request(
+        endpoint,
         requiring: PermissionRequirement(category: .admin))
       try Task.checkCancellation()
-      guard Set(result.value.map(\.id)).count == result.value.count else {
-        throw PluginFormError.invalidTarget
-      }
-      plugins = result.value
+      var seen: Set<String> = []
+      let resolved = result.value.compactMap(\.plugin).filter { seen.insert($0.id).inserted }
+      plugins = resolved
     } catch is CancellationError {} catch { failed = true }
   }
 
@@ -178,5 +183,54 @@ struct NativePluginCatalogView: View {
         session: session, target: plugin.target, validator: NativeFormValidator())
       selection = Selection(plugin: plugin, form: form)
     } catch { failed = true }
+  }
+}
+
+/// 逐条容错解码已安装插件：单条元数据异常或暂不支持原生表单的目标不拖垮整页插件配置入口。
+private struct LossyInstalledPluginRow: Decodable, Sendable {
+  let plugin: NativeInstalledPlugin?
+
+  private enum CodingKeys: String, CodingKey {
+    case id, installed, state
+    case source = "source_plugin_id"
+    case name = "plugin_name"
+    case summary = "plugin_desc"
+    case version = "plugin_version"
+    case icon = "plugin_icon"
+    case author = "plugin_author"
+    case authorURL = "author_url"
+    case hasPage = "has_page"
+  }
+
+  init(from decoder: any Decoder) throws {
+    guard let fields = try? decoder.container(keyedBy: CodingKeys.self),
+      let rawID = try? fields.decode(String.self, forKey: .id),
+      !rawID.isEmpty
+    else {
+      plugin = nil
+      return
+    }
+    let installed = (try? fields.decode(Bool.self, forKey: .installed)) ?? true
+    guard installed else {
+      plugin = nil
+      return
+    }
+    let rawSource = try? fields.decode(String.self, forKey: .source)
+    let normalizedSource = (rawSource?.isEmpty == true) ? nil : rawSource
+    guard let target = try? PluginFormTarget(physicalID: rawID, sourceID: normalizedSource) else {
+      plugin = nil
+      return
+    }
+    plugin = NativeInstalledPlugin(
+      target: target,
+      name: (try? fields.decode(String.self, forKey: .name)) ?? rawID,
+      summary: (try? fields.decode(String.self, forKey: .summary)) ?? "",
+      version: (try? fields.decode(String.self, forKey: .version)) ?? "",
+      icon: try? fields.decode(String.self, forKey: .icon),
+      author: try? fields.decode(String.self, forKey: .author),
+      authorURL: try? fields.decode(String.self, forKey: .authorURL),
+      state: try? fields.decode(Bool.self, forKey: .state),
+      hasPage: (try? fields.decode(Bool.self, forKey: .hasPage)) ?? false
+    )
   }
 }

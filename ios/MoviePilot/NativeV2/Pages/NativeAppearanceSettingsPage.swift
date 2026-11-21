@@ -281,20 +281,20 @@ struct NativeAppearanceSettingsPage: View {
 
           if appearance.useCustomTextColor {
             ColorPicker(
-              "文字前景色",
+              colorScheme == .light ? "浅色主题文字颜色" : "深色主题文字颜色",
               selection: Binding(
-                get: { appearance.customTextColor },
+                get: { appearance.customTextColor(for: colorScheme) },
                 set: { color in
-                  appearance.customTextHex = NativeAppearanceStore.hexString(from: color)
+                  appearance.setCustomTextColor(color, for: colorScheme)
                 }
               ),
               supportsOpacity: false
             )
             .font(.subheadline)
           } else {
-            Text("默认随深色/浅色主题自动保持高对比可读文字。")
+            Text("默认随深色/浅色主题自动保持高对比可读文字（浅色深灰 / 深色柔白）。")
               .font(.caption)
-              .foregroundStyle(.primary.opacity(0.60))
+              .foregroundStyle(.secondary)
           }
         }
       }

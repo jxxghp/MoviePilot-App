@@ -7,7 +7,7 @@ import UIKit
 
 /// 已认证 MoviePilot 的原生主导航：4+1 底部架构（发现 / 探索 / 我的 / 设置 + 动态上下文或全局搜索按钮），二次点击任意主标签弹出其余全部功能菜单。
 @MainActor
-struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
+struct NativeV2MainShell<PluginDestination: View>: View {
   /// 4+1 底栏标签定义：发现、探索、我的（仪表盘）、设置 + 右侧独立动态按钮/全局搜索。
   private enum Page: Hashable {
     case discover
@@ -20,7 +20,10 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
   let session: NativeSession
   let snapshot: NativeSessionSnapshot
   @Binding var showsPlugins: Bool
-  let accountContent: AccountContent
+  let currentLanguage: AppLanguage
+  let onSelectLanguage: (AppLanguage) -> Void
+  let onSwitchServer: () -> Void
+  let onLogout: () -> Void
   let pluginDestination: () -> PluginDestination
 
   @StateObject private var dynamicActionCenter = NativeDynamicActionCenter()
@@ -50,13 +53,19 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
   init(
     session: NativeSession, snapshot: NativeSessionSnapshot,
     showsPlugins: Binding<Bool>,
-    accountContent: AccountContent,
+    currentLanguage: AppLanguage,
+    onSelectLanguage: @escaping (AppLanguage) -> Void,
+    onSwitchServer: @escaping () -> Void,
+    onLogout: @escaping () -> Void,
     @ViewBuilder pluginDestination: @escaping () -> PluginDestination
   ) {
     self.session = session
     self.snapshot = snapshot
     _showsPlugins = showsPlugins
-    self.accountContent = accountContent
+    self.currentLanguage = currentLanguage
+    self.onSelectLanguage = onSelectLanguage
+    self.onSwitchServer = onSwitchServer
+    self.onLogout = onLogout
     self.pluginDestination = pluginDestination
     _selectedTab = State(
       initialValue: snapshot.user.allows(.init(category: .discovery)) ? .discover : .mine)
@@ -372,7 +381,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
               minePath.append(.messages)
             }
             memberShortcutCard(title: "智能助手", symbol: "sparkles") {
-              minePath.append(.agent)
+              showsAgentSheet = true
             }
           }
         }
@@ -410,18 +419,21 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
     .buttonStyle(.plain)
   }
 
-  /// 设置标签：承载参考图 04 风格的卡片式设置主中心、全部系统/专项设置、插件与账号管理。
+  /// 设置标签：承载卡片式设置主中心、全部系统/专项设置与右上角系统菜单（通知/小组件/语言/切换服务/退出登录）。
   private var settingsTab: some View {
     NavigationStack(path: $settingsPath) {
       NativeSettingsHubPage(
         session: session,
         snapshot: snapshot,
+        currentLanguage: currentLanguage,
         onNavigate: { destination in
           settingsPath.append(destination)
         },
         onOpenModules: { showsModuleSheet = true },
         onOpenPlugins: { showsPlugins = true },
-        accountContent: accountContent
+        onSelectLanguage: onSelectLanguage,
+        onSwitchServer: onSwitchServer,
+        onLogout: onLogout
       )
       .navigationDestination(for: NativeWorkspaceDestination.self) { destination in
         workspaceDestinationView(destination)

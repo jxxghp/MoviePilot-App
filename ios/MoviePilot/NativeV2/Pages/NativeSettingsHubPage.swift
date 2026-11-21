@@ -4,15 +4,18 @@ import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
 
-/// 原生设置主中心（底部「设置」标签）：融合顶部空间概览卡、双列状态方卡（站点管理/用户管理）、高亮横幅入口卡、4 列图标瓷砖与原生分组列表，保持多样化视觉层次。
+/// 原生设置主中心（底部「设置」标签）：融合顶部服务器存储卡、双列状态方卡、系统核心参数、4 列捷径瓷砖、分组偏好列表与右上角系统菜单（通知/小组件/语言/切换服务/退出登录）。
 @MainActor
-struct NativeSettingsHubPage<AccountContent: View>: View {
+struct NativeSettingsHubPage: View {
   let session: NativeSession
   let snapshot: NativeSessionSnapshot
+  let currentLanguage: AppLanguage
   let onNavigate: (NativeWorkspaceDestination) -> Void
   let onOpenModules: () -> Void
   let onOpenPlugins: () -> Void
-  let accountContent: AccountContent
+  let onSelectLanguage: (AppLanguage) -> Void
+  let onSwitchServer: () -> Void
+  let onLogout: () -> Void
 
   @State private var storage: NativeSettingsStorageBrief?
   @State private var siteCount: Int?
@@ -22,20 +25,17 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
   @ObservedObject private var appearance = NativeAppearanceStore.shared
   @Environment(\.colorScheme) private var colorScheme
 
-  /// 连续紫玫瑰渐变背景与多样化层级布局：概览条卡 → 双列状态方卡 → 高亮横幅卡 → 4 列图标瓷砖 → 原生分组列表 → 账号管理。
+  /// 连续紫玫瑰渐变背景与清晰分组层级（不重复展示当前用户信息，会话与通知项统一收口至右上角菜单）。
   var body: some View {
     ZStack {
       CinematicBackground()
       Form {
-        headerTitle
-          .listRowBackground(Color.clear)
-          .listRowInsets(EdgeInsets(top: 4, leading: 2, bottom: 8, trailing: 2))
-          .listRowSeparator(.hidden)
-
-        storageTelemetryCard
-          .listRowBackground(Color.clear)
-          .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
-          .listRowSeparator(.hidden)
+        if let storage, storage.total > 0 {
+          storageTelemetryCard(storage)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
+            .listRowSeparator(.hidden)
+        }
 
         if snapshot.user.isSuperuser {
           primarySquareGrid
@@ -58,7 +58,8 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
             .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
             .listRowSeparator(.hidden)
 
-          systemListSection
+          mediaDirectorySection
+          appearanceAndPluginsSection
         } else {
           standardUserGrid
             .listRowBackground(Color.clear)
@@ -66,8 +67,6 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
             .listRowSeparator(.hidden)
           systemIntegrationSection
         }
-
-        accountContent
       }
       .scrollContentBackground(.hidden)
       .scrollIndicators(.hidden)
@@ -75,9 +74,65 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
       .frame(maxWidth: .infinity)
       .modifier(NativeSoftTopScrollEdge())
     }
-    .navigationTitle("")
+    .navigationTitle("设置")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
+    .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        Menu {
+          Button {
+            showsNotificationSettings = true
+          } label: {
+            Label("通知设置", systemImage: "bell.and.waves.left.and.right")
+          }
+          .accessibilityIdentifier("native-settings-hub-push")
+
+          Button {
+            showsWidgetSettings = true
+          } label: {
+            Label("桌面小组件", systemImage: "rectangle.3.group")
+          }
+          .accessibilityIdentifier("native-settings-hub-widgets")
+
+          Menu {
+            ForEach(AppLanguage.allCases, id: \.rawValue) { lang in
+              Button {
+                onSelectLanguage(lang)
+              } label: {
+                if currentLanguage == lang {
+                  Label(lang.title, systemImage: "checkmark")
+                } else {
+                  Text(lang.title)
+                }
+              }
+            }
+          } label: {
+            Label("界面语言 · \(currentLanguage.title)", systemImage: "globe")
+          }
+          .accessibilityIdentifier("native-v2-language")
+
+          Divider()
+
+          Button {
+            onSwitchServer()
+          } label: {
+            Label("切换服务", systemImage: "arrow.left.arrow.right")
+          }
+          .accessibilityIdentifier("native-v2-switch")
+
+          Button(role: .destructive) {
+            onLogout()
+          } label: {
+            Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
+          }
+          .accessibilityIdentifier("native-v2-logout")
+        } label: {
+          Image(systemName: "ellipsis")
+        }
+        .accessibilityLabel("更多设置与账号")
+        .accessibilityIdentifier("native-settings-more-menu")
+      }
+    }
     .sheet(isPresented: $showsNotificationSettings) {
       NativeNotificationSettingsSheet(session: session)
     }
@@ -87,99 +142,53 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
     .task(id: snapshot.scope) { await loadOverview() }
   }
 
-  /// 顶部浮于渐变之上的克制版「设置」标题。
-  private var headerTitle: some View {
-    Text("设置")
-      .font(.title2.weight(.semibold))
-      .foregroundStyle(.primary.opacity(0.90))
-      .padding(.horizontal, 2)
-      .accessibilityAddTraits(.isHeader)
-  }
-
-  /// 第一层：顶部账号头像、实例在线状态与真实存储容量概览卡。
-  private var storageTelemetryCard: some View {
+  /// 第一层：简洁服务器存储容量概览卡（仅展示服务地址与真实存储空间，不重复展示当前用户信息）。
+  private func storageTelemetryCard(_ storage: NativeSettingsStorageBrief) -> some View {
     let host = session.instance.address.url.host ?? session.instance.address.url.absoluteString
+    let ratio = storage.usedRatio
+    let percentText = "\(Int((ratio * 100).rounded()))%"
+    let freeBytes = max(storage.total - storage.used, 0)
     return CinematicPanel(padding: 15) {
-      VStack(alignment: .leading, spacing: 12) {
-        HStack(spacing: 12) {
-          NativeUserAvatarView(
-            session: session,
-            avatar: snapshot.user.avatar,
-            name: snapshot.user.name,
-            isSuperuser: snapshot.user.isSuperuser,
-            size: 44
-          )
-          VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-              Text(snapshot.user.name)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary.opacity(0.90))
-                .lineLimit(1)
-              Text(snapshot.user.isSuperuser ? "超级管理员" : "普通成员")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background {
-                  Capsule().fill(.primary.opacity(0.07))
-                }
-            }
-            HStack(spacing: 5) {
-              Circle()
-                .fill(Color(red: 0.42, green: 0.88, blue: 0.56).opacity(0.85))
-                .frame(width: 6, height: 6)
-              Text(host)
-                .font(.caption2.monospaced())
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            }
-          }
-          Spacer(minLength: 0)
+      VStack(alignment: .leading, spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Circle()
+            .fill(Color(red: 0.42, green: 0.88, blue: 0.56).opacity(0.85))
+            .frame(width: 6, height: 6)
+          Text(host)
+            .font(.caption.monospaced())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+          Spacer(minLength: 8)
+          Text("\(Self.formatBytes(storage.used)) / \(Self.formatBytes(storage.total))")
+            .font(.caption.monospacedDigit().weight(.medium))
+            .foregroundStyle(.primary.opacity(0.84))
         }
-
-        if let storage, storage.total > 0 {
-          let ratio = storage.usedRatio
-          let percentText = "\(Int((ratio * 100).rounded()))%"
-          let freeBytes = max(storage.total - storage.used, 0)
-          Divider().overlay(.primary.opacity(0.10))
-          VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-              Text("存储空间")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.primary.opacity(0.68))
-              Spacer(minLength: 8)
-              Text("\(Self.formatBytes(storage.used)) / \(Self.formatBytes(storage.total))")
-                .font(.caption.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.primary)
-            }
-            GeometryReader { bar in
-              let w = max(bar.size.width, 1)
-              let usedW = max(w * min(max(ratio, 0.04), 1.0), 8)
-              ZStack(alignment: .leading) {
-                Capsule().fill(.primary.opacity(0.16))
-                Capsule()
-                  .fill(
-                    LinearGradient(
-                      colors: [
-                        Color(red: 0.64, green: 0.50, blue: 0.98),
-                        Color(red: 0.92, green: 0.52, blue: 0.70),
-                      ],
-                      startPoint: .leading,
-                      endPoint: .trailing
-                    )
-                  )
-                  .frame(width: usedW)
-              }
-            }
-            .frame(height: 8)
-            HStack {
-              legendDot("已用 \(percentText)", color: Color(red: 0.78, green: 0.54, blue: 0.92))
-              Spacer()
-              Text("可用 \(Self.formatBytes(freeBytes))")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.primary.opacity(0.62))
-            }
+        GeometryReader { bar in
+          let w = max(bar.size.width, 1)
+          let usedW = max(w * min(max(ratio, 0.04), 1.0), 8)
+          ZStack(alignment: .leading) {
+            Capsule().fill(.primary.opacity(0.12))
+            Capsule()
+              .fill(
+                LinearGradient(
+                  colors: [
+                    appearance.accentColor,
+                    Color(red: 0.92, green: 0.52, blue: 0.70),
+                  ],
+                  startPoint: .leading,
+                  endPoint: .trailing
+                )
+              )
+              .frame(width: usedW)
           }
+        }
+        .frame(height: 7)
+        HStack {
+          legendDot("已用 \(percentText)", color: appearance.accentColor)
+          Spacer()
+          Text("可用 \(Self.formatBytes(freeBytes))")
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.secondary)
         }
       }
     }
@@ -368,10 +377,36 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
     .accessibilityIdentifier(id)
   }
 
-  /// 第五层：原生分组列表项（与上方卡片和瓷砖形成层次对比，平滑衔接到账号设置列表）。
-  private var systemListSection: some View {
+  /// 分组一：目录映射、规则识别与媒体刮削设置。
+  private var mediaDirectorySection: some View {
+    CinematicFormSection("目录与刮削") {
+      nativeListRow(
+        title: "目录与存储映射", symbol: "folder.badge.gearshape",
+        id: "native-settings-hub-directories"
+      ) {
+        onNavigate(.systemModule(.directories))
+      }
+      CinematicFormDivider()
+      nativeListRow(
+        title: "规则与识别词", symbol: "line.3.horizontal.decrease.circle",
+        id: "native-settings-hub-rules"
+      ) {
+        onNavigate(.systemModule(.rules))
+      }
+      CinematicFormDivider()
+      nativeListRow(
+        title: "刮削开关", symbol: "wand.and.stars",
+        id: "native-settings-hub-scraping"
+      ) {
+        onNavigate(.systemModule(.scraping))
+      }
+    }
+  }
+
+  /// 分组二：界面外观、模块顺序、插件与浮动智能助手开关。
+  private var appearanceAndPluginsSection: some View {
     CinematicFormSection(
-      "使用偏好与目录",
+      "界面与插件",
       footer: "复杂过滤规则与底层高级参数可随时在 MoviePilot Web 管理界面中调整。"
     ) {
       nativeListRow(
@@ -380,105 +415,64 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
       ) {
         onNavigate(.appearance)
       }
-      nativeListRow(
-        title: "目录与存储映射", symbol: "folder.badge.gearshape",
-        id: "native-settings-hub-directories"
-      ) {
-        onNavigate(.systemModule(.directories))
-      }
-      nativeListRow(
-        title: "规则与识别词", symbol: "line.3.horizontal.decrease.circle",
-        id: "native-settings-hub-rules"
-      ) {
-        onNavigate(.systemModule(.rules))
-      }
-      nativeListRow(
-        title: "刮削开关", symbol: "wand.and.stars",
-        id: "native-settings-hub-scraping"
-      ) {
-        onNavigate(.systemModule(.scraping))
-      }
+      CinematicFormDivider()
       nativeListRow(
         title: "发现模块顺序", symbol: "square.grid.2x2",
         id: "native-settings-hub-modules"
       ) {
         onOpenModules()
       }
+      CinematicFormDivider()
       nativeListRow(
         title: "插件市场", symbol: "puzzlepiece.extension",
         id: "native-workspace-plugin-market"
       ) {
         onNavigate(.pluginMarket)
       }
+      CinematicFormDivider()
       nativeListRow(
         title: "已安装插件配置", symbol: "slider.horizontal.3",
         id: "native-settings-hub-plugins"
       ) {
         onOpenPlugins()
       }
-      nativeListRow(
-        title: "系统推送通知", symbol: "bell.and.waves.left.and.right",
-        id: "native-settings-hub-push"
-      ) {
-        showsNotificationSettings = true
-      }
-      nativeListRow(
-        title: "桌面小组件", symbol: "rectangle.3.group",
-        id: "native-settings-hub-widgets"
-      ) {
-        showsWidgetSettings = true
-      }
-      Toggle(isOn: $showFloatingAssistant) {
-        HStack(spacing: 12) {
-          Image(systemName: "sparkles")
-            .font(.body.weight(.medium))
-            .foregroundStyle(.primary.opacity(0.86))
-            .frame(width: 24)
-          Text("浮动智能助手")
-            .font(.body)
-            .foregroundStyle(.primary)
-        }
-      }
-      .tint(appearance.accentColor)
-      .accessibilityIdentifier("native-settings-hub-floating-assistant")
+      CinematicFormDivider()
+      floatingAssistantToggleRow
     }
   }
 
-  /// 普通成员系统集成列表（主题外观、推送通知、桌面小组件与浮动智能助手）。
+  /// 普通成员外观与浮动智能助手设置分组。
   private var systemIntegrationSection: some View {
-    CinematicFormSection("外观与系统集成") {
+    CinematicFormSection("界面与偏好") {
       nativeListRow(
         title: "主题与外观", subtitle: appearance.summaryText, symbol: "paintpalette.fill",
         id: "native-settings-hub-appearance"
       ) {
         onNavigate(.appearance)
       }
-      nativeListRow(
-        title: "系统推送通知", symbol: "bell.and.waves.left.and.right",
-        id: "native-settings-hub-push"
-      ) {
-        showsNotificationSettings = true
-      }
-      nativeListRow(
-        title: "桌面小组件", symbol: "rectangle.3.group",
-        id: "native-settings-hub-widgets"
-      ) {
-        showsWidgetSettings = true
-      }
-      Toggle(isOn: $showFloatingAssistant) {
-        HStack(spacing: 12) {
-          Image(systemName: "sparkles")
-            .font(.body.weight(.medium))
-            .foregroundStyle(.primary.opacity(0.86))
-            .frame(width: 24)
-          Text("浮动智能助手")
-            .font(.body)
-            .foregroundStyle(.primary)
-        }
-      }
-      .tint(appearance.accentColor)
-      .accessibilityIdentifier("native-settings-hub-floating-assistant")
+      CinematicFormDivider()
+      floatingAssistantToggleRow
     }
+  }
+
+  /// 带标准内边距的浮动智能助手开关行。
+  private var floatingAssistantToggleRow: some View {
+    Toggle(isOn: $showFloatingAssistant) {
+      HStack(spacing: 12) {
+        Image(systemName: "sparkles")
+          .font(.subheadline.weight(.medium))
+          .foregroundStyle(.secondary)
+          .frame(width: 22)
+        Text("浮动智能助手")
+          .font(.subheadline)
+          .foregroundStyle(.primary.opacity(0.86))
+      }
+    }
+    .tint(appearance.accentColor)
+    .padding(.horizontal, 16)
+    .padding(.vertical, 9)
+    .frame(minHeight: 46)
+    .accessibilityIdentifier("native-settings-hub-floating-assistant")
   }
 
   /// 普通成员可见的精简入口。
@@ -600,6 +594,9 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
           .font(.caption2.weight(.medium))
           .foregroundStyle(.secondary.opacity(0.65))
       }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 11)
+      .frame(minHeight: 46)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)

@@ -731,7 +731,7 @@ struct NativeDiscoverPage: View {
                 }
                 Text(item.media.title).font(.subheadline.weight(.medium)).lineLimit(1)
                 if let detail = item.media.detail, !detail.isEmpty {
-                  Text(detail).font(.caption).foregroundStyle(.white.opacity(0.58)).lineLimit(1)
+                  Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
               }
               .frame(width: cardWidth, alignment: .leading)
@@ -1160,7 +1160,7 @@ struct NativeDiscoverRailGrid<Destination: View>: View {
             .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
         }
       Text(item.title).font(.footnote.weight(.medium)).lineLimit(2)
-      if let year = item.year { Text(year).font(.caption).foregroundStyle(.white.opacity(0.56)) }
+      if let year = item.year { Text(year).font(.caption).foregroundStyle(.secondary) }
     }
     .frame(maxWidth: .infinity, alignment: .top)
     .multilineTextAlignment(.center)
@@ -1241,7 +1241,7 @@ private struct NativeDiscoverArtworkPlaceholder: View {
           Color(red: 0.18, green: 0.20, blue: 0.29),
         ], startPoint: .topLeading, endPoint: .bottomTrailing)
       Image(systemName: symbol).font(.system(size: role == .backdrop ? 50 : 28, weight: .light))
-        .foregroundStyle(.white.opacity(0.28))
+        .foregroundStyle(.primary.opacity(0.28))
       if role == .backdrop {
         RadialGradient(
           colors: [.clear, .black.opacity(0.28)], center: .center, startRadius: 35, endRadius: 310)

@@ -18,10 +18,29 @@ struct NativeSubscriptionsPage: View {
     var id: String { rawValue }
   }
 
+  /// 订阅排序方式。
+  private enum SortMode: String, CaseIterable, Identifiable {
+    case defaultOrder = "默认顺序"
+    case titleAsc = "名称排序"
+    case progressDesc = "完成进度"
+    case dateDesc = "最近更新"
+    var id: String { rawValue }
+  }
+
+  /// 订阅状态过滤。
+  private enum StateFilter: String, CaseIterable, Identifiable {
+    case all = "全部状态"
+    case running = "仅启用"
+    case paused = "仅暂停"
+    var id: String { rawValue }
+  }
+
   let session: NativeSession
 
   @State private var items: [NativeSubscribeItem] = []
   @State private var filter: Filter = .all
+  @State private var stateFilter: StateFilter = .all
+  @State private var sortMode: SortMode = .defaultOrder
   @State private var searchText = ""
   @State private var isLoading = true
   @State private var loadFailed = false
@@ -72,7 +91,40 @@ struct NativeSubscriptionsPage: View {
     .toolbarBackground(.hidden, for: .navigationBar)
     .searchable(text: $searchText, prompt: "筛选订阅片名")
     .toolbar {
-      ToolbarItem(placement: .topBarTrailing) {
+      ToolbarItemGroup(placement: .topBarTrailing) {
+        Menu {
+          Section("订阅状态") {
+            ForEach(StateFilter.allCases) { option in
+              Button {
+                stateFilter = option
+              } label: {
+                if stateFilter == option {
+                  Label(option.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(option.rawValue)
+                }
+              }
+            }
+          }
+          Section("排序方式") {
+            ForEach(SortMode.allCases) { option in
+              Button {
+                sortMode = option
+              } label: {
+                if sortMode == option {
+                  Label(option.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(option.rawValue)
+                }
+              }
+            }
+          }
+        } label: {
+          Image(systemName: "line.3.horizontal.decrease.circle")
+        }
+        .accessibilityLabel("筛选与排序")
+        .accessibilityIdentifier("native-subscriptions-filter-menu")
+
         NavigationLink {
           NativeSubscribeCommunityPage(session: session)
         } label: {
@@ -106,10 +158,10 @@ struct NativeSubscriptionsPage: View {
     }
   }
 
-  /// 按所选类型与关键字过滤后的订阅列表。
+  /// 按所选类型、状态、关键字与排序整理后的订阅列表。
   private var filteredItems: [NativeSubscribeItem] {
     let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    return items.filter { item in
+    let matched = items.filter { item in
       let matchesKind: Bool =
         switch filter {
         case .all: true
@@ -118,8 +170,29 @@ struct NativeSubscriptionsPage: View {
         case .music: item.type == "音乐"
         }
       guard matchesKind else { return false }
+      let matchesState: Bool =
+        switch stateFilter {
+        case .all: true
+        case .running: !item.isPaused
+        case .paused: item.isPaused
+        }
+      guard matchesState else { return false }
       guard !trimmed.isEmpty else { return true }
       return item.displayTitle.lowercased().contains(trimmed)
+    }
+    switch sortMode {
+    case .defaultOrder:
+      return matched
+    case .titleAsc:
+      return matched.sorted {
+        $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending
+      }
+    case .progressDesc:
+      return matched.sorted {
+        ($0.episodeProgress?.fraction ?? 0) > ($1.episodeProgress?.fraction ?? 0)
+      }
+    case .dateDesc:
+      return matched.sorted { $0.id > $1.id }
     }
   }
 

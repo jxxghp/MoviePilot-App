@@ -201,6 +201,7 @@ final class NativeAppearanceStore: ObservableObject {
     static let accentHex = "nativeV2.appearance.accentHex"
     static let useCustomText = "nativeV2.appearance.useCustomText"
     static let textHex = "nativeV2.appearance.textHex"
+    static let lightTextHex = "nativeV2.appearance.lightTextHex"
   }
 
   private let defaults: UserDefaults
@@ -241,6 +242,10 @@ final class NativeAppearanceStore: ObservableObject {
     didSet { defaults.set(customTextHex, forKey: Keys.textHex) }
   }
 
+  @Published var customLightTextHex: String {
+    didSet { defaults.set(customLightTextHex, forKey: Keys.lightTextHex) }
+  }
+
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
     mode =
@@ -256,6 +261,7 @@ final class NativeAppearanceStore: ObservableObject {
     customAccentHex = defaults.string(forKey: Keys.accentHex) ?? "#9E7AF5"
     useCustomTextColor = defaults.bool(forKey: Keys.useCustomText)
     customTextHex = defaults.string(forKey: Keys.textHex) ?? "#F5F2FF"
+    customLightTextHex = defaults.string(forKey: Keys.lightTextHex) ?? "#1C1A24"
   }
 
   /// 当前生效的 SwiftUI 外观模式（`nil` 表示跟随系统）。
@@ -268,9 +274,22 @@ final class NativeAppearanceStore: ObservableObject {
       : accentPreset.color
   }
 
-  /// 当前生效的自定义文字前景色。
-  var customTextColor: Color {
-    Self.color(fromHex: customTextHex) ?? .primary
+  /// 按当前深/浅色环境返回对应的自定义文字前景色（浅色默认深炭灰 `#1C1A24`，深色默认柔和白 `#F5F2FF`）。
+  func customTextColor(for scheme: ColorScheme) -> Color {
+    if scheme == .light {
+      return Self.color(fromHex: customLightTextHex) ?? Color(red: 0.11, green: 0.10, blue: 0.14)
+    }
+    return Self.color(fromHex: customTextHex) ?? Color(red: 0.96, green: 0.95, blue: 1.0)
+  }
+
+  /// 更新当前深/浅色模式对应的自定义文字前景色。
+  func setCustomTextColor(_ color: Color, for scheme: ColorScheme) {
+    let hex = Self.hexString(from: color)
+    if scheme == .light {
+      customLightTextHex = hex
+    } else {
+      customTextHex = hex
+    }
   }
 
   /// 当前外观概要文案，供设置列表副标题展示。
@@ -329,6 +348,7 @@ final class NativeAppearanceStore: ObservableObject {
     customAccentHex = "#9E7AF5"
     useCustomTextColor = false
     customTextHex = "#F5F2FF"
+    customLightTextHex = "#1C1A24"
   }
 
   /// 将十六进制色值解析为 `Color`。
@@ -361,17 +381,22 @@ final class NativeAppearanceStore: ObservableObject {
   }
 }
 
-/// 统一根视图与弹层的外观修饰器：应用深/浅色主题、前景色（强调色与可选自定义文字色）。
+/// 统一根视图与弹层的外观修饰器：应用深/浅色主题、前景色（强调色与按深浅色独立配对的文字前景色）。
 @MainActor
 struct NativeAppearanceRootModifier: ViewModifier {
   @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @Environment(\.colorScheme) private var systemColorScheme
+
+  private var resolvedScheme: ColorScheme {
+    appearance.preferredColorScheme ?? systemColorScheme
+  }
 
   @ViewBuilder
   func body(content: Content) -> some View {
     if appearance.useCustomTextColor {
       content
         .tint(appearance.accentColor)
-        .foregroundStyle(appearance.customTextColor)
+        .foregroundStyle(appearance.customTextColor(for: resolvedScheme))
         .preferredColorScheme(appearance.preferredColorScheme)
     } else {
       content

@@ -31,6 +31,7 @@ struct NativePluginMarketPage: View {
 
   @State private var mode: Mode = .market
   @State private var marketFilter: MarketFilter = .all
+  @State private var sortMode: SortMode = .defaultOrder
   @State private var marketPlugins: [NativeMarketPluginRecord] = []
   @State private var installedPlugins: [NativeMarketPluginRecord] = []
   @State private var installStats: [String: Int] = [:]
@@ -131,24 +132,57 @@ struct NativePluginMarketPage: View {
       .task(id: "\(mode.rawValue)|\(reloadToken)") { await load(forceMarket: false) }
   }
 
-  /// 右上角更多操作菜单。
+  /// 插件列表排序方式。
+  private enum SortMode: String, CaseIterable, Identifiable {
+    case defaultOrder = "默认顺序"
+    case installsDesc = "安装量最高"
+    case ratingDesc = "评分最高"
+    case nameAsc = "名称排序"
+    var id: String { rawValue }
+  }
+
+  /// 右上角筛选与排序操作菜单。
   private var moreToolbarMenu: some View {
     Menu {
+      Section("排序方式") {
+        ForEach(SortMode.allCases) { option in
+          Button {
+            sortMode = option
+          } label: {
+            if sortMode == option {
+              Label(option.rawValue, systemImage: "checkmark")
+            } else {
+              Text(option.rawValue)
+            }
+          }
+        }
+      }
+      if mode == .market {
+        Section("市场筛选") {
+          ForEach(MarketFilter.allCases) { option in
+            Button {
+              marketFilter = option
+            } label: {
+              if marketFilter == option {
+                Label(option.rawValue, systemImage: "checkmark")
+              } else {
+                Text(option.rawValue)
+              }
+            }
+          }
+        }
+      }
+      Divider()
       Button {
         Task { await load(forceMarket: true) }
       } label: {
         Label("同步最新市场数据", systemImage: "arrow.triangle.2.circlepath")
       }
-      Button {
-        reloadToken += 1
-      } label: {
-        Label("刷新当前列表", systemImage: "arrow.clockwise")
-      }
     } label: {
-      Image(systemName: "ellipsis")
+      Image(systemName: "line.3.horizontal.decrease.circle")
     }
-    .accessibilityLabel("更多插件操作")
-    .accessibilityIdentifier("native-plugin-market-refresh")
+    .accessibilityLabel("筛选与排序")
+    .accessibilityIdentifier("native-plugin-market-filter-menu")
   }
 
   /// 主滚动内容区。
@@ -213,10 +247,10 @@ struct NativePluginMarketPage: View {
     mode == .market ? marketPlugins : installedPlugins
   }
 
-  /// 按筛选与关键词过滤后的插件列表。
+  /// 按筛选、关键词与排序方式整理后的插件列表。
   private var filteredItems: [NativeMarketPluginRecord] {
     let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    return activeItems.filter { plugin in
+    let matched = activeItems.filter { plugin in
       if mode == .market {
         switch marketFilter {
         case .all: break
@@ -230,6 +264,28 @@ struct NativePluginMarketPage: View {
         || plugin.author.lowercased().contains(trimmed)
         || plugin.labels.contains(where: { $0.lowercased().contains(trimmed) })
     }
+    switch sortMode {
+    case .defaultOrder:
+      return matched
+    case .installsDesc:
+      return matched.sorted { lhs, rhs in
+        let l = max(
+          lhs.installCount, installStats[lhs.id] ?? installStats[lhs.id.lowercased()] ?? 0)
+        let r = max(
+          rhs.installCount, installStats[rhs.id] ?? installStats[rhs.id.lowercased()] ?? 0)
+        return l > r
+      }
+    case .ratingDesc:
+      return matched.sorted { lhs, rhs in
+        let l = (ratings[lhs.id] ?? ratings[lhs.id.lowercased()])?.averageRating ?? 0
+        let r = (ratings[rhs.id] ?? ratings[rhs.id.lowercased()])?.averageRating ?? 0
+        return l > r
+      }
+    case .nameAsc:
+      return matched.sorted {
+        $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
+      }
+    }
   }
 
   /// 顶部模式切换胶囊。
@@ -242,15 +298,15 @@ struct NativePluginMarketPage: View {
         } label: {
           Text(option.rawValue)
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(active ? .white : .white.opacity(0.75))
+            .foregroundStyle(active ? .white : .primary.opacity(0.75))
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .background {
               Capsule()
                 .fill(
                   active
-                    ? Color(red: 0.58, green: 0.42, blue: 0.88).opacity(0.78)
-                    : .white.opacity(0.08)
+                    ? NativeAppearanceStore.shared.accentColor
+                    : .primary.opacity(0.08)
                 )
                 .overlay {
                   Capsule().strokeBorder(.primary.opacity(active ? 0.32 : 0.14), lineWidth: 0.7)

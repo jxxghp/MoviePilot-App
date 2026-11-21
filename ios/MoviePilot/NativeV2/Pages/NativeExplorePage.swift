@@ -13,6 +13,10 @@ struct NativeExplorePage: View {
   @State private var selectedSource: NativeExploreSourceKind
   @State private var extraSources: [NativeExtraDiscoverSource] = []
   @State private var selectedExtraID: String?
+  @AppStorage("nativeV2.exploreSources.v1") private var storedSourcesJSON = ""
+  @State private var sourceConfigs: [NativeExploreSourceConfig] =
+    NativeExploreSourceConfig.defaults
+  @State private var showsSourceConfigSheet = false
 
   // TheMovieDB 筛选状态
   @State private var tmdbSort = "popularity.desc"
@@ -108,14 +112,22 @@ struct NativeExplorePage: View {
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button {
-          reloadToken += 1
+          showsSourceConfigSheet = true
         } label: {
-          Image(systemName: "arrow.clockwise")
+          Image(systemName: "slider.horizontal.3")
         }
-        .accessibilityLabel("刷新片库")
+        .accessibilityLabel("配置探索来源")
         .accessibilityIdentifier("native-explore-more")
       }
     }
+    .sheet(isPresented: $showsSourceConfigSheet) {
+      NativeExploreSourcesSheet(initialItems: sourceConfigs) { updated in
+        sourceConfigs = updated
+        saveSourceConfigs(updated)
+        ensureActiveSourceEnabled()
+      }
+    }
+    .onAppear { syncSourceConfigs() }
     .navigationDestination(
       isPresented: Binding(
         get: { contextDetailIdentity != nil },
@@ -157,23 +169,27 @@ struct NativeExplorePage: View {
     return Array(repeating: GridItem(.flexible(), spacing: 11), count: count)
   }
 
-  /// 顶部多来源切换胶囊栏。
+  /// 顶部多来源切换胶囊栏（按用户配置的顺序与开关渲染内置来源及插件扩展源）。
   private var sourceBar: some View {
-    ScrollView(.horizontal) {
+    let enabledConfigs = sourceConfigs.filter(\.enabled)
+    return ScrollView(.horizontal) {
       HStack(spacing: 8) {
-        ForEach(NativeExploreSourceKind.allCases) { source in
-          let active = selectedExtraID == nil && selectedSource == source
-          filterPill(
-            title: source.title, active: active, id: "native-explore-source-\(source.rawValue)"
-          ) {
-            selectedExtraID = nil
-            selectedSource = source
-          }
-        }
-        ForEach(extraSources) { extra in
-          let active = selectedExtraID == extra.id
-          filterPill(title: extra.name, active: active, id: "native-explore-extra-\(extra.id)") {
-            selectedExtraID = extra.id
+        ForEach(enabledConfigs) { config in
+          if let builtIn = NativeExploreSourceKind(rawValue: config.id) {
+            let active = selectedExtraID == nil && selectedSource == builtIn
+            filterPill(
+              title: builtIn.title, active: active, id: "native-explore-source-\(builtIn.rawValue)"
+            ) {
+              selectedExtraID = nil
+              selectedSource = builtIn
+            }
+          } else if let extra = extraSources.first(where: { "extra:\($0.id)" == config.id }) {
+            let active = selectedExtraID == extra.id
+            filterPill(
+              title: extra.name, active: active, id: "native-explore-extra-\(extra.id)"
+            ) {
+              selectedExtraID = extra.id
+            }
           }
         }
       }
@@ -181,6 +197,42 @@ struct NativeExplorePage: View {
     }
     .scrollIndicators(.hidden)
     .accessibilityIdentifier("native-explore-source-bar")
+  }
+
+  /// 同步本地已保存的探索来源顺序与开关，并与插件扩展来源合并。
+  private func syncSourceConfigs() {
+    var saved: [NativeExploreSourceConfig] = []
+    if let data = storedSourcesJSON.data(using: .utf8),
+      let decoded = try? JSONDecoder().decode([NativeExploreSourceConfig].self, from: data)
+    {
+      saved = decoded
+    }
+    sourceConfigs = NativeExploreSourceConfig.merged(saved: saved, extras: extraSources)
+    ensureActiveSourceEnabled()
+  }
+
+  /// 持久化探索来源顺序与开关。
+  private func saveSourceConfigs(_ configs: [NativeExploreSourceConfig]) {
+    guard let data = try? JSONEncoder().encode(configs),
+      let raw = String(data: data, encoding: .utf8)
+    else { return }
+    storedSourcesJSON = raw
+  }
+
+  /// 若当前选中的来源已被用户关闭，自动切换到首个已开启来源。
+  private func ensureActiveSourceEnabled() {
+    let enabled = sourceConfigs.filter(\.enabled)
+    guard !enabled.isEmpty else { return }
+    let currentKey = selectedExtraID.map { "extra:\($0)" } ?? selectedSource.rawValue
+    guard !enabled.contains(where: { $0.id == currentKey }) else { return }
+    if let first = enabled.first {
+      if let builtIn = NativeExploreSourceKind(rawValue: first.id) {
+        selectedExtraID = nil
+        selectedSource = builtIn
+      } else if first.id.hasPrefix("extra:") {
+        selectedExtraID = String(first.id.dropFirst("extra:".count))
+      }
+    }
   }
 
   /// 按当前来源渲染精简原生筛选行。
@@ -239,7 +291,7 @@ struct NativeExplorePage: View {
           } label: {
             Text(option.label)
               .font(.caption.weight(active ? .semibold : .medium))
-              .foregroundStyle(active ? .white : .white.opacity(0.70))
+              .foregroundStyle(active ? .white : .primary.opacity(0.72))
               .padding(.horizontal, 11)
               .padding(.vertical, 6)
               .background {
@@ -247,11 +299,11 @@ struct NativeExplorePage: View {
                   .fill(
                     active
                       ? Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.65)
-                      : .white.opacity(0.08)
+                      : .primary.opacity(0.08)
                   )
                   .overlay {
                     Capsule().strokeBorder(
-                      .white.opacity(active ? 0.28 : 0.12), lineWidth: 0.6)
+                      .primary.opacity(active ? 0.28 : 0.12), lineWidth: 0.6)
                   }
               }
           }
@@ -271,15 +323,15 @@ struct NativeExplorePage: View {
     Button(action: action) {
       Text(title)
         .font(.subheadline.weight(.semibold))
-        .foregroundStyle(active ? .white : .white.opacity(0.76))
+        .foregroundStyle(active ? .white : .primary.opacity(0.78))
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background {
           Capsule()
             .fill(
               active
-                ? Color(red: 0.58, green: 0.42, blue: 0.88).opacity(0.78)
-                : Color(red: 36 / 255, green: 30 / 255, blue: 52 / 255).opacity(0.68)
+                ? NativeAppearanceStore.shared.accentColor
+                : .primary.opacity(0.08)
             )
             .overlay {
               Capsule().strokeBorder(.primary.opacity(active ? 0.34 : 0.14), lineWidth: 0.7)
@@ -399,6 +451,7 @@ struct NativeExplorePage: View {
       extraSources = loaded.filter { source in
         !source.apiPath.isEmpty && !builtInPrefixes.contains(source.prefix.lowercased())
       }
+      syncSourceConfigs()
     } catch {
       return
     }
@@ -686,5 +739,140 @@ private struct NativeExploreAPIItem: Decodable, Sendable {
     case bangumiID = "bangumi_id"
     case posterPath = "poster_path"
     case voteAverage = "vote_average"
+  }
+}
+
+/// 单条可编排的探索来源显示开关与顺序配置（内置源 + 插件扩展源）。
+private struct NativeExploreSourceConfig: Identifiable, Codable, Equatable, Sendable {
+  let id: String
+  var title: String
+  var symbol: String
+  var enabled: Bool
+
+  static var defaults: [NativeExploreSourceConfig] {
+    NativeExploreSourceKind.allCases.map { source in
+      let symbol: String =
+        switch source {
+        case .tmdbMovies: "film"
+        case .tmdbTVs: "tv"
+        case .doubanMovies: "sparkles.tv"
+        case .doubanTVs: "play.tv"
+        case .bangumi: "wand.and.stars"
+        case .music: "music.note"
+        }
+      return NativeExploreSourceConfig(
+        id: source.rawValue, title: source.title, symbol: symbol, enabled: true)
+    }
+  }
+
+  /// 合并已保存顺序/显隐与最新可用内置源及插件扩展源。
+  static func merged(
+    saved: [NativeExploreSourceConfig], extras: [NativeExtraDiscoverSource]
+  ) -> [NativeExploreSourceConfig] {
+    var available: [String: NativeExploreSourceConfig] = Dictionary(
+      uniqueKeysWithValues: defaults.map { ($0.id, $0) })
+    for extra in extras {
+      let key = "extra:\(extra.id)"
+      available[key] = NativeExploreSourceConfig(
+        id: key, title: extra.name, symbol: "puzzlepiece.extension", enabled: true)
+    }
+    var seen: Set<String> = []
+    var result: [NativeExploreSourceConfig] = []
+    for item in saved {
+      if var latest = available[item.id], seen.insert(item.id).inserted {
+        latest.enabled = item.enabled
+        result.append(latest)
+      }
+    }
+    for base in defaults where seen.insert(base.id).inserted {
+      result.append(base)
+    }
+    for extra in extras {
+      let key = "extra:\(extra.id)"
+      if let item = available[key], seen.insert(key).inserted {
+        result.append(item)
+      }
+    }
+    return result
+  }
+}
+
+/// 探索来源开关与拖拽排序弹层。
+@MainActor
+private struct NativeExploreSourcesSheet: View {
+  let initialItems: [NativeExploreSourceConfig]
+  let onSave: ([NativeExploreSourceConfig]) -> Void
+
+  @State private var items: [NativeExploreSourceConfig]
+  @State private var editMode: EditMode = .active
+  @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+
+  init(
+    initialItems: [NativeExploreSourceConfig],
+    onSave: @escaping ([NativeExploreSourceConfig]) -> Void
+  ) {
+    self.initialItems = initialItems
+    self.onSave = onSave
+    _items = State(initialValue: initialItems)
+  }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        List {
+          Section {
+            ForEach($items) { $item in
+              HStack(spacing: 12) {
+                Image(systemName: item.symbol)
+                  .font(.body.weight(.medium))
+                  .foregroundStyle(appearance.accentColor)
+                  .frame(width: 24)
+                Text(item.title)
+                  .font(.subheadline.weight(.medium))
+                  .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Toggle("", isOn: $item.enabled)
+                  .labelsHidden()
+                  .tint(appearance.accentColor)
+              }
+              .listRowBackground(Color.clear)
+            }
+            .onMove { source, destination in
+              items.move(fromOffsets: source, toOffset: destination)
+            }
+          } header: {
+            Text("开启或拖动调整探索来源顺序")
+              .font(.footnote)
+              .foregroundStyle(.secondary)
+          } footer: {
+            Text("至少保留一个开启的探索来源，保存后立即同步到探索栏。")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        }
+        .scrollContentBackground(.hidden)
+        .environment(\.editMode, $editMode)
+      }
+      .navigationTitle("探索来源配置")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("取消") { dismiss() }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+          Button("保存") {
+            let final = items.contains(where: \.enabled) ? items : initialItems
+            onSave(final)
+            dismiss()
+          }
+          .fontWeight(.semibold)
+          .accessibilityIdentifier("native-explore-config-save")
+        }
+      }
+    }
+    .nativeAppearanceRoot()
   }
 }
