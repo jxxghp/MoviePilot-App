@@ -44,6 +44,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @State private var searchPath: [NativeMediaIdentity] = []
   @State private var showsOverflowMenu = false
   @State private var showsAgentSheet = false
+  @State private var showsShortcutsSheet = false
   @State private var userTabAvatar: UIImage?
   @AppStorage("nativeV2.showFloatingAssistant") private var showFloatingAssistant = true
   @State private var discoverModules = NativeDiscoverModuleItem.defaults
@@ -53,6 +54,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @State private var railNextPage: [String: Int] = [:]
   @State private var loadingRailIDs: Set<String> = []
   @State private var lastOverflowToggleAt: Date = .distantPast
+  @State private var lastTrailingActionAt: Date = .distantPast
   @State private var hasLoadedDiscoveryOnce = false
 
   /// 保留 root 原有账号动作与插件路由，主导航由系统 TabView 承载各标签独立栈。
@@ -82,7 +84,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     ZStack {
       page
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-      if showFloatingAssistant && !showsOverflowMenu && !showsAgentSheet {
+      if showFloatingAssistant && !showsOverflowMenu && !showsAgentSheet && !showsShortcutsSheet {
         NativeAgentFloatingMascot(
           onOpen: { showsAgentSheet = true },
           onHide: { showFloatingAssistant = false }
@@ -108,6 +110,9 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .task(id: "\(snapshot.scope)|\(snapshot.user.avatar)") {
       userTabAvatar = await NativeUserAvatarRenderer.loadTabAvatar(
         session: session, avatar: snapshot.user.avatar)
+    }
+    .sheet(isPresented: $showsShortcutsSheet) {
+      NativeShortcutsSheet(session: session)
     }
     .sheet(isPresented: $showsAgentSheet) {
       NavigationStack {
@@ -191,14 +196,37 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
   }
 
-  /// 二次点击底部 4 个主图标中的任意一个时，直接弹出菜单而不滚动回顶部或触发返回；点击右侧 +1 按钮优先执行当前页动态主动作，否则进入全局搜索。
+  /// 当前是否处于「我的」页且管理员身份（右下角搜索按钮自动切换为捷径弹窗入口）。
+  private var isMineShortcutsButtonActive: Bool {
+    selectedTab == .mine && snapshot.user.isSuperuser && dynamicActionCenter.current == nil
+  }
+
+  /// 当前右下角独立按钮是否被自定义动作（页面动态动作或「我的」页捷径弹窗）接管。
+  private var hasTrailingCustomAction: Bool {
+    dynamicActionCenter.current != nil || isMineShortcutsButtonActive
+  }
+
+  /// 执行右下角自定义动作（内置 180ms 防抖，防止 UIKit 代理拦截与 SwiftUI 绑定重复触发）。
+  private func triggerTrailingCustomAction() {
+    let now = Date()
+    guard now.timeIntervalSince(lastTrailingActionAt) > 0.18 else { return }
+    lastTrailingActionAt = now
+    showsOverflowMenu = false
+    if let dynamic = dynamicActionCenter.current {
+      dynamic.handler()
+    } else if isMineShortcutsButtonActive {
+      UIImpactFeedbackGenerator(style: .light).impactOccurred()
+      showsShortcutsSheet = true
+    }
+  }
+
+  /// 二次点击底部 4 个主图标中的任意一个时，直接弹出菜单而不滚动回顶部或触发返回；点击右侧 +1 按钮优先执行当前页动态主动作或「我的」页捷径弹窗，否则进入全局搜索。
   private var tabSelection: Binding<Page> {
     Binding(
       get: { selectedTab },
       set: { next in
-        if next == .search, let dynamic = dynamicActionCenter.current {
-          showsOverflowMenu = false
-          dynamic.handler()
+        if next == .search, hasTrailingCustomAction {
+          triggerTrailingCustomAction()
           return
         }
         if next == selectedTab && next != .search {
@@ -215,24 +243,30 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       })
   }
 
-  /// 拦截 UIKit UITabBarController 对当前已选中标签的重复点击，阻止默认的滚回顶部与退回根页面，改为直接弹出菜单。
+  /// 拦截 UIKit UITabBarController 对当前已选中标签的重复点击以及右下角自定义按钮（如「我的」页捷径弹窗）的点击。
   private var tabReselectInterceptor: some View {
     NativeTabBarReselectInterceptor(
       shouldInterceptReselect: { selectedTab != .search },
-      onReselect: { toggleOverflowMenu() }
+      onReselect: { toggleOverflowMenu() },
+      shouldInterceptTrailingTab: { hasTrailingCustomAction },
+      onSelectTrailingTab: { triggerTrailingCustomAction() }
     )
     .frame(width: 0, height: 0)
     .allowsHitTesting(false)
   }
 
-  /// 右侧 +1 圆形按钮标题：当前页声明动态动作时显示页面动作，否则回退全局搜索。
+  /// 右侧 +1 圆形按钮标题：页面动态动作 > 「我的」页捷径 > 全局搜索。
   private var trailingButtonTitle: String {
-    dynamicActionCenter.current?.title ?? "搜索"
+    if let dynamic = dynamicActionCenter.current { return dynamic.title }
+    if isMineShortcutsButtonActive { return "捷径" }
+    return "搜索"
   }
 
-  /// 右侧 +1 圆形按钮图标：当前页声明动态动作时显示页面图标，否则回退放大镜。
+  /// 右侧 +1 圆形按钮图标：页面动态动作 > 「我的」页捷径图标 > 放大镜。
   private var trailingButtonSymbol: String {
-    dynamicActionCenter.current?.symbol ?? "magnifyingglass"
+    if let dynamic = dynamicActionCenter.current { return dynamic.symbol }
+    if isMineShortcutsButtonActive { return "bolt.fill" }
+    return "magnifyingglass"
   }
 
   /// 右侧独立圆形按钮角色：iOS 27+ 使用 `.prominent` 确保始终与主导航胶囊分离成独立圆形玻璃键，iOS 18-26 沿用 `.search`。
@@ -280,7 +314,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         }
         .accessibilityIdentifier("native-v2-tab-设置")
 
-        if canDiscover || dynamicActionCenter.current != nil {
+        if canDiscover || hasTrailingCustomAction {
           Tab(
             trailingButtonTitle,
             systemImage: trailingButtonSymbol,
@@ -1775,13 +1809,20 @@ final class NativePageDataCache {
   }
 }
 
-/// 通过代理包装底层 UITabBarController，在重复点击已激活标签时返回 `false`，彻底阻止滚回顶部与退回根页并直接弹出菜单。
+/// 通过代理包装底层 UITabBarController，在重复点击已激活标签或点击右下角动态自定义按钮时返回 `false`，阻止滚回顶部、退回根页或闪烁切换标签。
 private struct NativeTabBarReselectInterceptor: UIViewControllerRepresentable {
   let shouldInterceptReselect: () -> Bool
   let onReselect: () -> Void
+  let shouldInterceptTrailingTab: () -> Bool
+  let onSelectTrailingTab: () -> Void
 
   func makeCoordinator() -> Coordinator {
-    Coordinator(shouldInterceptReselect: shouldInterceptReselect, onReselect: onReselect)
+    Coordinator(
+      shouldInterceptReselect: shouldInterceptReselect,
+      onReselect: onReselect,
+      shouldInterceptTrailingTab: shouldInterceptTrailingTab,
+      onSelectTrailingTab: onSelectTrailingTab
+    )
   }
 
   func makeUIViewController(context: Context) -> InterceptorHostController {
@@ -1795,6 +1836,8 @@ private struct NativeTabBarReselectInterceptor: UIViewControllerRepresentable {
   func updateUIViewController(_ uiViewController: InterceptorHostController, context: Context) {
     context.coordinator.shouldInterceptReselect = shouldInterceptReselect
     context.coordinator.onReselect = onReselect
+    context.coordinator.shouldInterceptTrailingTab = shouldInterceptTrailingTab
+    context.coordinator.onSelectTrailingTab = onSelectTrailingTab
     if let tabBarController = uiViewController.findTabBarController() {
       context.coordinator.attach(to: tabBarController)
     }
@@ -1834,15 +1877,21 @@ private struct NativeTabBarReselectInterceptor: UIViewControllerRepresentable {
   final class Coordinator: NSObject, UITabBarControllerDelegate {
     var shouldInterceptReselect: () -> Bool
     var onReselect: () -> Void
+    var shouldInterceptTrailingTab: () -> Bool
+    var onSelectTrailingTab: () -> Void
     private weak var observedTabBarController: UITabBarController?
     private weak var originalDelegate: (any UITabBarControllerDelegate)?
 
     init(
       shouldInterceptReselect: @escaping () -> Bool,
-      onReselect: @escaping () -> Void
+      onReselect: @escaping () -> Void,
+      shouldInterceptTrailingTab: @escaping () -> Bool,
+      onSelectTrailingTab: @escaping () -> Void
     ) {
       self.shouldInterceptReselect = shouldInterceptReselect
       self.onReselect = onReselect
+      self.shouldInterceptTrailingTab = shouldInterceptTrailingTab
+      self.onSelectTrailingTab = onSelectTrailingTab
     }
 
     func attach(to tabBarController: UITabBarController) {
@@ -1871,6 +1920,13 @@ private struct NativeTabBarReselectInterceptor: UIViewControllerRepresentable {
         onReselect()
         return false
       }
+      if let last = tabBarController.viewControllers?.last,
+        viewController === last,
+        shouldInterceptTrailingTab()
+      {
+        onSelectTrailingTab()
+        return false
+      }
       return originalDelegate?.tabBarController?(tabBarController, shouldSelect: viewController)
         ?? true
     }
@@ -1886,6 +1942,118 @@ private struct NativeTabBarReselectInterceptor: UIViewControllerRepresentable {
       }
       return super.forwardingTarget(for: aSelector)
     }
+  }
+}
+
+/// 「我的」页右下角捷径弹窗：集中承载系统检查、网络测试、识别规则、实时日志与定时服务，点击后直接在弹窗栈内进入工具页。
+@MainActor
+private struct NativeShortcutsSheet: View {
+  let session: NativeSession
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var selectedTool: NativeDiagnosticsToolsPage.Tool?
+  @State private var detent: PresentationDetent = .medium
+
+  private struct ShortcutEntry: Identifiable {
+    let tool: NativeDiagnosticsToolsPage.Tool
+    let title: String
+    let subtitle: String
+    let symbol: String
+    let tint: Color
+
+    var id: String { tool.rawValue }
+  }
+
+  private let entries: [ShortcutEntry] = [
+    ShortcutEntry(
+      tool: .health, title: "系统检查", subtitle: "组件健康与运行状态",
+      symbol: "checkmark.shield", tint: Color(red: 0.44, green: 0.88, blue: 0.66)),
+    ShortcutEntry(
+      tool: .nettest, title: "网络测试", subtitle: "自动测速与连通检测",
+      symbol: "network", tint: Color(red: 0.38, green: 0.72, blue: 1.0)),
+    ShortcutEntry(
+      tool: .ruleTest, title: "识别规则", subtitle: "名称识别与规则验证",
+      symbol: "text.magnifyingglass", tint: Color(red: 0.74, green: 0.56, blue: 0.98)),
+    ShortcutEntry(
+      tool: .liveLog, title: "实时日志", subtitle: "查看服务端运行日志",
+      symbol: "terminal", tint: Color(red: 0.96, green: 0.68, blue: 0.36)),
+    ShortcutEntry(
+      tool: .scheduler, title: "定时服务", subtitle: "手动触发后台任务",
+      symbol: "clock.arrow.2.circlepath", tint: Color(red: 0.94, green: 0.52, blue: 0.68)),
+  ]
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          LazyVGrid(
+            columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+            spacing: 12
+          ) {
+            ForEach(entries) { entry in
+              Button {
+                detent = .large
+                selectedTool = entry.tool
+              } label: {
+                CinematicPanel(padding: 14) {
+                  VStack(alignment: .leading, spacing: 10) {
+                    Image(systemName: entry.symbol)
+                      .font(.title3.weight(.semibold))
+                      .foregroundStyle(entry.tint)
+                      .frame(width: 36, height: 36)
+                      .background(
+                        entry.tint.opacity(0.16),
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    VStack(alignment: .leading, spacing: 2) {
+                      Text(entry.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary.opacity(0.92))
+                      Text(entry.subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    }
+                  }
+                  .frame(maxWidth: .infinity, alignment: .leading)
+                }
+              }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("native-shortcut-\(entry.tool.rawValue)")
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
+        }
+        .scrollIndicators(.hidden)
+      }
+      .navigationTitle("捷径")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .accessibilityLabel("关闭")
+          .accessibilityIdentifier("native-shortcuts-close")
+        }
+      }
+      .navigationDestination(
+        isPresented: Binding(
+          get: { selectedTool != nil },
+          set: { if !$0 { selectedTool = nil } })
+      ) {
+        if let tool = selectedTool {
+          NativeDiagnosticsToolsPage(session: session, initialTool: tool)
+        }
+      }
+    }
+    .presentationDetents([.medium, .large], selection: $detent)
+    .presentationDragIndicator(.visible)
+    .nativeAppearanceRoot()
   }
 }
 

@@ -391,6 +391,7 @@ struct NativeMediaSearchPage: View {
   @State private var sourceLoadAttempt = UUID()
   @State private var searchTask: Task<Void, Never>?
   @State private var searchGeneration = UUID()
+  @State private var recentQueries: [String] = []
   @FocusState private var searchFocused: Bool
 
   /// 搜索详情回调只传输受控来源和原生 ID，不传自由 URL。
@@ -401,6 +402,7 @@ struct NativeMediaSearchPage: View {
     self.session = session
     self.onSelect = onSelect
     _query = State(initialValue: initialQuery)
+    _recentQueries = State(initialValue: Self.loadRecentQueries(for: session))
   }
 
   /// 搜索条件与结果共享 Cinematic 渐变和透色玻璃；网络错误不会切回网页或丢失筛选。
@@ -457,6 +459,8 @@ struct NativeMediaSearchPage: View {
               statusCard(
                 committedQuery?.kind == .library ? "媒体库中未找到相关内容" : "没有找到相关结果",
                 symbol: "sparkle.magnifyingglass")
+            } else if !recentQueries.isEmpty {
+              recentSearchesSection
             }
           }
         }
@@ -940,10 +944,84 @@ struct NativeMediaSearchPage: View {
     }
   }
 
+  /// 最近搜索词卡片区：支持点击快速重搜、单条删除与一键清空。
+  private var recentSearchesSection: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack {
+        Text("最近搜索")
+          .font(.footnote.weight(.medium))
+          .foregroundStyle(.secondary)
+          .accessibilityAddTraits(.isHeader)
+        Spacer()
+        Button("清空") {
+          withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
+            clearAllRecentQueries()
+          }
+        }
+        .font(.caption.weight(.medium))
+        .foregroundStyle(.secondary)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("native-media-search-clear-recent")
+      }
+      .padding(.horizontal, 4)
+
+      NativeSearchChipsFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
+        ForEach(recentQueries, id: \.self) { term in
+          HStack(spacing: 5) {
+            Button {
+              query = term
+              submitSearch()
+            } label: {
+              HStack(spacing: 5) {
+                Image(systemName: "clock.arrow.circlepath")
+                  .font(.caption2)
+                  .foregroundStyle(.secondary)
+                Text(term)
+                  .font(.subheadline)
+                  .foregroundStyle(.primary.opacity(0.88))
+                  .lineLimit(1)
+              }
+              .padding(.leading, 11)
+              .padding(.vertical, 7)
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-media-search-recent-\(term)")
+
+            Button {
+              withAnimation(.spring(response: 0.26, dampingFraction: 0.85)) {
+                removeRecentQuery(term)
+              }
+            } label: {
+              Image(systemName: "xmark")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary.opacity(0.85))
+                .frame(width: 24, height: 28)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 4)
+            .accessibilityLabel("删除搜索词 \(term)")
+            .accessibilityIdentifier("native-media-search-delete-recent-\(term)")
+          }
+          .background {
+            Capsule()
+              .fill(.primary.opacity(0.08))
+              .overlay {
+                Capsule().strokeBorder(.primary.opacity(0.14), lineWidth: 0.6)
+              }
+          }
+        }
+      }
+    }
+    .accessibilityIdentifier("native-media-search-recent-section")
+  }
+
   /// 提交时同步记录关键词、类型和来源，后续页面不会混入编辑中的条件。
   private func submitSearch() {
     guard !trimmedQuery.isEmpty else { return }
     searchFocused = false
+    recordRecentQuery(trimmedQuery)
     let criteria = NativeMediaSearchQuery(
       term: trimmedQuery, kind: kind, sources: selectedSources.sorted(),
       libraryFilter: libraryFilter)
@@ -951,6 +1029,48 @@ struct NativeMediaSearchPage: View {
     clearResults()
     committedQuery = criteria
     startRequest(for: criteria, page: 1)
+  }
+
+  /// 本地最近搜索存储键（按当前服务器实例与账号隔离）。
+  private static func recentStorageKey(for session: NativeSession) -> String {
+    "nativeV2.recentSearches.\(session.scope.instanceID.uuidString).\(session.scope.userID)"
+  }
+
+  /// 从本地 UserDefaults 读取最近搜索词列表。
+  private static func loadRecentQueries(for session: NativeSession) -> [String] {
+    guard let data = UserDefaults.standard.data(forKey: recentStorageKey(for: session)),
+      let decoded = try? JSONDecoder().decode([String].self, from: data)
+    else { return [] }
+    return decoded
+  }
+
+  /// 持久化当前最近搜索词列表。
+  private func saveRecentQueries(_ list: [String]) {
+    guard let data = try? JSONEncoder().encode(list) else { return }
+    UserDefaults.standard.set(data, forKey: Self.recentStorageKey(for: session))
+  }
+
+  /// 记录新搜索词到最前并去重，最多保留 16 条。
+  private func recordRecentQuery(_ term: String) {
+    let cleaned = term.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !cleaned.isEmpty else { return }
+    var updated = recentQueries.filter { $0.caseInsensitiveCompare(cleaned) != .orderedSame }
+    updated.insert(cleaned, at: 0)
+    if updated.count > 16 { updated = Array(updated.prefix(16)) }
+    recentQueries = updated
+    saveRecentQueries(updated)
+  }
+
+  /// 删除单条最近搜索词。
+  private func removeRecentQuery(_ term: String) {
+    recentQueries.removeAll { $0 == term }
+    saveRecentQueries(recentQueries)
+  }
+
+  /// 清空全部最近搜索词。
+  private func clearAllRecentQueries() {
+    recentQueries = []
+    UserDefaults.standard.removeObject(forKey: Self.recentStorageKey(for: session))
   }
 
   /// 清空时同时丢弃分页和错误状态，防止迟到响应再次显示旧结果。
@@ -1402,5 +1522,62 @@ private struct NativeLibraryEpisodesSheet: View {
       artworkURL: target.artworkURL)
     launchingEpisodeID = nil
     if let err { feedback = err }
+  }
+}
+
+/// 自动换行的搜索标签流式布局：按可用宽度逐行排布最近搜索词胶囊。
+private struct NativeSearchChipsFlowLayout: Layout {
+  var horizontalSpacing: CGFloat = 8
+  var verticalSpacing: CGFloat = 8
+
+  func sizeThatFits(
+    proposal: ProposedViewSize,
+    subviews: Subviews,
+    cache: inout ()
+  ) -> CGSize {
+    let maxWidth = proposal.width ?? .infinity
+    var x: CGFloat = 0
+    var y: CGFloat = 0
+    var rowHeight: CGFloat = 0
+    var totalWidth: CGFloat = 0
+
+    for subview in subviews {
+      let size = subview.sizeThatFits(.unspecified)
+      if x > 0, x + size.width > maxWidth {
+        x = 0
+        y += rowHeight + verticalSpacing
+        rowHeight = 0
+      }
+      x += size.width + horizontalSpacing
+      rowHeight = max(rowHeight, size.height)
+      totalWidth = max(totalWidth, x - horizontalSpacing)
+    }
+    return CGSize(
+      width: maxWidth.isFinite ? maxWidth : totalWidth,
+      height: subviews.isEmpty ? 0 : y + rowHeight
+    )
+  }
+
+  func placeSubviews(
+    in bounds: CGRect,
+    proposal: ProposedViewSize,
+    subviews: Subviews,
+    cache: inout ()
+  ) {
+    var x = bounds.minX
+    var y = bounds.minY
+    var rowHeight: CGFloat = 0
+
+    for subview in subviews {
+      let size = subview.sizeThatFits(.unspecified)
+      if x > bounds.minX, x + size.width > bounds.maxX {
+        x = bounds.minX
+        y += rowHeight + verticalSpacing
+        rowHeight = 0
+      }
+      subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+      x += size.width + horizontalSpacing
+      rowHeight = max(rowHeight, size.height)
+    }
   }
 }
