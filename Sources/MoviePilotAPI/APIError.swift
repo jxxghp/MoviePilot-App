@@ -22,6 +22,7 @@ public enum APIResponseContract: Equatable, Sendable {
   case envelope
   case payload
   case eventStream
+  case plainText
 }
 
 /// 传输层支持的 HTTP 方法；即使 GET 也可能有旧接口副作用，均不自动重试。

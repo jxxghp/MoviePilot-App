@@ -158,29 +158,95 @@ struct NativeV2RootView: View {
     }
   }
 
-  /// 品牌图标沿用现有资源，字体随系统缩放，不固定海报式大标题高度。
+  /// 居中影院风品牌主视觉：图标微光光晕、品牌标题、副标，以及登录态下的已连接服务地址胶囊。
   private var brand: some View {
     Section {
-      HStack(spacing: 18) {
-        Image("BrandMark")
-          .resizable().scaledToFit().frame(width: 64, height: 64)
-          .clipShape(RoundedRectangle(cornerRadius: 18)).accessibilityHidden(true)
-        VStack(alignment: .leading, spacing: 6) {
-          Text("MoviePilot").font(.title2.bold())
+      VStack(spacing: 12) {
+        ZStack {
+          Circle()
+            .fill(
+              RadialGradient(
+                colors: [
+                  Color(red: 0.58, green: 0.38, blue: 0.98).opacity(0.42),
+                  Color(red: 0.84, green: 0.44, blue: 0.72).opacity(0.16),
+                  .clear,
+                ],
+                center: .center,
+                startRadius: 8,
+                endRadius: 64
+              )
+            )
+            .frame(width: 126, height: 126)
+            .accessibilityHidden(true)
+
+          Image("BrandMark")
+            .resizable()
+            .scaledToFit()
+            .frame(width: 76, height: 76)
+            .clipShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
+            .overlay {
+              RoundedRectangle(cornerRadius: 21, style: .continuous)
+                .strokeBorder(.white.opacity(0.24), lineWidth: 0.8)
+            }
+            .shadow(
+              color: Color(red: 0.45, green: 0.25, blue: 0.85).opacity(0.45), radius: 18, y: 8
+            )
+            .accessibilityHidden(true)
+        }
+        .frame(height: 92)
+
+        VStack(spacing: 5) {
+          Text("MoviePilot")
+            .font(.title.bold())
+            .foregroundStyle(.white)
           Text(L10n.text("你的媒体世界，随时连接。"))
-            .font(.subheadline).foregroundStyle(.secondary)
+            .font(.subheadline)
+            .foregroundStyle(.white.opacity(0.68))
+            .multilineTextAlignment(.center)
+        }
+
+        if model.form != .connection, let addressText = model.selected?.address.url.absoluteString {
+          Button {
+            model.changeServer()
+          } label: {
+            HStack(spacing: 7) {
+              Circle()
+                .fill(Color(red: 0.42, green: 0.90, blue: 0.60))
+                .frame(width: 7, height: 7)
+              Text(addressText)
+                .font(.caption.monospaced().weight(.medium))
+                .foregroundStyle(.white.opacity(0.90))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .accessibilityIdentifier("native-v2-server")
+              Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.55))
+            }
+            .padding(.horizontal, 13)
+            .padding(.vertical, 7)
+            .background {
+              Capsule()
+                .fill(.white.opacity(0.10))
+                .overlay { Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.6) }
+            }
+          }
+          .buttonStyle(.plain)
+          .padding(.top, 2)
         }
       }
-      .padding(.vertical, 18)
+      .frame(maxWidth: .infinity)
+      .padding(.top, 8)
+      .padding(.bottom, 6)
     }
     .listRowBackground(Color.clear).listRowSeparator(.hidden)
+    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
   }
 
-  /// 地址是可编辑的标准输入；历史服务使用原 UUID 连接并保留系统左滑删除。
+  /// 地址是可编辑的标准输入；支持一键补全协议前缀，历史服务展示主机名与完整地址并保留左滑删除。
   private var connection: some View {
     Group {
       CinematicFormSection(
-        L10n.text("连接服务"),
         footer: L10n.text("支持 HTTPS、局域网地址和部署子路径。")
       ) {
         CinematicFormRow(symbol: "link") {
@@ -208,30 +274,85 @@ struct NativeV2RootView: View {
             .accessibilityIdentifier("native-v2-clear-address")
           }
         }
+        if !model.address.lowercased().hasPrefix("http://")
+          && !model.address.lowercased().hasPrefix("https://")
+        {
+          CinematicFormDivider()
+          HStack(spacing: 8) {
+            Text("快捷前缀")
+              .font(.caption2)
+              .foregroundStyle(.white.opacity(0.52))
+            ForEach(["https://", "http://"], id: \.self) { prefix in
+              Button {
+                model.address = prefix + model.address
+                focused = .address
+              } label: {
+                Text(prefix)
+                  .font(.caption.monospaced().weight(.semibold))
+                  .foregroundStyle(Color(red: 0.86, green: 0.78, blue: 1.0))
+                  .padding(.horizontal, 10)
+                  .padding(.vertical, 4)
+                  .background {
+                    Capsule()
+                      .fill(.white.opacity(0.09))
+                      .overlay { Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 0.6) }
+                  }
+              }
+              .buttonStyle(.plain)
+            }
+            Spacer(minLength: 0)
+          }
+          .padding(.horizontal, 14)
+          .padding(.vertical, 9)
+        }
       }
       actionSection {
-        primary("连接", id: "native-v2-connect") { model.connectAddress() }
-          .disabled(model.address.isEmpty || model.busy)
+        primary("连接", id: "native-v2-connect", disabled: model.address.isEmpty || model.busy) {
+          model.connectAddress()
+        }
       }
       if !model.saved.isEmpty {
-        Section(L10n.text("已保存的服务")) {
+        Section {
           ForEach(model.saved, id: \.id) { instance in
+            let host = instance.address.url.host ?? instance.address.url.absoluteString
+            let isSelected = model.selected?.id == instance.id
             Button {
               model.connect(instance)
             } label: {
-              CinematicPanel(padding: 0) {
-                CinematicFormRow(symbol: "server.rack") {
-                  HStack {
+              CinematicPanel(padding: 13) {
+                HStack(spacing: 12) {
+                  Image(systemName: "server.rack")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(
+                      isSelected
+                        ? Color(red: 0.56, green: 0.92, blue: 0.72)
+                        : Color(red: 0.78, green: 0.66, blue: 1.0)
+                    )
+                    .frame(width: 36, height: 36)
+                    .background(
+                      .white.opacity(0.10),
+                      in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                  VStack(alignment: .leading, spacing: 3) {
+                    Text(host)
+                      .font(.subheadline.weight(.semibold))
+                      .foregroundStyle(.white)
+                      .lineLimit(1)
                     Text(instance.address.url.absoluteString)
-                      .foregroundStyle(.primary).lineLimit(nil)
-                    Spacer(minLength: 8)
-                    if model.selected?.id == instance.id {
-                      Image(systemName: "checkmark.circle.fill")
-                        .accessibilityLabel(L10n.text("当前服务"))
-                    } else {
-                      Image(systemName: "chevron.right").foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                    }
+                      .font(.caption.monospaced())
+                      .foregroundStyle(.white.opacity(0.60))
+                      .lineLimit(nil)
+                  }
+                  Spacer(minLength: 8)
+                  if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                      .foregroundStyle(Color(red: 0.48, green: 0.90, blue: 0.66))
+                      .accessibilityLabel(L10n.text("当前服务"))
+                  } else {
+                    Image(systemName: "chevron.right")
+                      .font(.caption.weight(.semibold))
+                      .foregroundStyle(.white.opacity(0.40))
+                      .accessibilityHidden(true)
                   }
                 }
               }
@@ -244,6 +365,10 @@ struct NativeV2RootView: View {
               Button(L10n.text("删除"), role: .destructive) { pendingForget = instance }
             }
           }
+        } header: {
+          Text(L10n.text("已保存的服务"))
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.72))
         }
         .textCase(nil)
         .disabled(model.busy)
@@ -254,15 +379,8 @@ struct NativeV2RootView: View {
   /// 登录与首次创建使用独立字段语义；验证码只在服务端挑战后出现。
   private var authentication: some View {
     Group {
-      CinematicFormSection {
-        CinematicFormRow(symbol: "server.rack") {
-          Text(model.selected?.address.url.absoluteString ?? "")
-            .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
-            .accessibilityIdentifier("native-v2-server")
-        }
-      }
       CinematicFormSection(
-        L10n.text(model.form == .initialization ? "创建管理员" : "登录"),
+        model.form == .initialization ? L10n.text("创建管理员") : nil,
         footer: model.form == .initialization
           ? L10n.text("密码为 6–50 位，至少包含字母、数字、符号中的两类。API Key 仅提交到此服务。") : nil
       ) {
@@ -345,7 +463,8 @@ struct NativeV2RootView: View {
         ) {
           CinematicFormRow {
             Toggle(L10n.text("保持登录"), isOn: $model.rememberSession)
-              .tint(.green).accessibilityIdentifier("native-v2-remember-session")
+              .tint(Color(red: 0.62, green: 0.48, blue: 0.94))
+              .accessibilityIdentifier("native-v2-remember-session")
           }
           CinematicFormDivider()
           CinematicFormRow {
@@ -353,20 +472,26 @@ struct NativeV2RootView: View {
               L10n.text("记住账号密码"),
               isOn: Binding(
                 get: { model.rememberCredentials }, set: { model.setRememberCredentials($0) })
-            ).tint(.green).accessibilityIdentifier("native-v2-remember-password")
+            )
+            .tint(Color(red: 0.62, green: 0.48, blue: 0.94))
+            .accessibilityIdentifier("native-v2-remember-password")
           }
         }
         .disabled(model.busy)
       }
       actionSection {
         if model.form == .initialization {
-          primary("创建管理员", id: "native-v2-initialize") { model.initialize() }
-            .disabled(
-              model.username.isEmpty || model.password.isEmpty || model.confirmation.isEmpty
-                || model.apiKey.isEmpty || model.busy)
+          let isDisabled =
+            model.username.isEmpty || model.password.isEmpty || model.confirmation.isEmpty
+            || model.apiKey.isEmpty || model.busy
+          primary("创建管理员", id: "native-v2-initialize", disabled: isDisabled) {
+            model.initialize()
+          }
         } else {
-          primary("登录", id: "native-v2-login") { model.login() }
-            .disabled(model.username.isEmpty || model.password.isEmpty || model.busy)
+          let isDisabled = model.username.isEmpty || model.password.isEmpty || model.busy
+          primary("登录", id: "native-v2-login", disabled: isDisabled) {
+            model.login()
+          }
         }
       }
     }
@@ -506,14 +631,38 @@ struct NativeV2RootView: View {
     }.buttonStyle(.plain).accessibilityIdentifier(id)
   }
 
-  /// 主操作保留系统点击区域并先收起键盘，不把提交绑定到输入框变化。
-  private func primary(_ key: String, id: String, action: @escaping () -> Void) -> some View {
-    CinematicPrimaryAction(title: L10n.text(key), symbol: "arrow.right") {
+  /// 高对比度白色胶囊主操作按钮（与详情页/设置中心视觉统一），先收起键盘再提交。
+  private func primary(
+    _ key: String, id: String, disabled: Bool, action: @escaping () -> Void
+  ) -> some View {
+    Button {
       focused = nil
       UIApplication.shared.sendAction(
         #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
       action()
+    } label: {
+      HStack(spacing: 8) {
+        Text(L10n.text(key))
+          .font(.headline.weight(.bold))
+        Image(systemName: "arrow.right")
+          .font(.subheadline.weight(.bold))
+      }
+      .foregroundStyle(
+        disabled ? .white.opacity(0.48) : Color(red: 0.10, green: 0.08, blue: 0.16)
+      )
+      .frame(maxWidth: .infinity, minHeight: 52)
+      .background {
+        Capsule()
+          .fill(disabled ? .white.opacity(0.14) : .white)
+          .overlay {
+            if disabled {
+              Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.7)
+            }
+          }
+      }
     }
+    .buttonStyle(.plain)
+    .disabled(disabled)
     .accessibilityIdentifier(id)
   }
 

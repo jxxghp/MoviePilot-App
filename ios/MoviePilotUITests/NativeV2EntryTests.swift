@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class NativeV2EntryTests: XCTestCase {
   private let base = "http://127.0.0.1:5330/"
-  private let arguments = ["--native-v2", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+  private let arguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
 
   /// 显式交互运行时才从一次性回环通道取得凭据；App 自己连接真实后端执行只读浏览。
   func testLiveBackendReadOnlyMediaScreens() async throws {
@@ -976,9 +976,7 @@ final class NativeV2EntryTests: XCTestCase {
     defer { app.terminate() }
 
     tap(tabButton("我的", app: app), app: app)
-    let pluginDash = app.descendants(matching: .any)["native-dashboard-plugin-DemoPlugin"]
-      .firstMatch
-    XCTAssertTrue(pluginDash.waitForExistence(timeout: 12))
+    XCTAssertTrue(app.staticTexts["近 7 日任务分布"].waitForExistence(timeout: 12))
     XCTAssertEqual(app.webViews.count, 0)
 
     tap(tabButton("设置", app: app), app: app)
@@ -1203,6 +1201,48 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["a"]?["POST api/v1/system/setting/ScrapingSwitchs"], 1)
     XCTAssertEqual(counts["a"]?["GET api/v1/system/nettest"], 1)
     XCTAssertEqual(counts["a"]?["PUT api/v1/user/"], 1)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// 验证设置页新增的捷径与诊断工具集：系统检查、网络测试、名称识别/规则测试、实时日志与定时服务，零 WebView。
+  func testNativeDiagnosticsAndShortcutsTools() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+
+    tap(tabButton("设置", app: app), app: app)
+    let healthTile = app.buttons["native-settings-hub-health"]
+    reveal(healthTile, app: app)
+    XCTAssertTrue(healthTile.waitForExistence(timeout: 10))
+    tap(healthTile, app: app)
+    XCTAssertTrue(app.scrollViews["native-diag-scroll"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["TMDB 元数据"].waitForExistence(timeout: 10))
+
+    let ruleTab = app.buttons["native-diag-tab-识别与规则"]
+    XCTAssertTrue(ruleTab.waitForExistence(timeout: 8))
+    ruleTab.tap()
+    let titleField = app.textFields["native-diag-test-title"]
+    XCTAssertTrue(titleField.waitForExistence(timeout: 8))
+    titleField.tap()
+    titleField.typeText("The.Matrix.1999.2160p")
+    let runBtn = app.buttons["native-diag-test-run"]
+    XCTAssertTrue(runBtn.waitForExistence(timeout: 8))
+    runBtn.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-diag-test-result"].firstMatch.waitForExistence(
+        timeout: 10))
+
+    let logTab = app.buttons["native-diag-tab-实时日志"]
+    XCTAssertTrue(logTab.waitForExistence(timeout: 8))
+    logTab.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-diag-log-output"].firstMatch.waitForExistence(
+        timeout: 10))
+    XCTAssertEqual(app.webViews.count, 0)
+
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["GET api/v1/system/modulelist"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/media/recognize"], 1)
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/system/logging"] ?? 0, 1)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -2161,6 +2201,8 @@ final class NativeV2EntryTests: XCTestCase {
     assertAccount("a", app: app)
     capture("native-v2-03-account")
     tap(app.buttons["native-v2-switch"], app: app)
+    XCTAssertTrue(app.textFields["native-v2-address"].waitForExistence(timeout: 10))
+    capture("native-v2-01b-connection-saved")
     connect("b", app: app)
     XCTAssertEqual(app.textFields["native-v2-username"].value as? String, "用户名")
     XCTAssertEqual(app.switches["native-v2-remember-password"].value as? String, "0")
@@ -2335,7 +2377,7 @@ final class NativeV2EntryTests: XCTestCase {
     XCUIDevice.shared.orientation = .portrait
   }
 
-  /// 原生三语即时切换；场景恢复不能把后续冷启动锁死在上一次选择的驱动。
+  /// 原生三语即时切换；P8 默认切换后无须调试参数即可直接进入原生入口，且零 WebView。
   func testStableSceneRoutingAndNativeLanguages() throws {
     let app = try cleanPicker()
     tap(app.buttons["native-v2-language"], app: app)
@@ -2347,12 +2389,8 @@ final class NativeV2EntryTests: XCTestCase {
     tap(app.buttons["native-v2-language"], app: app)
     app.buttons["简体中文"].tap()
     app.terminate()
+    // 默认冷启动（无任何 --native-v2 启动参数）直接进入原生 v2 入口
     app.launchArguments = ["-moviepilot.instance.selected.v1", "", "-AppleLanguages", "(zh-Hans)"]
-    app.launch()
-    XCTAssertTrue(app.textFields["MoviePilot 服务地址"].waitForExistence(timeout: 15))
-    XCTAssertFalse(app.textFields["native-v2-address"].exists)
-    app.terminate()
-    app.launchArguments = arguments + ["-moviepilot.instance.selected.v1", ""]
     app.launch()
     XCTAssertTrue(app.textFields["native-v2-address"].waitForExistence(timeout: 15))
     XCTAssertEqual(app.webViews.count, 0)

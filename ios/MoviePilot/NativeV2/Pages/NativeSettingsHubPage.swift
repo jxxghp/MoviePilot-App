@@ -50,6 +50,11 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
             .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 8, trailing: 0))
             .listRowSeparator(.hidden)
 
+          quickConfigPillsGrid
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
+            .listRowSeparator(.hidden)
+
           systemListSection
         } else {
           standardUserGrid
@@ -223,40 +228,121 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
     }
   }
 
-  /// 第四层：4 列紧凑玻璃图标瓷砖（移动端高频与 App 密切相关偏好）。
+  /// 第四层：4 列紧凑玻璃图标瓷砖（高频捷径与诊断：系统检查、网络测试、识别规则、实时日志）。
   private var appPreferenceTiles: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Text("常用配置")
+      Text("捷径与诊断")
         .font(.subheadline.weight(.medium))
         .foregroundStyle(.white.opacity(0.68))
         .padding(.horizontal, 2)
       HStack(spacing: 10) {
         compactTile(
-          title: "站点范围", symbol: "checklist",
-          id: "native-settings-hub-site-scope"
+          title: "系统检查", symbol: "checkmark.shield",
+          id: "native-settings-hub-health"
         ) {
-          onNavigate(.systemModule(.siteScope))
+          onNavigate(.diagnostics(.health))
         }
         compactTile(
-          title: "下载媒体", symbol: "server.rack",
-          id: "native-settings-hub-services"
-        ) {
-          onNavigate(.systemModule(.services))
-        }
-        compactTile(
-          title: "通知渠道", symbol: "bell.badge",
-          id: "native-settings-hub-notifications"
-        ) {
-          onNavigate(.systemModule(.notifications))
-        }
-        compactTile(
-          title: "网络诊断", symbol: "network",
+          title: "网络测试", symbol: "network",
           id: "native-settings-hub-nettest"
         ) {
-          onNavigate(.systemModule(.nettest))
+          onNavigate(.diagnostics(.nettest))
+        }
+        compactTile(
+          title: "识别规则", symbol: "text.magnifyingglass",
+          id: "native-settings-hub-ruletest"
+        ) {
+          onNavigate(.diagnostics(.ruleTest))
+        }
+        compactTile(
+          title: "实时日志", symbol: "terminal",
+          id: "native-settings-hub-livelog"
+        ) {
+          onNavigate(.diagnostics(.liveLog))
         }
       }
     }
+  }
+
+  /// 第五层：2×2 横向紧凑玻璃胶囊卡（常用配置与快捷服务：站点范围、定时服务、下载媒体、通知渠道）。
+  private var quickConfigPillsGrid: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("常用配置")
+        .font(.subheadline.weight(.medium))
+        .foregroundStyle(.white.opacity(0.68))
+        .padding(.horizontal, 2)
+      VStack(spacing: 10) {
+        HStack(spacing: 10) {
+          horizontalConfigPill(
+            title: "站点范围", subtitle: "搜索 / 订阅站点", symbol: "checklist",
+            tint: Color(red: 0.42, green: 0.78, blue: 1.0),
+            id: "native-settings-hub-site-scope"
+          ) {
+            onNavigate(.systemModule(.siteScope))
+          }
+          horizontalConfigPill(
+            title: "定时服务", subtitle: "手动触发任务", symbol: "clock.arrow.2.circlepath",
+            tint: Color(red: 0.96, green: 0.68, blue: 0.36),
+            id: "native-settings-hub-scheduler"
+          ) {
+            onNavigate(.diagnostics(.scheduler))
+          }
+        }
+        HStack(spacing: 10) {
+          horizontalConfigPill(
+            title: "下载媒体", subtitle: "下载器与媒体库", symbol: "server.rack",
+            tint: Color(red: 0.74, green: 0.54, blue: 0.98),
+            id: "native-settings-hub-services"
+          ) {
+            onNavigate(.systemModule(.services))
+          }
+          horizontalConfigPill(
+            title: "通知渠道", subtitle: "消息与推送配置", symbol: "bell.badge",
+            tint: Color(red: 0.44, green: 0.88, blue: 0.66),
+            id: "native-settings-hub-notifications"
+          ) {
+            onNavigate(.systemModule(.notifications))
+          }
+        }
+      }
+    }
+  }
+
+  /// 横向紧凑玻璃配置卡（与双列方卡、4 列图标瓷砖、原生列表形成清晰视觉节奏对比）。
+  private func horizontalConfigPill(
+    title: String,
+    subtitle: String,
+    symbol: String,
+    tint: Color,
+    id: String,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      CinematicPanel(padding: 12) {
+        HStack(spacing: 10) {
+          Image(systemName: symbol)
+            .font(.body.weight(.semibold))
+            .foregroundStyle(tint)
+            .frame(width: 34, height: 34)
+            .background(
+              tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+          VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(.white)
+              .lineLimit(1)
+            Text(subtitle)
+              .font(.caption2)
+              .foregroundStyle(.white.opacity(0.62))
+              .lineLimit(1)
+          }
+          Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+    .buttonStyle(.plain)
+    .accessibilityIdentifier(id)
   }
 
   /// 第五层：原生分组列表项（与上方卡片和瓷砖形成层次对比，平滑衔接到账号设置列表）。

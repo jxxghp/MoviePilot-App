@@ -474,6 +474,8 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
       NativeSystemSettingsPage(session: session)
     case .systemModule(let domain):
       NativeSystemModulesPage(session: session, initialDomain: domain)
+    case .diagnostics(let tool):
+      NativeDiagnosticsToolsPage(session: session, initialTool: tool)
     case .users:
       NativeUsersPage(session: session)
     case .pluginMarket:
@@ -1153,6 +1155,7 @@ enum NativeWorkspaceDestination: Hashable {
   case workflows
   case settings
   case systemModule(NativeSystemModulesPage.Domain)
+  case diagnostics(NativeDiagnosticsToolsPage.Tool)
   case users
   case pluginMarket
 }
