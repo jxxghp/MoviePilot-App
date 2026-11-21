@@ -1257,38 +1257,11 @@ private struct NativeDiscoverArtworkPlaceholder: View {
   let reference: String?
   let role: NativeDiscoverArtworkRole
 
-  /// 主视觉、海报、平台和继续观看缺图使用轻透毛玻璃与系统符号。
+  /// 图片加载前仅呈现极简空白占位框，不显示占位背景图或系统图标。
   var body: some View {
-    ZStack {
-      Rectangle()
-        .fill(.ultraThinMaterial)
-      LinearGradient(
-        colors: [
-          Color.white.opacity(0.14),
-          Color.white.opacity(0.05),
-          Color.clear,
-        ], startPoint: .topLeading, endPoint: .bottomTrailing)
-      Image(systemName: symbol).font(
-        .system(size: role == .backdrop ? 46 : 24, weight: .ultraLight)
-      )
-      .foregroundStyle(.primary.opacity(0.32))
-      if role == .backdrop {
-        RadialGradient(
-          colors: [.clear, .black.opacity(0.22)], center: .center, startRadius: 35, endRadius: 310)
-      }
-    }
-    .accessibilityHidden(true)
-  }
-
-  /// 图像角色按数据字段区分，不依赖业务文字解析路由。
-  private var symbol: String {
-    switch role {
-    case .backdrop: "sparkles.tv"
-    case .poster: "film"
-    case .provider: "play.rectangle.on.rectangle"
-    case .continueWatching: "play.rectangle"
-    case .logo: "textformat"
-    }
+    Rectangle()
+      .fill(Color.primary.opacity(0.05))
+      .accessibilityHidden(true)
   }
 }
 

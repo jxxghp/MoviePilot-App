@@ -1542,35 +1542,10 @@ struct NativeMediaArtwork: View {
     ].joined(separator: "|")
   }
 
-  /// 轻盈通透的毛玻璃占位层，海报加载前不出现厚重暗块。
+  /// 图片加载前的极简空白占位框（不显示占位背景图或图标）。
   private var placeholder: some View {
-    ZStack {
-      Rectangle()
-        .fill(.ultraThinMaterial)
-      LinearGradient(
-        colors: [
-          Color.white.opacity(0.14),
-          Color.white.opacity(0.05),
-          Color.clear,
-        ],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-      )
-      Image(systemName: symbol)
-        .font(.system(size: role == .backdrop ? 38 : 22, weight: .ultraLight))
-        .foregroundStyle(.primary.opacity(0.32))
-    }
-  }
-
-  /// 图片占位符按海报/横幅/平台/观看记录使用系统符号。
-  private var symbol: String {
-    switch role {
-    case .backdrop: "sparkles.tv"
-    case .poster: "film"
-    case .provider: "play.rectangle.on.rectangle"
-    case .continueWatching: "play.rectangle"
-    case .logo: "textformat"
-    }
+    Rectangle()
+      .fill(Color.primary.opacity(0.05))
   }
 }
 
