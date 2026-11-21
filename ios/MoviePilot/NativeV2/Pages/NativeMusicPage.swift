@@ -440,32 +440,66 @@ struct NativeMusicAlbumDetailPage: View {
       CinematicPanel(padding: 0) {
         VStack(spacing: 0) {
           ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
-            HStack(spacing: 12) {
-              Text("\(track.trackNumber ?? (index + 1))")
-                .font(.caption.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.white.opacity(0.48))
-                .frame(width: 24, alignment: .trailing)
-              VStack(alignment: .leading, spacing: 2) {
-                Text(track.title ?? "未命名曲目")
-                  .font(.subheadline.weight(.medium))
-                  .foregroundStyle(.white)
-                  .lineLimit(1)
-                if let artist = track.artist, !artist.isEmpty, artist != resolvedArtist {
-                  Text(artist)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.58))
-                    .lineLimit(1)
+            Button {
+              Task {
+                let err = await NativeMediaPlaybackLauncher.shared.playMusicTrack(
+                  session: session,
+                  title: track.title ?? "未命名曲目",
+                  artist: track.artist ?? resolvedArtist,
+                  album: resolvedTitle)
+                if let err {
+                  feedback = NativeMusicFeedback(isError: true, message: err)
                 }
               }
-              Spacer(minLength: 8)
-              if let duration = track.duration, duration > 0 {
-                Text(formatDuration(duration))
-                  .font(.caption.monospacedDigit())
-                  .foregroundStyle(.white.opacity(0.56))
+            } label: {
+              HStack(spacing: 12) {
+                Text("\(track.trackNumber ?? (index + 1))")
+                  .font(.caption.monospacedDigit().weight(.semibold))
+                  .foregroundStyle(.white.opacity(0.48))
+                  .frame(width: 24, alignment: .trailing)
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(track.title ?? "未命名曲目")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                  if let artist = track.artist, !artist.isEmpty, artist != resolvedArtist {
+                    Text(artist)
+                      .font(.caption)
+                      .foregroundStyle(.white.opacity(0.58))
+                      .lineLimit(1)
+                  }
+                }
+                Spacer(minLength: 8)
+                if let duration = track.duration, duration > 0 {
+                  Text(formatDuration(duration))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.56))
+                }
+                Image(systemName: "play.circle")
+                  .font(.subheadline)
+                  .foregroundStyle(Color(red: 0.80, green: 0.68, blue: 1.0))
+              }
+              .padding(.horizontal, 14)
+              .padding(.vertical, 11)
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .contextMenu {
+              Button {
+                Task {
+                  let err = await NativeMediaPlaybackLauncher.shared.playMusicTrack(
+                    session: session,
+                    title: track.title ?? "未命名曲目",
+                    artist: track.artist ?? resolvedArtist,
+                    album: resolvedTitle)
+                  if let err {
+                    feedback = NativeMusicFeedback(isError: true, message: err)
+                  }
+                }
+              } label: {
+                Label("播放此曲目", systemImage: "play.fill")
               }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
             if index < tracks.count - 1 {
               Divider().overlay(.white.opacity(0.08)).padding(.leading, 48)
             }

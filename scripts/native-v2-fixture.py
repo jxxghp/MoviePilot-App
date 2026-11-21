@@ -404,6 +404,12 @@ class NativeHandler(BaseHTTPRequestHandler):
             if path == f"/{name}/api/v1/plugin/":
                 self.plugin_list_endpoint(name)
                 return
+            if endpoint in {"api/v1/plugin/statistic", "api/v1/plugin/rating"}:
+                self.plugin_stats_endpoint(name, endpoint)
+                return
+            if endpoint == "api/v1/site/userdata/latest":
+                self.site_userdata_endpoint(name)
+                return
             if endpoint == "api/v1/plugin/dashboard/meta":
                 self.plugin_dashboard_meta_endpoint(name)
                 return
@@ -418,6 +424,9 @@ class NativeHandler(BaseHTTPRequestHandler):
                 return
             if endpoint in {"api/v1/workflow/actions", "api/v1/workflow/shares"} or re.fullmatch(r"api/v1/workflow/[0-9]+", endpoint):
                 self.workflow_read_endpoint(name, endpoint)
+                return
+            if endpoint in {"api/v1/system/nettest/targets", "api/v1/system/nettest"} or re.fullmatch(r"api/v1/system/setting/[A-Za-z0-9_]+", endpoint):
+                self.system_setting_read_endpoint(name, endpoint)
                 return
             if endpoint == "api/v1/system/img/0":
                 self.image_endpoint(name)
@@ -440,6 +449,12 @@ class NativeHandler(BaseHTTPRequestHandler):
                 return
             if endpoint == "api/v1/system/env":
                 self.system_env_update_endpoint(name, body)
+                return
+            if re.fullmatch(r"api/v1/system/setting/[A-Za-z0-9_]+", endpoint):
+                self.system_setting_update_endpoint(name, endpoint, body)
+                return
+            if path == f"/{name}/api/v1/user/":
+                self.user_mutate_endpoint(name, "POST", body)
                 return
             if re.fullmatch(r"api/v1/user/config/[A-Za-z0-9_.-]+", endpoint):
                 self.user_config_update_endpoint(name, endpoint, body)
@@ -466,9 +481,17 @@ class NativeHandler(BaseHTTPRequestHandler):
             if re.fullmatch(r"api/v1/workflow/[0-9]+", endpoint):
                 self.workflow_update_endpoint(name, endpoint, body)
                 return
+            if path == f"/{name}/api/v1/user/":
+                self.user_mutate_endpoint(name, "PUT", body)
+                return
         if name in self.server.profiles and self.command == "DELETE":
             if endpoint == "api/v1/history/transfer":
                 self.history_delete_endpoint(name, body)
+                return
+            if endpoint == "api/v1/transfer/queue":
+                with self.server.lock:
+                    self.server.profiles[name]["counts"]["DELETE api/v1/transfer/queue"] += 1
+                self.reply(200, {"success": True, "message": "", "data": None})
                 return
             if re.fullmatch(r"api/v1/subscribe/media/[A-Za-z0-9_-]+", endpoint):
                 self.subscribe_delete_endpoint(name, endpoint)
@@ -538,6 +561,7 @@ class NativeHandler(BaseHTTPRequestHandler):
             "api/v1/search/last",
             "api/v1/search/title",
             "api/v1/history/transfer",
+            "api/v1/transfer/queue",
             "api/v1/message/web",
             "api/v1/storage/options",
             "api/v1/system/env",
@@ -698,6 +722,22 @@ class NativeHandler(BaseHTTPRequestHandler):
             with self.server.lock:
                 rows = list(self.server.profiles[name]["history"])
             value = {"list": rows, "total": len(rows)}
+        elif endpoint == "api/v1/transfer/queue":
+            value = [
+                {
+                    "media": {"title": "合成待整理剧集", "title_year": "合成待整理剧集 (2026)"},
+                    "season": 1,
+                    "tasks": [
+                        {
+                            "fileitem": {
+                                "storage": "local", "type": "file",
+                                "path": "/downloads/tv/ep01.mkv", "name": "ep01.mkv",
+                            },
+                            "state": "waiting",
+                        }
+                    ],
+                }
+            ]
         elif endpoint == "api/v1/storage/options":
             value = [{"type": "local", "name": "本地"}, {"type": "smb", "name": "SMB网络共享"}]
         elif endpoint == "api/v1/workflow":
@@ -1269,6 +1309,105 @@ class NativeHandler(BaseHTTPRequestHandler):
             self.server.profiles[name]["env"].update(updates)
         self.reply(200, {"success": True, "message": "", "data": None})
 
+    def system_setting_read_endpoint(self, name, endpoint):
+        """按管理员权限返回八类专项系统设置与网络连通性测试结果。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"GET {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a":
+            self.reply(403, {"success": False})
+            return
+        if endpoint == "api/v1/system/nettest/targets":
+            targets = [
+                {"id": "tmdb", "name": "TMDB API", "address": "api.themoviedb.org"},
+                {"id": "github", "name": "GitHub", "address": "github.com"},
+            ]
+            self.reply(200, {"success": True, "message": "", "data": targets})
+            return
+        if endpoint == "api/v1/system/nettest":
+            self.reply(200, {"success": True, "message": "", "data": {"time": 42.0}})
+            return
+        key = endpoint.rsplit("/", 1)[-1]
+        defaults = {
+            "Directories": [
+                {
+                    "name": "默认电影目录", "storage": "local", "download_path": "/downloads/movies",
+                    "library_path": "/media/movies", "media_type": "电影", "media_category": "院线",
+                    "transfer_type": "link", "monitor_type": "downloader",
+                }
+            ],
+            "Storages": [{"name": "本地存储", "type": "local"}],
+            "Downloaders": [{"name": "Qbittorrent", "type": "qbittorrent", "enabled": True, "default": True}],
+            "MediaServers": [{"name": "Emby 主库", "type": "emby", "enabled": True, "default": True}],
+            "Notifications": [{"name": "合成推送", "type": "wechat", "enabled": True, "switchs": ["整理入库", "订阅通知"]}],
+            "UserFilterRuleGroups": [{"name": "4K 优先", "media_type": "电影", "rule_string": "4K > 1080P"}],
+            "CustomIdentifiers": ["合成剧集 => 合成追剧"],
+            "ScrapingSwitchs": {"movie_nfo": True, "movie_poster": True, "tv_nfo": True},
+            "IndexerSites": [3],
+            "RssSites": [3],
+        }
+        self.reply(200, {"success": True, "message": "", "data": {"value": defaults.get(key)}})
+
+    def system_setting_update_endpoint(self, name, endpoint, body):
+        """单次保存管理员专项系统配置项。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"POST {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a":
+            self.reply(403, {"success": False})
+            return
+        try:
+            json.loads(body)
+        except (ValueError, TypeError):
+            self.reply(422, {"success": False})
+            return
+        self.reply(200, {"success": True, "message": "", "data": None})
+
+    def user_mutate_endpoint(self, name, method, body):
+        """单次创建或更新非敏感用户资料与权限配置。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"{method} api/v1/user/"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a":
+            self.reply(403, {"success": False})
+            return
+        try:
+            payload = json.loads(body)
+        except (ValueError, TypeError):
+            self.reply(422, {"success": False})
+            return
+        with self.server.lock:
+            users = self.server.profiles[name]["users"]
+            if method == "POST":
+                users.append({
+                    "id": 30, "name": payload.get("name", "new-user"),
+                    "email": payload.get("email"),
+                    "is_active": bool(payload.get("is_active", True)),
+                    "is_superuser": bool(payload.get("is_superuser", False)),
+                    "is_otp": False,
+                    "permissions": payload.get("permissions") or {},
+                })
+            else:
+                uid = payload.get("id")
+                for row in users:
+                    if row["id"] == uid:
+                        row["email"] = payload.get("email", row.get("email"))
+                        row["is_active"] = bool(payload.get("is_active", row["is_active"]))
+                        row["permissions"] = payload.get("permissions", row["permissions"])
+        self.reply(200, {"success": True, "message": "", "data": None})
+
     def user_config_update_endpoint(self, name, endpoint, body):
         """单次持久化当前用户的界面模块编排配置。"""
         with self.server.lock:
@@ -1307,6 +1446,57 @@ class NativeHandler(BaseHTTPRequestHandler):
                 if state == "market"
                 else self.server.profiles[name]["installed_plugins"]
             )
+        self.reply(200, {"success": True, "message": "", "data": rows})
+
+    def plugin_stats_endpoint(self, name, endpoint):
+        """返回插件安装统计或评分映射，供插件卡片展示下载量与评分。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"GET {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a":
+            self.reply(403, {"success": False})
+            return
+        if endpoint == "api/v1/plugin/statistic":
+            self.reply(200, {"success": True, "message": "", "data": {"AutoSignIn": 3200, "DemoPlugin": 120}})
+        else:
+            self.reply(
+                200,
+                {
+                    "success": True,
+                    "message": "",
+                    "data": {
+                        "AutoSignIn": {"average_rating": 4.8, "rating_count": 42},
+                        "DemoPlugin": {"average_rating": 4.9, "rating_count": 15},
+                    },
+                },
+            )
+
+    def site_userdata_endpoint(self, name):
+        """返回站点最新非敏感上/下载量与做种数，供站点卡片展示流量比例图示。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["GET api/v1/site/userdata/latest"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if name != "a" and not self.permissions(mode)["manage"]:
+            self.reply(403, {"success": False})
+            return
+        rows = [
+            {
+                "domain": "synthetic.test",
+                "name": "合成主站",
+                "upload": 12_884_901_888_000,
+                "download": 3_221_225_472_000,
+                "ratio": 4.0,
+                "seeding": 48,
+            }
+        ]
         self.reply(200, {"success": True, "message": "", "data": rows})
 
     def plugin_action_endpoint(self, name, endpoint):

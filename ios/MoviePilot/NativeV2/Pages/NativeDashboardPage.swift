@@ -8,6 +8,8 @@ import SwiftUI
 @MainActor
 struct NativeDashboardPage: View {
   let session: NativeSession
+  let onOpenMessages: (() -> Void)?
+  let onOpenAgent: (() -> Void)?
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @State private var reloadID = UUID()
   @State private var statistics: NativeDashboardStatistics?
@@ -18,8 +20,14 @@ struct NativeDashboardPage: View {
   @State private var failedSections: [String] = []
 
   /// 只注入当前会话，不接触全局 token、实例 ID 或共享网络客户端。
-  init(session: NativeSession) {
+  init(
+    session: NativeSession,
+    onOpenMessages: (() -> Void)? = nil,
+    onOpenAgent: (() -> Void)? = nil
+  ) {
     self.session = session
+    self.onOpenMessages = onOpenMessages
+    self.onOpenAgent = onOpenAgent
   }
 
   /// 页面自带 Cinematic 全局紫玫瑰渐变背景，保证透色玻璃卡片与顶部原生工具栏层级清晰。
@@ -28,13 +36,12 @@ struct NativeDashboardPage: View {
       CinematicBackground()
       ScrollView {
         VStack(alignment: .leading, spacing: 22) {
-          header
           if loading { loadingIndicator }
           if !failedSections.isEmpty { errorPanel }
           if let statistics { librarySummary(statistics) }
           if let storage { storageSummary(storage) }
-          if let schedules { serviceSummary(schedules) }
           if !pluginWidgets.isEmpty { pluginDashboardSummary(pluginWidgets) }
+          if let schedules { serviceSummary(schedules) }
         }
         .frame(maxWidth: 820, alignment: .leading)
         .padding(.horizontal, CinematicStyle.margin)
@@ -52,36 +59,39 @@ struct NativeDashboardPage: View {
     .toolbarBackground(.hidden, for: .navigationBar)
     .task(id: reloadID) { await load() }
     .toolbar {
+      if let onOpenMessages {
+        ToolbarItem(placement: .navigationBarTrailing) {
+          Button(action: onOpenMessages) {
+            Image(systemName: "bell")
+          }
+          .accessibilityLabel("消息中心")
+          .accessibilityIdentifier("native-workspace-messages")
+        }
+      }
       ToolbarItem(placement: .navigationBarTrailing) { refreshButton }
     }
   }
 
-  /// 统计页直接将日期与大标题浮于 Cinematic 渐变之上，与参考设置/仪表盘视觉一致。
-  private var header: some View {
-    heading
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(.horizontal, 2)
-      .accessibilityElement(children: .contain)
-      .accessibilityIdentifier("native-dashboard-hero")
-  }
-
-  /// 日期和页面标题依照用户字号与语言排版。
-  private var heading: some View {
-    VStack(alignment: .leading, spacing: 5) {
-      Text(Date.now, format: .dateTime.weekday(.wide).month(.wide).day())
-        .font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
-      Text("仪表盘")
-        .font(.largeTitle.bold())
-        .accessibilityAddTraits(.isHeader)
-    }
-  }
-
-  /// 系统工具栏负责刷新按钮的外观，请求进行时保持禁用避免重复提交。
+  /// 系统工具栏更多菜单聚合智能助手与刷新动作，避免孤立刷新按钮，同时保留下拉刷新。
   private var refreshButton: some View {
-    Button(action: refresh) { Image(systemName: "arrow.clockwise") }
-      .accessibilityLabel("刷新仪表盘")
-      .accessibilityIdentifier("native-dashboard-refresh")
+    Menu {
+      if let onOpenAgent {
+        Button(action: onOpenAgent) {
+          Label("智能助手", systemImage: "sparkles")
+        }
+        .accessibilityIdentifier("native-workspace-agent")
+      }
+      Button {
+        refresh()
+      } label: {
+        Label("刷新仪表盘数据", systemImage: "arrow.clockwise")
+      }
       .disabled(loading)
+    } label: {
+      Image(systemName: "ellipsis")
+    }
+    .accessibilityLabel("更多操作")
+    .accessibilityIdentifier("native-dashboard-refresh")
   }
 
   /// 只列出拉取失败的分区；已有的成功值继续可读。
@@ -282,16 +292,11 @@ struct NativeDashboardPage: View {
     .accessibilityElement(children: .combine)
   }
 
-  /// 插件仪表板动态卡片区：纯原生渲染 Vuetify JSON 与图表，不创建 WebView。
+  /// 插件仪表板动态卡片区：直接将插件原生图表与卡片无缝融入仪表盘卡片流，不额外显示“插件扩展面板”标题。
   private func pluginDashboardSummary(_ widgets: [NativeDashboardPluginWidget]) -> some View {
     VStack(alignment: .leading, spacing: 14) {
-      sectionTitle("插件扩展面板", detail: "\(widgets.count) 项")
       ForEach(widgets) { widget in
-        VStack(alignment: .leading, spacing: 8) {
-          Text(widget.title)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.84))
-            .padding(.horizontal, 2)
+        Group {
           if widget.isVueRemote {
             CinematicPanel(padding: 12) {
               Label("「\(widget.title)」为远程组件卡片，请从插件管理打开兼容页查看", systemImage: "puzzlepiece.extension")

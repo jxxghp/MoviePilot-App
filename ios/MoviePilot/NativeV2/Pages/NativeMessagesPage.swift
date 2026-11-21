@@ -74,12 +74,28 @@ struct NativeMessagesPage: View {
     .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
-        Button {
-          attempt += 1
+        Menu {
+          Button {
+            attempt += 1
+          } label: {
+            Label("刷新消息中心", systemImage: "arrow.clockwise")
+          }
+          Divider()
+          ForEach(Category.allCases) { option in
+            Button {
+              category = option
+            } label: {
+              if category == option {
+                Label(option.rawValue, systemImage: "checkmark")
+              } else {
+                Text(option.rawValue)
+              }
+            }
+          }
         } label: {
-          Image(systemName: "arrow.clockwise")
+          Image(systemName: "ellipsis")
         }
-        .accessibilityLabel("刷新消息中心")
+        .accessibilityLabel("更多消息操作")
         .accessibilityIdentifier("native-messages-refresh")
       }
     }

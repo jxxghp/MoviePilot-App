@@ -34,6 +34,7 @@ struct NativeSystemSettingsPage: View {
             failureCard
           } else {
             overviewGrid
+            modulesSection
             recognitionSection
             subscribeSection
             runtimeSection
@@ -68,6 +69,14 @@ struct NativeSystemSettingsPage: View {
       }
     }
     .task(id: attempt) { await load() }
+    .nativeDynamicAction(
+      id: "settings-save",
+      isActive: hasChanges && !isSaving && loaded.isLoaded,
+      title: "保存",
+      symbol: "checkmark"
+    ) {
+      Task { await save() }
+    }
   }
 
   /// 当前草稿相对已载入快照是否存在变更。
@@ -124,6 +133,38 @@ struct NativeSystemSettingsPage: View {
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
+  /// 八类专项设置与网络诊断直达入口分组。
+  private var modulesSection: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("专项配置与诊断").font(.headline).accessibilityAddTraits(.isHeader)
+      CinematicPanel(padding: 0) {
+        VStack(spacing: 0) {
+          ForEach(Array(NativeSystemModulesPage.Domain.allCases.enumerated()), id: \.element.id) {
+            index, domain in
+            if index > 0 { CinematicFormDivider() }
+            NavigationLink {
+              NativeSystemModulesPage(session: session, initialDomain: domain)
+            } label: {
+              CinematicFormRow(symbol: domain.symbol) {
+                HStack {
+                  Text(domain.rawValue)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                  Spacer()
+                  Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.45))
+                }
+              }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-settings-domain-\(domain.rawValue)")
+          }
+        }
+      }
     }
   }
 

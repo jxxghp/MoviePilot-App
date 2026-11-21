@@ -80,7 +80,7 @@ struct NativeAgentChatPage: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
-      ToolbarItemGroup(placement: .topBarTrailing) {
+      ToolbarItem(placement: .topBarTrailing) {
         Button {
           showsSessionsSheet = true
           Task { await loadSessions() }
@@ -89,18 +89,18 @@ struct NativeAgentChatPage: View {
         }
         .accessibilityLabel("历史会话")
         .accessibilityIdentifier("native-agent-sessions")
-
-        Button {
-          startNewSession()
-        } label: {
-          Image(systemName: "square.and.pencil")
-        }
-        .accessibilityLabel("新建对话")
-        .accessibilityIdentifier("native-agent-new")
       }
     }
     .sheet(isPresented: $showsSessionsSheet) {
       sessionsSheet
+    }
+    .nativeDynamicAction(
+      id: "agent-new",
+      isActive: true,
+      title: "新建对话",
+      symbol: "square.and.pencil"
+    ) {
+      startNewSession()
     }
     .task {
       await loadBootstrap()

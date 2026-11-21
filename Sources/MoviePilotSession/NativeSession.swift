@@ -1,5 +1,6 @@
 import Foundation
 import MoviePilotAPI
+import MoviePilotCore
 
 /// 单次已认证原生会话；所有请求和确认操作都受同一个不可复用的代次约束。
 @MainActor
@@ -42,6 +43,12 @@ public final class NativeSession {
   /// 快照不暴露 credential，已取得的快照不能代替后续动作的存活检查。
   public var snapshot: NativeSessionSnapshot {
     NativeSessionSnapshot(instance: instance, scope: scope, user: user)
+  }
+
+  /// 仅在活跃会话存活校验通过后，为原生本地播放器提供当前实例同源流授权信息。
+  public func playbackAuthorization() throws -> (address: ServerAddress, accessToken: String) {
+    try checkActive()
+    return (instance.address, accessToken)
   }
 
   /// 弹窗确认后及异步回写前都可显式调用；旧实例句柄不能继续操作新会话。

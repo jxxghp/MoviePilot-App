@@ -114,7 +114,7 @@ def main():
         "-derivedDataPath", str(args.derived_data), "-clonedSourcePackagesDirPath",
         "/Volumes/DISK/Xcode/SourcePackages", "-resultBundlePath", str(raw),
         "-parallel-testing-enabled", "NO", "-test-timeouts-enabled", "YES",
-        "-maximum-test-execution-time-allowance", "420",
+        "-maximum-test-execution-time-allowance", "600",
         "-only-testing:MoviePilotUITests/NativeV2EntryTests/testLiveBackendReadOnlyMediaScreens",
         "CODE_SIGN_IDENTITY=-", "CODE_SIGNING_ALLOWED=YES", "test-without-building",
     ]

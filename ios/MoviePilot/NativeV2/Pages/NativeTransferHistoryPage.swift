@@ -31,14 +31,16 @@ struct NativeTransferHistoryPage: View {
   @State private var loadFailed = false
   @State private var attempt = 0
   @State private var pendingDelete: NativeTransferRecord?
+  @State private var showsQueueSheet = false
   @State private var feedback: NativeHistoryFeedback?
 
-  /// 连续紫玫瑰渐变背景、状态筛选胶囊、带海报的透色记录卡与自动翻页。
+  /// 连续紫玫瑰渐变背景、顶部可见搜索框、状态筛选胶囊、带海报的透色记录卡与自动翻页。
   var body: some View {
     ZStack {
       CinematicBackground()
       ScrollView {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
+          topSearchBar
           filterBar
           if let feedback {
             feedbackBanner(feedback)
@@ -78,18 +80,49 @@ struct NativeTransferHistoryPage: View {
     .navigationTitle(total > 0 ? "整理历史 (\(total))" : "整理历史")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
-    .searchable(text: $searchText, prompt: "按片名筛选整理记录")
-    .onSubmit(of: .search) { attempt += 1 }
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button {
-          attempt += 1
+          showsQueueSheet = true
         } label: {
-          Image(systemName: "arrow.clockwise")
+          Image(systemName: "tray.full")
         }
-        .accessibilityLabel("刷新整理历史")
+        .accessibilityLabel("整理队列")
+        .accessibilityIdentifier("native-history-queue")
+      }
+      ToolbarItem(placement: .topBarTrailing) {
+        Menu {
+          Button {
+            showsQueueSheet = true
+          } label: {
+            Label("查看整理队列", systemImage: "tray.full")
+          }
+          Button {
+            attempt += 1
+          } label: {
+            Label("刷新整理历史", systemImage: "arrow.clockwise")
+          }
+          Divider()
+          ForEach(StatusFilter.allCases) { option in
+            Button {
+              filter = option
+            } label: {
+              if filter == option {
+                Label(option.rawValue, systemImage: "checkmark")
+              } else {
+                Text(option.rawValue)
+              }
+            }
+          }
+        } label: {
+          Image(systemName: "ellipsis")
+        }
+        .accessibilityLabel("更多整理记录操作")
         .accessibilityIdentifier("native-history-refresh")
       }
+    }
+    .sheet(isPresented: $showsQueueSheet) {
+      NativeTransferQueueSheet(session: session, canManage: canManage)
     }
     .task(id: attempt) { await reload() }
     .alert(
@@ -114,14 +147,59 @@ struct NativeTransferHistoryPage: View {
     session.user.isSuperuser || session.user.allows(.init(category: .manage))
   }
 
-  /// 经本地状态过滤后的可见列表。
+  /// 经本地状态与关键词过滤后的可见列表。
   private var displayedRecords: [NativeTransferRecord] {
-    records.filter { record in
-      switch filter {
-      case .all: true
-      case .success: record.status == true
-      case .failed: record.status == false
+    let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return records.filter { record in
+      let statusMatches: Bool =
+        switch filter {
+        case .all: true
+        case .success: record.status == true
+        case .failed: record.status == false
+        }
+      guard statusMatches else { return false }
+      guard !trimmed.isEmpty else { return true }
+      return record.displayTitle.lowercased().contains(trimmed)
+        || (record.src?.lowercased().contains(trimmed) ?? false)
+        || (record.dest?.lowercased().contains(trimmed) ?? false)
+    }
+  }
+
+  /// 顶部常驻玻璃搜索框：输入实时筛选，回车触发后端片名检索。
+  private var topSearchBar: some View {
+    HStack(spacing: 8) {
+      Image(systemName: "magnifyingglass")
+        .font(.subheadline.weight(.medium))
+        .foregroundStyle(.white.opacity(0.62))
+      TextField("搜索片名或路径", text: $searchText)
+        .textFieldStyle(.plain)
+        .font(.subheadline)
+        .foregroundStyle(.white)
+        .submitLabel(.search)
+        .onSubmit { attempt += 1 }
+        .accessibilityIdentifier("native-history-search-field")
+      if !searchText.isEmpty {
+        Button {
+          searchText = ""
+          attempt += 1
+        } label: {
+          Image(systemName: "xmark.circle.fill")
+            .font(.subheadline)
+            .foregroundStyle(.white.opacity(0.55))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("清空搜索")
       }
+    }
+    .padding(.horizontal, 13)
+    .padding(.vertical, 10)
+    .background {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .fill(.white.opacity(0.09))
+        .overlay {
+          RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .strokeBorder(.white.opacity(0.16), lineWidth: 0.7)
+        }
     }
   }
 
@@ -232,19 +310,6 @@ struct NativeTransferHistoryPage: View {
               .buttonStyle(.plain)
               .accessibilityIdentifier("native-history-expand-\(record.id)")
               Spacer()
-              if canManage {
-                Button(role: .destructive) {
-                  pendingDelete = record
-                } label: {
-                  Image(systemName: "trash")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color(red: 1.0, green: 0.56, blue: 0.58))
-                    .frame(minWidth: 32, minHeight: 30)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("删除整理记录 \(record.displayTitle)")
-                .accessibilityIdentifier("native-history-delete-\(record.id)")
-              }
             }
           }
         }
@@ -262,6 +327,44 @@ struct NativeTransferHistoryPage: View {
                 .foregroundStyle(.white.opacity(0.78))
             }
           }
+        }
+      }
+    }
+    .contextMenu {
+      if record.status == true, let dest = record.dest, !dest.isEmpty {
+        let fileName = (dest as NSString).lastPathComponent
+        if NativeMediaPlaybackLauncher.isPlayableMediaExtension(
+          (fileName as NSString).pathExtension)
+        {
+          Button {
+            Task {
+              let err = await NativeMediaPlaybackLauncher.shared.playStorageFile(
+                session: session, storage: "local", path: dest, fileName: fileName)
+              if let err {
+                feedback = NativeHistoryFeedback(isError: true, message: err)
+              }
+            }
+          } label: {
+            Label("本地播放", systemImage: "play.fill")
+          }
+        }
+      }
+      Button {
+        withAnimation(.easeInOut(duration: 0.2)) {
+          if expandedIDs.contains(record.id) {
+            expandedIDs.remove(record.id)
+          } else {
+            expandedIDs.insert(record.id)
+          }
+        }
+      } label: {
+        Label(expandedIDs.contains(record.id) ? "收起路径" : "查看路径", systemImage: "doc.text")
+      }
+      if canManage {
+        Button(role: .destructive) {
+          pendingDelete = record
+        } label: {
+          Label("删除整理记录", systemImage: "trash")
         }
       }
     }
@@ -492,4 +595,241 @@ private struct NativeTransferRecord: Decodable, Sendable, Identifiable {
     case mediaSource = "media_source"
     case mediaID = "media_id"
   }
+}
+
+/// 整理队列弹窗：读取 `GET /api/v1/transfer/queue` 并支持长按移除等待中的任务。
+@MainActor
+private struct NativeTransferQueueSheet: View {
+  let session: NativeSession
+  let canManage: Bool
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var jobs: [NativeTransferQueueJob] = []
+  @State private var isLoading = true
+  @State private var loadFailed = false
+  @State private var feedback: String?
+
+  /// 深色透色整理队列列表。
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 12) {
+            if let feedback {
+              CinematicPanel(padding: 11) {
+                Text(feedback)
+                  .font(.caption)
+                  .foregroundStyle(.white.opacity(0.9))
+                  .frame(maxWidth: .infinity, alignment: .leading)
+              }
+            }
+            if isLoading && jobs.isEmpty {
+              ProgressView("正在读取整理队列…")
+                .tint(.white)
+                .frame(maxWidth: .infinity, minHeight: 180)
+            } else if loadFailed && jobs.isEmpty {
+              CinematicPanel {
+                VStack(spacing: 10) {
+                  Text("暂时无法读取整理队列").font(.headline)
+                  Button("重试") { Task { await load() } }
+                }
+                .frame(maxWidth: .infinity, minHeight: 140)
+              }
+            } else if jobs.isEmpty {
+              CinematicPanel {
+                VStack(spacing: 10) {
+                  Image(systemName: "tray")
+                    .font(.largeTitle)
+                    .foregroundStyle(.white.opacity(0.5))
+                  Text("当前整理队列为空")
+                    .font(.headline)
+                  Text("新的待整理任务将自动显示在此处。")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.62))
+                }
+                .frame(maxWidth: .infinity, minHeight: 170)
+              }
+            } else {
+              ForEach(jobs) { job in
+                jobCard(job)
+              }
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
+        }
+        .refreshable { await load() }
+        .accessibilityIdentifier("native-transfer-queue-scroll")
+      }
+      .navigationTitle("整理队列")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button("关闭") { dismiss() }
+            .accessibilityIdentifier("native-transfer-queue-close")
+        }
+      }
+      .task { await load() }
+    }
+    .preferredColorScheme(.dark)
+  }
+
+  /// 单个媒体整理作业卡片。
+  private func jobCard(_ job: NativeTransferQueueJob) -> some View {
+    CinematicPanel(padding: 13) {
+      VStack(alignment: .leading, spacing: 8) {
+        HStack {
+          Text(job.displayTitle)
+            .font(.headline)
+            .foregroundStyle(.white)
+          Spacer()
+          Text("\(job.tasks.count) 项")
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.white.opacity(0.65))
+        }
+        ForEach(job.tasks) { task in
+          Divider().overlay(.white.opacity(0.08))
+          HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+              Text(task.displayName)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(2)
+              if let path = task.fileitem?.path, !path.isEmpty {
+                Text(path)
+                  .font(.caption2.monospaced())
+                  .foregroundStyle(.white.opacity(0.55))
+                  .lineLimit(1)
+                  .truncationMode(.head)
+              }
+            }
+            Spacer(minLength: 4)
+            Text(task.stateLabel)
+              .font(.caption2.weight(.semibold))
+              .foregroundStyle(Color(red: 0.80, green: 0.72, blue: 1.0))
+              .padding(.horizontal, 7)
+              .padding(.vertical, 3)
+              .background { Capsule().fill(.white.opacity(0.10)) }
+          }
+          .contextMenu {
+            if canManage, let file = task.fileitem {
+              Button(role: .destructive) {
+                Task { await removeFromQueue(file) }
+              } label: {
+                Label("从队列移除", systemImage: "trash")
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /// 读取整理队列快照。
+  private func load() async {
+    isLoading = true
+    loadFailed = false
+    defer { isLoading = false }
+    do {
+      let endpoint = try APIEndpoint(path: ["transfer", "queue"])
+      jobs = try await session.request(endpoint, as: [NativeTransferQueueJob].self).value
+    } catch {
+      loadFailed = true
+    }
+  }
+
+  /// 仅在管理权限下通过长按菜单移出队列。
+  private func removeFromQueue(_ file: NativeTransferQueueFileItem) async {
+    do {
+      let body = try JSONEncoder().encode(file)
+      let endpoint = try APIEndpoint(path: ["transfer", "queue"], method: .delete, body: body)
+      _ = try await session.request(
+        endpoint, as: JSONValue.self, requiring: PermissionRequirement(category: .manage))
+      feedback = "已从整理队列移除「\(file.name ?? file.path ?? "任务")」。"
+      await load()
+    } catch {
+      feedback = "移出整理队列失败，请稍后重试。"
+    }
+  }
+}
+
+/// 整理队列单个作业解码模型。
+private struct NativeTransferQueueJob: Decodable, Sendable, Identifiable {
+  let id: String
+  let mediaTitle: String?
+  let season: Int?
+  let tasks: [NativeTransferQueueTask]
+
+  /// 展示标题。
+  var displayTitle: String {
+    let base = mediaTitle?.isEmpty == false ? mediaTitle! : "待整理媒体"
+    if let season { return "\(base) S\(String(format: "%02d", season))" }
+    return base
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case media, season, tasks
+  }
+
+  private struct MediaBrief: Decodable {
+    let title: String?
+    let titleYear: String?
+    private enum CodingKeys: String, CodingKey {
+      case title
+      case titleYear = "title_year"
+    }
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    let brief = try? c.decodeIfPresent(MediaBrief.self, forKey: .media)
+    mediaTitle = brief?.titleYear ?? brief?.title
+    season = try? c.decodeIfPresent(Int.self, forKey: .season)
+    tasks = (try? c.decodeIfPresent([NativeTransferQueueTask].self, forKey: .tasks)) ?? []
+    id = "\(mediaTitle ?? "job")|\(season ?? -1)|\(tasks.first?.id ?? UUID().uuidString)"
+  }
+}
+
+/// 整理队列单项文件任务解码模型。
+private struct NativeTransferQueueTask: Decodable, Sendable, Identifiable {
+  let id: String
+  let fileitem: NativeTransferQueueFileItem?
+  let state: String?
+
+  /// 文件名回退。
+  var displayName: String {
+    fileitem?.name ?? fileitem?.path ?? "未知文件"
+  }
+
+  /// 状态中文标签。
+  var stateLabel: String {
+    switch (state ?? "").lowercased() {
+    case "running": "整理中"
+    case "completed": "已完成"
+    case "failed": "失败"
+    case "cancelled": "已取消"
+    default: "等待中"
+    }
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case fileitem, state
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    fileitem = try? c.decodeIfPresent(NativeTransferQueueFileItem.self, forKey: .fileitem)
+    state = try? c.decodeIfPresent(String.self, forKey: .state)
+    id = fileitem?.path ?? UUID().uuidString
+  }
+}
+
+/// 整理队列文件条目编解码模型。
+private struct NativeTransferQueueFileItem: Codable, Sendable {
+  let storage: String?
+  let type: String?
+  let path: String?
+  let name: String?
 }

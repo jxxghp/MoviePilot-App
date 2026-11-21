@@ -20,6 +20,7 @@ struct NativeMediaDetailPage: View {
   @State private var synopsisExpanded = false
   @State private var mutatingSeason: Int?
   @State private var isMutatingMovie = false
+  @State private var isLaunchingPlayback = false
   @State private var pendingCancelSeason: NativeSeasonCancelTarget?
   @State private var actionFeedback: NativeDetailActionFeedback?
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -213,6 +214,27 @@ struct NativeMediaDetailPage: View {
     if canSubscribe || canSearchResources || status.itemID != nil {
       CinematicGlassGroup {
         HStack(spacing: 12) {
+          if let itemID = status.itemID, !itemID.isEmpty {
+            CinematicPrimaryAction(
+              title: isLaunchingPlayback ? "准备播放…" : "立即播放",
+              symbol: "play.fill"
+            ) {
+              Task {
+                isLaunchingPlayback = true
+                let err = await NativeMediaPlaybackLauncher.shared.playMediaServerItem(
+                  session: session,
+                  itemID: itemID,
+                  server: status.server,
+                  title: detail.title ?? "播放")
+                isLaunchingPlayback = false
+                if let err {
+                  actionFeedback = NativeDetailActionFeedback(isError: true, message: err)
+                }
+              }
+            }
+            .disabled(isLaunchingPlayback)
+            .accessibilityIdentifier("native-media-detail-play")
+          }
           if canSubscribe {
             if tv {
               let seasons = resolvedSeasons(detail)
@@ -259,15 +281,20 @@ struct NativeMediaDetailPage: View {
                 target: .media(
                   identity: identity, title: detail.title ?? "作品资源", season: nil))
             } label: {
-              Image(systemName: "magnifyingglass")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.white)
-                .frame(width: 50, height: 50)
-                .background {
-                  Circle()
-                    .fill(.white.opacity(0.14))
-                    .overlay { Circle().strokeBorder(.white.opacity(0.24), lineWidth: 0.7) }
-                }
+              HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                  .font(.subheadline.weight(.semibold))
+                Text("搜索资源")
+                  .font(.subheadline.weight(.semibold))
+              }
+              .foregroundStyle(.white)
+              .padding(.horizontal, 16)
+              .frame(height: 50)
+              .background {
+                Capsule()
+                  .fill(.white.opacity(0.14))
+                  .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.7) }
+              }
             }
             .buttonStyle(.plain)
             .accessibilityLabel("搜索站点资源")
@@ -1112,7 +1139,13 @@ private struct NativeMediaStatusSnapshot: Decodable, Sendable {
   /// 兼容后端 seasons 字典键为字符串数字的 JSON 序列化。
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    itemID = try container.decodeIfPresent(String.self, forKey: .itemID)
+    if let text = try? container.decodeIfPresent(String.self, forKey: .itemID) {
+      itemID = text
+    } else if let num = try? container.decodeIfPresent(Int64.self, forKey: .itemID) {
+      itemID = String(num)
+    } else {
+      itemID = nil
+    }
     server = try container.decodeIfPresent(String.self, forKey: .server)
     subscribed = try container.decodeIfPresent(Bool.self, forKey: .subscribed) ?? false
     let rawSeasons =

@@ -33,6 +33,8 @@ struct NativePluginMarketPage: View {
   @State private var marketFilter: MarketFilter = .all
   @State private var marketPlugins: [NativeMarketPluginRecord] = []
   @State private var installedPlugins: [NativeMarketPluginRecord] = []
+  @State private var installStats: [String: Int] = [:]
+  @State private var ratings: [String: NativePluginRatingSummary] = [:]
   @State private var marketPage = 1
   @State private var marketHasMore = true
   @State private var isLoadingMore = false
@@ -55,31 +57,7 @@ struct NativePluginMarketPage: View {
 
   /// 连续紫玫瑰深色渐变、模式切换胶囊、筛选条与插件玻璃卡片列表。
   var body: some View {
-    mainContent
-      .navigationTitle(mode == .market ? "插件市场" : "插件管理")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
-      .searchable(text: $searchText, prompt: "搜索插件名称、作者或标签")
-      .toolbar {
-        ToolbarItem(placement: .topBarTrailing) {
-          Button {
-            reloadToken += 1
-          } label: {
-            Image(systemName: "arrow.clockwise")
-          }
-          .accessibilityLabel("刷新插件列表")
-          .accessibilityIdentifier("native-plugin-market-refresh")
-        }
-      }
-      .navigationDestination(
-        isPresented: Binding(
-          get: { formSelection != nil }, set: { if !$0 { formSelection = nil } })
-      ) {
-        if let formSelection {
-          NativePluginFormView(plugin: formSelection.plugin, form: formSelection.form)
-        }
-      }
-      .task(id: "\(mode.rawValue)|\(reloadToken)") { await load(forceMarket: false) }
+    contentWithNavigation
       .alert(
         pendingInstall?.hasUpdate == true ? "更新插件" : "安装插件",
         isPresented: Binding(
@@ -118,6 +96,49 @@ struct NativePluginMarketPage: View {
       } message: { plugin in
         Text("确认卸载插件「\(plugin.displayName)」吗？卸载后将停止相关后台任务。")
       }
+  }
+
+  /// 主体与导航栏、工具栏、搜索和表单路由修饰。
+  private var contentWithNavigation: some View {
+    mainContent
+      .navigationTitle(mode == .market ? "插件市场" : "插件管理")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .searchable(text: $searchText, prompt: "搜索插件名称、作者或标签")
+      .toolbar {
+        ToolbarItem(placement: .topBarTrailing) {
+          moreToolbarMenu
+        }
+      }
+      .navigationDestination(
+        isPresented: Binding(
+          get: { formSelection != nil }, set: { if !$0 { formSelection = nil } })
+      ) {
+        if let formSelection {
+          NativePluginFormView(plugin: formSelection.plugin, form: formSelection.form)
+        }
+      }
+      .task(id: "\(mode.rawValue)|\(reloadToken)") { await load(forceMarket: false) }
+  }
+
+  /// 右上角更多操作菜单。
+  private var moreToolbarMenu: some View {
+    Menu {
+      Button {
+        Task { await load(forceMarket: true) }
+      } label: {
+        Label("同步最新市场数据", systemImage: "arrow.triangle.2.circlepath")
+      }
+      Button {
+        reloadToken += 1
+      } label: {
+        Label("刷新当前列表", systemImage: "arrow.clockwise")
+      }
+    } label: {
+      Image(systemName: "ellipsis")
+    }
+    .accessibilityLabel("更多插件操作")
+    .accessibilityIdentifier("native-plugin-market-refresh")
   }
 
   /// 主滚动内容区。
@@ -299,24 +320,51 @@ struct NativePluginMarketPage: View {
                 .foregroundStyle(.white.opacity(0.78))
                 .lineLimit(2)
             }
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
               if !plugin.author.isEmpty {
-                Text(plugin.author)
+                Label(plugin.author, systemImage: "person.circle")
                   .font(.caption2)
-                  .foregroundStyle(.white.opacity(0.58))
+                  .foregroundStyle(.white.opacity(0.68))
+                  .lineLimit(1)
               }
-              if plugin.installCount > 0 {
-                Label("\(plugin.installCount)", systemImage: "arrow.down.circle")
+              let lowerID = plugin.id.lowercased()
+              let downloads = max(
+                plugin.installCount, installStats[plugin.id] ?? installStats[lowerID] ?? 0)
+              if downloads > 0 {
+                Label(Self.formatInstallCount(downloads), systemImage: "arrow.down.circle")
                   .font(.caption2.monospacedDigit())
-                  .foregroundStyle(.white.opacity(0.58))
+                  .foregroundStyle(.white.opacity(0.72))
               }
-              ForEach(plugin.labels.prefix(3), id: \.self) { label in
-                Text(label)
-                  .font(.caption2)
-                  .foregroundStyle(Color(red: 0.84, green: 0.74, blue: 1.0))
-                  .padding(.horizontal, 6)
-                  .padding(.vertical, 2)
-                  .background { Capsule().fill(.white.opacity(0.08)) }
+              let fetchedRating = ratings[plugin.id] ?? ratings[lowerID]
+              let effectiveRating = fetchedRating?.averageRating ?? plugin.averageRating
+              let effectiveRatingCount = fetchedRating?.ratingCount ?? plugin.ratingCount
+              if effectiveRating > 0 {
+                HStack(spacing: 2.5) {
+                  Image(systemName: "star.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Color(red: 0.98, green: 0.80, blue: 0.34))
+                  Text(String(format: "%.1f", effectiveRating))
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(Color(red: 0.98, green: 0.84, blue: 0.48))
+                  if effectiveRatingCount > 0 {
+                    Text("(\(effectiveRatingCount))")
+                      .font(.caption2.monospacedDigit())
+                      .foregroundStyle(.white.opacity(0.54))
+                  }
+                }
+              }
+              Spacer(minLength: 0)
+            }
+            if !plugin.labels.isEmpty {
+              HStack(spacing: 6) {
+                ForEach(plugin.labels.prefix(3), id: \.self) { label in
+                  Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(Color(red: 0.84, green: 0.74, blue: 1.0))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background { Capsule().fill(.white.opacity(0.08)) }
+                }
               }
             }
           }
@@ -435,6 +483,47 @@ struct NativePluginMarketPage: View {
         }
       }
     }
+    .contextMenu {
+      if mode == .market {
+        if !plugin.installed || plugin.hasUpdate {
+          Button {
+            pendingInstall = plugin
+          } label: {
+            Label(
+              plugin.hasUpdate ? "更新插件" : "安装插件",
+              systemImage: plugin.hasUpdate
+                ? "arrow.triangle.2.circlepath" : "arrow.down.to.line")
+          }
+        }
+      } else {
+        Button {
+          openForm(for: plugin)
+        } label: {
+          Label("打开插件配置", systemImage: "slider.horizontal.3")
+        }
+        Button {
+          pendingReset = plugin
+        } label: {
+          Label("重置插件", systemImage: "arrow.counterclockwise")
+        }
+        Button(role: .destructive) {
+          pendingUninstall = plugin
+        } label: {
+          Label("卸载插件", systemImage: "trash")
+        }
+      }
+    }
+  }
+
+  /// 紧凑格式化插件累计安装/下载次数。
+  private static func formatInstallCount(_ count: Int) -> String {
+    if count >= 10_000 {
+      return String(format: "%.1fw", Double(count) / 10_000.0)
+    }
+    if count >= 1_000 {
+      return String(format: "%.1fk", Double(count) / 1_000.0)
+    }
+    return "\(count)"
   }
 
   /// 插件安装/更新/运行状态徽标。
@@ -545,10 +634,48 @@ struct NativePluginMarketPage: View {
       } else {
         installedPlugins = valid
       }
+      Task { await loadPluginStatsAndRatings(pluginIDs: valid.map(\.id)) }
     } catch is CancellationError {
       return
     } catch {
       loadFailed = true
+    }
+  }
+
+  /// 后台静默补齐插件安装量统计与评分映射（`GET /api/v1/plugin/statistic` + `GET /api/v1/plugin/rating`），兼容大小写插件 ID。
+  private func loadPluginStatsAndRatings(pluginIDs: [String]) async {
+    async let statsTask: [String: Int]? = {
+      guard let ep = try? APIEndpoint(path: ["plugin", "statistic"]) else { return nil }
+      return try? await session.request(
+        ep, as: [String: Int].self, requiring: PermissionRequirement(category: .admin)
+      ).value
+    }()
+    let idsParam = pluginIDs.prefix(80).joined(separator: ",")
+    async let ratingsTask: [String: NativePluginRatingSummary]? = {
+      let query = idsParam.isEmpty ? [] : [URLQueryItem(name: "plugin_ids", value: idsParam)]
+      guard let ep = try? APIEndpoint(path: ["plugin", "rating"], query: query) else { return nil }
+      return try? await session.request(
+        ep, as: [String: NativePluginRatingSummary].self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
+    }()
+    let (loadedStats, loadedRatings) = await (statsTask, ratingsTask)
+    guard !Task.isCancelled else { return }
+    if let loadedStats, !loadedStats.isEmpty {
+      var merged = installStats
+      for (key, value) in loadedStats {
+        merged[key] = value
+        merged[key.lowercased()] = value
+      }
+      installStats = merged
+    }
+    if let loadedRatings, !loadedRatings.isEmpty {
+      var merged = ratings
+      for (key, value) in loadedRatings {
+        merged[key] = value
+        merged[key.lowercased()] = value
+      }
+      ratings = merged
     }
   }
 
@@ -664,6 +791,23 @@ private struct NativePluginMarketFeedback {
   let message: String
 }
 
+/// `GET /api/v1/plugin/rating` 单插件平均分与评分人数投影。
+private struct NativePluginRatingSummary: Decodable, Sendable {
+  let averageRating: Double
+  let ratingCount: Int
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    averageRating = (try? c.decodeIfPresent(Double.self, forKey: .averageRating)) ?? 0
+    ratingCount = (try? c.decodeIfPresent(Int.self, forKey: .ratingCount)) ?? 0
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case averageRating = "average_rating"
+    case ratingCount = "rating_count"
+  }
+}
+
 /// 插件市场与已安装插件统一编解码模型。
 private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
   let id: String
@@ -678,6 +822,8 @@ private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
   let state: Bool?
   let repoURL: String?
   let installCount: Int
+  let averageRating: Double
+  let ratingCount: Int
 
   /// 显示名称回退至插件 ID。
   var displayName: String {
@@ -720,6 +866,8 @@ private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
     state = try? container.decodeIfPresent(Bool.self, forKey: .state)
     repoURL = try? container.decodeIfPresent(String.self, forKey: .repoURL)
     installCount = (try? container.decodeIfPresent(Int.self, forKey: .installCount)) ?? 0
+    averageRating = (try? container.decodeIfPresent(Double.self, forKey: .averageRating)) ?? 0
+    ratingCount = (try? container.decodeIfPresent(Int.self, forKey: .ratingCount)) ?? 0
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -735,5 +883,7 @@ private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
     case state
     case repoURL = "repo_url"
     case installCount = "install_count"
+    case averageRating = "average_rating"
+    case ratingCount = "rating_count"
   }
 }

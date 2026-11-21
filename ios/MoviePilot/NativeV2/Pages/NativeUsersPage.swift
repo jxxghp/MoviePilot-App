@@ -14,6 +14,9 @@ struct NativeUsersPage: View {
   @State private var isLoading = true
   @State private var loadFailed = false
   @State private var attempt = 0
+  @State private var showsCreateSheet = false
+  @State private var editingUser: NativeUserRecord?
+  @State private var feedback: String?
 
   /// 统一深色紫玫瑰渐变背景、用户透色玻璃卡与原生刷新按钮。
   var body: some View {
@@ -21,6 +24,17 @@ struct NativeUsersPage: View {
       CinematicBackground()
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
+          if let feedback {
+            CinematicPanel(padding: 10) {
+              HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                  .foregroundStyle(Color(red: 0.56, green: 0.92, blue: 0.72))
+                Text(feedback).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+                Spacer(minLength: 0)
+              }
+            }
+            .accessibilityIdentifier("native-users-feedback")
+          }
           if isLoading && users.isEmpty {
             ProgressView("正在载入用户列表…")
               .tint(.white)
@@ -52,7 +66,15 @@ struct NativeUsersPage: View {
     .toolbarBackground(.hidden, for: .navigationBar)
     .searchable(text: $searchText, prompt: "按用户名或邮箱筛选")
     .toolbar {
-      ToolbarItem(placement: .topBarTrailing) {
+      ToolbarItemGroup(placement: .topBarTrailing) {
+        Button {
+          showsCreateSheet = true
+        } label: {
+          Image(systemName: "person.badge.plus")
+        }
+        .accessibilityLabel("新增用户")
+        .accessibilityIdentifier("native-users-add")
+
         Button {
           attempt += 1
         } label: {
@@ -62,7 +84,27 @@ struct NativeUsersPage: View {
         .accessibilityIdentifier("native-users-refresh")
       }
     }
+    .sheet(isPresented: $showsCreateSheet) {
+      NativeUserEditorSheet(session: session, existing: nil) { message in
+        feedback = message
+        attempt += 1
+      }
+    }
+    .sheet(item: $editingUser) { target in
+      NativeUserEditorSheet(session: session, existing: target) { message in
+        feedback = message
+        attempt += 1
+      }
+    }
     .task(id: attempt) { await load() }
+    .nativeDynamicAction(
+      id: "users-add",
+      isActive: true,
+      title: "新增用户",
+      symbol: "person.badge.plus"
+    ) {
+      showsCreateSheet = true
+    }
   }
 
   /// 按关键词筛选后的用户清单。
@@ -139,6 +181,23 @@ struct NativeUsersPage: View {
                 }
             }
             Spacer(minLength: 0)
+            Button {
+              editingUser = user
+            } label: {
+              Label("编辑", systemImage: "pencil")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background {
+                  Capsule()
+                    .fill(.white.opacity(0.12))
+                    .overlay { Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.6) }
+                }
+                .frame(minHeight: 30)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-user-edit-\(user.id)")
           }
         }
       }
@@ -253,5 +312,206 @@ private struct NativeUserRecord: Decodable, Sendable, Identifiable {
     case isSuperuser = "is_superuser"
     case isOTP = "is_otp"
     case permissions
+  }
+}
+
+/// 原生用户新增与编辑弹层：单次提交 `POST /api/v1/user/` 或 `PUT /api/v1/user/`，密码字段仅作一次性提交且不落盘留存。
+@MainActor
+private struct NativeUserEditorSheet: View {
+  let session: NativeSession
+  let existing: NativeUserRecord?
+  let onSaved: (String) -> Void
+  @Environment(\.dismiss) private var dismiss
+
+  @State private var name = ""
+  @State private var email = ""
+  @State private var password = ""
+  @State private var isActive = true
+  @State private var isSuperuser = false
+  @State private var permDiscovery = true
+  @State private var permSearch = true
+  @State private var permSubscribe = true
+  @State private var permManage = false
+  @State private var isSubmitting = false
+  @State private var errorMessage: String?
+
+  private var isCreate: Bool { existing == nil }
+
+  private var canSubmit: Bool {
+    let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedName.isEmpty, !isSubmitting else { return false }
+    if isCreate { return !password.isEmpty }
+    return true
+  }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 14) {
+            if let errorMessage {
+              CinematicPanel(padding: 10) {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                  .font(.subheadline)
+                  .foregroundStyle(.orange)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+              }
+            }
+            CinematicPanel(padding: 14) {
+              VStack(alignment: .leading, spacing: 12) {
+                Text("账号信息").font(.headline).foregroundStyle(.white)
+                VStack(alignment: .leading, spacing: 4) {
+                  Text("用户名").font(.caption).foregroundStyle(.white.opacity(0.72))
+                  TextField(
+                    "", text: $name,
+                    prompt: Text("输入用户名").foregroundColor(.white.opacity(0.45))
+                  )
+                  .textInputAutocapitalization(.never)
+                  .autocorrectionDisabled()
+                  .foregroundStyle(.white)
+                  .padding(10)
+                  .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                  .accessibilityIdentifier("native-user-editor-name")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                  Text("邮箱（可选）").font(.caption).foregroundStyle(.white.opacity(0.72))
+                  TextField(
+                    "", text: $email,
+                    prompt: Text("name@example.com").foregroundColor(.white.opacity(0.45))
+                  )
+                  .textInputAutocapitalization(.never)
+                  .autocorrectionDisabled()
+                  .keyboardType(.emailAddress)
+                  .foregroundStyle(.white)
+                  .padding(10)
+                  .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                  .accessibilityIdentifier("native-user-editor-email")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                  Text(isCreate ? "初始密码" : "重置密码（留空不修改）")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.72))
+                  SecureField(
+                    "", text: $password,
+                    prompt: Text(isCreate ? "输入初始密码" : "留空保持原密码").foregroundColor(
+                      .white.opacity(0.45))
+                  )
+                  .foregroundStyle(.white)
+                  .padding(10)
+                  .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                  .accessibilityIdentifier("native-user-editor-password")
+                }
+              }
+            }
+            CinematicPanel(padding: 14) {
+              VStack(spacing: 12) {
+                Toggle("账号启用", isOn: $isActive)
+                  .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
+                  .accessibilityIdentifier("native-user-editor-active")
+                Divider().overlay(.white.opacity(0.08))
+                Toggle("超级管理员", isOn: $isSuperuser)
+                  .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
+                  .accessibilityIdentifier("native-user-editor-superuser")
+                if !isSuperuser {
+                  Divider().overlay(.white.opacity(0.08))
+                  Toggle("发现权限", isOn: $permDiscovery)
+                    .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
+                  Toggle("搜索权限", isOn: $permSearch)
+                    .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
+                  Toggle("订阅权限", isOn: $permSubscribe)
+                    .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
+                  Toggle("管理权限", isOn: $permManage)
+                    .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
+                }
+              }
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
+        }
+        .scrollIndicators(.hidden)
+      }
+      .navigationTitle(isCreate ? "新增用户" : "编辑用户")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("取消") { dismiss() }
+            .accessibilityIdentifier("native-user-editor-cancel")
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+          Button {
+            Task { await submit() }
+          } label: {
+            if isSubmitting {
+              ProgressView().controlSize(.small).tint(.white)
+            } else {
+              Text("保存").fontWeight(.semibold)
+            }
+          }
+          .disabled(!canSubmit)
+          .accessibilityIdentifier("native-user-editor-save")
+        }
+      }
+      .onAppear {
+        if let existing {
+          name = existing.name
+          email = existing.email ?? ""
+          isActive = existing.isActive
+          isSuperuser = existing.isSuperuser
+          permDiscovery = existing.permissions?.discovery ?? true
+          permSearch = existing.permissions?.search ?? true
+          permSubscribe = existing.permissions?.subscribe ?? true
+          permManage = existing.permissions?.manage ?? false
+        }
+      }
+    }
+    .preferredColorScheme(.dark)
+  }
+
+  private func submit() async {
+    isSubmitting = true
+    errorMessage = nil
+    defer {
+      isSubmitting = false
+      password = ""
+    }
+    let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+    var payload: [String: JSONValue] = [
+      "name": .string(trimmedName),
+      "email": trimmedEmail.isEmpty ? .null : .string(trimmedEmail),
+      "is_active": .bool(isActive),
+      "is_superuser": .bool(isSuperuser),
+      "permissions": .object([
+        "discovery": .bool(isSuperuser || permDiscovery),
+        "search": .bool(isSuperuser || permSearch),
+        "subscribe": .bool(isSuperuser || permSubscribe),
+        "manage": .bool(isSuperuser || permManage),
+      ]),
+    ]
+    if let existing {
+      payload["id"] = .number(Double(existing.id))
+    }
+    if !password.isEmpty {
+      payload["password"] = .string(password)
+    }
+    do {
+      let body = try JSONEncoder().encode(payload)
+      let endpoint = try APIEndpoint(
+        path: ["user"],
+        method: isCreate ? .post : .put,
+        body: body,
+        trailingSlash: true)
+      try await session.perform(endpoint, requiring: PermissionRequirement(category: .admin))
+      try Task.checkCancellation()
+      onSaved(isCreate ? "已新增用户「\(trimmedName)」。" : "已更新用户「\(trimmedName)」。")
+      dismiss()
+    } catch is CancellationError {
+      return
+    } catch {
+      errorMessage = "保存用户失败，请检查用户名是否重复后重试。"
+    }
   }
 }
