@@ -160,6 +160,7 @@ struct NativeDashboardPage: View {
           Button(action: onOpenMessages) {
             Image(systemName: "bell")
           }
+          .tint(.primary)
           .accessibilityLabel("消息中心")
           .accessibilityIdentifier("native-dashboard-messages-btn")
         }
@@ -167,6 +168,7 @@ struct NativeDashboardPage: View {
           Button(action: onOpenShortcuts) {
             Image(systemName: "bolt.fill")
           }
+          .tint(.primary)
           .accessibilityLabel("捷径")
           .accessibilityIdentifier("native-dashboard-shortcuts-btn")
         }
@@ -1730,6 +1732,7 @@ private struct NativeDashboardWidgetsSheet: View {
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
+            .tint(.primary)
         }
         ToolbarItem(placement: .topBarTrailing) {
           Button("保存") {
@@ -1737,11 +1740,12 @@ private struct NativeDashboardWidgetsSheet: View {
             dismiss()
           }
           .fontWeight(.semibold)
+          .tint(.primary)
           .accessibilityIdentifier("native-dashboard-widgets-save")
         }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 }
 

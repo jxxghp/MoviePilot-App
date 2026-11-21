@@ -483,8 +483,14 @@ private struct NativeCronModePicker: View {
     .navigationTitle(L10n.text("方式")).navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
-      ToolbarItem(placement: .confirmationAction) {
-        Button(L10n.text("完成")) { dismiss() }
+      ToolbarItem(placement: .topBarLeading) {
+        Button {
+          dismiss()
+        } label: {
+          Image(systemName: "xmark")
+        }
+        .tint(.primary)
+        .accessibilityLabel(L10n.text("关闭"))
       }
     }
   }

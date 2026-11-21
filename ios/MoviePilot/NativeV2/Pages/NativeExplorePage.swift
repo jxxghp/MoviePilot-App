@@ -1187,6 +1187,7 @@ private struct NativeExploreSourcesSheet: View {
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
+            .tint(.primary)
         }
         ToolbarItem(placement: .topBarTrailing) {
           Button("保存") {
@@ -1195,11 +1196,12 @@ private struct NativeExploreSourcesSheet: View {
             dismiss()
           }
           .fontWeight(.semibold)
+          .tint(.primary)
           .accessibilityIdentifier("native-explore-config-save")
         }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 }
 

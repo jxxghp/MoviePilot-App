@@ -149,6 +149,7 @@ struct NativePluginDataPageView: View {
           } label: {
             Image(systemName: "gearshape")
           }
+          .tint(.primary)
           .accessibilityLabel("插件设置")
           .accessibilityIdentifier("native-plugin-page-settings")
         }
@@ -167,6 +168,7 @@ struct NativePluginDataPageView: View {
           } label: {
             Image(systemName: "ellipsis.circle")
           }
+          .tint(.primary)
           .accessibilityLabel("更多操作")
           .accessibilityIdentifier("native-plugin-page-more")
         }
@@ -1320,6 +1322,7 @@ struct NativeVuePluginSheet: View {
             } label: {
               Image(systemName: "ellipsis")
             }
+            .tint(.primary)
             .accessibilityLabel("弹窗操作")
             .accessibilityIdentifier("native-sheet-menu")
           }
@@ -1331,6 +1334,7 @@ struct NativeVuePluginSheet: View {
             Image(systemName: "xmark")
               .font(.body.weight(.semibold))
           }
+          .tint(.primary)
           .accessibilityLabel("关闭")
           .accessibilityIdentifier("native-vue-plugin-sheet-close")
         }
@@ -1361,7 +1365,7 @@ struct NativeVuePluginSheet: View {
     .onChange(of: bridge.shouldDismiss) { closed in
       if closed { dismiss() }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 }
 

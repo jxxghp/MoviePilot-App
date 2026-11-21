@@ -78,6 +78,7 @@ struct NativeUsersPage: View {
         } label: {
           Image(systemName: "person.badge.plus")
         }
+        .tint(.primary)
         .accessibilityLabel("新增用户")
         .accessibilityIdentifier("native-users-add")
       }
@@ -494,6 +495,7 @@ private struct NativeUserEditorSheet: View {
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
+            .tint(.primary)
             .accessibilityIdentifier("native-user-editor-cancel")
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -506,6 +508,7 @@ private struct NativeUserEditorSheet: View {
               Text("保存").fontWeight(.semibold)
             }
           }
+          .tint(.primary)
           .disabled(!canSubmit)
           .accessibilityIdentifier("native-user-editor-save")
         }
@@ -523,7 +526,7 @@ private struct NativeUserEditorSheet: View {
         }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func submit() async {

@@ -637,6 +637,7 @@ struct NativeV2RootView: View {
         } label: {
           Image(systemName: "server.rack")
         }
+        .tint(.primary)
         .accessibilityLabel(L10n.text("更改地址"))
         .accessibilityIdentifier("native-v2-change-server")
       }
@@ -648,6 +649,7 @@ struct NativeV2RootView: View {
         } label: {
           Image(systemName: "globe")
         }
+        .tint(.primary)
         .accessibilityLabel(L10n.text("语言"))
         .accessibilityIdentifier("native-v2-language")
       }

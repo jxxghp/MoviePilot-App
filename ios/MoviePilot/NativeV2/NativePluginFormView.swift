@@ -176,12 +176,14 @@ struct NativePluginFormView: View {
           } label: {
             Image(systemName: "chevron.left")
           }
+          .tint(.primary)
           .accessibilityLabel(L10n.text("返回")).accessibilityIdentifier("native-plugin-form-back")
         }
       }
       if !isVuePlugin {
         ToolbarItem(placement: .navigationBarTrailing) {
           Button(L10n.text("保存")) { save() }
+            .tint(.primary)
             .disabled(busy || plan == nil || plan?.issues.isEmpty != true)
             .accessibilityIdentifier("native-plugin-form-save")
         }
@@ -205,7 +207,7 @@ struct NativePluginFormView: View {
         } else {
           NativePluginSelectionView(element: element, read: read, update: update)
         }
-      }.nativeAppearanceRoot()
+      }.nativeGlassSheet()
     }
     .alert(L10n.text("放弃未保存的修改？"), isPresented: $showsDiscard) {
       Button(L10n.text("放弃修改"), role: .destructive) { dismiss() }
@@ -1020,9 +1022,15 @@ private struct NativePluginSelectionView: View {
       }
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .confirmationAction) {
-          Button(L10n.text("完成")) { dismiss() }.accessibilityIdentifier(
-            "native-plugin-selection-done")
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel(L10n.text("关闭"))
+          .accessibilityIdentifier("native-plugin-selection-done")
         }
       }
     }.tint(.primary)

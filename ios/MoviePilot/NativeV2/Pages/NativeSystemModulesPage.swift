@@ -207,59 +207,62 @@ struct NativeSystemModulesPage: View {
     .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
-        if domain == .siteScope {
-          Button {
-            Task { await saveSiteScopes() }
-          } label: {
-            if isSavingSiteScope {
-              ProgressView().controlSize(.small).tint(.primary)
-            } else {
-              Text("保存").fontWeight(.semibold)
+        Group {
+          if domain == .siteScope {
+            Button {
+              Task { await saveSiteScopes() }
+            } label: {
+              if isSavingSiteScope {
+                ProgressView().controlSize(.small).tint(.primary)
+              } else {
+                Text("保存").fontWeight(.semibold)
+              }
             }
-          }
-          .disabled(!isSiteScopeDirty || isSavingSiteScope)
-          .accessibilityIdentifier("native-sysmod-sitescope-save")
-        } else if domain == .scraping {
-          Button {
-            Task { await saveScrapingSwitches() }
-          } label: {
-            if isSavingScraping {
-              ProgressView().controlSize(.small).tint(.primary)
-            } else {
-              Text("保存").fontWeight(.semibold)
+            .disabled(!isSiteScopeDirty || isSavingSiteScope)
+            .accessibilityIdentifier("native-sysmod-sitescope-save")
+          } else if domain == .scraping {
+            Button {
+              Task { await saveScrapingSwitches() }
+            } label: {
+              if isSavingScraping {
+                ProgressView().controlSize(.small).tint(.primary)
+              } else {
+                Text("保存").fontWeight(.semibold)
+              }
             }
-          }
-          .disabled(scrapingSwitches == originalScrapingSwitches || isSavingScraping)
-          .accessibilityIdentifier("native-sysmod-scraping-save")
-        } else if domain == .nettest {
-          Button {
-            Task { await runAllNetTests() }
-          } label: {
-            if isTestingAllNet {
-              ProgressView().controlSize(.small).tint(.primary)
-            } else {
-              Text("测试全部").fontWeight(.semibold)
+            .disabled(scrapingSwitches == originalScrapingSwitches || isSavingScraping)
+            .accessibilityIdentifier("native-sysmod-scraping-save")
+          } else if domain == .nettest {
+            Button {
+              Task { await runAllNetTests() }
+            } label: {
+              if isTestingAllNet {
+                ProgressView().controlSize(.small).tint(.primary)
+              } else {
+                Text("测试全部").fontWeight(.semibold)
+              }
             }
+            .disabled(isTestingAllNet || netTargets.isEmpty)
+            .accessibilityIdentifier("native-sysmod-nettest-all")
+          } else if domain == .notifications {
+            Button {
+              showsNotificationCreate = true
+            } label: {
+              Image(systemName: "plus")
+            }
+            .accessibilityLabel("新增通知渠道")
+            .accessibilityIdentifier("native-sysmod-notification-add")
+          } else if domain == .directories {
+            Button {
+              showsDirectoryCreate = true
+            } label: {
+              Image(systemName: "plus")
+            }
+            .accessibilityLabel("新增整理目录")
+            .accessibilityIdentifier("native-sysmod-directory-add")
           }
-          .disabled(isTestingAllNet || netTargets.isEmpty)
-          .accessibilityIdentifier("native-sysmod-nettest-all")
-        } else if domain == .notifications {
-          Button {
-            showsNotificationCreate = true
-          } label: {
-            Image(systemName: "plus")
-          }
-          .accessibilityLabel("新增通知渠道")
-          .accessibilityIdentifier("native-sysmod-notification-add")
-        } else if domain == .directories {
-          Button {
-            showsDirectoryCreate = true
-          } label: {
-            Image(systemName: "plus")
-          }
-          .accessibilityLabel("新增整理目录")
-          .accessibilityIdentifier("native-sysmod-directory-add")
         }
+        .tint(.primary)
       }
     }
     .task(id: "\(domain.rawValue)|\(reloadToken)") { await load() }
@@ -1651,14 +1654,17 @@ private struct NativeNotificationEditorSheet: View {
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("取消") { dismiss() }
+            .tint(.primary)
         }
         ToolbarItem(placement: .confirmationAction) {
           Button("保存") { commitSave() }
             .fontWeight(.semibold)
+            .tint(.primary)
             .disabled(!canSubmit)
         }
       }
     }
+    .nativeGlassSheet()
   }
 
   private var channelTypeSection: some View {
@@ -1999,14 +2005,17 @@ private struct NativeDirectoryEditorSheet: View {
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("取消") { dismiss() }
+            .tint(.primary)
         }
         ToolbarItem(placement: .confirmationAction) {
           Button("保存") { commitSave() }
             .fontWeight(.semibold)
+            .tint(.primary)
             .disabled(!canSubmit)
         }
       }
     }
+    .nativeGlassSheet()
   }
 
   private var basicSection: some View {

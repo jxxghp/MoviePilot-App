@@ -667,6 +667,7 @@ struct NativeChannelAuthorizationPage: View {
           } label: {
             Image(systemName: "plus")
           }
+          .tint(.primary)
           .disabled(channels.isEmpty)
           .accessibilityLabel("新增渠道授权")
           .accessibilityIdentifier("native-auth-add")
@@ -976,10 +977,14 @@ private struct NativeChannelAuthCreateSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+        ToolbarItem(placement: .topBarLeading) {
+          Button("取消") { dismiss() }
+            .tint(.primary)
+        }
         ToolbarItem(placement: .topBarTrailing) {
           Button("授权") { Task { await submit() } }
             .fontWeight(.semibold)
+            .tint(.primary)
             .disabled(
               isSubmitting || notificationID.isEmpty
                 || senderID.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -989,7 +994,7 @@ private struct NativeChannelAuthCreateSheet: View {
         if notificationID.isEmpty, let first = channels.first { notificationID = first.id }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func inlineInputRow(_ label: String, placeholder: String, text: Binding<String>)
@@ -1140,7 +1145,10 @@ private struct NativeChannelAuthEditSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+        ToolbarItem(placement: .topBarLeading) {
+          Button("取消") { dismiss() }
+            .tint(.primary)
+        }
         ToolbarItem(placement: .topBarTrailing) {
           Button("保存") {
             if role == "admin" && member.role != "admin" {
@@ -1150,6 +1158,7 @@ private struct NativeChannelAuthEditSheet: View {
             }
           }
           .fontWeight(.semibold)
+          .tint(.primary)
           .disabled(isSubmitting)
         }
       }
@@ -1160,7 +1169,7 @@ private struct NativeChannelAuthEditSheet: View {
         Text("授予管理员角色后，该渠道成员将拥有搜索、订阅、下载与定时任务的全部权限。")
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func infoRow(_ label: String, value: String) -> some View {
@@ -1345,11 +1354,12 @@ struct NativeSubscribeSearchSettingsPage: View {
           Task { await saveAll() }
         } label: {
           if isSaving {
-            ProgressView().controlSize(.small)
+            ProgressView().controlSize(.small).tint(.primary)
           } else {
             Text("保存").fontWeight(.semibold)
           }
         }
+        .tint(.primary)
         .disabled(isSaving || isLoading)
       }
     }
@@ -1636,11 +1646,12 @@ struct NativeMediaSourceSettingsPage: View {
           Task { await save() }
         } label: {
           if isSaving {
-            ProgressView().controlSize(.small)
+            ProgressView().controlSize(.small).tint(.primary)
           } else {
             Text("保存").fontWeight(.semibold)
           }
         }
+        .tint(.primary)
         .disabled(isSaving || isLoading)
       }
     }
@@ -1765,6 +1776,7 @@ private struct NativeSiteScopePickerView: View {
         Button(selection.isEmpty ? "全选" : "清空") {
           if selection.isEmpty { selection = Set(sites.map(\.id)) } else { selection.removeAll() }
         }
+        .tint(.primary)
       }
     }
   }
@@ -1938,6 +1950,7 @@ struct NativeDownloadersManagePage: View {
         } label: {
           Image(systemName: "plus")
         }
+        .tint(.primary)
         .accessibilityLabel("新增下载器")
       }
     }
@@ -2178,7 +2191,10 @@ private struct NativeDownloaderEditorSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+        ToolbarItem(placement: .topBarLeading) {
+          Button("取消") { dismiss() }
+            .tint(.primary)
+        }
         ToolbarItem(placement: .topBarTrailing) {
           Button("保存") {
             var config = initial?.config ?? [:]
@@ -2203,11 +2219,12 @@ private struct NativeDownloaderEditorSheet: View {
             dismiss()
           }
           .fontWeight(.semibold)
+          .tint(.primary)
           .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
         }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func rowField(_ label: String, placeholder: String, text: Binding<String>) -> some View {
@@ -2329,6 +2346,7 @@ struct NativeMediaServersManagePage: View {
         } label: {
           Image(systemName: "plus")
         }
+        .tint(.primary)
         .accessibilityLabel("新增媒体服务器")
       }
     }
@@ -2532,7 +2550,10 @@ private struct NativeMediaServerEditorSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+        ToolbarItem(placement: .topBarLeading) {
+          Button("取消") { dismiss() }
+            .tint(.primary)
+        }
         ToolbarItem(placement: .topBarTrailing) {
           Button("保存") {
             var config = initial?.config ?? [:]
@@ -2561,11 +2582,12 @@ private struct NativeMediaServerEditorSheet: View {
             dismiss()
           }
           .fontWeight(.semibold)
+          .tint(.primary)
           .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
         }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func rowField(_ label: String, placeholder: String, text: Binding<String>) -> some View {

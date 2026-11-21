@@ -1639,12 +1639,18 @@ private struct NativeLibraryEpisodesSheet: View {
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
-          Button("关闭") { dismiss() }
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
         }
       }
     }
     .presentationDetents([.medium, .large])
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func playEpisode(_ ep: (number: Int, itemID: String)) async {

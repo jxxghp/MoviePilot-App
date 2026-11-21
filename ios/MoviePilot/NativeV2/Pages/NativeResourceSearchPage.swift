@@ -121,6 +121,7 @@ struct NativeResourceSearchPage: View {
               systemName: sortField == .defaultPriority && sortDescending
                 ? "arrow.up.arrow.down.circle" : "arrow.up.arrow.down.circle.fill")
           }
+          .tint(.primary)
           .accessibilityLabel("排序方式")
           .accessibilityIdentifier("native-resource-search-sort-menu")
 
@@ -131,6 +132,7 @@ struct NativeResourceSearchPage: View {
               systemName: filter.activeCount > 0
                 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
           }
+          .tint(.primary)
           .accessibilityLabel("全部筛选条件")
           .accessibilityIdentifier("native-resource-search-filter-menu")
         }
@@ -151,7 +153,7 @@ struct NativeResourceSearchPage: View {
       ) { message in
         feedback = NativeResourceFeedback(isError: false, message: message)
       }
-      .nativeAppearanceRoot()
+      .nativeGlassSheet()
       .presentationDetents([.fraction(2.0 / 3.0), .large])
       .presentationDragIndicator(.visible)
     }
@@ -610,14 +612,18 @@ private struct NativeResourceAllFiltersSheet: View {
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
-          Button("重置") { filter.clearAll() }.disabled(filter.activeCount == 0)
+          Button("重置") { filter.clearAll() }
+            .tint(.primary)
+            .disabled(filter.activeCount == 0)
         }
         ToolbarItem(placement: .topBarTrailing) {
-          Button("完成") { dismiss() }.fontWeight(.semibold)
+          Button("完成") { dismiss() }
+            .fontWeight(.semibold)
+            .tint(.primary)
         }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   @ViewBuilder
@@ -906,9 +912,15 @@ private struct NativeDownloadConfirmSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("取消") { dismiss() }
-            .accessibilityIdentifier("native-download-confirm-cancel")
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
+          .accessibilityIdentifier("native-download-confirm-cancel")
         }
       }
       .task { await loadOptions() }

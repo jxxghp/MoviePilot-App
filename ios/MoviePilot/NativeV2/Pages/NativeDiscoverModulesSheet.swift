@@ -121,45 +121,34 @@ struct NativeDiscoverModulesSheet: View {
             .padding(.horizontal, CinematicStyle.margin)
             .accessibilityIdentifier("native-modules-error")
           }
-          List {
-            ForEach($modules) { $item in
-              HStack(spacing: 12) {
-                Image(systemName: item.id.symbol)
-                  .font(.body.weight(.medium))
-                  .foregroundStyle(.primary.opacity(0.68))
-                  .frame(width: 24)
-                Toggle(item.id.title, isOn: $item.enabled)
-                  .font(.body.weight(.medium))
-                  .foregroundStyle(.primary)
-                  .tint(Color(red: 0.24, green: 0.84, blue: 0.48))
-                  .accessibilityIdentifier("native-module-toggle-\(item.id.rawValue)")
+          CinematicPanel(padding: 0, showsShadow: false) {
+            List {
+              ForEach($modules) { $item in
+                HStack(spacing: 12) {
+                  Image(systemName: item.id.symbol)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.primary.opacity(0.76))
+                    .frame(width: 24)
+                  Toggle(item.id.title, isOn: $item.enabled)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .tint(Color(red: 0.24, green: 0.84, blue: 0.48))
+                    .accessibilityIdentifier("native-module-toggle-\(item.id.rawValue)")
+                }
+                .padding(.vertical, 5)
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(NativeTheme.divider)
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 14))
+                .deleteDisabled(true)
               }
-              .padding(.vertical, 5)
-              .listRowBackground(Color.clear)
-              .listRowSeparatorTint(.white.opacity(0.10))
-              .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 14))
-              .deleteDisabled(true)
+              .onMove { source, destination in
+                modules.move(fromOffsets: source, toOffset: destination)
+              }
             }
-            .onMove { source, destination in
-              modules.move(fromOffsets: source, toOffset: destination)
-            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.editMode, $editMode)
           }
-          .listStyle(.plain)
-          .scrollContentBackground(.hidden)
-          .environment(\.editMode, $editMode)
-          .background {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-              .fill(.ultraThinMaterial)
-              .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                  .fill(Color(red: 62 / 255, green: 44 / 255, blue: 76 / 255).opacity(0.36))
-              }
-              .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                  .strokeBorder(.primary.opacity(0.15), lineWidth: 0.65)
-              }
-          }
-          .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
           .padding(.horizontal, CinematicStyle.margin)
           .frame(height: min(CGFloat(modules.count) * 56 + 14, 520))
           .accessibilityIdentifier("native-modules-list")
@@ -179,13 +168,11 @@ struct NativeDiscoverModulesSheet: View {
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
-          Button {
+          Button("取消") {
             editMode = .inactive
             dismiss()
-          } label: {
-            Image(systemName: "xmark")
           }
-          .accessibilityLabel("关闭")
+          .tint(.primary)
           .accessibilityIdentifier("native-modules-cancel")
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -205,11 +192,12 @@ struct NativeDiscoverModulesSheet: View {
           } label: {
             Text(isSaving ? "保存中…" : "保存").fontWeight(.semibold)
           }
+          .tint(.primary)
           .disabled(isSaving)
           .accessibilityIdentifier("native-modules-save")
         }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 }

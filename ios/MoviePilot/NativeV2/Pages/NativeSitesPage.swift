@@ -1,3 +1,4 @@
+import Charts
 import Foundation
 import MoviePilotAPI
 import MoviePilotCore
@@ -84,6 +85,7 @@ struct NativeSitesPage: View {
         } label: {
           Image(systemName: "plus")
         }
+        .tint(.primary)
         .accessibilityLabel("新增站点")
         .accessibilityIdentifier("native-sites-add")
       }
@@ -453,6 +455,57 @@ private struct NativeSiteDataSheet: View {
   @State private var isLoading = true
   @State private var isRefreshing = false
   @State private var message: String?
+  @State private var selectedHistoryIndex: Int?
+  @State private var selectedSeedingIndex: Int?
+
+  private static let seedingPointLimit = 200
+
+  /// 最新一天站点统计数据（按统计日期升序排列后取末位，与 Web 保持一致）。
+  private var latestData: NativeSiteUserData? { history.last }
+
+  /// 最近两次统计的增量差值。
+  private var previousData: NativeSiteUserData? {
+    history.count >= 2 ? history[history.count - 2] : nil
+  }
+
+  /// 流量历史折线面积图采样序列（单位：GB，按时间从旧到新）。
+  private var trafficPoints: [NativeSiteTrafficPoint] {
+    history.enumerated().map { idx, row in
+      NativeSiteTrafficPoint(
+        index: idx,
+        rawDay: row.updatedDay ?? "记录 #\(idx + 1)",
+        shortDay: Self.formatShortDate(row.updatedDay ?? "记录 #\(idx + 1)"),
+        uploadGB: row.upload / 1_073_741_824.0,
+        downloadGB: row.download / 1_073_741_824.0,
+        uploadBytes: row.upload,
+        downloadBytes: row.download
+      )
+    }
+  }
+
+  /// 最新一天的做种分布散点（最多等距采样 200 个点并保留首尾，与 Web 保持一致）。
+  private var seedingPoints: [NativeSiteSeedingPoint] {
+    guard let source = latestData?.seedingInfo, !source.isEmpty else { return [] }
+    let limit = Self.seedingPointLimit
+    let sampled: [(Int, Double)]
+    if source.count <= limit {
+      sampled = source
+    } else {
+      sampled = (0..<limit).map { idx in
+        let pos = Int(
+          (Double(idx) * Double(source.count - 1) / Double(max(limit - 1, 1))).rounded())
+        return source[min(max(pos, 0), source.count - 1)]
+      }
+    }
+    return sampled.enumerated().map { idx, pair in
+      NativeSiteSeedingPoint(
+        index: idx,
+        count: pair.0,
+        volumeGB: pair.1 / 1_073_741_824.0,
+        sizeBytes: pair.1
+      )
+    }
+  }
 
   var body: some View {
     NavigationStack {
@@ -501,28 +554,57 @@ private struct NativeSiteDataSheet: View {
             if isLoading {
               NativeCardListSkeletonView(count: 2, style: .formPanel)
                 .transition(.opacity)
-            } else if let latest = history.first {
+            } else if let latest = latestData {
               LazyVGrid(
                 columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
                 spacing: 10
               ) {
                 metricTile(
-                  "上传量", value: NativeSitesPage.formatBytes(latest.upload),
+                  "上传量",
+                  value: NativeSitesPage.formatBytes(latest.upload),
+                  delta: previousData.map { Self.formatSignedBytes(latest.upload - $0.upload) },
+                  deltaPositive: previousData.map { latest.upload >= $0.upload },
                   tint: NativeTheme.success)
                 metricTile(
-                  "下载量", value: NativeSitesPage.formatBytes(latest.download), tint: NativeTheme.pink
-                )
+                  "下载量",
+                  value: NativeSitesPage.formatBytes(latest.download),
+                  delta: previousData.map { Self.formatSignedBytes(latest.download - $0.download) },
+                  deltaPositive: previousData.map { latest.download >= $0.download },
+                  tint: NativeTheme.warning)
                 metricTile(
-                  "分享率", value: String(format: "%.2f", latest.ratio), tint: NativeTheme.brand)
+                  "分享率",
+                  value: latest.download == 0 && latest.ratio == 0
+                    ? "∞" : String(format: "%.2f", latest.ratio),
+                  delta: previousData.map { Self.formatSignedDouble(latest.ratio - $0.ratio) },
+                  deltaPositive: previousData.map { latest.ratio >= $0.ratio },
+                  tint: NativeTheme.info)
                 metricTile(
                   "做种数 / 体积",
                   value: "\(latest.seeding) · \(NativeSitesPage.formatBytes(latest.seedingSize))",
-                  tint: NativeTheme.info)
+                  delta: previousData.map {
+                    Self.formatSignedInt(latest.seeding - $0.seeding)
+                  },
+                  deltaPositive: previousData.map { latest.seeding >= $0.seeding },
+                  tint: NativeTheme.brand)
                 metricTile(
-                  "魔力 / 积分", value: String(format: "%.1f", latest.bonus), tint: NativeTheme.warning)
+                  "魔力 / 积分",
+                  value: String(format: "%.1f", latest.bonus),
+                  delta: previousData.map { Self.formatSignedDouble(latest.bonus - $0.bonus) },
+                  deltaPositive: previousData.map { latest.bonus >= $0.bonus },
+                  tint: NativeTheme.warning)
                 metricTile(
                   "用户等级", value: latest.userLevel?.isEmpty == false ? latest.userLevel! : "-",
                   tint: NativeTheme.cyan)
+              }
+
+              // 流量历史面积折线图（对标 Web 上传量/下载量 GB 双曲线趋势图）
+              if !trafficPoints.isEmpty {
+                trafficHistoryChartCard
+              }
+
+              // 做种分布散点图（对标 Web 做种数 × 做种体积 GB 散点图）
+              if !seedingPoints.isEmpty {
+                seedingDistributionChartCard(totalCount: latest.seedingInfo.count)
               }
 
               CinematicPanel(padding: 0) {
@@ -542,31 +624,6 @@ private struct NativeSiteDataSheet: View {
                   kvRow("未读消息", value: "\(latest.messageUnread)")
                 }
               }
-
-              if history.count > 1 {
-                VStack(alignment: .leading, spacing: 7) {
-                  Text("历史记录（最近 \(min(history.count, 10)) 次）")
-                    .font(.footnote.weight(.medium)).foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                  CinematicPanel(padding: 0) {
-                    VStack(spacing: 0) {
-                      ForEach(Array(history.prefix(10).enumerated()), id: \.offset) { idx, row in
-                        if idx > 0 { CinematicFormDivider() }
-                        HStack {
-                          Text(row.updatedDay ?? "记录 #\(idx + 1)")
-                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                          Spacer()
-                          Text("↑ \(NativeSitesPage.formatBytes(row.upload))")
-                            .font(.caption.monospacedDigit()).foregroundStyle(NativeTheme.success)
-                          Text("↓ \(NativeSitesPage.formatBytes(row.download))")
-                            .font(.caption.monospacedDigit()).foregroundStyle(NativeTheme.pink)
-                        }
-                        .padding(.horizontal, 14).padding(.vertical, 10)
-                      }
-                    }
-                  }
-                }
-              }
             } else {
               CinematicPanel(padding: 16) {
                 Text("暂无该站点的流量统计记录，可点击上方「刷新数据」实时抓取。")
@@ -580,7 +637,7 @@ private struct NativeSiteDataSheet: View {
               VStack(spacing: 0) {
                 Button(action: onEdit) {
                   HStack {
-                    Image(systemName: "pencil").foregroundStyle(appearance.accentColor)
+                    Image(systemName: "pencil").foregroundStyle(.primary)
                     Text("编辑站点配置").font(.subheadline.weight(.medium)).foregroundStyle(.primary)
                     Spacer()
                     Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
@@ -606,22 +663,341 @@ private struct NativeSiteDataSheet: View {
           }
           .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
         }
+        .scrollIndicators(.hidden)
       }
       .navigationTitle("站点数据")
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .topBarLeading) { Button("关闭") { dismiss() } }
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
+        }
       }
       .task { await loadUserData() }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
-  private func metricTile(_ title: String, value: String, tint: Color) -> some View {
+  /// 历史流量双曲线面积图（上传量绿色 + 下载量琥珀色，支持手指滑动查看每日明细）。
+  private var trafficHistoryChartCard: some View {
+    let points = trafficPoints
+    let activePoint: NativeSiteTrafficPoint? =
+      selectedHistoryIndex.flatMap { idx in
+        points.indices.contains(idx) ? points[idx] : nil
+      }
+    let xStride = max(1, points.count / 4)
+    let xTicks = points.indices.filter {
+      $0 == 0 || $0 == points.count - 1 || $0 % xStride == 0
+    }
+    return CinematicPanel(padding: 15) {
+      VStack(alignment: .leading, spacing: 12) {
+        HStack(alignment: .center, spacing: 8) {
+          Image(systemName: "chart.xyaxis.line")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+          Text("历史流量趋势")
+            .font(.subheadline.weight(.semibold))
+          Spacer()
+          Text("最近 \(points.count) 天 · GB")
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+
+        if let active = activePoint {
+          HStack(spacing: 12) {
+            Text(active.rawDay)
+              .font(.caption2.monospacedDigit().weight(.semibold))
+              .foregroundStyle(.primary)
+            Spacer()
+            Text("↑ \(NativeSitesPage.formatBytes(active.uploadBytes))")
+              .font(.caption2.monospacedDigit().weight(.semibold))
+              .foregroundStyle(NativeTheme.success)
+            Text("↓ \(NativeSitesPage.formatBytes(active.downloadBytes))")
+              .font(.caption2.monospacedDigit().weight(.semibold))
+              .foregroundStyle(NativeTheme.warning)
+          }
+          .padding(.horizontal, 10)
+          .padding(.vertical, 6)
+          .background(
+            NativeTheme.chipFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+
+        Chart {
+          ForEach(points) { pt in
+            AreaMark(
+              x: .value("日期", pt.index),
+              y: .value("上传量", pt.uploadGB),
+              series: .value("类型", "上传量")
+            )
+            .interpolationMethod(.catmullRom)
+            .foregroundStyle(
+              LinearGradient(
+                colors: [NativeTheme.success.opacity(0.32), NativeTheme.success.opacity(0.02)],
+                startPoint: .top,
+                endPoint: .bottom
+              )
+            )
+            LineMark(
+              x: .value("日期", pt.index),
+              y: .value("上传量", pt.uploadGB),
+              series: .value("类型", "上传量")
+            )
+            .interpolationMethod(.catmullRom)
+            .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
+            .foregroundStyle(NativeTheme.success)
+
+            AreaMark(
+              x: .value("日期", pt.index),
+              y: .value("下载量", pt.downloadGB),
+              series: .value("类型", "下载量")
+            )
+            .interpolationMethod(.catmullRom)
+            .foregroundStyle(
+              LinearGradient(
+                colors: [NativeTheme.warning.opacity(0.30), NativeTheme.warning.opacity(0.02)],
+                startPoint: .top,
+                endPoint: .bottom
+              )
+            )
+            LineMark(
+              x: .value("日期", pt.index),
+              y: .value("下载量", pt.downloadGB),
+              series: .value("类型", "下载量")
+            )
+            .interpolationMethod(.catmullRom)
+            .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
+            .foregroundStyle(NativeTheme.warning)
+          }
+
+          if let active = activePoint {
+            RuleMark(x: .value("选中", active.index))
+              .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+              .foregroundStyle(.primary.opacity(0.35))
+            PointMark(
+              x: .value("日期", active.index),
+              y: .value("上传量", active.uploadGB)
+            )
+            .symbolSize(46)
+            .foregroundStyle(NativeTheme.success)
+            PointMark(
+              x: .value("日期", active.index),
+              y: .value("下载量", active.downloadGB)
+            )
+            .symbolSize(46)
+            .foregroundStyle(NativeTheme.warning)
+          }
+        }
+        .chartLegend(.hidden)
+        .chartXScale(domain: 0...max(points.count - 1, 1))
+        .chartXAxis {
+          AxisMarks(values: xTicks) { value in
+            if let idx = value.as(Int.self), points.indices.contains(idx) {
+              AxisValueLabel {
+                Text(points[idx].shortDay)
+                  .font(.caption2.monospacedDigit())
+                  .foregroundStyle(.secondary)
+              }
+            }
+          }
+        }
+        .chartYAxis {
+          AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { value in
+            AxisGridLine(stroke: StrokeStyle(lineWidth: 0.6, dash: [4, 4]))
+              .foregroundStyle(NativeTheme.divider)
+            AxisValueLabel {
+              if let gb = value.as(Double.self) {
+                Text(Self.formatCompactGB(gb))
+                  .font(.caption2.monospacedDigit())
+                  .foregroundStyle(.secondary)
+              }
+            }
+          }
+        }
+        .chartOverlay { proxy in
+          GeometryReader { geo in
+            Rectangle()
+              .fill(.clear)
+              .contentShape(Rectangle())
+              .gesture(
+                DragGesture(minimumDistance: 0)
+                  .onChanged { value in
+                    let origin = geo[proxy.plotAreaFrame].origin
+                    let xPos = value.location.x - origin.x
+                    if let rawIndex: Double = proxy.value(atX: xPos) {
+                      let clamped = min(max(Int(rawIndex.rounded()), 0), points.count - 1)
+                      selectedHistoryIndex = clamped
+                    }
+                  }
+                  .onEnded { _ in
+                    selectedHistoryIndex = nil
+                  }
+              )
+          }
+        }
+        .frame(height: 196)
+
+        HStack(spacing: 16) {
+          HStack(spacing: 6) {
+            Circle().fill(NativeTheme.success).frame(width: 8, height: 8)
+            Text("上传量").font(.caption2).foregroundStyle(.secondary)
+          }
+          HStack(spacing: 6) {
+            Circle().fill(NativeTheme.warning).frame(width: 8, height: 8)
+            Text("下载量").font(.caption2).foregroundStyle(.secondary)
+          }
+          Spacer()
+          Text("按住图表滑动查看每日数值")
+            .font(.caption2)
+            .foregroundStyle(.secondary.opacity(0.75))
+        }
+      }
+    }
+  }
+
+  /// 做种分布散点图（横轴做种数、纵轴做种体积 GB，与 Web `seeding_info` 图表对齐）。
+  private func seedingDistributionChartCard(totalCount: Int) -> some View {
+    let points = seedingPoints
+    let activePoint: NativeSiteSeedingPoint? =
+      selectedSeedingIndex.flatMap { idx in
+        points.indices.contains(idx) ? points[idx] : nil
+      }
+    return CinematicPanel(padding: 15) {
+      VStack(alignment: .leading, spacing: 12) {
+        HStack(alignment: .center, spacing: 8) {
+          Image(systemName: "chart.dots.scatter")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+          Text("做种分布")
+            .font(.subheadline.weight(.semibold))
+          Spacer()
+          Text("GB")
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+
+        if let active = activePoint {
+          HStack(spacing: 10) {
+            Text("做种数 \(active.count)")
+              .font(.caption2.monospacedDigit().weight(.semibold))
+            Spacer()
+            Text("体积 \(NativeSitesPage.formatBytes(active.sizeBytes))")
+              .font(.caption2.monospacedDigit().weight(.semibold))
+              .foregroundStyle(appearance.accentColor)
+          }
+          .padding(.horizontal, 10)
+          .padding(.vertical, 6)
+          .background(
+            NativeTheme.chipFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+
+        Chart(points) { pt in
+          PointMark(
+            x: .value("做种数", pt.count),
+            y: .value("体积", pt.volumeGB)
+          )
+          .symbolSize(activePoint?.id == pt.id ? 64 : 34)
+          .foregroundStyle(
+            activePoint?.id == pt.id
+              ? appearance.accentColor
+              : appearance.accentColor.opacity(0.72)
+          )
+        }
+        .chartXAxis {
+          AxisMarks(values: .automatic(desiredCount: 5)) { value in
+            AxisGridLine(stroke: StrokeStyle(lineWidth: 0.6, dash: [4, 4]))
+              .foregroundStyle(NativeTheme.divider)
+            AxisValueLabel {
+              if let count = value.as(Int.self) {
+                Text("\(count)")
+                  .font(.caption2.monospacedDigit())
+                  .foregroundStyle(.secondary)
+              }
+            }
+          }
+        }
+        .chartYAxis {
+          AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { value in
+            AxisGridLine(stroke: StrokeStyle(lineWidth: 0.6, dash: [4, 4]))
+              .foregroundStyle(NativeTheme.divider)
+            AxisValueLabel {
+              if let gb = value.as(Double.self) {
+                Text(Self.formatCompactGB(gb))
+                  .font(.caption2.monospacedDigit())
+                  .foregroundStyle(.secondary)
+              }
+            }
+          }
+        }
+        .chartOverlay { proxy in
+          GeometryReader { geo in
+            Rectangle()
+              .fill(.clear)
+              .contentShape(Rectangle())
+              .gesture(
+                DragGesture(minimumDistance: 0)
+                  .onChanged { value in
+                    let origin = geo[proxy.plotAreaFrame].origin
+                    let xPos = value.location.x - origin.x
+                    if let targetX: Double = proxy.value(atX: xPos) {
+                      selectedSeedingIndex =
+                        points.enumerated().min {
+                          abs(Double($0.element.count) - targetX)
+                            < abs(Double($1.element.count) - targetX)
+                        }?.offset
+                    }
+                  }
+                  .onEnded { _ in
+                    selectedSeedingIndex = nil
+                  }
+              )
+          }
+        }
+        .frame(height: 176)
+
+        HStack(spacing: 12) {
+          HStack(spacing: 6) {
+            Circle().fill(appearance.accentColor).frame(width: 8, height: 8)
+            Text("做种体积（横轴：做种数）").font(.caption2).foregroundStyle(.secondary)
+          }
+          Spacer()
+          if totalCount > Self.seedingPointLimit {
+            Text("采样 \(Self.seedingPointLimit) / \(totalCount) 点")
+              .font(.caption2.monospacedDigit())
+              .foregroundStyle(.secondary)
+          }
+        }
+      }
+    }
+  }
+
+  private func metricTile(
+    _ title: String,
+    value: String,
+    delta: String? = nil,
+    deltaPositive: Bool? = nil,
+    tint: Color
+  ) -> some View {
     CinematicPanel(padding: 13) {
       VStack(alignment: .leading, spacing: 5) {
-        Text(title).font(.caption2).foregroundStyle(.secondary)
+        HStack(spacing: 4) {
+          Text(title).font(.caption2).foregroundStyle(.secondary)
+          Spacer(minLength: 2)
+          if let delta, !delta.isEmpty, delta != "0" {
+            Text(delta)
+              .font(.caption2.monospacedDigit().weight(.medium))
+              .foregroundStyle(
+                deltaPositive == false ? NativeTheme.danger : NativeTheme.success
+              )
+              .lineLimit(1)
+              .minimumScaleFactor(0.7)
+          }
+        }
         Text(value)
           .font(.subheadline.monospacedDigit().weight(.bold))
           .foregroundStyle(tint)
@@ -630,6 +1006,39 @@ private struct NativeSiteDataSheet: View {
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }
+  }
+
+  private static func formatShortDate(_ raw: String) -> String {
+    let clean = raw.split(separator: " ").first.map(String.init) ?? raw
+    let parts = clean.split(separator: "-")
+    if parts.count == 3, let m = Int(parts[1]), let d = Int(parts[2]) {
+      return "\(m)/\(d)"
+    }
+    return clean
+  }
+
+  private static func formatCompactGB(_ gb: Double) -> String {
+    let rounded = Int(gb.rounded())
+    if rounded >= 10_000 {
+      return String(format: "%.1fT", gb / 1024.0)
+    }
+    return "\(rounded)"
+  }
+
+  private static func formatSignedBytes(_ diff: Double) -> String {
+    if abs(diff) < 1 { return "0" }
+    let sign = diff > 0 ? "+" : "-"
+    return "\(sign)\(NativeSitesPage.formatBytes(abs(diff)))"
+  }
+
+  private static func formatSignedDouble(_ diff: Double) -> String {
+    if abs(diff) < 0.01 { return "0" }
+    return String(format: "%+.1f", diff)
+  }
+
+  private static func formatSignedInt(_ diff: Int) -> String {
+    if diff == 0 { return "0" }
+    return diff > 0 ? "+\(diff)" : "\(diff)"
   }
 
   private func kvRow(_ k: String, value: String) -> some View {
@@ -656,7 +1065,10 @@ private struct NativeSiteDataSheet: View {
       let reply = try await session.request(
         ep, as: NativeSiteUserDataEnvelope.self, requiring: .init(category: .admin)
       ).value
-      history = reply.data ?? []
+      let sorted = (reply.data ?? []).sorted {
+        ($0.updatedDay ?? "") < ($1.updatedDay ?? "")
+      }
+      history = Array(sorted.suffix(90))
     } catch {
       history = []
     }
@@ -794,17 +1206,21 @@ private struct NativeSiteEditorSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+        ToolbarItem(placement: .topBarLeading) {
+          Button("取消") { dismiss() }
+            .tint(.primary)
+        }
         ToolbarItem(placement: .topBarTrailing) {
           Button {
             Task { await submit() }
           } label: {
             if isSubmitting {
-              ProgressView().controlSize(.small)
+              ProgressView().controlSize(.small).tint(.primary)
             } else {
               Text("保存").fontWeight(.semibold)
             }
           }
+          .tint(.primary)
           .disabled(
             isSubmitting
               || name.trimmingCharacters(in: .whitespaces).isEmpty
@@ -827,7 +1243,7 @@ private struct NativeSiteEditorSheet: View {
         }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func rowField(_ label: String, placeholder: String, text: Binding<String>) -> some View {
@@ -922,6 +1338,27 @@ private struct NativeSiteUserDataEnvelope: Decodable, Sendable {
   let data: [NativeSiteUserData]?
 }
 
+private struct NativeSiteTrafficPoint: Identifiable {
+  let index: Int
+  let rawDay: String
+  let shortDay: String
+  let uploadGB: Double
+  let downloadGB: Double
+  let uploadBytes: Double
+  let downloadBytes: Double
+
+  var id: Int { index }
+}
+
+private struct NativeSiteSeedingPoint: Identifiable {
+  let index: Int
+  let count: Int
+  let volumeGB: Double
+  let sizeBytes: Double
+
+  var id: Int { index }
+}
+
 private struct NativeSiteUserData: Decodable, Sendable {
   let domain: String?
   let name: String?
@@ -934,6 +1371,7 @@ private struct NativeSiteUserData: Decodable, Sendable {
   let ratio: Double
   let seeding: Int
   let seedingSize: Double
+  let seedingInfo: [(Int, Double)]
   let bonus: Double
   let messageUnread: Int
 
@@ -950,6 +1388,14 @@ private struct NativeSiteUserData: Decodable, Sendable {
     ratio = (try? c.decodeIfPresent(Double.self, forKey: .ratio)) ?? 0
     seeding = (try? c.decodeIfPresent(Int.self, forKey: .seeding)) ?? 0
     seedingSize = (try? c.decodeIfPresent(Double.self, forKey: .seedingSize)) ?? 0
+    if let rawPairs = try? c.decodeIfPresent([[Double]].self, forKey: .seedingInfo) {
+      seedingInfo = rawPairs.compactMap { pair in
+        guard pair.count >= 2 else { return nil }
+        return (Int(pair[0].rounded()), pair[1])
+      }
+    } else {
+      seedingInfo = []
+    }
     bonus = (try? c.decodeIfPresent(Double.self, forKey: .bonus)) ?? 0
     messageUnread = (try? c.decodeIfPresent(Int.self, forKey: .messageUnread)) ?? 0
   }
@@ -960,6 +1406,7 @@ private struct NativeSiteUserData: Decodable, Sendable {
     case joinAt = "join_at"
     case updatedDay = "updated_day"
     case seedingSize = "seeding_size"
+    case seedingInfo = "seeding_info"
     case messageUnread = "message_unread"
   }
 }

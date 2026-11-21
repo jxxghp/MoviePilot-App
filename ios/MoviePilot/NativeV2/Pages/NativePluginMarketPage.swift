@@ -122,11 +122,13 @@ struct NativePluginMarketPage: View {
           } label: {
             Image(systemName: "storefront")
           }
+          .tint(.primary)
           .accessibilityLabel("插件市场")
           .accessibilityIdentifier("native-plugin-open-store")
         }
         ToolbarItem(placement: .topBarTrailing) {
           filterToolbarMenu
+            .tint(.primary)
         }
       }
       .navigationDestination(isPresented: $showsMarketPage) {
@@ -902,6 +904,7 @@ private struct NativePluginStorePage: View {
             systemName: marketFilter == .all
               ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
         }
+        .tint(.primary)
         .accessibilityLabel("市场筛选与排序")
       }
     }
@@ -1225,7 +1228,6 @@ private struct NativePluginCardSurface: View {
         }
         .padding(.horizontal, 14)
         .frame(minHeight: 38)
-        .background(NativeTheme.chipFill.opacity(0.4))
       }
     }
     .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -1341,8 +1343,14 @@ private struct NativePluginMarketDetailSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("关闭") { dismiss() }
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
         }
         if let onOpenVersionHistory {
           ToolbarItem(placement: .topBarTrailing) {
@@ -1351,6 +1359,7 @@ private struct NativePluginMarketDetailSheet: View {
             } label: {
               Image(systemName: "clock.arrow.circlepath")
             }
+            .tint(.primary)
             .accessibilityLabel("版本历史")
             .accessibilityIdentifier("native-plugin-detail-version-history")
           }
@@ -1358,7 +1367,7 @@ private struct NativePluginMarketDetailSheet: View {
       }
       .task { await bootstrap() }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private var heroSection: some View {
@@ -2021,8 +2030,14 @@ private struct NativePluginVersionHistorySheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("关闭") { dismiss() }
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
         }
       }
       .alert(
@@ -2040,7 +2055,7 @@ private struct NativePluginVersionHistorySheet: View {
       }
       .task { await loadVersionHistory() }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func loadVersionHistory() async {
@@ -2307,23 +2322,25 @@ private struct NativePluginCloneSheet: View {
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("取消") { dismiss() }
+            .tint(.primary)
         }
         ToolbarItem(placement: .confirmationAction) {
           Button {
             Task { await submitClone() }
           } label: {
             if isSubmitting {
-              ProgressView().controlSize(.small)
+              ProgressView().controlSize(.small).tint(.primary)
             } else {
               Text("创建").fontWeight(.semibold)
             }
           }
+          .tint(.primary)
           .disabled(isSubmitting || suffixValidationError != nil)
         }
       }
       .task { await loadRestorable() }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func settingsInputRow(title: String, placeholder: String, text: Binding<String>)
@@ -2444,8 +2461,14 @@ private struct NativePluginLogSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("关闭") { dismiss() }
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
         }
         ToolbarItem(placement: .topBarTrailing) {
           Button {
@@ -2453,11 +2476,13 @@ private struct NativePluginLogSheet: View {
           } label: {
             Image(systemName: "arrow.clockwise")
           }
+          .tint(.primary)
+          .accessibilityLabel("刷新")
         }
       }
       .task { await loadLogs() }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func loadLogs() async {
@@ -2535,11 +2560,19 @@ private struct NativePluginCapabilitiesSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
+        }
       }
       .task { await load() }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func capabilityCard(title: String, rows: [(String, String)]) -> some View {
@@ -2644,11 +2677,19 @@ private struct NativePluginDataSummarySheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
+        }
       }
       .task { await load() }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func load() async {
@@ -2785,11 +2826,19 @@ private struct NativePluginInstanceManageSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
+        }
       }
       .task { await loadLogLevels() }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func loadLogLevels() async {

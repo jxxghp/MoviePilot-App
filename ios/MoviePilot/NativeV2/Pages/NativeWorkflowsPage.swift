@@ -69,6 +69,7 @@ struct NativeWorkflowsPage: View {
         } label: {
           Image(systemName: "square.stack.3d.up")
         }
+        .tint(.primary)
         .accessibilityLabel("社区分享")
         .accessibilityIdentifier("native-workflows-switch-mode")
 
@@ -77,6 +78,7 @@ struct NativeWorkflowsPage: View {
         } label: {
           Image(systemName: "plus")
         }
+        .tint(.primary)
         .accessibilityLabel("新增工作流")
         .accessibilityIdentifier("native-workflows-add")
       }
@@ -501,10 +503,14 @@ private struct NativeWorkflowEditorSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+        ToolbarItem(placement: .topBarLeading) {
+          Button("取消") { dismiss() }
+            .tint(.primary)
+        }
         ToolbarItem(placement: .topBarTrailing) {
           Button("保存") { Task { await submit() } }
             .fontWeight(.semibold)
+            .tint(.primary)
             .disabled(isSubmitting || name.trimmingCharacters(in: .whitespaces).isEmpty)
         }
       }
@@ -519,7 +525,7 @@ private struct NativeWorkflowEditorSheet: View {
         }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func rowField(_ label: String, placeholder: String, text: Binding<String>) -> some View {

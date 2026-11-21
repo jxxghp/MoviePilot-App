@@ -166,6 +166,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
               } label: {
                 Image(systemName: "xmark")
               }
+              .tint(.primary)
               .accessibilityLabel("关闭")
               .accessibilityIdentifier("native-messages-sheet-close")
             }
@@ -173,7 +174,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       }
       .presentationDetents([.large])
       .presentationDragIndicator(.visible)
-      .nativeAppearanceRoot()
+      .nativeGlassSheet()
     }
     .sheet(isPresented: $showsAgentSheet) {
       NavigationStack {
@@ -185,6 +186,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
               } label: {
                 Image(systemName: "xmark")
               }
+              .tint(.primary)
               .accessibilityLabel("关闭")
               .accessibilityIdentifier("native-agent-sheet-close")
             }
@@ -192,7 +194,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       }
       .presentationDetents([.large])
       .presentationDragIndicator(.visible)
-      .nativeAppearanceRoot()
+      .nativeGlassSheet()
     }
     .sheet(
       isPresented: $showsModuleSheet,
@@ -531,6 +533,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         } label: {
           Image(systemName: "bell")
         }
+        .tint(.primary)
         .accessibilityLabel("消息中心")
         .accessibilityIdentifier("native-dashboard-messages-btn")
       }
@@ -546,7 +549,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         VStack(alignment: .leading, spacing: 10) {
           Image(systemName: symbol)
             .font(.title2.weight(.semibold))
-            .foregroundStyle(NativeTheme.brand)
+            .foregroundStyle(.primary)
           Text(title)
             .font(.headline)
             .foregroundStyle(.primary)
@@ -1174,7 +1177,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .padding(.vertical, 8)
   }
 
-  /// 悬浮快捷菜单中的单个原生入口行。
+  /// 悬浮快捷菜单中的单个原生入口行（图标统一采用文本色，不叠加额外彩色）。
   private func overflowMenuRow(
     title: String, symbol: String, id: String, action: @escaping () -> Void
   ) -> some View {
@@ -1183,7 +1186,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         Image(systemName: symbol)
           .font(.body.weight(.medium))
           .frame(width: 22)
-          .foregroundStyle(NativeTheme.brand)
+          .foregroundStyle(.primary)
         Text(title)
           .font(.subheadline.weight(.medium))
           .foregroundStyle(.primary)
@@ -1888,6 +1891,7 @@ struct NativeMediaArtwork: View {
   let reference: String?
   let role: NativeDiscoverArtworkRole
   let maximumWidth: Int
+  @Environment(\.colorScheme) private var colorScheme
   @State private var image: UIImage?
   @State private var loadedKey: String?
 
@@ -1975,10 +1979,19 @@ struct NativeMediaArtwork: View {
     ].joined(separator: "|")
   }
 
-  /// 图片加载前的极简空白占位框（不显示占位背景图或图标）。
+  /// 图片加载前的透明玻璃占位面：仅以中性微光透出页面背景，不叠实色灰底或默认占位图。
   private var placeholder: some View {
-    Rectangle()
-      .fill(Color.primary.opacity(0.05))
+    let isLight = colorScheme == .light
+    return Rectangle()
+      .fill(
+        LinearGradient(
+          colors: isLight
+            ? [Color.white.opacity(0.32), Color.white.opacity(0.10), Color.white.opacity(0.20)]
+            : [Color.white.opacity(0.08), Color.white.opacity(0.018), Color.white.opacity(0.045)],
+          startPoint: .topLeading,
+          endPoint: .bottomTrailing
+        )
+      )
   }
 }
 
@@ -2454,6 +2467,7 @@ private struct NativeShortcutsSheet: View {
           } label: {
             Image(systemName: "xmark")
           }
+          .tint(.primary)
           .accessibilityLabel("关闭")
           .accessibilityIdentifier("native-shortcuts-close")
         }
@@ -2470,7 +2484,7 @@ private struct NativeShortcutsSheet: View {
     }
     .presentationDetents([.medium, .large], selection: $detent)
     .presentationDragIndicator(.visible)
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 }
 

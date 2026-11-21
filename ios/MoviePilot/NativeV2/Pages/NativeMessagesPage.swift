@@ -91,6 +91,7 @@ struct NativeMessagesPage: View {
         } label: {
           Image(systemName: "line.3.horizontal.decrease.circle")
         }
+        .tint(.primary)
         .accessibilityLabel("筛选消息")
         .accessibilityIdentifier("native-messages-filter")
       }

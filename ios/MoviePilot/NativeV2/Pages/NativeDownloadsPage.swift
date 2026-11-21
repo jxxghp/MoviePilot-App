@@ -108,6 +108,7 @@ struct NativeDownloadsPage: View {
         } label: {
           Image(systemName: "line.3.horizontal.decrease.circle")
         }
+        .tint(.primary)
         .accessibilityLabel("筛选与排序")
         .accessibilityIdentifier("native-downloads-filter-menu")
       }

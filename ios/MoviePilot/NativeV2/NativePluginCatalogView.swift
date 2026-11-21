@@ -142,6 +142,7 @@ struct NativePluginCatalogView: View {
         } label: {
           Label("插件市场", systemImage: "bag.fill")
         }
+        .tint(.primary)
         .accessibilityIdentifier("native-plugin-market-open")
       }
     }

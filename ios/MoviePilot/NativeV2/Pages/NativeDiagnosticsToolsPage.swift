@@ -185,6 +185,7 @@ struct NativeDiagnosticsToolsPage: View {
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         trailingAction
+          .tint(.primary)
       }
     }
     .task(id: tool) { await loadCurrentTool() }
@@ -1712,20 +1713,24 @@ private struct NativeEpisodeRuleEditorSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+        ToolbarItem(placement: .topBarLeading) {
+          Button("取消") { dismiss() }
+            .tint(.primary)
+        }
         ToolbarItem(placement: .topBarTrailing) {
           Button("确定") {
             onSave(rule)
             dismiss()
           }
           .fontWeight(.semibold)
+          .tint(.primary)
           .disabled(
             rule.name.trimmingCharacters(in: .whitespaces).isEmpty
               || rule.pattern.trimmingCharacters(in: .whitespaces).isEmpty)
         }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func field(_ label: String, placeholder: String, text: Binding<String>) -> some View {

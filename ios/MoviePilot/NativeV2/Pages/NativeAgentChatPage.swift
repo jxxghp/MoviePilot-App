@@ -128,6 +128,7 @@ struct NativeAgentChatPage: View {
         } label: {
           Image(systemName: "square.and.pencil")
         }
+        .tint(.primary)
         .accessibilityLabel("新建对话")
         .accessibilityIdentifier("native-agent-new")
 
@@ -137,6 +138,7 @@ struct NativeAgentChatPage: View {
         } label: {
           Image(systemName: "clock.arrow.circlepath")
         }
+        .tint(.primary)
         .accessibilityLabel("历史会话")
         .accessibilityIdentifier("native-agent-sessions")
       }
@@ -762,6 +764,8 @@ struct NativeAgentChatPage: View {
           } label: {
             Image(systemName: "xmark")
           }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
           .accessibilityIdentifier("native-agent-sessions-close")
         }
       }
@@ -777,7 +781,7 @@ struct NativeAgentChatPage: View {
         Text("确认删除会话「\(item.displayTitle)」吗？")
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func feedbackBanner(_ feedback: NativeAgentFeedback) -> some View {
@@ -1735,12 +1739,14 @@ private struct NativeAgentImagePreviewSheet: View {
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("关闭") { dismiss() }
+            .tint(.primary)
         }
         ToolbarItem(placement: .topBarTrailing) {
           Button(saved ? "已保存" : "保存相册") {
             UIImageWriteToSavedPhotosAlbum(item.image, nil, nil, nil)
             saved = true
           }
+          .tint(.primary)
           .disabled(saved)
         }
       }

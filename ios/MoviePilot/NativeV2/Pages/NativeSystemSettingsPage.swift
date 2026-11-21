@@ -62,6 +62,7 @@ struct NativeSystemSettingsPage: View {
             Text("保存").fontWeight(.semibold)
           }
         }
+        .tint(.primary)
         .disabled(!hasChanges || isSaving || !loaded.isLoaded)
         .accessibilityIdentifier("native-settings-save")
       }

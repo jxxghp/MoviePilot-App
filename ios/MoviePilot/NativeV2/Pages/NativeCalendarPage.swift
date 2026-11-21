@@ -68,6 +68,7 @@ struct NativeCalendarPage: View {
             calendar.date(byAdding: .day, value: -(weekday - 1), to: today) ?? today
           selectedDate = today
         }
+        .tint(.primary)
         .accessibilityIdentifier("native-calendar-today")
       }
     }

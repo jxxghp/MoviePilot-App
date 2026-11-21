@@ -82,12 +82,10 @@ struct NativeSubscribeEditorSheet: View {
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
-          Button {
+          Button("取消") {
             dismiss()
-          } label: {
-            Image(systemName: "xmark")
           }
-          .accessibilityLabel("取消")
+          .tint(.primary)
           .accessibilityIdentifier("native-subscribe-editor-cancel")
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -96,6 +94,7 @@ struct NativeSubscribeEditorSheet: View {
           } label: {
             Text(isSaving ? "保存中…" : "保存").fontWeight(.semibold)
           }
+          .tint(.primary)
           .disabled(isSaving || loaded == nil || !hasChanges)
           .accessibilityIdentifier("native-subscribe-editor-save")
         }
@@ -107,7 +106,7 @@ struct NativeSubscribeEditorSheet: View {
         Text("确认删除「\(title)」的订阅吗？")
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
     .task { await load() }
   }
 
@@ -595,6 +594,7 @@ private struct NativeSubSiteSelectorView: View {
         Button(selection.isEmpty ? "全选" : "清空") {
           if selection.isEmpty { selection = Set(sites.map(\.id)) } else { selection.removeAll() }
         }
+        .tint(.primary)
       }
     }
   }

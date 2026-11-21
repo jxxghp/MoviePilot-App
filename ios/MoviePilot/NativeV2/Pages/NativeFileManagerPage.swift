@@ -121,6 +121,7 @@ struct NativeFileManagerPage: View {
         } label: {
           Image(systemName: "line.3.horizontal.decrease.circle")
         }
+        .tint(.primary)
         .accessibilityLabel("筛选、排序与文件操作")
         .accessibilityIdentifier("native-files-filter-menu")
       }
@@ -689,24 +690,26 @@ private struct NativeFileRenameSheet: View {
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("取消") { dismiss() }
+            .tint(.primary)
         }
         ToolbarItem(placement: .confirmationAction) {
           Button {
             Task { await submitRename() }
           } label: {
             if isSubmitting {
-              ProgressView().controlSize(.small)
+              ProgressView().controlSize(.small).tint(.primary)
             } else {
               Text("确认")
                 .fontWeight(.semibold)
             }
           }
+          .tint(.primary)
           .disabled(
             isSubmitting || newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func recommendName() async {
@@ -969,8 +972,14 @@ struct NativeManualTransferSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("关闭") { dismiss() }
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
         }
       }
       .task { await bootstrap() }
@@ -992,7 +1001,7 @@ struct NativeManualTransferSheet: View {
         }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   /// 源文件摘要卡片。
@@ -1889,8 +1898,14 @@ private struct NativeManualTransferMediaPickerSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("关闭") { dismiss() }
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
         }
       }
       .task {
@@ -1899,7 +1914,7 @@ private struct NativeManualTransferMediaPickerSheet: View {
         }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func runSearch() async {

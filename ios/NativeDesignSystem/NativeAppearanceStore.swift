@@ -262,6 +262,8 @@ final class NativeAppearanceStore: ObservableObject {
     useCustomTextColor = defaults.bool(forKey: Keys.useCustomText)
     customTextHex = defaults.string(forKey: Keys.textHex) ?? "#F5F2FF"
     customLightTextHex = defaults.string(forKey: Keys.lightTextHex) ?? "#1C1A24"
+    // 导航栏默认入口与返回按钮统一采用系统文本色，避免被主题强调色染成彩色。
+    UINavigationBar.appearance().tintColor = .label
   }
 
   /// 当前生效的 SwiftUI 外观模式（`nil` 表示跟随系统）。

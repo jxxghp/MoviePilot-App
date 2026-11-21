@@ -51,6 +51,7 @@ struct NativeWorkflowCanvasPage: View {
         } label: {
           Image(systemName: "plus")
         }
+        .tint(.primary)
         .accessibilityLabel("添加节点")
         .accessibilityIdentifier("native-workflow-add-node")
         .disabled(detail == nil)
@@ -64,6 +65,7 @@ struct NativeWorkflowCanvasPage: View {
             Text("保存").fontWeight(.semibold)
           }
         }
+        .tint(.primary)
         .accessibilityIdentifier("native-workflow-canvas-save")
         .disabled(detail == nil || isSaving)
       }
@@ -335,20 +337,25 @@ struct NativeWorkflowCanvasPage: View {
       .padding(.vertical, 10)
       .frame(width: nodeWidth, height: nodeHeight, alignment: .leading)
       .background {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .fill(
-            selected
-              ? Color(red: 0.36, green: 0.24, blue: 0.58).opacity(0.84)
-              : Color(red: 0.16, green: 0.12, blue: 0.24).opacity(0.76)
-          )
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        shape
+          .fill(.ultraThinMaterial)
           .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-              .strokeBorder(
-                selected ? Color(red: 0.82, green: 0.68, blue: 1.0) : .white.opacity(0.20),
-                lineWidth: selected ? 1.5 : 0.8)
+            shape.fill(
+              selected
+                ? NativeAppearanceStore.shared.accentColor.opacity(0.22)
+                : Color.white.opacity(0.05)
+            )
+          }
+          .overlay {
+            shape.strokeBorder(
+              selected
+                ? NativeAppearanceStore.shared.accentColor.opacity(0.90)
+                : Color.white.opacity(0.22),
+              lineWidth: selected ? 1.5 : 0.75)
           }
       }
-      .shadow(color: .black.opacity(selected ? 0.35 : 0.18), radius: selected ? 12 : 6, y: 4)
+      .shadow(color: .black.opacity(selected ? 0.24 : 0.12), radius: selected ? 10 : 6, y: 4)
     }
     .buttonStyle(.plain)
     .accessibilityIdentifier("native-workflow-node-\(node.id)")
@@ -771,12 +778,18 @@ private struct NativeWorkflowAddNodeSheet: View {
       .searchable(text: $query, prompt: "搜索动作名称或类名")
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
-          Button("关闭") { dismiss() }
-            .accessibilityIdentifier("native-workflow-catalog-close")
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
+          .accessibilityIdentifier("native-workflow-catalog-close")
         }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 }
 
@@ -910,6 +923,7 @@ private struct NativeWorkflowNodeEditorSheet: View {
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
+            .tint(.primary)
             .accessibilityIdentifier("native-workflow-node-editor-cancel")
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -918,12 +932,13 @@ private struct NativeWorkflowNodeEditorSheet: View {
             dismiss()
           }
           .fontWeight(.semibold)
+          .tint(.primary)
           .accessibilityIdentifier("native-workflow-node-editor-apply")
         }
       }
       .onAppear { loadFields() }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func loadFields() {
@@ -1020,11 +1035,17 @@ private struct NativeWorkflowLinkSheet: View {
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
-          Button("关闭") { dismiss() }
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
         }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 }
 

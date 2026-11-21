@@ -128,14 +128,20 @@ struct NativeNotificationSettingsSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .topBarTrailing) {
-          Button("关闭") { dismiss() }
-            .accessibilityIdentifier("native-notification-settings-close")
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
+          .accessibilityIdentifier("native-notification-settings-close")
         }
       }
       .task { await refreshStatus() }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   /// 状态条目行。
@@ -367,14 +373,20 @@ struct NativeWidgetSettingsSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .topBarTrailing) {
-          Button("关闭") { dismiss() }
-            .accessibilityIdentifier("native-widget-settings-close")
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
+          .accessibilityIdentifier("native-widget-settings-close")
         }
       }
       .task { await load() }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   /// 读取当前实例的小组件上下文与已安装资料。

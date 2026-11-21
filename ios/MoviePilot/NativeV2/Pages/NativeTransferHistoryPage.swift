@@ -90,6 +90,7 @@ struct NativeTransferHistoryPage: View {
         } label: {
           Image(systemName: "tray.full")
         }
+        .tint(.primary)
         .accessibilityLabel("整理队列")
         .accessibilityIdentifier("native-history-queue")
       }
@@ -131,6 +132,7 @@ struct NativeTransferHistoryPage: View {
         } label: {
           Image(systemName: "line.3.horizontal.decrease.circle")
         }
+        .tint(.primary)
         .accessibilityLabel("筛选与排序")
         .accessibilityIdentifier("native-history-filter-menu")
       }
@@ -807,13 +809,19 @@ private struct NativeTransferDeleteSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("取消") { dismiss() }
-            .disabled(isDeleting)
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
+          .disabled(isDeleting)
         }
       }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func deleteOptionButton(
@@ -1017,14 +1025,20 @@ private struct NativeTransferQueueSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
-        ToolbarItem(placement: .topBarTrailing) {
-          Button("关闭") { dismiss() }
-            .accessibilityIdentifier("native-transfer-queue-close")
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .tint(.primary)
+          .accessibilityLabel("关闭")
+          .accessibilityIdentifier("native-transfer-queue-close")
         }
       }
       .task { await load() }
     }
-    .nativeAppearanceRoot()
+    .nativeGlassSheet()
   }
 
   private func jobCard(_ job: NativeTransferQueueJob) -> some View {

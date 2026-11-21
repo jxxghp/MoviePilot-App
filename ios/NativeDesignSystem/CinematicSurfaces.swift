@@ -159,6 +159,47 @@ struct NativeAdaptivePill: View {
   }
 }
 
+/// 标记当前视图树是否处于原生模态弹窗（`.sheet`）中，用于抑制二次渐变背景并清理导航容器实底。
+private struct NativeIsSheetPresentationKey: EnvironmentKey {
+  static let defaultValue = false
+}
+
+extension EnvironmentValues {
+  /// 当前视图是否位于模态弹窗容器中。
+  var nativeIsSheetPresentation: Bool {
+    get { self[NativeIsSheetPresentationKey.self] }
+    set { self[NativeIsSheetPresentationKey.self] = newValue }
+  }
+}
+
+/// 原生透明玻璃弹窗修饰器：移除二次渐变叠加，统一以系统毛玻璃底面透出主页面背景层次。
+@MainActor
+struct NativeGlassSheetModifier: ViewModifier {
+  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    let themed =
+      content
+      .environment(\.nativeIsSheetPresentation, true)
+      .nativeAppearanceRoot()
+    if reduceTransparency {
+      themed
+    } else if #available(iOS 16.4, *) {
+      themed.presentationBackground(.ultraThinMaterial)
+    } else {
+      themed
+    }
+  }
+}
+
+extension View {
+  /// 为原生弹窗应用系统通透玻璃底面，并自动抑制内部 `CinematicBackground` 重复渲染渐变背景。
+  func nativeGlassSheet() -> some View {
+    modifier(NativeGlassSheetModifier())
+  }
+}
+
 /// Cinematic 单一视觉体系的基础常量；不读取旧版主题、主色或壁纸偏好。
 @MainActor
 enum CinematicStyle {
@@ -169,19 +210,31 @@ enum CinematicStyle {
   static let separator = Color.white.opacity(0.10)
 }
 
-/// 所有原生页面共用连续背景渐变，随用户选择的深/浅色主题及背景过渡配色实时更新，延伸到系统安全区后方。
+/// 所有原生页面共用连续背景渐变，随用户选择的深/浅色主题及背景过渡配色实时更新；在模态弹窗中自动透明并透出原生玻璃底面。
 @MainActor
 struct CinematicBackground: View {
   @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.nativeIsSheetPresentation) private var isSheetPresentation
   @ObservedObject private var appearance = NativeAppearanceStore.shared
 
-  /// 背景静止以减少干扰，也避免减弱动态模式下仍有装饰性移动。
+  /// 背景静止以减少干扰，也避免减弱动态模式下仍有装饰性移动；弹窗内仅清理导航容器实底而不二次叠渐变。
+  @ViewBuilder
   var body: some View {
-    LinearGradient(
-      stops: appearance.backgroundStops(for: colorScheme),
-      startPoint: .topLeading,
-      endPoint: .bottomTrailing
-    ).ignoresSafeArea().allowsHitTesting(false)
+    if isSheetPresentation {
+      if #available(iOS 18.0, *) {
+        Color.clear
+          .allowsHitTesting(false)
+          .containerBackground(.clear, for: .navigation)
+      } else {
+        Color.clear.allowsHitTesting(false)
+      }
+    } else {
+      LinearGradient(
+        stops: appearance.backgroundStops(for: colorScheme),
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+      ).ignoresSafeArea().allowsHitTesting(false)
+    }
   }
 }
 
@@ -413,12 +466,9 @@ struct NativeLiquidGlassPopoverSurface: ViewModifier {
           radius: 14, y: 8)
     } else if #available(iOS 26, *) {
       content
-        .background {
-          shape.fill(colorScheme == .light ? Color.white.opacity(0.12) : Color.white.opacity(0.05))
-        }
         .glassEffect(.regular.interactive(), in: shape)
         .shadow(
-          color: colorScheme == .light ? .black.opacity(0.10) : .black.opacity(0.28),
+          color: colorScheme == .light ? .black.opacity(0.08) : .black.opacity(0.24),
           radius: 14, y: 8)
     } else {
       content
@@ -484,7 +534,7 @@ extension View {
   }
 }
 
-/// 语义自适应骨架占位色块：深色模式使用柔和白透色、浅色模式使用柔和灰透色，贴合 Cinematic 玻璃体系。
+/// 轻透平面玻璃占位骨架色块：不叠加立体凸起边框，仅以中性轻透微光透出背景色。
 @MainActor
 struct NativeSkeletonBlock: View {
   var width: CGFloat? = nil
@@ -493,25 +543,70 @@ struct NativeSkeletonBlock: View {
   @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
-    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-      .fill(colorScheme == .light ? Color.black.opacity(0.085) : Color.white.opacity(0.11))
-      .frame(width: width, height: height)
-      .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
-      .accessibilityHidden(true)
+    let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    let isLight = colorScheme == .light
+    let isGlassTile = height >= 36 && cornerRadius > 0
+    Group {
+      if isGlassTile {
+        shape
+          .fill(
+            LinearGradient(
+              colors: isLight
+                ? [Color.white.opacity(0.36), Color.white.opacity(0.14), Color.white.opacity(0.24)]
+                : [
+                  Color.white.opacity(0.085), Color.white.opacity(0.025),
+                  Color.white.opacity(0.048),
+                ],
+              startPoint: .topLeading,
+              endPoint: .bottomTrailing
+            )
+          )
+          .overlay {
+            shape.strokeBorder(
+              isLight ? Color.black.opacity(0.06) : Color.white.opacity(0.10),
+              lineWidth: 0.5
+            )
+          }
+      } else {
+        shape
+          .fill(
+            LinearGradient(
+              colors: isLight
+                ? [Color.black.opacity(0.075), Color.black.opacity(0.045)]
+                : [Color.white.opacity(0.10), Color.white.opacity(0.055)],
+              startPoint: .leading,
+              endPoint: .trailing
+            )
+          )
+      }
+    }
+    .frame(width: width, height: height)
+    .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
+    .accessibilityHidden(true)
   }
 }
 
-/// 发现页占位骨架布局：对齐全幅主视觉、2:3 海报横栏与 16:9 横幅横栏，消除初次进入空白闪跳。
+/// 发现页占位骨架布局：对齐全幅主视觉、2:3 海报横栏与 16:9 横幅横栏，采用通透玻璃雾面与透色卡片消除初次进入空白闪跳。
 @MainActor
 struct NativeDiscoverSkeletonView: View {
   var heroHeight: CGFloat = 460
   var posterWidth: CGFloat = 112
   var cardWidth: CGFloat = 238
+  @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
+    let isLight = colorScheme == .light
     VStack(alignment: .leading, spacing: 26) {
       ZStack(alignment: .bottom) {
-        NativeSkeletonBlock(height: heroHeight, cornerRadius: 0)
+        LinearGradient(
+          colors: isLight
+            ? [Color.white.opacity(0.26), Color.white.opacity(0.10), .clear]
+            : [Color.white.opacity(0.075), Color.white.opacity(0.025), .clear],
+          startPoint: .top,
+          endPoint: .bottom
+        )
+        .frame(height: heroHeight)
+        .frame(maxWidth: .infinity)
         VStack(spacing: 12) {
           NativeSkeletonBlock(width: 210, height: 36, cornerRadius: 10)
           NativeSkeletonBlock(width: 150, height: 14, cornerRadius: 7)
@@ -575,21 +670,42 @@ struct NativePosterGridSkeletonView: View {
   var count: Int = 9
   var aspectRatio: CGFloat = 2.0 / 3.0
   var cornerRadius: CGFloat = 13
+  @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
     let gridColumns = Array(
       repeating: GridItem(.flexible(), spacing: 12), count: max(columns, 1))
+    let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    let isLight = colorScheme == .light
     LazyVGrid(columns: gridColumns, spacing: 16) {
       ForEach(0..<max(count, 1), id: \.self) { _ in
         VStack(alignment: .leading, spacing: 7) {
           Color.clear
             .aspectRatio(aspectRatio, contentMode: .fit)
-            .overlay {
-              NativeSkeletonBlock(height: 1000, cornerRadius: cornerRadius)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+              shape
+                .fill(
+                  LinearGradient(
+                    colors: isLight
+                      ? [
+                        Color.white.opacity(0.36), Color.white.opacity(0.14),
+                        Color.white.opacity(0.24),
+                      ]
+                      : [
+                        Color.white.opacity(0.085), Color.white.opacity(0.025),
+                        Color.white.opacity(0.048),
+                      ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                  )
+                )
+                .overlay {
+                  shape.strokeBorder(
+                    isLight ? Color.black.opacity(0.06) : Color.white.opacity(0.10),
+                    lineWidth: 0.5
+                  )
+                }
             }
-            .clipped()
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
           NativeSkeletonBlock(height: 12, cornerRadius: 5)
           NativeSkeletonBlock(width: 52, height: 10, cornerRadius: 5)
         }
@@ -603,10 +719,20 @@ struct NativePosterGridSkeletonView: View {
 @MainActor
 struct NativeMediaDetailSkeletonView: View {
   var heroHeight: CGFloat = 310
+  @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
+    let isLight = colorScheme == .light
     VStack(alignment: .leading, spacing: 20) {
-      NativeSkeletonBlock(height: heroHeight, cornerRadius: 0)
+      LinearGradient(
+        colors: isLight
+          ? [Color.white.opacity(0.26), Color.white.opacity(0.10), .clear]
+          : [Color.white.opacity(0.075), Color.white.opacity(0.025), .clear],
+        startPoint: .top,
+        endPoint: .bottom
+      )
+      .frame(height: heroHeight)
+      .frame(maxWidth: .infinity)
 
       VStack(alignment: .leading, spacing: 16) {
         HStack(alignment: .bottom, spacing: 14) {

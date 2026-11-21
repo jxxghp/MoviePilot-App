@@ -121,6 +121,7 @@ struct NativeSubscriptionsPage: View {
         } label: {
           Image(systemName: "line.3.horizontal.decrease.circle")
         }
+        .tint(.primary)
         .accessibilityLabel("筛选与排序")
         .accessibilityIdentifier("native-subscriptions-filter-menu")
 
@@ -129,6 +130,7 @@ struct NativeSubscriptionsPage: View {
         } label: {
           Image(systemName: "flame.fill")
         }
+        .tint(.primary)
         .accessibilityLabel("订阅广场")
         .accessibilityIdentifier("native-subscriptions-community")
       }
