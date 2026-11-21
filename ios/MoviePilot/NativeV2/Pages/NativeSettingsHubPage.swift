@@ -168,7 +168,6 @@ struct NativeSettingsHubPage: View {
         title: t("站点管理"),
         statusText: siteCount.map { "\($0) \(t("启用"))" } ?? t("索引与流量"),
         symbol: "globe",
-        tint: NativeTheme.info,
         statusTint: NativeTheme.success,
         id: "native-workspace-sites"
       ) { onNavigate(.sites) }
@@ -177,7 +176,6 @@ struct NativeSettingsHubPage: View {
         title: t("用户管理"),
         statusText: userCount.map { "\($0) \(t("位成员"))" } ?? t("权限角色"),
         symbol: "person.2.fill",
-        tint: NativeTheme.brand,
         statusTint: NativeTheme.brand,
         id: "native-workspace-users"
       ) { onNavigate(.users) }
@@ -187,7 +185,6 @@ struct NativeSettingsHubPage: View {
         statusText: pendingAuthCount > 0
           ? "\(pendingAuthCount) \(t("待审批"))" : "\(t("已授")) \(approvedAuthCount)",
         symbol: "person.badge.key.fill",
-        tint: NativeTheme.pink,
         statusTint: pendingAuthCount > 0 ? NativeTheme.warning : NativeTheme.success,
         id: "native-workspace-channel-auth"
       ) { onNavigate(.channelAuth) }
@@ -198,7 +195,6 @@ struct NativeSettingsHubPage: View {
     title: String,
     statusText: String,
     symbol: String,
-    tint: Color,
     statusTint: Color,
     id: String,
     action: @escaping () -> Void
@@ -207,11 +203,9 @@ struct NativeSettingsHubPage: View {
       CinematicPanel(padding: 14) {
         VStack(alignment: .leading, spacing: 12) {
           Image(systemName: symbol)
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(tint)
-            .frame(width: 38, height: 38)
-            .background(
-              tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .font(.system(size: 20, weight: .medium))
+            .foregroundStyle(.primary)
+            .frame(width: 26, height: 26, alignment: .leading)
           VStack(alignment: .leading, spacing: 4) {
             Text(title)
               .font(.subheadline.weight(.semibold))
@@ -228,7 +222,7 @@ struct NativeSettingsHubPage: View {
             }
           }
         }
-        .frame(maxWidth: .infinity, minHeight: 98, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
       }
     }
     .buttonStyle(.plain)
@@ -241,7 +235,7 @@ struct NativeSettingsHubPage: View {
     } label: {
       CinematicPanel(padding: 16) {
         HStack(spacing: 14) {
-          iconBadge("person.badge.key.fill", tint: NativeTheme.pink)
+          iconBadge("person.badge.key.fill")
           VStack(alignment: .leading, spacing: 3) {
             Text(t("渠道授权与绑定"))
               .font(.body.weight(.semibold))
@@ -271,34 +265,34 @@ struct NativeSettingsHubPage: View {
     return settingsGroup(t("基础"), footer: t("底层代理、并发与高级系统参数请在 Web 管理台配置。")) {
       navRow(
         title: t("订阅与搜索"), subtitle: t("站点范围 · 规则组"), symbol: "magnifyingglass.circle.fill",
-        tint: NativeTheme.info, id: "native-settings-subscribe-search"
+        id: "native-settings-subscribe-search"
       ) { onNavigate(.subscribeSearchSettings) }
       settingsRowDivider
       navRow(
         title: t("媒体数据源"), subtitle: t("搜索与元数据来源"), symbol: "globe.asia.australia.fill",
-        tint: NativeTheme.cyan, id: "native-settings-media-sources"
+        id: "native-settings-media-sources"
       ) { onNavigate(.mediaSourceSettings) }
       settingsRowDivider
       navRow(
         title: t("下载器"), subtitle: downloaderCount.map(countFmt) ?? t("新增与管理"),
-        symbol: "arrow.down.circle.fill", tint: NativeTheme.success,
+        symbol: "arrow.down.circle.fill",
         id: "native-settings-downloaders"
       ) { onNavigate(.downloadersManage) }
       settingsRowDivider
       navRow(
         title: t("媒体服务器"), subtitle: mediaServerCount.map(countFmt) ?? t("新增与管理"),
-        symbol: "server.rack", tint: NativeTheme.brand,
+        symbol: "server.rack",
         id: "native-settings-mediaservers"
       ) { onNavigate(.mediaServersManage) }
       settingsRowDivider
       navRow(
         title: t("整理与目录"), subtitle: t("目录映射与刮削"), symbol: "folder.fill.badge.gearshape",
-        tint: NativeTheme.warning, id: "native-settings-hub-directories"
+        id: "native-settings-hub-directories"
       ) { onNavigate(.systemModule(.directories)) }
       settingsRowDivider
       navRow(
         title: t("播放偏好"), subtitle: playbackSummaryText, symbol: "play.rectangle.fill",
-        tint: NativeTheme.pink, id: "native-settings-playback"
+        id: "native-settings-playback"
       ) { onNavigate(.playbackSettings) }
     }
   }
@@ -307,7 +301,7 @@ struct NativeSettingsHubPage: View {
     settingsGroup(t("播放")) {
       navRow(
         title: t("播放偏好"), subtitle: playbackSummaryText, symbol: "play.rectangle.fill",
-        tint: NativeTheme.pink, id: "native-settings-playback"
+        id: "native-settings-playback"
       ) { onNavigate(.playbackSettings) }
     }
   }
@@ -324,18 +318,18 @@ struct NativeSettingsHubPage: View {
     settingsGroup(t("通知与智能")) {
       navRow(
         title: t("本机推送通知"), subtitle: t("APNs 提醒"), symbol: "bell.and.waves.left.and.right",
-        tint: NativeTheme.danger, id: "native-settings-hub-push"
+        id: "native-settings-hub-push"
       ) { showsNotificationSettings = true }
       if snapshot.user.isSuperuser {
         settingsRowDivider
         navRow(
           title: t("服务端通知渠道"), subtitle: t("消息推送配置"), symbol: "bell.badge.fill",
-          tint: NativeTheme.success, id: "native-settings-hub-notifications"
+          id: "native-settings-hub-notifications"
         ) { onNavigate(.systemModule(.notifications)) }
       }
       settingsRowDivider
       HStack(spacing: 14) {
-        iconBadge("sparkles", tint: NativeTheme.brand)
+        iconBadge("sparkles")
         Text(t("悬浮智能助手"))
           .font(.body)
           .foregroundStyle(.primary)
@@ -357,12 +351,12 @@ struct NativeSettingsHubPage: View {
     settingsGroup(t("外观与本机")) {
       navRow(
         title: t("主题与外观"), subtitle: appearance.summaryText, symbol: "paintpalette.fill",
-        tint: appearance.accentColor, id: "native-settings-hub-appearance"
+        id: "native-settings-hub-appearance"
       ) { onNavigate(.appearance) }
       settingsRowDivider
       navRow(
         title: t("桌面小组件"), subtitle: t("实例与刷新"), symbol: "rectangle.3.group.fill",
-        tint: NativeTheme.cyan, id: "native-settings-hub-widgets"
+        id: "native-settings-hub-widgets"
       ) { showsWidgetSettings = true }
       settingsRowDivider
       Menu {
@@ -379,7 +373,7 @@ struct NativeSettingsHubPage: View {
         }
       } label: {
         HStack(spacing: 14) {
-          iconBadge("globe", tint: NativeTheme.info)
+          iconBadge("globe")
           Text(t("界面语言"))
             .font(.body)
             .foregroundStyle(.primary)
@@ -402,7 +396,7 @@ struct NativeSettingsHubPage: View {
       navRow(
         title: t("本地缓存清理"),
         subtitle: cacheClearedNotice ? t("已清理") : Self.formatBytes(Double(cacheBytes)),
-        symbol: "internaldrive.fill", tint: NativeTheme.warning,
+        symbol: "internaldrive.fill",
         id: "native-settings-clear-cache"
       ) { showsClearCacheConfirm = true }
     }
@@ -415,14 +409,14 @@ struct NativeSettingsHubPage: View {
     return settingsGroup(t("服务与账号")) {
       navRow(
         title: t("切换服务"), subtitle: host, symbol: "arrow.left.arrow.right.circle.fill",
-        tint: NativeTheme.info, id: "native-v2-switch"
+        id: "native-v2-switch"
       ) { onSwitchServer() }
       settingsRowDivider
       Button {
         showsLogoutConfirm = true
       } label: {
         HStack(spacing: 14) {
-          iconBadge("rectangle.portrait.and.arrow.right", tint: NativeTheme.danger)
+          iconBadge("rectangle.portrait.and.arrow.right", foreground: NativeTheme.danger)
           Text(t("退出登录"))
             .font(.body.weight(.medium))
             .foregroundStyle(NativeTheme.danger)
@@ -466,28 +460,26 @@ struct NativeSettingsHubPage: View {
   private var settingsRowDivider: some View {
     Divider()
       .overlay(NativeTheme.divider)
-      .padding(.leading, 64)
+      .padding(.leading, 54)
   }
 
-  private func iconBadge(_ symbol: String, tint: Color) -> some View {
+  private func iconBadge(_ symbol: String, foreground: Color = .primary) -> some View {
     Image(systemName: symbol)
-      .font(.system(size: 15, weight: .semibold))
-      .foregroundStyle(tint)
-      .frame(width: 34, height: 34)
-      .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+      .font(.system(size: 18, weight: .medium))
+      .foregroundStyle(foreground)
+      .frame(width: 24, height: 24)
   }
 
   private func navRow(
     title: String,
     subtitle: String? = nil,
     symbol: String,
-    tint: Color,
     id: String,
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
       HStack(spacing: 14) {
-        iconBadge(symbol, tint: tint)
+        iconBadge(symbol)
         Text(title)
           .font(.body)
           .foregroundStyle(.primary)
@@ -1483,11 +1475,24 @@ struct NativeMediaSourceSettingsPage: View {
   }
 
   private static let defaultChoices: [NativeBrandChoiceItem] = [
-    NativeBrandChoiceItem(id: "themoviedb", title: "TMDB", subtitle: "全球影视元数据"),
+    NativeBrandChoiceItem(id: "themoviedb", title: "TheMovieDb", subtitle: "全球影视元数据"),
     NativeBrandChoiceItem(id: "douban", title: "豆瓣", subtitle: "中文影评与榜单"),
     NativeBrandChoiceItem(id: "bangumi", title: "Bangumi", subtitle: "番剧与动画索引"),
     NativeBrandChoiceItem(id: "musicbrainz", title: "MusicBrainz", subtitle: "音乐专辑与曲目"),
   ]
+
+  private static let builtInPresets: [String: NativeBrandChoiceItem] = Dictionary(
+    uniqueKeysWithValues: [
+      NativeBrandChoiceItem(id: "themoviedb", title: "TheMovieDb", subtitle: "全球影视元数据"),
+      NativeBrandChoiceItem(id: "douban", title: "豆瓣", subtitle: "中文影评与榜单"),
+      NativeBrandChoiceItem(id: "bangumi", title: "Bangumi", subtitle: "番剧与动画索引"),
+      NativeBrandChoiceItem(id: "anilist", title: "AniList", subtitle: "全球番剧与动画数据"),
+      NativeBrandChoiceItem(id: "imdb", title: "IMDb", subtitle: "全球影视评分与资料"),
+      NativeBrandChoiceItem(id: "tvdb", title: "TVDB", subtitle: "剧集分集与元数据"),
+      NativeBrandChoiceItem(id: "musicbrainz", title: "MusicBrainz", subtitle: "音乐专辑与曲目"),
+      NativeBrandChoiceItem(id: "theaudiodb", title: "TheAudioDB", subtitle: "音乐艺人、专辑与封面"),
+      NativeBrandChoiceItem(id: "doubanmusic", title: "豆瓣音乐", subtitle: "中文音乐专辑与评分"),
+    ].map { ($0.id, $0) })
 
   private var selectionSetBinding: Binding<Set<String>> {
     Binding(
@@ -1543,7 +1548,7 @@ struct NativeMediaSourceSettingsPage: View {
                 kind: .mediaSource,
                 items: availableChoices,
                 selection: selectionSetBinding,
-                columns: 2
+                columns: 1
               )
 
               Text("仅展示后端已启用的媒体数据源模块；关闭或启用内置模块请在 Web 高级设置中调整。")
@@ -1575,6 +1580,7 @@ struct NativeMediaSourceSettingsPage: View {
                         Text(title)
                           .font(.subheadline.weight(.medium))
                           .foregroundStyle(.primary)
+                          .lineLimit(2)
                         Spacer()
                         HStack(spacing: 4) {
                           Button {
@@ -1662,22 +1668,17 @@ struct NativeMediaSourceSettingsPage: View {
 
     let (activeSources, rawSetting) = await (activeTask, settingTask)
     if let activeSources, !activeSources.isEmpty {
-      let defaultMap = Dictionary(
-        uniqueKeysWithValues: Self.defaultChoices.map { ($0.id, $0) })
       var seen: Set<String> = []
       var resolved: [NativeBrandChoiceItem] = []
       for record in activeSources {
         let id = record.mediaSource.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !id.isEmpty, seen.insert(id).inserted else { continue }
-        if let preset = defaultMap[id] {
-          resolved.append(preset)
-        } else {
-          let title = (record.name?.isEmpty == false ? record.name! : id)
-          let types = (record.mediaTypes ?? []).filter { !$0.isEmpty }.joined(separator: " · ")
-          resolved.append(
-            NativeBrandChoiceItem(
-              id: id, title: title, subtitle: types.isEmpty ? "扩展数据源" : types))
-        }
+        let preset = Self.builtInPresets[id]
+        let backendName = record.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = !backendName.isEmpty ? backendName : (preset?.title ?? id)
+        let types = (record.mediaTypes ?? []).filter { !$0.isEmpty }.joined(separator: " · ")
+        let subtitle = preset?.subtitle ?? (types.isEmpty ? "扩展数据源" : types)
+        resolved.append(NativeBrandChoiceItem(id: id, title: title, subtitle: subtitle))
       }
       if !resolved.isEmpty {
         availableChoices = resolved

@@ -1197,12 +1197,9 @@ struct NativeDiagnosticsToolsPage: View {
             VStack(alignment: .leading, spacing: 9) {
               HStack(spacing: 12) {
                 Image(systemName: item.isRunningNow ? "arrow.triangle.2.circlepath" : visual.symbol)
-                  .font(.body.weight(.semibold))
+                  .font(.system(size: 20, weight: .medium))
                   .foregroundStyle(item.isRunningNow ? NativeTheme.success : visual.tint)
-                  .frame(width: 38, height: 38)
-                  .background(
-                    (item.isRunningNow ? NativeTheme.success : visual.tint).opacity(0.15),
-                    in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                  .frame(width: 28, height: 28)
 
                 VStack(alignment: .leading, spacing: 4) {
                   HStack(spacing: 6) {

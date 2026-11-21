@@ -227,21 +227,19 @@ struct NativeExplorePage: View {
   ) -> some View {
     Button(action: action) {
       HStack(spacing: 9) {
-        ZStack {
-          RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(active ? brandTint.opacity(0.24) : Color.primary.opacity(0.08))
+        Group {
           if let uiImage = UIImage(named: logoAsset) {
             Image(uiImage: uiImage)
               .resizable()
               .scaledToFit()
-              .padding(5)
           } else {
             Image(systemName: fallbackSymbol)
-              .font(.system(size: 14, weight: .semibold))
+              .font(.system(size: 16, weight: .semibold))
               .foregroundStyle(active ? brandTint : .secondary)
           }
         }
-        .frame(width: 30, height: 30)
+        .frame(width: 28, height: 28)
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
 
         VStack(alignment: .leading, spacing: 1.5) {
           Text(brand)

@@ -16,7 +16,7 @@ enum NativeBrandIconKind {
   case mediaSource
 }
 
-/// 真实品牌图标组件：复用 MoviePilot 官方前端一致的品牌 Logo 资产。
+/// 真实品牌图标组件：复用 MoviePilot 官方前端一致的品牌 Logo 资产；仅限定圆角，不叠加额外背景与边框。
 @MainActor
 struct NativeBrandIcon: View {
   let kind: NativeBrandIconKind
@@ -25,20 +25,12 @@ struct NativeBrandIcon: View {
   var cornerRadius: CGFloat = 11
 
   var body: some View {
-    ZStack {
-      RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        .fill(.primary.opacity(0.08))
-        .overlay {
-          RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .strokeBorder(.primary.opacity(0.14), lineWidth: 0.6)
-        }
-      Image(assetName)
-        .resizable()
-        .scaledToFit()
-        .padding(size * 0.16)
-    }
-    .frame(width: size, height: size)
-    .accessibilityHidden(true)
+    Image(assetName)
+      .resizable()
+      .scaledToFit()
+      .frame(width: size, height: size)
+      .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+      .accessibilityHidden(true)
   }
 
   /// 将后端配置类型映射至内嵌真实品牌图标资源名。
@@ -90,7 +82,7 @@ struct NativeBrandIcon: View {
     case .mediaSource:
       switch key {
       case "themoviedb", "tmdb": return "logo-tmdb"
-      case "douban": return "logo-douban"
+      case "douban", "doubanmusic", "douban_music": return "logo-douban"
       case "bangumi": return "logo-bangumi"
       case "musicbrainz": return "logo-musicbrainz"
       default: return "logo-mediaserver"
@@ -197,6 +189,7 @@ struct NativeBrandMultiOptionGrid: View {
   @ObservedObject private var appearance = NativeAppearanceStore.shared
 
   var body: some View {
+    let singleColumn = max(columns, 1) == 1
     let gridColumns = Array(
       repeating: GridItem(.flexible(), spacing: 10), count: max(columns, 1))
     LazyVGrid(columns: gridColumns, spacing: 10) {
@@ -211,28 +204,33 @@ struct NativeBrandMultiOptionGrid: View {
             }
           }
         } label: {
-          HStack(spacing: 11) {
+          HStack(spacing: singleColumn ? 12 : 11) {
             NativeBrandIcon(
               kind: kind, type: item.resolvedIconType, size: 36, cornerRadius: 10)
             VStack(alignment: .leading, spacing: 2) {
               Text(item.title)
-                .font(.subheadline.weight(isSelected ? .semibold : .medium))
+                .font(
+                  (singleColumn ? Font.body : Font.subheadline).weight(
+                    isSelected ? .semibold : .medium)
+                )
                 .foregroundStyle(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
+                .lineLimit(singleColumn ? 2 : 1)
+                .minimumScaleFactor(singleColumn ? 1.0 : 0.85)
+                .multilineTextAlignment(.leading)
               if let subtitle = item.subtitle, !subtitle.isEmpty {
                 Text(subtitle)
-                  .font(.caption2)
+                  .font(singleColumn ? .caption : .caption2)
                   .foregroundStyle(.secondary)
-                  .lineLimit(1)
+                  .lineLimit(singleColumn ? 2 : 1)
+                  .multilineTextAlignment(.leading)
               }
             }
-            Spacer(minLength: 4)
+            Spacer(minLength: singleColumn ? 8 : 4)
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-              .font(.system(size: 18, weight: .medium))
+              .font(.system(size: singleColumn ? 19 : 18, weight: .medium))
               .foregroundStyle(isSelected ? appearance.accentColor : Color.secondary.opacity(0.45))
           }
-          .padding(.horizontal, 12)
+          .padding(.horizontal, singleColumn ? 14 : 12)
           .padding(.vertical, 12)
           .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
           .background {
@@ -269,8 +267,7 @@ struct NativeSiteIconView: View {
 
   var body: some View {
     let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-    ZStack {
-      shape.fill(NativeTheme.chipFill)
+    Group {
       if let resolved = image ?? NativeEntityIconCache.shared.image(for: cacheKey) {
         let ratio = resolved.size.height > 0 ? resolved.size.width / resolved.size.height : 1.0
         if abs(ratio - 1.0) <= 0.22 {
@@ -281,7 +278,6 @@ struct NativeSiteIconView: View {
           Image(uiImage: resolved)
             .resizable()
             .scaledToFit()
-            .padding(size * 0.10)
         }
       } else {
         Image("logo-site")
@@ -291,9 +287,6 @@ struct NativeSiteIconView: View {
     }
     .frame(width: size, height: size)
     .clipShape(shape)
-    .overlay {
-      shape.strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
-    }
     .opacity(active ? 1.0 : 0.56)
     .task(id: cacheKey) { await load() }
     .accessibilityHidden(true)
@@ -334,7 +327,7 @@ struct NativeSiteIconView: View {
   }
 }
 
-/// 插件真实图标视图：兼容绝对 URL、同源 `/plugin_icon/<name>` 与官方仓库回退图标。
+/// 插件真实图标视图：兼容绝对 URL、同源 `/plugin_icon/<name>` 与官方仓库回退图标；统一裁剪为圆角方形轮廓。
 @MainActor
 struct NativePluginIconView: View {
   let session: NativeSession
@@ -345,18 +338,27 @@ struct NativePluginIconView: View {
   @State private var image: UIImage?
 
   var body: some View {
+    let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
     Group {
       if let resolved = image ?? NativeEntityIconCache.shared.image(for: cacheKey) {
-        Image(uiImage: resolved)
-          .resizable()
-          .scaledToFit()
+        let ratio = resolved.size.height > 0 ? resolved.size.width / resolved.size.height : 1.0
+        if abs(ratio - 1.0) <= 0.22 {
+          Image(uiImage: resolved)
+            .resizable()
+            .scaledToFill()
+        } else {
+          Image(uiImage: resolved)
+            .resizable()
+            .scaledToFit()
+        }
       } else {
         Image("logo-plugin")
           .resizable()
-          .scaledToFit()
+          .scaledToFill()
       }
     }
     .frame(width: size, height: size)
+    .clipShape(shape)
     .saturation(inactive ? 0.35 : 1.0)
     .opacity(inactive ? 0.72 : 1.0)
     .task(id: cacheKey) { await load() }
@@ -437,22 +439,17 @@ struct NativePluginAuthorAvatarView: View {
   @State private var image: UIImage?
 
   var body: some View {
-    ZStack {
-      Circle()
-        .fill(.white.opacity(0.10))
-        .overlay {
-          Circle().strokeBorder(.white.opacity(0.16), lineWidth: 0.5)
-        }
+    Group {
       if let image {
         Image(uiImage: image)
           .resizable()
           .scaledToFill()
-          .frame(width: size, height: size)
           .clipShape(Circle())
       } else {
-        Image(systemName: "person.fill")
-          .font(.system(size: size * 0.5, weight: .semibold))
-          .foregroundStyle(.white.opacity(0.68))
+        Image(systemName: "person.crop.circle.fill")
+          .resizable()
+          .scaledToFit()
+          .foregroundStyle(.secondary.opacity(0.72))
       }
     }
     .frame(width: size, height: size)

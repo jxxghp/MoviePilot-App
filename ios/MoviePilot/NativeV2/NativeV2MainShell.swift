@@ -900,10 +900,6 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           }
           .frame(width: 40, height: 40)
           .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-          .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-              .strokeBorder(.white.opacity(0.18), lineWidth: 0.6)
-          }
 
           VStack(alignment: .leading, spacing: 2) {
             Text(state.title)
@@ -2422,12 +2418,9 @@ private struct NativeShortcutsSheet: View {
                 CinematicPanel(padding: 14) {
                   VStack(alignment: .leading, spacing: 10) {
                     Image(systemName: entry.symbol)
-                      .font(.title3.weight(.semibold))
+                      .font(.title2.weight(.medium))
                       .foregroundStyle(entry.tint)
-                      .frame(width: 36, height: 36)
-                      .background(
-                        entry.tint.opacity(0.16),
-                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                      .frame(width: 28, height: 28, alignment: .leading)
                     VStack(alignment: .leading, spacing: 2) {
                       Text(entry.title)
                         .font(.subheadline.weight(.semibold))

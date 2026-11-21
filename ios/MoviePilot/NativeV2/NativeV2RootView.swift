@@ -216,10 +216,6 @@ struct NativeV2RootView: View {
             .scaledToFit()
             .frame(width: 76, height: 76)
             .clipShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
-            .overlay {
-              RoundedRectangle(cornerRadius: 21, style: .continuous)
-                .strokeBorder(.primary.opacity(0.24), lineWidth: 0.8)
-            }
             .shadow(
               color: Color(red: 0.45, green: 0.25, blue: 0.85).opacity(0.45), radius: 18, y: 8
             )
@@ -354,16 +350,13 @@ struct NativeV2RootView: View {
               CinematicPanel(padding: 13) {
                 HStack(spacing: 12) {
                   Image(systemName: "server.rack")
-                    .font(.body.weight(.semibold))
+                    .font(.system(size: 19, weight: .medium))
                     .foregroundStyle(
                       isSelected
                         ? NativeTheme.success
-                        : Color(red: 0.78, green: 0.66, blue: 1.0)
+                        : .primary
                     )
-                    .frame(width: 36, height: 36)
-                    .background(
-                      .white.opacity(0.10),
-                      in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .frame(width: 28, height: 28)
 
                   VStack(alignment: .leading, spacing: 3) {
                     Text(host)
