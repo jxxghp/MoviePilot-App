@@ -21,8 +21,14 @@ struct NativeV2RootView: View {
   @Environment(\.scenePhase) private var scenePhase
 
   private var showsColdBootSplash: Bool {
-    !hasCompletedInitialBoot && model.selected != nil
-      && (model.busy || (authenticated && manager.currentSession == nil))
+    guard !hasCompletedInitialBoot, model.selected != nil else { return false }
+    if case .authenticated = manager.state {
+      return manager.currentSession == nil
+    }
+    if model.busy { return true }
+    if case .disconnected = manager.state { return true }
+    if case .connecting = manager.state { return true }
+    return false
   }
 
   /// 显式观察会话发布者，避免仅刷新表单而漏掉异步失效状态。
@@ -34,98 +40,97 @@ struct NativeV2RootView: View {
   /// 单一 Cinematic 背景贯通安全区；已认证主壳由 TabView 承载各标签独立导航栈。
   var body: some View {
     ZStack {
-      Group {
-        if case .authenticated(let snapshot) = manager.state,
-          let session = manager.currentSession, session.scope == snapshot.scope
-        {
-          NativeV2MainShell(
-            session: session,
-            snapshot: snapshot,
-            showsPlugins: $showsPlugins,
-            currentLanguage: model.language,
-            onSelectLanguage: { model.selectLanguage($0) },
-            onSwitchServer: { model.changeServer() },
-            onLogout: { model.logout() },
-            pluginDestination: {
-              if let current = manager.currentSession, current.scope == snapshot.scope {
-                NativePluginCatalogView(session: current)
-              }
-            }
-          )
-          .id(snapshot.scope.generation)
-        } else {
-          NavigationStack {
-            ZStack {
-              CinematicBackground()
-              ScrollViewReader { scroll in
-                Form {
-                  brand.id("native-v2-top")
-                  if let message = model.messageKey {
-                    CinematicFormSection {
-                      CinematicFormRow(symbol: "info.circle") {
-                        Text(L10n.text(message)).font(.callout)
-                          .accessibilityIdentifier("native-v2-message")
-                          .accessibilityAddTraits(.updatesFrequently)
-                      }
-                      if case .failed(_, .api) = manager.state, let selected = model.selected {
-                        CinematicFormDivider()
-                        CinematicFormRow {
-                          rowAction("重试连接", id: "native-v2-retry") { model.connect(selected) }
-                        }
-                      }
-                    }
-                  }
-                  if model.busy {
-                    CinematicFormSection {
-                      CinematicFormRow {
-                        HStack(spacing: 12) {
-                          ProgressView()
-                          Text(L10n.text("正在连接…"))
-                        }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityIdentifier("native-v2-progress")
-                      }
-                    }
-                  }
-                  if case .authenticated = manager.state {
-                    CinematicFormSection {
-                      CinematicFormRow {
-                        HStack(spacing: 12) {
-                          ProgressView()
-                          Text("正在准备 MoviePilot…")
-                        }
-                        .accessibilityElement(children: .combine)
-                      }
-                    }
-                  } else if model.form == .connection {
-                    connection
-                  } else {
-                    authentication
-                  }
-                }
-                .scrollContentBackground(.hidden)
-                .scrollDismissesKeyboard(.interactively)
-                .frame(maxWidth: 680)
-                .onChange(of: authenticated) { _ in scroll.scrollTo("native-v2-top", anchor: .top) }
-                .onChange(of: model.form) { _ in scroll.scrollTo("native-v2-top", anchor: .top) }
-              }
-            }
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbar }
-          }
-        }
-      }
       if showsColdBootSplash {
         NativeLaunchSplashView()
-          .transition(.opacity)
-          .zIndex(200)
+      } else if case .authenticated(let snapshot) = manager.state,
+        let session = manager.currentSession, session.scope == snapshot.scope
+      {
+        NativeV2MainShell(
+          session: session,
+          snapshot: snapshot,
+          showsPlugins: $showsPlugins,
+          currentLanguage: model.language,
+          onSelectLanguage: { model.selectLanguage($0) },
+          onSwitchServer: { model.changeServer() },
+          onLogout: { model.logout() },
+          pluginDestination: {
+            if let current = manager.currentSession, current.scope == snapshot.scope {
+              NativePluginCatalogView(session: current)
+            }
+          }
+        )
+        .id(snapshot.scope.generation)
+      } else {
+        NavigationStack {
+          ZStack {
+            CinematicBackground()
+            ScrollViewReader { scroll in
+              Form {
+                brand.id("native-v2-top")
+                if let message = model.messageKey {
+                  CinematicFormSection {
+                    CinematicFormRow(symbol: "info.circle") {
+                      Text(L10n.text(message)).font(.callout)
+                        .accessibilityIdentifier("native-v2-message")
+                        .accessibilityAddTraits(.updatesFrequently)
+                    }
+                    if case .failed(_, .api) = manager.state, let selected = model.selected {
+                      CinematicFormDivider()
+                      CinematicFormRow {
+                        rowAction("重试连接", id: "native-v2-retry") { model.connect(selected) }
+                      }
+                    }
+                  }
+                }
+                if model.busy {
+                  CinematicFormSection {
+                    CinematicFormRow {
+                      HStack(spacing: 12) {
+                        ProgressView()
+                        Text(L10n.text("正在连接…"))
+                      }
+                      .accessibilityElement(children: .combine)
+                      .accessibilityIdentifier("native-v2-progress")
+                    }
+                  }
+                }
+                if case .authenticated = manager.state {
+                  CinematicFormSection {
+                    CinematicFormRow {
+                      HStack(spacing: 12) {
+                        ProgressView()
+                        Text("正在准备 MoviePilot…")
+                      }
+                      .accessibilityElement(children: .combine)
+                    }
+                  }
+                } else if model.form == .connection {
+                  connection
+                } else {
+                  authentication
+                }
+              }
+              .scrollContentBackground(.hidden)
+              .scrollDismissesKeyboard(.interactively)
+              .frame(maxWidth: 680)
+              .onChange(of: authenticated) { _ in scroll.scrollTo("native-v2-top", anchor: .top) }
+              .onChange(of: model.form) { _ in scroll.scrollTo("native-v2-top", anchor: .top) }
+            }
+          }
+          .navigationTitle(title)
+          .navigationBarTitleDisplayMode(.inline)
+          .toolbar { toolbar }
+        }
       }
     }
-    .animation(.easeOut(duration: 0.24), value: showsColdBootSplash)
     .onChange(of: model.busy) { busy in
-      if !busy && !authenticated {
-        hasCompletedInitialBoot = true
+      if !busy {
+        switch manager.state {
+        case .disconnected, .connecting:
+          break
+        default:
+          hasCompletedInitialBoot = true
+        }
       }
     }
     .alert(

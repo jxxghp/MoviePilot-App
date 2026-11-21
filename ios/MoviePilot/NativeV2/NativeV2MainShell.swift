@@ -97,41 +97,43 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   /// 主导航交给系统 TabView 和每页独立 NavigationStack，并注入跨栈动态主按钮中心、浮动智能助手形象与全局溢出菜单。
   var body: some View {
     ZStack {
-      page
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-      if let miniMusic = playbackLauncher.miniMusicState, !showsOverflowMenu {
-        floatingMiniMusicBar(miniMusic)
-          .transition(.move(edge: .bottom).combined(with: .opacity))
-          .zIndex(45)
-      }
-      if showFloatingAssistant && !showsLaunchSplash && !showsOverflowMenu && !showsAgentSheet
-        && !showsShortcutsSheet && !showsMessagesSheet
-      {
-        NativeAgentFloatingMascot(
-          onOpen: { showsAgentSheet = true },
-          onHide: { showFloatingAssistant = false }
-        )
-      }
-      if showsOverflowMenu {
-        overflowMenuBackdrop
-          .transition(.opacity)
-          .zIndex(49)
-      }
-      if showsOverflowMenu {
-        overflowMenuCard
-          .transition(overflowMenuTransition)
-          .zIndex(50)
-      }
-      if let banner = routeHub.bannerMessage, !showsLaunchSplash {
-        systemBannerOverlay(banner)
-      }
       if showsLaunchSplash {
         NativeLaunchSplashView()
           .transition(.opacity)
           .zIndex(100)
+      } else {
+        page
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .transition(.opacity)
+        if let miniMusic = playbackLauncher.miniMusicState, !showsOverflowMenu {
+          floatingMiniMusicBar(miniMusic)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .zIndex(45)
+        }
+        if showFloatingAssistant && !showsOverflowMenu && !showsAgentSheet
+          && !showsShortcutsSheet && !showsMessagesSheet
+        {
+          NativeAgentFloatingMascot(
+            onOpen: { showsAgentSheet = true },
+            onHide: { showFloatingAssistant = false }
+          )
+        }
+        if showsOverflowMenu {
+          overflowMenuBackdrop
+            .transition(.opacity)
+            .zIndex(49)
+        }
+        if showsOverflowMenu {
+          overflowMenuCard
+            .transition(overflowMenuTransition)
+            .zIndex(50)
+        }
+        if let banner = routeHub.bannerMessage {
+          systemBannerOverlay(banner)
+        }
       }
     }
-    .animation(.easeOut(duration: 0.28), value: showsLaunchSplash)
+    .animation(.easeOut(duration: 0.24), value: showsLaunchSplash)
     .task {
       guard canDiscover else { return }
       try? await Task.sleep(for: .seconds(8))
@@ -742,6 +744,8 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       NativeChannelAuthorizationPage(session: session, isSuperuser: snapshot.user.isSuperuser)
     case .subscribeSearchSettings:
       NativeSubscribeSearchSettingsPage(session: session)
+    case .mediaSourceSettings:
+      NativeMediaSourceSettingsPage(session: session)
     case .downloadersManage:
       NativeDownloadersManagePage(session: session)
     case .mediaServersManage:
@@ -1835,6 +1839,7 @@ enum NativeWorkspaceDestination: Hashable {
   case appearance
   case channelAuth
   case subscribeSearchSettings
+  case mediaSourceSettings
   case downloadersManage
   case mediaServersManage
   case playbackSettings
@@ -2725,8 +2730,7 @@ final class NativeMediaLibraryStatusStore {
         let payloads = sliceKeys.compactMap { groupedByKey[$0]?.payload }
         var resolved: [String: Bool] = [:]
         if let body = try? JSONEncoder().encode(payloads),
-          let endpoint = try? APIEndpoint(
-            path: ["media", "status"], method: .post, body: body, responseContract: .payload)
+          let endpoint = try? APIEndpoint(path: ["media", "status"], method: .post, body: body)
         {
           if let results = try? await bucket.session.request(endpoint, as: [StatusResult].self)
             .value,

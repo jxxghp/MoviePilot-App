@@ -153,7 +153,7 @@ struct NativeResourceSearchPage: View {
         feedback = NativeResourceFeedback(isError: false, message: message)
       }
       .nativeAppearanceRoot()
-      .presentationDetents([.medium, .large])
+      .presentationDetents([.fraction(2.0 / 3.0), .large])
       .presentationDragIndicator(.visible)
     }
   }

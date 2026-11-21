@@ -427,10 +427,12 @@
 "渠道授权" = "Channel Auth";
 "渠道授权与绑定" = "Channel Authorization";
 "生成 5 分钟渠道关联绑定码" = "Generate a 5-minute channel bind code";
-"核心业务" = "Core Services";
+"基础" = "Basic";
 "底层代理、并发与高级系统参数请在 Web 管理台配置。" = "Configure proxy, concurrency and advanced system settings in Web UI.";
 "订阅与搜索" = "Subscribe & Search";
 "站点范围 · 规则组" = "Sites & Rules";
+"媒体数据源" = "Media Data Sources";
+"搜索与元数据来源" = "Search & Metadata Sources";
 "下载器" = "Downloaders";
 "新增与管理" = "Add & Manage";
 "媒体服务器" = "Media Servers";

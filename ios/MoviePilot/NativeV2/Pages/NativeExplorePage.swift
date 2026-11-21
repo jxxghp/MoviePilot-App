@@ -498,15 +498,11 @@ struct NativeExplorePage: View {
   /// 自动隐藏后台高级设置中已关闭的内置探索来源（如 Bangumi / 豆瓣 / 音乐）。
   private func loadExtraSources() async {
     async let mediaSourcesTask: [NativeExploreMediaSourceInfo]? = {
-      guard
-        let endpoint = try? APIEndpoint(path: ["media", "source"], responseContract: .payload)
-      else { return nil }
+      guard let endpoint = try? APIEndpoint(path: ["media", "source"]) else { return nil }
       return try? await session.request(endpoint, as: [NativeExploreMediaSourceInfo].self).value
     }()
     async let extrasTask: [NativeExtraDiscoverSource]? = {
-      guard
-        let endpoint = try? APIEndpoint(path: ["discover", "source"], responseContract: .payload)
-      else { return nil }
+      guard let endpoint = try? APIEndpoint(path: ["discover", "source"]) else { return nil }
       return try? await session.request(endpoint, as: [NativeExtraDiscoverSource].self).value
     }()
     let (loadedMediaSources, loadedExtras) = await (mediaSourcesTask, extrasTask)
@@ -630,8 +626,7 @@ struct NativeExplorePage: View {
       guard !segments.isEmpty else { return [] }
       endpoint = try APIEndpoint(
         path: segments,
-        query: [URLQueryItem(name: "page", value: String(page))],
-        responseContract: .payload)
+        query: [URLQueryItem(name: "page", value: String(page))])
       fallbackType = "电影"
     } else {
       var query = [URLQueryItem(name: "page", value: String(page))]
@@ -676,7 +671,7 @@ struct NativeExplorePage: View {
       case .music:
         return []
       }
-      endpoint = try APIEndpoint(path: path, query: query, responseContract: .payload)
+      endpoint = try APIEndpoint(path: path, query: query)
     }
     let rows = try await session.request(endpoint, as: [NativeLossyExploreAPIItem].self).value
     return rows.compactMap { $0.value?.project(fallbackType: fallbackType) }

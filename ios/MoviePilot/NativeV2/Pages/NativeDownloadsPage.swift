@@ -417,11 +417,9 @@ struct NativeDownloadsPage: View {
     if !silent { loadFailed = false }
     defer { if !silent { isLoading = false } }
     do {
-      let clientsEndpoint = try APIEndpoint(
-        path: ["download", "clients"], responseContract: .payload)
+      let clientsEndpoint = try APIEndpoint(path: ["download", "clients"])
       let query = selectedClient.map { [URLQueryItem(name: "name", value: $0)] } ?? []
-      let tasksEndpoint = try APIEndpoint(
-        path: ["download"], query: query, responseContract: .payload, trailingSlash: true)
+      let tasksEndpoint = try APIEndpoint(path: ["download"], query: query, trailingSlash: true)
       async let loadedClients = try? session.request(
         clientsEndpoint, as: [NativeDownloaderClient].self
       ).value

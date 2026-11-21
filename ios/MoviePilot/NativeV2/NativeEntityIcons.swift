@@ -254,7 +254,7 @@ struct NativeBrandMultiOptionGrid: View {
   }
 }
 
-/// 站点真实图标视图：调用 `GET /api/v1/site/icon/{id}` 加载并缓存真实站点图标，缺失时回退官方默认站点图标。
+/// 站点真实图标视图：调用 `GET /api/v1/site/icon/{id}` 加载并缓存真实站点图标，缺失时回退官方默认站点图标；统一裁剪为圆角方形轮廓。
 @MainActor
 struct NativeSiteIconView: View {
   let session: NativeSession
@@ -263,20 +263,37 @@ struct NativeSiteIconView: View {
   var active: Bool = true
   @State private var image: UIImage?
 
+  private var cornerRadius: CGFloat {
+    max(6, (size * 0.24).rounded())
+  }
+
   var body: some View {
-    Group {
+    let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    ZStack {
+      shape.fill(NativeTheme.chipFill)
       if let resolved = image ?? NativeEntityIconCache.shared.image(for: cacheKey) {
-        Image(uiImage: resolved)
-          .resizable()
-          .scaledToFit()
-          .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
+        let ratio = resolved.size.height > 0 ? resolved.size.width / resolved.size.height : 1.0
+        if abs(ratio - 1.0) <= 0.22 {
+          Image(uiImage: resolved)
+            .resizable()
+            .scaledToFill()
+        } else {
+          Image(uiImage: resolved)
+            .resizable()
+            .scaledToFit()
+            .padding(size * 0.10)
+        }
       } else {
         Image("logo-site")
           .resizable()
-          .scaledToFit()
+          .scaledToFill()
       }
     }
     .frame(width: size, height: size)
+    .clipShape(shape)
+    .overlay {
+      shape.strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
+    }
     .opacity(active ? 1.0 : 0.56)
     .task(id: cacheKey) { await load() }
     .accessibilityHidden(true)

@@ -31,6 +31,7 @@ struct NativeDashboardPage: View {
     NativeDashboardWidgetConfig.defaults
   @State private var showsWidgetEditor = false
   @State private var loading = false
+  @State private var hasLoadedOnce = false
   @State private var failedSections: [String] = []
   @State private var isPageVisible = false
 
@@ -58,55 +59,76 @@ struct NativeDashboardPage: View {
       _schedules = State(initialValue: cached.schedules)
       _systemInfo = State(initialValue: cached.systemInfo)
       _pluginWidgets = State(initialValue: cached.pluginWidgets)
+      _hasLoadedOnce = State(initialValue: true)
     }
+  }
+
+  /// 是否已有任意已载入的仪表盘数据块。
+  private var hasAnyContent: Bool {
+    statistics != nil || storage != nil || !recentImports.isEmpty || downloader != nil
+      || !activeDownloads.isEmpty || !cpuSamples.isEmpty || memory != nil
+      || !networkSamples.isEmpty || !transferTrend.isEmpty || schedules != nil
+      || systemInfo != nil || !pluginWidgets.isEmpty
+  }
+
+  /// 首次进入且尚未完成初次载入时仅展示纯粹的居中加载动画，不露出空卡片或底部编辑按钮。
+  private var isInitialLoading: Bool {
+    !hasLoadedOnce && !hasAnyContent
   }
 
   /// 主体使用连续渐变底色，所有已启用仪表盘组件依次流式呈现，底部提供「编辑仪表盘组件」胶囊入口。
   var body: some View {
     ZStack {
       CinematicBackground()
-      ScrollView {
-        VStack(alignment: .leading, spacing: 20) {
-          if loading { loadingIndicator }
-          if !failedSections.isEmpty { errorPanel }
-          ForEach(widgetItems.filter(\.enabled)) { item in
-            dashboardWidgetView(for: item)
-          }
-
-          HStack {
-            Spacer()
-            Button {
-              showsWidgetEditor = true
-            } label: {
-              Label("编辑仪表盘组件", systemImage: "slider.horizontal.3")
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(NativeTheme.chipText)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background {
-                  Capsule()
-                    .fill(NativeTheme.chipFill)
-                    .overlay {
-                      Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.7)
-                    }
-                }
+      if isInitialLoading {
+        ProgressView("正在载入仪表盘…")
+          .tint(.primary)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .accessibilityIdentifier("native-dashboard-loading")
+      } else {
+        ScrollView {
+          VStack(alignment: .leading, spacing: 20) {
+            if loading { loadingIndicator }
+            if !failedSections.isEmpty { errorPanel }
+            ForEach(widgetItems.filter(\.enabled)) { item in
+              dashboardWidgetView(for: item)
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("native-dashboard-edit-widgets")
-            Spacer()
+
+            HStack {
+              Spacer()
+              Button {
+                showsWidgetEditor = true
+              } label: {
+                Label("编辑仪表盘组件", systemImage: "slider.horizontal.3")
+                  .font(.footnote.weight(.medium))
+                  .foregroundStyle(NativeTheme.chipText)
+                  .padding(.horizontal, 16)
+                  .padding(.vertical, 10)
+                  .background {
+                    Capsule()
+                      .fill(NativeTheme.chipFill)
+                      .overlay {
+                        Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.7)
+                      }
+                  }
+              }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("native-dashboard-edit-widgets")
+              Spacer()
+            }
+            .padding(.top, 4)
           }
-          .padding(.top, 4)
+          .frame(maxWidth: 820, alignment: .leading)
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.top, 8)
+          .padding(.bottom, 36)
+          .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: 820, alignment: .leading)
-        .padding(.horizontal, CinematicStyle.margin)
-        .padding(.top, 8)
-        .padding(.bottom, 36)
-        .frame(maxWidth: .infinity)
+        .scrollIndicators(.hidden)
+        .modifier(NativeSoftTopScrollEdge())
+        .refreshable { await load(forceRefresh: true) }
+        .accessibilityIdentifier("native-dashboard-scroll")
       }
-      .scrollIndicators(.hidden)
-      .modifier(NativeSoftTopScrollEdge())
-      .refreshable { await load(forceRefresh: true) }
-      .accessibilityIdentifier("native-dashboard-scroll")
     }
     .navigationTitle("")
     .navigationBarTitleDisplayMode(.inline)
@@ -861,7 +883,11 @@ struct NativeDashboardPage: View {
   // MARK: - 网络请求与实时轮询
 
   private func load(forceRefresh: Bool = false) async {
-    guard !loading, !Task.isCancelled, session.user.isSuperuser else { return }
+    guard !loading, !Task.isCancelled else { return }
+    guard session.user.isSuperuser else {
+      hasLoadedOnce = true
+      return
+    }
     let cacheKey = "dashboard|overview.v3"
     if !forceRefresh,
       let cached: NativeDashboardCacheSnapshot = NativePageDataCache.shared.get(
@@ -879,12 +905,13 @@ struct NativeDashboardPage: View {
       schedules = cached.schedules
       systemInfo = cached.systemInfo
       pluginWidgets = cached.pluginWidgets
+      hasLoadedOnce = true
       syncWidgetsFromStorage()
       await pollRealtimeMetrics(includeMemory: true)
       return
     }
-    let hadContent = statistics != nil || storage != nil || schedules != nil
-    if !hadContent { loading = true }
+    let hadContent = hasAnyContent
+    loading = true
     defer { loading = false }
 
     async let statsTask = readDashboard("statistic", as: NativeDashboardStatistics.self)
@@ -912,8 +939,8 @@ struct NativeDashboardPage: View {
     guard (try? session.checkActive()) != nil else { return }
 
     failedSections = []
-    if let newStats { statistics = newStats } else { failedSections.append("媒体库统计") }
-    if let newStorage { storage = newStorage } else { failedSections.append("存储空间") }
+    if let newStats { statistics = newStats } else if !hadContent { failedSections.append("媒体库统计") }
+    if let newStorage { storage = newStorage } else if !hadContent { failedSections.append("存储空间") }
     if let newRecent { recentImports = newRecent }
     if let newDownloader { downloader = newDownloader }
     if let newDownloads { activeDownloads = newDownloads }
@@ -924,6 +951,7 @@ struct NativeDashboardPage: View {
     if let newSchedules { schedules = newSchedules }
     if let newSys { systemInfo = newSys }
     if let newWidgets { pluginWidgets = newWidgets }
+    hasLoadedOnce = true
     syncWidgetsFromStorage()
     saveCache(cacheKey)
   }
