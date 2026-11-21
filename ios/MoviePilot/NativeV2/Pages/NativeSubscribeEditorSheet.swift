@@ -45,9 +45,8 @@ struct NativeSubscribeEditorSheet: View {
               .accessibilityIdentifier("native-subscribe-editor-error")
             }
             if isLoading && loaded == nil {
-              ProgressView("正在读取订阅规则…")
-                .tint(.primary)
-                .frame(maxWidth: .infinity, minHeight: 220)
+              NativeCardListSkeletonView(count: 3, style: .formPanel)
+                .transition(.opacity)
             } else if loadFailed && loaded == nil {
               CinematicPanel {
                 VStack(alignment: .leading, spacing: 10) {

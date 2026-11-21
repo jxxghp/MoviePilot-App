@@ -77,10 +77,8 @@ struct NativeMediaDetailPage: View {
                 .padding(.horizontal, CinematicStyle.margin)
                 .padding(.top, 110)
             } else {
-              ProgressView("正在载入作品详情…")
-                .tint(.primary)
-                .frame(maxWidth: .infinity, minHeight: 280)
-                .padding(.top, 110)
+              NativeMediaDetailSkeletonView(heroHeight: heroHeight)
+                .transition(.opacity)
             }
           }
           .frame(maxWidth: .infinity)

@@ -54,9 +54,8 @@ struct NativeFileManagerPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && items.isEmpty {
-            ProgressView("正在读取目录内容…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 220)
+            NativeCardListSkeletonView(count: 6, style: .iconRow)
+              .transition(.opacity)
           } else if loadFailed && items.isEmpty {
             failureCard
           } else if items.isEmpty {
@@ -1807,8 +1806,13 @@ private struct NativeManualTransferMediaPickerSheet: View {
           }
 
           if isSearching {
-            ProgressView("正在搜索媒体信息…")
-              .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ScrollView {
+              NativeCardListSkeletonView(count: 4, style: .posterRow)
+                .padding(.horizontal, CinematicStyle.margin)
+                .padding(.vertical, 8)
+            }
+            .scrollIndicators(.hidden)
+            .transition(.opacity)
           } else if let errorMessage {
             Text(errorMessage)
               .font(.subheadline)

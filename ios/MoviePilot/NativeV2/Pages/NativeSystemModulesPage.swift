@@ -269,9 +269,8 @@ struct NativeSystemModulesPage: View {
   @ViewBuilder
   private var contentSection: some View {
     if isLoading {
-      ProgressView("正在读取\(domain.rawValue)…")
-        .tint(.primary)
-        .frame(maxWidth: .infinity, minHeight: 200)
+      NativeCardListSkeletonView(count: 4, style: .iconRow)
+        .transition(.opacity)
     } else if loadFailed {
       CinematicPanel {
         VStack(alignment: .leading, spacing: 10) {

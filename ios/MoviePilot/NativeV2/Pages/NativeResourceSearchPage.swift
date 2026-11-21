@@ -60,9 +60,8 @@ struct NativeResourceSearchPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && results.isEmpty {
-            ProgressView(loadingMessage)
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 220)
+            NativeCardListSkeletonView(count: 5, style: .posterRow)
+              .transition(.opacity)
           } else if loadFailed && results.isEmpty {
             failureCard
           } else if displayedResults.isEmpty {

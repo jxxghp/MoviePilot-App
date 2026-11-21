@@ -461,7 +461,8 @@ struct NativeMediaSearchPage: View {
             }
           } else if failure == nil {
             if isSearching {
-              statusCard("正在搜索…", symbol: "magnifyingglass")
+              NativePosterGridSkeletonView(columns: 3, count: 9)
+                .transition(.opacity)
             } else if loadedPage > 0 {
               statusCard(
                 committedQuery?.kind == .library ? "媒体库中未找到相关内容" : "没有找到相关结果",

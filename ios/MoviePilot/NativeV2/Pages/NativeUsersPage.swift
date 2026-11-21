@@ -39,9 +39,8 @@ struct NativeUsersPage: View {
             .accessibilityIdentifier("native-users-feedback")
           }
           if isLoading && users.isEmpty {
-            ProgressView("正在载入用户列表…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 220)
+            NativeCardListSkeletonView(count: 4, style: .iconRow)
+              .transition(.opacity)
           } else if loadFailed && users.isEmpty {
             failureCard
           } else if filteredUsers.isEmpty {

@@ -376,44 +376,52 @@ struct NativeDiscoverPage: View {
         }
         ScrollView {
           VStack(spacing: 24) {
-            if !content.featuredItems.isEmpty {
-              heroCarousel(height: heroHeight)
-            }
-            LazyVStack(alignment: .leading, spacing: 26) {
-              if isPreview, content.featuredItems.isEmpty {
-                previewMarker.padding(.horizontal, CinematicStyle.margin)
+            if !hasContent && content.isLoading {
+              NativeDiscoverSkeletonView(
+                heroHeight: heroHeight, posterWidth: posterWidth, cardWidth: cardWidth
+              )
+              .transition(.opacity)
+            } else {
+              if !content.featuredItems.isEmpty {
+                heroCarousel(height: heroHeight)
               }
-              if hasContent {
-                orderedSections(populatedRails: populatedRails, hasLibrary: hasLibrary)
-                if let onManageModules {
-                  HStack {
-                    Spacer()
-                    Button(action: onManageModules) {
-                      Label("管理发现模块", systemImage: "slider.horizontal.3")
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(.primary.opacity(0.82))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background {
-                          Capsule()
-                            .fill(.primary.opacity(0.09))
-                            .overlay {
-                              Capsule().strokeBorder(.primary.opacity(0.16), lineWidth: 0.6)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("native-discover-manage-modules")
-                    Spacer()
-                  }
-                  .padding(.top, 4)
+              LazyVStack(alignment: .leading, spacing: 26) {
+                if isPreview, content.featuredItems.isEmpty {
+                  previewMarker.padding(.horizontal, CinematicStyle.margin)
                 }
-              }
-              if !hasContent || content.loadFailed {
-                discoveryStatus.padding(.horizontal, CinematicStyle.margin)
+                if hasContent {
+                  orderedSections(populatedRails: populatedRails, hasLibrary: hasLibrary)
+                  if let onManageModules {
+                    HStack {
+                      Spacer()
+                      Button(action: onManageModules) {
+                        Label("管理发现模块", systemImage: "slider.horizontal.3")
+                          .font(.footnote.weight(.medium))
+                          .foregroundStyle(.primary.opacity(0.82))
+                          .padding(.horizontal, 16)
+                          .padding(.vertical, 10)
+                          .background {
+                            Capsule()
+                              .fill(.primary.opacity(0.09))
+                              .overlay {
+                                Capsule().strokeBorder(.primary.opacity(0.16), lineWidth: 0.6)
+                              }
+                          }
+                      }
+                      .buttonStyle(.plain)
+                      .accessibilityIdentifier("native-discover-manage-modules")
+                      Spacer()
+                    }
+                    .padding(.top, 4)
+                  }
+                }
+                if !hasContent || content.loadFailed {
+                  discoveryStatus.padding(.horizontal, CinematicStyle.margin)
+                }
               }
             }
           }
+          .animation(.easeOut(duration: 0.24), value: hasContent)
           .frame(maxWidth: .infinity)
           .padding(.bottom, 28)
           .modifier(NativeDiscoverLegacyScrollProbe())

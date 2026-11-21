@@ -783,9 +783,8 @@ struct NativeChannelAuthorizationPage: View {
       }
 
       if isLoading && members.isEmpty {
-        ProgressView("正在载入渠道授权记录…")
-          .tint(.primary)
-          .frame(maxWidth: .infinity, minHeight: 140)
+        NativeCardListSkeletonView(count: 4, style: .iconRow)
+          .transition(.opacity)
       } else if filteredMembers.isEmpty {
         CinematicPanel(padding: 16) {
           Text("当前分类下暂无渠道授权成员")
@@ -1235,9 +1234,8 @@ struct NativeSubscribeSearchSettingsPage: View {
           }
 
           if isLoading {
-            ProgressView("正在读取订阅与搜索设置…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 200)
+            NativeCardListSkeletonView(count: 3, style: .formPanel)
+              .transition(.opacity)
           } else {
             // 站点范围
             VStack(alignment: .leading, spacing: 10) {
@@ -1528,9 +1526,8 @@ struct NativeMediaSourceSettingsPage: View {
           }
 
           if isLoading {
-            ProgressView("正在读取媒体数据源…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 200)
+            NativeCardListSkeletonView(count: 5, style: .iconRow)
+              .transition(.opacity)
           } else {
             VStack(alignment: .leading, spacing: 10) {
               HStack {
@@ -1862,8 +1859,8 @@ struct NativeDownloadersManagePage: View {
             }
           }
           if isLoading && items.isEmpty {
-            ProgressView("正在读取下载器列表…").tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 180)
+            NativeCardListSkeletonView(count: 3, style: .iconRow)
+              .transition(.opacity)
           } else if items.isEmpty {
             CinematicPanel(padding: 16) {
               Text("暂无下载器，点击右上角「+」新增 qBittorrent 或 Transmission。")
@@ -2258,8 +2255,8 @@ struct NativeMediaServersManagePage: View {
             }
           }
           if isLoading && items.isEmpty {
-            ProgressView("正在读取媒体服务器列表…").tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 180)
+            NativeCardListSkeletonView(count: 3, style: .iconRow)
+              .transition(.opacity)
           } else if items.isEmpty {
             CinematicPanel(padding: 16) {
               Text("暂无媒体服务器，点击右上角「+」新增 Emby、Jellyfin、Plex 或飞牛等服务。")

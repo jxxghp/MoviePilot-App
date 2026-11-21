@@ -27,9 +27,8 @@ struct NativeSystemSettingsPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && !loaded.isLoaded {
-            ProgressView("正在读取系统设置…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 220)
+            NativeCardListSkeletonView(count: 3, style: .formPanel)
+              .transition(.opacity)
           } else if loadFailed && !loaded.isLoaded {
             failureCard
           } else {

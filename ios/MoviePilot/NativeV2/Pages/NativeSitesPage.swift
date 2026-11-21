@@ -49,9 +49,8 @@ struct NativeSitesPage: View {
           }
 
           if isLoading && sites.isEmpty {
-            ProgressView("正在载入站点清单…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 220)
+            NativeCardListSkeletonView(count: 5, style: .iconRow)
+              .transition(.opacity)
           } else if loadFailed && sites.isEmpty {
             failureCard
           } else if filteredSites.isEmpty {
@@ -500,8 +499,8 @@ private struct NativeSiteDataSheet: View {
             }
 
             if isLoading {
-              ProgressView("正在载入站点数据…").tint(.primary)
-                .frame(maxWidth: .infinity, minHeight: 140)
+              NativeCardListSkeletonView(count: 2, style: .formPanel)
+                .transition(.opacity)
             } else if let latest = history.first {
               LazyVGrid(
                 columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],

@@ -68,9 +68,11 @@ struct NativeMusicExploreSection: View {
     VStack(alignment: .leading, spacing: 14) {
       feedBar
       if isLoading && items.isEmpty {
-        ProgressView("正在载入音乐榜单…")
-          .tint(.primary)
-          .frame(maxWidth: .infinity, minHeight: 240)
+        NativePosterGridSkeletonView(
+          columns: horizontalSizeClass == .regular ? 4 : 2, count: 6, aspectRatio: 1.0,
+          cornerRadius: 12
+        )
+        .transition(.opacity)
       } else if loadFailed && items.isEmpty {
         failureCard
       } else if filteredItems.isEmpty {
@@ -97,7 +99,7 @@ struct NativeMusicExploreSection: View {
   /// 两列方形封面网格（iPad 宽屏四列）。
   private var columns: [GridItem] {
     let count = horizontalSizeClass == .regular ? 4 : 2
-    return Array(repeating: GridItem(.flexible(), spacing: 13), count: count)
+    return Array(repeating: GridItem(.flexible(), spacing: 13, alignment: .top), count: count)
   }
 
   /// 按关键字过滤后的音乐条目。
@@ -148,26 +150,30 @@ struct NativeMusicExploreSection: View {
   private func albumCard(_ item: NativeMusicCardItem) -> some View {
     CinematicPanel(padding: 10) {
       VStack(alignment: .leading, spacing: 8) {
-        ZStack(alignment: .topTrailing) {
-          NativeMediaArtwork(
-            session: session, reference: item.coverReference, role: .poster, maximumWidth: 420
-          )
-          .aspectRatio(1.0, contentMode: .fill)
+        Color.clear
+          .aspectRatio(1.0, contentMode: .fit)
+          .overlay {
+            NativeMediaArtwork(
+              session: session, reference: item.coverReference, role: .poster, maximumWidth: 420
+            )
+          }
+          .clipped()
           .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
           .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
               .strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
           }
-          if let rating = item.ratingText {
-            Text(rating)
-              .font(.caption2.weight(.bold).monospacedDigit())
-              .foregroundStyle(.primary)
-              .padding(.horizontal, 6)
-              .padding(.vertical, 2.5)
-              .background { Capsule().fill(.black.opacity(0.64)) }
-              .padding(6)
+          .overlay(alignment: .topTrailing) {
+            if let rating = item.ratingText {
+              Text(rating)
+                .font(.caption2.weight(.bold).monospacedDigit())
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2.5)
+                .background { Capsule().fill(.black.opacity(0.64)) }
+                .padding(6)
+            }
           }
-        }
         Text(item.title)
           .font(.subheadline.weight(.semibold))
           .foregroundStyle(.primary)
@@ -306,9 +312,8 @@ struct NativeMusicAlbumDetailPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && detail == nil {
-            ProgressView("正在载入专辑曲目…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 120)
+            NativeCardListSkeletonView(count: 2, style: .formPanel)
+              .transition(.opacity)
           } else {
             if let overview = resolvedOverview, !overview.isEmpty {
               CinematicPanel {
@@ -706,9 +711,11 @@ struct NativeMusicArtistDetailPage: View {
         VStack(alignment: .leading, spacing: 18) {
           header
           if isLoading && artist == nil && albums.isEmpty {
-            ProgressView("正在载入艺术家资料…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 160)
+            VStack(alignment: .leading, spacing: 16) {
+              NativeCardListSkeletonView(count: 1, style: .formPanel)
+              NativePosterGridSkeletonView(columns: 2, count: 4, aspectRatio: 1.0, cornerRadius: 12)
+            }
+            .transition(.opacity)
           } else {
             if let overview = artist?.overview, !overview.isEmpty {
               CinematicPanel {
@@ -728,12 +735,16 @@ struct NativeMusicArtistDetailPage: View {
                       NativeMusicAlbumDetailPage(session: session, seed: item)
                     } label: {
                       VStack(alignment: .leading, spacing: 6) {
-                        NativeMediaArtwork(
-                          session: session, reference: item.coverReference, role: .poster,
-                          maximumWidth: 420
-                        )
-                        .aspectRatio(1.0, contentMode: .fill)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        Color.clear
+                          .aspectRatio(1.0, contentMode: .fit)
+                          .overlay {
+                            NativeMediaArtwork(
+                              session: session, reference: item.coverReference, role: .poster,
+                              maximumWidth: 420
+                            )
+                          }
+                          .clipped()
+                          .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         Text(item.title)
                           .font(.footnote.weight(.semibold))
                           .foregroundStyle(.primary)
@@ -742,6 +753,7 @@ struct NativeMusicArtistDetailPage: View {
                           Text(year).font(.caption2).foregroundStyle(.primary.opacity(0.56))
                         }
                       }
+                      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
                     .buttonStyle(.plain)
                   }
@@ -768,7 +780,7 @@ struct NativeMusicArtistDetailPage: View {
   /// 两列或四列专辑网格。
   private var columns: [GridItem] {
     let count = horizontalSizeClass == .regular ? 4 : 2
-    return Array(repeating: GridItem(.flexible(), spacing: 12), count: count)
+    return Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: count)
   }
 
   /// 圆形艺人头像与摘要信息。

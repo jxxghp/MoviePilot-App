@@ -81,9 +81,8 @@ struct NativeDashboardPage: View {
     ZStack {
       CinematicBackground()
       if isInitialLoading {
-        ProgressView("正在载入仪表盘…")
-          .tint(.primary)
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+        NativeDashboardSkeletonView()
+          .transition(.opacity)
           .accessibilityIdentifier("native-dashboard-loading")
       } else {
         ScrollView {

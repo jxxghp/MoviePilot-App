@@ -35,9 +35,8 @@ struct NativeCalendarPage: View {
         VStack(alignment: .leading, spacing: 20) {
           weekStrip
           if isLoading && entries.isEmpty {
-            ProgressView("正在载入追剧日历…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 180)
+            NativeCardListSkeletonView(count: 4, style: .posterRow)
+              .transition(.opacity)
           } else if loadFailed && entries.isEmpty {
             failureCard
           } else {

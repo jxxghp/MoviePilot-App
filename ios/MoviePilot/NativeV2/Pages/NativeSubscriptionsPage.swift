@@ -61,9 +61,8 @@ struct NativeSubscriptionsPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && items.isEmpty {
-            ProgressView("正在载入订阅列表…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 220)
+            NativeCardListSkeletonView(count: 5, style: .posterRow)
+              .transition(.opacity)
           } else if loadFailed && items.isEmpty {
             failureCard
           } else if filteredItems.isEmpty {

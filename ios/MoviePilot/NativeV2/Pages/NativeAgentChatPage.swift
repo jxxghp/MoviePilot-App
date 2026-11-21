@@ -51,9 +51,8 @@ struct NativeAgentChatPage: View {
           ScrollView {
             VStack(alignment: .leading, spacing: 14) {
               if isLoadingInitialSession && messages.isEmpty {
-                ProgressView("正在载入会话…")
-                  .tint(.primary)
-                  .frame(maxWidth: .infinity, minHeight: 220)
+                NativeCardListSkeletonView(style: .chatBubbles)
+                  .transition(.opacity)
               } else if messages.isEmpty {
                 welcomeSection
               } else {
@@ -694,8 +693,8 @@ struct NativeAgentChatPage: View {
         ScrollView {
           VStack(alignment: .leading, spacing: 12) {
             if isLoadingSessions && sessions.isEmpty {
-              ProgressView("正在读取历史会话…").tint(.primary)
-                .frame(maxWidth: .infinity, minHeight: 160)
+              NativeCardListSkeletonView(count: 4, style: .iconRow)
+                .transition(.opacity)
             } else if sessions.isEmpty {
               CinematicPanel {
                 VStack(spacing: 8) {

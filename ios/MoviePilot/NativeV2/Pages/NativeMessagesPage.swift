@@ -38,9 +38,8 @@ struct NativeMessagesPage: View {
         VStack(alignment: .leading, spacing: 16) {
           categoryBar
           if isLoading && messages.isEmpty {
-            ProgressView("正在载入消息通知…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 220)
+            NativeCardListSkeletonView(count: 4, style: .messageCard)
+              .transition(.opacity)
           } else if loadFailed && messages.isEmpty {
             failureCard
           } else if filteredMessages.isEmpty {

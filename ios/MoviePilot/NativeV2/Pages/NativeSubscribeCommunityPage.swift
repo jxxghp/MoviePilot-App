@@ -43,9 +43,13 @@ struct NativeSubscribeCommunityPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && isCurrentEmpty {
-            ProgressView("正在载入订阅广场…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 240)
+            if selectedTab == .shares {
+              NativeCardListSkeletonView(count: 4, style: .posterRow)
+                .transition(.opacity)
+            } else {
+              NativePosterGridSkeletonView(columns: 3, count: 9)
+                .transition(.opacity)
+            }
           } else if loadFailed && isCurrentEmpty {
             failureCard
           } else if selectedTab == .shares {
@@ -95,7 +99,7 @@ struct NativeSubscribeCommunityPage: View {
   /// 三列海报网格（iPad 五列）。
   private var columns: [GridItem] {
     let count = horizontalSizeClass == .regular ? 5 : 3
-    return Array(repeating: GridItem(.flexible(), spacing: 11), count: count)
+    return Array(repeating: GridItem(.flexible(), spacing: 11, alignment: .top), count: count)
   }
 
   /// 顶部分区切换胶囊栏。
@@ -160,15 +164,31 @@ struct NativeSubscribeCommunityPage: View {
   /// 单张热门订阅海报卡。
   private func popularPosterCard(_ item: NativePopularSubscribeItem) -> some View {
     VStack(alignment: .center, spacing: 6) {
-      ZStack(alignment: .bottomLeading) {
-        NativeMediaArtwork(
-          session: session, reference: item.posterReference, role: .poster, maximumWidth: 420
-        )
-        .aspectRatio(2.0 / 3.0, contentMode: .fill)
+      Color.clear
+        .aspectRatio(2.0 / 3.0, contentMode: .fit)
+        .overlay {
+          NativeMediaArtwork(
+            session: session, reference: item.posterReference, role: .poster, maximumWidth: 420
+          )
+        }
+        .clipped()
         .clipShape(.rect(cornerRadius: 13))
         .overlay {
           RoundedRectangle(cornerRadius: 13, style: .continuous)
             .strokeBorder(.primary.opacity(0.10), lineWidth: 0.5)
+        }
+        .overlay(alignment: .bottomLeading) {
+          if let hotText = item.hotLabel {
+            HStack(spacing: 3) {
+              Image(systemName: "flame.fill").font(.system(size: 9))
+              Text(hotText).font(.caption2.weight(.bold).monospacedDigit())
+            }
+            .foregroundStyle(Color(red: 1.0, green: 0.78, blue: 0.48))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background { Capsule().fill(.black.opacity(0.68)) }
+            .padding(6)
+          }
         }
         .nativeMediaExistsOverlay(
           session: session,
@@ -180,18 +200,6 @@ struct NativeSubscribeCommunityPage: View {
           badgeSize: 18,
           inset: 5
         )
-        if let hotText = item.hotLabel {
-          HStack(spacing: 3) {
-            Image(systemName: "flame.fill").font(.system(size: 9))
-            Text(hotText).font(.caption2.weight(.bold).monospacedDigit())
-          }
-          .foregroundStyle(Color(red: 1.0, green: 0.78, blue: 0.48))
-          .padding(.horizontal, 6)
-          .padding(.vertical, 3)
-          .background { Capsule().fill(.black.opacity(0.68)) }
-          .padding(6)
-        }
-      }
       Text(item.title)
         .font(.footnote.weight(.medium))
         .foregroundStyle(.primary.opacity(0.95))
@@ -204,6 +212,7 @@ struct NativeSubscribeCommunityPage: View {
           .lineLimit(1)
       }
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .multilineTextAlignment(.center)
     .contentShape(Rectangle())
   }

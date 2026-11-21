@@ -455,3 +455,479 @@ struct NativeLiquidGlassPopoverSurface: ViewModifier {
     }
   }
 }
+
+// MARK: - 全局占位骨架屏（Skeleton）加载过渡体系
+
+/// 轻量呼吸动效修饰符：单层统一驱动整个骨架屏区块的明暗过渡，自动尊重系统「减弱动态效果」设置。
+@MainActor
+struct NativeSkeletonShimmerModifier: ViewModifier {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var pulsing = false
+
+  func body(content: Content) -> some View {
+    content
+      .opacity(reduceMotion ? 0.84 : (pulsing ? 0.50 : 1.0))
+      .onAppear {
+        guard !reduceMotion, !pulsing else { return }
+        withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
+          pulsing = true
+        }
+      }
+      .accessibilityHidden(true)
+  }
+}
+
+extension View {
+  /// 为骨架屏容器附加统一的柔和呼吸占位动效。
+  func nativeSkeletonShimmer() -> some View {
+    modifier(NativeSkeletonShimmerModifier())
+  }
+}
+
+/// 语义自适应骨架占位色块：深色模式使用柔和白透色、浅色模式使用柔和灰透色，贴合 Cinematic 玻璃体系。
+@MainActor
+struct NativeSkeletonBlock: View {
+  var width: CGFloat? = nil
+  var height: CGFloat
+  var cornerRadius: CGFloat = 8
+  @Environment(\.colorScheme) private var colorScheme
+
+  var body: some View {
+    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+      .fill(colorScheme == .light ? Color.black.opacity(0.085) : Color.white.opacity(0.11))
+      .frame(width: width, height: height)
+      .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
+      .accessibilityHidden(true)
+  }
+}
+
+/// 发现页占位骨架布局：对齐全幅主视觉、2:3 海报横栏与 16:9 横幅横栏，消除初次进入空白闪跳。
+@MainActor
+struct NativeDiscoverSkeletonView: View {
+  var heroHeight: CGFloat = 460
+  var posterWidth: CGFloat = 112
+  var cardWidth: CGFloat = 238
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 26) {
+      ZStack(alignment: .bottom) {
+        NativeSkeletonBlock(height: heroHeight, cornerRadius: 0)
+        VStack(spacing: 12) {
+          NativeSkeletonBlock(width: 210, height: 36, cornerRadius: 10)
+          NativeSkeletonBlock(width: 150, height: 14, cornerRadius: 7)
+          HStack(spacing: 10) {
+            NativeSkeletonBlock(width: 112, height: 38, cornerRadius: 19)
+            NativeSkeletonBlock(width: 84, height: 38, cornerRadius: 19)
+          }
+          .padding(.top, 4)
+        }
+        .padding(.bottom, 28)
+      }
+
+      ForEach(0..<2, id: \.self) { _ in
+        VStack(alignment: .leading, spacing: 12) {
+          NativeSkeletonBlock(width: 110, height: 20, cornerRadius: 6)
+            .padding(.horizontal, CinematicStyle.margin)
+          ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+              ForEach(0..<4, id: \.self) { _ in
+                VStack(spacing: 7) {
+                  NativeSkeletonBlock(
+                    width: posterWidth, height: posterWidth * 1.5, cornerRadius: 13)
+                  NativeSkeletonBlock(width: posterWidth * 0.78, height: 12, cornerRadius: 5)
+                  NativeSkeletonBlock(width: posterWidth * 0.45, height: 10, cornerRadius: 5)
+                }
+              }
+            }
+            .padding(.horizontal, CinematicStyle.margin)
+          }
+          .allowsHitTesting(false)
+        }
+      }
+
+      VStack(alignment: .leading, spacing: 12) {
+        NativeSkeletonBlock(width: 120, height: 20, cornerRadius: 6)
+          .padding(.horizontal, CinematicStyle.margin)
+        ScrollView(.horizontal, showsIndicators: false) {
+          HStack(spacing: 12) {
+            ForEach(0..<2, id: \.self) { _ in
+              VStack(alignment: .leading, spacing: 7) {
+                NativeSkeletonBlock(
+                  width: cardWidth, height: cardWidth * 9.0 / 16.0, cornerRadius: 15)
+                NativeSkeletonBlock(width: cardWidth * 0.72, height: 13, cornerRadius: 5)
+                NativeSkeletonBlock(width: cardWidth * 0.46, height: 11, cornerRadius: 5)
+              }
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+        }
+        .allowsHitTesting(false)
+      }
+    }
+    .nativeSkeletonShimmer()
+  }
+}
+
+/// 海报/方卡多列网格占位骨架：用于探索页、音乐榜单、全局搜索与订阅广场。
+@MainActor
+struct NativePosterGridSkeletonView: View {
+  var columns: Int = 3
+  var count: Int = 9
+  var aspectRatio: CGFloat = 2.0 / 3.0
+  var cornerRadius: CGFloat = 13
+
+  var body: some View {
+    let gridColumns = Array(
+      repeating: GridItem(.flexible(), spacing: 12), count: max(columns, 1))
+    LazyVGrid(columns: gridColumns, spacing: 16) {
+      ForEach(0..<max(count, 1), id: \.self) { _ in
+        VStack(alignment: .leading, spacing: 7) {
+          Color.clear
+            .aspectRatio(aspectRatio, contentMode: .fit)
+            .overlay {
+              NativeSkeletonBlock(height: 1000, cornerRadius: cornerRadius)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+          NativeSkeletonBlock(height: 12, cornerRadius: 5)
+          NativeSkeletonBlock(width: 52, height: 10, cornerRadius: 5)
+        }
+      }
+    }
+    .nativeSkeletonShimmer()
+  }
+}
+
+/// 影视/音乐详情页占位骨架布局：对齐全幅剧照、海报卡、操作按钮、简介段与演职员横排。
+@MainActor
+struct NativeMediaDetailSkeletonView: View {
+  var heroHeight: CGFloat = 310
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 20) {
+      NativeSkeletonBlock(height: heroHeight, cornerRadius: 0)
+
+      VStack(alignment: .leading, spacing: 16) {
+        HStack(alignment: .bottom, spacing: 14) {
+          NativeSkeletonBlock(width: 96, height: 144, cornerRadius: 13)
+          VStack(alignment: .leading, spacing: 9) {
+            NativeSkeletonBlock(height: 22, cornerRadius: 7)
+            NativeSkeletonBlock(width: 140, height: 13, cornerRadius: 6)
+            HStack(spacing: 8) {
+              NativeSkeletonBlock(width: 54, height: 22, cornerRadius: 11)
+              NativeSkeletonBlock(width: 68, height: 22, cornerRadius: 11)
+            }
+          }
+        }
+
+        HStack(spacing: 10) {
+          NativeSkeletonBlock(height: 44, cornerRadius: 22)
+          NativeSkeletonBlock(width: 116, height: 44, cornerRadius: 22)
+        }
+
+        CinematicPanel(padding: 15) {
+          VStack(alignment: .leading, spacing: 9) {
+            NativeSkeletonBlock(width: 72, height: 14, cornerRadius: 5)
+            NativeSkeletonBlock(height: 12, cornerRadius: 5)
+            NativeSkeletonBlock(height: 12, cornerRadius: 5)
+            NativeSkeletonBlock(width: 210, height: 12, cornerRadius: 5)
+          }
+        }
+
+        VStack(alignment: .leading, spacing: 12) {
+          NativeSkeletonBlock(width: 84, height: 16, cornerRadius: 6)
+          HStack(spacing: 14) {
+            ForEach(0..<4, id: \.self) { _ in
+              VStack(spacing: 7) {
+                NativeSkeletonBlock(width: 64, height: 64, cornerRadius: 32)
+                NativeSkeletonBlock(width: 52, height: 10, cornerRadius: 5)
+              }
+            }
+          }
+        }
+      }
+      .padding(.horizontal, CinematicStyle.margin)
+    }
+    .nativeSkeletonShimmer()
+  }
+}
+
+/// 仪表盘（「我的」页）占位骨架布局：对齐 2×2 核心指标卡、趋势图表卡与后台服务列表，无多余搜索栏或编辑按钮。
+@MainActor
+struct NativeDashboardSkeletonView: View {
+  var body: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 20) {
+        LazyVGrid(
+          columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+          spacing: 12
+        ) {
+          ForEach(0..<4, id: \.self) { _ in
+            CinematicPanel(padding: 15) {
+              VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                  NativeSkeletonBlock(width: 58, height: 12, cornerRadius: 5)
+                  Spacer()
+                  NativeSkeletonBlock(width: 28, height: 28, cornerRadius: 14)
+                }
+                NativeSkeletonBlock(width: 86, height: 26, cornerRadius: 7)
+                NativeSkeletonBlock(width: 108, height: 11, cornerRadius: 5)
+              }
+            }
+          }
+        }
+
+        CinematicPanel(padding: 16) {
+          VStack(alignment: .leading, spacing: 14) {
+            HStack {
+              NativeSkeletonBlock(width: 96, height: 15, cornerRadius: 6)
+              Spacer()
+              NativeSkeletonBlock(width: 64, height: 13, cornerRadius: 6)
+            }
+            NativeSkeletonBlock(height: 116, cornerRadius: 12)
+          }
+        }
+
+        CinematicPanel(padding: 16) {
+          VStack(alignment: .leading, spacing: 14) {
+            NativeSkeletonBlock(width: 90, height: 15, cornerRadius: 6)
+            ForEach(0..<3, id: \.self) { idx in
+              if idx > 0 { Divider().overlay(NativeTheme.divider) }
+              HStack(spacing: 12) {
+                NativeSkeletonBlock(width: 26, height: 26, cornerRadius: 8)
+                VStack(alignment: .leading, spacing: 6) {
+                  NativeSkeletonBlock(width: 140, height: 13, cornerRadius: 5)
+                  NativeSkeletonBlock(width: 96, height: 11, cornerRadius: 5)
+                }
+                Spacer()
+              }
+            }
+          }
+        }
+      }
+      .frame(maxWidth: 820, alignment: .leading)
+      .padding(.horizontal, CinematicStyle.margin)
+      .padding(.top, 8)
+      .padding(.bottom, 36)
+      .frame(maxWidth: .infinity)
+    }
+    .scrollIndicators(.hidden)
+    .allowsHitTesting(false)
+    .nativeSkeletonShimmer()
+  }
+}
+
+/// 通用卡片与表单占位骨架集合：覆盖订阅、下载、整理历史、站点、插件、工作流、消息、设置与会话等全部列表/表单形态。
+@MainActor
+struct NativeCardListSkeletonView: View {
+  enum Style {
+    /// 左海报 + 右标题/标签/两行摘要（订阅、下载、整理历史、追剧日历、资源搜索）
+    case posterRow
+    /// 左方形图标 + 右标题/副标题/尾标（站点、用户、渠道授权、下载器、媒体服务器、文件管理、系统模块）
+    case iconRow
+    /// 双层插件卡：上区标题描述+右图标，下区作者头像与指标（我的插件、插件市场、插件目录）
+    case pluginCard
+    /// 工作流卡：标题+状态徽章+两行描述+底栏信息（我的工作流、社区工作流分享）
+    case workflowCard
+    /// 消息卡片：顶栏标签+时间+标题+正文多行（消息中心）
+    case messageCard
+    /// 舒朗分组表单面板：多行键值对/开关占位（设置子页、系统设置、插件表单、诊断工具）
+    case formPanel
+    /// 交替气泡会话占位（智能助手对话、历史会话）
+    case chatBubbles
+    /// 纵向连接节点画布占位（工作流画布）
+    case workflowCanvas
+  }
+
+  var count: Int = 5
+  var style: Style = .iconRow
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: style == .formPanel ? 16 : 12) {
+      switch style {
+      case .posterRow:
+        ForEach(0..<max(count, 1), id: \.self) { _ in
+          CinematicPanel(padding: 13) {
+            HStack(alignment: .top, spacing: 12) {
+              NativeSkeletonBlock(width: 58, height: 86, cornerRadius: 10)
+              VStack(alignment: .leading, spacing: 8) {
+                NativeSkeletonBlock(height: 15, cornerRadius: 6)
+                HStack(spacing: 6) {
+                  NativeSkeletonBlock(width: 48, height: 18, cornerRadius: 9)
+                  NativeSkeletonBlock(width: 56, height: 18, cornerRadius: 9)
+                  NativeSkeletonBlock(width: 42, height: 18, cornerRadius: 9)
+                }
+                NativeSkeletonBlock(height: 12, cornerRadius: 5)
+                NativeSkeletonBlock(width: 128, height: 11, cornerRadius: 5)
+              }
+            }
+          }
+        }
+
+      case .iconRow:
+        ForEach(0..<max(count, 1), id: \.self) { _ in
+          CinematicPanel(padding: 14) {
+            HStack(spacing: 13) {
+              NativeSkeletonBlock(width: 40, height: 40, cornerRadius: 10)
+              VStack(alignment: .leading, spacing: 7) {
+                NativeSkeletonBlock(width: 146, height: 15, cornerRadius: 6)
+                NativeSkeletonBlock(height: 12, cornerRadius: 5)
+              }
+              Spacer(minLength: 8)
+              NativeSkeletonBlock(width: 46, height: 22, cornerRadius: 11)
+            }
+          }
+        }
+
+      case .pluginCard:
+        ForEach(0..<max(count, 1), id: \.self) { _ in
+          CinematicPanel(padding: 0) {
+            VStack(spacing: 0) {
+              HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                  HStack(spacing: 8) {
+                    NativeSkeletonBlock(width: 126, height: 16, cornerRadius: 6)
+                    NativeSkeletonBlock(width: 44, height: 14, cornerRadius: 5)
+                  }
+                  NativeSkeletonBlock(height: 12, cornerRadius: 5)
+                  NativeSkeletonBlock(width: 170, height: 12, cornerRadius: 5)
+                }
+                Spacer(minLength: 8)
+                NativeSkeletonBlock(width: 46, height: 46, cornerRadius: 12)
+              }
+              .padding(.horizontal, 14)
+              .padding(.vertical, 13)
+              Divider().overlay(NativeTheme.divider)
+              HStack(spacing: 8) {
+                NativeSkeletonBlock(width: 18, height: 18, cornerRadius: 9)
+                NativeSkeletonBlock(width: 78, height: 11, cornerRadius: 5)
+                Spacer()
+                NativeSkeletonBlock(width: 52, height: 11, cornerRadius: 5)
+              }
+              .padding(.horizontal, 14)
+              .padding(.vertical, 10)
+            }
+          }
+        }
+
+      case .workflowCard:
+        ForEach(0..<max(count, 1), id: \.self) { _ in
+          CinematicPanel(padding: 15) {
+            VStack(alignment: .leading, spacing: 10) {
+              HStack {
+                NativeSkeletonBlock(width: 152, height: 16, cornerRadius: 6)
+                Spacer()
+                NativeSkeletonBlock(width: 54, height: 20, cornerRadius: 10)
+              }
+              NativeSkeletonBlock(height: 12, cornerRadius: 5)
+              NativeSkeletonBlock(width: 196, height: 12, cornerRadius: 5)
+              HStack(spacing: 10) {
+                NativeSkeletonBlock(width: 76, height: 18, cornerRadius: 9)
+                NativeSkeletonBlock(width: 64, height: 18, cornerRadius: 9)
+              }
+            }
+          }
+        }
+
+      case .messageCard:
+        ForEach(0..<max(count, 1), id: \.self) { _ in
+          CinematicPanel(padding: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+              HStack {
+                NativeSkeletonBlock(width: 64, height: 20, cornerRadius: 10)
+                Spacer()
+                NativeSkeletonBlock(width: 112, height: 12, cornerRadius: 5)
+              }
+              NativeSkeletonBlock(height: 16, cornerRadius: 6)
+              NativeSkeletonBlock(height: 12, cornerRadius: 5)
+              NativeSkeletonBlock(width: 210, height: 12, cornerRadius: 5)
+            }
+          }
+        }
+
+      case .formPanel:
+        ForEach(0..<max(min(count, 3), 1), id: \.self) { groupIdx in
+          VStack(alignment: .leading, spacing: 9) {
+            NativeSkeletonBlock(width: 92, height: 13, cornerRadius: 5)
+              .padding(.horizontal, 8)
+            CinematicPanel(padding: 0) {
+              VStack(spacing: 0) {
+                let rows = groupIdx == 0 ? 3 : 2
+                ForEach(0..<rows, id: \.self) { rowIdx in
+                  if rowIdx > 0 { CinematicFormDivider() }
+                  HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 6) {
+                      NativeSkeletonBlock(width: 118, height: 14, cornerRadius: 5)
+                      NativeSkeletonBlock(width: 172, height: 11, cornerRadius: 5)
+                    }
+                    Spacer(minLength: 8)
+                    NativeSkeletonBlock(width: 56, height: 22, cornerRadius: 11)
+                  }
+                  .padding(.horizontal, 16)
+                  .padding(.vertical, 14)
+                }
+              }
+            }
+          }
+        }
+
+      case .chatBubbles:
+        VStack(alignment: .leading, spacing: 16) {
+          HStack {
+            Spacer(minLength: 72)
+            NativeSkeletonBlock(width: 196, height: 42, cornerRadius: 18)
+          }
+          HStack(alignment: .top, spacing: 10) {
+            NativeSkeletonBlock(width: 28, height: 28, cornerRadius: 14)
+            CinematicPanel(padding: 13) {
+              VStack(alignment: .leading, spacing: 8) {
+                NativeSkeletonBlock(height: 13, cornerRadius: 5)
+                NativeSkeletonBlock(height: 13, cornerRadius: 5)
+                NativeSkeletonBlock(width: 156, height: 13, cornerRadius: 5)
+              }
+            }
+          }
+          HStack {
+            Spacer(minLength: 96)
+            NativeSkeletonBlock(width: 158, height: 38, cornerRadius: 18)
+          }
+          HStack(alignment: .top, spacing: 10) {
+            NativeSkeletonBlock(width: 28, height: 28, cornerRadius: 14)
+            CinematicPanel(padding: 13) {
+              VStack(alignment: .leading, spacing: 8) {
+                NativeSkeletonBlock(height: 13, cornerRadius: 5)
+                NativeSkeletonBlock(width: 188, height: 13, cornerRadius: 5)
+              }
+            }
+          }
+        }
+
+      case .workflowCanvas:
+        VStack(spacing: 0) {
+          ForEach(0..<3, id: \.self) { idx in
+            if idx > 0 {
+              NativeSkeletonBlock(width: 2, height: 28, cornerRadius: 1)
+                .frame(maxWidth: .infinity)
+            }
+            CinematicPanel(padding: 15) {
+              VStack(alignment: .leading, spacing: 9) {
+                HStack {
+                  NativeSkeletonBlock(width: 24, height: 24, cornerRadius: 12)
+                  NativeSkeletonBlock(width: 148, height: 15, cornerRadius: 6)
+                  Spacer()
+                  NativeSkeletonBlock(width: 48, height: 18, cornerRadius: 9)
+                }
+                NativeSkeletonBlock(height: 12, cornerRadius: 5)
+              }
+            }
+            .frame(maxWidth: 320)
+            .frame(maxWidth: .infinity)
+          }
+        }
+        .padding(.vertical, 24)
+      }
+    }
+    .nativeSkeletonShimmer()
+  }
+}
