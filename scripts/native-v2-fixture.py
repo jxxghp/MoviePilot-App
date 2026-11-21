@@ -468,6 +468,18 @@ class NativeHandler(BaseHTTPRequestHandler):
             if endpoint == "api/v1/agent/stream":
                 self.agent_stream_endpoint(name, body)
                 return
+            if endpoint == "api/v1/notification/app":
+                with self.server.lock:
+                    self.server.profiles[name]["counts"]["POST api/v1/notification/app"] += 1
+                self.reply(200, {
+                    "success": True, "message": "",
+                    "data": {
+                        "owner": "0123456789abcdef0123456789abcdef",
+                        "configured": True,
+                        "registered": False,
+                    },
+                })
+                return
             if re.fullmatch(r"api/v1/agent/sessions/[A-Za-z0-9_-]+/stop", endpoint):
                 self.agent_stop_endpoint(name, endpoint)
                 return
@@ -562,6 +574,7 @@ class NativeHandler(BaseHTTPRequestHandler):
             "api/v1/search/title",
             "api/v1/history/transfer",
             "api/v1/transfer/queue",
+            "api/v1/widget/context",
             "api/v1/message/web",
             "api/v1/storage/options",
             "api/v1/system/env",
@@ -738,6 +751,12 @@ class NativeHandler(BaseHTTPRequestHandler):
                     ],
                 }
             ]
+        elif endpoint == "api/v1/widget/context":
+            value = {
+                "version": 1,
+                "owner": "0123456789abcdef0123456789abcdef",
+                "availableContents": ["overview", "downloads", "imports", "subscriptions"],
+            }
         elif endpoint == "api/v1/storage/options":
             value = [{"type": "local", "name": "本地"}, {"type": "smb", "name": "SMB网络共享"}]
         elif endpoint == "api/v1/workflow":

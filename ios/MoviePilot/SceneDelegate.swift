@@ -33,11 +33,16 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
   }
 
-  /// 快捷项只交给当前驱动；原生未实现的业务入口明确返回未处理。
+  /// 快捷项交给当前驱动（原生与旧入口各自按权限消费）。
   func windowScene(
     _ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem,
     completionHandler: @escaping (Bool) -> Void
   ) {
+    if let native = driver as? NativeV2SceneDelegate {
+      native.windowScene(
+        windowScene, performActionFor: shortcutItem, completionHandler: completionHandler)
+      return
+    }
     guard let legacy = driver as? LegacyWebSceneDelegate else {
       completionHandler(false)
       return
