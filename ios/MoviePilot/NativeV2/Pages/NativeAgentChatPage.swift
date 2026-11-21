@@ -44,15 +44,15 @@ struct NativeAgentChatPage: View {
               }
               if isSending {
                 HStack(spacing: 8) {
-                  ProgressView().controlSize(.small).tint(.white)
+                  ProgressView().controlSize(.small).tint(.primary)
                   Text("智能助手正在思考与执行…")
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.72))
+                    .foregroundStyle(.primary.opacity(0.72))
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background {
-                  Capsule().fill(.white.opacity(0.09))
+                  Capsule().fill(.primary.opacity(0.09))
                 }
                 .id("native-agent-thinking")
               }
@@ -124,18 +124,18 @@ struct NativeAgentChatPage: View {
                 ], startPoint: .topLeading, endPoint: .bottomTrailing))
           Image(systemName: "sparkles")
             .font(.system(size: 30, weight: .semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
         }
         .frame(width: 68, height: 68)
-        .overlay { Circle().strokeBorder(.white.opacity(0.24), lineWidth: 0.8) }
+        .overlay { Circle().strokeBorder(.primary.opacity(0.24), lineWidth: 0.8) }
         .shadow(color: Color(red: 0.54, green: 0.36, blue: 0.86).opacity(0.42), radius: 18, y: 6)
 
         Text("MoviePilot 智能助手")
           .font(.title3.bold())
-          .foregroundStyle(.white)
+          .foregroundStyle(.primary)
         Text("直接用自然语言搜索影视、管理订阅、查看下载或触发媒体整理。")
           .font(.subheadline)
-          .foregroundStyle(.white.opacity(0.68))
+          .foregroundStyle(.primary.opacity(0.68))
           .multilineTextAlignment(.center)
       }
       .padding(.top, 18)
@@ -143,7 +143,7 @@ struct NativeAgentChatPage: View {
       VStack(alignment: .leading, spacing: 10) {
         Text("快捷提问")
           .font(.caption.weight(.semibold))
-          .foregroundStyle(.white.opacity(0.60))
+          .foregroundStyle(.primary.opacity(0.60))
         ForEach(Self.quickPrompts, id: \.self) { prompt in
           Button {
             sendMessage(prompt)
@@ -155,12 +155,12 @@ struct NativeAgentChatPage: View {
                   .foregroundStyle(Color(red: 0.82, green: 0.70, blue: 1.0))
                 Text(prompt)
                   .font(.subheadline)
-                  .foregroundStyle(.white.opacity(0.92))
+                  .foregroundStyle(.primary.opacity(0.92))
                   .multilineTextAlignment(.leading)
                 Spacer(minLength: 0)
                 Image(systemName: "arrow.up.right")
                   .font(.caption.weight(.semibold))
-                  .foregroundStyle(.white.opacity(0.48))
+                  .foregroundStyle(.primary.opacity(0.48))
               }
             }
           }
@@ -173,7 +173,7 @@ struct NativeAgentChatPage: View {
         VStack(alignment: .leading, spacing: 8) {
           Text("可用斜杠命令")
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.60))
+            .foregroundStyle(.primary.opacity(0.60))
           ScrollView(.horizontal) {
             HStack(spacing: 8) {
               ForEach(commands.prefix(12)) { cmd in
@@ -182,13 +182,13 @@ struct NativeAgentChatPage: View {
                 } label: {
                   Text(cmd.command)
                     .font(.caption.monospaced().weight(.medium))
-                    .foregroundStyle(.white.opacity(0.88))
+                    .foregroundStyle(.primary.opacity(0.88))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background {
                       Capsule()
-                        .fill(.white.opacity(0.10))
-                        .overlay { Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 0.6) }
+                        .fill(.primary.opacity(0.10))
+                        .overlay { Capsule().strokeBorder(.primary.opacity(0.16), lineWidth: 0.6) }
                     }
                 }
                 .buttonStyle(.plain)
@@ -210,7 +210,7 @@ struct NativeAgentChatPage: View {
         Spacer(minLength: 48)
         Text(message.content)
           .font(.subheadline)
-          .foregroundStyle(.white)
+          .foregroundStyle(.primary)
           .padding(.horizontal, 14)
           .padding(.vertical, 10)
           .background {
@@ -218,7 +218,7 @@ struct NativeAgentChatPage: View {
               .fill(Color(red: 0.54, green: 0.38, blue: 0.86).opacity(0.76))
               .overlay {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                  .strokeBorder(.white.opacity(0.22), lineWidth: 0.6)
+                  .strokeBorder(.primary.opacity(0.22), lineWidth: 0.6)
               }
           }
       }
@@ -228,7 +228,7 @@ struct NativeAgentChatPage: View {
           Circle().fill(Color(red: 0.46, green: 0.34, blue: 0.72).opacity(0.60))
           Image(systemName: "sparkles")
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
         }
         .frame(width: 28, height: 28)
 
@@ -243,7 +243,7 @@ struct NativeAgentChatPage: View {
                       .foregroundStyle(Color(red: 0.80, green: 0.68, blue: 1.0))
                     Text(tool)
                       .font(.caption)
-                      .foregroundStyle(.white.opacity(0.76))
+                      .foregroundStyle(.primary.opacity(0.76))
                       .lineLimit(1)
                   }
                 }
@@ -253,7 +253,7 @@ struct NativeAgentChatPage: View {
             if !message.content.isEmpty {
               Text(message.content)
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.95))
+                .foregroundStyle(.primary.opacity(0.95))
                 .textSelection(.enabled)
             }
           }
@@ -273,7 +273,7 @@ struct NativeAgentChatPage: View {
         prompt: Text("向智能助手提问或输入 / 命令…").foregroundColor(.white.opacity(0.45))
       )
       .font(.subheadline)
-      .foregroundStyle(.white)
+      .foregroundStyle(.primary)
       .submitLabel(.send)
       .onSubmit {
         if !isSending { sendMessage(draftText) }
@@ -282,8 +282,8 @@ struct NativeAgentChatPage: View {
       .padding(.vertical, 10)
       .background {
         Capsule()
-          .fill(.white.opacity(0.10))
-          .overlay { Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.6) }
+          .fill(.primary.opacity(0.10))
+          .overlay { Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 0.6) }
       }
       .accessibilityIdentifier("native-agent-input")
 
@@ -321,7 +321,7 @@ struct NativeAgentChatPage: View {
     .background {
       Rectangle()
         .fill(.ultraThinMaterial)
-        .overlay(alignment: .top) { Divider().overlay(.white.opacity(0.12)) }
+        .overlay(alignment: .top) { Divider().overlay(.primary.opacity(0.12)) }
         .ignoresSafeArea(edges: .bottom)
     }
   }
@@ -335,14 +335,14 @@ struct NativeAgentChatPage: View {
           VStack(alignment: .leading, spacing: 12) {
             if isLoadingSessions && sessions.isEmpty {
               ProgressView("正在读取历史会话…")
-                .tint(.white)
+                .tint(.primary)
                 .frame(maxWidth: .infinity, minHeight: 160)
             } else if sessions.isEmpty {
               CinematicPanel {
                 VStack(spacing: 8) {
                   Image(systemName: "bubble.left.and.bubble.right")
                     .font(.largeTitle)
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(.primary.opacity(0.55))
                   Text("暂无历史会话").font(.headline)
                 }
                 .frame(maxWidth: .infinity, minHeight: 140)
@@ -358,16 +358,16 @@ struct NativeAgentChatPage: View {
                       VStack(alignment: .leading, spacing: 4) {
                         Text(item.displayTitle)
                           .font(.subheadline.weight(.semibold))
-                          .foregroundStyle(.white)
+                          .foregroundStyle(.primary)
                           .lineLimit(1)
                         Text("\(item.messageCount) 条消息")
                           .font(.caption)
-                          .foregroundStyle(.white.opacity(0.60))
+                          .foregroundStyle(.primary.opacity(0.60))
                       }
                       Spacer(minLength: 0)
                       Image(systemName: "chevron.right")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.40))
+                        .foregroundStyle(.primary.opacity(0.40))
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
@@ -417,7 +417,7 @@ struct NativeAgentChatPage: View {
         Text("确认删除会话「\(item.displayTitle)」吗？")
       }
     }
-    .preferredColorScheme(.dark)
+    .nativeAppearanceRoot()
   }
 
   /// 错误/状态横幅。
@@ -428,13 +428,13 @@ struct NativeAgentChatPage: View {
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
         .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
-        Text(feedback.message).font(.caption).foregroundStyle(.white.opacity(0.92))
+        Text(feedback.message).font(.caption).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {
           self.feedback = nil
         } label: {
           Image(systemName: "xmark").font(.caption2.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.65)).frame(minWidth: 28, minHeight: 28)
+            .foregroundStyle(.primary.opacity(0.65)).frame(minWidth: 28, minHeight: 28)
         }
         .buttonStyle(.plain)
       }

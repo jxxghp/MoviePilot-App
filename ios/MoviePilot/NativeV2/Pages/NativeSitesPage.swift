@@ -45,7 +45,7 @@ struct NativeSitesPage: View {
           filterBar
           if isLoading && sites.isEmpty {
             ProgressView("正在载入站点清单…")
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 220)
           } else if loadFailed && sites.isEmpty {
             failureCard
@@ -131,14 +131,14 @@ struct NativeSitesPage: View {
         } label: {
           Text(count > 0 ? "\(option.rawValue) \(count)" : option.rawValue)
             .font(.subheadline.weight(selected ? .semibold : .regular))
-            .foregroundStyle(.white.opacity(selected ? 0.98 : 0.78))
+            .foregroundStyle(.primary.opacity(selected ? 0.98 : 0.78))
             .padding(.horizontal, 13)
             .padding(.vertical, 7)
             .background {
               Capsule()
                 .fill(.white.opacity(selected ? 0.22 : 0.08))
                 .overlay {
-                  Capsule().strokeBorder(.white.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
+                  Capsule().strokeBorder(.primary.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
                 }
             }
             .frame(minHeight: 36)
@@ -172,7 +172,7 @@ struct NativeSitesPage: View {
             HStack(spacing: 6) {
               Text(site.name)
                 .font(.headline)
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .lineLimit(1)
               Text(active ? "已启用" : "已停用")
                 .font(.caption2.weight(.semibold))
@@ -181,19 +181,19 @@ struct NativeSitesPage: View {
                 )
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2.5)
-                .background { Capsule().fill(.white.opacity(0.10)) }
+                .background { Capsule().fill(.primary.opacity(0.10)) }
             }
             HStack(spacing: 8) {
               if let domain = site.domain, !domain.isEmpty {
                 Text(domain)
                   .font(.caption)
-                  .foregroundStyle(.white.opacity(0.65))
+                  .foregroundStyle(.primary.opacity(0.65))
                   .lineLimit(1)
               }
               if let pri = site.pri {
                 Text("优先级 \(pri)")
                   .font(.caption2)
-                  .foregroundStyle(.white.opacity(0.52))
+                  .foregroundStyle(.primary.opacity(0.52))
               }
             }
             if let state {
@@ -206,7 +206,7 @@ struct NativeSitesPage: View {
           } label: {
             HStack(spacing: 4) {
               if state == .testing {
-                ProgressView().controlSize(.mini).tint(.white)
+                ProgressView().controlSize(.mini).tint(.primary)
               } else {
                 Image(systemName: "antenna.radiowaves.left.and.right")
                   .font(.caption2.weight(.semibold))
@@ -214,13 +214,13 @@ struct NativeSitesPage: View {
               Text(state == .testing ? "检测中" : "测试")
                 .font(.caption.weight(.semibold))
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
             .padding(.horizontal, 11)
             .padding(.vertical, 6)
             .background {
               Capsule()
-                .fill(.white.opacity(0.14))
-                .overlay { Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.6) }
+                .fill(.primary.opacity(0.14))
+                .overlay { Capsule().strokeBorder(.primary.opacity(0.22), lineWidth: 0.6) }
             }
             .frame(minHeight: 34)
           }
@@ -262,7 +262,7 @@ struct NativeSitesPage: View {
             .foregroundStyle(Color(red: 0.50, green: 0.90, blue: 0.76))
           Text(Self.formatBytes(up))
             .font(.caption.monospacedDigit().weight(.semibold))
-            .foregroundStyle(.white.opacity(0.92))
+            .foregroundStyle(.primary.opacity(0.92))
         }
         HStack(spacing: 4) {
           Image(systemName: "arrow.down")
@@ -270,7 +270,7 @@ struct NativeSitesPage: View {
             .foregroundStyle(Color(red: 0.94, green: 0.54, blue: 0.72))
           Text(Self.formatBytes(down))
             .font(.caption.monospacedDigit().weight(.semibold))
-            .foregroundStyle(.white.opacity(0.84))
+            .foregroundStyle(.primary.opacity(0.84))
         }
         Spacer(minLength: 4)
         if stats.ratio > 0 {
@@ -281,7 +281,7 @@ struct NativeSitesPage: View {
         if stats.seeding > 0 {
           Text("做种 \(stats.seeding)")
             .font(.caption2.monospacedDigit())
-            .foregroundStyle(.white.opacity(0.62))
+            .foregroundStyle(.primary.opacity(0.62))
         }
       }
       GeometryReader { bar in
@@ -328,7 +328,7 @@ struct NativeSitesPage: View {
   private func testResultBadge(_ state: TestState) -> some View {
     switch state {
     case .testing:
-      Text("正在测试站点连通性…").font(.caption2).foregroundStyle(.white.opacity(0.68))
+      Text("正在测试站点连通性…").font(.caption2).foregroundStyle(.primary.opacity(0.68))
     case .passed:
       Label("连接正常", systemImage: "checkmark.circle.fill")
         .font(.caption2.weight(.semibold))
@@ -347,7 +347,7 @@ struct NativeSitesPage: View {
       VStack(spacing: 10) {
         Image(systemName: "globe")
           .font(.largeTitle)
-          .foregroundStyle(.white.opacity(0.55))
+          .foregroundStyle(.primary.opacity(0.55))
         Text("暂无匹配的站点").font(.headline)
       }
       .frame(maxWidth: .infinity, minHeight: 150)

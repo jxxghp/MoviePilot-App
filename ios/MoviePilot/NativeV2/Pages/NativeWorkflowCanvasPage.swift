@@ -59,7 +59,7 @@ struct NativeWorkflowCanvasPage: View {
           Task { await saveWorkflow() }
         } label: {
           if isSaving {
-            ProgressView().controlSize(.small).tint(.white)
+            ProgressView().controlSize(.small).tint(.primary)
           } else {
             Text("保存").fontWeight(.semibold)
           }
@@ -102,7 +102,7 @@ struct NativeWorkflowCanvasPage: View {
   private var mainContent: some View {
     if isLoading && detail == nil {
       ProgressView("正在载入工作流画布…")
-        .tint(.white)
+        .tint(.primary)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     } else if loadFailed && detail == nil {
       VStack {
@@ -153,14 +153,14 @@ struct NativeWorkflowCanvasPage: View {
     HStack(spacing: 10) {
       Label("\(actions.count) 节点 · \(flows.count) 连线", systemImage: "flowchart")
         .font(.caption.weight(.semibold))
-        .foregroundStyle(.white.opacity(0.84))
+        .foregroundStyle(.primary.opacity(0.84))
       Spacer(minLength: 4)
       Button {
         canvasScale = max(0.55, canvasScale - 0.15)
       } label: {
         Image(systemName: "minus.magnifyingglass")
           .font(.caption.weight(.semibold))
-          .foregroundStyle(.white)
+          .foregroundStyle(.primary)
           .frame(width: 30, height: 30)
           .background(.white.opacity(0.10), in: Circle())
       }
@@ -175,7 +175,7 @@ struct NativeWorkflowCanvasPage: View {
       } label: {
         Text("\(Int((canvasScale * 100).rounded()))%")
           .font(.caption2.monospacedDigit().weight(.semibold))
-          .foregroundStyle(.white.opacity(0.88))
+          .foregroundStyle(.primary.opacity(0.88))
           .padding(.horizontal, 8)
           .padding(.vertical, 5)
           .background(.white.opacity(0.10), in: Capsule())
@@ -189,7 +189,7 @@ struct NativeWorkflowCanvasPage: View {
       } label: {
         Image(systemName: "plus.magnifyingglass")
           .font(.caption.weight(.semibold))
-          .foregroundStyle(.white)
+          .foregroundStyle(.primary)
           .frame(width: 30, height: 30)
           .background(.white.opacity(0.10), in: Circle())
       }
@@ -233,13 +233,13 @@ struct NativeWorkflowCanvasPage: View {
           VStack(spacing: 10) {
             Image(systemName: "point.3.connected.trianglepath.dotted")
               .font(.largeTitle)
-              .foregroundStyle(.white.opacity(0.55))
+              .foregroundStyle(.primary.opacity(0.55))
             Text("当前工作流还没有节点")
               .font(.headline)
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
             Text("点击右上角「+」添加动作节点并自动编排连线")
               .font(.caption)
-              .foregroundStyle(.white.opacity(0.68))
+              .foregroundStyle(.primary.opacity(0.68))
           }
           .frame(maxWidth: .infinity, maxHeight: .infinity)
           .allowsHitTesting(false)
@@ -303,7 +303,7 @@ struct NativeWorkflowCanvasPage: View {
             .frame(width: 8, height: 8)
           Text(node.name)
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
             .lineLimit(1)
           Spacer(minLength: 2)
         }
@@ -315,18 +315,18 @@ struct NativeWorkflowCanvasPage: View {
           if !node.description.isEmpty {
             Text(node.description)
               .font(.caption2)
-              .foregroundStyle(.white.opacity(0.68))
+              .foregroundStyle(.primary.opacity(0.68))
               .lineLimit(1)
           } else {
             Text("参数 \(paramCount) 项")
               .font(.caption2)
-              .foregroundStyle(.white.opacity(0.64))
+              .foregroundStyle(.primary.opacity(0.64))
           }
           Spacer(minLength: 2)
           if let timeout = node.timeout, timeout > 0 {
             Text("\(timeout)s")
               .font(.caption2.monospacedDigit())
-              .foregroundStyle(.white.opacity(0.58))
+              .foregroundStyle(.primary.opacity(0.58))
           }
         }
       }
@@ -363,13 +363,13 @@ struct NativeWorkflowCanvasPage: View {
           } label: {
             Text(node.name)
               .font(.caption.weight(.semibold))
-              .foregroundStyle(.white.opacity(0.90))
+              .foregroundStyle(.primary.opacity(0.90))
               .padding(.horizontal, 11)
               .padding(.vertical, 7)
               .background {
                 Capsule()
-                  .fill(.white.opacity(0.11))
-                  .overlay { Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.6) }
+                  .fill(.primary.opacity(0.11))
+                  .overlay { Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 0.6) }
               }
           }
           .buttonStyle(.plain)
@@ -386,10 +386,10 @@ struct NativeWorkflowCanvasPage: View {
       VStack(alignment: .leading, spacing: 10) {
         HStack {
           VStack(alignment: .leading, spacing: 2) {
-            Text(node.name).font(.headline).foregroundStyle(.white)
+            Text(node.name).font(.headline).foregroundStyle(.primary)
             Text("\(node.type) · 参数 \(node.data.count) 项 · 出边 \(outgoing) 条")
               .font(.caption)
-              .foregroundStyle(.white.opacity(0.68))
+              .foregroundStyle(.primary.opacity(0.68))
           }
           Spacer()
           Button {
@@ -397,7 +397,7 @@ struct NativeWorkflowCanvasPage: View {
           } label: {
             Image(systemName: "xmark")
               .font(.caption.weight(.semibold))
-              .foregroundStyle(.white.opacity(0.70))
+              .foregroundStyle(.primary.opacity(0.70))
               .frame(width: 30, height: 30)
           }
           .buttonStyle(.plain)
@@ -408,13 +408,13 @@ struct NativeWorkflowCanvasPage: View {
           } label: {
             Label("编辑参数", systemImage: "slider.horizontal.3")
               .font(.caption.weight(.semibold))
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .padding(.horizontal, 12)
               .padding(.vertical, 7)
               .background {
                 Capsule()
                   .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.78))
-                  .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.6) }
+                  .overlay { Capsule().strokeBorder(.primary.opacity(0.24), lineWidth: 0.6) }
               }
               .frame(minHeight: 34)
           }
@@ -426,13 +426,13 @@ struct NativeWorkflowCanvasPage: View {
           } label: {
             Label("连线", systemImage: "arrow.triangle.branch")
               .font(.caption.weight(.semibold))
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .padding(.horizontal, 12)
               .padding(.vertical, 7)
               .background {
                 Capsule()
-                  .fill(.white.opacity(0.14))
-                  .overlay { Capsule().strokeBorder(.white.opacity(0.20), lineWidth: 0.6) }
+                  .fill(.primary.opacity(0.14))
+                  .overlay { Capsule().strokeBorder(.primary.opacity(0.20), lineWidth: 0.6) }
               }
               .frame(minHeight: 34)
           }
@@ -464,13 +464,13 @@ struct NativeWorkflowCanvasPage: View {
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
         .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
-        Text(feedback.message).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+        Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {
           self.feedback = nil
         } label: {
           Image(systemName: "xmark").font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.65)).frame(width: 28, height: 28)
+            .foregroundStyle(.primary.opacity(0.65)).frame(width: 28, height: 28)
         }
         .buttonStyle(.plain)
       }
@@ -724,7 +724,7 @@ private struct NativeWorkflowAddNodeSheet: View {
               CinematicPanel {
                 Text("暂无可选动作节点")
                   .font(.subheadline)
-                  .foregroundStyle(.white.opacity(0.75))
+                  .foregroundStyle(.primary.opacity(0.75))
                   .frame(maxWidth: .infinity, minHeight: 100)
               }
             } else {
@@ -736,7 +736,7 @@ private struct NativeWorkflowAddNodeSheet: View {
                   CinematicPanel(padding: 12) {
                     VStack(alignment: .leading, spacing: 4) {
                       HStack {
-                        Text(def.name).font(.headline).foregroundStyle(.white)
+                        Text(def.name).font(.headline).foregroundStyle(.primary)
                         Spacer()
                         Image(systemName: "plus.circle.fill")
                           .foregroundStyle(Color(red: 0.80, green: 0.68, blue: 1.0))
@@ -747,7 +747,7 @@ private struct NativeWorkflowAddNodeSheet: View {
                       if let desc = def.description, !desc.isEmpty {
                         Text(desc)
                           .font(.caption)
-                          .foregroundStyle(.white.opacity(0.72))
+                          .foregroundStyle(.primary.opacity(0.72))
                           .lineLimit(2)
                       }
                     }
@@ -775,7 +775,7 @@ private struct NativeWorkflowAddNodeSheet: View {
         }
       }
     }
-    .preferredColorScheme(.dark)
+    .nativeAppearanceRoot()
   }
 }
 
@@ -801,36 +801,36 @@ private struct NativeWorkflowNodeEditorSheet: View {
           VStack(alignment: .leading, spacing: 14) {
             CinematicPanel(padding: 14) {
               VStack(alignment: .leading, spacing: 12) {
-                Text("基础属性").font(.headline).foregroundStyle(.white)
+                Text("基础属性").font(.headline).foregroundStyle(.primary)
                 VStack(alignment: .leading, spacing: 4) {
-                  Text("节点名称").font(.caption).foregroundStyle(.white.opacity(0.72))
+                  Text("节点名称").font(.caption).foregroundStyle(.primary.opacity(0.72))
                   TextField(
                     "", text: $nameText,
                     prompt: Text("输入节点名称").foregroundColor(.white.opacity(0.45))
                   )
-                  .foregroundStyle(.white)
+                  .foregroundStyle(.primary)
                   .padding(10)
                   .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                   .accessibilityIdentifier("native-workflow-node-name-field")
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                  Text("节点描述").font(.caption).foregroundStyle(.white.opacity(0.72))
+                  Text("节点描述").font(.caption).foregroundStyle(.primary.opacity(0.72))
                   TextField(
                     "", text: $descText,
                     prompt: Text("输入说明（可选）").foregroundColor(.white.opacity(0.45))
                   )
-                  .foregroundStyle(.white)
+                  .foregroundStyle(.primary)
                   .padding(10)
                   .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                  Text("超时时间（秒）").font(.caption).foregroundStyle(.white.opacity(0.72))
+                  Text("超时时间（秒）").font(.caption).foregroundStyle(.primary.opacity(0.72))
                   TextField(
                     "", text: $timeoutText,
                     prompt: Text("默认不限制").foregroundColor(.white.opacity(0.45))
                   )
                   .keyboardType(.numberPad)
-                  .foregroundStyle(.white)
+                  .foregroundStyle(.primary)
                   .padding(10)
                   .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                 }
@@ -839,7 +839,7 @@ private struct NativeWorkflowNodeEditorSheet: View {
 
             CinematicPanel(padding: 14) {
               VStack(alignment: .leading, spacing: 12) {
-                Text("动作参数").font(.headline).foregroundStyle(.white)
+                Text("动作参数").font(.headline).foregroundStyle(.primary)
                 ForEach(Array(boolParams.enumerated()), id: \.element.key) { idx, item in
                   Toggle(
                     item.key,
@@ -852,7 +852,8 @@ private struct NativeWorkflowNodeEditorSheet: View {
                 }
                 ForEach(Array(stringParams.enumerated()), id: \.element.key) { idx, item in
                   VStack(alignment: .leading, spacing: 4) {
-                    Text(item.key).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.72))
+                    Text(item.key).font(.caption.monospaced()).foregroundStyle(
+                      .primary.opacity(0.72))
                     TextField(
                       "",
                       text: Binding(
@@ -861,27 +862,27 @@ private struct NativeWorkflowNodeEditorSheet: View {
                       ),
                       prompt: Text("参数值").foregroundColor(.white.opacity(0.45))
                     )
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .padding(10)
                     .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                     .accessibilityIdentifier("native-workflow-param-\(item.key)")
                   }
                 }
 
-                Divider().overlay(.white.opacity(0.10))
+                Divider().overlay(.primary.opacity(0.10))
                 HStack(spacing: 8) {
                   TextField(
                     "", text: $newKey,
                     prompt: Text("新增参数键").foregroundColor(.white.opacity(0.45))
                   )
-                  .foregroundStyle(.white)
+                  .foregroundStyle(.primary)
                   .padding(8)
                   .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                   TextField(
                     "", text: $newValue,
                     prompt: Text("参数值").foregroundColor(.white.opacity(0.45))
                   )
-                  .foregroundStyle(.white)
+                  .foregroundStyle(.primary)
                   .padding(8)
                   .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                   Button("添加") {
@@ -921,7 +922,7 @@ private struct NativeWorkflowNodeEditorSheet: View {
       }
       .onAppear { loadFields() }
     }
-    .preferredColorScheme(.dark)
+    .nativeAppearanceRoot()
   }
 
   private func loadFields() {
@@ -993,7 +994,7 @@ private struct NativeWorkflowLinkSheet: View {
                 CinematicPanel(padding: 12) {
                   HStack {
                     VStack(alignment: .leading, spacing: 3) {
-                      Text(target.name).font(.headline).foregroundStyle(.white)
+                      Text(target.name).font(.headline).foregroundStyle(.primary)
                       Text(target.type).font(.caption2.monospaced()).foregroundStyle(
                         .white.opacity(0.66))
                     }
@@ -1022,7 +1023,7 @@ private struct NativeWorkflowLinkSheet: View {
         }
       }
     }
-    .preferredColorScheme(.dark)
+    .nativeAppearanceRoot()
   }
 }
 

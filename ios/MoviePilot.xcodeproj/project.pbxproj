@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		02938EC7396846498DBB3C3F /* NativeDownloadsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF6849CE05D1EC77AFA67129 /* NativeDownloadsPage.swift */; };
+		04729F76AADB6E784C8E9C39 /* NativeAppearanceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A4D15B8082C9119B8C37AC /* NativeAppearanceStore.swift */; };
 		08E6A5EB18261F0E3B4964F6 /* NativeMusicPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08443236F43B97DD00EC6B5A /* NativeMusicPage.swift */; };
 		0EE2961899BD600DE410D4E8 /* MediaPlaybackController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AFD1560F224ABDAD40A7D45 /* MediaPlaybackController.swift */; };
 		0F10DAF3C3E45285527B6679 /* NativeAgentFloatingMascot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CC709A18D7FAEDC0527EDD8 /* NativeAgentFloatingMascot.swift */; };
@@ -28,6 +29,7 @@
 		3C9C4AF98C14ECF412DD19A5 /* NativeUsersPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92FC46BA3B51393FE1CBD566 /* NativeUsersPage.swift */; };
 		3CBB675738DCDAD4D0C9ADB9 /* NativeWorkflowsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E76B95589CF91ADA4DD7FA6 /* NativeWorkflowsPage.swift */; };
 		3D424A853E324626526E7C32 /* NativePluginCronEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 956812F9BDCA0C80A21A1D4D /* NativePluginCronEditor.swift */; };
+		41EAC1FFF43BBB88B9E028CD /* NativeAppearanceSettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3EF638076E3852573384373 /* NativeAppearanceSettingsPage.swift */; };
 		49B4D0B75FD74C15C723375D /* MediaPictureInPictureController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D33F2AC19EE7708468CFADFF /* MediaPictureInPictureController.swift */; };
 		528DDA8EB6B423A11DB733E6 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0A361DAFEEE9F51B4F91B7 /* TokenStore.swift */; };
 		54E9EBAF180B0BCF04DE4FC6 /* VLCKit in Frameworks */ = {isa = PBXBuildFile; productRef = 91C7B8794D4CD7E0C76EDFF0 /* VLCKit */; };
@@ -128,6 +130,7 @@
 		2E76B95589CF91ADA4DD7FA6 /* NativeWorkflowsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWorkflowsPage.swift; sourceTree = "<group>"; };
 		311A8C9F7207218D1D1F8D15 /* NativeCalendarPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCalendarPage.swift; sourceTree = "<group>"; };
 		326FD64AC22302FFA0758F17 /* NativeV2MainShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeV2MainShell.swift; sourceTree = "<group>"; };
+		38A4D15B8082C9119B8C37AC /* NativeAppearanceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAppearanceStore.swift; sourceTree = "<group>"; };
 		3B9A3A01FB3A03C2FC8AD128 /* MoviePilot-App */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "MoviePilot-App"; path = ..; sourceTree = SOURCE_ROOT; };
 		3C5522D23DCCE1A49988D78B /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		3D388D03E1CAFD2739ADF561 /* NativePluginDataPageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginDataPageView.swift; sourceTree = "<group>"; };
@@ -183,6 +186,7 @@
 		EEA3031D7DC4E14A074F6218 /* LegacyWebsiteStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyWebsiteStorage.swift; sourceTree = "<group>"; };
 		EF6849CE05D1EC77AFA67129 /* NativeDownloadsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadsPage.swift; sourceTree = "<group>"; };
 		F1C1F71B18FE29C82A939B7C /* NativeWorkflowCanvasPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWorkflowCanvasPage.swift; sourceTree = "<group>"; };
+		F3EF638076E3852573384373 /* NativeAppearanceSettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAppearanceSettingsPage.swift; sourceTree = "<group>"; };
 		F5CA3958D36BFB5E17CA6E7E /* NativeSubscribeCommunityPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscribeCommunityPage.swift; sourceTree = "<group>"; };
 		FF26A18662E7326F40027471 /* NativePluginMarketPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginMarketPage.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -242,6 +246,7 @@
 			isa = PBXGroup;
 			children = (
 				A7076717937113403C755586 /* NativeAgentChatPage.swift */,
+				F3EF638076E3852573384373 /* NativeAppearanceSettingsPage.swift */,
 				311A8C9F7207218D1D1F8D15 /* NativeCalendarPage.swift */,
 				76B2E764B2FD72F7288DDD30 /* NativeDashboardPage.swift */,
 				D7D48CE7A268E8BCABB4E802 /* NativeDiagnosticsToolsPage.swift */,
@@ -329,6 +334,7 @@
 			children = (
 				BDEA5C38B21EC1C887096B9D /* CinematicForms.swift */,
 				AC48C1614B5128296F31DB7D /* CinematicSurfaces.swift */,
+				38A4D15B8082C9119B8C37AC /* NativeAppearanceStore.swift */,
 			);
 			path = NativeDesignSystem;
 			sourceTree = "<group>";
@@ -541,6 +547,8 @@
 				31DD46221D3AA358E7045054 /* NativeAgentChatPage.swift in Sources */,
 				0F10DAF3C3E45285527B6679 /* NativeAgentFloatingMascot.swift in Sources */,
 				9DF0F4028DD3BB274401298C /* NativeAppModel.swift in Sources */,
+				41EAC1FFF43BBB88B9E028CD /* NativeAppearanceSettingsPage.swift in Sources */,
+				04729F76AADB6E784C8E9C39 /* NativeAppearanceStore.swift in Sources */,
 				FC9C91C4309FD599B60E191E /* NativeCalendarPage.swift in Sources */,
 				2ECCFA5FCDCC8BEB234D0B0D /* NativeDashboardPage.swift in Sources */,
 				EBD4F63E868782325F577479 /* NativeDiagnosticsToolsPage.swift in Sources */,

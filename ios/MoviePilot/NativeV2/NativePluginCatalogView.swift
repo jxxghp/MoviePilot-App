@@ -65,23 +65,23 @@ struct NativePluginCatalogView: View {
                             .frame(width: 7, height: 7)
                           Text(plugin.name)
                             .font(.headline.weight(.semibold))
-                            .foregroundStyle(.white.opacity(isInactive ? 0.80 : 0.98))
+                            .foregroundStyle(.primary.opacity(isInactive ? 0.80 : 0.98))
                             .lineLimit(1)
                           if !plugin.version.isEmpty {
                             Text("v" + plugin.version)
                               .font(.caption.monospacedDigit().weight(.medium))
-                              .foregroundStyle(.white.opacity(0.56))
+                              .foregroundStyle(.primary.opacity(0.56))
                               .lineLimit(1)
                           }
                           Spacer(minLength: 4)
                           Image(systemName: "chevron.right")
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.45))
+                            .foregroundStyle(.primary.opacity(0.45))
                         }
                         HStack(alignment: .center, spacing: 12) {
                           Text(plugin.summary.isEmpty ? "已安装插件" : plugin.summary)
                             .font(.caption)
-                            .foregroundStyle(.white.opacity(0.76))
+                            .foregroundStyle(.primary.opacity(0.76))
                             .lineLimit(2)
                             .frame(maxWidth: .infinity, alignment: .leading)
                           NativePluginIconView(
@@ -97,7 +97,7 @@ struct NativePluginCatalogView: View {
                       .padding(.vertical, 12)
 
                       if let author = plugin.author, !author.isEmpty {
-                        Divider().overlay(.white.opacity(0.08))
+                        Divider().overlay(.primary.opacity(0.08))
                         HStack(spacing: 6) {
                           NativePluginAuthorAvatarView(
                             authorURL: plugin.authorURL,
@@ -106,7 +106,7 @@ struct NativePluginCatalogView: View {
                           )
                           Text(author)
                             .font(.caption.weight(.medium))
-                            .foregroundStyle(.white.opacity(0.68))
+                            .foregroundStyle(.primary.opacity(0.68))
                             .lineLimit(1)
                           Spacer(minLength: 0)
                         }

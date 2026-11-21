@@ -128,7 +128,7 @@ struct NativePluginFormView: View {
         } else {
           NativePluginSelectionView(element: element, read: read, update: update)
         }
-      }.preferredColorScheme(.dark)
+      }.nativeAppearanceRoot()
     }
     .alert(L10n.text("放弃未保存的修改？"), isPresented: $showsDiscard) {
       Button(L10n.text("放弃修改"), role: .destructive) { dismiss() }
@@ -342,7 +342,7 @@ private struct NativePluginInputView: View {
     case .multiline:
       ZStack(alignment: .topLeading) {
         if field.text.isEmpty {
-          Text(field.placeholder).foregroundStyle(.white.opacity(0.70)).padding(.top, 8).padding(
+          Text(field.placeholder).foregroundStyle(.primary.opacity(0.70)).padding(.top, 8).padding(
             .leading, 5
           ).allowsHitTesting(false).accessibilityHidden(true)
         }
@@ -424,7 +424,7 @@ private struct NativePluginSelectionView: View {
             "native-plugin-selection-done")
         }
       }
-    }.tint(.white)
+    }.tint(.primary)
   }
 
   /// 当前模型的缺失/null 不自动变成新的空配置值。

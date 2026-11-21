@@ -39,7 +39,7 @@ struct NativeMessagesPage: View {
           categoryBar
           if isLoading && messages.isEmpty {
             ProgressView("正在载入消息通知…")
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 220)
           } else if loadFailed && messages.isEmpty {
             failureCard
@@ -53,7 +53,7 @@ struct NativeMessagesPage: View {
               }
               if isLoadingMore {
                 ProgressView("正在载入更多…")
-                  .tint(.white)
+                  .tint(.primary)
                   .padding(.vertical, 12)
               }
             }
@@ -119,14 +119,14 @@ struct NativeMessagesPage: View {
           } label: {
             Text(option.rawValue)
               .font(.subheadline.weight(selected ? .semibold : .regular))
-              .foregroundStyle(.white.opacity(selected ? 0.98 : 0.78))
+              .foregroundStyle(.primary.opacity(selected ? 0.98 : 0.78))
               .padding(.horizontal, 13)
               .padding(.vertical, 7)
               .background {
                 Capsule()
                   .fill(.white.opacity(selected ? 0.22 : 0.08))
                   .overlay {
-                    Capsule().strokeBorder(.white.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
+                    Capsule().strokeBorder(.primary.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
                   }
               }
               .frame(minHeight: 36)
@@ -149,7 +149,7 @@ struct NativeMessagesPage: View {
           if let mtype = item.mtype, !mtype.isEmpty {
             Text(mtype)
               .font(.caption2.weight(.semibold))
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .padding(.horizontal, 8)
               .padding(.vertical, 3)
               .background {
@@ -160,19 +160,19 @@ struct NativeMessagesPage: View {
           if let time = item.regTime, !time.isEmpty {
             Text(time)
               .font(.caption2.monospacedDigit())
-              .foregroundStyle(.white.opacity(0.58))
+              .foregroundStyle(.primary.opacity(0.58))
           }
         }
         if let title = item.title, !title.isEmpty {
           Text(title)
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
         }
         if let text = item.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
           Text(text)
             .font(.footnote)
             .lineSpacing(3)
-            .foregroundStyle(.white.opacity(0.76))
+            .foregroundStyle(.primary.opacity(0.76))
         }
         if let artworkURL {
           NativeMediaArtwork(
@@ -183,7 +183,7 @@ struct NativeMessagesPage: View {
           .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
           .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-              .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+              .strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
           }
         }
       }
@@ -196,7 +196,7 @@ struct NativeMessagesPage: View {
       VStack(spacing: 10) {
         Image(systemName: "bell")
           .font(.largeTitle)
-          .foregroundStyle(.white.opacity(0.55))
+          .foregroundStyle(.primary.opacity(0.55))
         Text("暂无通知消息").font(.headline)
       }
       .frame(maxWidth: .infinity, minHeight: 150)

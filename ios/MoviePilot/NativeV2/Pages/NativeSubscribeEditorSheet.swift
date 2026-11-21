@@ -32,7 +32,7 @@ struct NativeSubscribeEditorSheet: View {
               CinematicPanel(padding: 11) {
                 HStack(spacing: 8) {
                   Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                  Text(errorMessage).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+                  Text(errorMessage).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
                   Spacer(minLength: 0)
                 }
               }
@@ -40,7 +40,7 @@ struct NativeSubscribeEditorSheet: View {
             }
             if isLoading && loaded == nil {
               ProgressView("正在读取订阅规则…")
-                .tint(.white)
+                .tint(.primary)
                 .frame(maxWidth: .infinity, minHeight: 220)
             } else if loadFailed && loaded == nil {
               CinematicPanel {
@@ -90,7 +90,7 @@ struct NativeSubscribeEditorSheet: View {
         }
       }
     }
-    .preferredColorScheme(.dark)
+    .nativeAppearanceRoot()
     .task { await load() }
   }
 
@@ -107,12 +107,12 @@ struct NativeSubscribeEditorSheet: View {
       CinematicPanel {
         VStack(spacing: 14) {
           pickerRow("质量", selection: $draft.quality, options: Self.qualityOptions, id: "quality")
-          Divider().overlay(.white.opacity(0.08))
+          Divider().overlay(.primary.opacity(0.08))
           pickerRow(
             "分辨率", selection: $draft.resolution, options: Self.resolutionOptions, id: "resolution")
-          Divider().overlay(.white.opacity(0.08))
+          Divider().overlay(.primary.opacity(0.08))
           pickerRow("特效", selection: $draft.effect, options: Self.effectOptions, id: "effect")
-          Divider().overlay(.white.opacity(0.08))
+          Divider().overlay(.primary.opacity(0.08))
           Toggle("自动洗版", isOn: $draft.bestVersion)
             .font(.subheadline)
             .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
@@ -129,11 +129,11 @@ struct NativeSubscribeEditorSheet: View {
       CinematicPanel {
         VStack(spacing: 14) {
           inputRow("搜索关键字", text: $draft.keyword, placeholder: "默认使用片名", id: "keyword")
-          Divider().overlay(.white.opacity(0.08))
+          Divider().overlay(.primary.opacity(0.08))
           inputRow("包含规则", text: $draft.include, placeholder: "正则，如 中字|简繁", id: "include")
-          Divider().overlay(.white.opacity(0.08))
+          Divider().overlay(.primary.opacity(0.08))
           inputRow("排除规则", text: $draft.exclude, placeholder: "正则，如 枪版|CAM", id: "exclude")
-          Divider().overlay(.white.opacity(0.08))
+          Divider().overlay(.primary.opacity(0.08))
           inputRow("自定义识别词", text: $draft.customWords, placeholder: "可选替换词", id: "custom-words")
         }
       }
@@ -153,20 +153,20 @@ struct NativeSubscribeEditorSheet: View {
                 Spacer()
                 Text(draft.totalEpisode > 0 ? "\(draft.totalEpisode) 集" : "自动")
                   .font(.subheadline.monospacedDigit())
-                  .foregroundStyle(.white.opacity(0.78))
+                  .foregroundStyle(.primary.opacity(0.78))
               }
             }
-            Divider().overlay(.white.opacity(0.08))
+            Divider().overlay(.primary.opacity(0.08))
             Stepper(value: $draft.startEpisode, in: 0...2000) {
               HStack {
                 Text("开始集数").font(.subheadline)
                 Spacer()
                 Text(draft.startEpisode > 0 ? "第 \(draft.startEpisode) 集" : "默认")
                   .font(.subheadline.monospacedDigit())
-                  .foregroundStyle(.white.opacity(0.78))
+                  .foregroundStyle(.primary.opacity(0.78))
               }
             }
-            Divider().overlay(.white.opacity(0.08))
+            Divider().overlay(.primary.opacity(0.08))
           }
           if !downloaders.isEmpty {
             HStack {
@@ -178,10 +178,10 @@ struct NativeSubscribeEditorSheet: View {
                   Text(client).tag(client)
                 }
               }
-              .tint(.white)
+              .tint(.primary)
               .accessibilityIdentifier("native-subscribe-editor-downloader")
             }
-            Divider().overlay(.white.opacity(0.08))
+            Divider().overlay(.primary.opacity(0.08))
           }
           inputRow("保存路径", text: $draft.savePath, placeholder: "留空跟随系统目录", id: "save-path")
         }
@@ -202,7 +202,7 @@ struct NativeSubscribeEditorSheet: View {
           Text(item.title).tag(item.value)
         }
       }
-      .tint(.white)
+      .tint(.primary)
       .accessibilityIdentifier("native-subscribe-editor-\(id)")
     }
   }

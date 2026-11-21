@@ -28,7 +28,7 @@ struct NativeSystemSettingsPage: View {
           }
           if isLoading && !loaded.isLoaded {
             ProgressView("正在读取系统设置…")
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 220)
           } else if loadFailed && !loaded.isLoaded {
             failureCard
@@ -59,7 +59,7 @@ struct NativeSystemSettingsPage: View {
           Task { await save() }
         } label: {
           if isSaving {
-            ProgressView().tint(.white)
+            ProgressView().tint(.primary)
           } else {
             Text("保存").fontWeight(.semibold)
           }
@@ -114,14 +114,14 @@ struct NativeSystemSettingsPage: View {
           .foregroundStyle(Color(red: 0.78, green: 0.66, blue: 1.0))
         Text(title)
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(.white)
+          .foregroundStyle(.primary)
         HStack(spacing: 6) {
           Circle()
             .fill(active ? Color(red: 0.56, green: 0.92, blue: 0.72) : .white.opacity(0.40))
             .frame(width: 6, height: 6)
           Text(value)
             .font(.caption)
-            .foregroundStyle(.white.opacity(0.76))
+            .foregroundStyle(.primary.opacity(0.76))
             .lineLimit(1)
         }
       }
@@ -145,11 +145,11 @@ struct NativeSystemSettingsPage: View {
                 HStack {
                   Text(domain.rawValue)
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                   Spacer()
                   Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.45))
+                    .foregroundStyle(.primary.opacity(0.45))
                 }
               }
             }
@@ -174,10 +174,10 @@ struct NativeSystemSettingsPage: View {
               Text("TheMovieDb").tag("themoviedb")
               Text("豆瓣").tag("douban")
             }
-            .tint(.white)
+            .tint(.primary)
             .accessibilityIdentifier("native-settings-recognize-source")
           }
-          Divider().overlay(.white.opacity(0.08))
+          Divider().overlay(.primary.opacity(0.08))
           HStack {
             Text("搜索数据源").font(.subheadline)
             Spacer()
@@ -185,10 +185,10 @@ struct NativeSystemSettingsPage: View {
               Text("TheMovieDb").tag("themoviedb")
               Text("豆瓣").tag("douban")
             }
-            .tint(.white)
+            .tint(.primary)
             .accessibilityIdentifier("native-settings-search-source")
           }
-          Divider().overlay(.white.opacity(0.08))
+          Divider().overlay(.primary.opacity(0.08))
           Toggle("刮削跟随 TMDB 语言", isOn: $draft.scrapFollowTmdb)
             .font(.subheadline)
             .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
@@ -211,10 +211,10 @@ struct NativeSystemSettingsPage: View {
               Text("站点爬虫").tag("spider")
               Text("RSS 订阅").tag("rss")
             }
-            .tint(.white)
+            .tint(.primary)
             .accessibilityIdentifier("native-settings-subscribe-mode")
           }
-          Divider().overlay(.white.opacity(0.08))
+          Divider().overlay(.primary.opacity(0.08))
           Stepper(
             value: $draft.subscribeRssInterval, in: 5...720, step: 5
           ) {
@@ -223,15 +223,15 @@ struct NativeSystemSettingsPage: View {
               Spacer()
               Text("\(draft.subscribeRssInterval) 分钟")
                 .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.white.opacity(0.78))
+                .foregroundStyle(.primary.opacity(0.78))
             }
           }
-          Divider().overlay(.white.opacity(0.08))
+          Divider().overlay(.primary.opacity(0.08))
           Toggle("新增订阅立即搜索", isOn: $draft.subscribeSearch)
             .font(.subheadline)
             .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
             .accessibilityIdentifier("native-settings-subscribe-search")
-          Divider().overlay(.white.opacity(0.08))
+          Divider().overlay(.primary.opacity(0.08))
           HStack {
             Text("种子标签").font(.subheadline)
             Spacer()
@@ -246,14 +246,14 @@ struct NativeSystemSettingsPage: View {
             .frame(maxWidth: 160)
             .accessibilityIdentifier("native-settings-torrent-tag")
           }
-          Divider().overlay(.white.opacity(0.08))
+          Divider().overlay(.primary.opacity(0.08))
           Stepper(value: $draft.mediaServerSyncInterval, in: 1...48) {
             HStack {
               Text("媒体库同步").font(.subheadline)
               Spacer()
               Text("每 \(draft.mediaServerSyncInterval) 小时")
                 .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.white.opacity(0.78))
+                .foregroundStyle(.primary.opacity(0.78))
             }
           }
         }
@@ -271,12 +271,12 @@ struct NativeSystemSettingsPage: View {
             .font(.subheadline)
             .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
             .accessibilityIdentifier("native-settings-image-cache")
-          Divider().overlay(.white.opacity(0.08))
+          Divider().overlay(.primary.opacity(0.08))
           Toggle("调试模式", isOn: $draft.debug)
             .font(.subheadline)
             .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
             .accessibilityIdentifier("native-settings-debug")
-          Divider().overlay(.white.opacity(0.08))
+          Divider().overlay(.primary.opacity(0.08))
           HStack {
             Text("日志级别").font(.subheadline)
             Spacer()
@@ -285,25 +285,25 @@ struct NativeSystemSettingsPage: View {
                 Text(level).tag(level)
               }
             }
-            .tint(.white)
+            .tint(.primary)
             .accessibilityIdentifier("native-settings-log-level")
           }
           if !draft.timezone.isEmpty {
-            Divider().overlay(.white.opacity(0.08))
+            Divider().overlay(.primary.opacity(0.08))
             HStack {
               Text("服务端时区").font(.subheadline)
               Spacer()
-              Text(draft.timezone).font(.subheadline).foregroundStyle(.white.opacity(0.68))
+              Text(draft.timezone).font(.subheadline).foregroundStyle(.primary.opacity(0.68))
             }
           }
           if !draft.appVersion.isEmpty {
-            Divider().overlay(.white.opacity(0.08))
+            Divider().overlay(.primary.opacity(0.08))
             HStack {
               Text("后端版本").font(.subheadline)
               Spacer()
               Text(draft.appVersion)
                 .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.white.opacity(0.68))
+                .foregroundStyle(.primary.opacity(0.68))
             }
           }
         }
@@ -319,13 +319,13 @@ struct NativeSystemSettingsPage: View {
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
         .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
-        Text(feedback.message).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+        Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {
           self.feedback = nil
         } label: {
           Image(systemName: "xmark").font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
+            .foregroundStyle(.primary.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
         }
         .buttonStyle(.plain)
       }

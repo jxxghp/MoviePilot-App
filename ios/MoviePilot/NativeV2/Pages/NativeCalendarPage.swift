@@ -36,7 +36,7 @@ struct NativeCalendarPage: View {
           weekStrip
           if isLoading && entries.isEmpty {
             ProgressView("正在载入追剧日历…")
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 180)
           } else if loadFailed && entries.isEmpty {
             failureCard
@@ -122,10 +122,10 @@ struct NativeCalendarPage: View {
             .background {
               if isSelected {
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
-                  .fill(.white.opacity(0.13))
+                  .fill(.primary.opacity(0.13))
                   .overlay {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
-                      .strokeBorder(.white.opacity(0.28), lineWidth: 0.8)
+                      .strokeBorder(.primary.opacity(0.28), lineWidth: 0.8)
                   }
               }
             }
@@ -164,14 +164,14 @@ struct NativeCalendarPage: View {
     Button(action: action) {
       Image(systemName: symbol)
         .font(.caption.weight(.bold))
-        .foregroundStyle(.white.opacity(0.86))
+        .foregroundStyle(.primary.opacity(0.86))
         .frame(width: 28, height: 48)
         .background {
           RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(.white.opacity(0.08))
+            .fill(.primary.opacity(0.08))
             .overlay {
               RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(.white.opacity(0.14), lineWidth: 0.5)
+                .strokeBorder(.primary.opacity(0.14), lineWidth: 0.5)
             }
         }
     }
@@ -190,11 +190,11 @@ struct NativeCalendarPage: View {
         VStack(spacing: 10) {
           Image(systemName: "tv")
             .font(.title)
-            .foregroundStyle(.white.opacity(0.55))
+            .foregroundStyle(.primary.opacity(0.55))
           Text("这天没有播出的剧").font(.headline)
           Text("切换其他日期查看，或在媒体详情中添加订阅追剧。")
             .font(.footnote)
-            .foregroundStyle(.white.opacity(0.62))
+            .foregroundStyle(.primary.opacity(0.62))
             .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, minHeight: 132)
@@ -216,7 +216,7 @@ struct NativeCalendarPage: View {
       HStack {
         Text("本周排期").font(.title3.weight(.bold)).accessibilityAddTraits(.isHeader)
         Spacer()
-        Text("\(entries.count) 项").font(.caption).foregroundStyle(.white.opacity(0.62))
+        Text("\(entries.count) 项").font(.caption).foregroundStyle(.primary.opacity(0.62))
       }
       ForEach(entries) { entry in
         calendarEntryCard(entry)
@@ -235,29 +235,29 @@ struct NativeCalendarPage: View {
           .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
           .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-              .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+              .strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
           }
         VStack(alignment: .leading, spacing: 5) {
           HStack {
             Text(entry.displayTitle)
               .font(.headline)
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .lineLimit(1)
             Spacer(minLength: 4)
             Text(entry.date)
               .font(.caption2.monospacedDigit())
-              .foregroundStyle(.white.opacity(0.68))
+              .foregroundStyle(.primary.opacity(0.68))
           }
           if !entry.episodesSummary.isEmpty {
             Text(entry.episodesSummary)
               .font(.subheadline)
-              .foregroundStyle(.white.opacity(0.84))
+              .foregroundStyle(.primary.opacity(0.84))
               .lineLimit(2)
           }
           if let progressText = entry.progressSummary {
             Text(progressText)
               .font(.caption)
-              .foregroundStyle(.white.opacity(0.62))
+              .foregroundStyle(.primary.opacity(0.62))
           }
         }
       }

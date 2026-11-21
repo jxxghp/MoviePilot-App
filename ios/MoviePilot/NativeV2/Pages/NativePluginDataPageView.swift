@@ -31,14 +31,14 @@ struct NativePluginDataPageView: View {
               HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle.fill")
                   .foregroundStyle(Color(red: 0.56, green: 0.92, blue: 0.72))
-                Text(actionFeedback).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+                Text(actionFeedback).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
                 Spacer(minLength: 0)
               }
             }
           }
           if isLoading && nodes.isEmpty && renderMode != "vue" {
             ProgressView("正在载入插件页面…")
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 220)
           } else if loadFailed && nodes.isEmpty {
             CinematicPanel {
@@ -57,7 +57,7 @@ struct NativePluginDataPageView: View {
               VStack(spacing: 10) {
                 Image(systemName: "doc.plaintext")
                   .font(.largeTitle)
-                  .foregroundStyle(.white.opacity(0.55))
+                  .foregroundStyle(.primary.opacity(0.55))
                 Text("当前插件暂无展示数据").font(.headline)
               }
               .frame(maxWidth: .infinity, minHeight: 160)
@@ -112,18 +112,18 @@ struct NativePluginDataPageView: View {
         }
         Text("「\(pluginName)」使用前端模块联邦远程组件渲染。你可在同源隔离的受控兼容容器中打开，主体页面仍保持全原生运行。")
           .font(.subheadline)
-          .foregroundStyle(.white.opacity(0.76))
+          .foregroundStyle(.primary.opacity(0.76))
         Button {
           showsCompatWeb = true
         } label: {
           Label("在受控兼容容器中打开", systemImage: "safari")
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
             .frame(maxWidth: .infinity, minHeight: 44)
             .background {
               Capsule()
                 .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.78))
-                .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.6) }
+                .overlay { Capsule().strokeBorder(.primary.opacity(0.24), lineWidth: 0.6) }
             }
         }
         .buttonStyle(.plain)
@@ -204,7 +204,7 @@ struct NativePluginJSONRenderer: View {
     case "vrow", "vwindow", "vwindowitem":
       VStack(alignment: .leading, spacing: 10) {
         if !node.text.isEmpty {
-          Text(node.text).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+          Text(node.text).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         }
         ForEach(node.children) { child in AnyView(renderNode(child)) }
       }
@@ -224,13 +224,13 @@ struct NativePluginJSONRenderer: View {
       CinematicPanel(padding: 13) {
         VStack(alignment: .leading, spacing: 8) {
           if let title = node.stringProp("title"), !title.isEmpty {
-            Text(title).font(.headline).foregroundStyle(.white)
+            Text(title).font(.headline).foregroundStyle(.primary)
           }
           if let subtitle = node.stringProp("subtitle"), !subtitle.isEmpty {
-            Text(subtitle).font(.caption).foregroundStyle(.white.opacity(0.65))
+            Text(subtitle).font(.caption).foregroundStyle(.primary.opacity(0.65))
           }
           if !node.text.isEmpty {
-            Text(node.text).font(.subheadline).foregroundStyle(.white.opacity(0.90))
+            Text(node.text).font(.subheadline).foregroundStyle(.primary.opacity(0.90))
           }
           ForEach(node.children) { child in AnyView(renderNode(child)) }
         }
@@ -239,15 +239,15 @@ struct NativePluginJSONRenderer: View {
     case "vcardtitle":
       Text(node.combinedText)
         .font(.headline.weight(.bold))
-        .foregroundStyle(.white)
+        .foregroundStyle(.primary)
     case "vcardsubtitle":
       Text(node.combinedText)
         .font(.caption.weight(.medium))
-        .foregroundStyle(.white.opacity(0.66))
+        .foregroundStyle(.primary.opacity(0.66))
     case "vcardtext":
       VStack(alignment: .leading, spacing: 8) {
         if !node.text.isEmpty {
-          Text(node.text).font(.subheadline).foregroundStyle(.white.opacity(0.88))
+          Text(node.text).font(.subheadline).foregroundStyle(.primary.opacity(0.88))
         }
         ForEach(node.children) { child in AnyView(renderNode(child)) }
       }
@@ -261,7 +261,7 @@ struct NativePluginJSONRenderer: View {
         .padding(.vertical, 4)
         .background {
           Capsule()
-            .fill(.white.opacity(0.11))
+            .fill(.primary.opacity(0.11))
             .overlay {
               Capsule().strokeBorder(
                 Self.tintColor(node.stringProp("color")).opacity(0.35), lineWidth: 0.6)
@@ -275,7 +275,7 @@ struct NativePluginJSONRenderer: View {
           ForEach(Array(node.children.enumerated()), id: \.element.id) { index, child in
             AnyView(renderNode(child))
             if index < node.children.count - 1 {
-              Divider().overlay(.white.opacity(0.08))
+              Divider().overlay(.primary.opacity(0.08))
             }
           }
         }
@@ -283,13 +283,13 @@ struct NativePluginJSONRenderer: View {
     case "vlistitem":
       VStack(alignment: .leading, spacing: 4) {
         if let title = node.stringProp("title"), !title.isEmpty {
-          Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+          Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
         }
         if let subtitle = node.stringProp("subtitle"), !subtitle.isEmpty {
-          Text(subtitle).font(.caption).foregroundStyle(.white.opacity(0.66))
+          Text(subtitle).font(.caption).foregroundStyle(.primary.opacity(0.66))
         }
         if !node.text.isEmpty {
-          Text(node.text).font(.subheadline).foregroundStyle(.white.opacity(0.90))
+          Text(node.text).font(.subheadline).foregroundStyle(.primary.opacity(0.90))
         }
         ForEach(node.children) { child in AnyView(renderNode(child)) }
       }
@@ -297,9 +297,9 @@ struct NativePluginJSONRenderer: View {
       .padding(.vertical, 10)
       .frame(maxWidth: .infinity, alignment: .leading)
     case "vlistitemtitle":
-      Text(node.combinedText).font(.subheadline.weight(.medium)).foregroundStyle(.white)
+      Text(node.combinedText).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
     case "vlistitemsubtitle":
-      Text(node.combinedText).font(.caption).foregroundStyle(.white.opacity(0.65))
+      Text(node.combinedText).font(.caption).foregroundStyle(.primary.opacity(0.65))
     case "vprogresslinear":
       progressView(node)
     case "vimg", "img":
@@ -312,9 +312,9 @@ struct NativePluginJSONRenderer: View {
       } else if !node.combinedText.isEmpty {
         Text(node.combinedText)
           .font(.caption.bold())
-          .foregroundStyle(.white)
+          .foregroundStyle(.primary)
           .frame(width: 36, height: 36)
-          .background { Circle().fill(.white.opacity(0.14)) }
+          .background { Circle().fill(.primary.opacity(0.14)) }
       }
     case "vapexchart":
       NativePluginApexChartView(props: node.props)
@@ -324,7 +324,7 @@ struct NativePluginJSONRenderer: View {
       if !node.text.isEmpty || !node.children.isEmpty {
         VStack(alignment: .leading, spacing: 6) {
           if !node.text.isEmpty {
-            Text(node.text).font(.subheadline).foregroundStyle(.white.opacity(0.88))
+            Text(node.text).font(.subheadline).foregroundStyle(.primary.opacity(0.88))
           }
           ForEach(node.children) { child in AnyView(renderNode(child)) }
         }
@@ -349,10 +349,10 @@ struct NativePluginJSONRenderer: View {
         Image(systemName: symbol).foregroundStyle(tint)
         VStack(alignment: .leading, spacing: 4) {
           if let title = node.stringProp("title"), !title.isEmpty {
-            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
           }
           if !bodyText.isEmpty {
-            Text(bodyText).font(.caption).foregroundStyle(.white.opacity(0.86))
+            Text(bodyText).font(.caption).foregroundStyle(.primary.opacity(0.86))
           }
         }
         Spacer(minLength: 0)
@@ -367,7 +367,7 @@ struct NativePluginJSONRenderer: View {
       if parsed.headers.isEmpty && parsed.rows.isEmpty {
         Text("暂无表格数据")
           .font(.caption)
-          .foregroundStyle(.white.opacity(0.60))
+          .foregroundStyle(.primary.opacity(0.60))
           .padding(14)
       } else {
         ScrollView(.horizontal) {
@@ -377,7 +377,7 @@ struct NativePluginJSONRenderer: View {
                 ForEach(Array(parsed.headers.enumerated()), id: \.offset) { _, header in
                   Text(header)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.76))
+                    .foregroundStyle(.primary.opacity(0.76))
                     .frame(minWidth: 88, alignment: .leading)
                 }
               }
@@ -386,12 +386,12 @@ struct NativePluginJSONRenderer: View {
               .background(.white.opacity(0.06))
             }
             ForEach(Array(parsed.rows.enumerated()), id: \.offset) { rowIdx, row in
-              Divider().overlay(.white.opacity(0.08))
+              Divider().overlay(.primary.opacity(0.08))
               HStack(spacing: 12) {
                 ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
                   Text(cell)
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.92))
+                    .foregroundStyle(.primary.opacity(0.92))
                     .frame(minWidth: 88, alignment: .leading)
                     .lineLimit(3)
                 }
@@ -413,7 +413,7 @@ struct NativePluginJSONRenderer: View {
     let fraction = min(max(raw > 1 ? raw / 100.0 : raw, 0), 1)
     return GeometryReader { bar in
       ZStack(alignment: .leading) {
-        Capsule().fill(.white.opacity(0.14))
+        Capsule().fill(.primary.opacity(0.14))
         Capsule()
           .fill(Color(red: 0.68, green: 0.52, blue: 0.96))
           .frame(width: max(bar.size.width * fraction, 4))
@@ -441,13 +441,13 @@ struct NativePluginJSONRenderer: View {
     } label: {
       Text(label)
         .font(.caption.weight(.semibold))
-        .foregroundStyle(.white)
+        .foregroundStyle(.primary)
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
         .background {
           Capsule()
             .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(apiPath == nil ? 0.35 : 0.75))
-            .overlay { Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.6) }
+            .overlay { Capsule().strokeBorder(.primary.opacity(0.22), lineWidth: 0.6) }
         }
     }
     .buttonStyle(.plain)
@@ -479,12 +479,12 @@ struct NativePluginApexChartView: View {
         if !spec.title.isEmpty {
           Text(spec.title)
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
         }
         if spec.slices.isEmpty {
           Text(spec.noDataText)
             .font(.caption)
-            .foregroundStyle(.white.opacity(0.56))
+            .foregroundStyle(.primary.opacity(0.56))
             .frame(maxWidth: .infinity, minHeight: 72)
         } else if spec.isCircular {
           HStack(spacing: 18) {
@@ -498,12 +498,12 @@ struct NativePluginApexChartView: View {
                     .frame(width: 8, height: 8)
                   Text(slice.label)
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.86))
+                    .foregroundStyle(.primary.opacity(0.86))
                     .lineLimit(1)
                   Spacer(minLength: 4)
                   Text(slice.formattedValue)
                     .font(.caption.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                 }
               }
             }
@@ -517,16 +517,16 @@ struct NativePluginApexChartView: View {
                 HStack {
                   Text(slice.label)
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.84))
+                    .foregroundStyle(.primary.opacity(0.84))
                     .lineLimit(1)
                   Spacer()
                   Text(slice.formattedValue)
                     .font(.caption.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                 }
                 GeometryReader { bar in
                   ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.12))
+                    Capsule().fill(.primary.opacity(0.12))
                     Capsule()
                       .fill(Self.palette[index % Self.palette.count])
                       .frame(width: max(bar.size.width * CGFloat(slice.value / maxVal), 6))
@@ -563,7 +563,7 @@ struct NativePluginApexChartView: View {
       }
       Text(String(format: "%.1f", total))
         .font(.caption.monospacedDigit().bold())
-        .foregroundStyle(.white.opacity(0.88))
+        .foregroundStyle(.primary.opacity(0.88))
     }
   }
 
@@ -645,7 +645,7 @@ private struct NativePluginCompatSheet: View {
           NativePluginCompatWebView(url: targetURL, origin: session.instance.address)
             .ignoresSafeArea(edges: .bottom)
         } else {
-          Text("无法构造受控插件兼容地址").foregroundStyle(.white)
+          Text("无法构造受控插件兼容地址").foregroundStyle(.primary)
         }
       }
       .navigationTitle("\(pluginName)（兼容）")
@@ -662,7 +662,7 @@ private struct NativePluginCompatSheet: View {
         }
       }
     }
-    .preferredColorScheme(.dark)
+    .nativeAppearanceRoot()
   }
 
   /// 严格基于当前实例同源地址构造受控插件兼容路径。

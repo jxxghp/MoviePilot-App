@@ -91,7 +91,7 @@ struct NativeSystemModulesPage: View {
               HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle.fill")
                   .foregroundStyle(Color(red: 0.56, green: 0.92, blue: 0.72))
-                Text(feedback).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+                Text(feedback).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
                 Spacer(minLength: 0)
               }
             }
@@ -119,7 +119,7 @@ struct NativeSystemModulesPage: View {
             Task { await saveSiteScopes() }
           } label: {
             if isSavingSiteScope {
-              ProgressView().controlSize(.small).tint(.white)
+              ProgressView().controlSize(.small).tint(.primary)
             } else {
               Text("保存").fontWeight(.semibold)
             }
@@ -131,7 +131,7 @@ struct NativeSystemModulesPage: View {
             Task { await saveScrapingSwitches() }
           } label: {
             if isSavingScraping {
-              ProgressView().controlSize(.small).tint(.white)
+              ProgressView().controlSize(.small).tint(.primary)
             } else {
               Text("保存").fontWeight(.semibold)
             }
@@ -187,7 +187,7 @@ struct NativeSystemModulesPage: View {
                       : .white.opacity(0.08)
                   )
                   .overlay {
-                    Capsule().strokeBorder(.white.opacity(active ? 0.30 : 0.14), lineWidth: 0.6)
+                    Capsule().strokeBorder(.primary.opacity(active ? 0.30 : 0.14), lineWidth: 0.6)
                   }
               }
           }
@@ -204,7 +204,7 @@ struct NativeSystemModulesPage: View {
   private var contentSection: some View {
     if isLoading {
       ProgressView("正在读取\(domain.rawValue)…")
-        .tint(.white)
+        .tint(.primary)
         .frame(maxWidth: .infinity, minHeight: 200)
     } else if loadFailed {
       CinematicPanel {
@@ -288,14 +288,14 @@ struct NativeSystemModulesPage: View {
           VStack(alignment: .leading, spacing: 3) {
             Text(siteScopeKind == .search ? "搜索站点范围" : "订阅站点范围")
               .font(.subheadline.weight(.semibold))
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
             Text(
               selected.isEmpty
                 ? "未勾选特定站点时默认覆盖全部已启用站点"
                 : "已选择 \(selected.count) / \(activeSites.count) 个已启用站点"
             )
             .font(.caption)
-            .foregroundStyle(.white.opacity(0.68))
+            .foregroundStyle(.primary.opacity(0.68))
           }
           Spacer(minLength: 6)
           Button("全选") {
@@ -319,7 +319,7 @@ struct NativeSystemModulesPage: View {
             }
           }
           .font(.caption.weight(.semibold))
-          .foregroundStyle(.white.opacity(0.72))
+          .foregroundStyle(.primary.opacity(0.72))
           .buttonStyle(.plain)
           .accessibilityIdentifier("native-sysmod-sitescope-clear")
         }
@@ -359,11 +359,11 @@ struct NativeSystemModulesPage: View {
                   VStack(alignment: .leading, spacing: 2) {
                     Text(site.name)
                       .font(.subheadline.weight(.medium))
-                      .foregroundStyle(.white)
+                      .foregroundStyle(.primary)
                     if !site.domain.isEmpty {
                       Text(site.domain)
                         .font(.caption2.monospaced())
-                        .foregroundStyle(.white.opacity(0.55))
+                        .foregroundStyle(.primary.opacity(0.55))
                     }
                   }
                 }
@@ -373,7 +373,7 @@ struct NativeSystemModulesPage: View {
               .padding(.vertical, 10)
               .accessibilityIdentifier("native-sysmod-sitescope-toggle-\(site.id)")
               if index < activeSites.count - 1 {
-                Divider().overlay(.white.opacity(0.08))
+                Divider().overlay(.primary.opacity(0.08))
               }
             }
           }
@@ -394,8 +394,9 @@ struct NativeSystemModulesPage: View {
             HStack(spacing: 12) {
               NativeBrandIcon(kind: .storage, type: storage.type, size: 38, cornerRadius: 10)
               VStack(alignment: .leading, spacing: 3) {
-                Text(storage.name).font(.headline).foregroundStyle(.white)
-                Text(storage.type).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.65))
+                Text(storage.name).font(.headline).foregroundStyle(.primary)
+                Text(storage.type).font(.caption.monospaced()).foregroundStyle(
+                  .primary.opacity(0.65))
               }
               Spacer()
               statusTag("已挂载", active: true)
@@ -412,7 +413,7 @@ struct NativeSystemModulesPage: View {
           CinematicPanel(padding: 13) {
             VStack(alignment: .leading, spacing: 6) {
               HStack {
-                Text(dir.displayName).font(.headline).foregroundStyle(.white)
+                Text(dir.displayName).font(.headline).foregroundStyle(.primary)
                 Spacer()
                 if !dir.transferLabel.isEmpty {
                   statusTag(dir.transferLabel, active: true)
@@ -421,7 +422,7 @@ struct NativeSystemModulesPage: View {
               if let src = dir.downloadPath, !src.isEmpty {
                 Label(src, systemImage: "arrow.down.doc")
                   .font(.caption.monospaced())
-                  .foregroundStyle(.white.opacity(0.76))
+                  .foregroundStyle(.primary.opacity(0.76))
                   .lineLimit(2)
               }
               if let dst = dir.libraryPath, !dst.isEmpty {
@@ -480,12 +481,12 @@ struct NativeSystemModulesPage: View {
         NativeBrandIcon(kind: iconKind, type: item.type, size: 40, cornerRadius: 11)
         VStack(alignment: .leading, spacing: 3) {
           HStack(spacing: 6) {
-            Text(item.name).font(.headline).foregroundStyle(.white)
+            Text(item.name).font(.headline).foregroundStyle(.primary)
             if item.isDefault {
               miniChip("默认")
             }
           }
-          Text(item.type).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.66))
+          Text(item.type).font(.caption.monospaced()).foregroundStyle(.primary.opacity(0.66))
         }
         Spacer()
         statusTag(item.enabled ? "已启用" : "已停用", active: item.enabled)
@@ -506,8 +507,9 @@ struct NativeSystemModulesPage: View {
               HStack(spacing: 12) {
                 NativeBrandIcon(kind: .notification, type: item.type, size: 40, cornerRadius: 11)
                 VStack(alignment: .leading, spacing: 3) {
-                  Text(item.name).font(.headline).foregroundStyle(.white)
-                  Text(item.type).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.66))
+                  Text(item.name).font(.headline).foregroundStyle(.primary)
+                  Text(item.type).font(.caption.monospaced()).foregroundStyle(
+                    .primary.opacity(0.66))
                 }
                 Spacer()
                 statusTag(item.enabled ? "已启用" : "已停用", active: item.enabled)
@@ -539,7 +541,7 @@ struct NativeSystemModulesPage: View {
           CinematicPanel(padding: 13) {
             VStack(alignment: .leading, spacing: 6) {
               HStack {
-                Text(group.name).font(.headline).foregroundStyle(.white)
+                Text(group.name).font(.headline).foregroundStyle(.primary)
                 Spacer()
                 if let mediaType = group.mediaType, !mediaType.isEmpty {
                   miniChip(mediaType)
@@ -548,7 +550,7 @@ struct NativeSystemModulesPage: View {
               if !group.ruleString.isEmpty {
                 Text(group.ruleString)
                   .font(.caption.monospaced())
-                  .foregroundStyle(.white.opacity(0.76))
+                  .foregroundStyle(.primary.opacity(0.76))
                   .lineLimit(3)
               }
             }
@@ -563,10 +565,10 @@ struct NativeSystemModulesPage: View {
         CinematicPanel(padding: 13) {
           VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(customIdentifiers.prefix(30).enumerated()), id: \.offset) { idx, line in
-              if idx > 0 { Divider().overlay(.white.opacity(0.08)) }
+              if idx > 0 { Divider().overlay(.primary.opacity(0.08)) }
               Text(line)
                 .font(.caption.monospaced())
-                .foregroundStyle(.white.opacity(0.86))
+                .foregroundStyle(.primary.opacity(0.86))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
           }
@@ -582,7 +584,7 @@ struct NativeSystemModulesPage: View {
       CinematicPanel(padding: 14) {
         VStack(spacing: 12) {
           ForEach(Array(Self.scrapingLabels.enumerated()), id: \.element.key) { index, item in
-            if index > 0 { Divider().overlay(.white.opacity(0.08)) }
+            if index > 0 { Divider().overlay(.primary.opacity(0.08)) }
             Toggle(
               item.label,
               isOn: Binding(
@@ -612,10 +614,10 @@ struct NativeSystemModulesPage: View {
           CinematicPanel(padding: 13) {
             HStack(spacing: 10) {
               VStack(alignment: .leading, spacing: 3) {
-                Text(target.name).font(.headline).foregroundStyle(.white)
+                Text(target.name).font(.headline).foregroundStyle(.primary)
                 Text(target.address)
                   .font(.caption.monospaced())
-                  .foregroundStyle(.white.opacity(0.64))
+                  .foregroundStyle(.primary.opacity(0.64))
                   .lineLimit(1)
                 if let result {
                   Text(result.summary)
@@ -632,19 +634,19 @@ struct NativeSystemModulesPage: View {
               } label: {
                 HStack(spacing: 4) {
                   if isTesting {
-                    ProgressView().controlSize(.mini).tint(.white)
+                    ProgressView().controlSize(.mini).tint(.primary)
                   } else {
                     Image(systemName: "bolt.horizontal.circle").font(.caption)
                   }
                   Text("测速").font(.caption.weight(.semibold))
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background {
                   Capsule()
                     .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.76))
-                    .overlay { Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.6) }
+                    .overlay { Capsule().strokeBorder(.primary.opacity(0.22), lineWidth: 0.6) }
                 }
                 .frame(minHeight: 34)
               }
@@ -660,9 +662,9 @@ struct NativeSystemModulesPage: View {
 
   private func sectionHeader(_ title: String, count: Int) -> some View {
     HStack {
-      Text(title).font(.headline).foregroundStyle(.white).accessibilityAddTraits(.isHeader)
+      Text(title).font(.headline).foregroundStyle(.primary).accessibilityAddTraits(.isHeader)
       Spacer()
-      Text("\(count) 项").font(.caption).foregroundStyle(.white.opacity(0.62))
+      Text("\(count) 项").font(.caption).foregroundStyle(.primary.opacity(0.62))
     }
   }
 
@@ -675,7 +677,7 @@ struct NativeSystemModulesPage: View {
       .padding(.vertical, 3)
       .background {
         Capsule()
-          .fill(.white.opacity(0.10))
+          .fill(.primary.opacity(0.10))
           .overlay { Capsule().strokeBorder(tint.opacity(0.32), lineWidth: 0.6) }
       }
   }
@@ -686,14 +688,14 @@ struct NativeSystemModulesPage: View {
       .foregroundStyle(Color(red: 0.86, green: 0.76, blue: 1.0))
       .padding(.horizontal, 7)
       .padding(.vertical, 2.5)
-      .background { Capsule().fill(.white.opacity(0.09)) }
+      .background { Capsule().fill(.primary.opacity(0.09)) }
   }
 
   private func emptyCard(_ text: String) -> some View {
     CinematicPanel {
       Text(text)
         .font(.subheadline)
-        .foregroundStyle(.white.opacity(0.70))
+        .foregroundStyle(.primary.opacity(0.70))
         .frame(maxWidth: .infinity, minHeight: 80)
     }
   }

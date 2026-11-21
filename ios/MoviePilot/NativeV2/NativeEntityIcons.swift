@@ -25,10 +25,10 @@ struct NativeBrandIcon: View {
   var body: some View {
     ZStack {
       RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        .fill(.white.opacity(0.11))
+        .fill(.primary.opacity(0.08))
         .overlay {
           RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .strokeBorder(.white.opacity(0.16), lineWidth: 0.6)
+            .strokeBorder(.primary.opacity(0.14), lineWidth: 0.6)
         }
       Image(assetName)
         .resizable()

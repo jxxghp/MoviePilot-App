@@ -362,14 +362,14 @@ struct NativeDiscoverPage: View {
                     Button(action: onManageModules) {
                       Label("管理发现模块", systemImage: "slider.horizontal.3")
                         .font(.footnote.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.82))
+                        .foregroundStyle(.primary.opacity(0.82))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                         .background {
                           Capsule()
-                            .fill(.white.opacity(0.10))
+                            .fill(.primary.opacity(0.09))
                             .overlay {
-                              Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 0.6)
+                              Capsule().strokeBorder(.primary.opacity(0.16), lineWidth: 0.6)
                             }
                         }
                     }
@@ -482,27 +482,14 @@ struct NativeDiscoverPage: View {
     return clamped * clamped * (3 - 2 * clamped)
   }
 
-  /// 前景退场时整页从 Cinematic 近黑 `#0A0A16` 渐变为柔和烟灰紫环境底色。
+  /// 前景退场时平滑衔接到当前主题背景渐变（支持深/浅色与用户自定义背景过渡颜色）。
+  @ViewBuilder
   private func ambientSurface(progress: CGFloat) -> some View {
-    let amount = Double(progress)
-    let top = Color(
-      red: (10 + 34 * amount) / 255,
-      green: (10 + 29 * amount) / 255,
-      blue: (22 + 31 * amount) / 255)
-    let mid = Color(
-      red: (10 + 33 * amount) / 255,
-      green: (10 + 27 * amount) / 255,
-      blue: (22 + 27 * amount) / 255)
-    let bottom = Color(
-      red: (10 + 25 * amount) / 255,
-      green: (10 + 22 * amount) / 255,
-      blue: (22 + 22 * amount) / 255)
-    return LinearGradient(
-      stops: [
-        .init(color: top, location: 0),
-        .init(color: mid, location: 0.48),
-        .init(color: bottom, location: 1),
-      ], startPoint: .top, endPoint: .bottom)
+    ZStack {
+      CinematicBackground()
+      Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
+        .opacity(max(0, 1 - Double(progress) * 1.15) * 0.55)
+    }
   }
 
   /// 以主视觉退场距离计算连续进度，向下回滚时自然恢复首屏背景。
@@ -845,14 +832,14 @@ struct NativeDiscoverPage: View {
         }
       Text(item.title)
         .font(.subheadline.weight(.medium))
-        .foregroundStyle(.white.opacity(0.95))
+        .foregroundStyle(.primary.opacity(0.95))
         .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
       let subtitle = [item.year, item.detail].compactMap { $0 }.filter { !$0.isEmpty }
         .joined(separator: " · ")
       if !subtitle.isEmpty {
         Text(subtitle)
           .font(.caption)
-          .foregroundStyle(.white.opacity(0.56))
+          .foregroundStyle(.primary.opacity(0.58))
           .lineLimit(1)
       }
     }
@@ -868,17 +855,17 @@ struct NativeDiscoverPage: View {
         .clipShape(.rect(cornerRadius: 13))
         .overlay {
           RoundedRectangle(cornerRadius: 13, style: .continuous)
-            .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
+            .strokeBorder(.primary.opacity(0.10), lineWidth: 0.5)
         }
       Text(item.title)
         .font(.footnote.weight(.medium))
-        .foregroundStyle(.white.opacity(0.95))
+        .foregroundStyle(.primary.opacity(0.95))
         .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
         .frame(maxWidth: .infinity, alignment: .center)
       if let secondaryText = posterCaption(for: item) {
         Text(secondaryText)
           .font(.caption)
-          .foregroundStyle(.white.opacity(0.54))
+          .foregroundStyle(.primary.opacity(0.58))
           .lineLimit(1)
       }
     }

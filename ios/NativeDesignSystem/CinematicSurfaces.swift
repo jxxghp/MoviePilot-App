@@ -10,27 +10,29 @@ enum CinematicStyle {
   static let separator = Color.white.opacity(0.10)
 }
 
-/// 所有原生页面共用连续烟紫/玫瑰/深蓝渐变，延伸到系统安全区后方。
+/// 所有原生页面共用连续背景渐变，随用户选择的深/浅色主题及背景过渡配色实时更新，延伸到系统安全区后方。
 @MainActor
 struct CinematicBackground: View {
+  @Environment(\.colorScheme) private var colorScheme
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+
   /// 背景静止以减少干扰，也避免减弱动态模式下仍有装饰性移动。
   var body: some View {
     LinearGradient(
-      stops: [
-        .init(color: Color(red: 0.19, green: 0.20, blue: 0.29), location: 0),
-        .init(color: Color(red: 0.29, green: 0.23, blue: 0.34), location: 0.33),
-        .init(color: Color(red: 0.34, green: 0.22, blue: 0.29), location: 0.70),
-        .init(color: Color(red: 0.14, green: 0.18, blue: 0.25), location: 1),
-      ], startPoint: .topLeading, endPoint: .bottomTrailing
+      stops: appearance.backgroundStops(for: colorScheme),
+      startPoint: .topLeading,
+      endPoint: .bottomTrailing
     ).ignoresSafeArea().allowsHitTesting(false)
   }
 }
 
-/// Cinematic 透明玻璃分组；让全局紫/玫瑰渐变透出，避免均匀灰雾遮住背景色彩。
+/// Cinematic 透明玻璃分组；在深色下透出渐变底色，在浅色下呈现通透磨砂白玻璃层次。
 @MainActor
 struct CinematicPanel<Content: View>: View {
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   @Environment(\.colorSchemeContrast) private var contrast
+  @Environment(\.colorScheme) private var colorScheme
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
   private let padding: CGFloat
   private let content: Content
 
@@ -40,24 +42,42 @@ struct CinematicPanel<Content: View>: View {
     self.content = content()
   }
 
-  /// 降低透明度时换为同色系实底，可访问性不生成第二套主题。
+  /// 降低透明度时换为同色系实底，浅色与深色自动匹配边框高光与投影深度。
   var body: some View {
+    let isLight = colorScheme == .light
+    let borderColors: [Color] =
+      isLight
+      ? [
+        .white.opacity(0.85),
+        .black.opacity(contrast == .increased ? 0.20 : 0.08),
+        appearance.accentColor.opacity(0.18),
+      ]
+      : [
+        .white.opacity(contrast == .increased ? 0.42 : 0.20),
+        .white.opacity(contrast == .increased ? 0.28 : 0.075),
+        .white.opacity(contrast == .increased ? 0.35 : 0.12),
+      ]
     content
       .padding(padding)
       .clipShape(shape)
-      .modifier(CinematicPanelSurface(reduceTransparency: reduceTransparency, contrast: contrast))
+      .modifier(
+        CinematicPanelSurface(
+          reduceTransparency: reduceTransparency,
+          contrast: contrast,
+          colorScheme: colorScheme,
+          accentColor: appearance.accentColor
+        )
+      )
       .overlay(
         shape.strokeBorder(
-          LinearGradient(
-            colors: [
-              .white.opacity(contrast == .increased ? 0.42 : 0.20),
-              .white.opacity(contrast == .increased ? 0.28 : 0.075),
-              .white.opacity(contrast == .increased ? 0.35 : 0.12),
-            ], startPoint: .topLeading, endPoint: .bottomTrailing),
+          LinearGradient(colors: borderColors, startPoint: .topLeading, endPoint: .bottomTrailing),
           lineWidth: contrast == .increased ? 1 : 0.7
         ).allowsHitTesting(false)
       )
-      .shadow(color: .black.opacity(0.06), radius: 12, y: 6)
+      .shadow(
+        color: isLight ? .black.opacity(0.06) : .black.opacity(0.08),
+        radius: isLight ? 10 : 12,
+        y: isLight ? 4 : 6)
   }
 
   /// 相关卡片、表单与状态面板采用相同的连续圆角。
@@ -66,28 +86,44 @@ struct CinematicPanel<Content: View>: View {
   }
 }
 
-/// 正文以轻系统材质和紫玫瑰染色透出底色；导航玻璃不跨页面采样正文。
+/// 正文以轻系统材质和主题强调色染色透出底色；支持深色暗透玻璃与浅色磨砂白玻璃。
 @MainActor
 private struct CinematicPanelSurface: ViewModifier {
   let reduceTransparency: Bool
   let contrast: ColorSchemeContrast
+  let colorScheme: ColorScheme
+  let accentColor: Color
 
-  /// 降低偏灰材质的覆盖，改用随渐变变化的紫玫瑰染色保留 既定深色渐变玻璃的通透层次。
   @ViewBuilder
   func body(content: Content) -> some View {
     let shape = RoundedRectangle(cornerRadius: CinematicStyle.radius, style: .continuous)
-    let lilac = Color(red: 0.76, green: 0.69, blue: 0.94)
-    let violet = Color(red: 0.58, green: 0.41, blue: 0.70)
-    let rose = Color(red: 0.70, green: 0.39, blue: 0.59)
+    let isLight = colorScheme == .light
     if reduceTransparency {
-      content.background(CinematicStyle.solidSurface, in: shape)
+      content.background(
+        isLight ? Color(red: 0.97, green: 0.97, blue: 0.99) : CinematicStyle.solidSurface,
+        in: shape)
+    } else if isLight {
+      content.background {
+        ZStack {
+          shape.fill(.ultraThinMaterial).opacity(contrast == .increased ? 0.92 : 0.76)
+          shape.fill(Color.white.opacity(contrast == .increased ? 0.78 : 0.56))
+          shape.fill(
+            LinearGradient(
+              colors: [accentColor.opacity(0.05), .clear, accentColor.opacity(0.03)],
+              startPoint: .topLeading, endPoint: .bottomTrailing))
+        }
+      }
     } else {
       content.background {
         ZStack {
-          shape.fill(.ultraThinMaterial).opacity(contrast == .increased ? 0.45 : 0.10)
+          shape.fill(.ultraThinMaterial).opacity(contrast == .increased ? 0.45 : 0.12)
           shape.fill(
             LinearGradient(
-              colors: [lilac.opacity(0.045), violet.opacity(0.09), rose.opacity(0.105)],
+              colors: [
+                accentColor.opacity(0.08),
+                accentColor.opacity(0.05),
+                Color(red: 0.70, green: 0.39, blue: 0.59).opacity(0.08),
+              ],
               startPoint: .topLeading, endPoint: .bottomTrailing))
         }
       }
@@ -128,7 +164,7 @@ struct CinematicCircleButton: View {
         .frame(width: 46, height: 46)
     }
     .buttonStyle(.plain)
-    .foregroundStyle(.white)
+    .foregroundStyle(.primary)
     .modifier(CinematicInteractiveGlass(reduceTransparency: reduceTransparency))
     .accessibilityLabel(title)
   }
@@ -138,17 +174,19 @@ struct CinematicCircleButton: View {
 @MainActor
 private struct CinematicInteractiveGlass: ViewModifier {
   let reduceTransparency: Bool
+  @Environment(\.colorScheme) private var colorScheme
 
   /// 布局已由按钮定义，最后再附着玻璃以匹配指定技能的修饰器顺序。
   @ViewBuilder
   func body(content: Content) -> some View {
     if reduceTransparency {
-      content.background(CinematicStyle.solidSurface, in: Circle())
+      content.background(
+        colorScheme == .light ? Color.white : CinematicStyle.solidSurface, in: Circle())
     } else if #available(iOS 26, *) {
       content.glassEffect(.regular.interactive(), in: .circle)
     } else {
       content.background(.ultraThinMaterial, in: Circle())
-        .overlay(Circle().strokeBorder(.white.opacity(0.15), lineWidth: 0.7))
+        .overlay(Circle().strokeBorder(.primary.opacity(0.15), lineWidth: 0.7))
     }
   }
 }
@@ -161,15 +199,22 @@ struct CinematicPrimaryAction: View {
   let action: () -> Void
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   @Environment(\.isEnabled) private var isEnabled
+  @Environment(\.colorScheme) private var colorScheme
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
 
-  /// 按钮本身保留原生语义和动态字体，不用图像模拟点击区域。
+  /// 按钮本身保留原生语义和动态字体，深色白底黑字、浅色主题强调色底白字。
   var body: some View {
+    let buttonTint: Color = colorScheme == .light ? appearance.accentColor : .white
+    let labelColor: Color =
+      colorScheme == .light
+      ? .white
+      : (isEnabled ? Color.black : Color.white)
     if #available(iOS 26, *), !reduceTransparency {
-      button.buttonStyle(.glassProminent).tint(.white)
-        .foregroundStyle(isEnabled ? Color.black : Color.white)
+      button.buttonStyle(.glassProminent).tint(buttonTint)
+        .foregroundStyle(labelColor)
     } else {
-      button.buttonStyle(.borderedProminent).tint(.white)
-        .foregroundStyle(isEnabled ? Color.black : Color.white)
+      button.buttonStyle(.borderedProminent).tint(buttonTint)
+        .foregroundStyle(labelColor)
     }
   }
 

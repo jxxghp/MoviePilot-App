@@ -38,7 +38,7 @@ struct NativeFileManagerPage: View {
           }
           if isLoading && items.isEmpty {
             ProgressView("正在读取目录内容…")
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 220)
           } else if loadFailed && items.isEmpty {
             failureCard
@@ -175,11 +175,11 @@ struct NativeFileManagerPage: View {
                     kind: .storage, type: activeStorage, size: 18, cornerRadius: 5)
                   Text(activeStorageTitle)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                   Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.65))
+                    .foregroundStyle(.primary.opacity(0.65))
                 }
                 .padding(.horizontal, 9)
                 .padding(.vertical, 6)
@@ -188,7 +188,7 @@ struct NativeFileManagerPage: View {
                     .fill(Color(red: 0.56, green: 0.42, blue: 0.88).opacity(0.32))
                     .overlay {
                       RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(.white.opacity(0.22), lineWidth: 0.6)
+                        .strokeBorder(.primary.opacity(0.22), lineWidth: 0.6)
                     }
                 }
               }
@@ -202,19 +202,19 @@ struct NativeFileManagerPage: View {
 
                 Image(systemName: "chevron.right")
                   .font(.system(size: 9.5, weight: .semibold))
-                  .foregroundStyle(.white.opacity(0.38))
+                  .foregroundStyle(.primary.opacity(0.38))
                   .padding(.horizontal, 1)
 
                 if isLast {
                   Text(title)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
                     .background {
                       RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(.white.opacity(0.14))
+                        .fill(.primary.opacity(0.14))
                     }
                     .id("crumb-\(index)")
                 } else {
@@ -223,13 +223,13 @@ struct NativeFileManagerPage: View {
                   } label: {
                     Text(title)
                       .font(.caption.weight(.medium))
-                      .foregroundStyle(.white.opacity(0.76))
+                      .foregroundStyle(.primary.opacity(0.76))
                       .lineLimit(1)
                       .padding(.horizontal, 7)
                       .padding(.vertical, 5)
                       .background {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                          .fill(.white.opacity(0.06))
+                          .fill(.primary.opacity(0.06))
                       }
                   }
                   .buttonStyle(.plain)
@@ -250,7 +250,7 @@ struct NativeFileManagerPage: View {
 
         Text("\(items.count) 项")
           .font(.caption2.monospacedDigit())
-          .foregroundStyle(.white.opacity(0.55))
+          .foregroundStyle(.primary.opacity(0.55))
           .padding(.trailing, 4)
       }
     }
@@ -281,31 +281,31 @@ struct NativeFileManagerPage: View {
                     ? Color(red: 0.48, green: 0.36, blue: 0.72).opacity(0.50)
                     : .white.opacity(0.10))
               if isOpeningPlay {
-                ProgressView().controlSize(.mini).tint(.white)
+                ProgressView().controlSize(.mini).tint(.primary)
               } else {
                 Image(systemName: item.symbolName)
                   .font(.body.weight(.medium))
-                  .foregroundStyle(.white.opacity(0.92))
+                  .foregroundStyle(.primary.opacity(0.92))
               }
             }
             .frame(width: 40, height: 40)
             VStack(alignment: .leading, spacing: 3) {
               Text(item.displayName)
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
               if let meta = item.metadataSummary {
                 Text(meta)
                   .font(.caption2)
-                  .foregroundStyle(.white.opacity(0.60))
+                  .foregroundStyle(.primary.opacity(0.60))
               }
             }
             Spacer(minLength: 4)
             if item.isDirectory {
               Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.45))
+                .foregroundStyle(.primary.opacity(0.45))
             } else if playable {
               Image(systemName: "play.circle.fill")
                 .font(.title3)
@@ -366,13 +366,13 @@ struct NativeFileManagerPage: View {
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
         .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
-        Text(feedback.message).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+        Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {
           self.feedback = nil
         } label: {
           Image(systemName: "xmark").font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
+            .foregroundStyle(.primary.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
         }
         .buttonStyle(.plain)
       }
@@ -386,7 +386,7 @@ struct NativeFileManagerPage: View {
       VStack(spacing: 10) {
         Image(systemName: "folder")
           .font(.largeTitle)
-          .foregroundStyle(.white.opacity(0.55))
+          .foregroundStyle(.primary.opacity(0.55))
         Text("当前目录为空").font(.headline)
       }
       .frame(maxWidth: .infinity, minHeight: 150)

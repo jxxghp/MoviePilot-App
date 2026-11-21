@@ -1,3 +1,4 @@
+import Combine
 import MoviePilotCore
 import SwiftUI
 import UIKit
@@ -8,6 +9,7 @@ final class NativeV2SceneDelegate: UIResponder, UIWindowSceneDelegate {
   var window: UIWindow?
   private var model: NativeAppModel?
   private var privacyCover: UIView?
+  private var appearanceCancellable: AnyCancellable?
 
   /// 复用本机地址簿，从原生会话探测开始，并承接冷启动 URL 深链与主屏幕快捷项。
   func scene(
@@ -19,7 +21,12 @@ final class NativeV2SceneDelegate: UIResponder, UIWindowSceneDelegate {
     let window = UIWindow(windowScene: scene)
     self.model = model
     self.window = window
-    window.overrideUserInterfaceStyle = .dark
+    window.overrideUserInterfaceStyle = NativeAppearanceStore.shared.mode.uiInterfaceStyle
+    appearanceCancellable = NativeAppearanceStore.shared.$mode
+      .receive(on: RunLoop.main)
+      .sink { [weak window] mode in
+        window?.overrideUserInterfaceStyle = mode.uiInterfaceStyle
+      }
     window.rootViewController = UIHostingController(rootView: NativeV2RootView(model: model))
     NotificationService.shared.attachNative(nil)
     window.makeKeyAndVisible()
@@ -58,8 +65,10 @@ final class NativeV2SceneDelegate: UIResponder, UIWindowSceneDelegate {
   func sceneWillResignActive(_ scene: UIScene) {
     guard let window, privacyCover == nil else { return }
     window.endEditing(true)
+    let scheme: ColorScheme =
+      window.traitCollection.userInterfaceStyle == .light ? .light : .dark
     let cover = UIView(frame: window.bounds)
-    cover.backgroundColor = UIColor(CinematicStyle.background)
+    cover.backgroundColor = UIColor(NativeAppearanceStore.shared.solidBackgroundColor(for: scheme))
     cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     window.addSubview(cover)
     privacyCover = cover

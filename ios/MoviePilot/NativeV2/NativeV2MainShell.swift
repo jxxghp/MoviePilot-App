@@ -25,6 +25,8 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
 
   @StateObject private var dynamicActionCenter = NativeDynamicActionCenter()
   @ObservedObject private var routeHub = NativeSystemRouteHub.shared
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @Environment(\.colorScheme) private var colorScheme
   @State private var selectedTab: Page = .discover
   @State private var discovery = NativeDiscoverContent(
     featured: nil, rails: [], continueWatching: [], providers: [], categories: [], isLoading: true)
@@ -95,6 +97,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
             }
           }
       }
+      .nativeAppearanceRoot()
     }
     .sheet(
       isPresented: $showsModuleSheet,
@@ -312,7 +315,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
               .foregroundStyle(.secondary)
             Text("我的")
               .font(.largeTitle.bold())
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .accessibilityAddTraits(.isHeader)
           }
           .padding(.horizontal, 2)
@@ -321,10 +324,10 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
             VStack(alignment: .leading, spacing: 10) {
               Text("欢迎回来，\(snapshot.user.name)")
                 .font(.headline)
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
               Text("再次点击底部任意标签图标，可随时展开全部功能菜单。")
                 .font(.caption)
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(.primary.opacity(0.72))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
           }
@@ -374,7 +377,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
             .foregroundStyle(Color(red: 0.78, green: 0.66, blue: 1.0))
           Text(title)
             .font(.headline)
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
         }
         .frame(maxWidth: .infinity, minHeight: 86, alignment: .leading)
       }
@@ -523,6 +526,8 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
       NativeUsersPage(session: session)
     case .pluginMarket:
       NativePluginMarketPage(session: session)
+    case .appearance:
+      NativeAppearanceSettingsPage()
     }
   }
 
@@ -600,14 +605,14 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
             .foregroundStyle(Color(red: 0.78, green: 0.68, blue: 1.0))
           Text(message)
             .font(.caption.weight(.medium))
-            .foregroundStyle(.white.opacity(0.92))
+            .foregroundStyle(.primary.opacity(0.92))
             .frame(maxWidth: .infinity, alignment: .leading)
           Button {
             routeHub.bannerMessage = nil
           } label: {
             Image(systemName: "xmark")
               .font(.caption2.weight(.semibold))
-              .foregroundStyle(.white.opacity(0.70))
+              .foregroundStyle(.primary.opacity(0.70))
               .frame(width: 28, height: 28)
           }
           .buttonStyle(.plain)
@@ -644,7 +649,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           VStack(alignment: .leading, spacing: 2) {
             Text(snapshot.user.name)
               .font(.subheadline.weight(.semibold))
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .lineLimit(1)
             HStack(spacing: 5) {
               Circle()
@@ -652,7 +657,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
                 .frame(width: 6, height: 6)
               Text(snapshot.user.isSuperuser ? "超级管理员" : "普通成员")
                 .font(.caption2.weight(.medium))
-                .foregroundStyle(.white.opacity(0.68))
+                .foregroundStyle(.primary.opacity(0.68))
                 .lineLimit(1)
             }
           }
@@ -663,7 +668,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("native-overflow-user-header")
 
-        Divider().overlay(.white.opacity(0.10))
+        Divider().overlay(.primary.opacity(0.10))
 
         ScrollView {
           VStack(alignment: .leading, spacing: 2) {
@@ -690,7 +695,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
             }
 
             if canManageDownloads || snapshot.user.isSuperuser {
-              Divider().overlay(.white.opacity(0.08)).padding(.vertical, 4)
+              Divider().overlay(.primary.opacity(0.08)).padding(.vertical, 4)
               if canManageDownloads {
                 overflowMenuRow(
                   title: "文件", symbol: "folder.fill", id: "native-workspace-files"
@@ -710,7 +715,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
               }
             }
 
-            Divider().overlay(.white.opacity(0.08)).padding(.vertical, 4)
+            Divider().overlay(.primary.opacity(0.08)).padding(.vertical, 4)
             overflowMenuRow(
               title: "通知", symbol: "bell.fill", id: "native-overflow-messages"
             ) { openFromOverflow(.messages) }
@@ -727,14 +732,22 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           .fill(.ultraThinMaterial)
           .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-              .fill(Color(red: 28 / 255, green: 24 / 255, blue: 38 / 255).opacity(0.76))
+              .fill(
+                colorScheme == .light
+                  ? Color.white.opacity(0.76)
+                  : Color(red: 28 / 255, green: 24 / 255, blue: 38 / 255).opacity(0.76))
           }
           .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-              .strokeBorder(.white.opacity(0.18), lineWidth: 0.7)
+              .strokeBorder(
+                colorScheme == .light ? Color.black.opacity(0.10) : Color.white.opacity(0.18),
+                lineWidth: 0.7)
           }
       }
-      .shadow(color: .black.opacity(0.45), radius: 24, y: 12)
+      .shadow(
+        color: colorScheme == .light ? .black.opacity(0.14) : .black.opacity(0.45),
+        radius: 24, y: 12
+      )
       .padding(.leading, 16)
       .padding(.bottom, 92)
       .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -753,7 +766,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           .foregroundStyle(Color(red: 0.84, green: 0.74, blue: 1.0))
         Text(title)
           .font(.subheadline.weight(.medium))
-          .foregroundStyle(.white)
+          .foregroundStyle(.primary)
         Spacer()
       }
       .padding(.horizontal, 16)
@@ -1238,6 +1251,7 @@ enum NativeWorkspaceDestination: Hashable {
   case diagnostics(NativeDiagnosticsToolsPage.Tool)
   case users
   case pluginMarket
+  case appearance
 }
 
 /// 发现导航栈只接收已加载的分区、可验证媒体身份或受控业务页面。
@@ -1355,7 +1369,7 @@ struct NativeMediaArtwork: View {
           Color(red: 0.19, green: 0.19, blue: 0.29),
         ], startPoint: .topLeading, endPoint: .bottomTrailing)
       Image(systemName: symbol).font(.system(size: role == .backdrop ? 42 : 24, weight: .light))
-        .foregroundStyle(.white.opacity(0.48))
+        .foregroundStyle(.primary.opacity(0.48))
     }
   }
 

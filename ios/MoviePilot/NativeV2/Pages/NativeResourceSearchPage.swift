@@ -67,7 +67,7 @@ struct NativeResourceSearchPage: View {
           }
           if isLoading && results.isEmpty {
             ProgressView(loadingMessage)
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 220)
           } else if loadFailed && results.isEmpty {
             failureCard
@@ -117,7 +117,7 @@ struct NativeResourceSearchPage: View {
       ) { message in
         feedback = NativeResourceFeedback(isError: false, message: message)
       }
-      .preferredColorScheme(.dark)
+      .nativeAppearanceRoot()
       .presentationDetents([.medium, .large])
     }
   }
@@ -174,7 +174,7 @@ struct NativeResourceSearchPage: View {
     CinematicPanel(padding: 12) {
       HStack(spacing: 10) {
         Image(systemName: "magnifyingglass")
-          .foregroundStyle(.white.opacity(0.65))
+          .foregroundStyle(.primary.opacity(0.65))
         TextField(
           "输入片名或关键词检索站点资源",
           text: $keyword,
@@ -191,7 +191,7 @@ struct NativeResourceSearchPage: View {
             keyword = ""
           } label: {
             Image(systemName: "xmark.circle.fill")
-              .foregroundStyle(.white.opacity(0.55))
+              .foregroundStyle(.primary.opacity(0.55))
           }
           .buttonStyle(.plain)
           .accessibilityLabel("清空关键词")
@@ -201,7 +201,7 @@ struct NativeResourceSearchPage: View {
         } label: {
           Image(systemName: "arrow.right.circle.fill")
             .font(.title3)
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
         }
         .buttonStyle(.plain)
         .disabled(keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -222,14 +222,14 @@ struct NativeResourceSearchPage: View {
           } label: {
             Text(option.rawValue)
               .font(.subheadline.weight(selected ? .semibold : .regular))
-              .foregroundStyle(.white.opacity(selected ? 0.98 : 0.80))
+              .foregroundStyle(.primary.opacity(selected ? 0.98 : 0.80))
               .padding(.horizontal, 12)
               .padding(.vertical, 7)
               .background {
                 Capsule()
                   .fill(.white.opacity(selected ? 0.22 : 0.08))
                   .overlay {
-                    Capsule().strokeBorder(.white.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
+                    Capsule().strokeBorder(.primary.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
                   }
               }
               .frame(minHeight: 36)
@@ -253,7 +253,7 @@ struct NativeResourceSearchPage: View {
           pillMenuLabel(
             title: sortMode == .priority ? "排序" : sortMode.rawValue, active: sortMode != .priority)
         }
-        .tint(.white)
+        .tint(.primary)
         .accessibilityIdentifier("native-resource-sort")
 
         if !sites.isEmpty {
@@ -283,7 +283,7 @@ struct NativeResourceSearchPage: View {
               title: selectedSiteIDs.isEmpty ? "站点" : "站点 \(selectedSiteIDs.count)",
               active: !selectedSiteIDs.isEmpty)
           }
-          .tint(.white)
+          .tint(.primary)
           .accessibilityIdentifier("native-resource-sites")
         }
       }
@@ -298,14 +298,14 @@ struct NativeResourceSearchPage: View {
       Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
     }
     .font(.subheadline.weight(active ? .semibold : .regular))
-    .foregroundStyle(.white.opacity(active ? 0.98 : 0.84))
+    .foregroundStyle(.primary.opacity(active ? 0.98 : 0.84))
     .padding(.horizontal, 12)
     .padding(.vertical, 7)
     .background {
       Capsule()
         .fill(.white.opacity(active ? 0.22 : 0.08))
         .overlay {
-          Capsule().strokeBorder(.white.opacity(active ? 0.28 : 0.14), lineWidth: 0.6)
+          Capsule().strokeBorder(.primary.opacity(active ? 0.28 : 0.14), lineWidth: 0.6)
         }
     }
     .frame(minHeight: 36)
@@ -339,14 +339,14 @@ struct NativeResourceSearchPage: View {
         }
         Text(item.torrent.title ?? "未命名种子")
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(.white)
+          .foregroundStyle(.primary)
           .lineLimit(2)
         if let desc = item.torrent.description?.trimmingCharacters(in: .whitespacesAndNewlines),
           !desc.isEmpty
         {
           Text(desc)
             .font(.caption)
-            .foregroundStyle(.white.opacity(0.66))
+            .foregroundStyle(.primary.opacity(0.66))
             .lineLimit(2)
         }
         HStack(spacing: 12) {
@@ -354,7 +354,7 @@ struct NativeResourceSearchPage: View {
           Label("\(item.torrent.seeders ?? 0)", systemImage: "arrow.up")
             .foregroundStyle(Color(red: 0.56, green: 0.92, blue: 0.72))
           if let elapsed = item.torrent.dateElapsed, !elapsed.isEmpty {
-            Text(elapsed).foregroundStyle(.white.opacity(0.56))
+            Text(elapsed).foregroundStyle(.primary.opacity(0.56))
           }
           Spacer()
           Button {
@@ -362,13 +362,13 @@ struct NativeResourceSearchPage: View {
           } label: {
             Label("下载", systemImage: "arrow.down.circle.fill")
               .font(.caption.weight(.semibold))
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .padding(.horizontal, 12)
               .padding(.vertical, 6)
               .background {
                 Capsule()
-                  .fill(.white.opacity(0.18))
-                  .overlay { Capsule().strokeBorder(.white.opacity(0.26), lineWidth: 0.6) }
+                  .fill(.primary.opacity(0.18))
+                  .overlay { Capsule().strokeBorder(.primary.opacity(0.26), lineWidth: 0.6) }
               }
               .frame(minHeight: 34)
           }
@@ -376,7 +376,7 @@ struct NativeResourceSearchPage: View {
           .accessibilityIdentifier("native-resource-download-\(item.id)")
         }
         .font(.caption.monospacedDigit())
-        .foregroundStyle(.white.opacity(0.80))
+        .foregroundStyle(.primary.opacity(0.80))
         .padding(.top, 2)
       }
     }
@@ -401,13 +401,13 @@ struct NativeResourceSearchPage: View {
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
         .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
-        Text(feedback.message).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+        Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {
           self.feedback = nil
         } label: {
           Image(systemName: "xmark").font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
+            .foregroundStyle(.primary.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
         }
         .buttonStyle(.plain)
       }
@@ -421,7 +421,7 @@ struct NativeResourceSearchPage: View {
       VStack(spacing: 10) {
         Image(systemName: "tray")
           .font(.largeTitle)
-          .foregroundStyle(.white.opacity(0.55))
+          .foregroundStyle(.primary.opacity(0.55))
         Text(results.isEmpty ? "未找到匹配的站点资源" : "当前筛选条件下没有资源")
           .font(.headline)
         if !results.isEmpty && quickFilter != .all {
@@ -542,7 +542,7 @@ private struct NativeDownloadConfirmSheet: View {
                   Text("做种 \(item.torrent.seeders ?? 0)")
                 }
                 .font(.caption)
-                .foregroundStyle(.white.opacity(0.68))
+                .foregroundStyle(.primary.opacity(0.68))
               }
             }
             CinematicPanel {
@@ -556,10 +556,10 @@ private struct NativeDownloadConfirmSheet: View {
                       Text(name).tag(name)
                     }
                   }
-                  .tint(.white)
+                  .tint(.primary)
                   .accessibilityIdentifier("native-download-confirm-downloader")
                 }
-                Divider().overlay(.white.opacity(0.10))
+                Divider().overlay(.primary.opacity(0.10))
                 HStack {
                   Text("保存目录").font(.subheadline.weight(.medium))
                   Spacer()
@@ -569,7 +569,7 @@ private struct NativeDownloadConfirmSheet: View {
                       Text(option.displayLabel).tag(option.submitValue)
                     }
                   }
-                  .tint(.white)
+                  .tint(.primary)
                   .accessibilityIdentifier("native-download-confirm-path")
                 }
               }

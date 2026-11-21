@@ -29,7 +29,7 @@ struct NativeNotificationSettingsSheet: View {
               CinematicPanel(padding: 12) {
                 Text(statusMessage)
                   .font(.subheadline)
-                  .foregroundStyle(.white.opacity(0.90))
+                  .foregroundStyle(.primary.opacity(0.90))
                   .frame(maxWidth: .infinity, alignment: .leading)
               }
               .accessibilityIdentifier("native-notification-status-message")
@@ -40,10 +40,10 @@ struct NativeNotificationSettingsSheet: View {
                 HStack {
                   Label("系统推送状态", systemImage: "bell.badge.fill")
                     .font(.headline)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                   Spacer()
                   if isLoading {
-                    ProgressView().controlSize(.small).tint(.white)
+                    ProgressView().controlSize(.small).tint(.primary)
                   } else {
                     Text(isBound && systemAuthorized ? "已开启" : "未开启")
                       .font(.caption.weight(.semibold))
@@ -53,7 +53,7 @@ struct NativeNotificationSettingsSheet: View {
                       )
                       .padding(.horizontal, 8)
                       .padding(.vertical, 3)
-                      .background { Capsule().fill(.white.opacity(0.10)) }
+                      .background { Capsule().fill(.primary.opacity(0.10)) }
                   }
                 }
                 statusRow("系统通知授权", ok: systemAuthorized)
@@ -71,7 +71,7 @@ struct NativeNotificationSettingsSheet: View {
               CinematicPanel(padding: 14) {
                 Text("当前签名未开启 APNs 能力，可使用系统主屏幕通知或重新启用推送签名后开启。")
                   .font(.caption)
-                  .foregroundStyle(.white.opacity(0.72))
+                  .foregroundStyle(.primary.opacity(0.72))
                   .frame(maxWidth: .infinity, alignment: .leading)
               }
             } else {
@@ -95,7 +95,7 @@ struct NativeNotificationSettingsSheet: View {
                   } label: {
                     Text("发送测试通知")
                       .font(.subheadline.weight(.semibold))
-                      .foregroundStyle(.white)
+                      .foregroundStyle(.primary)
                       .frame(maxWidth: .infinity, minHeight: 44)
                       .background(.white.opacity(0.14), in: Capsule())
                   }
@@ -135,7 +135,7 @@ struct NativeNotificationSettingsSheet: View {
       }
       .task { await refreshStatus() }
     }
-    .preferredColorScheme(.dark)
+    .nativeAppearanceRoot()
   }
 
   /// 状态条目行。
@@ -143,7 +143,7 @@ struct NativeNotificationSettingsSheet: View {
     HStack {
       Text(title)
         .font(.subheadline)
-        .foregroundStyle(.white.opacity(0.76))
+        .foregroundStyle(.primary.opacity(0.76))
       Spacer()
       Image(systemName: ok ? "checkmark.circle.fill" : "circle")
         .foregroundStyle(ok ? Color(red: 0.48, green: 0.90, blue: 0.66) : .white.opacity(0.40))
@@ -231,7 +231,7 @@ struct NativeWidgetSettingsSheet: View {
               CinematicPanel(padding: 12) {
                 Text(feedback)
                   .font(.subheadline)
-                  .foregroundStyle(.white.opacity(0.90))
+                  .foregroundStyle(.primary.opacity(0.90))
                   .frame(maxWidth: .infinity, alignment: .leading)
               }
               .accessibilityIdentifier("native-widget-settings-feedback")
@@ -242,16 +242,16 @@ struct NativeWidgetSettingsSheet: View {
                 VStack(alignment: .leading, spacing: 8) {
                   Label("当前构建未启用小组件扩展", systemImage: "square.grid.2x2")
                     .font(.headline)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                   Text("需在 iOS 17+ 且开启 App Group 共享容器的构建中使用桌面小组件。")
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.70))
+                    .foregroundStyle(.primary.opacity(0.70))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
               }
             } else if isLoading && state == nil {
               ProgressView("正在读取小组件状态…")
-                .tint(.white)
+                .tint(.primary)
                 .frame(maxWidth: .infinity, minHeight: 160)
             } else if let state {
               CinematicPanel(padding: 16) {
@@ -259,7 +259,7 @@ struct NativeWidgetSettingsSheet: View {
                   HStack {
                     Label("小组件只读授权", systemImage: "square.grid.2x2.fill")
                       .font(.headline)
-                      .foregroundStyle(.white)
+                      .foregroundStyle(.primary)
                     Spacer()
                     Text(state.profile != nil ? "已启用" : "未启用")
                       .font(.caption.weight(.semibold))
@@ -269,16 +269,16 @@ struct NativeWidgetSettingsSheet: View {
                       )
                       .padding(.horizontal, 8)
                       .padding(.vertical, 3)
-                      .background { Capsule().fill(.white.opacity(0.10)) }
+                      .background { Capsule().fill(.primary.opacity(0.10)) }
                   }
                   Text("小组件使用独立 30 天只读凭据，不接触主登录令牌，退出登录时自动撤销。")
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.68))
+                    .foregroundStyle(.primary.opacity(0.68))
 
                   TextField("本机小组件显示名称", text: $profileName)
                     .textFieldStyle(.plain)
                     .font(.subheadline)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                     .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
@@ -289,7 +289,7 @@ struct NativeWidgetSettingsSheet: View {
                       "最近快照：\(generatedAt.formatted(date: .abbreviated, time: .shortened))"
                     )
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.58))
+                    .foregroundStyle(.primary.opacity(0.58))
                   }
                 }
               }
@@ -315,7 +315,7 @@ struct NativeWidgetSettingsSheet: View {
                     } label: {
                       Text("保存名称")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .background(.white.opacity(0.14), in: Capsule())
                     }
@@ -327,7 +327,7 @@ struct NativeWidgetSettingsSheet: View {
                     } label: {
                       Text("立即刷新快照")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .background(.white.opacity(0.14), in: Capsule())
                     }
@@ -375,7 +375,7 @@ struct NativeWidgetSettingsSheet: View {
       }
       .task { await load() }
     }
-    .preferredColorScheme(.dark)
+    .nativeAppearanceRoot()
   }
 
   /// 读取当前实例的小组件上下文与已安装资料。
