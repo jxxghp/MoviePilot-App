@@ -1,190 +1,83 @@
-# 界面截图
+# MoviePilot-App v2 界面图册
 
-[返回项目首页](../README.md) · [离线交互图册](index.html)
+以下全部截图采集自 iPhone 17（iOS 26 模拟器）真实运行界面，展示全原生 SwiftUI v2 客户端（零主流程 WebView）的核心页面与交互细节。
 
-保留原有真实截图，仅将演示数据画面替换为真实账号登录后的截图；不再公开演示场景或空白小组件。本轮补拍于 2026-10-26，原生界面来自 iPhone 17 Pro / iOS 27.0 模拟器。含凭据的设置页不公开。
+## 连接服务与登录
 
-本页只加载总览图；点击各页面链接查看原图。模拟器截图不代替真机验收。
+| 连接服务 | 已保存服务与连接按钮 | 登录 |
+| :---: | :---: | :---: |
+| ![连接服务](screens/native-v2-01-connection.png) | ![已保存服务](screens/native-v2-01b-connection-saved.png) | ![登录](screens/native-v2-02-login.png) |
 
-![页面总览](all-pages.png)
+## 4+1 底部导航、弹出菜单与设置中心
 
-![菜单与弹窗总览](menus-and-dialogs.png)
+| 发现（透明片名 Logo） | 探索 | 我的（仪表盘） |
+| :---: | :---: | :---: |
+| ![发现](screens/native-v2-live-discover-phase-1.png) | ![探索](screens/native-v2-live-explore.png) | ![我的](screens/native-v2-live-dashboard.png) |
 
-![小组件总览](widgets.png)
+| 设置主中心 | 重复点击底栏弹出菜单 | 全局搜索（+1 默认回退） |
+| :---: | :---: | :---: |
+| ![设置主中心](screens/native-v2-live-settings-hub.png) | ![弹出菜单](screens/native-v2-live-overflow-menu.png) | ![全局搜索](screens/native-v2-live-search.png) |
 
-## 页面
+## 发现滚动、模块编排、详情与人物
 
-- [下载管理](screens/01.png)
-- [仪表盘](screens/02.png)
-- [媒体整理](screens/03.png)
-- [工作流](screens/04.png)
-- [探索](screens/05.png)
-- [推荐](screens/06.png)
-- [插件](screens/07.png)
-- [搜索结果](screens/08.png)
-- [文件管理](screens/09.png)
-- [日历](screens/10.png)
-- [更多](screens/11.png)
-- [用户管理](screens/12.png)
-- [电影订阅](screens/13.png)
-- [电视剧订阅](screens/14.png)
-- [站点管理](screens/15.png)
-- [设定 · 存储与目录](screens/27.png)
-- [音乐订阅](screens/17.png)
+| 发现滚动阶段 2 | 发现滚动阶段 3 | 发现滚动阶段 4 |
+| :---: | :---: | :---: |
+| ![发现阶段2](screens/native-v2-live-discover-phase-2.png) | ![发现阶段3](screens/native-v2-live-discover-phase-3.png) | ![发现阶段4](screens/native-v2-live-discover-phase-4.png) |
 
-## 页内分类
+| 发现模块编辑与排序 | 榜单网格（分页前） | 榜单网格（自动翻页） |
+| :---: | :---: | :---: |
+| ![发现模块](screens/native-v2-live-modules.png) | ![网格分页前](screens/native-v2-live-grid-before-pagination.png) | ![网格自动翻页](screens/native-v2-live-grid-automatic-page.png) |
 
-- [工作流 · 工作流分享](screens/18.png)
-- [工作流 · 我的工作流](screens/19.png)
-- [插件 · 我的插件](screens/20.png)
-- [插件 · 插件市场](screens/21.png)
-- [电影订阅 · 我的订阅](screens/22.png)
-- [电影订阅 · 热门订阅](screens/23.png)
-- [电视剧订阅 · 我的订阅](screens/24.png)
-- [电视剧订阅 · 热门订阅](screens/25.png)
-- [电视剧订阅 · 订阅分享](screens/26.png)
-- [设定 · 搜索 & 下载](screens/28.png)
-- [设定 · 规则](screens/31.png)
-- [设定 · 订阅](screens/32.png)
-- [设定 · 通知](screens/33.png)
-- [音乐订阅 · 我的订阅](screens/34.png)
+| 媒体详情（订阅 + 搜索资源） | 媒体详情演职员 | 人物详情 |
+| :---: | :---: | :---: |
+| ![媒体详情](screens/native-v2-live-detail.png) | ![详情演职员](screens/native-v2-live-detail-cast.png) | ![人物详情](screens/native-v2-live-person.png) |
 
-## 菜单与弹窗
+| 剧集详情 | 剧集分季 | 网格翻页状态 |
+| :---: | :---: | :---: |
+| ![剧集详情](screens/native-v2-live-tv-detail.png) | ![剧集分季](screens/native-v2-live-tv-seasons.png) | ![翻页状态](screens/native-v2-live-grid-pagination-state.png) |
 
-- [Agent · 历史会话](screens/168.png)
-- [Agent · 原生弹窗与底部输入 · 浅色](screens/258.png)
-- [Agent · 原生弹窗与底部输入 · 深色](screens/257.png)
-- [Agent原有形象选择](screens/167.png)
-- [Agent原生三点菜单](screens/169.png)
-- [Agent原生标题栏](screens/170.png)
-- [HTML页面跳转与导航联动](screens/35.png)
-- [下载管理卡片长按菜单](screens/272.png)
-- [中文分类联动](screens/36.png)
-- [主题定制安全区](screens/37.png)
-- [主题手动选择-浅色](screens/38.png)
-- [主题手动选择-深色](screens/39.png)
-- [主题手动选择-跟随系统](screens/40.png)
-- [主题明暗与主色半屏](screens/41.png)
-- [主题跟随系统浅色](screens/42.png)
-- [冷启动打开通知中心](screens/120.png)
-- [单行原生导航](screens/43.png)
-- [原生中文分类菜单](screens/44.png)
-- [原生全局搜索](screens/45.png)
-- [原生工作流分享搜索](screens/46.png)
-- [原生已安装插件筛选](screens/47.png)
-- [原生插件市场筛选与排序](screens/49.png)
-- [原生插件面板](screens/50.png)
-- [原生整理历史状态筛选](screens/51.png)
-- [原生站点筛选菜单](screens/54.png)
-- [原生订阅分享搜索](screens/55.png)
-- [原生订阅状态与排序筛选](screens/56.png)
-- [原生页内分类菜单](screens/57.png)
-- [固定间距底栏含动态动作](screens/58.png)
-- [固定间距底栏整组居中](screens/59.png)
-- [媒体卡片 · 长按搜索与订阅](screens/271.png)
-- [媒体识别](screens/245.png)
-- [常用入口用户位于最后](screens/150.png)
-- [捷径半屏文字亮度](screens/60.png)
-- [捷径展开文字亮度](screens/61.png)
-- [插件面板半屏文字亮度](screens/62.png)
-- [插件面板展开文字亮度](screens/63.png)
-- [文件管理刷新菜单](screens/64.png)
-- [更多-浅色搜索框同系灰分组](screens/211.png)
-- [更多-浅色搜索框同系灰滚动](screens/210.png)
-- [更多-深色搜索框同系灰分组](screens/213.png)
-- [更多-深色搜索框同系灰滚动](screens/212.png)
-- [更多下拉显示搜索](screens/66.png)
-- [更多主题与居中底栏](screens/67.png)
-- [更多菜单搜索](screens/68.png)
-- [更多默认收起搜索](screens/69.png)
-- [榜单多次往返后底栏可用](screens/145.png)
-- [榜单底栏连续切换-1](screens/149.png)
-- [榜单底栏连续切换-2](screens/148.png)
-- [榜单底栏连续切换-3](screens/147.png)
-- [榜单底栏连续切换-4](screens/146.png)
-- [浅色主题原生插件面板](screens/70.png)
-- [浅色主题原生搜索](screens/71.png)
-- [浅色主题系统磨砂 Sheet](screens/72.png)
-- [浅色更多菜单文件整理图标](screens/73.png)
-- [浅色更多菜单滚动复用](screens/74.png)
-- [浅色更多菜单统一图标-顶部](screens/75.png)
-- [浅色更多菜单重新进入](screens/76.png)
-- [深色主题原生插件面板](screens/77.png)
-- [深色主题原生搜索](screens/78.png)
-- [深色主题系统磨砂 Sheet](screens/79.png)
-- [深色更多菜单文件整理图标](screens/80.png)
-- [深色更多菜单滚动复用](screens/81.png)
-- [深色更多菜单统一图标-顶部](screens/82.png)
-- [深色更多菜单重新进入](screens/83.png)
-- [热启动打开通知中心](screens/121.png)
-- [用户二级菜单](screens/166.png)
-- [电视剧订阅卡片长按菜单](screens/265.png)
-- [站点标题操作进入三点菜单](screens/94.png)
-- [站点统一标题与渐变顶栏](screens/95.png)
-- [系统确认取消返回主页面](screens/96.png)
-- [系统确认框完整正文](screens/97.png)
-- [规则测试](screens/246.png)
-- [订阅文件统计](screens/173.png)
-- [词表设置](screens/259.png)
-- [词表集数规则](screens/260.png)
-- [账号主题-手动浅色主界面](screens/236.png)
-- [账号主题-手动深色主界面](screens/240.png)
-- [账号主题-跟随系统深色主界面](screens/232.png)
-- [跟手卡片取消-1](screens/101.png)
-- [跟手卡片取消-2](screens/102.png)
-- [跟手卡片完成-1](screens/103.png)
-- [跟手卡片完成-2](screens/104.png)
-- [跟随浅色的原生菜单](screens/105.png)
-- [通知中心](screens/52.png)
-- [顶部常用入口与页面操作分组](screens/106.png)
+## 探索、音乐、订阅与资源下载
 
-- [资源排序 · 当前页面二级菜单](screens/285.png)
+| 探索（豆瓣筛选） | 音乐发现 | 音乐专辑与曲目播放 |
+| :---: | :---: | :---: |
+| ![豆瓣探索](screens/native-v2-live-explore-douban.png) | ![音乐发现](screens/native-v2-live-music.png) | ![音乐专辑](screens/native-v2-live-music-album.png) |
 
-- [桌面图标 · 常用操作](screens/286.png)
+| 我的订阅 | 订阅规则编辑 | 追剧日历 |
+| :---: | :---: | :---: |
+| ![我的订阅](screens/native-v2-live-subscriptions.png) | ![订阅编辑](screens/native-v2-live-subscribe-editor.png) | ![追剧日历](screens/native-v2-live-calendar.png) |
 
-- [启动画面 · 浅色](screens/287.png)
-- [启动画面 · 深色](screens/288.png)
+| 订阅广场（热门订阅） | 订阅广场（社区分享） | 资源搜索 |
+| :---: | :---: | :---: |
+| ![热门订阅](screens/native-v2-live-community-popular.png) | ![社区分享](screens/native-v2-live-community-shares.png) | ![资源搜索](screens/native-v2-live-resources.png) |
 
-## 小组件
+| 正在下载 | 消息中心 | 智能助手（SSE 流式对话） |
+| :---: | :---: | :---: |
+| ![正在下载](screens/native-v2-live-downloads.png) | ![消息中心](screens/native-v2-live-messages.png) | ![智能助手](screens/native-v2-live-agent.png) |
 
-- [下载状态 · 中组件](screens/273.png)
-- [下载状态 · 大组件](screens/274.png)
-- [下载状态 · 小组件](screens/275.png)
-- [系统概览 · 中组件](screens/276.png)
-- [系统概览 · 大组件](screens/277.png)
-- [系统概览 · 小组件](screens/278.png)
-- [订阅 · 中组件](screens/279.png)
-- [订阅 · 大组件](screens/280.png)
-- [订阅 · 小组件](screens/281.png)
-- [近期入库 · 中组件](screens/282.png)
-- [近期入库 · 大组件](screens/283.png)
-- [近期入库 · 小组件](screens/284.png)
+## 整理历史、队列、文件管理与工作流
 
-## 网页
+| 整理历史（搜索框 + 整理队列入口） | 整理队列弹窗 | 文件管理（长按删除 + 动态 +1 按钮） |
+| :---: | :---: | :---: |
+| ![整理历史](screens/native-v2-live-history.png) | ![整理队列](screens/native-v2-live-transfer-queue.png) | ![文件管理](screens/native-v2-live-files.png) |
 
-- [搜索结果 · 浅色网页](screens/181.png)
-- [搜索结果 · 深色网页](screens/177.png)
-- [桌面水平导航 · 浅色滚动后轻投影](screens/224.png)
-- [桌面水平导航 · 浅色顶部轻投影](screens/223.png)
-- [桌面水平导航 · 深色滚动后轻投影](screens/226.png)
-- [桌面水平导航 · 深色顶部轻投影](screens/225.png)
-- [桌面网页 · 浅色滚动后轻投影](screens/220.png)
-- [桌面网页 · 浅色顶部轻投影](screens/219.png)
-- [桌面网页 · 深色滚动后轻投影](screens/222.png)
-- [桌面网页 · 深色顶部轻投影](screens/221.png)
-- [移动网页 · 浅色滚动后轻投影](screens/216.png)
-- [移动网页 · 浅色顶部轻投影](screens/215.png)
-- [移动网页 · 深色滚动后轻投影](screens/218.png)
-- [移动网页 · 深色顶部轻投影](screens/217.png)
-- [网页手机浅色主题设置](screens/127.png)
-- [网页手机浅色已安装插件可读性](screens/179.png)
-- [网页手机浅色插件市场可读性](screens/180.png)
-- [网页手机浅色页面](screens/128.png)
-- [网页手机深色主题设置](screens/129.png)
-- [网页手机深色页面](screens/130.png)
-- [网页桌面浅色主题设置](screens/131.png)
-- [网页桌面浅色已安装插件可读性](screens/175.png)
-- [网页桌面浅色插件市场可读性](screens/176.png)
-- [网页桌面浅色页面](screens/132.png)
-- [网页桌面深色主题设置](screens/133.png)
-- [网页桌面深色页面](screens/134.png)
+| 工作流列表 | 纯原生工作流节点画布 | 工作流社区分享 |
+| :---: | :---: | :---: |
+| ![工作流列表](screens/native-v2-live-workflows.png) | ![工作流画布](screens/native-v2-live-workflow-canvas.png) | ![工作流社区](screens/native-v2-live-workflow-shares.png) |
+
+## 站点、系统配置、用户与插件生态
+
+| 站点管理（上下行流量图示） | 站点范围（搜索/订阅勾选） | 目录与存储 |
+| :---: | :---: | :---: |
+| ![站点管理](screens/native-v2-live-sites.png) | ![站点范围](screens/native-v2-live-sysmod-site-scope.png) | ![目录与存储](screens/native-v2-live-sysmod-directories.png) |
+
+| 下载与媒体服务 | 系统核心参数 | 用户管理 |
+| :---: | :---: | :---: |
+| ![下载媒体服务](screens/native-v2-live-sysmod-services.png) | ![系统设置](screens/native-v2-live-settings.png) | ![用户管理](screens/native-v2-live-users.png) |
+
+| 插件市场 | 已安装插件管理 | 仪表盘无缝插件图表 |
+| :---: | :---: | :---: |
+| ![插件市场](screens/native-v2-live-plugin-market.png) | ![已安装插件](screens/native-v2-live-plugin-installed.png) | ![仪表盘插件](screens/native-v2-live-dashboard-plugins.png) |
+
+| 插件数据页（站点统计环形图） | 插件数据页（猫眼票房排行） | |
+| :---: | :---: | :---: |
+| ![站点统计](screens/native-v2-live-plugin-page-statistic.png) | ![猫眼排行](screens/native-v2-live-plugin-page-maoyan.png) | |
