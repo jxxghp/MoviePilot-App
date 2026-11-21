@@ -95,14 +95,6 @@ struct NativeWorkflowCanvasPage: View {
       }
     }
     .task(id: reloadToken) { await load() }
-    .nativeDynamicAction(
-      id: "workflow-canvas-add",
-      isActive: detail != nil,
-      title: "添加节点",
-      symbol: "plus"
-    ) {
-      showsAddNodeSheet = true
-    }
   }
 
   /// 加载态、失败态或交互式原生节点画布主视图。

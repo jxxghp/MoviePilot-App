@@ -48,28 +48,81 @@ struct NativePluginCatalogView: View {
           } else {
             Section {
               ForEach(plugins) { plugin in
+                let isInactive = plugin.state == false
                 CinematicPanel(padding: 0) {
                   Button {
                     open(plugin)
                   } label: {
-                    CinematicFormRow(symbol: "puzzlepiece.extension.fill") {
-                      VStack(alignment: .leading, spacing: 5) {
-                        Text(plugin.name).font(.headline)
-                        if !plugin.summary.isEmpty {
-                          Text(plugin.summary).font(.subheadline).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 0) {
+                      VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                          Circle()
+                            .fill(
+                              isInactive
+                                ? .white.opacity(0.32)
+                                : Color(red: 0.42, green: 0.90, blue: 0.62)
+                            )
+                            .frame(width: 7, height: 7)
+                          Text(plugin.name)
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(isInactive ? 0.80 : 0.98))
+                            .lineLimit(1)
+                          if !plugin.version.isEmpty {
+                            Text("v" + plugin.version)
+                              .font(.caption.monospacedDigit().weight(.medium))
+                              .foregroundStyle(.white.opacity(0.56))
+                              .lineLimit(1)
+                          }
+                          Spacer(minLength: 4)
+                          Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.45))
+                        }
+                        HStack(alignment: .center, spacing: 12) {
+                          Text(plugin.summary.isEmpty ? "已安装插件" : plugin.summary)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.76))
                             .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                          NativePluginIconView(
+                            session: session,
+                            iconReference: plugin.icon,
+                            size: 44,
+                            cornerRadius: 12,
+                            inactive: isInactive
+                          )
                         }
-                        if !plugin.version.isEmpty {
-                          Text("v" + plugin.version).font(.caption).foregroundStyle(.secondary)
+                      }
+                      .padding(.horizontal, 14)
+                      .padding(.vertical, 12)
+
+                      if let author = plugin.author, !author.isEmpty {
+                        Divider().overlay(.white.opacity(0.08))
+                        HStack(spacing: 6) {
+                          NativePluginAuthorAvatarView(
+                            authorURL: plugin.authorURL,
+                            authorName: author,
+                            size: 18
+                          )
+                          Text(author)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.white.opacity(0.68))
+                            .lineLimit(1)
+                          Spacer(minLength: 0)
                         }
-                      }.padding(.vertical, 4)
-                      Spacer(minLength: 8)
-                      Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    }.contentShape(Rectangle())
-                  }.buttonStyle(.plain).accessibilityIdentifier("native-plugin-" + plugin.id)
-                }.listRowInsets(EdgeInsets(top: 5, leading: 0, bottom: 5, trailing: 0))
-                  .listRowBackground(Color.clear).listRowSeparator(.hidden)
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 34)
+                        .background(.white.opacity(0.035))
+                      }
+                    }
+                    .contentShape(Rectangle())
+                  }
+                  .buttonStyle(.plain)
+                  .accessibilityIdentifier("native-plugin-" + plugin.id)
+                }
+                .listRowInsets(EdgeInsets(top: 5, leading: 0, bottom: 5, trailing: 0))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
               }
             } header: {
               Text(L10n.text("已安装")).textCase(nil)

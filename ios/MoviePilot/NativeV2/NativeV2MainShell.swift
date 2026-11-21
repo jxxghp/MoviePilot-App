@@ -37,6 +37,9 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
   @State private var settingsPath: [NativeWorkspaceDestination] = []
   @State private var searchPath: [NativeMediaIdentity] = []
   @State private var showsOverflowMenu = false
+  @State private var showsAgentSheet = false
+  @State private var userTabAvatar: UIImage?
+  @AppStorage("nativeV2.showFloatingAssistant") private var showFloatingAssistant = true
   @State private var discoverModules = NativeDiscoverModuleItem.defaults
   @State private var showsModuleSheet = false
   @State private var pendingModuleRefetch = false
@@ -57,11 +60,17 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
       initialValue: snapshot.user.allows(.init(category: .discovery)) ? .discover : .mine)
   }
 
-  /// 主导航交给系统 TabView 和每页独立 NavigationStack，并注入跨栈动态主按钮中心与全局溢出菜单。
+  /// 主导航交给系统 TabView 和每页独立 NavigationStack，并注入跨栈动态主按钮中心、浮动智能助手形象与全局溢出菜单。
   var body: some View {
     ZStack {
       page
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+      if showFloatingAssistant && !showsOverflowMenu && !showsAgentSheet {
+        NativeAgentFloatingMascot(
+          onOpen: { showsAgentSheet = true },
+          onHide: { showFloatingAssistant = false }
+        )
+      }
       if showsOverflowMenu {
         overflowMenuOverlay
       }
@@ -72,6 +81,21 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
     .environmentObject(dynamicActionCenter)
     .onAppear { consumeSystemRouteIfNeeded() }
     .onChange(of: routeHub.pendingTarget) { _ in consumeSystemRouteIfNeeded() }
+    .task(id: "\(snapshot.scope)|\(snapshot.user.avatar)") {
+      userTabAvatar = await NativeUserAvatarRenderer.loadTabAvatar(
+        session: session, avatar: snapshot.user.avatar)
+    }
+    .sheet(isPresented: $showsAgentSheet) {
+      NavigationStack {
+        NativeAgentChatPage(session: session)
+          .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+              Button("关闭") { showsAgentSheet = false }
+                .accessibilityIdentifier("native-agent-sheet-close")
+            }
+          }
+      }
+    }
     .sheet(
       isPresented: $showsModuleSheet,
       onDismiss: {
@@ -164,8 +188,18 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           }
           .accessibilityIdentifier("native-v2-tab-探索")
         }
-        Tab("我的", systemImage: "person.crop.circle", value: Page.mine) {
+        Tab(value: Page.mine) {
           mineTab
+        } label: {
+          if let userTabAvatar {
+            Label {
+              Text("我的")
+            } icon: {
+              Image(uiImage: userTabAvatar)
+            }
+          } else {
+            Label("我的", systemImage: "person.crop.circle")
+          }
         }
         .accessibilityIdentifier("native-v2-tab-我的")
 
@@ -205,8 +239,17 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
         mineTab
           .tag(Page.mine)
           .tabItem {
-            Label("我的", systemImage: "person.crop.circle")
+            if let userTabAvatar {
+              Label {
+                Text("我的")
+              } icon: {
+                Image(uiImage: userTabAvatar)
+              }
               .accessibilityIdentifier("native-v2-tab-我的")
+            } else {
+              Label("我的", systemImage: "person.crop.circle")
+                .accessibilityIdentifier("native-v2-tab-我的")
+            }
           }
         settingsTab
           .tag(Page.settings)
@@ -579,7 +622,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
     .accessibilityIdentifier("native-system-route-banner")
   }
 
-  /// 参照视觉参考 09 的极简深色透色悬浮菜单：二次点击任意底栏主图标弹出，仅展示 8 项两字高频功能入口。
+  /// 极简深色透色悬浮菜单：顶部展示当前用户头像与信息，下方集中承载订阅、日历、资源、下载、文件、历史、工作流、插件与通知中心入口。
   private var overflowMenuOverlay: some View {
     ZStack(alignment: .bottomLeading) {
       Color.black.opacity(0.32)
@@ -590,6 +633,38 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
         }
         .accessibilityIdentifier("native-overflow-menu-backdrop")
       VStack(alignment: .leading, spacing: 0) {
+        HStack(spacing: 11) {
+          NativeUserAvatarView(
+            session: session,
+            avatar: snapshot.user.avatar,
+            name: snapshot.user.name,
+            isSuperuser: snapshot.user.isSuperuser,
+            size: 38
+          )
+          VStack(alignment: .leading, spacing: 2) {
+            Text(snapshot.user.name)
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(.white)
+              .lineLimit(1)
+            HStack(spacing: 5) {
+              Circle()
+                .fill(Color(red: 0.42, green: 0.88, blue: 0.56))
+                .frame(width: 6, height: 6)
+              Text(snapshot.user.isSuperuser ? "超级管理员" : "普通成员")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.white.opacity(0.68))
+                .lineLimit(1)
+            }
+          }
+          Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("native-overflow-user-header")
+
+        Divider().overlay(.white.opacity(0.10))
+
         ScrollView {
           VStack(alignment: .leading, spacing: 2) {
             if canSubscribe || canSearchResources || canManageDownloads {
@@ -634,14 +709,19 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
                 ) { openFromOverflow(.pluginMarket) }
               }
             }
+
+            Divider().overlay(.white.opacity(0.08)).padding(.vertical, 4)
+            overflowMenuRow(
+              title: "通知", symbol: "bell.fill", id: "native-overflow-messages"
+            ) { openFromOverflow(.messages) }
           }
           .padding(.vertical, 8)
         }
         .scrollIndicators(.hidden)
-        .frame(maxHeight: 400)
+        .frame(maxHeight: 440)
         .accessibilityIdentifier("native-overflow-menu-scroll")
       }
-      .frame(width: 224)
+      .frame(width: 236)
       .background {
         RoundedRectangle(cornerRadius: 24, style: .continuous)
           .fill(.ultraThinMaterial)

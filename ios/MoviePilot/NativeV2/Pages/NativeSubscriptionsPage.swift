@@ -262,40 +262,6 @@ struct NativeSubscriptionsPage: View {
             .buttonStyle(.plain)
             .disabled(mutatingID != nil)
             .accessibilityIdentifier("native-subscribe-toggle-\(item.id)")
-
-            Button {
-              editingItem = item
-            } label: {
-              HStack(spacing: 4) {
-                Image(systemName: "slider.horizontal.3").font(.caption2.weight(.semibold))
-                Text("编辑").font(.caption.weight(.semibold))
-              }
-              .foregroundStyle(.white)
-              .padding(.horizontal, 10)
-              .padding(.vertical, 5)
-              .background {
-                Capsule()
-                  .fill(.white.opacity(0.11))
-                  .overlay { Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 0.6) }
-              }
-              .frame(minHeight: 32)
-            }
-            .buttonStyle(.plain)
-            .disabled(mutatingID != nil)
-            .accessibilityIdentifier("native-subscribe-edit-\(item.id)")
-
-            Button(role: .destructive) {
-              pendingDelete = item
-            } label: {
-              Image(systemName: "trash")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color(red: 1.0, green: 0.56, blue: 0.58))
-                .frame(minWidth: 32, minHeight: 32)
-            }
-            .buttonStyle(.plain)
-            .disabled(mutatingID != nil)
-            .accessibilityLabel("删除订阅 \(item.displayTitle)")
-            .accessibilityIdentifier("native-subscribe-delete-\(item.id)")
             Spacer()
           }
           .padding(.top, 2)
@@ -320,6 +286,8 @@ struct NativeSubscriptionsPage: View {
         Label("取消订阅", systemImage: "trash")
       }
     }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("native-subscribe-card-\(item.id)")
   }
 
   /// 2:3 竖版海报，沿用全应用统一的 420px 内存缓存档位。

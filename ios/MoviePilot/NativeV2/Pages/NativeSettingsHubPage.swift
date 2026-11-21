@@ -18,6 +18,7 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
   @State private var siteCount: Int?
   @State private var showsNotificationSettings = false
   @State private var showsWidgetSettings = false
+  @AppStorage("nativeV2.showFloatingAssistant") private var showFloatingAssistant = true
 
   /// 连续紫玫瑰渐变背景与多样化层级布局：概览条卡 → 双列状态方卡 → 高亮横幅卡 → 4 列图标瓷砖 → 原生分组列表 → 账号管理。
   var body: some View {
@@ -93,73 +94,90 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
       .accessibilityAddTraits(.isHeader)
   }
 
-  /// 第一层：顶部全宽空间与实例概览条卡（分段彩色容量条 + 状态图例）。
+  /// 第一层：顶部账号头像、实例在线状态与真实存储容量概览卡。
   private var storageTelemetryCard: some View {
-    let usedRatio = storage?.usedRatio ?? 0.64
     let host = session.instance.address.url.host ?? session.instance.address.url.absoluteString
     return CinematicPanel(padding: 16) {
-      VStack(alignment: .leading, spacing: 11) {
-        HStack(alignment: .firstTextBaseline) {
-          Text(storage != nil ? "存储空间" : "当前服务实例")
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(.white.opacity(0.68))
-          Spacer(minLength: 8)
-          if let storage {
-            Text("\(Self.formatBytes(storage.used)) / \(Self.formatBytes(storage.total))")
-              .font(.subheadline.monospacedDigit().weight(.semibold))
-              .foregroundStyle(.white)
-          } else {
+      VStack(alignment: .leading, spacing: 14) {
+        HStack(spacing: 13) {
+          NativeUserAvatarView(
+            session: session,
+            avatar: snapshot.user.avatar,
+            name: snapshot.user.name,
+            isSuperuser: snapshot.user.isSuperuser,
+            size: 46
+          )
+          VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 7) {
+              Text(snapshot.user.name)
+                .font(.headline.weight(.bold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+              Text(snapshot.user.isSuperuser ? "超级管理员" : "普通成员")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(Color(red: 0.86, green: 0.76, blue: 1.0))
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2.5)
+                .background {
+                  Capsule().fill(.white.opacity(0.11))
+                }
+            }
             HStack(spacing: 5) {
               Circle()
                 .fill(Color(red: 0.42, green: 0.88, blue: 0.56))
-                .frame(width: 7, height: 7)
+                .frame(width: 6.5, height: 6.5)
               Text(host)
-                .font(.caption.monospaced().weight(.semibold))
-                .foregroundStyle(.white.opacity(0.90))
+                .font(.caption.monospaced())
+                .foregroundStyle(.white.opacity(0.72))
                 .lineLimit(1)
             }
           }
-        }
-
-        GeometryReader { bar in
-          let w = max(bar.size.width, 1)
-          let primary = min(max(usedRatio, 0.14), 0.82)
-          let secondary = min(0.08, max(0.03, (1 - primary) * 0.22))
-          let tertiary = min(0.05, max(0.02, (1 - primary) * 0.14))
-          HStack(spacing: 2.5) {
-            Capsule()
-              .fill(
-                LinearGradient(
-                  colors: [
-                    Color(red: 0.98, green: 0.58, blue: 0.24),
-                    Color(red: 0.95, green: 0.48, blue: 0.34),
-                  ],
-                  startPoint: .leading,
-                  endPoint: .trailing
-                )
-              )
-              .frame(width: w * primary)
-            Capsule()
-              .fill(Color(red: 0.30, green: 0.64, blue: 0.98))
-              .frame(width: w * secondary)
-            Capsule()
-              .fill(Color(red: 0.32, green: 0.82, blue: 0.56))
-              .frame(width: w * tertiary)
-            Capsule()
-              .fill(.white.opacity(0.18))
-          }
-        }
-        .frame(height: 12)
-
-        HStack(spacing: 14) {
-          legendDot("媒体已用", color: Color(red: 0.98, green: 0.56, blue: 0.26))
-          legendDot("索引与缓存", color: Color(red: 0.30, green: 0.64, blue: 0.98))
-          legendDot("服务在线", color: Color(red: 0.32, green: 0.82, blue: 0.56))
           Spacer(minLength: 0)
-          Text(snapshot.user.name)
-            .font(.caption2.weight(.medium))
-            .foregroundStyle(.white.opacity(0.58))
-            .lineLimit(1)
+        }
+
+        if let storage, storage.total > 0 {
+          let ratio = storage.usedRatio
+          let percentText = "\(Int((ratio * 100).rounded()))%"
+          let freeBytes = max(storage.total - storage.used, 0)
+          Divider().overlay(.white.opacity(0.10))
+          VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+              Text("存储空间")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(0.68))
+              Spacer(minLength: 8)
+              Text("\(Self.formatBytes(storage.used)) / \(Self.formatBytes(storage.total))")
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.white)
+            }
+            GeometryReader { bar in
+              let w = max(bar.size.width, 1)
+              let usedW = max(w * min(max(ratio, 0.04), 1.0), 8)
+              ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.16))
+                Capsule()
+                  .fill(
+                    LinearGradient(
+                      colors: [
+                        Color(red: 0.64, green: 0.50, blue: 0.98),
+                        Color(red: 0.92, green: 0.52, blue: 0.70),
+                      ],
+                      startPoint: .leading,
+                      endPoint: .trailing
+                    )
+                  )
+                  .frame(width: usedW)
+              }
+            }
+            .frame(height: 8)
+            HStack {
+              legendDot("已用 \(percentText)", color: Color(red: 0.78, green: 0.54, blue: 0.92))
+              Spacer()
+              Text("可用 \(Self.formatBytes(freeBytes))")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.white.opacity(0.62))
+            }
+          }
         }
       }
     }
@@ -393,10 +411,23 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
       ) {
         showsWidgetSettings = true
       }
+      Toggle(isOn: $showFloatingAssistant) {
+        HStack(spacing: 12) {
+          Image(systemName: "sparkles")
+            .font(.body.weight(.medium))
+            .foregroundStyle(.white.opacity(0.86))
+            .frame(width: 24)
+          Text("浮动智能助手")
+            .font(.body)
+            .foregroundStyle(.white)
+        }
+      }
+      .tint(Color(red: 0.62, green: 0.48, blue: 0.94))
+      .accessibilityIdentifier("native-settings-hub-floating-assistant")
     }
   }
 
-  /// 普通成员系统集成列表（推送通知与桌面小组件）。
+  /// 普通成员系统集成列表（推送通知、桌面小组件与浮动智能助手）。
   private var systemIntegrationSection: some View {
     CinematicFormSection("系统集成") {
       nativeListRow(
@@ -411,6 +442,19 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
       ) {
         showsWidgetSettings = true
       }
+      Toggle(isOn: $showFloatingAssistant) {
+        HStack(spacing: 12) {
+          Image(systemName: "sparkles")
+            .font(.body.weight(.medium))
+            .foregroundStyle(.white.opacity(0.86))
+            .frame(width: 24)
+          Text("浮动智能助手")
+            .font(.body)
+            .foregroundStyle(.white)
+        }
+      }
+      .tint(Color(red: 0.62, green: 0.48, blue: 0.94))
+      .accessibilityIdentifier("native-settings-hub-floating-assistant")
     }
   }
 

@@ -80,7 +80,15 @@ struct NativeAgentChatPage: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
-      ToolbarItem(placement: .topBarTrailing) {
+      ToolbarItemGroup(placement: .topBarTrailing) {
+        Button {
+          startNewSession()
+        } label: {
+          Image(systemName: "square.and.pencil")
+        }
+        .accessibilityLabel("新建对话")
+        .accessibilityIdentifier("native-agent-new")
+
         Button {
           showsSessionsSheet = true
           Task { await loadSessions() }
@@ -93,14 +101,6 @@ struct NativeAgentChatPage: View {
     }
     .sheet(isPresented: $showsSessionsSheet) {
       sessionsSheet
-    }
-    .nativeDynamicAction(
-      id: "agent-new",
-      isActive: true,
-      title: "新建对话",
-      symbol: "square.and.pencil"
-    ) {
-      startNewSession()
     }
     .task {
       await loadBootstrap()
@@ -350,11 +350,11 @@ struct NativeAgentChatPage: View {
             } else {
               ForEach(sessions) { item in
                 CinematicPanel(padding: 12) {
-                  HStack(spacing: 10) {
-                    Button {
-                      showsSessionsSheet = false
-                      Task { await openSession(item.sessionID) }
-                    } label: {
+                  Button {
+                    showsSessionsSheet = false
+                    Task { await openSession(item.sessionID) }
+                  } label: {
+                    HStack(spacing: 10) {
                       VStack(alignment: .leading, spacing: 4) {
                         Text(item.displayTitle)
                           .font(.subheadline.weight(.semibold))
@@ -364,22 +364,22 @@ struct NativeAgentChatPage: View {
                           .font(.caption)
                           .foregroundStyle(.white.opacity(0.60))
                       }
-                      .frame(maxWidth: .infinity, alignment: .leading)
-                      .contentShape(Rectangle())
+                      Spacer(minLength: 0)
+                      Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.40))
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("native-agent-session-\(item.sessionID)")
-
-                    Button(role: .destructive) {
-                      pendingDeleteSession = item
-                    } label: {
-                      Image(systemName: "trash")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color(red: 1.0, green: 0.56, blue: 0.58))
-                        .frame(minWidth: 34, minHeight: 34)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("native-agent-session-delete-\(item.sessionID)")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                  }
+                  .buttonStyle(.plain)
+                  .accessibilityIdentifier("native-agent-session-\(item.sessionID)")
+                }
+                .contextMenu {
+                  Button(role: .destructive) {
+                    pendingDeleteSession = item
+                  } label: {
+                    Label("删除会话", systemImage: "trash")
                   }
                 }
               }

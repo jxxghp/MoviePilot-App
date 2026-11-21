@@ -388,7 +388,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                     f"/{name}/api/v1/user/",
                 }
                 or re.fullmatch(r"api/v1/download/(?:start|stop)/[a-z0-9]+", endpoint)
-                or re.fullmatch(r"api/v1/site/test/[0-9]+", endpoint)
+                or re.fullmatch(r"api/v1/site/(?:test|icon)/[0-9]+", endpoint)
                 or re.fullmatch(r"api/v1/search/media/1[0-9]{2}", endpoint)
                 or re.fullmatch(r"api/v1/media/1[0-9]{2}", endpoint)
                 or re.fullmatch(r"api/v1/tmdb/(?:credits|recommend|similar)/1[0-9]{2}/(?:电影|电视剧)", endpoint)
@@ -736,6 +736,10 @@ class NativeHandler(BaseHTTPRequestHandler):
             value = [{"id": 3, "name": "合成站", "domain": "syn.example.test", "is_active": True, "pri": 1}]
         elif re.fullmatch(r"api/v1/site/test/[0-9]+", endpoint):
             value = None
+        elif re.fullmatch(r"api/v1/site/icon/[0-9]+", endpoint):
+            value = {
+                "icon": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+            }
         elif endpoint == "api/v1/history/transfer":
             with self.server.lock:
                 rows = list(self.server.profiles[name]["history"])

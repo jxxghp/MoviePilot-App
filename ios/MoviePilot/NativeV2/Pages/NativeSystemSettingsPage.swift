@@ -69,20 +69,12 @@ struct NativeSystemSettingsPage: View {
       }
     }
     .task(id: attempt) { await load() }
-    .nativeDynamicAction(
-      id: "settings-save",
-      isActive: hasChanges && !isSaving && loaded.isLoaded,
-      title: "保存",
-      symbol: "checkmark"
-    ) {
-      Task { await save() }
-    }
   }
 
   /// 当前草稿相对已载入快照是否存在变更。
   private var hasChanges: Bool { draft != loaded }
 
-  /// 2x2 透色状态概览玻璃卡，参照视觉参考 04 的顶部分组卡片节奏。
+  /// 2x2 核心策略状态概览玻璃卡：聚焦高频核心参数（识别来源、订阅策略、新增即搜、媒体库同步）。
   private var overviewGrid: some View {
     LazyVGrid(
       columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
@@ -94,20 +86,21 @@ struct NativeSystemSettingsPage: View {
         symbol: "film.stack",
         active: true)
       overviewTile(
-        title: "订阅模式",
-        value: draft.subscribeMode == "rss" ? "RSS 订阅" : "站点爬虫",
+        title: "订阅策略",
+        value:
+          "\(draft.subscribeMode == "rss" ? "RSS 订阅" : "站点爬虫") · \(draft.subscribeRssInterval)分",
         symbol: "antenna.radiowaves.left.and.right",
         active: true)
       overviewTile(
-        title: "全局图片缓存",
-        value: draft.globalImageCache ? "已开启" : "已关闭",
-        symbol: "photo.stack",
-        active: draft.globalImageCache)
+        title: "新增订阅即搜",
+        value: draft.subscribeSearch ? "自动触发搜索" : "等待定时刷新",
+        symbol: "sparkle.magnifyingglass",
+        active: draft.subscribeSearch)
       overviewTile(
-        title: "日志级别",
-        value: draft.logLevel,
-        symbol: "doc.text.magnifyingglass",
-        active: draft.debug)
+        title: "媒体库同步",
+        value: "每 \(draft.mediaServerSyncInterval) 小时",
+        symbol: "arrow.triangle.2.circlepath.circle",
+        active: true)
     }
   }
 

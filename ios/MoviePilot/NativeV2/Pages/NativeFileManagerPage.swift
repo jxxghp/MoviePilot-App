@@ -95,15 +95,6 @@ struct NativeFileManagerPage: View {
     .task(id: "\(activeStorage)|\(currentDirectory.path)|\(attempt)") {
       await loadCurrentDirectory()
     }
-    .nativeDynamicAction(
-      id: "files-mkdir",
-      isActive: canManage,
-      title: "新建目录",
-      symbol: "folder.badge.plus"
-    ) {
-      newFolderName = ""
-      showingNewFolder = true
-    }
     .alert("新建文件夹", isPresented: $showingNewFolder) {
       TextField("文件夹名称", text: $newFolderName)
       Button("创建") {

@@ -166,14 +166,18 @@ struct NativeDownloadsPage: View {
               }
               Spacer(minLength: 4)
               if let downloader = task.downloader, !downloader.isEmpty {
-                Text(downloader)
-                  .font(.caption2.weight(.semibold))
-                  .foregroundStyle(.white.opacity(0.82))
-                  .padding(.horizontal, 7)
-                  .padding(.vertical, 3)
-                  .background {
-                    Capsule().fill(.white.opacity(0.12))
-                  }
+                HStack(spacing: 4) {
+                  NativeBrandIcon(
+                    kind: .downloader, type: downloader, size: 16, cornerRadius: 4)
+                  Text(downloader)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.84))
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background {
+                  Capsule().fill(.white.opacity(0.12))
+                }
               }
             }
             Text(task.subtitleLine)
@@ -228,19 +232,6 @@ struct NativeDownloadsPage: View {
             .disabled(mutatingHash != nil)
             .accessibilityIdentifier("native-download-toggle-\(task.hash)")
             Spacer()
-            Button(role: .destructive) {
-              pendingDelete = task
-            } label: {
-              Label("删除", systemImage: "trash")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color(red: 1.0, green: 0.56, blue: 0.58))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .frame(minHeight: 34)
-            }
-            .buttonStyle(.plain)
-            .disabled(mutatingHash != nil)
-            .accessibilityIdentifier("native-download-delete-\(task.hash)")
           }
         }
       }
@@ -258,6 +249,8 @@ struct NativeDownloadsPage: View {
         Label("删除任务", systemImage: "trash")
       }
     }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("native-download-card-\(task.hash)")
   }
 
   /// 16:9 媒体缩略图带底部柔和渐暗与百分比进度条覆层。
