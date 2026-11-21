@@ -167,16 +167,7 @@ struct NativeSitesPage: View {
     return CinematicPanel(padding: 13) {
       VStack(alignment: .leading, spacing: 10) {
         HStack(alignment: .center, spacing: 12) {
-          ZStack {
-            Circle()
-              .fill(
-                active
-                  ? Color(red: 0.44, green: 0.34, blue: 0.68).opacity(0.55) : .white.opacity(0.08))
-            Image(systemName: active ? "globe" : "globe.badge.chevron.backward")
-              .font(.subheadline.weight(.semibold))
-              .foregroundStyle(.white.opacity(active ? 0.95 : 0.48))
-          }
-          .frame(width: 40, height: 40)
+          NativeSiteIconView(session: session, siteID: site.id, size: 42, active: active)
           VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
               Text(site.name)

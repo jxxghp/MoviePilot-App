@@ -48,6 +48,7 @@ struct NativePluginMarketPage: View {
   @State private var pendingUninstall: NativeMarketPluginRecord?
   @State private var feedback: NativePluginMarketFeedback?
   @State private var formSelection: FormSelection?
+  @State private var dataPageSelection: NativeMarketPluginRecord?
 
   /// 复用既有 `NativePluginFormView` 打开已安装插件配置。
   private struct FormSelection {
@@ -116,6 +117,15 @@ struct NativePluginMarketPage: View {
       ) {
         if let formSelection {
           NativePluginFormView(plugin: formSelection.plugin, form: formSelection.form)
+        }
+      }
+      .navigationDestination(
+        isPresented: Binding(
+          get: { dataPageSelection != nil }, set: { if !$0 { dataPageSelection = nil } })
+      ) {
+        if let plugin = dataPageSelection {
+          NativePluginDataPageView(
+            session: session, pluginID: plugin.id, pluginName: plugin.displayName)
         }
       }
       .task(id: "\(mode.rawValue)|\(reloadToken)") { await load(forceMarket: false) }
@@ -282,204 +292,157 @@ struct NativePluginMarketPage: View {
     }
   }
 
-  /// 单张插件透色玻璃卡片。
+  /// 单张插件玻璃卡片：还原网页版 `PluginCard`/`PluginAppCard` 上下双段布局（顶部标题+简介+右侧真实图标，底部创作者头像/署名/下载量/星级铭牌栏），管理动作统一收纳进点按与长按菜单。
   private func pluginCard(_ plugin: NativeMarketPluginRecord) -> some View {
     let isMutating = mutatingID == plugin.id
-    return CinematicPanel(padding: 13) {
-      VStack(alignment: .leading, spacing: 10) {
-        HStack(alignment: .top, spacing: 12) {
-          ZStack {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-              .fill(
-                plugin.isRunning
-                  ? Color(red: 0.48, green: 0.34, blue: 0.78).opacity(0.60)
-                  : .white.opacity(0.11))
-            Image(systemName: "puzzlepiece.extension.fill")
-              .font(.title3.weight(.semibold))
-              .foregroundStyle(.white.opacity(0.92))
-          }
-          .frame(width: 44, height: 44)
+    let isInactive = mode == .installed && !plugin.isRunning
+    let lowerID = plugin.id.lowercased()
+    let downloads = max(
+      plugin.installCount, installStats[plugin.id] ?? installStats[lowerID] ?? 0)
+    let fetchedRating = ratings[plugin.id] ?? ratings[lowerID]
+    let effectiveRating = fetchedRating?.averageRating ?? plugin.averageRating
+    let accent = Self.pluginAccentColor(from: plugin.pluginColor)
 
-          VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-              Text(plugin.displayName)
-                .font(.headline)
-                .foregroundStyle(.white)
+    return CinematicPanel(padding: 0) {
+      VStack(alignment: .leading, spacing: 0) {
+        // 上段横幅：状态点 + 标题 + 版本 + 状态胶囊 / 左侧简介与标签 + 右侧 44×44 真实插件图标
+        VStack(alignment: .leading, spacing: 8) {
+          HStack(alignment: .center, spacing: 6) {
+            if mode == .installed {
+              Circle()
+                .fill(
+                  plugin.isRunning
+                    ? Color(red: 0.42, green: 0.90, blue: 0.62)
+                    : .white.opacity(0.32)
+                )
+                .frame(width: 7, height: 7)
+            }
+            Text(plugin.displayName)
+              .font(.headline.weight(.semibold))
+              .foregroundStyle(.white.opacity(isInactive ? 0.80 : 0.98))
+              .lineLimit(1)
+            if !plugin.version.isEmpty {
+              Text("v\(plugin.version)")
+                .font(.caption.monospacedDigit().weight(.medium))
+                .foregroundStyle(.white.opacity(0.56))
                 .lineLimit(1)
-              if !plugin.version.isEmpty {
-                Text("v\(plugin.version)")
-                  .font(.caption2.monospacedDigit().weight(.semibold))
-                  .foregroundStyle(.white.opacity(0.72))
-              }
-              Spacer(minLength: 4)
+            }
+            Spacer(minLength: 4)
+            if isMutating {
+              ProgressView().controlSize(.mini).tint(.white)
+            } else {
               statusBadge(plugin)
             }
-            if !plugin.summary.isEmpty {
-              Text(plugin.summary)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.78))
-                .lineLimit(2)
-            }
-            HStack(spacing: 10) {
-              if !plugin.author.isEmpty {
-                Label(plugin.author, systemImage: "person.circle")
-                  .font(.caption2)
-                  .foregroundStyle(.white.opacity(0.68))
-                  .lineLimit(1)
+          }
+
+          HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+              if !plugin.summary.isEmpty {
+                Text(plugin.summary)
+                  .font(.caption)
+                  .foregroundStyle(.white.opacity(0.76))
+                  .lineLimit(3)
+                  .fixedSize(horizontal: false, vertical: true)
               }
-              let lowerID = plugin.id.lowercased()
-              let downloads = max(
-                plugin.installCount, installStats[plugin.id] ?? installStats[lowerID] ?? 0)
-              if downloads > 0 {
-                Label(Self.formatInstallCount(downloads), systemImage: "arrow.down.circle")
-                  .font(.caption2.monospacedDigit())
-                  .foregroundStyle(.white.opacity(0.72))
-              }
-              let fetchedRating = ratings[plugin.id] ?? ratings[lowerID]
-              let effectiveRating = fetchedRating?.averageRating ?? plugin.averageRating
-              let effectiveRatingCount = fetchedRating?.ratingCount ?? plugin.ratingCount
-              if effectiveRating > 0 {
-                HStack(spacing: 2.5) {
-                  Image(systemName: "star.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(Color(red: 0.98, green: 0.80, blue: 0.34))
-                  Text(String(format: "%.1f", effectiveRating))
-                    .font(.caption2.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(Color(red: 0.98, green: 0.84, blue: 0.48))
-                  if effectiveRatingCount > 0 {
-                    Text("(\(effectiveRatingCount))")
-                      .font(.caption2.monospacedDigit())
-                      .foregroundStyle(.white.opacity(0.54))
+              if mode == .market && !plugin.labels.isEmpty {
+                HStack(spacing: 5) {
+                  ForEach(plugin.labels.prefix(3), id: \.self) { label in
+                    Text(label)
+                      .font(.caption2.weight(.medium))
+                      .foregroundStyle(Color(red: 0.84, green: 0.76, blue: 1.0))
+                      .padding(.horizontal, 6.5)
+                      .padding(.vertical, 2)
+                      .background {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                          .fill(Color(red: 0.54, green: 0.44, blue: 0.92).opacity(0.16))
+                          .overlay {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                              .strokeBorder(
+                                Color(red: 0.74, green: 0.64, blue: 1.0).opacity(0.22),
+                                lineWidth: 0.5)
+                          }
+                      }
+                      .lineLimit(1)
                   }
                 }
               }
-              Spacer(minLength: 0)
             }
-            if !plugin.labels.isEmpty {
-              HStack(spacing: 6) {
-                ForEach(plugin.labels.prefix(3), id: \.self) { label in
-                  Text(label)
-                    .font(.caption2)
-                    .foregroundStyle(Color(red: 0.84, green: 0.74, blue: 1.0))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background { Capsule().fill(.white.opacity(0.08)) }
-                }
-              }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            NativePluginIconView(
+              session: session,
+              iconReference: plugin.pluginIcon,
+              size: 46,
+              cornerRadius: 12,
+              inactive: isInactive
+            )
+          }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 13)
+        .padding(.bottom, 11)
+        .background(
+          LinearGradient(
+            colors: [accent.opacity(isInactive ? 0.04 : 0.14), .clear],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing)
+        )
+
+        Divider().overlay(.white.opacity(0.08))
+
+        // 下段创作者生态铭牌栏：左作者头像+署名，右下载量+星级评分
+        HStack(spacing: 8) {
+          HStack(spacing: 6) {
+            NativePluginAuthorAvatarView(
+              authorURL: plugin.authorURL,
+              authorName: plugin.author,
+              size: 20
+            )
+            Text(plugin.author.isEmpty ? "MoviePilot" : plugin.author)
+              .font(.caption.weight(.medium))
+              .foregroundStyle(.white.opacity(0.72))
+              .lineLimit(1)
+          }
+          Spacer(minLength: 8)
+          if downloads > 0 {
+            HStack(spacing: 3) {
+              Image(systemName: "arrow.down.circle")
+                .font(.system(size: 11, weight: .medium))
+              Text(Self.formatInstallCount(downloads))
+                .font(.caption2.monospacedDigit().weight(.medium))
+            }
+            .foregroundStyle(.white.opacity(0.70))
+          }
+          if effectiveRating > 0 {
+            HStack(spacing: 2.5) {
+              Image(systemName: "star.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(Color(red: 0.98, green: 0.80, blue: 0.34))
+              Text(String(format: "%.1f", effectiveRating))
+                .font(.caption2.monospacedDigit().weight(.semibold))
+                .foregroundStyle(Color(red: 0.98, green: 0.84, blue: 0.48))
             }
           }
         }
-
-        HStack(spacing: 8) {
-          if mode == .market {
-            if !plugin.installed || plugin.hasUpdate {
-              Button {
-                pendingInstall = plugin
-              } label: {
-                HStack(spacing: 5) {
-                  if isMutating {
-                    ProgressView().controlSize(.mini).tint(.white)
-                  } else {
-                    Image(
-                      systemName: plugin.hasUpdate
-                        ? "arrow.triangle.2.circlepath" : "arrow.down.to.line"
-                    )
-                    .font(.caption2.weight(.semibold))
-                  }
-                  Text(plugin.hasUpdate ? "更新" : "安装").font(.caption.weight(.semibold))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background {
-                  Capsule()
-                    .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.75))
-                    .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.6) }
-                }
-                .frame(minHeight: 32)
-              }
-              .buttonStyle(.plain)
-              .disabled(mutatingID != nil)
-              .accessibilityIdentifier("native-market-install-\(plugin.id)")
-            }
-          } else {
-            if plugin.hasPage {
-              NavigationLink {
-                NativePluginDataPageView(
-                  session: session, pluginID: plugin.id, pluginName: plugin.displayName)
-              } label: {
-                HStack(spacing: 4) {
-                  Image(systemName: "doc.text.magnifyingglass").font(.caption2.weight(.semibold))
-                  Text("数据页").font(.caption.weight(.semibold))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 6)
-                .background {
-                  Capsule()
-                    .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.75))
-                    .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.6) }
-                }
-                .frame(minHeight: 32)
-              }
-              .buttonStyle(.plain)
-              .accessibilityIdentifier("native-installed-page-\(plugin.id)")
-            }
-
-            Button {
-              openForm(for: plugin)
-            } label: {
-              HStack(spacing: 4) {
-                Image(systemName: "slider.horizontal.3").font(.caption2.weight(.semibold))
-                Text("配置").font(.caption.weight(.semibold))
-              }
-              .foregroundStyle(.white)
-              .padding(.horizontal, 11)
-              .padding(.vertical, 6)
-              .background {
-                Capsule()
-                  .fill(.white.opacity(0.14))
-                  .overlay { Capsule().strokeBorder(.white.opacity(0.20), lineWidth: 0.6) }
-              }
-              .frame(minHeight: 32)
-            }
-            .buttonStyle(.plain)
-            .disabled(mutatingID != nil)
-            .accessibilityIdentifier("native-installed-config-\(plugin.id)")
-
-            Button {
-              pendingReset = plugin
-            } label: {
-              Text("重置")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.84))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background {
-                  Capsule()
-                    .fill(.white.opacity(0.09))
-                    .overlay { Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 0.6) }
-                }
-                .frame(minHeight: 32)
-            }
-            .buttonStyle(.plain)
-            .disabled(mutatingID != nil)
-            .accessibilityIdentifier("native-installed-reset-\(plugin.id)")
-
-            Button(role: .destructive) {
-              pendingUninstall = plugin
-            } label: {
-              Image(systemName: "trash")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color(red: 1.0, green: 0.56, blue: 0.58))
-                .frame(minWidth: 32, minHeight: 32)
-            }
-            .buttonStyle(.plain)
-            .disabled(mutatingID != nil)
-            .accessibilityLabel("卸载 \(plugin.displayName)")
-            .accessibilityIdentifier("native-installed-uninstall-\(plugin.id)")
-          }
-          Spacer()
+        .padding(.horizontal, 14)
+        .frame(minHeight: 38)
+        .background(.white.opacity(0.035))
+      }
+    }
+    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .onTapGesture {
+      guard mutatingID == nil else { return }
+      if mode == .market {
+        if !plugin.installed || plugin.hasUpdate {
+          pendingInstall = plugin
+        } else {
+          openForm(for: plugin)
+        }
+      } else {
+        if plugin.hasPage {
+          dataPageSelection = plugin
+        } else {
+          openForm(for: plugin)
         }
       }
     }
@@ -494,12 +457,32 @@ struct NativePluginMarketPage: View {
               systemImage: plugin.hasUpdate
                 ? "arrow.triangle.2.circlepath" : "arrow.down.to.line")
           }
+        } else {
+          Button {
+            openForm(for: plugin)
+          } label: {
+            Label("打开插件配置", systemImage: "slider.horizontal.3")
+          }
         }
       } else {
+        if plugin.hasPage {
+          Button {
+            dataPageSelection = plugin
+          } label: {
+            Label("查看数据页", systemImage: "doc.text.magnifyingglass")
+          }
+        }
         Button {
           openForm(for: plugin)
         } label: {
-          Label("打开插件配置", systemImage: "slider.horizontal.3")
+          Label("插件配置", systemImage: "slider.horizontal.3")
+        }
+        if plugin.hasUpdate {
+          Button {
+            pendingInstall = plugin
+          } label: {
+            Label("更新插件", systemImage: "arrow.triangle.2.circlepath")
+          }
         }
         Button {
           pendingReset = plugin
@@ -513,6 +496,23 @@ struct NativePluginMarketPage: View {
         }
       }
     }
+    .accessibilityElement(children: .combine)
+    .accessibilityIdentifier(
+      mode == .market ? "native-market-card-\(plugin.id)" : "native-installed-card-\(plugin.id)")
+  }
+
+  /// 解析插件主题色十六进制字符串为温和卡片高光色。
+  private static func pluginAccentColor(from hex: String?) -> Color {
+    guard let hex else { return Color(red: 0.56, green: 0.44, blue: 0.92) }
+    let cleaned = hex.trimmingCharacters(
+      in: CharacterSet(charactersIn: "# ").union(.whitespacesAndNewlines))
+    guard cleaned.count == 6, let value = UInt64(cleaned, radix: 16) else {
+      return Color(red: 0.56, green: 0.44, blue: 0.92)
+    }
+    let r = Double((value >> 16) & 0xFF) / 255.0
+    let g = Double((value >> 8) & 0xFF) / 255.0
+    let b = Double(value & 0xFF) / 255.0
+    return Color(red: r, green: g, blue: b)
   }
 
   /// 紧凑格式化插件累计安装/下载次数。
@@ -813,9 +813,12 @@ private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
   let id: String
   let pluginName: String?
   let pluginDesc: String?
+  let pluginIcon: String?
+  let pluginColor: String?
   let pluginVersion: String?
   let pluginLabel: String?
   let pluginAuthor: String?
+  let authorURL: String?
   var installed: Bool
   var hasUpdate: Bool
   let hasPage: Bool
@@ -857,9 +860,12 @@ private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
     id = (try? container.decodeIfPresent(String.self, forKey: .id)) ?? ""
     pluginName = try? container.decodeIfPresent(String.self, forKey: .pluginName)
     pluginDesc = try? container.decodeIfPresent(String.self, forKey: .pluginDesc)
+    pluginIcon = try? container.decodeIfPresent(String.self, forKey: .pluginIcon)
+    pluginColor = try? container.decodeIfPresent(String.self, forKey: .pluginColor)
     pluginVersion = try? container.decodeIfPresent(String.self, forKey: .pluginVersion)
     pluginLabel = try? container.decodeIfPresent(String.self, forKey: .pluginLabel)
     pluginAuthor = try? container.decodeIfPresent(String.self, forKey: .pluginAuthor)
+    authorURL = try? container.decodeIfPresent(String.self, forKey: .authorURL)
     installed = (try? container.decodeIfPresent(Bool.self, forKey: .installed)) ?? false
     hasUpdate = (try? container.decodeIfPresent(Bool.self, forKey: .hasUpdate)) ?? false
     hasPage = (try? container.decodeIfPresent(Bool.self, forKey: .hasPage)) ?? false
@@ -874,9 +880,12 @@ private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
     case id
     case pluginName = "plugin_name"
     case pluginDesc = "plugin_desc"
+    case pluginIcon = "plugin_icon"
+    case pluginColor = "plugin_color"
     case pluginVersion = "plugin_version"
     case pluginLabel = "plugin_label"
     case pluginAuthor = "plugin_author"
+    case authorURL = "author_url"
     case installed
     case hasUpdate = "has_update"
     case hasPage = "has_page"

@@ -66,7 +66,7 @@ struct NativeUsersPage: View {
     .toolbarBackground(.hidden, for: .navigationBar)
     .searchable(text: $searchText, prompt: "按用户名或邮箱筛选")
     .toolbar {
-      ToolbarItemGroup(placement: .topBarTrailing) {
+      ToolbarItem(placement: .topBarTrailing) {
         Button {
           showsCreateSheet = true
         } label: {
@@ -74,14 +74,6 @@ struct NativeUsersPage: View {
         }
         .accessibilityLabel("新增用户")
         .accessibilityIdentifier("native-users-add")
-
-        Button {
-          attempt += 1
-        } label: {
-          Image(systemName: "arrow.clockwise")
-        }
-        .accessibilityLabel("刷新用户列表")
-        .accessibilityIdentifier("native-users-refresh")
       }
     }
     .sheet(isPresented: $showsCreateSheet) {
@@ -97,14 +89,6 @@ struct NativeUsersPage: View {
       }
     }
     .task(id: attempt) { await load() }
-    .nativeDynamicAction(
-      id: "users-add",
-      isActive: true,
-      title: "新增用户",
-      symbol: "person.badge.plus"
-    ) {
-      showsCreateSheet = true
-    }
   }
 
   /// 按关键词筛选后的用户清单。
@@ -117,23 +101,19 @@ struct NativeUsersPage: View {
     }
   }
 
-  /// 单条用户资料与权限玻璃卡片。
+  /// 单条用户资料与权限玻璃卡片（显示真实用户头像，编辑操作收纳进长按菜单）。
   private func userCard(_ user: NativeUserRecord) -> some View {
     let isCurrent = user.id == session.user.id
     return CinematicPanel(padding: 14) {
       VStack(alignment: .leading, spacing: 10) {
         HStack(spacing: 12) {
-          ZStack {
-            Circle()
-              .fill(
-                user.isSuperuser
-                  ? Color(red: 0.54, green: 0.38, blue: 0.80).opacity(0.65)
-                  : .white.opacity(0.12))
-            Text(String(user.name.prefix(1)).uppercased())
-              .font(.headline.weight(.bold))
-              .foregroundStyle(.white)
-          }
-          .frame(width: 44, height: 44)
+          NativeUserAvatarView(
+            session: session,
+            avatar: user.avatar,
+            name: user.name,
+            isSuperuser: user.isSuperuser,
+            size: 44
+          )
           VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
               Text(user.name)
@@ -181,27 +161,22 @@ struct NativeUsersPage: View {
                 }
             }
             Spacer(minLength: 0)
-            Button {
-              editingUser = user
-            } label: {
-              Label("编辑", systemImage: "pencil")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background {
-                  Capsule()
-                    .fill(.white.opacity(0.12))
-                    .overlay { Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.6) }
-                }
-                .frame(minHeight: 30)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("native-user-edit-\(user.id)")
           }
         }
       }
     }
+    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .onTapGesture {
+      editingUser = user
+    }
+    .contextMenu {
+      Button {
+        editingUser = user
+      } label: {
+        Label("编辑用户", systemImage: "pencil")
+      }
+    }
+    .accessibilityIdentifier("native-user-card-\(user.id)")
   }
 
   /// 紧凑角色/状态徽标胶囊。
@@ -275,6 +250,7 @@ private struct NativeUserRecord: Decodable, Sendable, Identifiable {
   let id: Int
   let name: String
   let email: String?
+  let avatar: String?
   let isActive: Bool
   let isSuperuser: Bool
   let isOTP: Bool
@@ -297,6 +273,7 @@ private struct NativeUserRecord: Decodable, Sendable, Identifiable {
     id = try container.decode(Int.self, forKey: .id)
     name = try container.decode(String.self, forKey: .name)
     email = try container.decodeIfPresent(String.self, forKey: .email)
+    avatar = try container.decodeIfPresent(String.self, forKey: .avatar)
     isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
     isSuperuser = try container.decodeIfPresent(Bool.self, forKey: .isSuperuser) ?? false
     isOTP = try container.decodeIfPresent(Bool.self, forKey: .isOTP) ?? false
@@ -308,6 +285,7 @@ private struct NativeUserRecord: Decodable, Sendable, Identifiable {
     case id
     case name
     case email
+    case avatar
     case isActive = "is_active"
     case isSuperuser = "is_superuser"
     case isOTP = "is_otp"

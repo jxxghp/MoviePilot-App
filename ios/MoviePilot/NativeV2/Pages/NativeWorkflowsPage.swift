@@ -301,18 +301,6 @@ struct NativeWorkflowsPage: View {
           .accessibilityIdentifier("native-workflow-toggle-\(workflow.id)")
 
           Spacer()
-
-          Button {
-            pendingReset = workflow
-          } label: {
-            Label("重置", systemImage: "arrow.counterclockwise")
-              .font(.caption.weight(.medium))
-              .foregroundStyle(.white.opacity(0.72))
-              .frame(minHeight: 34)
-          }
-          .buttonStyle(.plain)
-          .disabled(mutatingID != nil)
-          .accessibilityIdentifier("native-workflow-reset-\(workflow.id)")
         }
       }
     }

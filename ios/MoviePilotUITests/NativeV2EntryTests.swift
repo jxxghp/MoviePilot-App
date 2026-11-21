@@ -163,15 +163,19 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 15))
     try await Task.sleep(nanoseconds: 2_500_000_000)
     capture("native-v2-live-subscriptions")
-    let firstEdit = app.buttons.matching(
-      NSPredicate(format: "identifier BEGINSWITH 'native-subscribe-edit-'")
+    let firstSubCard = app.descendants(matching: .any).matching(
+      NSPredicate(format: "identifier BEGINSWITH 'native-subscribe-card-'")
     ).firstMatch
-    if firstEdit.waitForExistence(timeout: 5) {
-      tap(firstEdit, app: app)
-      if app.scrollViews["native-subscribe-editor-scroll"].waitForExistence(timeout: 10) {
-        try await Task.sleep(nanoseconds: 1_000_000_000)
-        capture("native-v2-live-subscribe-editor")
-        app.buttons["native-subscribe-editor-cancel"].tap()
+    if firstSubCard.waitForExistence(timeout: 5) {
+      firstSubCard.press(forDuration: 1.0)
+      let editRuleBtn = app.buttons["编辑订阅规则"]
+      if editRuleBtn.waitForExistence(timeout: 5) {
+        editRuleBtn.tap()
+        if app.scrollViews["native-subscribe-editor-scroll"].waitForExistence(timeout: 10) {
+          try await Task.sleep(nanoseconds: 1_000_000_000)
+          capture("native-v2-live-subscribe-editor")
+          app.buttons["native-subscribe-editor-cancel"].tap()
+        }
       }
     }
     let communityBtn = app.buttons["native-subscriptions-community"]
@@ -350,10 +354,10 @@ final class NativeV2EntryTests: XCTestCase {
     if marketEntry.waitForExistence(timeout: 8) {
       tap(marketEntry, app: app)
       XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 15))
-      let firstMarketInstall = app.buttons.matching(
-        NSPredicate(format: "identifier BEGINSWITH 'native-market-install-'")
+      let firstMarketCard = app.descendants(matching: .any).matching(
+        NSPredicate(format: "identifier BEGINSWITH 'native-market-card-'")
       ).firstMatch
-      _ = firstMarketInstall.waitForExistence(timeout: 12)
+      _ = firstMarketCard.waitForExistence(timeout: 12)
       try await Task.sleep(nanoseconds: 500_000_000)
       capture("native-v2-live-plugin-market")
       let installedTab = app.buttons["native-plugin-mode-已安装管理"]
@@ -361,9 +365,10 @@ final class NativeV2EntryTests: XCTestCase {
         tap(installedTab, app: app)
         try await Task.sleep(nanoseconds: 1_500_000_000)
         capture("native-v2-live-plugin-installed")
-        let statPage = app.buttons["native-installed-page-SiteStatistic"]
-        if statPage.waitForExistence(timeout: 5) {
-          tap(statPage, app: app)
+        let statCard = app.descendants(matching: .any)["native-installed-card-SiteStatistic"]
+          .firstMatch
+        if statCard.waitForExistence(timeout: 5) {
+          tap(statCard, app: app)
           XCTAssertTrue(app.scrollViews["native-plugin-page-scroll"].waitForExistence(timeout: 15))
           try await Task.sleep(nanoseconds: 2_000_000_000)
           capture("native-v2-live-plugin-page-statistic")
@@ -509,9 +514,12 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(
       app.descendants(matching: .any)["native-subscriptions-feedback"].firstMatch
         .waitForExistence(timeout: 8))
-    let subDelete = app.buttons["native-subscribe-delete-701"]
-    XCTAssertTrue(subDelete.waitForExistence(timeout: 8))
-    tap(subDelete, app: app)
+    let subCard = app.descendants(matching: .any)["native-subscribe-card-701"].firstMatch
+    XCTAssertTrue(subCard.waitForExistence(timeout: 8))
+    subCard.press(forDuration: 1.0)
+    let subDeleteMenu = app.buttons["取消订阅"]
+    XCTAssertTrue(subDeleteMenu.waitForExistence(timeout: 8))
+    subDeleteMenu.tap()
     let confirmSubDelete = app.alerts["取消订阅"].buttons["取消订阅"]
     XCTAssertTrue(confirmSubDelete.waitForExistence(timeout: 8))
     confirmSubDelete.tap()
@@ -525,9 +533,12 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(
       app.descendants(matching: .any)["native-downloads-feedback"].firstMatch
         .waitForExistence(timeout: 8))
-    let dlDelete = app.buttons["native-download-delete-abc123def456"]
-    XCTAssertTrue(dlDelete.waitForExistence(timeout: 8))
-    tap(dlDelete, app: app)
+    let dlCard = app.descendants(matching: .any)["native-download-card-abc123def456"].firstMatch
+    XCTAssertTrue(dlCard.waitForExistence(timeout: 8))
+    dlCard.press(forDuration: 1.0)
+    let dlDeleteMenu = app.buttons["删除任务"]
+    XCTAssertTrue(dlDeleteMenu.waitForExistence(timeout: 8))
+    dlDeleteMenu.tap()
     let confirmDlDelete = app.alerts["删除下载任务"].buttons["删除任务与文件"]
     XCTAssertTrue(confirmDlDelete.waitForExistence(timeout: 8))
     confirmDlDelete.tap()
@@ -729,18 +740,18 @@ final class NativeV2EntryTests: XCTestCase {
     reveal(usersEntry, app: app)
     XCTAssertTrue(usersEntry.waitForExistence(timeout: 10))
     tap(usersEntry, app: app)
-    XCTAssertTrue(app.scrollViews["native-users-scroll"].waitForExistence(timeout: 10))
+    let usersScroll = app.scrollViews["native-users-scroll"]
+    XCTAssertTrue(usersScroll.waitForExistence(timeout: 10))
     XCTAssertTrue(app.staticTexts["native-a"].waitForExistence(timeout: 10))
     XCTAssertTrue(app.staticTexts["native-b"].exists)
-    let refreshBtn = app.buttons["native-users-refresh"]
-    XCTAssertTrue(refreshBtn.exists)
-    tap(refreshBtn, app: app)
+    XCTAssertTrue(app.buttons["native-users-add"].exists)
+    usersScroll.swipeDown()
     XCTAssertEqual(app.webViews.count, 0)
 
     let counts = try await stats()
     XCTAssertEqual(counts["a"]?["GET api/v1/system/env"], 1)
     XCTAssertEqual(counts["a"]?["POST api/v1/system/env"], 1)
-    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/user"] ?? 0, 2)
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/user"] ?? 0, 1)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -794,9 +805,12 @@ final class NativeV2EntryTests: XCTestCase {
     openOverflowItem("native-workspace-subscriptions", viaTab: "发现", app: app)
     XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 10))
 
-    let editBtn = app.buttons["native-subscribe-edit-702"]
-    XCTAssertTrue(editBtn.waitForExistence(timeout: 10))
-    tap(editBtn, app: app)
+    let editCard = app.descendants(matching: .any)["native-subscribe-card-702"].firstMatch
+    XCTAssertTrue(editCard.waitForExistence(timeout: 10))
+    editCard.press(forDuration: 1.0)
+    let editMenu = app.buttons["编辑订阅规则"]
+    XCTAssertTrue(editMenu.waitForExistence(timeout: 8))
+    editMenu.tap()
     XCTAssertTrue(app.scrollViews["native-subscribe-editor-scroll"].waitForExistence(timeout: 10))
     let saveBtn = app.buttons["native-subscribe-editor-save"]
     XCTAssertTrue(saveBtn.waitForExistence(timeout: 8))
@@ -895,9 +909,9 @@ final class NativeV2EntryTests: XCTestCase {
     tap(marketEntry, app: app)
     XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 10))
 
-    let installBtn = app.buttons["native-market-install-AutoSignIn"]
-    XCTAssertTrue(installBtn.waitForExistence(timeout: 10))
-    tap(installBtn, app: app)
+    let marketCard = app.descendants(matching: .any)["native-market-card-AutoSignIn"].firstMatch
+    XCTAssertTrue(marketCard.waitForExistence(timeout: 10))
+    tap(marketCard, app: app)
     let confirmInstall = app.alerts["安装插件"].buttons["确认安装"]
     XCTAssertTrue(confirmInstall.waitForExistence(timeout: 8))
     confirmInstall.tap()
@@ -907,9 +921,12 @@ final class NativeV2EntryTests: XCTestCase {
 
     let installedMode = app.buttons["native-plugin-mode-已安装管理"]
     tap(installedMode, app: app)
-    let resetBtn = app.buttons["native-installed-reset-DemoPlugin"]
-    XCTAssertTrue(resetBtn.waitForExistence(timeout: 10))
-    tap(resetBtn, app: app)
+    let demoCard = app.descendants(matching: .any)["native-installed-card-DemoPlugin"].firstMatch
+    XCTAssertTrue(demoCard.waitForExistence(timeout: 10))
+    demoCard.press(forDuration: 1.0)
+    let resetMenu = app.buttons["重置插件"]
+    XCTAssertTrue(resetMenu.waitForExistence(timeout: 8))
+    resetMenu.tap()
     let confirmReset = app.alerts["重置插件"].buttons["确认重置"]
     XCTAssertTrue(confirmReset.waitForExistence(timeout: 8))
     confirmReset.tap()
@@ -917,9 +934,11 @@ final class NativeV2EntryTests: XCTestCase {
       app.descendants(matching: .any)["native-plugin-market-feedback"].firstMatch
         .waitForExistence(timeout: 10))
 
-    let uninstallBtn = app.buttons["native-installed-uninstall-DemoPlugin"]
-    XCTAssertTrue(uninstallBtn.waitForExistence(timeout: 8))
-    tap(uninstallBtn, app: app)
+    XCTAssertTrue(demoCard.waitForExistence(timeout: 8))
+    demoCard.press(forDuration: 1.0)
+    let uninstallMenu = app.buttons["卸载插件"]
+    XCTAssertTrue(uninstallMenu.waitForExistence(timeout: 8))
+    uninstallMenu.tap()
     let confirmUninstall = app.alerts["卸载插件"].buttons["确认卸载"]
     XCTAssertTrue(confirmUninstall.waitForExistence(timeout: 8))
     confirmUninstall.tap()
@@ -1110,13 +1129,22 @@ final class NativeV2EntryTests: XCTestCase {
     let usersEntry = app.buttons["native-workspace-users"]
     XCTAssertTrue(usersEntry.exists)
 
-    // 先进入顶部的「用户管理」验证动态 +1 按钮切换为「新增用户」且可编辑用户权限
+    // 验证浮动智能助手形象存在，并核对二次点击菜单顶部用户信息与通知中心入口
+    XCTAssertTrue(app.buttons["native-agent-floating-mascot"].waitForExistence(timeout: 8))
+
+    // 先进入顶部的「用户管理」验证右上角已有新增按钮时右下角统一保持「搜索」，并通过长按菜单编辑用户权限
     tap(usersEntry, app: app)
     XCTAssertTrue(app.scrollViews["native-users-scroll"].waitForExistence(timeout: 10))
-    XCTAssertTrue(tabButton("新增用户", app: app).waitForExistence(timeout: 8))
-    let editBtn = app.buttons["native-user-edit-20"]
-    reveal(editBtn, app: app)
-    tap(editBtn, app: app)
+    XCTAssertTrue(app.buttons["native-users-add"].waitForExistence(timeout: 8))
+    XCTAssertFalse(app.tabBars.buttons["新增用户"].exists)
+    XCTAssertTrue(app.buttons["native-v2-search-tab-item"].waitForExistence(timeout: 5))
+    let userCard = app.descendants(matching: .any)["native-user-card-20"].firstMatch
+    reveal(userCard, app: app)
+    XCTAssertTrue(userCard.waitForExistence(timeout: 8))
+    userCard.press(forDuration: 1.0)
+    let editUserMenu = app.buttons["编辑用户"]
+    XCTAssertTrue(editUserMenu.waitForExistence(timeout: 8))
+    editUserMenu.tap()
     let userSave = app.buttons["native-user-editor-save"]
     XCTAssertTrue(userSave.waitForExistence(timeout: 10))
     userSave.tap()

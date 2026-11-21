@@ -162,22 +162,6 @@ struct NativeSystemModulesPage: View {
       }
     }
     .task(id: "\(domain.rawValue)|\(reloadToken)") { await load() }
-    .nativeDynamicAction(
-      id: "sysmod-save",
-      isActive: (domain == .scraping && scrapingSwitches != originalScrapingSwitches
-        && !isSavingScraping)
-        || (domain == .siteScope && isSiteScopeDirty && !isSavingSiteScope),
-      title: "保存",
-      symbol: "checkmark"
-    ) {
-      Task {
-        if domain == .siteScope {
-          await saveSiteScopes()
-        } else {
-          await saveScrapingSwitches()
-        }
-      }
-    }
   }
 
   /// 顶部分区切换横向胶囊条。
@@ -370,14 +354,17 @@ struct NativeSystemModulesPage: View {
                 }
               )
               Toggle(isOn: isOn) {
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(site.name)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                  if !site.domain.isEmpty {
-                    Text(site.domain)
-                      .font(.caption2.monospaced())
-                      .foregroundStyle(.white.opacity(0.55))
+                HStack(spacing: 10) {
+                  NativeSiteIconView(session: session, siteID: site.id, size: 30, active: true)
+                  VStack(alignment: .leading, spacing: 2) {
+                    Text(site.name)
+                      .font(.subheadline.weight(.medium))
+                      .foregroundStyle(.white)
+                    if !site.domain.isEmpty {
+                      Text(site.domain)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.white.opacity(0.55))
+                    }
                   }
                 }
               }
@@ -404,7 +391,8 @@ struct NativeSystemModulesPage: View {
       } else {
         ForEach(storages) { storage in
           CinematicPanel(padding: 13) {
-            HStack {
+            HStack(spacing: 12) {
+              NativeBrandIcon(kind: .storage, type: storage.type, size: 38, cornerRadius: 10)
               VStack(alignment: .leading, spacing: 3) {
                 Text(storage.name).font(.headline).foregroundStyle(.white)
                 Text(storage.type).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.65))
@@ -468,7 +456,7 @@ struct NativeSystemModulesPage: View {
         emptyCard("暂无已配置下载器")
       } else {
         ForEach(downloaders) { item in
-          serviceRowCard(item, symbol: "arrow.down.circle.fill")
+          serviceRowCard(item, iconKind: .downloader)
         }
       }
 
@@ -477,21 +465,19 @@ struct NativeSystemModulesPage: View {
         emptyCard("暂无已配置媒体服务器")
       } else {
         ForEach(mediaservers) { item in
-          serviceRowCard(item, symbol: "play.tv.fill")
+          serviceRowCard(item, iconKind: .mediaServer)
         }
       }
     }
   }
 
-  /// 单条服务脱敏卡片。
-  private func serviceRowCard(_ item: NativeServiceConfig, symbol: String) -> some View {
+  /// 单条服务脱敏卡片（显示真实下载器与媒体服务器品牌图标）。
+  private func serviceRowCard(
+    _ item: NativeServiceConfig, iconKind: NativeBrandIconKind
+  ) -> some View {
     CinematicPanel(padding: 13) {
       HStack(spacing: 12) {
-        Image(systemName: symbol)
-          .font(.title3)
-          .foregroundStyle(Color(red: 0.78, green: 0.66, blue: 1.0))
-          .frame(width: 36, height: 36)
-          .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
+        NativeBrandIcon(kind: iconKind, type: item.type, size: 40, cornerRadius: 11)
         VStack(alignment: .leading, spacing: 3) {
           HStack(spacing: 6) {
             Text(item.name).font(.headline).foregroundStyle(.white)
@@ -507,7 +493,7 @@ struct NativeSystemModulesPage: View {
     }
   }
 
-  /// 通知渠道视图（脱敏显示渠道名称、类型与订阅场景）。
+  /// 通知渠道视图（脱敏显示真实渠道品牌图标、名称、类型与订阅场景）。
   private var notificationsContent: some View {
     VStack(alignment: .leading, spacing: 12) {
       sectionHeader("通知渠道", count: notifications.count)
@@ -517,7 +503,8 @@ struct NativeSystemModulesPage: View {
         ForEach(notifications) { item in
           CinematicPanel(padding: 13) {
             VStack(alignment: .leading, spacing: 8) {
-              HStack {
+              HStack(spacing: 12) {
+                NativeBrandIcon(kind: .notification, type: item.type, size: 40, cornerRadius: 11)
                 VStack(alignment: .leading, spacing: 3) {
                   Text(item.name).font(.headline).foregroundStyle(.white)
                   Text(item.type).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.66))
