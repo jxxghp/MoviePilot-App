@@ -226,3 +226,71 @@ struct CinematicPrimaryAction: View {
     }.buttonBorderShape(.capsule)
   }
 }
+
+/// 高透液态玻璃弹层与悬浮输入容器表面：iOS 26+ 使用原生 `.glassEffect(.regular.interactive())`，旧系统回退高透毛玻璃加镜面描边。
+@MainActor
+struct NativeLiquidGlassPopoverSurface: ViewModifier {
+  let cornerRadius: CGFloat
+  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+  @Environment(\.colorScheme) private var colorScheme
+
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    if reduceTransparency {
+      content
+        .background(
+          colorScheme == .light ? Color.white : CinematicStyle.solidSurface, in: shape
+        )
+        .overlay {
+          shape.strokeBorder(
+            colorScheme == .light ? Color.black.opacity(0.12) : Color.white.opacity(0.20),
+            lineWidth: 0.7)
+        }
+        .shadow(
+          color: colorScheme == .light ? .black.opacity(0.14) : .black.opacity(0.36),
+          radius: 22, y: 10)
+    } else if #available(iOS 26, *) {
+      content
+        .background {
+          shape.fill(colorScheme == .light ? Color.white.opacity(0.12) : Color.white.opacity(0.05))
+        }
+        .glassEffect(.regular.interactive(), in: shape)
+        .shadow(
+          color: colorScheme == .light ? .black.opacity(0.12) : .black.opacity(0.30),
+          radius: 24, y: 12)
+    } else {
+      content
+        .background {
+          shape
+            .fill(.ultraThinMaterial)
+            .overlay {
+              shape.fill(
+                LinearGradient(
+                  colors: [
+                    Color.white.opacity(colorScheme == .light ? 0.42 : 0.14),
+                    Color.white.opacity(colorScheme == .light ? 0.18 : 0.04),
+                  ],
+                  startPoint: .topLeading,
+                  endPoint: .bottomTrailing
+                ))
+            }
+            .overlay {
+              shape.strokeBorder(
+                LinearGradient(
+                  colors: [
+                    Color.white.opacity(colorScheme == .light ? 0.65 : 0.34),
+                    Color.white.opacity(colorScheme == .light ? 0.18 : 0.08),
+                  ],
+                  startPoint: .topLeading,
+                  endPoint: .bottomTrailing
+                ),
+                lineWidth: 0.8)
+            }
+        }
+        .shadow(
+          color: colorScheme == .light ? .black.opacity(0.14) : .black.opacity(0.38),
+          radius: 24, y: 12)
+    }
+  }
+}

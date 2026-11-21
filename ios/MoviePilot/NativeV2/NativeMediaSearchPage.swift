@@ -184,9 +184,10 @@ private struct NativeMediaSourceOption: Decodable, Sendable, Identifiable {
   }
 }
 
-/// 搜索页面所支持的后端公开 `type` 参数集合。
+/// 搜索页面所支持的分类集合：覆盖影视、媒体库（本地/远程 Emby/Jellyfin/Plex）、人物、音乐与合集。
 private enum NativeMediaSearchType: String, CaseIterable, Identifiable, Hashable, Sendable {
   case media
+  case library
   case person
   case music
   case collection
@@ -198,10 +199,141 @@ private enum NativeMediaSearchType: String, CaseIterable, Identifiable, Hashable
   var title: String {
     switch self {
     case .media: "影视"
+    case .library: "媒体库"
     case .person: "人物"
     case .music: "音乐"
     case .collection: "合集"
     }
+  }
+}
+
+/// 媒体库搜索可选的类型筛选。
+private enum NativeLibrarySearchFilter: String, CaseIterable, Identifiable, Hashable, Sendable {
+  case all = "全部"
+  case tv = "电视剧"
+  case music = "音乐"
+
+  var id: String { rawValue }
+
+  var queryTypes: [String] {
+    switch self {
+    case .all: ["电视剧", "音乐"]
+    case .tv: ["电视剧"]
+    case .music: ["音乐"]
+    }
+  }
+}
+
+/// 媒体服务器搜索结果条目（对应 `GET /api/v1/mediaserver/search` 返回的 `MediaServerPlayItem`）。
+private struct NativeLibrarySearchItem: Decodable, Sendable, Identifiable, Hashable {
+  let idScalar: NativeMediaSearchItem.Scalar?
+  let itemIDScalar: NativeMediaSearchItem.Scalar?
+  let server: String?
+  let serverType: String?
+  let title: String?
+  let subtitle: String?
+  let yearScalar: NativeMediaSearchItem.Scalar?
+  let type: String?
+  let image: String?
+  let percent: Double?
+
+  private enum CodingKeys: String, CodingKey {
+    case server, title, subtitle, type, image, percent
+    case idScalar = "id"
+    case itemIDScalar = "item_id"
+    case serverType = "server_type"
+    case yearScalar = "year"
+  }
+
+  var playableItemID: String { itemIDScalar?.value ?? idScalar?.value ?? "" }
+  var displayTitle: String {
+    let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return trimmed.isEmpty ? "未命名条目" : trimmed
+  }
+  var yearText: String? {
+    let raw = yearScalar?.value.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return raw.isEmpty ? nil : raw
+  }
+  var isMusic: Bool { type == "音乐" || type?.lowercased() == "audio" }
+  var isSeries: Bool { type == "电视剧" || type?.lowercased() == "series" }
+  var id: String { "\(server ?? "srv"):\(playableItemID):\(displayTitle)" }
+
+  func resolvedImageReference(baseURL: URL) -> String? {
+    guard let raw = image?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+      return nil
+    }
+    if raw.hasPrefix("http://") || raw.hasPrefix("https://") {
+      return raw
+    }
+    if raw.hasPrefix("/") {
+      var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
+      components?.path = ""
+      components?.query = nil
+      components?.fragment = nil
+      if let origin = components?.url?.absoluteString.trimmingCharacters(
+        in: CharacterSet(charactersIn: "/"))
+      {
+        return origin + raw
+      }
+    }
+    return nil
+  }
+
+  static func == (lhs: NativeLibrarySearchItem, rhs: NativeLibrarySearchItem) -> Bool {
+    lhs.id == rhs.id
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine(id)
+  }
+}
+
+/// 兼容标准 `{ "success": true, "data": [...] }` 包装与裸数组的媒体库搜索解码器。
+private struct NativeLibrarySearchEnvelope: Decodable, Sendable {
+  let items: [NativeLibrarySearchItem]
+
+  private enum CodingKeys: String, CodingKey { case data }
+
+  init(from decoder: Decoder) throws {
+    if let container = try? decoder.container(keyedBy: CodingKeys.self),
+      let list = try? container.decode([NativeLibrarySearchItem].self, forKey: .data)
+    {
+      items = list
+      return
+    }
+    let single = try decoder.singleValueContainer()
+    items = (try? single.decode([NativeLibrarySearchItem].self)) ?? []
+  }
+}
+
+/// 兼容标准响应包装与裸字典的电视剧季集映射解码器。
+private struct NativeLibraryEpisodesEnvelope: Decodable, Sendable {
+  let map: [Int: [Int: String]]
+
+  private enum CodingKeys: String, CodingKey { case data }
+
+  init(from decoder: Decoder) throws {
+    let raw: [String: [String: String]]
+    if let container = try? decoder.container(keyedBy: CodingKeys.self),
+      let wrapped = try? container.decode([String: [String: String]].self, forKey: .data)
+    {
+      raw = wrapped
+    } else {
+      let single = try decoder.singleValueContainer()
+      raw = (try? single.decode([String: [String: String]].self)) ?? [:]
+    }
+    var parsed: [Int: [Int: String]] = [:]
+    for (seasonKey, episodes) in raw {
+      guard let season = Int(seasonKey) else { continue }
+      var epMap: [Int: String] = [:]
+      for (epKey, epItemID) in episodes {
+        if let epNum = Int(epKey), !epItemID.isEmpty {
+          epMap[epNum] = epItemID
+        }
+      }
+      if !epMap.isEmpty { parsed[season] = epMap }
+    }
+    map = parsed
   }
 }
 
@@ -210,6 +342,7 @@ private struct NativeMediaSearchQuery: Equatable {
   let term: String
   let kind: NativeMediaSearchType
   let sources: [String]
+  let libraryFilter: NativeLibrarySearchFilter
 }
 
 /// 四个实际搜索 type 之外再表达后端单独返回的音乐艺术家 discriminator。
@@ -242,6 +375,11 @@ struct NativeMediaSearchPage: View {
   @State private var sources: [NativeMediaSourceOption] = []
   @State private var selections: [NativeMediaSearchType: Set<String>] = [:]
   @State private var results: [NativeMediaSearchItem] = []
+  @State private var libraryResults: [NativeLibrarySearchItem] = []
+  @State private var libraryFilter: NativeLibrarySearchFilter = .all
+  @State private var librarySeriesPicker: NativeLibrarySeriesPickerTarget?
+  @State private var libraryPlaybackFeedback: String?
+  @State private var launchingLibraryItemID: String?
   @State private var committedQuery: NativeMediaSearchQuery?
   @State private var didStartInitialSearch = false
   @State private var loadedPage = 0
@@ -272,6 +410,21 @@ struct NativeMediaSearchPage: View {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 18) {
           searchControls
+          if let libraryPlaybackFeedback {
+            CinematicPanel(padding: 11) {
+              HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Text(libraryPlaybackFeedback).font(.caption).foregroundStyle(.primary.opacity(0.90))
+                Spacer(minLength: 0)
+                Button {
+                  self.libraryPlaybackFeedback = nil
+                } label: {
+                  Image(systemName: "xmark").font(.caption2).foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+              }
+            }
+          }
           if let failure {
             statusCard(failure, symbol: "exclamationmark.triangle")
             if let committedQuery {
@@ -281,11 +434,16 @@ struct NativeMediaSearchPage: View {
               .accessibilityIdentifier("native-media-search-retry")
             }
           }
-          if !results.isEmpty {
+          if !libraryResults.isEmpty || !results.isEmpty {
             if trimmedQuery != committedQuery?.term, let term = committedQuery?.term {
               Text("“\(term)”的搜索结果").font(.subheadline).foregroundStyle(.secondary)
             }
-            resultsContent
+            if !libraryResults.isEmpty {
+              libraryResultsSection
+            }
+            if !results.isEmpty {
+              resultsContent
+            }
             if isSearching, loadedPage > 0 {
               ProgressView("正在加载…")
                 .frame(maxWidth: .infinity, minHeight: 44)
@@ -294,7 +452,9 @@ struct NativeMediaSearchPage: View {
             if isSearching {
               statusCard("正在搜索…", symbol: "magnifyingglass")
             } else if loadedPage > 0 {
-              statusCard("没有找到相关结果", symbol: "sparkle.magnifyingglass")
+              statusCard(
+                committedQuery?.kind == .library ? "媒体库中未找到相关内容" : "没有找到相关结果",
+                symbol: "sparkle.magnifyingglass")
             }
           }
         }
@@ -316,6 +476,9 @@ struct NativeMediaSearchPage: View {
     .onChange(of: query) { value in
       if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { clearResults() }
     }
+    .sheet(item: $librarySeriesPicker) { target in
+      NativeLibraryEpisodesSheet(session: session, target: target)
+    }
   }
 
   /// 原生关键词、类型和来源筛选在单块低遮罩玻璃面板中保持紧凑。
@@ -324,7 +487,7 @@ struct NativeMediaSearchPage: View {
       VStack(alignment: .leading, spacing: 12) {
         HStack(spacing: 10) {
           Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
-          TextField("搜索电影、剧集、人物或音乐", text: $query)
+          TextField("搜索影视、媒体库、人物或音乐", text: $query)
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .submitLabel(.search).focused($searchFocused)
             .onSubmit { submitSearch() }
@@ -380,12 +543,54 @@ struct NativeMediaSearchPage: View {
               .accessibilityAddTraits(kind == option ? .isSelected : [])
               .accessibilityIdentifier("native-media-search-kind-\(option.rawValue)")
             }
-            sourceMenu
+            if kind == .library {
+              libraryFilterMenu
+            } else {
+              sourceMenu
+            }
           }
         }
         .scrollIndicators(.hidden)
       }
     }
+  }
+
+  /// 媒体库分类筛选菜单（全部 / 电视剧 / 音乐）。
+  private var libraryFilterMenu: some View {
+    Menu {
+      ForEach(NativeLibrarySearchFilter.allCases) { option in
+        Button {
+          guard libraryFilter != option else { return }
+          libraryFilter = option
+          submitSearch()
+        } label: {
+          if libraryFilter == option {
+            Label(option.rawValue, systemImage: "checkmark")
+          } else {
+            Text(option.rawValue)
+          }
+        }
+      }
+    } label: {
+      HStack(spacing: 4) {
+        Text(libraryFilter == .all ? "类型" : libraryFilter.rawValue)
+        Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+      }
+      .font(.subheadline.weight(libraryFilter == .all ? .regular : .semibold))
+      .foregroundStyle(.primary.opacity(libraryFilter == .all ? 0.86 : 0.98))
+      .padding(.horizontal, 12).frame(minHeight: 36)
+      .background {
+        Capsule()
+          .fill(.primary.opacity(libraryFilter == .all ? 0.08 : 0.22))
+          .overlay {
+            Capsule().strokeBorder(
+              .primary.opacity(libraryFilter == .all ? 0.14 : 0.28), lineWidth: 0.6)
+          }
+      }
+      .frame(minHeight: 44).contentShape(Rectangle())
+    }
+    .tint(.primary)
+    .accessibilityIdentifier("native-media-search-library-filter")
   }
 
   /// 后端动态来源筛选可多选，选择改变后重置页码并取消之前请求。
@@ -411,10 +616,11 @@ struct NativeMediaSearchPage: View {
             }
             submitSearch()
           } label: {
+            let displayName = Self.normalizedSourceDisplayName(source.name)
             if selectedSources.contains(source.id) {
-              Label(source.name, systemImage: "checkmark")
+              Label(displayName, systemImage: "checkmark")
             } else {
-              Text(source.name)
+              Text(displayName)
             }
           }
           .accessibilityIdentifier("native-media-search-source-\(source.id)")
@@ -453,6 +659,167 @@ struct NativeMediaSearchPage: View {
 
   /// 每个分类独立保留来源，避免切换分类后把内置音乐来源发送给影视搜索。
   private var selectedSources: Set<String> { selections[kind] ?? [] }
+
+  /// 已入库媒体服务器搜索结果分组（支持直接播放单曲/影片或选择剧集季集播放）。
+  private var libraryResultsSection: some View {
+    Section {
+      ForEach(libraryResults) { item in
+        Button {
+          Task { await openLibraryItem(item) }
+        } label: {
+          CinematicPanel(padding: 9) {
+            HStack(alignment: .center, spacing: 12) {
+              let shape = RoundedRectangle(cornerRadius: item.isMusic ? 12 : 11, style: .continuous)
+              let thumbSize =
+                item.isMusic ? CGSize(width: 60, height: 60) : CGSize(width: 64, height: 92)
+              if let ref = item.resolvedImageReference(baseURL: session.instance.address.url) {
+                NativeMediaArtwork(
+                  session: session, reference: ref, role: .poster,
+                  maximumWidth: Int(thumbSize.width * 2)
+                )
+                .frame(width: thumbSize.width, height: thumbSize.height)
+                .clipShape(shape)
+                .overlay { shape.strokeBorder(.primary.opacity(0.12), lineWidth: 0.5) }
+              } else {
+                ZStack {
+                  Rectangle().fill(.ultraThinMaterial)
+                  Image(systemName: item.isMusic ? "music.note" : "play.tv")
+                    .font(.title3.weight(.light))
+                    .foregroundStyle(.primary.opacity(0.45))
+                }
+                .frame(width: thumbSize.width, height: thumbSize.height)
+                .clipShape(shape)
+                .overlay { shape.strokeBorder(.primary.opacity(0.12), lineWidth: 0.5) }
+              }
+
+              VStack(alignment: .leading, spacing: 5) {
+                Text(item.displayTitle)
+                  .font(.subheadline.weight(.semibold))
+                  .foregroundStyle(.primary)
+                  .lineLimit(2)
+                HStack(spacing: 6) {
+                  if let type = item.type, !type.isEmpty {
+                    Text(type)
+                      .font(.caption2.weight(.medium))
+                      .foregroundStyle(NativeAppearanceStore.shared.accentColor)
+                      .padding(.horizontal, 6)
+                      .padding(.vertical, 2)
+                      .background(
+                        NativeAppearanceStore.shared.accentColor.opacity(0.14), in: Capsule())
+                  }
+                  if let server = item.server, !server.isEmpty {
+                    Text(server)
+                      .font(.caption2)
+                      .foregroundStyle(.secondary)
+                      .lineLimit(1)
+                  }
+                  if let year = item.yearText {
+                    Text(year)
+                      .font(.caption2.monospacedDigit())
+                      .foregroundStyle(.secondary)
+                  }
+                }
+                if let sub = item.subtitle, !sub.isEmpty {
+                  Text(sub)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                }
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+
+              if launchingLibraryItemID == item.id {
+                ProgressView().controlSize(.small).tint(.primary)
+              } else {
+                Image(systemName: item.isSeries ? "list.bullet.rectangle" : "play.circle.fill")
+                  .font(.title3)
+                  .foregroundStyle(NativeAppearanceStore.shared.accentColor)
+              }
+            }
+            .contentShape(Rectangle())
+          }
+        }
+        .buttonStyle(.plain)
+        .disabled(launchingLibraryItemID != nil)
+        .accessibilityIdentifier("native-media-search-library-\(item.playableItemID)")
+      }
+    } header: {
+      HStack {
+        Text("我的媒体库")
+          .font(.headline)
+          .accessibilityAddTraits(.isHeader)
+        Spacer()
+        Text("\(libraryResults.count) 项")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  /// 点击媒体库结果：音乐/电影直接拉起原生播放器，电视剧查询季集后弹出选集列表播放。
+  private func openLibraryItem(_ item: NativeLibrarySearchItem) async {
+    guard !item.playableItemID.isEmpty else { return }
+    libraryPlaybackFeedback = nil
+    launchingLibraryItemID = item.id
+    defer { launchingLibraryItemID = nil }
+
+    let artworkURL = NativeMediaPlaybackLauncher.proxiedArtworkURL(
+      session: session,
+      raw: item.resolvedImageReference(baseURL: session.instance.address.url))
+
+    if item.isSeries {
+      var queryItems = [URLQueryItem(name: "itemid", value: item.playableItemID)]
+      if let server = item.server, !server.isEmpty {
+        queryItems.append(URLQueryItem(name: "server", value: server))
+      }
+      if let endpoint = try? APIEndpoint(path: ["mediaserver", "episodes"], query: queryItems),
+        let envelope = try? await session.request(
+          endpoint, as: NativeLibraryEpisodesEnvelope.self, requiring: discoveryPermission
+        ).value,
+        !envelope.map.isEmpty
+      {
+        librarySeriesPicker = NativeLibrarySeriesPickerTarget(
+          title: item.displayTitle,
+          server: item.server,
+          artworkURL: artworkURL,
+          episodesBySeason: envelope.map
+        )
+        return
+      }
+    }
+
+    var queue: [MediaPlaybackQueueItem] = []
+    var queueIndex = 0
+    if item.isMusic {
+      let musicItems = libraryResults.filter(\.isMusic)
+      queue = musicItems.map { track in
+        MediaPlaybackQueueItem(
+          itemId: track.playableItemID,
+          title: track.displayTitle,
+          server: track.server,
+          artworkURL: NativeMediaPlaybackLauncher.proxiedArtworkURL(
+            session: session,
+            raw: track.resolvedImageReference(baseURL: session.instance.address.url)
+          )?.absoluteString,
+          artist: track.subtitle,
+          album: nil
+        )
+      }
+      queueIndex = musicItems.firstIndex(where: { $0.id == item.id }) ?? 0
+    }
+
+    let err = await NativeMediaPlaybackLauncher.shared.playMediaServerItem(
+      session: session,
+      itemID: item.playableItemID,
+      server: item.server,
+      title: item.displayTitle,
+      artworkURL: artworkURL,
+      queue: queue,
+      queueIndex: queueIndex)
+    if let err {
+      libraryPlaybackFeedback = err
+    }
+  }
 
   /// 人物结果沿用 Cinematic 圆形头像横栏，影片/音乐/合集采用透色玻璃海报横卡。
   @ViewBuilder
@@ -536,9 +903,20 @@ struct NativeMediaSearchPage: View {
     }
   }
 
-  /// 来源目录用于可读的标签；没有目录名称时不展示内部标识。
+  /// 来源目录用于可读的标签；统一将 TMDB / TheMovieDb 规范展示为 TheMovieDB。
   private var sourceNames: [String: String] {
-    Dictionary(sources.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+    Dictionary(
+      sources.map { ($0.id, Self.normalizedSourceDisplayName($0.name)) },
+      uniquingKeysWith: { first, _ in first }
+    )
+  }
+
+  /// 规范化来源显示名，确保统一展示全称 `TheMovieDB`。
+  private static func normalizedSourceDisplayName(_ raw: String) -> String {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    let lower = trimmed.lowercased()
+    if lower == "tmdb" || lower == "themoviedb" { return "TheMovieDB" }
+    return trimmed
   }
 
   /// 请求固定页大小；没有精确总数时用满页判断是否还能继续。
@@ -565,7 +943,8 @@ struct NativeMediaSearchPage: View {
     guard !trimmedQuery.isEmpty else { return }
     searchFocused = false
     let criteria = NativeMediaSearchQuery(
-      term: trimmedQuery, kind: kind, sources: selectedSources.sorted())
+      term: trimmedQuery, kind: kind, sources: selectedSources.sorted(),
+      libraryFilter: libraryFilter)
     guard !isSearching || committedQuery != criteria || loadedPage > 0 else { return }
     clearResults()
     committedQuery = criteria
@@ -577,6 +956,8 @@ struct NativeMediaSearchPage: View {
     cancelSearch()
     committedQuery = nil
     results = []
+    libraryResults = []
+    libraryPlaybackFeedback = nil
     loadedPage = 0
     hasMore = false
     failure = nil
@@ -605,6 +986,22 @@ struct NativeMediaSearchPage: View {
         }
       }
       do {
+        if criteria.kind == .library {
+          let loadedLibrary = try await fetchLibraryResults(
+            term: criteria.term, types: criteria.libraryFilter.queryTypes, limit: 40)
+          try session.checkActive(requiring: discoveryPermission)
+          guard searchGeneration == generation, committedQuery == criteria else { return }
+          libraryResults = loadedLibrary
+          loadedPage = 1
+          hasMore = false
+          return
+        }
+
+        async let supplementalLibraryTask: [NativeLibrarySearchItem]? =
+          (criteria.kind == .media && page == 1)
+          ? (try? await fetchLibraryResults(term: criteria.term, types: ["电视剧", "音乐"], limit: 12))
+          : nil
+
         var queryItems = [
           URLQueryItem(name: "title", value: criteria.term),
           URLQueryItem(name: "type", value: criteria.kind.rawValue),
@@ -615,8 +1012,12 @@ struct NativeMediaSearchPage: View {
         let endpoint = try APIEndpoint(path: ["media", "search"], query: queryItems)
         let response = try await session.request(
           endpoint, as: [NativeMediaSearchItem].self, requiring: discoveryPermission)
+        let supplementalLibrary = await supplementalLibraryTask
         try session.checkActive(requiring: discoveryPermission)
         guard searchGeneration == generation, committedQuery == criteria else { return }
+        if let supplementalLibrary, page == 1 {
+          libraryResults = supplementalLibrary
+        }
         let values = response.value
         var existing = Set(results.map(\.id))
         let additions = values.filter { existing.insert($0.id).inserted }
@@ -636,6 +1037,24 @@ struct NativeMediaSearchPage: View {
         failure = Self.safeFailure(error)
       }
     }
+  }
+
+  /// 调用 `GET /api/v1/mediaserver/search` 检索已配置媒体服务器中的已入库内容。
+  private func fetchLibraryResults(
+    term: String, types: [String], limit: Int
+  ) async throws -> [NativeLibrarySearchItem] {
+    var queryItems = [
+      URLQueryItem(name: "keyword", value: term),
+      URLQueryItem(name: "limit", value: String(limit)),
+    ]
+    for type in types {
+      queryItems.append(URLQueryItem(name: "type", value: type))
+    }
+    let endpoint = try APIEndpoint(path: ["mediaserver", "search"], query: queryItems)
+    let envelope = try await session.request(
+      endpoint, as: NativeLibrarySearchEnvelope.self, requiring: discoveryPermission
+    ).value
+    return envelope.items
   }
 
   /// 接近结果尾部时自动续页；失败页等待明确重试，不循环发送同一请求。
@@ -795,16 +1214,22 @@ private struct NativeMediaSearchRow: View {
     }
   }
 
-  /// 缺图只用明确占位，不将远端或演示图片冒充真实媒体海报。
+  /// 轻盈通透的毛玻璃占位层，海报缺图或加载前不出现厚重暗块。
   private func artworkPlaceholder(symbol: String) -> some View {
     ZStack {
+      Rectangle()
+        .fill(.ultraThinMaterial)
       LinearGradient(
         colors: [
-          Color(red: 0.36, green: 0.28, blue: 0.43),
-          Color(red: 0.24, green: 0.25, blue: 0.34),
+          Color.white.opacity(0.14),
+          Color.white.opacity(0.05),
+          Color.clear,
         ],
-        startPoint: .topLeading, endPoint: .bottomTrailing)
-      Image(systemName: symbol).font(.title3).foregroundStyle(.primary.opacity(0.62))
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+      )
+      Image(systemName: symbol).font(.title3.weight(.ultraLight)).foregroundStyle(
+        .primary.opacity(0.36))
     }
   }
 
@@ -821,5 +1246,159 @@ private struct NativeMediaSearchRow: View {
   private var artworkSize: CGSize {
     item.resultKind == .person || item.resultKind == .music || item.resultKind == .artist
       ? CGSize(width: 64, height: 64) : CGSize(width: 68, height: 102)
+  }
+}
+
+/// 媒体库剧集选集播放目标。
+private struct NativeLibrarySeriesPickerTarget: Identifiable {
+  let id = UUID()
+  let title: String
+  let server: String?
+  let artworkURL: URL?
+  let episodesBySeason: [Int: [Int: String]]
+}
+
+/// 媒体库电视剧季/集选择播放弹层。
+@MainActor
+private struct NativeLibraryEpisodesSheet: View {
+  let session: NativeSession
+  let target: NativeLibrarySeriesPickerTarget
+
+  @State private var selectedSeason: Int
+  @State private var launchingEpisodeID: String?
+  @State private var feedback: String?
+  @Environment(\.dismiss) private var dismiss
+
+  private var seasons: [Int] {
+    target.episodesBySeason.keys.sorted { lhs, rhs in
+      if lhs == 0 { return false }
+      if rhs == 0 { return true }
+      return lhs < rhs
+    }
+  }
+
+  private var episodes: [(number: Int, itemID: String)] {
+    (target.episodesBySeason[selectedSeason] ?? [:])
+      .map { ($0.key, $0.value) }
+      .sorted { $0.number < $1.number }
+  }
+
+  init(session: NativeSession, target: NativeLibrarySeriesPickerTarget) {
+    self.session = session
+    self.target = target
+    let sorted = target.episodesBySeason.keys.sorted { lhs, rhs in
+      if lhs == 0 { return false }
+      if rhs == 0 { return true }
+      return lhs < rhs
+    }
+    _selectedSeason = State(initialValue: sorted.first ?? 1)
+  }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 14) {
+            if let feedback {
+              CinematicPanel(padding: 10) {
+                Text(feedback).font(.caption).foregroundStyle(.orange)
+              }
+            }
+            if seasons.count > 1 {
+              ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                  ForEach(seasons, id: \.self) { season in
+                    let active = selectedSeason == season
+                    Button {
+                      selectedSeason = season
+                    } label: {
+                      Text(season == 0 ? "特别篇" : "第 \(season) 季")
+                        .font(.caption.weight(active ? .semibold : .medium))
+                        .foregroundStyle(active ? .white : .primary.opacity(0.76))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background {
+                          Capsule()
+                            .fill(
+                              active
+                                ? NativeAppearanceStore.shared.accentColor
+                                : .primary.opacity(0.08))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                  }
+                }
+              }
+              .scrollIndicators(.hidden)
+            }
+
+            CinematicPanel(padding: 0) {
+              VStack(spacing: 0) {
+                ForEach(Array(episodes.enumerated()), id: \.element.number) { idx, ep in
+                  if idx > 0 { CinematicFormDivider() }
+                  Button {
+                    Task { await playEpisode(ep) }
+                  } label: {
+                    HStack(spacing: 12) {
+                      Text(String(format: "E%02d", ep.number))
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(NativeAppearanceStore.shared.accentColor)
+                        .frame(width: 44, alignment: .leading)
+                      Text("第 \(ep.number) 集")
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                      Spacer()
+                      if launchingEpisodeID == ep.itemID {
+                        ProgressView().controlSize(.small).tint(.primary)
+                      } else {
+                        Image(systemName: "play.circle.fill")
+                          .font(.title3)
+                          .foregroundStyle(NativeAppearanceStore.shared.accentColor)
+                      }
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 48)
+                    .contentShape(Rectangle())
+                  }
+                  .buttonStyle(.plain)
+                  .disabled(launchingEpisodeID != nil)
+                }
+              }
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
+        }
+        .scrollIndicators(.hidden)
+      }
+      .navigationTitle(target.title)
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("关闭") { dismiss() }
+        }
+      }
+    }
+    .presentationDetents([.medium, .large])
+    .nativeAppearanceRoot()
+  }
+
+  private func playEpisode(_ ep: (number: Int, itemID: String)) async {
+    launchingEpisodeID = ep.itemID
+    feedback = nil
+    let seasonPrefix = selectedSeason == 0 ? "S00" : String(format: "S%02d", selectedSeason)
+    let epTitle = "\(target.title) \(seasonPrefix)\(String(format: "E%02d", ep.number))"
+    dismiss()
+    try? await Task.sleep(nanoseconds: 280_000_000)
+    let err = await NativeMediaPlaybackLauncher.shared.playMediaServerItem(
+      session: session,
+      itemID: ep.itemID,
+      server: target.server,
+      title: epTitle,
+      artworkURL: target.artworkURL)
+    launchingEpisodeID = nil
+    if let err { feedback = err }
   }
 }

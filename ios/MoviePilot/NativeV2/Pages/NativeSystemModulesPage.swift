@@ -79,19 +79,18 @@ struct NativeSystemModulesPage: View {
     _domain = State(initialValue: initialDomain)
   }
 
-  /// 深色紫玫瑰渐变背景、顶部分区胶囊条与各专项配置玻璃卡片。
+  /// 深色紫玫瑰渐变背景与当前专项配置玻璃卡片（由系统设置主菜单直接进入，不再展示横向一级跳转条）。
   var body: some View {
     ZStack {
       CinematicBackground()
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
-          domainBar
           if let feedback {
             CinematicPanel(padding: 10) {
               HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle.fill")
                   .foregroundStyle(Color(red: 0.56, green: 0.92, blue: 0.72))
-                Text(feedback).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
+                Text(feedback).font(.subheadline).foregroundStyle(.primary.opacity(0.88))
                 Spacer(minLength: 0)
               }
             }
@@ -139,64 +138,17 @@ struct NativeSystemModulesPage: View {
           .disabled(scrapingSwitches == originalScrapingSwitches || isSavingScraping)
           .accessibilityIdentifier("native-sysmod-scraping-save")
         } else {
-          Menu {
-            ForEach(Domain.allCases) { item in
-              Button {
-                domain = item
-              } label: {
-                Label(item.rawValue, systemImage: item.symbol)
-              }
-            }
-            Divider()
-            Button {
-              reloadToken += 1
-            } label: {
-              Label("刷新当前配置", systemImage: "arrow.clockwise")
-            }
+          Button {
+            reloadToken += 1
           } label: {
-            Image(systemName: "ellipsis")
+            Image(systemName: "arrow.clockwise")
           }
-          .accessibilityLabel("更多系统配置")
+          .accessibilityLabel("刷新当前配置")
           .accessibilityIdentifier("native-sysmod-refresh")
         }
       }
     }
     .task(id: "\(domain.rawValue)|\(reloadToken)") { await load() }
-  }
-
-  /// 顶部分区切换横向胶囊条。
-  private var domainBar: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: 8) {
-        ForEach(Domain.allCases) { item in
-          let active = domain == item
-          Button {
-            domain = item
-            feedback = nil
-          } label: {
-            Label(item.rawValue, systemImage: item.symbol)
-              .font(.caption.weight(.semibold))
-              .foregroundStyle(active ? .white : .white.opacity(0.76))
-              .padding(.horizontal, 12)
-              .padding(.vertical, 7)
-              .background {
-                Capsule()
-                  .fill(
-                    active
-                      ? Color(red: 0.58, green: 0.42, blue: 0.88).opacity(0.78)
-                      : .white.opacity(0.08)
-                  )
-                  .overlay {
-                    Capsule().strokeBorder(.primary.opacity(active ? 0.30 : 0.14), lineWidth: 0.6)
-                  }
-              }
-          }
-          .buttonStyle(.plain)
-          .accessibilityIdentifier("native-sysmod-tab-\(item.rawValue)")
-        }
-      }
-    }
-    .accessibilityIdentifier("native-sysmod-bar")
   }
 
   /// 当前分区的具体渲染内容。
@@ -662,22 +614,28 @@ struct NativeSystemModulesPage: View {
 
   private func sectionHeader(_ title: String, count: Int) -> some View {
     HStack {
-      Text(title).font(.headline).foregroundStyle(.primary).accessibilityAddTraits(.isHeader)
+      Text(title)
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+        .accessibilityAddTraits(.isHeader)
       Spacer()
-      Text("\(count) 项").font(.caption).foregroundStyle(.primary.opacity(0.62))
+      Text("\(count) 项")
+        .font(.caption2)
+        .foregroundStyle(.secondary.opacity(0.85))
     }
+    .padding(.horizontal, 2)
   }
 
   private func statusTag(_ text: String, active: Bool) -> some View {
-    let tint: Color = active ? Color(red: 0.56, green: 0.92, blue: 0.72) : .white.opacity(0.58)
+    let tint: Color = active ? Color(red: 0.48, green: 0.86, blue: 0.64) : .secondary
     return Text(text)
-      .font(.caption2.weight(.semibold))
+      .font(.caption2.weight(.medium))
       .foregroundStyle(tint)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 3)
+      .padding(.horizontal, 7)
+      .padding(.vertical, 2.5)
       .background {
         Capsule()
-          .fill(.primary.opacity(0.10))
+          .fill(.primary.opacity(0.07))
           .overlay { Capsule().strokeBorder(tint.opacity(0.32), lineWidth: 0.6) }
       }
   }

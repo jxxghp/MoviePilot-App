@@ -87,11 +87,11 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
     .task(id: snapshot.scope) { await loadOverview() }
   }
 
-  /// 顶部浮于渐变之上的大号「设置」标题。
+  /// 顶部浮于渐变之上的克制版「设置」标题。
   private var headerTitle: some View {
     Text("设置")
-      .font(.largeTitle.bold())
-      .foregroundStyle(.primary)
+      .font(.title2.weight(.semibold))
+      .foregroundStyle(.primary.opacity(0.90))
       .padding(.horizontal, 2)
       .accessibilityAddTraits(.isHeader)
   }
@@ -99,38 +99,38 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
   /// 第一层：顶部账号头像、实例在线状态与真实存储容量概览卡。
   private var storageTelemetryCard: some View {
     let host = session.instance.address.url.host ?? session.instance.address.url.absoluteString
-    return CinematicPanel(padding: 16) {
-      VStack(alignment: .leading, spacing: 14) {
-        HStack(spacing: 13) {
+    return CinematicPanel(padding: 15) {
+      VStack(alignment: .leading, spacing: 12) {
+        HStack(spacing: 12) {
           NativeUserAvatarView(
             session: session,
             avatar: snapshot.user.avatar,
             name: snapshot.user.name,
             isSuperuser: snapshot.user.isSuperuser,
-            size: 46
+            size: 44
           )
-          VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 7) {
+          VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
               Text(snapshot.user.name)
-                .font(.headline.weight(.bold))
-                .foregroundStyle(.primary)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary.opacity(0.90))
                 .lineLimit(1)
               Text(snapshot.user.isSuperuser ? "超级管理员" : "普通成员")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(Color(red: 0.86, green: 0.76, blue: 1.0))
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2.5)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
                 .background {
-                  Capsule().fill(.primary.opacity(0.11))
+                  Capsule().fill(.primary.opacity(0.07))
                 }
             }
             HStack(spacing: 5) {
               Circle()
-                .fill(Color(red: 0.42, green: 0.88, blue: 0.56))
-                .frame(width: 6.5, height: 6.5)
+                .fill(Color(red: 0.42, green: 0.88, blue: 0.56).opacity(0.85))
+                .frame(width: 6, height: 6)
               Text(host)
-                .font(.caption.monospaced())
-                .foregroundStyle(.primary.opacity(0.72))
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
             }
           }
@@ -212,38 +212,38 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
     }
   }
 
-  /// 第三层：高亮横幅入口卡（高对比度白色胶囊按钮），集中承接核心系统设置。
+  /// 第三层：系统核心参数入口卡，保持克制字重与轻量层次。
   private var featuredSystemBanner: some View {
-    CinematicPanel(padding: 16) {
-      VStack(alignment: .leading, spacing: 12) {
-        HStack(alignment: .center, spacing: 8) {
-          Image(systemName: "sparkles")
-            .font(.headline.weight(.semibold))
-            .foregroundStyle(.primary)
+    CinematicPanel(padding: 15) {
+      VStack(alignment: .leading, spacing: 10) {
+        HStack(alignment: .center, spacing: 7) {
+          Image(systemName: "slider.horizontal.3")
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.secondary)
           Text("系统核心参数")
-            .font(.headline.weight(.bold))
-            .foregroundStyle(.primary)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary.opacity(0.88))
           Spacer(minLength: 8)
           Text("高级项见 Web 后台")
-            .font(.caption)
-            .foregroundStyle(.primary.opacity(0.55))
+            .font(.caption2)
+            .foregroundStyle(.secondary)
         }
         Text("快速调整媒体识别、订阅策略与定时缓存，保持移动端轻量高效。")
-          .font(.subheadline)
-          .foregroundStyle(.primary.opacity(0.76))
+          .font(.caption)
+          .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
 
         Button {
           onNavigate(.settings)
         } label: {
           Text("进入系统设置")
-            .font(.subheadline.weight(.bold))
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(
               colorScheme == .light ? .white : Color(red: 0.12, green: 0.10, blue: 0.16)
             )
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .frame(maxWidth: .infinity, minHeight: 42)
             .background(
-              colorScheme == .light ? appearance.accentColor : .white, in: Capsule())
+              colorScheme == .light ? appearance.accentColor : .white.opacity(0.92), in: Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("native-workspace-settings")
@@ -253,11 +253,11 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
 
   /// 第四层：4 列紧凑玻璃图标瓷砖（高频捷径与诊断：系统检查、网络测试、识别规则、实时日志）。
   private var appPreferenceTiles: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: 8) {
       Text("捷径与诊断")
-        .font(.subheadline.weight(.medium))
-        .foregroundStyle(.primary.opacity(0.68))
-        .padding(.horizontal, 2)
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
       HStack(spacing: 10) {
         compactTile(
           title: "系统检查", symbol: "checkmark.shield",
@@ -289,11 +289,11 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
 
   /// 第五层：2×2 横向紧凑玻璃胶囊卡（常用配置与快捷服务：站点范围、定时服务、下载媒体、通知渠道）。
   private var quickConfigPillsGrid: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: 8) {
       Text("常用配置")
-        .font(.subheadline.weight(.medium))
-        .foregroundStyle(.primary.opacity(0.68))
-        .padding(.horizontal, 2)
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
       VStack(spacing: 10) {
         HStack(spacing: 10) {
           horizontalConfigPill(
@@ -351,12 +351,12 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
               tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
           VStack(alignment: .leading, spacing: 2) {
             Text(title)
-              .font(.subheadline.weight(.semibold))
-              .foregroundStyle(.primary)
+              .font(.subheadline.weight(.medium))
+              .foregroundStyle(.primary.opacity(0.88))
               .lineLimit(1)
             Text(subtitle)
               .font(.caption2)
-              .foregroundStyle(.primary.opacity(0.62))
+              .foregroundStyle(.secondary)
               .lineLimit(1)
           }
           Spacer(minLength: 0)
@@ -385,6 +385,12 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
         id: "native-settings-hub-directories"
       ) {
         onNavigate(.systemModule(.directories))
+      }
+      nativeListRow(
+        title: "规则与识别词", symbol: "line.3.horizontal.decrease.circle",
+        id: "native-settings-hub-rules"
+      ) {
+        onNavigate(.systemModule(.rules))
       }
       nativeListRow(
         title: "刮削开关", symbol: "wand.and.stars",
@@ -521,21 +527,21 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
             .background(
               tint.opacity(0.18), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
           Spacer(minLength: 4)
-          VStack(alignment: .leading, spacing: 4) {
+          VStack(alignment: .leading, spacing: 3) {
             Text(title)
-              .font(.headline)
-              .foregroundStyle(.primary)
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(.primary.opacity(0.88))
               .lineLimit(1)
             HStack(spacing: 5) {
-              Circle().fill(statusColor).frame(width: 6, height: 6)
+              Circle().fill(statusColor.opacity(0.85)).frame(width: 5.5, height: 5.5)
               Text(statusText)
-                .font(.caption)
-                .foregroundStyle(.primary.opacity(0.68))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
             }
           }
         }
-        .frame(maxWidth: .infinity, minHeight: 108, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 102, alignment: .leading)
       }
     }
     .buttonStyle(.plain)
@@ -548,18 +554,18 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
   ) -> some View {
     Button(action: action) {
       CinematicPanel(padding: 10) {
-        VStack(spacing: 8) {
+        VStack(spacing: 7) {
           Image(systemName: symbol)
-            .font(.title3.weight(.medium))
-            .foregroundStyle(.primary.opacity(0.92))
-            .frame(height: 26)
+            .font(.body.weight(.medium))
+            .foregroundStyle(.primary.opacity(0.82))
+            .frame(height: 24)
           Text(title)
-            .font(.caption.weight(.medium))
-            .foregroundStyle(.primary.opacity(0.86))
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.primary.opacity(0.78))
             .lineLimit(1)
             .minimumScaleFactor(0.82)
         }
-        .frame(maxWidth: .infinity, minHeight: 68)
+        .frame(maxWidth: .infinity, minHeight: 64)
       }
     }
     .buttonStyle(.plain)
@@ -577,22 +583,22 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
     Button(action: action) {
       HStack(spacing: 12) {
         Image(systemName: symbol)
-          .font(.body.weight(.medium))
-          .foregroundStyle(.primary.opacity(0.86))
-          .frame(width: 24)
+          .font(.subheadline.weight(.medium))
+          .foregroundStyle(.secondary)
+          .frame(width: 22)
         Text(title)
-          .font(.body)
-          .foregroundStyle(.primary)
+          .font(.subheadline)
+          .foregroundStyle(.primary.opacity(0.86))
         Spacer(minLength: 8)
         if let subtitle, !subtitle.isEmpty {
           Text(subtitle)
-            .font(.caption)
-            .foregroundStyle(.primary.opacity(0.56))
+            .font(.caption2)
+            .foregroundStyle(.secondary)
             .lineLimit(1)
         }
         Image(systemName: "chevron.right")
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(.primary.opacity(0.38))
+          .font(.caption2.weight(.medium))
+          .foregroundStyle(.secondary.opacity(0.65))
       }
       .contentShape(Rectangle())
     }

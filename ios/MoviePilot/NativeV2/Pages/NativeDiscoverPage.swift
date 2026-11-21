@@ -667,10 +667,10 @@ struct NativeDiscoverPage: View {
   @ViewBuilder private func featureLabels(_ item: NativeDiscoverFeature) -> some View {
     if let rating = item.rating, !rating.isEmpty {
       HStack(spacing: 5) {
-        Text("TMDB")
-          .font(.system(size: 9, weight: .black))
+        Text("TheMovieDB")
+          .font(.system(size: 9.5, weight: .heavy))
           .foregroundStyle(.black)
-          .padding(.horizontal, 5)
+          .padding(.horizontal, 6)
           .padding(.vertical, 2)
           .background(
             Color(red: 0.42, green: 0.86, blue: 0.78),
@@ -946,18 +946,25 @@ struct NativeDiscoverPage: View {
     }
   }
 
-  /// 没有已接入的来源路由时只展示平台卡片，不呈现空按钮。
+  /// 媒体库卡片直接呈现服务端封面原图，不叠加名称遮罩，仅在右上角以轻透角标展示入库数量。
   private func providerArtwork(_ provider: NativeDiscoverProvider) -> some View {
-    ZStack(alignment: .leading) {
+    ZStack(alignment: .topTrailing) {
       artwork(provider.artworkReference, .provider)
         .frame(width: cardWidth, height: 112).clipped()
-      LinearGradient(
-        colors: [.black.opacity(0.56), .clear], startPoint: .leading, endPoint: .trailing)
-      VStack(alignment: .leading, spacing: 5) {
-        Text(provider.name).font(.title3.weight(.bold)).lineLimit(2)
-        if let count = provider.itemCount { Text("\(count) 项内容").font(.caption) }
+      if let count = provider.itemCount {
+        Text(count.formatted(.number))
+          .font(.caption2.monospacedDigit().weight(.bold))
+          .foregroundStyle(.white)
+          .padding(.horizontal, 8)
+          .padding(.vertical, 3.5)
+          .background {
+            Capsule()
+              .fill(.ultraThinMaterial)
+              .overlay { Capsule().fill(Color.black.opacity(0.36)) }
+              .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.6) }
+          }
+          .padding(8)
       }
-      .foregroundStyle(.white).padding(16)
     }
     .clipShape(.rect(cornerRadius: 19))
     .overlay {
@@ -965,6 +972,8 @@ struct NativeDiscoverPage: View {
         .strokeBorder(.white.opacity(0.16), lineWidth: 0.7)
     }
     .frame(width: cardWidth, height: 112)
+    .accessibilityLabel(provider.name)
+    .accessibilityValue(provider.itemCount.map { "\($0) 项内容" } ?? "")
   }
 
   /// 没有接入分类查询时保持分类海报信息可见，但不会显示无效操作。

@@ -4,18 +4,17 @@ import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
 
-/// 原生多来源探索片库：支持 TMDB / 豆瓣 / Bangumi 与扩展插件发现源的分类、排序、地区与年份筛选及自动翻页。
+/// 原生多来源探索片库：支持 TheMovieDB / 豆瓣 / Bangumi / 音乐与扩展插件发现源的分类、排序、地区与年份筛选及自动翻页。
 @MainActor
 struct NativeExplorePage: View {
   let session: NativeSession
   let initialSource: NativeExploreSourceKind
-  let onOpenMusic: (() -> Void)?
 
   @State private var selectedSource: NativeExploreSourceKind
   @State private var extraSources: [NativeExtraDiscoverSource] = []
   @State private var selectedExtraID: String?
 
-  // TMDB 筛选状态
+  // TheMovieDB 筛选状态
   @State private var tmdbSort = "popularity.desc"
   @State private var tmdbGenre = ""
   @State private var tmdbLanguage = ""
@@ -45,47 +44,61 @@ struct NativeExplorePage: View {
   /// 初始化探索页并选中指定的默认来源。
   init(
     session: NativeSession,
-    initialSource: NativeExploreSourceKind = .tmdbMovies,
-    onOpenMusic: (() -> Void)? = nil
+    initialSource: NativeExploreSourceKind = .tmdbMovies
   ) {
     self.session = session
     self.initialSource = initialSource
-    self.onOpenMusic = onOpenMusic
     _selectedSource = State(initialValue: initialSource)
   }
 
-  /// 连续紫玫瑰渐变背景、来源切换胶囊、精简筛选标签栏与自动翻页海报网格。
+  /// 当前是否处于音乐探索模式。
+  private var isMusicSelected: Bool {
+    selectedExtraID == nil && selectedSource == .music
+  }
+
+  /// 连续紫玫瑰渐变背景、来源切换胶囊、精简筛选标签栏与自动翻页海报/专辑网格。
   var body: some View {
     ZStack {
       CinematicBackground()
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
           sourceBar
-          if selectedExtraID == nil {
-            filterControls
-          }
-          if isLoading && items.isEmpty {
-            ProgressView("正在探索片库…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 240)
-          } else if loadFailed && items.isEmpty {
-            failureCard
-          } else if items.isEmpty {
-            emptyCard
+          if isMusicSelected {
+            NativeMusicExploreSection(session: session, reloadToken: reloadToken)
+              .padding(.horizontal, CinematicStyle.margin)
           } else {
-            posterGrid
-            if isLoadingMore {
-              ProgressView()
+            if selectedExtraID == nil {
+              filterControls
+            }
+            if isLoading && items.isEmpty {
+              ProgressView("正在探索片库…")
                 .tint(.primary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, minHeight: 240)
+            } else if loadFailed && items.isEmpty {
+              failureCard
+            } else if items.isEmpty {
+              emptyCard
+            } else {
+              posterGrid
+              if isLoadingMore {
+                ProgressView()
+                  .tint(.primary)
+                  .frame(maxWidth: .infinity)
+                  .padding(.vertical, 14)
+              }
             }
           }
         }
         .padding(.vertical, 12)
       }
       .scrollIndicators(.hidden)
-      .refreshable { await reload() }
+      .refreshable {
+        if isMusicSelected {
+          reloadToken += 1
+        } else {
+          await reload()
+        }
+      }
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-explore-scroll")
     }
@@ -94,22 +107,12 @@ struct NativeExplorePage: View {
     .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
-        Menu {
-          if let onOpenMusic {
-            Button(action: onOpenMusic) {
-              Label("音乐发现", systemImage: "music.note.list")
-            }
-            .accessibilityIdentifier("native-explore-music")
-          }
-          Button {
-            reloadToken += 1
-          } label: {
-            Label("刷新片库", systemImage: "arrow.clockwise")
-          }
+        Button {
+          reloadToken += 1
         } label: {
-          Image(systemName: "ellipsis")
+          Image(systemName: "arrow.clockwise")
         }
-        .accessibilityLabel("更多探索功能")
+        .accessibilityLabel("刷新片库")
         .accessibilityIdentifier("native-explore-more")
       }
     }
@@ -214,6 +217,8 @@ struct NativeExplorePage: View {
         chipRow(options: Self.bangumiYears, selection: bangumiYear, prefix: "year") {
           bangumiYear = $0
         }
+      case .music:
+        EmptyView()
       }
     }
   }
@@ -401,6 +406,7 @@ struct NativeExplorePage: View {
 
   /// 重置分页并加载首页探索结果。
   private func reload() async {
+    guard !isMusicSelected else { return }
     let generation = UUID()
     queryGeneration = generation
     isLoading = true
@@ -504,6 +510,8 @@ struct NativeExplorePage: View {
         }
         if !bangumiYear.isEmpty { query.append(URLQueryItem(name: "year", value: bangumiYear)) }
         fallbackType = "电视剧"
+      case .music:
+        return []
       }
       endpoint = try APIEndpoint(path: path, query: query)
     }
@@ -576,6 +584,7 @@ enum NativeExploreSourceKind: String, CaseIterable, Identifiable, Hashable {
   case doubanMovies = "douban_movies"
   case doubanTVs = "douban_tvs"
   case bangumi = "bangumi"
+  case music = "music"
 
   /// 稳定标识。
   var id: String { rawValue }
@@ -583,11 +592,12 @@ enum NativeExploreSourceKind: String, CaseIterable, Identifiable, Hashable {
   /// 中文来源展示标题。
   var title: String {
     switch self {
-    case .tmdbMovies: "TMDB 电影"
-    case .tmdbTVs: "TMDB 剧集"
+    case .tmdbMovies: "TheMovieDB 电影"
+    case .tmdbTVs: "TheMovieDB 剧集"
     case .doubanMovies: "豆瓣电影"
     case .doubanTVs: "豆瓣剧集"
     case .bangumi: "Bangumi"
+    case .music: "音乐"
     }
   }
 }

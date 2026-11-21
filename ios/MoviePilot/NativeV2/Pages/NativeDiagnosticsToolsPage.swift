@@ -92,13 +92,12 @@ struct NativeDiagnosticsToolsPage: View {
     _tool = State(initialValue: initialTool)
   }
 
-  /// 连续深色紫玫瑰渐变、顶部工具切换胶囊栏与各诊断工具主内容。
+  /// 连续深色紫玫瑰渐变与当前诊断工具主内容（由设置主菜单直接进入，不展示横向一级跳转条）。
   var body: some View {
     ZStack {
       CinematicBackground()
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
-          toolPickerBar
           if let feedback {
             CinematicPanel(padding: 10) {
               HStack(spacing: 8) {
@@ -190,40 +189,6 @@ struct NativeDiagnosticsToolsPage: View {
         Image(systemName: "ellipsis")
       }
       .accessibilityLabel("更多诊断工具")
-    }
-  }
-
-  /// 顶部工具切换横向胶囊条。
-  private var toolPickerBar: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: 8) {
-        ForEach(Tool.allCases) { item in
-          let active = tool == item
-          Button {
-            tool = item
-            feedback = nil
-          } label: {
-            Label(item.rawValue, systemImage: item.symbol)
-              .font(.caption.weight(.semibold))
-              .foregroundStyle(active ? .white : .white.opacity(0.76))
-              .padding(.horizontal, 12)
-              .padding(.vertical, 8)
-              .background {
-                Capsule()
-                  .fill(
-                    active
-                      ? Color(red: 0.56, green: 0.40, blue: 0.88).opacity(0.80)
-                      : .white.opacity(0.08)
-                  )
-                  .overlay {
-                    Capsule().strokeBorder(.primary.opacity(active ? 0.30 : 0.14), lineWidth: 0.6)
-                  }
-              }
-          }
-          .buttonStyle(.plain)
-          .accessibilityIdentifier("native-diag-tab-\(item.rawValue)")
-        }
-      }
     }
   }
 
