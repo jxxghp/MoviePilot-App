@@ -30,6 +30,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @StateObject private var dynamicActionCenter = NativeDynamicActionCenter()
   @ObservedObject private var routeHub = NativeSystemRouteHub.shared
   @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @ObservedObject private var playbackLauncher = NativeMediaPlaybackLauncher.shared
   @Environment(\.colorScheme) private var colorScheme
   @State private var selectedTab: Page = .discover
   @State private var discovery = NativeDiscoverContent(
@@ -86,6 +87,11 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     ZStack {
       page
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+      if let miniMusic = playbackLauncher.miniMusicState, !showsOverflowMenu {
+        floatingMiniMusicBar(miniMusic)
+          .transition(.move(edge: .bottom).combined(with: .opacity))
+          .zIndex(45)
+      }
       if showFloatingAssistant && !showsOverflowMenu && !showsAgentSheet && !showsShortcutsSheet {
         NativeAgentFloatingMascot(
           onOpen: { showsAgentSheet = true },
@@ -736,6 +742,119 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     case .agent:
       showsAgentSheet = true
     }
+  }
+
+  /// 最小化音乐悬浮迷你播放条：悬浮于底部导航栏上方，支持封面展示、实时进度线、播放/暂停、下一首、关闭与点按还原全屏播放页。
+  private func floatingMiniMusicBar(_ state: NativeMiniMusicState) -> some View {
+    let accent = appearance.accentColor
+    return VStack {
+      Spacer(minLength: 0)
+      VStack(spacing: 0) {
+        HStack(spacing: 11) {
+          Group {
+            if let artwork = state.artwork {
+              Image(uiImage: artwork)
+                .resizable()
+                .scaledToFill()
+            } else {
+              ZStack {
+                LinearGradient(
+                  colors: [accent.opacity(0.68), accent.opacity(0.32)],
+                  startPoint: .topLeading, endPoint: .bottomTrailing)
+                Image(systemName: "music.note")
+                  .font(.subheadline.weight(.semibold))
+                  .foregroundStyle(.white)
+              }
+            }
+          }
+          .frame(width: 40, height: 40)
+          .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+          .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+              .strokeBorder(.white.opacity(0.18), lineWidth: 0.6)
+          }
+
+          VStack(alignment: .leading, spacing: 2) {
+            Text(state.title)
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(.primary)
+              .lineLimit(1)
+            if !state.subtitle.isEmpty {
+              Text(state.subtitle)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+
+          HStack(spacing: 4) {
+            Button {
+              playbackLauncher.toggleMinimizedPlayPause()
+            } label: {
+              Image(systemName: state.isPlaying ? "pause.fill" : "play.fill")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 36, height: 36)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(state.isPlaying ? "暂停" : "播放")
+            .accessibilityIdentifier("native-mini-music-playpause")
+
+            if state.hasNext {
+              Button {
+                playbackLauncher.skipNextMinimizedTrack()
+              } label: {
+                Image(systemName: "forward.fill")
+                  .font(.subheadline.weight(.semibold))
+                  .foregroundStyle(.primary.opacity(0.85))
+                  .frame(width: 34, height: 36)
+                  .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+              .accessibilityLabel("下一首")
+              .accessibilityIdentifier("native-mini-music-next")
+            }
+
+            Button {
+              withAnimation(.spring(response: 0.25, dampingFraction: 0.88)) {
+                playbackLauncher.stopMinimizedAudio()
+              }
+            } label: {
+              Image(systemName: "xmark")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 30, height: 36)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("关闭音乐播放")
+            .accessibilityIdentifier("native-mini-music-close")
+          }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .onTapGesture {
+          playbackLauncher.expandMinimizedAudio()
+        }
+
+        GeometryReader { bar in
+          let width = max(bar.size.width * min(max(state.progress, 0), 1), 0)
+          ZStack(alignment: .leading) {
+            Rectangle().fill(.primary.opacity(0.08))
+            Rectangle().fill(accent).frame(width: width)
+          }
+        }
+        .frame(height: 2.2)
+      }
+      .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+      .modifier(NativeLiquidGlassPopoverSurface(cornerRadius: 18))
+      .padding(.horizontal, 14)
+      .padding(.bottom, 86)
+    }
+    .accessibilityIdentifier("native-mini-music-bar")
   }
 
   /// 跨账号或失效小组件触发时展示顶部安全提示条（不自动切换实例或账号）。
