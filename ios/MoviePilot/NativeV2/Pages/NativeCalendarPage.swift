@@ -33,7 +33,6 @@ struct NativeCalendarPage: View {
       CinematicBackground()
       ScrollView {
         VStack(alignment: .leading, spacing: 20) {
-          weekHeader
           weekStrip
           if isLoading && entries.isEmpty {
             ProgressView("正在载入追剧日历…")
@@ -58,7 +57,7 @@ struct NativeCalendarPage: View {
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-calendar-scroll")
     }
-    .navigationTitle("追剧日历")
+    .navigationTitle(navigationMonthTitle)
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
@@ -83,82 +82,102 @@ struct NativeCalendarPage: View {
     (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: anchorWeekStart) }
   }
 
-  /// 当前周区间标题与左右切周按钮。
-  private var weekHeader: some View {
-    HStack {
-      Button {
-        shiftWeek(by: -7)
-      } label: {
-        Image(systemName: "chevron.left")
-          .font(.subheadline.weight(.semibold))
-          .frame(width: 38, height: 38)
-          .background { Circle().fill(.white.opacity(0.08)) }
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("上一周")
-      .accessibilityIdentifier("native-calendar-prev-week")
-      Spacer()
-      Text(weekRangeLabel)
-        .font(.subheadline.weight(.semibold))
-        .foregroundStyle(.white.opacity(0.86))
-      Spacer()
-      Button {
-        shiftWeek(by: 7)
-      } label: {
-        Image(systemName: "chevron.right")
-          .font(.subheadline.weight(.semibold))
-          .frame(width: 38, height: 38)
-          .background { Circle().fill(.white.opacity(0.08)) }
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("下一周")
-      .accessibilityIdentifier("native-calendar-next-week")
-    }
-  }
-
-  /// 七天日签条：今天以暖红标注，选中项以透色圆角玻璃边框高亮，有剧集日期带底部圆点。
+  /// 单行七天日签条：左右两侧直接内置上一周/下一周切换按钮，今天以暖红标注，选中项透色圆角高亮，有剧集日期带底部圆点。
   private var weekStrip: some View {
     let todayKey = Self.isoDate(Date())
     let selectedKey = Self.isoDate(selectedDate)
     let activeDates = Set(entries.map(\.date))
-    return HStack(spacing: 6) {
-      ForEach(weekDays, id: \.self) { day in
-        let key = Self.isoDate(day)
-        let isToday = key == todayKey
-        let isSelected = key == selectedKey
-        let hasItems = activeDates.contains(key)
-        Button {
-          selectedDate = day
-        } label: {
-          VStack(spacing: 4) {
-            Text("\(calendar.component(.day, from: day))")
-              .font(.headline.monospacedDigit())
-              .foregroundStyle(isToday ? Color(red: 1.0, green: 0.42, blue: 0.44) : .white)
-            Text(Self.weekdayShort(calendar.component(.weekday, from: day)))
-              .font(.caption2)
-              .foregroundStyle(
-                isToday ? Color(red: 1.0, green: 0.42, blue: 0.44) : .white.opacity(0.68))
-            Circle()
-              .fill(hasItems ? Color(red: 0.78, green: 0.62, blue: 1.0) : .clear)
-              .frame(width: 4.5, height: 4.5)
-          }
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 9)
-          .background {
-            if isSelected {
-              RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.white.opacity(0.12))
-                .overlay {
-                  RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(.white.opacity(0.28), lineWidth: 0.8)
-                }
+    return HStack(spacing: 4) {
+      weekShiftButton(
+        symbol: "chevron.left",
+        label: "上一周",
+        id: "native-calendar-prev-week"
+      ) {
+        withAnimation(.easeInOut(duration: 0.2)) { shiftWeek(by: -7) }
+      }
+
+      HStack(spacing: 3) {
+        ForEach(weekDays, id: \.self) { day in
+          let key = Self.isoDate(day)
+          let isToday = key == todayKey
+          let isSelected = key == selectedKey
+          let hasItems = activeDates.contains(key)
+          Button {
+            selectedDate = day
+          } label: {
+            VStack(spacing: 4) {
+              Text("\(calendar.component(.day, from: day))")
+                .font(.subheadline.weight(.semibold).monospacedDigit())
+                .foregroundStyle(isToday ? Color(red: 1.0, green: 0.42, blue: 0.44) : .white)
+              Text(Self.weekdayShort(calendar.component(.weekday, from: day)))
+                .font(.caption2)
+                .foregroundStyle(
+                  isToday ? Color(red: 1.0, green: 0.42, blue: 0.44) : .white.opacity(0.68))
+              Circle()
+                .fill(hasItems ? Color(red: 0.78, green: 0.62, blue: 1.0) : .clear)
+                .frame(width: 4.5, height: 4.5)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background {
+              if isSelected {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                  .fill(.white.opacity(0.13))
+                  .overlay {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                      .strokeBorder(.white.opacity(0.28), lineWidth: 0.8)
+                  }
+              }
             }
           }
+          .buttonStyle(.plain)
+          .accessibilityIdentifier("native-calendar-day-\(key)")
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("native-calendar-day-\(key)")
+      }
+
+      weekShiftButton(
+        symbol: "chevron.right",
+        label: "下一周",
+        id: "native-calendar-next-week"
+      ) {
+        withAnimation(.easeInOut(duration: 0.2)) { shiftWeek(by: 7) }
       }
     }
+    .contentShape(Rectangle())
+    .gesture(
+      DragGesture(minimumDistance: 28)
+        .onEnded { value in
+          guard abs(value.translation.width) > abs(value.translation.height) else { return }
+          if value.translation.width < -28 {
+            withAnimation(.easeInOut(duration: 0.2)) { shiftWeek(by: 7) }
+          } else if value.translation.width > 28 {
+            withAnimation(.easeInOut(duration: 0.2)) { shiftWeek(by: -7) }
+          }
+        }
+    )
+  }
+
+  /// 紧贴日期条两侧的周切换按钮。
+  private func weekShiftButton(
+    symbol: String, label: String, id: String, action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      Image(systemName: symbol)
+        .font(.caption.weight(.bold))
+        .foregroundStyle(.white.opacity(0.86))
+        .frame(width: 28, height: 48)
+        .background {
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(.white.opacity(0.08))
+            .overlay {
+              RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(.white.opacity(0.14), lineWidth: 0.5)
+            }
+        }
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(label)
+    .accessibilityIdentifier(id)
   }
 
   /// 选中日期的播出内容或参考图同款空态玻璃卡。
@@ -267,10 +286,15 @@ struct NativeCalendarPage: View {
     }
   }
 
-  /// 格式化当前周的日期范围标题。
-  private var weekRangeLabel: String {
-    let end = calendar.date(byAdding: .day, value: 6, to: anchorWeekStart) ?? anchorWeekStart
-    return "\(Self.isoDate(anchorWeekStart)) – \(Self.isoDate(end))"
+  /// 导航栏紧凑年月标题：随当前选中周自动变化，避免额外占用日期条上方整行空间。
+  private var navigationMonthTitle: String {
+    let selectedYear = calendar.component(.year, from: selectedDate)
+    let currentYear = calendar.component(.year, from: Date())
+    let month = calendar.component(.month, from: selectedDate)
+    if selectedYear != currentYear {
+      return "追剧日历 · \(selectedYear)年\(month)月"
+    }
+    return "追剧日历 · \(month)月"
   }
 
   /// 请求可见周区间内的订阅播出排期（`end` 为开区间故 +7 天）。
@@ -309,16 +333,16 @@ struct NativeCalendarPage: View {
     return formatter.string(from: date)
   }
 
-  /// 中文简短星期标签。
+  /// 中文单字星期标签，适配单行 7 日 + 左右周切换按钮布局。
   private static func weekdayShort(_ weekday: Int) -> String {
     switch weekday {
-    case 1: "周日"
-    case 2: "周一"
-    case 3: "周二"
-    case 4: "周三"
-    case 5: "周四"
-    case 6: "周五"
-    default: "周六"
+    case 1: "日"
+    case 2: "一"
+    case 3: "二"
+    case 4: "三"
+    case 5: "四"
+    case 6: "五"
+    default: "六"
     }
   }
 }
