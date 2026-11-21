@@ -74,7 +74,7 @@ struct NativeFormPlanTests {
     case "slot": child["slots"] = ["append": ["component": "span", "text": "x"]]
     case "html": child["html"] = "<b>x</b>"
     case "rules": props["rules"] = ["required"]
-    case "component": child["component"] = "VAceEditor"
+    case "component": child["component"] = "VUnknownWidget"
     case "style": props["style"] = "display:none"
     case "class": props["class"] = "d-none"
     case "named":
@@ -272,6 +272,130 @@ struct NativeFormPlanTests {
         try JSONDecoder().decode(NativeInstalledPlugin.self, from: Data(json.utf8))
       }
     }
+  }
+
+  /// 实装 `plugins.v3` 扩展组件：折叠组、多值复选框、代码编辑器、VDialog、ChipGroup、Slider、链接按钮、innerHTML 与数字步长。
+  @Test func plansExpandedV3PluginFormComponents() throws {
+    let nodes: [[String: Any]] = [
+      [
+        "component": "VForm",
+        "content": [
+          [
+            "component": "VRow",
+            "content": [
+              [
+                "component": "VCol",
+                "props": ["cols": 12, "class": "courseorganizer-form mt-3"],
+                "content": [
+                  [
+                    "component": "VTextField",
+                    "props": [
+                      "model": "limit", "label": "限速", "type": "number", "step": 1,
+                      "onKeydown": "function(e) {}",
+                    ],
+                  ],
+                  [
+                    "component": "VAutocomplete",
+                    "props": [
+                      "model": "sites", "label": "站点", "multiple": true,
+                      "items": [["title": "A", "value": "a"], ["title": "B", "value": "b"]],
+                    ],
+                  ],
+                  [
+                    "component": "VSlider",
+                    "props": ["model": "ratio", "label": "比例", "min": 0, "max": 10, "step": 0.5],
+                  ],
+                  [
+                    "component": "VChipGroup",
+                    "props": ["model": "tags", "label": "标签", "multiple": true],
+                    "content": [
+                      ["component": "VChip", "props": ["value": "4k"], "text": "4K"],
+                      ["component": "VChip", "props": ["value": "hdr"], "text": "HDR"],
+                    ],
+                  ],
+                  [
+                    "component": "VBtn",
+                    "props": ["href": "https://example.com/qr", "color": "primary"],
+                    "text": "扫码登录",
+                  ],
+                  [
+                    "component": "VAlert",
+                    "props": [
+                      "type": "info", "innerHTML": "提示：<strong>剧集组</strong>优先。",
+                    ],
+                  ],
+                ],
+              ]
+            ],
+          ],
+          [
+            "component": "VExpansionPanels",
+            "props": ["popout": true, "multiple": false],
+            "content": [
+              [
+                "component": "VExpansionPanel",
+                "content": [
+                  ["component": "VExpansionPanelTitle", "text": "兴趣分类"],
+                  [
+                    "component": "VExpansionPanelText",
+                    "content": [
+                      [
+                        "component": "VCheckbox",
+                        "props": ["label": "动作", "value": "Action", "model": "interests"],
+                      ]
+                    ],
+                  ],
+                ],
+              ]
+            ],
+          ],
+          [
+            "component": "VDialog",
+            "props": ["model": "dialog_opened", "max-width": "65rem"],
+            "content": [
+              [
+                "component": "VCard",
+                "props": ["title": "自定义规则"],
+                "content": [
+                  ["component": "VDialogCloseBtn", "props": ["model": "dialog_opened"]],
+                  [
+                    "component": "VAceEditor",
+                    "props": ["modelvalue": "yaml_text", "lang": "yaml", "style": "height:30rem"],
+                  ],
+                ],
+              ]
+            ],
+          ],
+        ],
+      ]
+    ]
+    let document = try decode(
+      nodes,
+      model: [
+        "limit": "10", "sites": ["a"], "ratio": 5, "tags": ["4k"],
+        "interests": ["Action"], "dialog_opened": false, "yaml_text": "foo: bar",
+      ])
+    let draft = try PluginFormDraft(document: document)
+    let plan = try NativeFormPlan(document: document, draft: draft)
+    #expect(plan.issues.isEmpty)
+    let allControls = plan.groups.flatMap(\.elements).map(\.control)
+    #expect(allControls.contains { if case .select = $0 { true } else { false } })
+    #expect(allControls.contains { if case .slider = $0 { true } else { false } })
+    #expect(allControls.contains { if case .chipGroup = $0 { true } else { false } })
+    #expect(allControls.contains { if case .link = $0 { true } else { false } })
+    #expect(
+      allControls.contains {
+        if case .notice(_, let t, _) = $0 { t.contains("剧集组") } else { false }
+      })
+    let expansions = allControls.compactMap { ctrl -> (String, [NativeFormElement])? in
+      if case .expansion(let title, let items) = ctrl { return (title, items) }
+      return nil
+    }
+    #expect(expansions.count == 2)
+    #expect(expansions[0].0 == "兴趣分类")
+    #expect(expansions[0].1.contains { if case .toggleValue = $0.control { true } else { false } })
+    #expect(expansions[1].0 == "自定义规则")
+    #expect(expansions[1].1.contains { if case .codeEditor = $0.control { true } else { false } })
   }
 
   /// 构造完整协议响应，只接受测试数据，不绕过实际解码器。

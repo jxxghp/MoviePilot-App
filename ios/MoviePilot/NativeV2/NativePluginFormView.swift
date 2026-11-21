@@ -1,10 +1,13 @@
 import Combine
+import MoviePilotAPI
 import MoviePilotCore
 import MoviePilotPluginForms
 import MoviePilotPluginUI
+import MoviePilotSession
 import SwiftUI
 
-/// JSON 配置的真实原生编辑页面，展示与保存验证使用完全相同的计划。
+/// JSON 配置的真实原生编辑页面，展示与保存验证使用完全相同的计划；
+/// 若插件为 Vue 远程组件模式（`renderMode == .vue`），自动在免登隔离 WebView 中直接呈现插件配置界面。
 @MainActor
 struct NativePluginFormView: View {
   let plugin: NativeInstalledPlugin
@@ -13,6 +16,7 @@ struct NativePluginFormView: View {
   @State private var localFailure = false
   @State private var showsDiscard = false
   @State private var saveTask: Task<Void, Never>?
+  @State private var actionFeedback: String?
   @Environment(\.dismiss) private var dismiss
 
   /// 草稿所有者只归属本次导航，不放入跨实例的全局状态。
@@ -21,80 +25,103 @@ struct NativePluginFormView: View {
     _form = StateObject(wrappedValue: form)
   }
 
-  /// 读取失败和未支持配置都保留清楚状态，不开放空配置保存。
   var body: some View {
     let plan = self.plan
+    let isVuePlugin = form.document?.renderMode == .vue
     return ZStack {
       CinematicBackground()
-      Form {
-        if busy {
-          CinematicFormSection {
-            CinematicFormRow {
-              ProgressView()
-              Text(L10n.text(form.phase == .saving ? "正在保存…" : "正在加载…"))
+      if isVuePlugin {
+        NativeVuePluginWebContainer(
+          session: form.activeSession,
+          pluginID: plugin.id,
+          pluginName: plugin.name,
+          surface: .config
+        )
+        .ignoresSafeArea(edges: .bottom)
+      } else {
+        Form {
+          if busy {
+            CinematicFormSection {
+              CinematicFormRow {
+                ProgressView()
+                Text(L10n.text(form.phase == .saving ? "正在保存…" : "正在加载…"))
+              }
             }
           }
-        }
-        if form.failure != nil || localFailure {
-          CinematicFormSection {
-            CinematicFormRow(symbol: "exclamationmark.triangle") {
-              Text(L10n.text(form.saveOutcome == .unconfirmed ? "保存结果未确认，修改已保留。" : "操作失败，请重试。"))
-                .accessibilityIdentifier("native-plugin-form-error")
-            }
-            if form.document == nil {
-              CinematicFormDivider()
-              CinematicFormRow { Button(L10n.text("重试")) { loadAgain() }.frame(minHeight: 44) }
-            }
-          }
-        }
-        if form.document?.renderMode == .vue {
-          CinematicFormSection {
-            CinematicFormRow(symbol: "puzzlepiece.extension") {
-              Text(L10n.text("此插件使用 Web 界面，兼容入口正在迁移。"))
-            }
-          }
-        } else if let plan {
-          if !plan.issues.isEmpty {
+          if let actionFeedback {
             CinematicFormSection {
               CinematicFormRow(symbol: "info.circle") {
-                Text(
-                  L10n.text(
-                    plan.issues.contains(where: { $0.code == .unsupported })
-                      ? "部分配置暂不支持原生编辑，保存已停用。" : "请检查标记的配置项。")
-                )
-                .accessibilityIdentifier("native-plugin-form-blocked")
+                Text(actionFeedback).font(.callout)
               }
             }
           }
-          if plan.groups.isEmpty {
-            CinematicFormSection { CinematicFormRow { Text(L10n.text("此插件没有配置项")) } }
-          }
-          ForEach(plan.groups) { group in
+          if form.failure != nil || localFailure {
             CinematicFormSection {
-              ForEach(Array(group.elements.enumerated()), id: \.element.id) { index, element in
-                if index > 0 { CinematicFormDivider() }
-                NativePluginControlView(
-                  element: element, issues: plan.issues, read: read, update: update,
-                  select: { selected = $0 })
+              CinematicFormRow(symbol: "exclamationmark.triangle") {
+                Text(
+                  L10n.text(
+                    form.saveOutcome == .unconfirmed ? "保存结果未确认，修改已保留。" : "操作失败，请重试。")
+                )
+                .accessibilityIdentifier("native-plugin-form-error")
               }
-            }.disabled(busy)
+              if form.document == nil {
+                CinematicFormDivider()
+                CinematicFormRow { Button(L10n.text("重试")) { loadAgain() }.frame(minHeight: 44) }
+              }
+            }
           }
-          if form.lastSave != nil {
-            CinematicFormSection {
-              CinematicFormRow(symbol: "checkmark.circle.fill") {
-                Text(L10n.text("配置已保存")).accessibilityIdentifier("native-plugin-form-saved")
+          if let plan {
+            if !plan.issues.isEmpty {
+              CinematicFormSection {
+                CinematicFormRow(symbol: "info.circle") {
+                  Text(
+                    L10n.text(
+                      plan.issues.contains(where: { $0.code == .unsupported })
+                        ? "部分配置暂不支持原生编辑，保存已停用。" : "请检查标记的配置项。")
+                  )
+                  .accessibilityIdentifier("native-plugin-form-blocked")
+                }
+              }
+            }
+            if plan.groups.isEmpty {
+              CinematicFormSection { CinematicFormRow { Text(L10n.text("此插件没有配置项")) } }
+            }
+            ForEach(plan.groups) { group in
+              CinematicFormSection {
+                ForEach(Array(group.elements.enumerated()), id: \.element.id) { index, element in
+                  if index > 0 { CinematicFormDivider() }
+                  NativePluginControlView(
+                    element: element,
+                    issues: plan.issues,
+                    read: read,
+                    update: update,
+                    select: { selected = $0 },
+                    onAction: { api, method in
+                      Task { await invokeButtonAction(api: api, method: method) }
+                    })
+                }
+              }.disabled(busy)
+            }
+            if form.lastSave != nil {
+              CinematicFormSection {
+                CinematicFormRow(symbol: "checkmark.circle.fill") {
+                  Text(L10n.text("配置已保存")).accessibilityIdentifier("native-plugin-form-saved")
+                }
               }
             }
           }
         }
+        .scrollContentBackground(.hidden)
+        .scrollDismissesKeyboard(.interactively)
+        .frame(maxWidth: 680)
       }
-      .scrollContentBackground(.hidden).scrollDismissesKeyboard(.interactively).frame(maxWidth: 680)
     }
-    .navigationTitle(plugin.name).navigationBarTitleDisplayMode(.inline)
+    .navigationTitle(plugin.name)
+    .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
-    .navigationBarBackButtonHidden(form.draft?.hasChanges == true || busy)
+    .navigationBarBackButtonHidden(!isVuePlugin && (form.draft?.hasChanges == true || busy))
     .toolbar {
-      if form.draft?.hasChanges == true || busy {
+      if !isVuePlugin && (form.draft?.hasChanges == true || busy) {
         ToolbarItem(placement: .navigationBarLeading) {
           Button {
             if form.draft?.hasChanges == true { showsDiscard = true } else { dismiss() }
@@ -104,14 +131,16 @@ struct NativePluginFormView: View {
           .accessibilityLabel(L10n.text("返回")).accessibilityIdentifier("native-plugin-form-back")
         }
       }
-      ToolbarItem(placement: .navigationBarTrailing) {
-        Button(L10n.text("保存")) { save() }
-          .disabled(busy || plan == nil || plan?.issues.isEmpty != true)
-          .accessibilityIdentifier("native-plugin-form-save")
-      }
-      ToolbarItemGroup(placement: .keyboard) {
-        Spacer()
-        Button(L10n.text("完成")) { endEditing() }
+      if !isVuePlugin {
+        ToolbarItem(placement: .navigationBarTrailing) {
+          Button(L10n.text("保存")) { save() }
+            .disabled(busy || plan == nil || plan?.issues.isEmpty != true)
+            .accessibilityIdentifier("native-plugin-form-save")
+        }
+        ToolbarItemGroup(placement: .keyboard) {
+          Spacer()
+          Button(L10n.text("完成")) { endEditing() }
+        }
       }
     }
     .sheet(item: $selected) { element in
@@ -141,16 +170,13 @@ struct NativePluginFormView: View {
     }
   }
 
-  /// 计划计算失败本身也必须阻止保存，不转换为空白成功。
   private var plan: NativeFormPlan? {
     guard let document = form.document, let draft = form.draft else { return nil }
     return try? NativeFormPlan(document: document, draft: draft)
   }
 
-  /// 读取/保存期间禁用编辑，单次草稿修订与网络提交一一对应。
   private var busy: Bool { form.phase == .loading || form.phase == .saving }
 
-  /// 每次更新都经过完整草稿预算/会话检查，失败不改变其它字段。
   private func update(_ value: PluginJSONValue, _ field: String) {
     do {
       try form.setValue(value, forExactField: field)
@@ -158,22 +184,44 @@ struct NativePluginFormView: View {
     } catch { localFailure = true }
   }
 
-  /// 原生连续输入/多选直接读当前完整草稿，不返回上一帧控件中的值快照。
   private func read(_ field: String) -> PluginJSONValue? { form.draft?.value(forExactField: field) }
 
-  /// 保存只由显式按钮触发，不把字段变化接到网络。
   private func save() {
     endEditing()
     localFailure = false
     saveTask = Task { do { try await form.save() } catch {} }
   }
 
-  /// 只在尚无草稿时显示读取重试，避免覆盖用户修改。
   private func loadAgain() {
     saveTask = Task { do { try await form.load() } catch {} }
   }
 
-  /// 键盘完成与保存都结束当前原生第一响应者。
+  private func invokeButtonAction(api: String, method: String?) async {
+    let cleaned = api.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    let segments = cleaned.split(separator: "/").map(String.init)
+    guard !segments.isEmpty else { return }
+    let apiSegments: [String]
+    if segments.count >= 3, segments[0] == "api", segments[1] == "v1" {
+      apiSegments = Array(segments.dropFirst(2))
+    } else {
+      apiSegments = segments
+    }
+    let httpMethod: APIMethod =
+      switch (method ?? "GET").uppercased() {
+      case "POST": .post
+      case "PUT": .put
+      case "DELETE": .delete
+      default: .get
+      }
+    do {
+      let endpoint = try APIEndpoint(path: apiSegments, method: httpMethod, timeout: 30)
+      try await form.activeSession.perform(endpoint)
+      actionFeedback = "插件操作已执行。"
+    } catch {
+      actionFeedback = "插件操作失败：\(error.localizedDescription)"
+    }
+  }
+
   private func endEditing() {
     UIApplication.shared.sendAction(
       #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
@@ -188,14 +236,16 @@ private struct NativePluginControlView: View {
   let read: (String) -> PluginJSONValue?
   let update: (PluginJSONValue, String) -> Void
   let select: (NativeFormElement) -> Void
+  let onAction: (String, String?) -> Void
 
-  /// 每个控件保留系统交互/辅助功能，错误说明随原生布局换行。
+  @Environment(\.openURL) private var openURL
+
   var body: some View {
     CinematicFormRow {
       VStack(alignment: .leading, spacing: 8) {
         control
         if issues.contains(where: { $0.pointer == element.id && $0.code != .unsupported }) {
-          Text(L10n.text("请检查此项的值")).font(.caption).foregroundStyle(.orange)
+          Text(L10n.text("请检查此项的值")).font(.caption).foregroundStyle(NativeTheme.warning)
         }
       }.frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -210,13 +260,42 @@ private struct NativePluginControlView: View {
         isOn: Binding(
           get: { read(field.key) == .bool(true) }, set: { update(.bool($0), field.key) })
       )
-      .tint(.green).disabled(field.disabled).accessibilityIdentifier(
-        "native-plugin-field-" + field.key)
+      .tint(NativeTheme.success)
+      .disabled(field.disabled)
+      .accessibilityIdentifier("native-plugin-field-" + field.key)
       hint(field)
+
+    case .toggleValue(let field, let itemValue):
+      Toggle(
+        field.label,
+        isOn: Binding(
+          get: {
+            let current = read(field.key)?.array ?? []
+            return current.contains { $0 == itemValue }
+          },
+          set: { enabled in
+            var current = read(field.key)?.array ?? []
+            if enabled {
+              if !current.contains(where: { $0 == itemValue }) { current.append(itemValue) }
+            } else {
+              current.removeAll { $0 == itemValue }
+            }
+            update(.array(current), field.key)
+          })
+      )
+      .tint(NativeTheme.brand)
+      .disabled(field.disabled)
+      hint(field)
+
     case .input(let field, let kind):
       NativePluginInputView(field: field, kind: kind, read: read, update: update)
+
+    case .codeEditor(let field, let language):
+      NativePluginCodeEditorView(field: field, language: language, read: read, update: update)
+
     case .cron(let field):
       NativePluginCronField(field: field, read: read, update: update) { select(element) }
+
     case .select(let field, let options, let multiple, _):
       Button {
         select(element)
@@ -224,14 +303,17 @@ private struct NativePluginControlView: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
           Text(field.label).multilineTextAlignment(.leading)
           Spacer(minLength: 4)
-          Text(selectionText(field, options: options, multiple: multiple)).foregroundStyle(
-            .secondary
-          ).multilineTextAlignment(.trailing)
+          Text(selectionText(field, options: options, multiple: multiple))
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.trailing)
           Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(.secondary)
         }.frame(minHeight: 44).contentShape(Rectangle())
-      }.buttonStyle(.plain).disabled(field.disabled).accessibilityIdentifier(
-        "native-plugin-field-" + field.key)
+      }
+      .buttonStyle(.plain)
+      .disabled(field.disabled)
+      .accessibilityIdentifier("native-plugin-field-" + field.key)
       hint(field)
+
     case .combobox(let field, let draft):
       Button {
         select(element)
@@ -243,39 +325,179 @@ private struct NativePluginControlView: View {
             draft.selected.isEmpty
               ? (field.placeholder.isEmpty ? L10n.text("选择或输入") : field.placeholder)
               : draft.selected.map(\.title).joined(separator: "、")
-          ).foregroundStyle(.secondary).multilineTextAlignment(.trailing).lineLimit(2)
+          )
+          .foregroundStyle(.secondary)
+          .multilineTextAlignment(.trailing)
+          .lineLimit(2)
           Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(.secondary)
         }.frame(minHeight: 44).contentShape(Rectangle())
-      }.buttonStyle(.plain).disabled(field.disabled).accessibilityIdentifier(
-        "native-plugin-field-" + field.key)
+      }
+      .buttonStyle(.plain)
+      .disabled(field.disabled)
+      .accessibilityIdentifier("native-plugin-field-" + field.key)
       hint(field)
+
+    case .slider(let field, let minVal, let maxVal, let stepVal):
+      NativePluginSliderView(
+        field: field, min: minVal, max: maxVal, step: stepVal, read: read, update: update)
+
+    case .rangeSlider(let field, let minVal, let maxVal, let stepVal):
+      NativePluginRangeSliderView(
+        field: field, min: minVal, max: maxVal, step: stepVal, read: read, update: update)
+
+    case .chipGroup(let field, let options, let multiple):
+      VStack(alignment: .leading, spacing: 8) {
+        Text(field.label).font(.subheadline).foregroundStyle(.secondary)
+        ScrollView(.horizontal, showsIndicators: false) {
+          HStack(spacing: 8) {
+            ForEach(options) { option in
+              let currentValues: [PluginJSONValue] =
+                multiple
+                ? (read(field.key)?.array ?? [])
+                : (read(field.key).map { [$0] } ?? [])
+              let isSelected = currentValues.contains(where: option.matches)
+              Button {
+                if multiple {
+                  var arr = read(field.key)?.array ?? []
+                  if arr.contains(where: option.matches) {
+                    arr.removeAll(where: option.matches)
+                  } else {
+                    arr.append(option.value)
+                  }
+                  update(.array(arr), field.key)
+                } else {
+                  update(option.value, field.key)
+                }
+              } label: {
+                NativeAdaptivePill(option.title, isSelected: isSelected)
+              }
+              .buttonStyle(.plain)
+              .disabled(field.disabled)
+            }
+          }
+        }
+        hint(field)
+      }
+
+    case .expansion(let title, let children):
+      NativePluginFormExpansionView(
+        title: title,
+        elements: children,
+        issues: issues,
+        read: read,
+        update: update,
+        select: select,
+        onAction: onAction)
+
     case .notice(let title, let text, let kind):
       HStack(alignment: .top, spacing: 12) {
         Image(
           systemName: kind == .error || kind == .warning
             ? "exclamationmark.triangle" : kind == .success ? "checkmark.circle" : "info.circle"
         )
-        .foregroundStyle(kind == .error || kind == .warning ? Color.orange : Color.secondary)
+        .foregroundStyle(
+          kind == .error
+            ? NativeTheme.danger
+            : (kind == .warning
+              ? NativeTheme.warning
+              : (kind == .success ? NativeTheme.success : NativeTheme.info))
+        )
         .accessibilityHidden(true)
         VStack(alignment: .leading, spacing: 6) {
           if !title.isEmpty { Text(title).font(.headline) }
-          Text(text).font(.callout).foregroundStyle(.secondary)
+          if !text.isEmpty { Text(text).font(.callout).foregroundStyle(.secondary) }
         }
       }.padding(.vertical, 4).accessibilityElement(children: .combine)
-    case .text(let text): Text(text)
-    case .divider: Divider()
+
+    case .link(let label, let url):
+      Button {
+        openURL(url)
+      } label: {
+        HStack(spacing: 8) {
+          Image(systemName: "safari")
+          Text(label).fontWeight(.medium)
+          Spacer(minLength: 0)
+          Image(systemName: "arrow.up.right").font(.caption)
+        }
+        .foregroundStyle(NativeTheme.brand)
+        .frame(minHeight: 40)
+      }
+      .buttonStyle(.plain)
+
+    case .button(let label, let api, let method, let color, let webOnly):
+      VStack(alignment: .leading, spacing: 4) {
+        Button {
+          if let api { onAction(api, method) }
+        } label: {
+          Text(label)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(
+              api != nil ? NativePluginJSONRenderer.tintColor(color ?? "primary") : .secondary
+            )
+            .frame(maxWidth: .infinity, minHeight: 40)
+            .background {
+              RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(
+                  api != nil
+                    ? NativePluginJSONRenderer.tintColor(color ?? "primary").opacity(0.15)
+                    : NativeTheme.chipFill)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(api == nil)
+        if webOnly {
+          Text("此快捷操作需在 Web 端使用").font(.caption2).foregroundStyle(.secondary)
+        }
+      }
+
+    case .chip(let text, let color):
+      let tint = NativePluginJSONRenderer.tintColor(color)
+      Text(text)
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(tint)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background { Capsule().fill(tint.opacity(0.15)) }
+
+    case .table(let headers, let rows):
+      ScrollView(.horizontal, showsIndicators: false) {
+        VStack(alignment: .leading, spacing: 6) {
+          if !headers.isEmpty {
+            HStack(spacing: 10) {
+              ForEach(Array(headers.enumerated()), id: \.offset) { _, h in
+                Text(h).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                  .frame(minWidth: 72, alignment: .leading)
+              }
+            }
+          }
+          ForEach(Array(rows.prefix(30).enumerated()), id: \.offset) { _, row in
+            Divider().overlay(NativeTheme.divider)
+            HStack(spacing: 10) {
+              ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
+                Text(cell).font(.caption).foregroundStyle(.primary)
+                  .frame(minWidth: 72, alignment: .leading)
+              }
+            }
+          }
+        }
+      }
+
+    case .text(let text):
+      Text(text)
+
+    case .divider:
+      Divider()
+
     case .unsupported:
       Label(L10n.text("暂不支持的配置组件"), systemImage: "puzzlepiece.extension").font(.callout)
         .foregroundStyle(.secondary)
     }
   }
 
-  /// 说明使用原始内容；不在表单里加入开发者实现细节。
   @ViewBuilder private func hint(_ field: NativeFormField) -> some View {
     if !field.hint.isEmpty { Text(field.hint).font(.caption).foregroundStyle(.secondary) }
   }
 
-  /// 未匹配当前值明确保留，不擅自选择第一个选项。
   private func selectionText(_ field: NativeFormField, options: [NativeFormOption], multiple: Bool)
     -> String
   {
@@ -287,7 +509,214 @@ private struct NativePluginControlView: View {
   }
 }
 
-/// 文本、数字、密码和多行输入共享原生标签/焦点及渐变上的可读提示。
+/// 折叠子配置区（`VExpansionPanel` / `VDialog`）。
+@MainActor
+private struct NativePluginFormExpansionView: View {
+  let title: String
+  let elements: [NativeFormElement]
+  let issues: [PluginFormValidationIssue]
+  let read: (String) -> PluginJSONValue?
+  let update: (PluginJSONValue, String) -> Void
+  let select: (NativeFormElement) -> Void
+  let onAction: (String, String?) -> Void
+
+  @State private var isExpanded = false
+
+  var body: some View {
+    DisclosureGroup(isExpanded: $isExpanded) {
+      VStack(alignment: .leading, spacing: 10) {
+        ForEach(Array(elements.enumerated()), id: \.element.id) { index, child in
+          if index > 0 { Divider().overlay(NativeTheme.divider) }
+          NativePluginControlView(
+            element: child,
+            issues: issues,
+            read: read,
+            update: update,
+            select: select,
+            onAction: onAction)
+        }
+      }
+      .padding(.top, 8)
+    } label: {
+      Text(title)
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.primary)
+    }
+    .tint(NativeTheme.brand)
+  }
+}
+
+/// 等宽代码编辑控件（`VAceEditor`）。
+@MainActor
+private struct NativePluginCodeEditorView: View {
+  let field: NativeFormField
+  let language: String
+  let read: (String) -> PluginJSONValue?
+  let update: (PluginJSONValue, String) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack {
+        Text(field.label)
+          .font(.subheadline.weight(.medium))
+          .foregroundStyle(.secondary)
+        Spacer()
+        Text(language.uppercased())
+          .font(.caption2.monospaced().weight(.semibold))
+          .foregroundStyle(NativeTheme.brand)
+          .padding(.horizontal, 7)
+          .padding(.vertical, 2)
+          .background { Capsule().fill(NativeTheme.brand.opacity(0.14)) }
+      }
+      TextEditor(
+        text: Binding(
+          get: { NativeFormField.text(from: read(field.key)) },
+          set: { update(.string($0), field.key) })
+      )
+      .font(.caption.monospaced())
+      .textInputAutocapitalization(.never)
+      .autocorrectionDisabled()
+      .scrollContentBackground(.hidden)
+      .frame(minHeight: 160)
+      .padding(8)
+      .background {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .fill(NativeTheme.fieldFill)
+          .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+              .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.6)
+          }
+      }
+      .disabled(field.disabled)
+      if !field.hint.isEmpty {
+        Text(field.hint).font(.caption).foregroundStyle(.secondary)
+      }
+    }
+    .padding(.vertical, 3)
+  }
+}
+
+/// 原生数值滑块控件（`VSlider`）。
+@MainActor
+private struct NativePluginSliderView: View {
+  let field: NativeFormField
+  let min: Double
+  let max: Double
+  let step: Double
+  let read: (String) -> PluginJSONValue?
+  let update: (PluginJSONValue, String) -> Void
+
+  private var currentDouble: Double {
+    let raw = Double(NativeFormField.text(from: read(field.key))) ?? min
+    return Swift.min(Swift.max(raw, min), max)
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack {
+        Text(field.label).font(.subheadline).foregroundStyle(.primary)
+        Spacer()
+        Text(formatValue(currentDouble))
+          .font(.caption.monospacedDigit().weight(.semibold))
+          .foregroundStyle(NativeTheme.brand)
+      }
+      Slider(
+        value: Binding(
+          get: { currentDouble },
+          set: { val in
+            let text = formatValue(val)
+            if let num = try? PluginJSONNumber(text) {
+              update(.number(num), field.key)
+            } else {
+              update(.string(text), field.key)
+            }
+          }),
+        in: min...Swift.max(max, min + step),
+        step: step
+      )
+      .tint(NativeTheme.brand)
+      .disabled(field.disabled)
+      if !field.hint.isEmpty {
+        Text(field.hint).font(.caption).foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  private func formatValue(_ val: Double) -> String {
+    abs(val.rounded() - val) < 0.0001 ? String(Int(val.rounded())) : String(format: "%.2f", val)
+  }
+}
+
+/// 原生区间滑块控件（`VRangeSlider`）。
+@MainActor
+private struct NativePluginRangeSliderView: View {
+  let field: NativeFormField
+  let min: Double
+  let max: Double
+  let step: Double
+  let read: (String) -> PluginJSONValue?
+  let update: (PluginJSONValue, String) -> Void
+
+  private var bounds: (Double, Double) {
+    let arr = read(field.key)?.array ?? []
+    let low = arr.first.flatMap { Double(NativeFormField.text(from: $0)) } ?? min
+    let high = arr.dropFirst().first.flatMap { Double(NativeFormField.text(from: $0)) } ?? max
+    return (Swift.min(Swift.max(low, min), max), Swift.min(Swift.max(high, min), max))
+  }
+
+  var body: some View {
+    let current = bounds
+    return VStack(alignment: .leading, spacing: 8) {
+      HStack {
+        Text(field.label).font(.subheadline).foregroundStyle(.primary)
+        Spacer()
+        Text("\(formatValue(current.0)) - \(formatValue(current.1))")
+          .font(.caption.monospacedDigit().weight(.semibold))
+          .foregroundStyle(NativeTheme.brand)
+      }
+      HStack(spacing: 12) {
+        Stepper(
+          "下限 \(formatValue(current.0))",
+          value: Binding(
+            get: { current.0 },
+            set: { saveBounds($0, Swift.max($0, current.1)) }),
+          in: min...max, step: step
+        )
+        .font(.caption)
+      }
+      HStack(spacing: 12) {
+        Stepper(
+          "上限 \(formatValue(current.1))",
+          value: Binding(
+            get: { current.1 },
+            set: { saveBounds(Swift.min(current.0, $0), $0) }),
+          in: min...max, step: step
+        )
+        .font(.caption)
+      }
+      if !field.hint.isEmpty {
+        Text(field.hint).font(.caption).foregroundStyle(.secondary)
+      }
+    }
+    .disabled(field.disabled)
+  }
+
+  private func saveBounds(_ low: Double, _ high: Double) {
+    let a =
+      (try? PluginJSONNumber(formatValue(low))).map(PluginJSONValue.number)
+      ?? .string(formatValue(low))
+    let b =
+      (try? PluginJSONNumber(formatValue(high))).map(PluginJSONValue.number)
+      ?? .string(formatValue(high))
+    update(.array([a, b]), field.key)
+  }
+
+  private func formatValue(_ val: Double) -> String {
+    abs(val.rounded() - val) < 0.0001 ? String(Int(val.rounded())) : String(format: "%.2f", val)
+  }
+}
+
+/// 文本、数字、URL、邮箱、密码和多行输入共享原生标签/焦点及自适应可读提示。
 @MainActor
 private struct NativePluginInputView: View {
   let field: NativeFormField
@@ -297,7 +726,6 @@ private struct NativePluginInputView: View {
   @State private var showsSecret = false
   @ScaledMetric(relativeTo: .body) private var editorHeight = 120.0
 
-  /// 不固定文字行高；密码显隐动作至少 44pt，离开前台后恢复遮盖。
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       Text(field.label).font(.subheadline).foregroundStyle(.secondary).fixedSize(
@@ -330,19 +758,17 @@ private struct NativePluginInputView: View {
       }
   }
 
-  /// 任何编辑都返回字符串，未编辑的数值/空值仍留在完整草稿原类型中。
   private var binding: Binding<String> {
     Binding(
       get: { NativeFormField.text(from: read(field.key)) }, set: { update(.string($0), field.key) })
   }
 
-  /// 使用原生输入组件，TextEditor 透出共用玻璃表面。
   @ViewBuilder private var input: some View {
     switch kind {
     case .multiline:
       ZStack(alignment: .topLeading) {
         if field.text.isEmpty {
-          Text(field.placeholder).foregroundStyle(.primary.opacity(0.70)).padding(.top, 8).padding(
+          Text(field.placeholder).foregroundStyle(.secondary).padding(.top, 8).padding(
             .leading, 5
           ).allowsHitTesting(false).accessibilityHidden(true)
         }
@@ -352,34 +778,38 @@ private struct NativePluginInputView: View {
       SecureField(field.label, text: binding, prompt: prompt).textInputAutocapitalization(.never)
         .autocorrectionDisabled()
     default:
-      TextField(field.label, text: binding, prompt: prompt).textInputAutocapitalization(.never)
+      TextField(field.label, text: binding, prompt: prompt)
+        .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
-        .keyboardType(kind == .number ? .numbersAndPunctuation : .default)
+        .keyboardType(
+          kind == .number
+            ? .numbersAndPunctuation
+            : (kind == .url ? .URL : (kind == .email ? .emailAddress : .default)))
     }
   }
 
-  /// 占位内容与文字/背景保持足够对比度，不依赖系统浅色主题。
   private var prompt: Text { Text(field.placeholder).foregroundColor(.secondary) }
 }
 
-/// 单/多选共用原生弹层，单选选中即返回，多选保留完成动作和未知旧值。
+/// 单/多选共用原生弹层（选项较多时自动提供搜索筛选，兼容 `VSelect` 与 `VAutocomplete`）。
 @MainActor
 private struct NativePluginSelectionView: View {
   let element: NativeFormElement
   let read: (String) -> PluginJSONValue?
   let update: (PluginJSONValue, String) -> Void
   @Environment(\.dismiss) private var dismiss
+  @State private var searchQuery = ""
 
-  /// 弹层的背景和表单继续采用同一 Cinematic 风格，按钮不再嵌套额外玻璃层。
   var body: some View {
     NavigationStack {
       ZStack {
         CinematicBackground()
         if case .select(let field, let options, let multiple, let clearable) = element.control {
+          let filtered = filterOptions(options)
           Form {
             CinematicFormSection {
-              ForEach(options) { option in
-                if option.id > 0 { CinematicFormDivider() }
+              ForEach(Array(filtered.enumerated()), id: \.element.id) { idx, option in
+                if idx > 0 { CinematicFormDivider() }
                 CinematicFormRow {
                   Button {
                     choose(option, field: field, multiple: multiple)
@@ -388,7 +818,9 @@ private struct NativePluginSelectionView: View {
                       Text(option.title).multilineTextAlignment(.leading)
                       Spacer()
                       if values(multiple).contains(where: option.matches) {
-                        Image(systemName: "checkmark").accessibilityLabel(L10n.text("已选择"))
+                        Image(systemName: "checkmark")
+                          .foregroundStyle(NativeTheme.brand)
+                          .accessibilityLabel(L10n.text("已选择"))
                       }
                     }.frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
                   }.buttonStyle(.plain).accessibilityIdentifier(
@@ -413,8 +845,12 @@ private struct NativePluginSelectionView: View {
                 }
               }
             }
-          }.scrollContentBackground(.hidden).frame(maxWidth: 680)
-            .navigationTitle(field.label).navigationBarTitleDisplayMode(.inline)
+          }
+          .scrollContentBackground(.hidden)
+          .frame(maxWidth: 680)
+          .navigationTitle(field.label)
+          .navigationBarTitleDisplayMode(.inline)
+          .modifier(ConditionalSearchableModifier(enabled: options.count > 8, text: $searchQuery))
         }
       }
       .toolbarBackground(.hidden, for: .navigationBar)
@@ -427,14 +863,18 @@ private struct NativePluginSelectionView: View {
     }.tint(.primary)
   }
 
-  /// 当前模型的缺失/null 不自动变成新的空配置值。
+  private func filterOptions(_ options: [NativeFormOption]) -> [NativeFormOption] {
+    let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !q.isEmpty else { return options }
+    return options.filter { $0.title.lowercased().contains(q) }
+  }
+
   private func values(_ multiple: Bool) -> [PluginJSONValue] {
     guard case .select(let field, _, _, _) = element.control else { return [] }
     let current = read(field.key)
     return multiple ? current?.array ?? [] : current.map { [$0] } ?? []
   }
 
-  /// 多选只修改明确选择的值，其它未知旧选项继续保留。
   private func choose(_ option: NativeFormOption, field: NativeFormField, multiple: Bool) {
     if multiple {
       var values = values(true)
@@ -447,6 +887,20 @@ private struct NativePluginSelectionView: View {
     } else {
       update(option.value, field.key)
       dismiss()
+    }
+  }
+}
+
+/// 选项列表超过阈值时动态挂载原生搜索框。
+private struct ConditionalSearchableModifier: ViewModifier {
+  let enabled: Bool
+  @Binding var text: String
+
+  func body(content: Content) -> some View {
+    if enabled {
+      content.searchable(text: $text, prompt: "搜索选项")
+    } else {
+      content
     }
   }
 }

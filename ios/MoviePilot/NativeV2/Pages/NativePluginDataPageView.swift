@@ -3,121 +3,122 @@ import MoviePilotAPI
 import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
+import UIKit
 import WebKit
 
-/// 原生插件数据页：直连 `GET /api/v1/plugin/page/{id}` 递归原生渲染 Vuetify JSON 节点与图表；仅对 Vue 远程组件插件提供显式受控 Web 兼容容器。
+/// 插件页面按钮声明的同源 API 动作（支持 `GET`/`POST`/`PUT`/`DELETE` 与 `params` 参数透传）。
+struct NativePluginActionRequest: Sendable {
+  let api: String
+  let method: String
+  let params: [String: JSONValue]?
+}
+
+/// 原生插件数据页：直连 `GET /api/v1/plugin/page/{id}` 递归原生渲染 Vuetify JSON 节点与图表；
+/// 当插件声明 `render_mode == "vue"` 时，自动在免登隔离 WebView 中直接呈现纯插件内容（隐藏 Web 壳、自动注入会话令牌与资源 Cookie）。
 @MainActor
 struct NativePluginDataPageView: View {
   let session: NativeSession
   let pluginID: String
   let pluginName: String
+  var navKey: String? = nil
 
   @State private var renderMode = "vuetify"
   @State private var nodes: [NativePluginJSONNode] = []
   @State private var isLoading = true
   @State private var loadFailed = false
   @State private var reloadToken = 0
-  @State private var showsCompatWeb = false
   @State private var actionFeedback: String?
+  @State private var actionIsError = false
 
-  /// 深色紫玫瑰渐变背景、原生 JSON 树渲染与受控兼容容器入口。
   var body: some View {
     ZStack {
       CinematicBackground()
-      ScrollView {
-        VStack(alignment: .leading, spacing: 14) {
-          if let actionFeedback {
-            CinematicPanel(padding: 11) {
-              HStack(spacing: 8) {
-                Image(systemName: "checkmark.circle.fill")
-                  .foregroundStyle(NativeTheme.success)
-                Text(actionFeedback).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
-                Spacer(minLength: 0)
+      if renderMode.lowercased() == "vue" {
+        NativeVuePluginWebContainer(
+          session: session,
+          pluginID: pluginID,
+          pluginName: pluginName,
+          surface: navKey.map { .appPage(navKey: $0) } ?? .dataPage
+        )
+        .ignoresSafeArea(edges: .bottom)
+      } else {
+        ScrollView {
+          VStack(alignment: .leading, spacing: 14) {
+            if let actionFeedback {
+              CinematicPanel(padding: 11) {
+                HStack(spacing: 8) {
+                  Image(
+                    systemName: actionIsError
+                      ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+                  )
+                  .foregroundStyle(actionIsError ? NativeTheme.warning : NativeTheme.success)
+                  Text(actionFeedback).font(.subheadline).foregroundStyle(.primary)
+                  Spacer(minLength: 0)
+                  Button {
+                    self.actionFeedback = nil
+                  } label: {
+                    Image(systemName: "xmark")
+                      .font(.caption.weight(.semibold))
+                      .foregroundStyle(.secondary)
+                  }
+                  .buttonStyle(.plain)
+                }
               }
+            }
+            if isLoading && nodes.isEmpty {
+              ProgressView("正在载入插件页面…")
+                .tint(.primary)
+                .frame(maxWidth: .infinity, minHeight: 220)
+            } else if loadFailed && nodes.isEmpty {
+              CinematicPanel {
+                VStack(alignment: .leading, spacing: 10) {
+                  Label("暂时无法载入插件页面", systemImage: "exclamationmark.triangle").font(.headline)
+                  Button("重试") { reloadToken += 1 }
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("native-plugin-page-retry")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+              }
+            } else if nodes.isEmpty {
+              CinematicPanel {
+                VStack(spacing: 10) {
+                  Image(systemName: "doc.plaintext")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary)
+                  Text("当前插件暂无展示数据").font(.headline)
+                }
+                .frame(maxWidth: .infinity, minHeight: 160)
+              }
+            } else {
+              NativePluginJSONRenderer(
+                session: session,
+                nodes: nodes,
+                onTriggerAction: { request in
+                  Task { await triggerPluginAction(request) }
+                })
             }
           }
-          if isLoading && nodes.isEmpty && renderMode != "vue" {
-            ProgressView("正在载入插件页面…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 220)
-          } else if loadFailed && nodes.isEmpty {
-            CinematicPanel {
-              VStack(alignment: .leading, spacing: 10) {
-                Label("暂时无法载入插件页面", systemImage: "exclamationmark.triangle").font(.headline)
-                Button("重试") { reloadToken += 1 }
-                  .frame(minHeight: 44)
-                  .accessibilityIdentifier("native-plugin-page-retry")
-              }
-              .frame(maxWidth: .infinity, alignment: .leading)
-            }
-          } else if renderMode.lowercased() == "vue" {
-            vueCompatCard
-          } else if nodes.isEmpty {
-            CinematicPanel {
-              VStack(spacing: 10) {
-                Image(systemName: "doc.plaintext")
-                  .font(.largeTitle)
-                  .foregroundStyle(.primary.opacity(0.55))
-                Text("当前插件暂无展示数据").font(.headline)
-              }
-              .frame(maxWidth: .infinity, minHeight: 160)
-            }
-          } else {
-            NativePluginJSONRenderer(
-              session: session,
-              nodes: nodes,
-              onTriggerAPI: { path in
-                Task { await triggerPluginAPI(path) }
-              })
-          }
+          .frame(maxWidth: 880)
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
+          .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: 880)
-        .padding(.horizontal, CinematicStyle.margin)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity)
+        .scrollIndicators(.hidden)
+        .refreshable { await load() }
+        .modifier(NativeSoftTopScrollEdge())
+        .accessibilityIdentifier("native-plugin-page-scroll")
       }
-      .scrollIndicators(.hidden)
-      .refreshable { await load() }
-      .modifier(NativeSoftTopScrollEdge())
-      .accessibilityIdentifier("native-plugin-page-scroll")
     }
     .navigationTitle(pluginName)
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
-    .sheet(isPresented: $showsCompatWeb) {
-      NativePluginCompatSheet(session: session, pluginID: pluginID, pluginName: pluginName)
-    }
-    .task(id: reloadToken) { await load() }
-  }
-
-  /// Vue 远程组件插件的显式受控兼容容器引导卡，默认不创建任何 WebView。
-  private var vueCompatCard: some View {
-    CinematicPanel {
-      VStack(alignment: .leading, spacing: 12) {
-        HStack(spacing: 8) {
-          Image(systemName: "puzzlepiece.extension.fill")
-            .foregroundStyle(Color(red: 0.80, green: 0.68, blue: 1.0))
-          Text("Vue 远程组件插件").font(.headline)
-        }
-        Text("「\(pluginName)」使用前端模块联邦远程组件渲染。你可在同源隔离的受控兼容容器中打开，主体页面仍保持全原生运行。")
-          .font(.subheadline)
-          .foregroundStyle(.primary.opacity(0.76))
-        Button {
-          showsCompatWeb = true
-        } label: {
-          Label("在受控兼容容器中打开", systemImage: "safari")
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.primary)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .background {
-              Capsule()
-                .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.78))
-                .overlay { Capsule().strokeBorder(.primary.opacity(0.24), lineWidth: 0.6) }
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("native-plugin-open-compat")
+    .task(id: reloadToken) {
+      if navKey != nil {
+        renderMode = "vue"
+        isLoading = false
+        return
       }
+      await load()
     }
   }
 
@@ -134,8 +135,10 @@ struct NativePluginDataPageView: View {
       ).value
       try Task.checkCancellation()
       renderMode = envelope.renderMode ?? "vuetify"
-      var budget = 1500
-      nodes = NativePluginJSONNode.parseArray(envelope.page ?? [], depth: 0, budget: &budget)
+      if renderMode.lowercased() != "vue" {
+        var budget = 2000
+        nodes = NativePluginJSONNode.parseArray(envelope.page ?? [], depth: 0, budget: &budget)
+      }
     } catch is CancellationError {
       return
     } catch {
@@ -143,9 +146,9 @@ struct NativePluginDataPageView: View {
     }
   }
 
-  /// 执行插件节点声明的同源 API 动作并刷新页面。
-  private func triggerPluginAPI(_ rawPath: String) async {
-    let cleaned = rawPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+  /// 执行插件节点声明的同源 API 动作（支持 method 与 params），完成后自动刷新页面。
+  private func triggerPluginAction(_ request: NativePluginActionRequest) async {
+    let cleaned = request.api.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     let segments = cleaned.split(separator: "/").map(String.init)
     guard !segments.isEmpty else { return }
     let apiSegments: [String]
@@ -154,14 +157,61 @@ struct NativePluginDataPageView: View {
     } else {
       apiSegments = segments
     }
+    let httpMethod: APIMethod =
+      switch request.method.uppercased() {
+      case "POST": .post
+      case "PUT": .put
+      case "DELETE": .delete
+      default: .get
+      }
     do {
-      let endpoint = try APIEndpoint(path: apiSegments, method: .get)
-      try await session.perform(endpoint)
-      actionFeedback = "插件动作已执行。"
-      reloadToken += 1
+      var queryItems: [URLQueryItem] = []
+      var bodyData: Data?
+      if let params = request.params, !params.isEmpty {
+        if httpMethod == .get || httpMethod == .delete {
+          for key in params.keys.sorted() {
+            if let str = Self.stringifyParam(params[key]) {
+              queryItems.append(URLQueryItem(name: key, value: str))
+            }
+          }
+        } else {
+          bodyData = try JSONEncoder().encode(params)
+        }
+      }
+      let endpoint = try APIEndpoint(
+        path: apiSegments,
+        method: httpMethod,
+        query: queryItems,
+        body: bodyData,
+        responseContract: .payload,
+        timeout: 45)
+      let response = try await session.request(
+        endpoint, as: NativePluginActionResponse.self
+      ).value
+      if response.success == false {
+        actionIsError = true
+        actionFeedback =
+          response.message?.isEmpty == false ? response.message! : "插件动作执行失败。"
+      } else {
+        actionIsError = false
+        actionFeedback =
+          response.message?.isEmpty == false ? response.message! : "插件动作已执行。"
+        reloadToken += 1
+      }
     } catch {
-      actionFeedback = "插件动作执行失败，请稍后重试。"
+      actionIsError = true
+      actionFeedback = "插件动作执行失败：\(error.localizedDescription)"
     }
+  }
+
+  private static func stringifyParam(_ value: JSONValue?) -> String? {
+    guard let value else { return nil }
+    if let s = value.stringValue { return s }
+    if let b = value.boolValue { return b ? "true" : "false" }
+    if let n = value.numberValue {
+      return n.rounded() == n ? String(Int64(n)) : String(n)
+    }
+    return nil
   }
 }
 
@@ -171,59 +221,121 @@ struct NativePluginJSONRenderer: View {
   let session: NativeSession
   let nodes: [NativePluginJSONNode]
   var onTriggerAPI: ((String) -> Void)?
+  var onTriggerAction: ((NativePluginActionRequest) -> Void)?
 
-  /// 逐节点渲染当前层级的全部组件。
+  @Environment(\.openURL) private var openURL
+
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      ForEach(nodes) { node in
-        renderNode(node)
+      let grouped = Self.coalesceTabsAndWindows(nodes)
+      ForEach(Array(grouped.enumerated()), id: \.offset) { _, item in
+        switch item {
+        case .node(let node):
+          renderNode(node)
+        case .tabs(let tabTitles, let panels):
+          NativePluginJSONTabsView(
+            session: session,
+            titles: tabTitles,
+            panels: panels,
+            onTriggerAPI: onTriggerAPI,
+            onTriggerAction: onTriggerAction)
+        }
       }
     }
   }
 
-  /// 按 Vuetify 组件名映射至对应原生深色紫玫瑰玻璃视图。
+  /// 按 Vuetify 组件名映射至对应原生自适应主题视图。
   @ViewBuilder
   private func renderNode(_ node: NativePluginJSONNode) -> some View {
     let name = node.component.lowercased()
     switch name {
-    case "style", "script":
+    case "style", "script", "vdialogclosebtn":
       EmptyView()
     case "vspacer":
       Spacer(minLength: 4)
-    case "vrow", "vwindow", "vwindowitem":
+    case "vdivider":
+      Divider().overlay(NativeTheme.divider)
+    case "br":
+      Spacer().frame(height: 4)
+    case "vrow", "vcontainer", "vwindow", "vwindowitem", "vtabs", "vtab", "vmenu":
       VStack(alignment: .leading, spacing: 10) {
-        if !node.text.isEmpty {
-          Text(node.text).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
+        if !node.displayText.isEmpty {
+          Text(node.displayText).font(.subheadline).foregroundStyle(.primary)
         }
         ForEach(node.children) { child in AnyView(renderNode(child)) }
       }
-    case "vcol", "div", "span", "a", "p", "h1", "h2", "h3", "h4", "strong", "b":
+    case "vsheet":
+      CinematicPanel(padding: 12) {
+        VStack(alignment: .leading, spacing: 8) {
+          if !node.displayText.isEmpty {
+            Text(node.displayText).font(.subheadline).foregroundStyle(.primary)
+          }
+          ForEach(node.children) { child in AnyView(renderNode(child)) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    case "vexpansionpanels":
+      VStack(alignment: .leading, spacing: 10) {
+        ForEach(node.children) { child in AnyView(renderNode(child)) }
+      }
+    case "vexpansionpanel":
+      NativePluginExpansionPanelView(
+        session: session,
+        node: node,
+        onTriggerAPI: onTriggerAPI,
+        onTriggerAction: onTriggerAction)
+    case "vcarousel":
+      carouselView(node)
+    case "vcarouselitem":
+      VStack(alignment: .leading, spacing: 8) {
+        if let src = node.stringProp("src"), !src.isEmpty {
+          imageView(node)
+        }
+        ForEach(node.children) { child in AnyView(renderNode(child)) }
+      }
+    case "vchipgroup":
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 7) {
+          ForEach(node.children) { child in AnyView(renderNode(child)) }
+        }
+      }
+    case "a":
+      linkView(node)
+    case "vcol", "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "em", "i",
+      "u", "small", "code", "pre", "vlabel":
       VStack(alignment: .leading, spacing: 6) {
-        if !node.text.isEmpty {
-          Text(node.text)
-            .font(name.hasPrefix("h") ? .headline : .subheadline)
-            .foregroundStyle(
-              name == "a" ? NativeTheme.brand : Color.primary.opacity(0.90))
+        if !node.displayText.isEmpty {
+          textElement(node.displayText, tag: name)
         }
         if !node.children.isEmpty {
           ForEach(node.children) { child in AnyView(renderNode(child)) }
         }
       }
-    case "vcard":
+    case "vcard", "vdialog":
       CinematicPanel(padding: 13) {
         VStack(alignment: .leading, spacing: 8) {
           if let title = node.stringProp("title"), !title.isEmpty {
             Text(title).font(.headline).foregroundStyle(.primary)
           }
           if let subtitle = node.stringProp("subtitle"), !subtitle.isEmpty {
-            Text(subtitle).font(.caption).foregroundStyle(.primary.opacity(0.65))
+            Text(subtitle).font(.caption).foregroundStyle(.secondary)
           }
-          if !node.text.isEmpty {
-            Text(node.text).font(.subheadline).foregroundStyle(.primary.opacity(0.90))
+          if !node.displayText.isEmpty {
+            Text(node.displayText).font(.subheadline).foregroundStyle(.primary)
           }
           ForEach(node.children) { child in AnyView(renderNode(child)) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    case "vcarditem":
+      VStack(alignment: .leading, spacing: 4) {
+        if let title = node.stringProp("title"), !title.isEmpty {
+          Text(title).font(.headline).foregroundStyle(.primary)
+        }
+        if let subtitle = node.stringProp("subtitle"), !subtitle.isEmpty {
+          Text(subtitle).font(.caption).foregroundStyle(.secondary)
+        }
+        ForEach(node.children) { child in AnyView(renderNode(child)) }
       }
     case "vcardtitle":
       Text(node.combinedText)
@@ -232,31 +344,23 @@ struct NativePluginJSONRenderer: View {
     case "vcardsubtitle":
       Text(node.combinedText)
         .font(.caption.weight(.medium))
-        .foregroundStyle(.primary.opacity(0.66))
+        .foregroundStyle(.secondary)
     case "vcardtext":
       VStack(alignment: .leading, spacing: 8) {
-        if !node.text.isEmpty {
-          Text(node.text).font(.subheadline).foregroundStyle(.primary.opacity(0.88))
+        if !node.displayText.isEmpty {
+          Text(node.displayText).font(.subheadline).foregroundStyle(.primary)
         }
+        ForEach(node.children) { child in AnyView(renderNode(child)) }
+      }
+    case "vcardactions":
+      HStack(spacing: 10) {
         ForEach(node.children) { child in AnyView(renderNode(child)) }
       }
     case "valert":
       alertView(node)
     case "vchip":
-      Text(node.combinedText.isEmpty ? (node.stringProp("text") ?? "") : node.combinedText)
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(Self.tintColor(node.stringProp("color")))
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background {
-          Capsule()
-            .fill(.primary.opacity(0.11))
-            .overlay {
-              Capsule().strokeBorder(
-                Self.tintColor(node.stringProp("color")).opacity(0.35), lineWidth: 0.6)
-            }
-        }
-    case "vtable":
+      chipView(node)
+    case "vtable", "vdatatable", "vdatatablevirtual":
       tableView(node)
     case "vlist":
       CinematicPanel(padding: 0) {
@@ -264,21 +368,29 @@ struct NativePluginJSONRenderer: View {
           ForEach(Array(node.children.enumerated()), id: \.element.id) { index, child in
             AnyView(renderNode(child))
             if index < node.children.count - 1 {
-              Divider().overlay(.primary.opacity(0.08))
+              Divider().overlay(NativeTheme.divider)
             }
           }
         }
       }
+    case "vlistsubheader":
+      Text(node.combinedText)
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
     case "vlistitem":
       VStack(alignment: .leading, spacing: 4) {
         if let title = node.stringProp("title"), !title.isEmpty {
           Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
         }
         if let subtitle = node.stringProp("subtitle"), !subtitle.isEmpty {
-          Text(subtitle).font(.caption).foregroundStyle(.primary.opacity(0.66))
+          Text(subtitle).font(.caption).foregroundStyle(.secondary)
         }
-        if !node.text.isEmpty {
-          Text(node.text).font(.subheadline).foregroundStyle(.primary.opacity(0.90))
+        if !node.displayText.isEmpty {
+          Text(node.displayText).font(.subheadline).foregroundStyle(.primary)
         }
         ForEach(node.children) { child in AnyView(renderNode(child)) }
       }
@@ -288,11 +400,18 @@ struct NativePluginJSONRenderer: View {
     case "vlistitemtitle":
       Text(node.combinedText).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
     case "vlistitemsubtitle":
-      Text(node.combinedText).font(.caption).foregroundStyle(.primary.opacity(0.65))
+      Text(node.combinedText).font(.caption).foregroundStyle(.secondary)
     case "vprogresslinear":
       progressView(node)
+    case "vprogresscircular":
+      ProgressView()
+        .tint(Self.tintColor(node.stringProp("color")))
     case "vimg", "img":
       imageView(node)
+    case "vicon", "v-icon":
+      Image(systemName: Self.sfSymbol(forMDI: node.stringProp("icon") ?? node.combinedText))
+        .font(.subheadline)
+        .foregroundStyle(Self.tintColor(node.stringProp("color")))
     case "vavatar":
       if let img = node.children.first(where: {
         ["vimg", "img"].contains($0.component.lowercased())
@@ -303,22 +422,81 @@ struct NativePluginJSONRenderer: View {
           .font(.caption.bold())
           .foregroundStyle(.primary)
           .frame(width: 36, height: 36)
-          .background { Circle().fill(.primary.opacity(0.14)) }
+          .background { Circle().fill(NativeTheme.chipFill) }
       }
     case "vapexchart":
       NativePluginApexChartView(props: node.props)
     case "vbtn":
       buttonView(node)
     default:
-      if !node.text.isEmpty || !node.children.isEmpty {
+      if !node.displayText.isEmpty || !node.children.isEmpty {
         VStack(alignment: .leading, spacing: 6) {
-          if !node.text.isEmpty {
-            Text(node.text).font(.subheadline).foregroundStyle(.primary.opacity(0.88))
+          if !node.displayText.isEmpty {
+            Text(node.displayText).font(.subheadline).foregroundStyle(.primary)
           }
           ForEach(node.children) { child in AnyView(renderNode(child)) }
         }
       }
     }
+  }
+
+  private func textElement(_ text: String, tag: String) -> some View {
+    let base: Font =
+      switch tag {
+      case "h1": .title2.bold()
+      case "h2": .title3.bold()
+      case "h3", "h4": .headline
+      case "strong", "b": .subheadline.weight(.semibold)
+      case "code", "pre": .caption.monospaced()
+      case "small": .caption
+      default: .subheadline
+      }
+    return Text(text)
+      .font(base)
+      .underline(tag == "u")
+      .italic(tag == "em" || tag == "i")
+      .foregroundStyle(tag == "small" ? .secondary : .primary)
+  }
+
+  @ViewBuilder
+  private func linkView(_ node: NativePluginJSONNode) -> some View {
+    let label = node.combinedText.isEmpty ? (node.stringProp("href") ?? "打开链接") : node.combinedText
+    if let href = node.stringProp("href"), let url = URL(string: href),
+      let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https"
+    {
+      Button {
+        openURL(url)
+      } label: {
+        HStack(spacing: 4) {
+          Text(label)
+            .font(.subheadline.weight(.medium))
+            .underline()
+          Image(systemName: "arrow.up.right")
+            .font(.caption2)
+        }
+        .foregroundStyle(NativeTheme.brand)
+      }
+      .buttonStyle(.plain)
+    } else if !label.isEmpty {
+      Text(label).font(.subheadline).foregroundStyle(NativeTheme.brand)
+    }
+  }
+
+  private func chipView(_ node: NativePluginJSONNode) -> some View {
+    let tint = Self.tintColor(node.stringProp("color"))
+    let label = node.combinedText.isEmpty ? (node.stringProp("text") ?? "") : node.combinedText
+    return Text(label)
+      .font(.caption.weight(.semibold))
+      .foregroundStyle(tint)
+      .padding(.horizontal, 10)
+      .padding(.vertical, 4)
+      .background {
+        Capsule()
+          .fill(tint.opacity(0.14))
+          .overlay {
+            Capsule().strokeBorder(tint.opacity(0.32), lineWidth: 0.6)
+          }
+      }
   }
 
   /// 语义提示卡片（info/success/warning/error）。
@@ -332,7 +510,7 @@ struct NativePluginJSONRenderer: View {
       case "error": "xmark.octagon.fill"
       default: "info.circle.fill"
       }
-    let bodyText = node.stringProp("text") ?? node.combinedText
+    let bodyText = node.stringProp("text") ?? node.displayText
     return CinematicPanel(padding: 12) {
       HStack(alignment: .top, spacing: 10) {
         Image(systemName: symbol).foregroundStyle(tint)
@@ -341,7 +519,10 @@ struct NativePluginJSONRenderer: View {
             Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
           }
           if !bodyText.isEmpty {
-            Text(bodyText).font(.caption).foregroundStyle(.primary.opacity(0.86))
+            Text(bodyText).font(.caption).foregroundStyle(.primary)
+          }
+          if !node.children.isEmpty && node.stringProp("text") == nil {
+            ForEach(node.children) { child in AnyView(renderNode(child)) }
           }
         }
         Spacer(minLength: 0)
@@ -349,14 +530,26 @@ struct NativePluginJSONRenderer: View {
     }
   }
 
-  /// 原生可横滑透色玻璃表格（解析 `thead/tbody/tr/th/td`）。
+  /// 横向轮播组件渲染。
+  private func carouselView(_ node: NativePluginJSONNode) -> some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 12) {
+        ForEach(node.children) { child in
+          AnyView(renderNode(child))
+            .frame(width: 280)
+        }
+      }
+    }
+  }
+
+  /// 原生可横滑自适应玻璃表格（同时支持 HTML `thead/tbody/tr/th/td` 与 Vuetify `VDataTable` `headers`/`items`）。
   private func tableView(_ node: NativePluginJSONNode) -> some View {
     let parsed = node.extractTable()
     return CinematicPanel(padding: 0) {
       if parsed.headers.isEmpty && parsed.rows.isEmpty {
-        Text("暂无表格数据")
+        Text(node.stringProp("no-data-text") ?? "暂无表格数据")
           .font(.caption)
-          .foregroundStyle(.primary.opacity(0.60))
+          .foregroundStyle(.secondary)
           .padding(14)
       } else {
         ScrollView(.horizontal) {
@@ -366,28 +559,28 @@ struct NativePluginJSONRenderer: View {
                 ForEach(Array(parsed.headers.enumerated()), id: \.offset) { _, header in
                   Text(header)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.primary.opacity(0.76))
+                    .foregroundStyle(.secondary)
                     .frame(minWidth: 88, alignment: .leading)
                 }
               }
               .padding(.horizontal, 14)
               .padding(.vertical, 10)
-              .background(.white.opacity(0.06))
+              .background(NativeTheme.chipFill)
             }
             ForEach(Array(parsed.rows.enumerated()), id: \.offset) { rowIdx, row in
-              Divider().overlay(.primary.opacity(0.08))
+              Divider().overlay(NativeTheme.divider)
               HStack(spacing: 12) {
                 ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
                   Text(cell)
                     .font(.caption)
-                    .foregroundStyle(.primary.opacity(0.92))
+                    .foregroundStyle(.primary)
                     .frame(minWidth: 88, alignment: .leading)
                     .lineLimit(3)
                 }
               }
               .padding(.horizontal, 14)
               .padding(.vertical, 9)
-              .background(rowIdx % 2 == 1 ? .white.opacity(0.03) : .clear)
+              .background(rowIdx % 2 == 1 ? NativeTheme.chipFill.opacity(0.45) : .clear)
             }
           }
         }
@@ -400,11 +593,12 @@ struct NativePluginJSONRenderer: View {
   private func progressView(_ node: NativePluginJSONNode) -> some View {
     let raw = node.doubleProp("modelValue") ?? node.doubleProp("value") ?? 0
     let fraction = min(max(raw > 1 ? raw / 100.0 : raw, 0), 1)
+    let tint = Self.tintColor(node.stringProp("color"))
     return GeometryReader { bar in
       ZStack(alignment: .leading) {
-        Capsule().fill(.primary.opacity(0.14))
+        Capsule().fill(NativeTheme.chipFill)
         Capsule()
-          .fill(Color(red: 0.68, green: 0.52, blue: 0.96))
+          .fill(tint)
           .frame(width: max(bar.size.width * fraction, 4))
       }
     }
@@ -415,42 +609,202 @@ struct NativePluginJSONRenderer: View {
   @ViewBuilder
   private func imageView(_ node: NativePluginJSONNode) -> some View {
     if let src = node.stringProp("src"), !src.isEmpty {
-      NativeMediaArtwork(session: session, reference: src, role: .poster, maximumWidth: 420)
-        .frame(maxWidth: 260, minHeight: 120, maxHeight: 180)
+      NativeMediaArtwork(session: session, reference: src, role: .poster, maximumWidth: 480)
+        .frame(maxWidth: 280, minHeight: 120, maxHeight: 200)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
   }
 
-  /// 按钮动作渲染（仅允许同源 API 动作，不执行任意 JS）。
+  /// 按钮动作渲染：支持外链 `href` 与声明式同源 API（完整透传 method 与 params）。
   private func buttonView(_ node: NativePluginJSONNode) -> some View {
     let label = node.combinedText.isEmpty ? (node.stringProp("text") ?? "执行") : node.combinedText
-    let apiPath = node.clickAPIPath
+    let action = node.clickAction
+    let hrefURL: URL? = node.stringProp("href").flatMap { raw in
+      guard let url = URL(string: raw),
+        let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https"
+      else { return nil }
+      return url
+    }
+    let tint = Self.tintColor(node.stringProp("color") ?? "primary")
+    let enabled = action != nil || hrefURL != nil
     return Button {
-      if let apiPath { onTriggerAPI?(apiPath) }
+      if let hrefURL {
+        openURL(hrefURL)
+      } else if let action {
+        if let onTriggerAction {
+          onTriggerAction(action)
+        } else {
+          onTriggerAPI?(action.api)
+        }
+      }
     } label: {
       Text(label)
         .font(.caption.weight(.semibold))
-        .foregroundStyle(.primary)
+        .foregroundStyle(enabled ? tint : .secondary)
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
         .background {
           Capsule()
-            .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(apiPath == nil ? 0.35 : 0.75))
-            .overlay { Capsule().strokeBorder(.primary.opacity(0.22), lineWidth: 0.6) }
+            .fill(enabled ? tint.opacity(0.16) : NativeTheme.chipFill)
+            .overlay {
+              Capsule().strokeBorder(
+                enabled ? tint.opacity(0.36) : NativeTheme.chipBorder, lineWidth: 0.6)
+            }
         }
     }
     .buttonStyle(.plain)
-    .disabled(apiPath == nil)
+    .disabled(!enabled)
   }
 
-  /// 语义色彩映射到暗紫玫瑰柔和色板。
-  private static func tintColor(_ raw: String?) -> Color {
+  /// 语义色彩映射到全局自适应色板。
+  static func tintColor(_ raw: String?) -> Color {
     switch (raw ?? "").lowercased() {
     case "success", "green": NativeTheme.success
-    case "warning", "orange", "amber": Color(red: 0.98, green: 0.78, blue: 0.44)
+    case "warning", "orange", "amber": NativeTheme.warning
     case "error", "red": NativeTheme.danger
-    case "primary", "purple": Color(red: 0.82, green: 0.70, blue: 1.0)
-    default: Color(red: 0.66, green: 0.84, blue: 1.0)
+    case "primary", "purple", "indigo": NativeTheme.brand
+    default: NativeTheme.info
+    }
+  }
+
+  /// 常见 MDI 图标名称映射为原生 SF Symbol。
+  static func sfSymbol(forMDI raw: String) -> String {
+    let icon = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if icon.contains("check") { return "checkmark.circle.fill" }
+    if icon.contains("alert") || icon.contains("warning") { return "exclamationmark.triangle.fill" }
+    if icon.contains("close") || icon.contains("cancel") { return "xmark.circle.fill" }
+    if icon.contains("delete") || icon.contains("trash") { return "trash" }
+    if icon.contains("refresh") || icon.contains("reload") || icon.contains("sync") {
+      return "arrow.triangle.2.circlepath"
+    }
+    if icon.contains("download") { return "arrow.down.circle" }
+    if icon.contains("upload") { return "arrow.up.circle" }
+    if icon.contains("play") { return "play.fill" }
+    if icon.contains("pause") { return "pause.fill" }
+    if icon.contains("stop") { return "stop.fill" }
+    if icon.contains("cog") || icon.contains("setting") { return "gearshape" }
+    if icon.contains("star") { return "star.fill" }
+    if icon.contains("heart") { return "heart.fill" }
+    if icon.contains("folder") { return "folder.fill" }
+    if icon.contains("file") || icon.contains("doc") { return "doc.text" }
+    if icon.contains("link") || icon.contains("open") { return "link" }
+    if icon.contains("search") || icon.contains("magnify") { return "magnifyingglass" }
+    if icon.contains("movie") || icon.contains("film") { return "film" }
+    if icon.contains("television") || icon.contains("tv") { return "tv" }
+    if icon.contains("music") { return "music.note" }
+    if icon.contains("clock") || icon.contains("time") || icon.contains("history") {
+      return "clock"
+    }
+    if icon.contains("qrcode") { return "qrcode" }
+    if icon.contains("send") { return "paperplane.fill" }
+    if icon.contains("plus") || icon.contains("add") { return "plus" }
+    return "circle.grid.2x2"
+  }
+
+  /// 将相邻的 `VTabs` 与 `VWindow` 配对为可切换的原生分段标签页。
+  private enum CoalescedNode {
+    case node(NativePluginJSONNode)
+    case tabs(titles: [String], panels: [NativePluginJSONNode])
+  }
+
+  private static func coalesceTabsAndWindows(_ nodes: [NativePluginJSONNode]) -> [CoalescedNode] {
+    var result: [CoalescedNode] = []
+    var i = 0
+    while i < nodes.count {
+      let current = nodes[i]
+      if current.component.lowercased() == "vtabs",
+        i + 1 < nodes.count,
+        nodes[i + 1].component.lowercased() == "vwindow"
+      {
+        let titles = current.children.map { tab in
+          tab.combinedText.isEmpty ? (tab.stringProp("text") ?? "标签") : tab.combinedText
+        }
+        let panels = nodes[i + 1].children
+        if !titles.isEmpty && !panels.isEmpty {
+          result.append(.tabs(titles: titles, panels: panels))
+          i += 2
+          continue
+        }
+      }
+      result.append(.node(current))
+      i += 1
+    }
+    return result
+  }
+}
+
+/// 插件 JSON 数据页可切换标签容器（`VTabs` + `VWindow`）。
+@MainActor
+private struct NativePluginJSONTabsView: View {
+  let session: NativeSession
+  let titles: [String]
+  let panels: [NativePluginJSONNode]
+  let onTriggerAPI: ((String) -> Void)?
+  let onTriggerAction: ((NativePluginActionRequest) -> Void)?
+
+  @State private var selectedIndex = 0
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 8) {
+          ForEach(Array(titles.enumerated()), id: \.offset) { index, title in
+            Button {
+              selectedIndex = index
+            } label: {
+              NativeAdaptivePill(title, isSelected: selectedIndex == index)
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      }
+      if selectedIndex < panels.count {
+        NativePluginJSONRenderer(
+          session: session,
+          nodes: panels[selectedIndex].children,
+          onTriggerAPI: onTriggerAPI,
+          onTriggerAction: onTriggerAction)
+      }
+    }
+  }
+}
+
+/// 插件 JSON 数据页折叠卡片（`VExpansionPanel`）。
+@MainActor
+private struct NativePluginExpansionPanelView: View {
+  let session: NativeSession
+  let node: NativePluginJSONNode
+  let onTriggerAPI: ((String) -> Void)?
+  let onTriggerAction: ((NativePluginActionRequest) -> Void)?
+
+  @State private var isExpanded = false
+
+  var body: some View {
+    let titleNode = node.children.first { $0.component.lowercased() == "vexpansionpaneltitle" }
+    let titleText = titleNode?.combinedText ?? node.stringProp("title") ?? "展开详情"
+    let bodyNodes: [NativePluginJSONNode] = node.children.flatMap {
+      child -> [NativePluginJSONNode] in
+      let lower = child.component.lowercased()
+      if lower == "vexpansionpaneltitle" { return [] }
+      if lower == "vexpansionpaneltext" { return child.children }
+      return [child]
+    }
+    return CinematicPanel(padding: 13) {
+      DisclosureGroup(isExpanded: $isExpanded) {
+        VStack(alignment: .leading, spacing: 10) {
+          NativePluginJSONRenderer(
+            session: session,
+            nodes: bodyNodes,
+            onTriggerAPI: onTriggerAPI,
+            onTriggerAction: onTriggerAction)
+        }
+        .padding(.top, 10)
+      } label: {
+        Text(titleText)
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(.primary)
+      }
+      .tint(NativeTheme.brand)
     }
   }
 }
@@ -460,7 +814,6 @@ struct NativePluginJSONRenderer: View {
 struct NativePluginApexChartView: View {
   let props: [String: JSONValue]
 
-  /// 标题、原生环形图或横向柱状图及色点图例。
   var body: some View {
     let spec = NativeApexChartSpec(props: props)
     return CinematicPanel(padding: 14) {
@@ -473,7 +826,7 @@ struct NativePluginApexChartView: View {
         if spec.slices.isEmpty {
           Text(spec.noDataText)
             .font(.caption)
-            .foregroundStyle(.primary.opacity(0.56))
+            .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, minHeight: 72)
         } else if spec.isCircular {
           HStack(spacing: 18) {
@@ -487,7 +840,7 @@ struct NativePluginApexChartView: View {
                     .frame(width: 8, height: 8)
                   Text(slice.label)
                     .font(.caption)
-                    .foregroundStyle(.primary.opacity(0.86))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                   Spacer(minLength: 4)
                   Text(slice.formattedValue)
@@ -506,7 +859,7 @@ struct NativePluginApexChartView: View {
                 HStack {
                   Text(slice.label)
                     .font(.caption)
-                    .foregroundStyle(.primary.opacity(0.84))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                   Spacer()
                   Text(slice.formattedValue)
@@ -515,7 +868,7 @@ struct NativePluginApexChartView: View {
                 }
                 GeometryReader { bar in
                   ZStack(alignment: .leading) {
-                    Capsule().fill(.primary.opacity(0.12))
+                    Capsule().fill(NativeTheme.chipFill)
                     Capsule()
                       .fill(Self.palette[index % Self.palette.count])
                       .frame(width: max(bar.size.width * CGFloat(slice.value / maxVal), 6))
@@ -531,7 +884,6 @@ struct NativePluginApexChartView: View {
     }
   }
 
-  /// 纯 SwiftUI 多段环形比例图。
   private func donutChart(slices: [NativeApexChartSpec.Slice]) -> some View {
     let total = max(slices.reduce(0) { $0 + $1.value }, 0.0001)
     var cumulative = 0.0
@@ -543,7 +895,7 @@ struct NativePluginApexChartView: View {
       return (start, end, Self.palette[idx % Self.palette.count])
     }
     return ZStack {
-      Circle().stroke(.white.opacity(0.10), lineWidth: 16)
+      Circle().stroke(NativeTheme.chipFill, lineWidth: 16)
       ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
         Circle()
           .trim(from: CGFloat(seg.start), to: CGFloat(seg.end))
@@ -552,17 +904,17 @@ struct NativePluginApexChartView: View {
       }
       Text(String(format: "%.1f", total))
         .font(.caption.monospacedDigit().bold())
-        .foregroundStyle(.primary.opacity(0.88))
+        .foregroundStyle(.primary)
     }
   }
 
   private static let palette: [Color] = [
-    Color(red: 0.66, green: 0.50, blue: 0.96),
-    Color(red: 0.92, green: 0.52, blue: 0.68),
-    Color(red: 0.44, green: 0.84, blue: 0.72),
-    Color(red: 0.52, green: 0.78, blue: 1.0),
-    Color(red: 0.98, green: 0.76, blue: 0.44),
-    Color(red: 0.80, green: 0.64, blue: 0.98),
+    Color(red: 0.54, green: 0.36, blue: 0.90),
+    Color(red: 0.86, green: 0.38, blue: 0.58),
+    Color(red: 0.24, green: 0.72, blue: 0.56),
+    Color(red: 0.28, green: 0.60, blue: 0.94),
+    Color(red: 0.90, green: 0.62, blue: 0.22),
+    Color(red: 0.68, green: 0.48, blue: 0.92),
   ]
 }
 
@@ -617,87 +969,359 @@ private struct NativeApexChartSpec {
   }
 }
 
-/// 受控隔离的 Vue 远程插件兼容容器：仅在用户显式打开 `render_mode == "vue"` 插件时创建，锁死当前实例同源且使用非持久化数据存储。
+/// 免登自动渲染的 Vue 远程插件容器（对标十一.2）：
+/// 1. 在文档首帧前自动向同源 `localStorage` 写入 Pinia `auth` 与 `user` 会话（彻底免去再次登录）；
+/// 2. 自动向非持久化 `WKHTTPCookieStore` 写入当前实例 `MoviePilot` 资源 Cookie，确保远程联邦脚本与图片代理直通；
+/// 3. 注入 `data-native-chrome="active"` 与精简样式，隐藏 Web 顶部栏、侧边栏、底栏与悬浮球，仅呈现纯插件页面内容。
 @MainActor
-private struct NativePluginCompatSheet: View {
+struct NativeVuePluginWebContainer: View {
+  enum Surface: Equatable {
+    case dataPage
+    case config
+    case appPage(navKey: String)
+  }
+
   let session: NativeSession
   let pluginID: String
   let pluginName: String
-  @Environment(\.dismiss) private var dismiss
+  let surface: Surface
 
-  /// 同源兼容视图与顶部原生退出条。
+  @Environment(\.colorScheme) private var colorScheme
+  @State private var launchConfig: VuePluginLaunchConfig?
+  @State private var isWebLoading = true
+  @State private var loadError: String?
+
   var body: some View {
-    NavigationStack {
-      ZStack {
-        CinematicBackground()
-        if let targetURL = resolvedURL {
-          NativePluginCompatWebView(url: targetURL, origin: session.instance.address)
-            .ignoresSafeArea(edges: .bottom)
-        } else {
-          Text("无法构造受控插件兼容地址").foregroundStyle(.primary)
-        }
-      }
-      .navigationTitle("\(pluginName)（兼容）")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
-      .toolbar {
-        ToolbarItem(placement: .topBarLeading) {
-          Button {
-            dismiss()
-          } label: {
-            Image(systemName: "xmark")
+    ZStack {
+      CinematicBackground()
+      if let launchConfig {
+        NativeVuePluginWebView(
+          config: launchConfig,
+          isLoading: $isWebLoading
+        )
+        if isWebLoading {
+          VStack(spacing: 10) {
+            ProgressView()
+              .controlSize(.regular)
+              .tint(NativeTheme.brand)
+            Text("正在加载 \(pluginName)…")
+              .font(.caption)
+              .foregroundStyle(.secondary)
           }
-          .accessibilityIdentifier("native-plugin-compat-close")
+          .padding(.horizontal, 20)
+          .padding(.vertical, 16)
+          .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+              .fill(.ultraThinMaterial)
+          }
         }
+      } else if let loadError {
+        CinematicPanel {
+          VStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle")
+              .font(.title2)
+              .foregroundStyle(NativeTheme.warning)
+            Text(loadError)
+              .font(.subheadline)
+              .foregroundStyle(.primary)
+              .multilineTextAlignment(.center)
+            Button("重试") {
+              Task { await prepareLaunch() }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(NativeTheme.brand)
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
+        }
+        .padding(.horizontal, CinematicStyle.margin)
+      } else {
+        ProgressView("正在准备插件环境…")
+          .tint(.primary)
       }
     }
-    .nativeAppearanceRoot()
+    .task(id: "\(pluginID)|\(colorScheme)") {
+      await prepareLaunch()
+    }
   }
 
-  /// 严格基于当前实例同源地址构造受控插件兼容路径。
-  private var resolvedURL: URL? {
-    let url = session.instance.address.url
-      .appendingPathComponent("plugins", isDirectory: false)
-    guard session.instance.address.contains(url) else { return nil }
+  private func prepareLaunch() async {
+    loadError = nil
+    isWebLoading = true
+    do {
+      let auth = try session.playbackAuthorization()
+      let resourceCookie = try? await session.resolveResourceCookie()
+      guard let targetURL = buildTargetURL(baseURL: auth.address.url) else {
+        loadError = "无法构造受控插件页面地址。"
+        return
+      }
+      let authPayload: [String: Any] = [
+        "token": auth.accessToken,
+        "remember": true,
+        "originalPath": NSNull(),
+      ]
+      let user = session.user
+      let userPayload: [String: Any] = [
+        "superUser": user.isSuperuser,
+        "userID": user.id,
+        "userName": user.name,
+        "avatar": user.avatar,
+        "level": user.level,
+        "permissions": [
+          "discovery": user.allows(.init(category: .discovery)),
+          "search": user.allows(.init(category: .search)),
+          "subscribe": user.allows(.init(category: .subscribe)),
+          "manage": user.allows(.init(category: .manage)),
+          "admin": user.allows(.init(category: .admin)),
+          "features": [String: Bool](),
+        ],
+      ]
+      let authData = try JSONSerialization.data(withJSONObject: authPayload)
+      let userData = try JSONSerialization.data(withJSONObject: userPayload)
+      guard let authJSON = String(data: authData, encoding: .utf8),
+        let userJSON = String(data: userData, encoding: .utf8)
+      else {
+        loadError = "会话初始化失败。"
+        return
+      }
+      launchConfig = VuePluginLaunchConfig(
+        url: targetURL,
+        origin: auth.address,
+        authJSON: authJSON,
+        userJSON: userJSON,
+        resourceCookie: resourceCookie,
+        preferDark: colorScheme == .dark,
+        surface: surface)
+    } catch {
+      loadError = "当前登录会话不可用，无法打开 Vue 插件。"
+    }
+  }
+
+  /// 基于 Vue Hash Router 构造同源插件入口：AppPage 直达 `/#/plugin-app/{id}/{navKey}`，数据/配置页直达 `/#/plugins?id={id}`。
+  private func buildTargetURL(baseURL: URL) -> URL? {
+    var baseString = baseURL.absoluteString
+    if !baseString.hasSuffix("/") { baseString += "/" }
+    let encodedID =
+      pluginID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? pluginID
+    let hashPath: String
+    switch surface {
+    case .appPage(let navKey):
+      let encodedNav =
+        navKey.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? navKey
+      hashPath = "#/plugin-app/\(encodedID)/\(encodedNav)"
+    case .dataPage, .config:
+      let encodedQueryID =
+        pluginID.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? pluginID
+      hashPath = "#/plugins?id=\(encodedQueryID)&tab=installed"
+    }
+    guard let url = URL(string: baseString + hashPath),
+      session.instance.address.contains(url)
+    else { return nil }
     return url
   }
 }
 
-/// 隔离非持久化 `WKWebView`，仅允许访问当前实例同源页面。
-private struct NativePluginCompatWebView: UIViewRepresentable {
+/// Vue 插件 WebView 启动参数。
+private struct VuePluginLaunchConfig: Equatable {
   let url: URL
   let origin: ServerAddress
+  let authJSON: String
+  let userJSON: String
+  let resourceCookie: APIExportedResourceCookie?
+  let preferDark: Bool
+  let surface: NativeVuePluginWebContainer.Surface
 
-  func makeCoordinator() -> Coordinator { Coordinator(origin: origin) }
+  static func == (lhs: VuePluginLaunchConfig, rhs: VuePluginLaunchConfig) -> Bool {
+    lhs.url == rhs.url && lhs.preferDark == rhs.preferDark && lhs.surface == rhs.surface
+  }
+}
+
+/// 同源免登隔离 `WKWebView`：在首帧前写入 Pinia 会话与资源 Cookie，并隐藏全部 Web 导航外壳，仅呈现纯插件页面。
+private struct NativeVuePluginWebView: UIViewRepresentable {
+  let config: VuePluginLaunchConfig
+  @Binding var isLoading: Bool
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(origin: config.origin, isLoading: $isLoading)
+  }
 
   func makeUIView(context: Context) -> WKWebView {
-    let config = WKWebViewConfiguration()
-    config.websiteDataStore = .nonPersistent()
-    let webView = WKWebView(frame: .zero, configuration: config)
+    let wkConfig = WKWebViewConfiguration()
+    wkConfig.websiteDataStore = .nonPersistent()
+    wkConfig.allowsInlineMediaPlayback = true
+
+    let bootstrapScript = makeBootstrapScript(config)
+    wkConfig.userContentController.addUserScript(
+      WKUserScript(
+        source: bootstrapScript,
+        injectionTime: .atDocumentStart,
+        forMainFrameOnly: true))
+
+    let webView = WKWebView(frame: .zero, configuration: wkConfig)
     webView.navigationDelegate = context.coordinator
     webView.isOpaque = false
     webView.backgroundColor = .clear
-    webView.load(URLRequest(url: url))
+    webView.scrollView.backgroundColor = .clear
+    webView.scrollView.contentInsetAdjustmentBehavior = .automatic
+
+    // 先写入同源资源 Cookie，再触发首次导航，确保远程联邦 JS 模块和图片代理零 401。
+    if let cookieInfo = config.resourceCookie,
+      let cookie = makeHTTPCookie(from: cookieInfo, targetURL: config.url)
+    {
+      wkConfig.websiteDataStore.httpCookieStore.setCookie(cookie) {
+        DispatchQueue.main.async {
+          webView.load(URLRequest(url: config.url))
+        }
+      }
+    } else {
+      webView.load(URLRequest(url: config.url))
+    }
     return webView
   }
 
   func updateUIView(_ uiView: WKWebView, context: Context) {}
 
-  /// 严格拦截跨域跳转，防止远程插件跳出当前实例边界。
+  private func makeHTTPCookie(
+    from info: APIExportedResourceCookie, targetURL: URL
+  ) -> HTTPCookie? {
+    var props: [HTTPCookiePropertyKey: Any] = [
+      .name: info.name,
+      .value: info.value,
+      .domain: info.domain.isEmpty ? (targetURL.host ?? "") : info.domain,
+      .path: info.path.isEmpty ? "/" : info.path,
+    ]
+    if info.isSecure || targetURL.scheme?.lowercased() == "https" {
+      props[.secure] = "TRUE"
+    }
+    return HTTPCookie(properties: props)
+  }
+
+  /// 构造首帧前注入脚本：同步登录态、主题色、原生精简样式以及自动切换 Vue 配置/数据视图。
+  private func makeBootstrapScript(_ cfg: VuePluginLaunchConfig) -> String {
+    let authLiteral = Self.jsStringLiteral(cfg.authJSON)
+    let userLiteral = Self.jsStringLiteral(cfg.userJSON)
+    let themeName = cfg.preferDark ? "dark" : "light"
+    let wantsConfigSwitch = (cfg.surface == .config) ? "true" : "false"
+    let isDialogMode = (cfg.surface == .dataPage || cfg.surface == .config) ? "true" : "false"
+
+    return """
+      (function() {
+        try {
+          window.localStorage.setItem('auth', \(authLiteral));
+          window.localStorage.setItem('user', \(userLiteral));
+          window.localStorage.setItem('theme', '\(themeName)');
+        } catch (e) {}
+
+        function applyNativePluginChrome() {
+          try {
+            var root = document.documentElement;
+            if (!root) return;
+            root.dataset.nativeChrome = 'active';
+            root.style.setProperty('--native-top', '0px');
+            root.style.setProperty('--native-bottom', '0px');
+            root.style.setProperty('--native-left', '0px');
+            root.style.setProperty('--native-right', '0px');
+
+            if (!document.getElementById('mp-native-vue-plugin-style')) {
+              var style = document.createElement('style');
+              style.id = 'mp-native-vue-plugin-style';
+              style.textContent = [
+                '.layout-navbar, .layout-vertical-nav, .layout-overlay, .layout-footer,',
+                '.footer-content-container, .mobile-dock, .v-bottom-navigation,',
+                '.app-customizer-toggler, .agent-pet-container, .floating-agent-btn,',
+                '[data-native-page-title], [data-native-page-heading], [data-native-page-actions] {',
+                '  display: none !important;',
+                '}',
+                '.layout-content-wrapper { padding-inline-start: 0 !important; }',
+                '.layout-page-content { padding-block-start: 8px !important; padding-block-end: 12px !important; }',
+                \(isDialogMode) ? '.v-dialog > .v-overlay__content { margin: 0 !important; width: 100vw !important; max-width: 100vw !important; height: 100dvh !important; max-height: 100dvh !important; border-radius: 0 !important; }' : '',
+                \(isDialogMode) ? '.v-dialog > .v-overlay__content > .v-card { border-radius: 0 !important; min-height: 100dvh !important; }' : '',
+                \(isDialogMode) ? '.v-dialog .v-dialog-close-btn { display: none !important; }' : ''
+              ].join('\\n');
+              (document.head || root).appendChild(style);
+            }
+          } catch (e) {}
+        }
+
+        applyNativePluginChrome();
+        document.addEventListener('DOMContentLoaded', applyNativePluginChrome, { once: true });
+
+        if (\(wantsConfigSwitch)) {
+          var switched = false;
+          var observer = new MutationObserver(function() {
+            if (switched) return;
+            var btns = document.querySelectorAll('.v-dialog button, .v-dialog .v-btn');
+            for (var i = 0; i < btns.length; i++) {
+              var b = btns[i];
+              var txt = (b.textContent || '').trim();
+              var hasCog = b.querySelector('.mdi-cog, .mdi-cog-outline, .mdi-tune');
+              if (hasCog || txt === '设置' || txt === '配置' || txt === 'Settings') {
+                switched = true;
+                b.click();
+                observer.disconnect();
+                return;
+              }
+            }
+          });
+          window.addEventListener('load', function() {
+            if (document.body) {
+              observer.observe(document.body, { childList: true, subtree: true });
+              setTimeout(function() { observer.disconnect(); }, 6000);
+            }
+          }, { once: true });
+        }
+      })();
+      """
+  }
+
+  /// 通过 JSON 序列化生成安全的 JS 字符串字面量，防止任何引号/换行转义问题。
+  private static func jsStringLiteral(_ value: String) -> String {
+    guard let data = try? JSONSerialization.data(withJSONObject: [value]),
+      let json = String(data: data, encoding: .utf8),
+      json.count >= 2
+    else { return "\"\"" }
+    return String(json.dropFirst().dropLast())
+  }
+
+  /// 严格拦截跨域主文档导航（外链交由系统 Safari 打开，同源导航放行）。
   final class Coordinator: NSObject, WKNavigationDelegate {
     let origin: ServerAddress
-    init(origin: ServerAddress) { self.origin = origin }
+    @Binding var isLoading: Bool
+
+    init(origin: ServerAddress, isLoading: Binding<Bool>) {
+      self.origin = origin
+      _isLoading = isLoading
+    }
 
     func webView(
       _ webView: WKWebView,
       decidePolicyFor navigationAction: WKNavigationAction,
       decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
     ) {
-      if let target = navigationAction.request.url, origin.contains(target) {
+      guard let target = navigationAction.request.url else {
+        decisionHandler(.cancel)
+        return
+      }
+      if origin.contains(target) || target.scheme == "about" || target.scheme == "blob" {
         decisionHandler(.allow)
+      } else if navigationAction.navigationType == .linkActivated,
+        let scheme = target.scheme?.lowercased(), scheme == "http" || scheme == "https"
+      {
+        UIApplication.shared.open(target)
+        decisionHandler(.cancel)
       } else {
         decisionHandler(.cancel)
       }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+        self.isLoading = false
+      }
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+      DispatchQueue.main.async { self.isLoading = false }
     }
   }
 }
@@ -713,16 +1337,23 @@ private struct NativePluginPageEnvelope: Decodable, Sendable {
   }
 }
 
+/// 插件动作响应信封。
+private struct NativePluginActionResponse: Decodable, Sendable {
+  let success: Bool?
+  let message: String?
+}
+
 /// 有界解码的插件 UI 节点。
 struct NativePluginJSONNode: Identifiable, Sendable {
   let id: String
   let component: String
   let text: String
+  let html: String
   let props: [String: JSONValue]
   let events: [String: JSONValue]
   let children: [NativePluginJSONNode]
 
-  /// 有界递归解析插件 JSON 数组（深度上限 24、节点总数上限 1500）。
+  /// 有界递归解析插件 JSON 数组（深度上限 24、节点总数上限 2000）。
   static func parseArray(_ raw: [JSONValue], depth: Int, budget: inout Int)
     -> [NativePluginJSONNode]
   {
@@ -733,6 +1364,7 @@ struct NativePluginJSONNode: Identifiable, Sendable {
       budget -= 1
       let component = obj["component"]?.stringValue ?? "div"
       let text = obj["text"]?.stringValue ?? ""
+      let html = obj["html"]?.stringValue ?? ""
       let props = obj["props"]?.objectValue ?? [:]
       let events = obj["events"]?.objectValue ?? [:]
       var rawChildren: [JSONValue] = []
@@ -748,6 +1380,7 @@ struct NativePluginJSONNode: Identifiable, Sendable {
           id: "\(depth)-\(idx)-\(budget)-\(component)",
           component: component,
           text: text,
+          html: html,
           props: props,
           events: events,
           children: children
@@ -756,16 +1389,25 @@ struct NativePluginJSONNode: Identifiable, Sendable {
     return output
   }
 
-  /// 读取字符串属性。
   func stringProp(_ key: String) -> String? { props[key]?.stringValue }
 
-  /// 读取数值属性。
   func doubleProp(_ key: String) -> Double? { props[key]?.numberValue }
+
+  /// 文本展示优先级：`text` -> 剥离 HTML 标签后的 `html` / `props.innerHTML`。
+  var displayText: String {
+    if !text.isEmpty { return text }
+    if !html.isEmpty { return Self.stripHTML(html) }
+    if let inner = props["innerHTML"]?.stringValue, !inner.isEmpty {
+      return Self.stripHTML(inner)
+    }
+    return ""
+  }
 
   /// 聚合当前节点及后代纯文本，用于标题、徽标和表格单元格展示。
   var combinedText: String {
     var parts: [String] = []
-    if !text.isEmpty { parts.append(text) }
+    let own = displayText
+    if !own.isEmpty { parts.append(own) }
     for child in children where !["style", "script"].contains(child.component.lowercased()) {
       let sub = child.combinedText
       if !sub.isEmpty { parts.append(sub) }
@@ -773,14 +1415,34 @@ struct NativePluginJSONNode: Identifiable, Sendable {
     return parts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  /// 提取 `events.click` 声明的同源 API 路径。
-  var clickAPIPath: String? {
-    guard let click = events["click"]?.objectValue else { return nil }
-    return click["api"]?.stringValue ?? click["path"]?.stringValue
+  /// 提取 `events.click` 声明的完整同源 API 动作（api、method、params）。
+  var clickAction: NativePluginActionRequest? {
+    guard let click = events["click"]?.objectValue,
+      let api = click["api"]?.stringValue ?? click["path"]?.stringValue,
+      !api.isEmpty
+    else { return nil }
+    let method = click["method"]?.stringValue ?? "GET"
+    let params = click["params"]?.objectValue
+    return NativePluginActionRequest(api: api, method: method, params: params)
   }
 
-  /// 从 `VTable` 子树提取表头与行数据。
+  /// 从 `VTable` / `VDataTable` / `VDataTableVirtual` 提取表头与行数据。
   func extractTable() -> (headers: [String], rows: [[String]]) {
+    if let rawHeaders = props["headers"]?.arrayValue,
+      let rawItems = props["items"]?.arrayValue
+    {
+      let cols: [(title: String, key: String)] = rawHeaders.compactMap { item in
+        guard let obj = item.objectValue else { return nil }
+        let key = obj["key"]?.stringValue ?? obj["value"]?.stringValue ?? ""
+        let title = obj["title"]?.stringValue ?? obj["text"]?.stringValue ?? key
+        return key.isEmpty ? nil : (title, key)
+      }
+      let rows: [[String]] = rawItems.compactMap { row in
+        guard let obj = row.objectValue else { return nil }
+        return cols.map { Self.formatCell(obj[$0.key]) }
+      }
+      return (cols.map(\.title), rows)
+    }
     var headers: [String] = []
     var rows: [[String]] = []
     func walk(_ node: NativePluginJSONNode, inHead: Bool) {
@@ -803,31 +1465,57 @@ struct NativePluginJSONNode: Identifiable, Sendable {
     walk(self, inHead: false)
     return (headers, rows)
   }
+
+  private static func formatCell(_ value: JSONValue?) -> String {
+    guard let value else { return "" }
+    if let s = value.stringValue { return s }
+    if let b = value.boolValue { return b ? "是" : "否" }
+    if let n = value.numberValue {
+      return n.rounded() == n ? String(Int64(n)) : String(format: "%.2f", n)
+    }
+    return ""
+  }
+
+  private static func stripHTML(_ html: String) -> String {
+    var text =
+      html
+      .replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
+      .replacingOccurrences(of: "</p>", with: "\n", options: .caseInsensitive)
+      .replacingOccurrences(of: "</div>", with: "\n", options: .caseInsensitive)
+      .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+    let entities: [(String, String)] = [
+      ("&nbsp;", " "), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"),
+      ("&quot;", "\""), ("&#39;", "'"),
+    ]
+    for (k, v) in entities { text = text.replacingOccurrences(of: k, with: v) }
+    return text.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
 }
 
 /// `JSONValue` 便捷读取扩展，供插件 JSON 节点解析使用。
 extension JSONValue {
-  /// 读取对象字典。
   fileprivate var objectValue: [String: JSONValue]? {
     if case .object(let dict) = self { return dict }
     return nil
   }
 
-  /// 读取数组。
   fileprivate var arrayValue: [JSONValue]? {
     if case .array(let list) = self { return list }
     return nil
   }
 
-  /// 读取字符串。
   fileprivate var stringValue: String? {
     if case .string(let text) = self { return text }
     return nil
   }
 
-  /// 读取浮点数值。
   fileprivate var numberValue: Double? {
     if case .number(let num) = self { return num }
+    return nil
+  }
+
+  fileprivate var boolValue: Bool? {
+    if case .bool(let flag) = self { return flag }
     return nil
   }
 }
