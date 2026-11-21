@@ -645,6 +645,11 @@ struct NativeV2MainShell<PluginDestination: View>: View {
             discoverPath.append(.rail(rail))
           }
         },
+        onOpenProvider: { providerID in
+          if let provider = discovery.providers.first(where: { $0.id == providerID }) {
+            NativeMediaServerAppLauncher.openLibrary(provider)
+          }
+        },
         onOpenCategory: { categoryID in
           let source = NativeExploreSourceKind(rawValue: categoryID) ?? .tmdbMovies
           discoverPath.append(.explore(source))
@@ -1251,7 +1256,10 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         projectContinueWatching($0, server: server)
       }
       latestItems = (latestRows ?? []).compactMap(projectLatestItem)
-      providers = (libraryRows ?? []).compactMap(projectLibraryProvider)
+      let defaultType = clients?.first?.type
+      providers = (libraryRows ?? []).compactMap {
+        projectLibraryProvider($0, defaultServerType: defaultType)
+      }
     } else {
       latestServerName = nil
     }
@@ -1755,14 +1763,20 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   }
 
   /// 媒体库卡片按服务端库名、数量与主图投影。
-  private func projectLibraryProvider(_ item: NativeMediaServerLibrary) -> NativeDiscoverProvider? {
+  private func projectLibraryProvider(
+    _ item: NativeMediaServerLibrary, defaultServerType: String?
+  ) -> NativeDiscoverProvider? {
     guard let name = item.name, !name.isEmpty else { return nil }
     let identifier = item.itemID?.value ?? item.id?.value ?? name
     return NativeDiscoverProvider(
       id: "library|\(identifier)",
       name: name,
       itemCount: item.itemCount,
-      artworkReference: item.image ?? item.imageList?.first
+      artworkReference: item.image ?? item.imageList?.first,
+      serverType: item.serverType ?? defaultServerType,
+      serverID: item.serverID?.value,
+      itemID: item.itemID?.value ?? item.id?.value,
+      link: item.link
     )
   }
 
@@ -2601,13 +2615,241 @@ private struct NativeMediaServerLibrary: Decodable, Sendable {
   let itemCount: Int?
   let image: String?
   let imageList: [String]?
+  let link: String?
+  let serverType: String?
+  let serverID: NativeMediaServerScalar?
 
   /// 映射 MediaServerLibrary 的稳定字段。
   private enum CodingKeys: String, CodingKey {
-    case id, name, image
+    case id, name, image, link
     case itemID = "item_id"
     case itemCount = "item_count"
     case imageList = "image_list"
+    case serverType = "server_type"
+    case serverID = "server_id"
+  }
+}
+
+/// 发现页媒体库深度链接跳转器（对标 Web `appDeepLink.ts`：优先拉起 Emby / Jellyfin / Plex / 飞牛影视等 iOS 客户端 App，未安装时自动回退网页链接）。
+@MainActor
+private enum NativeMediaServerAppLauncher {
+  static func openLibrary(_ provider: NativeDiscoverProvider) {
+    let playURLString = normalizedPlayURL(for: provider)
+    let detectedType = detectServerType(serverType: provider.serverType, playURL: playURLString)
+    let deepLinkString = buildDeepLink(
+      serverType: detectedType, playURL: playURLString, provider: provider)
+
+    if let deepLinkString, let deepLinkURL = URL(string: deepLinkString) {
+      UIApplication.shared.open(deepLinkURL, options: [:]) { opened in
+        if !opened, let playURLString, let webURL = URL(string: playURLString) {
+          UIApplication.shared.open(webURL, options: [:], completionHandler: nil)
+        }
+      }
+      return
+    }
+    if let playURLString, let webURL = URL(string: playURLString) {
+      UIApplication.shared.open(webURL, options: [:], completionHandler: nil)
+    }
+  }
+
+  private static func validValue(_ raw: String?) -> String? {
+    guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty
+    else { return nil }
+    let lower = trimmed.lowercased()
+    if ["none", "null", "undefined"].contains(lower) { return nil }
+    return trimmed
+  }
+
+  private static func detectServerType(serverType: String?, playURL: String?) -> String? {
+    if let raw = validValue(serverType)?.lowercased() {
+      if ["plex", "jellyfin", "emby", "zspace", "trimemedia"].contains(raw) {
+        return raw
+      }
+    }
+    guard let lower = playURL?.lowercased() else { return nil }
+    if lower.contains("plex") || lower.contains("plex.tv") { return "plex" }
+    if lower.contains("jellyfin") { return "jellyfin" }
+    if lower.contains("emby") { return "emby" }
+    if lower.contains("zspace") { return "zspace" }
+    if lower.contains("trimemedia") { return "trimemedia" }
+    return nil
+  }
+
+  private static func normalizedPlayURL(for provider: NativeDiscoverProvider) -> String? {
+    guard let rawLink = validValue(provider.link) else { return nil }
+    let lowerType = validValue(provider.serverType)?.lowercased()
+    guard lowerType == "emby" || lowerType == "zspace" else { return rawLink }
+    guard let hashIdx = rawLink.firstIndex(of: "#") else { return rawLink }
+    let basePart = String(rawLink[..<hashIdx])
+    let hashPart = String(rawLink[rawLink.index(after: hashIdx)...])
+    guard let qIdx = hashPart.firstIndex(of: "?") else { return rawLink }
+    let hashPath = String(hashPart[..<qIdx])
+    let queryString = String(hashPart[hashPart.index(after: qIdx)...])
+    var components = URLComponents()
+    components.percentEncodedQuery = queryString
+    var items = components.queryItems ?? []
+
+    func setParam(_ name: String, _ value: String) {
+      if let i = items.firstIndex(where: { $0.name == name }) {
+        items[i].value = value
+      } else {
+        items.append(URLQueryItem(name: name, value: value))
+      }
+    }
+
+    if let itemID = validValue(provider.itemID) {
+      if hashPath.contains("/item") || items.contains(where: { $0.name == "id" }) {
+        setParam("id", itemID)
+      }
+      if hashPath.contains("/videos") || items.contains(where: { $0.name == "parentId" }) {
+        setParam("parentId", itemID)
+      }
+    }
+    if let serverID = validValue(provider.serverID) {
+      setParam("serverId", serverID)
+    } else {
+      items.removeAll { $0.name == "serverId" && validValue($0.value) == nil }
+    }
+    components.queryItems = items
+    let updatedQuery = components.percentEncodedQuery ?? queryString
+    return "\(basePart)#\(hashPath)?\(updatedQuery)"
+  }
+
+  private static func buildDeepLink(
+    serverType: String?, playURL: String?, provider: NativeDiscoverProvider
+  ) -> String? {
+    guard let serverType else { return nil }
+    switch serverType {
+    case "emby", "zspace":
+      return buildEmbyDeepLink(playURL: playURL, provider: provider)
+    case "jellyfin":
+      return buildJellyfinDeepLink(playURL: playURL, provider: provider)
+    case "plex":
+      return buildPlexDeepLink(playURL: playURL)
+    case "trimemedia":
+      return buildTrimemediaDeepLink(playURL: playURL, provider: provider)
+    default:
+      return nil
+    }
+  }
+
+  private static func hostPort(from playURL: String?) -> String? {
+    guard let playURL, let url = URL(string: playURL), let host = url.host else { return nil }
+    if let port = url.port { return "\(host):\(port)" }
+    return host
+  }
+
+  private static func firstCapture(_ pattern: String, in text: String) -> String? {
+    guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+    let ns = text as NSString
+    guard
+      let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)),
+      match.numberOfRanges >= 2
+    else { return nil }
+    let r = match.range(at: 1)
+    guard r.location != NSNotFound else { return nil }
+    return validValue(ns.substring(with: r))
+  }
+
+  /// iOS Emby 官方深度链接格式：`emby://items?serverId={SERVER_ID}&itemId={ITEM_ID}`
+  private static func buildEmbyDeepLink(
+    playURL: String?, provider: NativeDiscoverProvider
+  ) -> String {
+    var mediaID = validValue(provider.itemID)
+    var serverID = validValue(provider.serverID)
+    if let playURL {
+      if mediaID == nil {
+        mediaID =
+          firstCapture(#"[?&]parentId=([^&#]+)"#, in: playURL)
+          ?? firstCapture(#"[?&]id=([^&#]+)"#, in: playURL)
+          ?? firstCapture(#"/items?/([^/?#]+)"#, in: playURL)
+      }
+      if serverID == nil {
+        serverID = firstCapture(#"[?&]serverId=([^&#]+)"#, in: playURL)
+      }
+    }
+    if let mediaID {
+      let encodedMedia =
+        mediaID.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? mediaID
+      if let serverID {
+        let encodedServer =
+          serverID.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? serverID
+        return "emby://items?serverId=\(encodedServer)&itemId=\(encodedMedia)"
+      }
+      return "emby://items?itemId=\(encodedMedia)"
+    }
+    if let host = hostPort(from: playURL) { return "emby://\(host)" }
+    return "emby://"
+  }
+
+  /// Jellyfin 深度链接格式：`jellyfin://{host}/library/{libraryId}` 或 `jellyfin://{host}/item/{mediaId}`
+  private static func buildJellyfinDeepLink(
+    playURL: String?, provider: NativeDiscoverProvider
+  ) -> String {
+    let host = hostPort(from: playURL) ?? ""
+    var libraryID = validValue(provider.itemID)
+    var mediaID: String?
+    var serverID = validValue(provider.serverID)
+    if let playURL {
+      if let libMatch = firstCapture(#"[?&]topParentId=([^&#]+)"#, in: playURL) {
+        libraryID = libMatch
+      }
+      if let detailID = firstCapture(#"/details\?id=([^&#]+)"#, in: playURL) {
+        mediaID = detailID
+      }
+      if serverID == nil {
+        serverID = firstCapture(#"[?&]serverId=([^&#]+)"#, in: playURL)
+      }
+    }
+    if let mediaID, !host.isEmpty {
+      var link = "jellyfin://\(host)/item/\(mediaID)"
+      if let serverID { link += "?serverId=\(serverID)" }
+      return link
+    }
+    if let libraryID, !host.isEmpty {
+      return "jellyfin://\(host)/library/\(libraryID)"
+    }
+    return host.isEmpty ? "jellyfin://" : "jellyfin://\(host)"
+  }
+
+  /// Plex 深度链接格式：`plex://library/sections/{sectionId}/all` 或 `plex://play/?metadataKey=...`
+  private static func buildPlexDeepLink(playURL: String?) -> String {
+    guard let playURL else { return "plex://" }
+    let token = firstCapture(#"X-Plex-Token=([^&#]+)"#, in: playURL)
+    if let sectionMatch = firstCapture(#"source=[^&#]*section%2F(\d+)"#, in: playURL)
+      ?? firstCapture(#"source=[^&#]*section/(\d+)"#, in: playURL)
+      ?? firstCapture(#"source=(\d+)"#, in: playURL)
+    {
+      var link = "plex://library/sections/\(sectionMatch)/all"
+      if let token { link += "?X-Plex-Token=\(token)" }
+      return link
+    }
+    if let serverID = firstCapture(#"/server/([^/]+)/details"#, in: playURL),
+      let keyVal = firstCapture(#"[?&]key=([^&#]+)"#, in: playURL)
+    {
+      let mediaID = firstCapture(#"/library/metadata/(\d+)"#, in: keyVal) ?? keyVal
+      var link = "plex://play/?metadataKey=/library/metadata/\(mediaID)&server=\(serverID)"
+      if let token { link += "&X-Plex-Token=\(token)" }
+      return link
+    }
+    var fallback = "plex://library/sections"
+    if let token { fallback += "?X-Plex-Token=\(token)" }
+    return fallback
+  }
+
+  /// 飞牛影视深度链接格式：`trimemedia://{host}/item/{mediaId}` 或 `trimemedia://{host}`
+  private static func buildTrimemediaDeepLink(
+    playURL: String?, provider: NativeDiscoverProvider
+  ) -> String {
+    let host = hostPort(from: playURL) ?? ""
+    let mediaID =
+      playURL.flatMap {
+        firstCapture(#"/item/([^/?#]+)"#, in: $0) ?? firstCapture(#"[?&]id=([^&#]+)"#, in: $0)
+      } ?? validValue(provider.itemID)
+    if let mediaID, !host.isEmpty {
+      return "trimemedia://\(host)/item/\(mediaID)"
+    }
+    return host.isEmpty ? "trimemedia://" : "trimemedia://\(host)"
   }
 }
 

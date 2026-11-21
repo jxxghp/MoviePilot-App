@@ -144,18 +144,30 @@ struct NativeDiscoverProgress: Identifiable {
 }
 
 /// 媒体平台横幅是数据标签，不引入远程产品标识或账号请求。
+/// 媒体库卡片投影，保留媒体服务器跳转所需元数据（供点击直达对应媒体服务器 App 或网页）。
 struct NativeDiscoverProvider: Identifiable {
   let id: String
   let name: String
   let itemCount: Int?
   let artworkReference: String?
+  let serverType: String?
+  let serverID: String?
+  let itemID: String?
+  let link: String?
 
   /// 负数量代表无有效计数时按缺失处理，不显示伪造的零片目。
-  init(id: String, name: String, itemCount: Int? = nil, artworkReference: String? = nil) {
+  init(
+    id: String, name: String, itemCount: Int? = nil, artworkReference: String? = nil,
+    serverType: String? = nil, serverID: String? = nil, itemID: String? = nil, link: String? = nil
+  ) {
     self.id = id
     self.name = name
     self.itemCount = itemCount.flatMap { $0 >= 0 ? $0 : nil }
     self.artworkReference = artworkReference
+    self.serverType = serverType
+    self.serverID = serverID
+    self.itemID = itemID
+    self.link = link
   }
 }
 

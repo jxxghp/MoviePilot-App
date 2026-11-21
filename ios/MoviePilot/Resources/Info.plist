@@ -18,6 +18,12 @@
     <key>CFBundleURLName</key><string>org.moviepilot.app.widget</string>
     <key>CFBundleURLSchemes</key><array><string>moviepilot</string></array>
   </dict></array>
+  <key>LSApplicationQueriesSchemes</key><array>
+    <string>emby</string>
+    <string>jellyfin</string>
+    <string>plex</string>
+    <string>trimemedia</string>
+  </array>
   <key>MoviePilotWidgetsEnabled</key><true/>
   <key>UIBackgroundModes</key><array><string>audio</string></array>
   <key>UIApplicationShortcutItems</key><array>

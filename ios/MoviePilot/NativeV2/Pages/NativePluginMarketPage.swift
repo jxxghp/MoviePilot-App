@@ -47,6 +47,7 @@ struct NativePluginMarketPage: View {
   @State private var dataPageSelection: NativeMarketPluginRecord?
   @State private var vueSheetTarget: VueSheetTarget?
   @State private var detailTarget: NativeMarketPluginRecord?
+  @State private var versionHistoryTarget: NativeMarketPluginRecord?
   @State private var cloneTarget: NativeMarketPluginRecord?
   @State private var logTarget: NativeMarketPluginRecord?
   @State private var capabilitiesTarget: NativeMarketPluginRecord?
@@ -171,7 +172,23 @@ struct NativePluginMarketPage: View {
           session: session,
           plugin: plugin,
           downloads: resolvedDownloads(for: plugin),
-          ratingSummary: resolvedRating(for: plugin)
+          ratingSummary: resolvedRating(for: plugin),
+          onOpenVersionHistory: {
+            detailTarget = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
+              versionHistoryTarget = plugin
+            }
+          }
+        ) { message in
+          feedback = NativePluginMarketFeedback(isError: false, message: message)
+          reloadToken += 1
+        }
+      }
+      .sheet(item: $versionHistoryTarget) { plugin in
+        NativePluginVersionHistorySheet(
+          session: session,
+          plugin: plugin,
+          actionMode: .update
         ) { message in
           feedback = NativePluginMarketFeedback(isError: false, message: message)
           reloadToken += 1
@@ -397,12 +414,11 @@ struct NativePluginMarketPage: View {
         } label: {
           Label("更新插件", systemImage: "arrow.triangle.2.circlepath")
         }
-      } else {
-        Button {
-          detailTarget = plugin
-        } label: {
-          Label("版本历史", systemImage: "clock.arrow.circlepath")
-        }
+      }
+      Button {
+        versionHistoryTarget = plugin
+      } label: {
+        Label("版本历史", systemImage: "clock.arrow.circlepath")
       }
       Button {
         logTarget = plugin
@@ -713,6 +729,7 @@ private struct NativePluginStorePage: View {
   let session: NativeSession
   let onMutated: () -> Void
 
+  @Environment(\.openURL) private var openURL
   @State private var marketFilter: MarketFilter = .all
   @State private var sortMode: NativePluginMarketPage.SortMode = .defaultOrder
   @State private var marketPlugins: [NativeMarketPluginRecord] = []
@@ -726,6 +743,7 @@ private struct NativePluginStorePage: View {
   @State private var loadFailed = false
   @State private var reloadToken = 0
   @State private var detailTarget: NativeMarketPluginRecord?
+  @State private var versionHistoryTarget: NativeMarketPluginRecord?
   @State private var feedback: NativePluginMarketFeedback?
 
   var body: some View {
@@ -790,6 +808,27 @@ private struct NativePluginStorePage: View {
                 )
                 .onTapGesture {
                   detailTarget = plugin
+                }
+                .contextMenu {
+                  Button {
+                    detailTarget = plugin
+                  } label: {
+                    Label(
+                      plugin.installed ? (plugin.hasUpdate ? "更新插件" : "插件详情") : "安装插件",
+                      systemImage: plugin.installed ? "info.circle" : "arrow.down.to.line")
+                  }
+                  Button {
+                    versionHistoryTarget = plugin
+                  } label: {
+                    Label("版本历史", systemImage: "clock.arrow.circlepath")
+                  }
+                  if let homeURL = plugin.projectHomeURL {
+                    Button {
+                      openURL(homeURL)
+                    } label: {
+                      Label("项目主页", systemImage: "safari")
+                    }
+                  }
                 }
                 .onAppear {
                   if marketHasMore && !isLoadingMore && index >= max(0, filteredItems.count - 8) {
@@ -865,7 +904,27 @@ private struct NativePluginStorePage: View {
         session: session,
         plugin: plugin,
         downloads: resolvedDownloads(for: plugin),
-        ratingSummary: resolvedRating(for: plugin)
+        ratingSummary: resolvedRating(for: plugin),
+        onOpenVersionHistory: {
+          detailTarget = nil
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
+            versionHistoryTarget = plugin
+          }
+        }
+      ) { message in
+        feedback = NativePluginMarketFeedback(isError: false, message: message)
+        if let idx = marketPlugins.firstIndex(where: { $0.id == plugin.id }) {
+          marketPlugins[idx].installed = true
+          marketPlugins[idx].hasUpdate = false
+        }
+        onMutated()
+      }
+    }
+    .sheet(item: $versionHistoryTarget) { plugin in
+      NativePluginVersionHistorySheet(
+        session: session,
+        plugin: plugin,
+        actionMode: plugin.installed ? .update : .install
       ) { message in
         feedback = NativePluginMarketFeedback(isError: false, message: message)
         if let idx = marketPlugins.firstIndex(where: { $0.id == plugin.id }) {
@@ -1212,13 +1271,14 @@ private struct NativePluginCardSurface: View {
   }
 }
 
-/// 插件详情、来源绑定/切换、版本历史安装与评分弹窗（对标 Web `PluginMarketDetailDialog.vue`，十一.3）。
+/// 插件详情、来源绑定/切换与评分安装弹窗（对标 Web `PluginMarketDetailDialog.vue`，与版本历史弹窗独立分离）。
 @MainActor
 private struct NativePluginMarketDetailSheet: View {
   let session: NativeSession
   let plugin: NativeMarketPluginRecord
   let downloads: Int
   let ratingSummary: NativePluginRatingSummary?
+  var onOpenVersionHistory: (() -> Void)? = nil
   let onCompleted: (String) -> Void
 
   @Environment(\.dismiss) private var dismiss
@@ -1226,8 +1286,6 @@ private struct NativePluginMarketDetailSheet: View {
 
   @State private var sourceOptions: NativePluginSourceOptions?
   @State private var selectedSourceRepo: String = ""
-  @State private var releases: NativePluginReleaseData?
-  @State private var historyEntries: [(version: String, desc: String)] = []
   @State private var docURL: URL?
   @State private var liveRating: NativePluginRatingSummary?
   @State private var userStars = 0
@@ -1264,7 +1322,6 @@ private struct NativePluginMarketDetailSheet: View {
             }
             sourceBindingSection
             ratingSection
-            releasesSection
             linksSection
           }
           .frame(maxWidth: 760)
@@ -1274,12 +1331,23 @@ private struct NativePluginMarketDetailSheet: View {
         }
         .scrollIndicators(.hidden)
       }
-      .navigationTitle("插件详情")
+      .navigationTitle(plugin.installed ? "插件详情" : "安装插件")
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("关闭") { dismiss() }
+        }
+        if let onOpenVersionHistory {
+          ToolbarItem(placement: .topBarTrailing) {
+            Button {
+              onOpenVersionHistory()
+            } label: {
+              Image(systemName: "clock.arrow.circlepath")
+            }
+            .accessibilityLabel("版本历史")
+            .accessibilityIdentifier("native-plugin-detail-version-history")
+          }
         }
       }
       .task { await bootstrap() }
@@ -1522,66 +1590,6 @@ private struct NativePluginMarketDetailSheet: View {
     }
   }
 
-  /// Release 历史版本安装与更新日志。
-  private var releasesSection: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text("版本历史与指定版本安装")
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 4)
-      CinematicPanel(padding: 13) {
-        VStack(alignment: .leading, spacing: 10) {
-          if let items = releases?.items, !items.isEmpty {
-            ForEach(Array(items.prefix(8).enumerated()), id: \.offset) { idx, item in
-              if idx > 0 { Divider().overlay(NativeTheme.divider) }
-              HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(item.version ?? item.tagName ?? "未知版本")
-                    .font(.subheadline.monospaced().weight(.semibold))
-                  if let desc = item.description ?? item.body, !desc.isEmpty {
-                    Text(desc)
-                      .font(.caption2)
-                      .foregroundStyle(.secondary)
-                      .lineLimit(2)
-                  }
-                }
-                Spacer(minLength: 6)
-                if let ver = item.version ?? item.tagName, !ver.isEmpty {
-                  Button("安装") {
-                    Task { await installOrUpdate(releaseVersion: ver) }
-                  }
-                  .font(.caption.weight(.semibold))
-                  .foregroundStyle(NativeTheme.brand)
-                  .padding(.horizontal, 10)
-                  .padding(.vertical, 5)
-                  .background { Capsule().fill(NativeTheme.brand.opacity(0.14)) }
-                  .buttonStyle(.plain)
-                  .disabled(isInstalling)
-                }
-              }
-            }
-          } else if !historyEntries.isEmpty {
-            ForEach(Array(historyEntries.prefix(10).enumerated()), id: \.offset) { idx, entry in
-              if idx > 0 { Divider().overlay(NativeTheme.divider) }
-              VStack(alignment: .leading, spacing: 3) {
-                Text(entry.version)
-                  .font(.caption.monospaced().weight(.semibold))
-                  .foregroundStyle(NativeTheme.brand)
-                Text(entry.desc)
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
-              }
-            }
-          } else {
-            Text(isLoading ? "正在读取版本记录…" : "暂无可切换的历史版本记录。")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-        }
-      }
-    }
-  }
-
   /// 文档与仓库链接。
   @ViewBuilder
   private var linksSection: some View {
@@ -1639,15 +1647,10 @@ private struct NativePluginMarketDetailSheet: View {
     isLoading = true
     defer { isLoading = false }
     selectedSourceRepo = plugin.repoURL ?? ""
-    if let dict = plugin.history {
-      historyEntries = dict.keys.sorted(by: >).map { ($0, dict[$0] ?? "") }
-    }
     async let sourcesTask: Void = loadSourceOptions()
-    async let releasesTask: Void = loadReleases()
     async let ratingTask: Void = loadRating()
     async let docTask: Void = loadDocumentation()
-    async let historyTask: Void = loadHistory()
-    _ = await (sourcesTask, releasesTask, ratingTask, docTask, historyTask)
+    _ = await (sourcesTask, ratingTask, docTask)
   }
 
   private func loadSourceOptions() async {
@@ -1664,34 +1667,6 @@ private struct NativePluginMarketDetailSheet: View {
     if selectedSourceRepo.isEmpty, let first = data.sortedCandidates.first?.repoURL {
       selectedSourceRepo = first
     }
-  }
-
-  private func loadReleases() async {
-    var query: [URLQueryItem] = []
-    if let repo = plugin.repoURL, !repo.isEmpty {
-      query.append(URLQueryItem(name: "repo_url", value: repo))
-    }
-    guard let ep = try? APIEndpoint(path: ["plugin", "releases", sourcePluginID], query: query),
-      let loaded = try? await session.request(
-        ep, as: NativePluginReleaseData.self,
-        requiring: PermissionRequirement(category: .admin)
-      ).value
-    else { return }
-    releases = loaded
-  }
-
-  private func loadHistory() async {
-    guard historyEntries.isEmpty,
-      let ep = try? APIEndpoint(
-        path: ["plugin", "history", sourcePluginID],
-        query: [URLQueryItem(name: "force", value: "false")]),
-      let loaded = try? await session.request(
-        ep, as: NativeMarketPluginRecord.self,
-        requiring: PermissionRequirement(category: .admin)
-      ).value,
-      let dict = loaded.history
-    else { return }
-    historyEntries = dict.keys.sorted(by: >).map { ($0, dict[$0] ?? "") }
   }
 
   private func loadRating() async {
@@ -1854,7 +1829,312 @@ private struct NativePluginMarketDetailSheet: View {
   }
 }
 
-/// 创建/恢复插件分身弹窗（对标 Web `PluginCloneDialog.vue`，十一.4）：
+/// 独立版本历史与指定 Release 安装弹窗（对标 Web `PluginVersionHistoryDialog.vue`，与安装详情弹窗分离）。
+@MainActor
+private struct NativePluginVersionHistorySheet: View {
+  enum ActionMode {
+    case install
+    case update
+  }
+
+  private struct MergedVersionRow: Identifiable {
+    let versionKey: String
+    let installVersion: String?
+    let notes: String
+    let isCurrent: Bool
+    let isLatest: Bool
+
+    var id: String { versionKey }
+  }
+
+  let session: NativeSession
+  let plugin: NativeMarketPluginRecord
+  let actionMode: ActionMode
+  let onCompleted: (String) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @State private var releases: NativePluginReleaseData?
+  @State private var declaredHistory: [String: String] = [:]
+  @State private var isLoading = true
+  @State private var isInstalling = false
+  @State private var pendingVersion: String?
+  @State private var bannerMessage: String?
+  @State private var bannerIsError = false
+
+  private var sourcePluginID: String {
+    plugin.sourcePluginID?.isEmpty == false ? plugin.sourcePluginID! : plugin.id
+  }
+
+  private var mergedRows: [MergedVersionRow] {
+    var notesByKey: [String: String] = [:]
+    var releaseByKey: [String: NativePluginReleaseItem] = [:]
+    for item in releases?.items ?? [] {
+      let rawVer = (item.version ?? item.tagName ?? "").trimmingCharacters(
+        in: .whitespacesAndNewlines)
+      guard !rawVer.isEmpty else { continue }
+      let key = Self.normalizeVersionKey(rawVer)
+      releaseByKey[key] = item
+      let body = (item.description ?? item.body ?? "").trimmingCharacters(
+        in: .whitespacesAndNewlines)
+      notesByKey[key] = declaredHistory[key] ?? declaredHistory[rawVer] ?? body
+    }
+    for (ver, desc) in declaredHistory {
+      let key = Self.normalizeVersionKey(ver)
+      if notesByKey[key] == nil || notesByKey[key]?.isEmpty == true {
+        notesByKey[key] = desc
+      }
+    }
+    let sortedKeys = notesByKey.keys.sorted { Self.compareVersions($0, $1) > 0 }
+    let currentKey = Self.normalizeVersionKey(releases?.currentVersion ?? plugin.version)
+    let latestKey =
+      (releases?.latestVersion).map(Self.normalizeVersionKey) ?? sortedKeys.first ?? ""
+    return sortedKeys.map { key in
+      let release = releaseByKey[key]
+      let installVer = release?.version ?? release?.tagName
+      return MergedVersionRow(
+        versionKey: key,
+        installVersion: installVer,
+        notes: notesByKey[key] ?? "",
+        isCurrent: plugin.installed && !currentKey.isEmpty && key == currentKey,
+        isLatest: !latestKey.isEmpty && key == latestKey
+      )
+    }
+  }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 14) {
+            CinematicPanel(padding: 14) {
+              HStack(spacing: 12) {
+                NativePluginIconView(
+                  session: session, iconReference: plugin.pluginIcon, size: 46, cornerRadius: 12,
+                  inactive: false)
+                VStack(alignment: .leading, spacing: 3) {
+                  Text(plugin.displayName)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                  HStack(spacing: 8) {
+                    if !plugin.version.isEmpty {
+                      Text(plugin.installed ? "当前 v\(plugin.version)" : "最新 v\(plugin.version)")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(appearance.accentColor)
+                    }
+                    if !plugin.author.isEmpty {
+                      Text(plugin.author)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                  }
+                }
+                Spacer(minLength: 0)
+              }
+            }
+
+            if let bannerMessage {
+              CinematicPanel(padding: 11) {
+                HStack(spacing: 8) {
+                  Image(
+                    systemName: bannerIsError
+                      ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+                  )
+                  .foregroundStyle(bannerIsError ? NativeTheme.warning : NativeTheme.success)
+                  Text(bannerMessage).font(.caption).foregroundStyle(.primary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+              }
+            }
+
+            if isLoading && mergedRows.isEmpty {
+              ProgressView("正在读取版本历史…")
+                .tint(.primary)
+                .frame(maxWidth: .infinity, minHeight: 180)
+            } else if mergedRows.isEmpty {
+              CinematicPanel(padding: 16) {
+                Text("暂无版本更新历史记录")
+                  .font(.subheadline)
+                  .foregroundStyle(.secondary)
+                  .frame(maxWidth: .infinity, minHeight: 80)
+              }
+            } else {
+              CinematicPanel(padding: 0) {
+                VStack(spacing: 0) {
+                  ForEach(Array(mergedRows.enumerated()), id: \.element.id) { idx, row in
+                    if idx > 0 { CinematicFormDivider() }
+                    VStack(alignment: .leading, spacing: 6) {
+                      HStack(spacing: 8) {
+                        Text(row.versionKey)
+                          .font(.subheadline.monospaced().weight(.semibold))
+                          .foregroundStyle(.primary)
+                        if row.isCurrent {
+                          NativeAdaptiveBadge("当前版本", tint: NativeTheme.success)
+                        } else if row.isLatest {
+                          NativeAdaptiveBadge("最新", tint: appearance.accentColor)
+                        }
+                        Spacer(minLength: 4)
+                        if let installVer = row.installVersion, !installVer.isEmpty, !row.isCurrent
+                        {
+                          Button {
+                            pendingVersion = installVer
+                          } label: {
+                            Text(actionMode == .update ? "安装此版" : "安装")
+                              .font(.caption.weight(.semibold))
+                              .foregroundStyle(appearance.accentColor)
+                              .padding(.horizontal, 10)
+                              .padding(.vertical, 5)
+                              .background(appearance.accentColor.opacity(0.14), in: Capsule())
+                          }
+                          .buttonStyle(.plain)
+                          .disabled(isInstalling)
+                        }
+                      }
+                      if !row.notes.isEmpty {
+                        Text(row.notes)
+                          .font(.caption)
+                          .foregroundStyle(.secondary)
+                          .fixedSize(horizontal: false, vertical: true)
+                      }
+                    }
+                    .padding(.horizontal, 15)
+                    .padding(.vertical, 12)
+                  }
+                }
+              }
+            }
+          }
+          .frame(maxWidth: 760)
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
+          .frame(maxWidth: .infinity)
+        }
+        .scrollIndicators(.hidden)
+      }
+      .navigationTitle("版本历史")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("关闭") { dismiss() }
+        }
+      }
+      .alert(
+        "安装指定版本",
+        isPresented: Binding(
+          get: { pendingVersion != nil }, set: { if !$0 { pendingVersion = nil } }),
+        presenting: pendingVersion
+      ) { version in
+        Button("确认安装") {
+          Task { await installRelease(version) }
+        }
+        Button("取消", role: .cancel) {}
+      } message: { version in
+        Text("确认安装「\(plugin.displayName)」的 \(version) 版本吗？")
+      }
+      .task { await loadVersionHistory() }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  private func loadVersionHistory() async {
+    isLoading = true
+    defer { isLoading = false }
+    if let dict = plugin.history {
+      declaredHistory = dict
+    }
+    async let releasesTask: Void = loadReleases()
+    async let historyTask: Void = loadDeclaredHistory()
+    _ = await (releasesTask, historyTask)
+  }
+
+  private func loadReleases() async {
+    var query: [URLQueryItem] = []
+    if let repo = plugin.repoURL, !repo.isEmpty {
+      query.append(URLQueryItem(name: "repo_url", value: repo))
+    }
+    guard let ep = try? APIEndpoint(path: ["plugin", "releases", sourcePluginID], query: query),
+      let loaded = try? await session.request(
+        ep, as: NativePluginReleaseData.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
+    else { return }
+    releases = loaded
+  }
+
+  private func loadDeclaredHistory() async {
+    guard
+      let ep = try? APIEndpoint(
+        path: ["plugin", "history", sourcePluginID],
+        query: [URLQueryItem(name: "force", value: "false")]),
+      let loaded = try? await session.request(
+        ep, as: NativeMarketPluginRecord.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value,
+      let dict = loaded.history, !dict.isEmpty
+    else { return }
+    declaredHistory = dict
+  }
+
+  private func installRelease(_ version: String) async {
+    isInstalling = true
+    bannerMessage = nil
+    defer { isInstalling = false }
+    do {
+      var query = [
+        URLQueryItem(name: "force", value: "true"),
+        URLQueryItem(name: "release_version", value: version),
+      ]
+      if let repo = plugin.repoURL, !repo.isEmpty {
+        query.append(URLQueryItem(name: "repo_url", value: repo))
+      }
+      let ep = try APIEndpoint(
+        path: ["plugin", "install", sourcePluginID], query: query,
+        responseContract: .payload, timeout: 90)
+      let resp = try await session.request(
+        ep, as: NativePluginSimpleResponse.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
+      if resp.success == false {
+        bannerIsError = true
+        bannerMessage = resp.message ?? "安装指定版本失败。"
+        return
+      }
+      onCompleted("「\(plugin.displayName)」(\(version)) 安装已完成。")
+      dismiss()
+    } catch {
+      bannerIsError = true
+      bannerMessage = "安装失败：\(error.localizedDescription)"
+    }
+  }
+
+  private static func normalizeVersionKey(_ raw: String) -> String {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return "" }
+    return trimmed.lowercased().hasPrefix("v") ? trimmed : "v\(trimmed)"
+  }
+
+  private static func compareVersions(_ lhs: String, _ rhs: String) -> Int {
+    let lp = versionParts(lhs)
+    let rp = versionParts(rhs)
+    let n = max(lp.count, rp.count)
+    for i in 0..<n {
+      let a = i < lp.count ? lp[i] : 0
+      let b = i < rp.count ? rp[i] : 0
+      if a != b { return a < b ? -1 : 1 }
+    }
+    return 0
+  }
+
+  private static func versionParts(_ raw: String) -> [Int] {
+    var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.lowercased().hasPrefix("v") { trimmed.removeFirst() }
+    return trimmed.split(whereSeparator: { $0 == "." || $0 == "-" }).map { Int($0) ?? 0 }
+  }
+}
+
+/// 创建/恢复插件分身弹窗（对标 Web `PluginCloneDialog.vue`，采用 iOS 设置分组表单风格）：
 /// 自动查询 `GET /api/v1/plugin/clone/{id}/restorable` 并提交 `POST /api/v1/plugin/clone/{id}`。
 @MainActor
 private struct NativePluginCloneSheet: View {
@@ -1863,6 +2143,7 @@ private struct NativePluginCloneSheet: View {
   let onCloned: (String) -> Void
 
   @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
   @State private var suffix = ""
   @State private var name: String
   @State private var descriptionText: String
@@ -1901,66 +2182,119 @@ private struct NativePluginCloneSheet: View {
       ZStack {
         CinematicBackground()
         ScrollView {
-          VStack(alignment: .leading, spacing: 14) {
-            if !restorable.isEmpty {
-              VStack(alignment: .leading, spacing: 8) {
-                Text("可恢复的已停用分身（点选快速填入后缀）")
-                  .font(.caption.weight(.semibold))
-                  .foregroundStyle(.secondary)
-                  .padding(.horizontal, 4)
-                CinematicPanel(padding: 12) {
-                  ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                      ForEach(restorable) { item in
-                        Button {
-                          suffix = item.suffix
-                          if let oldName = item.name, !oldName.isEmpty { name = oldName }
-                        } label: {
-                          NativeAdaptivePill(
-                            "\(item.suffix) (\(item.instanceID))",
-                            isSelected: suffix.lowercased() == item.suffix.lowercased())
-                        }
-                        .buttonStyle(.plain)
-                      }
-                    }
-                  }
-                }
-              }
-            }
-
-            CinematicPanel(padding: 14) {
-              VStack(alignment: .leading, spacing: 12) {
-                fieldRow(title: "分身后缀（留空自动分配）", placeholder: "仅英文字母或数字，如 2 或 alt", text: $suffix)
-                if let suffixValidationError {
-                  Text(suffixValidationError).font(.caption2).foregroundStyle(NativeTheme.danger)
-                }
-                Divider().overlay(NativeTheme.divider)
-                fieldRow(title: "分身名称", placeholder: "输入分身展示名", text: $name)
-                Divider().overlay(NativeTheme.divider)
-                fieldRow(title: "分身描述", placeholder: "可选", text: $descriptionText)
-                Divider().overlay(NativeTheme.divider)
-                fieldRow(title: "自定义图标", placeholder: "可选图标名或链接", text: $iconText)
-                Divider().overlay(NativeTheme.divider)
-                Toggle("若该后缀留有历史配置则自动恢复", isOn: $restorePrevious)
-                  .font(.subheadline)
-                  .tint(NativeTheme.brand)
-              }
-            }
-
+          VStack(alignment: .leading, spacing: 20) {
             if let errorMessage {
-              CinematicPanel(padding: 11) {
+              CinematicPanel(padding: 12) {
                 HStack(spacing: 8) {
                   Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(NativeTheme.warning)
-                  Text(errorMessage).font(.caption).foregroundStyle(.primary)
+                    .foregroundStyle(NativeTheme.danger)
+                  Text(errorMessage).font(.caption).foregroundStyle(NativeTheme.danger)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
               }
             }
+
+            if !restorable.isEmpty {
+              VStack(alignment: .leading, spacing: 8) {
+                Text("可恢复的已停用分身")
+                  .font(.subheadline.weight(.medium))
+                  .foregroundStyle(.secondary)
+                  .padding(.horizontal, 8)
+                CinematicPanel(padding: 0) {
+                  VStack(spacing: 0) {
+                    ForEach(Array(restorable.enumerated()), id: \.element.id) { idx, item in
+                      if idx > 0 { CinematicFormDivider() }
+                      let selected = suffix.lowercased() == item.suffix.lowercased()
+                      Button {
+                        suffix = item.suffix
+                        if let oldName = item.name, !oldName.isEmpty { name = oldName }
+                      } label: {
+                        HStack(spacing: 10) {
+                          VStack(alignment: .leading, spacing: 2) {
+                            Text(item.name?.isEmpty == false ? item.name! : item.instanceID)
+                              .font(.subheadline.weight(.medium))
+                              .foregroundStyle(.primary)
+                            Text("后缀：\(item.suffix) · \(item.instanceID)")
+                              .font(.caption.monospaced())
+                              .foregroundStyle(.secondary)
+                          }
+                          Spacer()
+                          if selected {
+                            Image(systemName: "checkmark")
+                              .font(.subheadline.weight(.semibold))
+                              .foregroundStyle(appearance.accentColor)
+                          }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .contentShape(Rectangle())
+                      }
+                      .buttonStyle(.plain)
+                    }
+                  }
+                }
+                Text("点选已有记录可快速填入对应后缀与名称。")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+                  .padding(.horizontal, 8)
+              }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+              Text("基本信息")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+              CinematicPanel(padding: 0) {
+                VStack(spacing: 0) {
+                  settingsInputRow(
+                    title: "分身后缀", placeholder: "留空自动分配，如 2 或 alt", text: $suffix)
+                  CinematicFormDivider()
+                  settingsInputRow(title: "分身名称", placeholder: "输入分身展示名", text: $name)
+                  CinematicFormDivider()
+                  settingsInputRow(title: "分身描述", placeholder: "可选", text: $descriptionText)
+                  CinematicFormDivider()
+                  settingsInputRow(title: "自定义图标", placeholder: "可选图标名或链接", text: $iconText)
+                }
+              }
+              if let suffixValidationError {
+                Text(suffixValidationError)
+                  .font(.caption)
+                  .foregroundStyle(NativeTheme.danger)
+                  .padding(.horizontal, 8)
+              } else {
+                Text("后缀仅允许英文字母或数字（A-Z, a-z, 0-9），最长 20 位，留空自动分配。")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+                  .padding(.horizontal, 8)
+              }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+              Text("配置恢复")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+              CinematicPanel(padding: 0) {
+                Toggle("恢复历史配置", isOn: $restorePrevious)
+                  .font(.body)
+                  .tint(appearance.accentColor)
+                  .padding(.horizontal, 16)
+                  .padding(.vertical, 12)
+                  .frame(minHeight: 52)
+              }
+              Text("若该后缀留有已停用的历史配置，创建分身时自动恢复原配置。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+            }
           }
+          .frame(maxWidth: 740, alignment: .leading)
           .padding(.horizontal, CinematicStyle.margin)
-          .padding(.vertical, 14)
+          .padding(.vertical, 16)
+          .frame(maxWidth: .infinity)
         }
+        .scrollIndicators(.hidden)
       }
       .navigationTitle("创建插件分身")
       .navigationBarTitleDisplayMode(.inline)
@@ -1987,20 +2321,23 @@ private struct NativePluginCloneSheet: View {
     .nativeAppearanceRoot()
   }
 
-  private func fieldRow(title: String, placeholder: String, text: Binding<String>) -> some View {
-    VStack(alignment: .leading, spacing: 5) {
-      Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+  private func settingsInputRow(title: String, placeholder: String, text: Binding<String>)
+    -> some View
+  {
+    HStack(spacing: 12) {
+      Text(title)
+        .font(.body)
+        .foregroundStyle(.primary)
+        .frame(width: 88, alignment: .leading)
       TextField(placeholder, text: text)
-        .textFieldStyle(.plain)
         .font(.subheadline)
+        .multilineTextAlignment(.trailing)
         .autocorrectionDisabled()
         .textInputAutocapitalization(.never)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
-        .background {
-          RoundedRectangle(cornerRadius: 10, style: .continuous).fill(NativeTheme.fieldFill)
-        }
     }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 12)
+    .frame(minHeight: 52)
   }
 
   private func loadRestorable() async {

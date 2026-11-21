@@ -1782,22 +1782,25 @@ private enum NativeLogParser {
   // 2) 中文方括号风格：【INFO】2026-11-21 17:30:12,123 system.py - 消息
   private static let cnBracketPrefixRegex = try? NSRegularExpression(
     pattern: #"^【([^】]+)】\s*(.*)$"#)
-  // 1/2 通用结构化正文：可选 [appName] + 严格 YYYY-MM-DD HH:MM:SS(,mmm) + 非空白来源 + " - " + 消息
+  // 1/2 通用结构化正文：可选 [appName] + 严格 YYYY-MM-DD HH:MM:SS(,mmm) + 可选 [correlation_id] (如 [-]) + 可选 "- " + 非括号模块来源 + " - " + 消息
   private static let structuredBodyRegex = try? NSRegularExpression(
     pattern:
-      #"^(?:\[([^\]]+)\]\s+)?(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d{3})?)\s+([^\s]+)\s+-\s+(.*)$"#
+      #"^(?:\[([^\]]+)\]\s+)?(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d{3})?)\s+(?:\[[^\]]+\]\s+)?(?:-\s+)?([^\s\[\]]+)\s+-\s+(.*)$"#
   )
-  // 3) 时间戳开头：2026-11-21 17:30:12,123 [INFO] system.py - 消息
+  // 3) 时间戳开头：2026-11-21 17:30:12,123 [INFO] [-] - system.py - 消息
   private static let timestampFirstRegex = try? NSRegularExpression(
     pattern:
       #"^(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?(?:[.,]\d{3})?)?)\s+\[?([A-Za-z]+)\]?\s*(.*)$"#
   )
-  // 4) 内联级别开头：[INFO] 2026-11-21 17:30:12 system.py - 消息
+  // 4) 内联级别开头：[INFO] 2026-11-21 17:30:12 [-] - system.py - 消息
   private static let inlineLevelRegex = try? NSRegularExpression(
     pattern: #"^\[?([A-Za-z]+)\]?:?\s+(.*)$"#)
-  // 3/4 去时间戳后正文：可选 [appName] + 非空白来源 + " - " + 消息
+  // 3/4 去时间戳后正文：可选 [appName/cid] + 可选 "- " + 非括号模块来源 + " - " + 消息
   private static let sourceDashBodyRegex = try? NSRegularExpression(
-    pattern: #"^(?:\[([^\]]+)\]\s+)?([^\s]+)\s+-\s+(.*)$"#)
+    pattern: #"^(?:\[([^\]]+)\]\s+)?(?:-\s+)?([^\s\[\]]+)\s+-\s+(.*)$"#)
+  // 去除回退正文前导的关联 ID 占位符（如 [-] - ）
+  private static let leadingCidPrefixRegex = try? NSRegularExpression(
+    pattern: #"^(?:\[[^\]]+\]\s+)?(?:-\s+)?"#)
   // 非结构化正文的 " - " 分隔回退（对标 Web extractMessage）
   private static let dashSeparatorRegex = try? NSRegularExpression(pattern: #"\s+-\s+"#)
 
@@ -1899,14 +1902,29 @@ private enum NativeLogParser {
     return buildFromStructuredRemainder(level: level, remainder: g[1], id: id)
   }
 
+  private static func stripLeadingCidPrefix(_ text: String) -> String {
+    guard let leadingCidPrefixRegex else { return text }
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    return leadingCidPrefixRegex.stringByReplacingMatches(
+      in: text, range: range, withTemplate: ""
+    ).trimmingCharacters(in: .whitespaces)
+  }
+
+  private static func formatSource(appName: String, source: String) -> String {
+    let cleanApp = appName.trimmingCharacters(in: .whitespaces)
+    let cleanSource = source.trimmingCharacters(in: .whitespaces)
+    // 忽略无意义的关联 ID 占位符（如 [-]）
+    guard !cleanApp.isEmpty, cleanApp != "-" else { return cleanSource }
+    return cleanSource.isEmpty ? "[\(cleanApp)]" : "[\(cleanApp)] \(cleanSource)"
+  }
+
   private static func buildFromStructuredRemainder(
     level: String, remainder: String, id: Int
   ) -> NativeStructuredLogEntry {
     let body = remainder.trimmingCharacters(in: .whitespaces)
     if let bg = matchGroups(structuredBodyRegex, in: body), bg.count >= 4 {
-      let appName = bg[0]
       let ts = shortTimestamp(bg[1])
-      let source = appName.isEmpty ? bg[2] : "[\(appName)] \(bg[2])"
+      let source = formatSource(appName: bg[0], source: bg[2])
       return NativeStructuredLogEntry(
         id: id, level: level, timestamp: ts, source: source, message: bg[3])
     }
@@ -1919,14 +1937,14 @@ private enum NativeLogParser {
         with: "", options: .regularExpression
       ).trimmingCharacters(in: .whitespaces)
     if let sg = matchGroups(sourceDashBodyRegex, in: withoutTS), sg.count >= 3 {
-      let appName = sg[0]
-      let source = appName.isEmpty ? sg[1] : "[\(appName)] \(sg[1])"
+      let source = formatSource(appName: sg[0], source: sg[1])
       return NativeStructuredLogEntry(
         id: id, level: level, timestamp: ts, source: source, message: sg[2])
     }
+    let cleanedFallback = stripLeadingCidPrefix(withoutTS.isEmpty ? body : withoutTS)
     return NativeStructuredLogEntry(
       id: id, level: level, timestamp: ts, source: "",
-      message: extractFallbackMessage(withoutTS.isEmpty ? body : withoutTS))
+      message: extractFallbackMessage(cleanedFallback.isEmpty ? body : cleanedFallback))
   }
 
   private static func parseTimestampFirst(_ line: String, id: Int) -> NativeStructuredLogEntry? {
@@ -1936,13 +1954,14 @@ private enum NativeLogParser {
     let ts = shortTimestamp(g[0])
     let body = g[2].trimmingCharacters(in: .whitespaces)
     if let sg = matchGroups(sourceDashBodyRegex, in: body), sg.count >= 3 {
-      let appName = sg[0]
-      let source = appName.isEmpty ? sg[1] : "[\(appName)] \(sg[1])"
+      let source = formatSource(appName: sg[0], source: sg[1])
       return NativeStructuredLogEntry(
         id: id, level: level, timestamp: ts, source: source, message: sg[2])
     }
+    let cleaned = stripLeadingCidPrefix(body)
     return NativeStructuredLogEntry(
-      id: id, level: level, timestamp: ts, source: "", message: extractFallbackMessage(body))
+      id: id, level: level, timestamp: ts, source: "",
+      message: extractFallbackMessage(cleaned.isEmpty ? body : cleaned))
   }
 
   private static func parseInlineLevel(_ line: String, id: Int) -> NativeStructuredLogEntry? {
