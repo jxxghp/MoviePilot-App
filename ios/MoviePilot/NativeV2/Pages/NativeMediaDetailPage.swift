@@ -67,13 +67,14 @@ struct NativeMediaDetailPage: View {
         }
       }
       .scrollIndicators(.hidden)
+      .refreshable { await loadAll(forceRefresh: true) }
       .ignoresSafeArea(edges: .top)
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-media-detail-scroll")
     }
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
-    .task(id: attempt) { await loadAll() }
+    .task(id: attempt) { await loadAll(forceRefresh: attempt > 0) }
     .alert(
       "取消订阅",
       isPresented: Binding(
@@ -703,10 +704,28 @@ struct NativeMediaDetailPage: View {
     }
   }
 
-  /// 并行读取核心详情与状态/演职员/推荐；次要区块失败不阻断核心详情呈现。
-  private func loadAll() async {
+  /// 并行读取核心详情与状态/演职员/推荐；命中作品缓存时首帧直出且静默复用，下拉刷新强制重拉。
+  private func loadAll(forceRefresh: Bool = false) async {
+    let cacheKey = "mediaDetail|\(identity.source)|\(identity.mediaID)|\(identity.type)"
+    if !forceRefresh,
+      let cached:
+        (
+          detail: NativeMediaDetailPayload,
+          status: NativeMediaStatusSnapshot,
+          credits: [NativeMediaPersonItem],
+          recommendations: [NativeMediaSummaryItem]
+        ) = NativePageDataCache.shared.get(cacheKey, session: session)
+    {
+      detail = cached.detail
+      status = cached.status
+      credits = cached.credits
+      recommendations = cached.recommendations
+      failed = false
+      isLoading = false
+      return
+    }
     failed = false
-    isLoading = true
+    if detail == nil { isLoading = true }
     defer { isLoading = false }
     do {
       let endpoint = try APIEndpoint(
@@ -720,7 +739,7 @@ struct NativeMediaDetailPage: View {
       ).value
       try Task.checkCancellation()
       guard loaded.title?.isEmpty == false else {
-        failed = true
+        if detail == nil { failed = true }
         return
       }
       detail = loaded
@@ -738,10 +757,13 @@ struct NativeMediaDetailPage: View {
       if let loadedStatus { status = loadedStatus }
       if !loadedCredits.isEmpty { credits = loadedCredits }
       recommendations = loadedRecommendations
+      NativePageDataCache.shared.set(
+        (detail: loaded, status: status, credits: credits, recommendations: recommendations),
+        for: cacheKey, session: session)
     } catch is CancellationError {
       return
     } catch {
-      failed = true
+      if detail == nil { failed = true }
     }
   }
 

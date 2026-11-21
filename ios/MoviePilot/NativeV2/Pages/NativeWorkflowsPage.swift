@@ -46,7 +46,7 @@ struct NativeWorkflowsPage: View {
           .accessibilityIdentifier("native-workflows-switch-mode")
         }
       }
-      .task(id: "\(mode.rawValue)|\(attempt)") { await load() }
+      .task(id: "\(mode.rawValue)|\(attempt)") { await load(forceRefresh: attempt > 0) }
       .alert(
         "重置工作流",
         isPresented: Binding(
@@ -97,7 +97,7 @@ struct NativeWorkflowsPage: View {
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
-      .refreshable { await load() }
+      .refreshable { await load(forceRefresh: true) }
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-workflows-scroll")
     }
@@ -449,9 +449,31 @@ struct NativeWorkflowsPage: View {
     }
   }
 
-  /// 按模式读取本地工作流或社区分享列表。
-  private func load() async {
-    isLoading = true
+  /// 按模式读取本地工作流或社区分享列表；命中页面缓存时静默复用，下拉刷新强制重拉。
+  private func load(forceRefresh: Bool = false) async {
+    let cacheKey = "workflows|\(mode.rawValue)"
+    if !forceRefresh {
+      if mode == .mine,
+        let cached: [NativeWorkflowItem] = NativePageDataCache.shared.get(
+          cacheKey, session: session)
+      {
+        workflows = cached
+        isLoading = false
+        loadFailed = false
+        return
+      }
+      if mode == .shares,
+        let cached: [NativeWorkflowShareItem] = NativePageDataCache.shared.get(
+          cacheKey, session: session)
+      {
+        shares = cached
+        isLoading = false
+        loadFailed = false
+        return
+      }
+    }
+    let hasExisting = mode == .mine ? !workflows.isEmpty : !shares.isEmpty
+    if !hasExisting { isLoading = true }
     loadFailed = false
     defer { isLoading = false }
     do {
@@ -460,6 +482,7 @@ struct NativeWorkflowsPage: View {
         let loaded = try await session.request(endpoint, as: [NativeWorkflowItem].self).value
         try Task.checkCancellation()
         workflows = loaded
+        NativePageDataCache.shared.set(loaded, for: cacheKey, session: session)
       } else {
         let endpoint = try APIEndpoint(
           path: ["workflow", "shares"],
@@ -470,11 +493,12 @@ struct NativeWorkflowsPage: View {
         let loaded = try await session.request(endpoint, as: [NativeWorkflowShareItem].self).value
         try Task.checkCancellation()
         shares = loaded
+        NativePageDataCache.shared.set(loaded, for: cacheKey, session: session)
       }
     } catch is CancellationError {
       return
     } catch {
-      loadFailed = true
+      if !hasExisting { loadFailed = true }
     }
   }
 
@@ -508,7 +532,7 @@ struct NativeWorkflowsPage: View {
       try await session.perform(endpoint)
       try Task.checkCancellation()
       feedback = NativeWorkflowFeedback(isError: false, message: "已触发工作流「\(workflow.name)」运行。")
-      await load()
+      await load(forceRefresh: true)
     } catch is CancellationError {
       return
     } catch {
@@ -526,7 +550,7 @@ struct NativeWorkflowsPage: View {
       try await session.perform(endpoint)
       try Task.checkCancellation()
       feedback = NativeWorkflowFeedback(isError: false, message: label)
-      await load()
+      await load(forceRefresh: true)
     } catch is CancellationError {
       return
     } catch {

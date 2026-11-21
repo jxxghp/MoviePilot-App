@@ -100,7 +100,7 @@ struct NativeExplorePage: View {
         if isMusicSelected {
           reloadToken += 1
         } else {
-          await reload()
+          await reload(forceRefresh: true)
         }
       }
       .modifier(NativeSoftTopScrollEdge())
@@ -149,18 +149,23 @@ struct NativeExplorePage: View {
       }
     }
     .task { await loadExtraSources() }
-    .task(id: filterSignature) { await reload() }
+    .task(id: filterSignature) { await reload(forceRefresh: false) }
   }
 
-  /// 组合全部生效的来源与筛选参数作为重载触发键。
-  private var filterSignature: String {
+  /// 缓存键（不含主动刷新计数），用于切换页面或切回相同来源时首帧直出缓存。
+  private var cacheKey: String {
     [
+      "explore",
       selectedExtraID ?? selectedSource.rawValue,
       tmdbSort, tmdbGenre, tmdbLanguage,
       doubanSort, doubanTag,
       bangumiSort, bangumiCategory, bangumiYear,
-      String(reloadToken),
     ].joined(separator: "|")
+  }
+
+  /// 组合全部生效的来源与筛选参数作为重载触发键。
+  private var filterSignature: String {
+    "\(cacheKey)|\(reloadToken)"
   }
 
   /// 紧凑三列海报网格（iPad 宽屏自动扩展至五列）。
@@ -457,12 +462,25 @@ struct NativeExplorePage: View {
     }
   }
 
-  /// 重置分页并加载首页探索结果。
-  private func reload() async {
+  /// 重置分页并加载首页探索结果；命中页面缓存时静默复用，下拉刷新强制重拉。
+  private func reload(forceRefresh: Bool = false) async {
     guard !isMusicSelected else { return }
+    let key = cacheKey
+    if !forceRefresh,
+      let cached: NativeExplorePageCacheEntry = NativePageDataCache.shared.get(
+        key, session: session)
+    {
+      items = cached.items
+      page = cached.page
+      hasMore = cached.hasMore
+      isLoading = false
+      isLoadingMore = false
+      loadFailed = false
+      return
+    }
     let generation = UUID()
     queryGeneration = generation
-    isLoading = true
+    if items.isEmpty { isLoading = true }
     isLoadingMore = false
     loadFailed = false
     page = 1
@@ -474,21 +492,25 @@ struct NativeExplorePage: View {
       let loaded = try await fetch(page: 1)
       try Task.checkCancellation()
       guard queryGeneration == generation else { return }
-      items = deduplicate(loaded)
+      let deduped = deduplicate(loaded)
+      items = deduped
       hasMore = !loaded.isEmpty
+      NativePageDataCache.shared.set(
+        NativeExplorePageCacheEntry(items: deduped, page: 1, hasMore: hasMore),
+        for: key, session: session)
     } catch is CancellationError {
       return
     } catch {
       guard queryGeneration == generation else { return }
-      items = []
-      loadFailed = true
+      if items.isEmpty { loadFailed = true }
     }
   }
 
-  /// 自动分页加载后续页并去重。
+  /// 自动分页加载后续页并去重，同时写回页面缓存。
   private func loadMore() async {
     guard hasMore, !isLoadingMore, !isLoading else { return }
     let generation = queryGeneration
+    let key = cacheKey
     isLoadingMore = true
     defer {
       if queryGeneration == generation { isLoadingMore = false }
@@ -500,6 +522,9 @@ struct NativeExplorePage: View {
       guard queryGeneration == generation else { return }
       if loaded.isEmpty {
         hasMore = false
+        NativePageDataCache.shared.set(
+          NativeExplorePageCacheEntry(items: items, page: page, hasMore: false),
+          for: key, session: session)
         return
       }
       var existing = Set(items.map(\.id))
@@ -507,6 +532,9 @@ struct NativeExplorePage: View {
       items.append(contentsOf: appended)
       page = nextPage
       if appended.isEmpty { hasMore = false }
+      NativePageDataCache.shared.set(
+        NativeExplorePageCacheEntry(items: items, page: page, hasMore: hasMore),
+        for: key, session: session)
     } catch {
       return
     }
@@ -875,4 +903,10 @@ private struct NativeExploreSourcesSheet: View {
     }
     .nativeAppearanceRoot()
   }
+}
+
+private struct NativeExplorePageCacheEntry {
+  let items: [NativeExploreItem]
+  let page: Int
+  let hasMore: Bool
 }

@@ -57,7 +57,7 @@ struct NativeUsersPage: View {
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
-      .refreshable { await load() }
+      .refreshable { await load(forceRefresh: true) }
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-users-scroll")
     }
@@ -88,7 +88,7 @@ struct NativeUsersPage: View {
         attempt += 1
       }
     }
-    .task(id: attempt) { await load() }
+    .task(id: attempt) { await load(forceRefresh: attempt > 0) }
   }
 
   /// 按关键词筛选后的用户清单。
@@ -219,9 +219,18 @@ struct NativeUsersPage: View {
     }
   }
 
-  /// 从 `GET /api/v1/user/` 拉取非敏感账号与权限快照。
-  private func load() async {
-    isLoading = true
+  /// 从 `GET /api/v1/user/` 拉取非敏感账号与权限快照；命中页面缓存时静默复用，下拉刷新强制重拉。
+  private func load(forceRefresh: Bool = false) async {
+    let cacheKey = "users|all"
+    if !forceRefresh,
+      let cached: [NativeUserRecord] = NativePageDataCache.shared.get(cacheKey, session: session)
+    {
+      users = cached
+      isLoading = false
+      loadFailed = false
+      return
+    }
+    if users.isEmpty { isLoading = true }
     loadFailed = false
     defer { isLoading = false }
     do {
@@ -229,10 +238,11 @@ struct NativeUsersPage: View {
       let loaded = try await session.request(endpoint, as: [NativeUserRecord].self).value
       try Task.checkCancellation()
       users = loaded
+      NativePageDataCache.shared.set(loaded, for: cacheKey, session: session)
     } catch is CancellationError {
       return
     } catch {
-      loadFailed = true
+      if users.isEmpty { loadFailed = true }
     }
   }
 }

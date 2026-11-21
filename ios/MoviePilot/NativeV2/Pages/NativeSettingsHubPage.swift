@@ -71,6 +71,7 @@ struct NativeSettingsHubPage: View {
       }
       .scrollContentBackground(.hidden)
       .scrollIndicators(.hidden)
+      .refreshable { await loadOverview(forceRefresh: true) }
       .frame(maxWidth: 740)
       .frame(maxWidth: .infinity)
       .modifier(NativeSoftTopScrollEdge())
@@ -143,7 +144,7 @@ struct NativeSettingsHubPage: View {
     .sheet(isPresented: $showsPluginMarketSources) {
       NativePluginMarketSourcesSheet(session: session)
     }
-    .task(id: snapshot.scope) { await loadOverview() }
+    .task(id: snapshot.scope) { await loadOverview(forceRefresh: false) }
   }
 
   /// 第一层：简洁服务器存储容量概览卡（仅展示服务地址与真实存储空间，不重复展示当前用户信息）。
@@ -611,9 +612,18 @@ struct NativeSettingsHubPage: View {
     }
   }
 
-  /// 静默拉取存储空间与站点数量供顶部概览与状态方卡展示，失败时不干扰设置入口交互。
-  private func loadOverview() async {
+  /// 静默拉取存储空间与站点数量供顶部概览与状态方卡展示；命中缓存时静默复用，下拉刷新强制重拉。
+  private func loadOverview(forceRefresh: Bool = false) async {
     guard snapshot.user.isSuperuser else { return }
+    let cacheKey = "settingsHub|overview"
+    if !forceRefresh,
+      let cached: (storage: NativeSettingsStorageBrief?, siteCount: Int?) =
+        NativePageDataCache.shared.get(cacheKey, session: session)
+    {
+      if let cachedStorage = cached.storage { storage = cachedStorage }
+      if let cachedCount = cached.siteCount { siteCount = cachedCount }
+      return
+    }
     async let storageResult: NativeSettingsStorageBrief? = {
       guard let endpoint = try? APIEndpoint(path: ["dashboard", "storage"]) else { return nil }
       return try? await session.request(
@@ -636,6 +646,8 @@ struct NativeSettingsHubPage: View {
     if let loadedSites {
       siteCount = loadedSites.filter(\.isActive).count
     }
+    NativePageDataCache.shared.set(
+      (storage: storage, siteCount: siteCount), for: cacheKey, session: session)
   }
 
   /// 格式化字节容量为易读文本。

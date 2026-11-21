@@ -53,7 +53,7 @@ struct NativeCalendarPage: View {
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
-      .refreshable { await load() }
+      .refreshable { await load(forceRefresh: true) }
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-calendar-scroll")
     }
@@ -72,7 +72,9 @@ struct NativeCalendarPage: View {
         .accessibilityIdentifier("native-calendar-today")
       }
     }
-    .task(id: "\(Self.isoDate(anchorWeekStart))|\(attempt)") { await load() }
+    .task(id: "\(Self.isoDate(anchorWeekStart))|\(attempt)") {
+      await load(forceRefresh: attempt > 0)
+    }
   }
 
   private let calendar = Calendar(identifier: .gregorian)
@@ -297,9 +299,18 @@ struct NativeCalendarPage: View {
     return "追剧日历 · \(month)月"
   }
 
-  /// 请求可见周区间内的订阅播出排期（`end` 为开区间故 +7 天）。
-  private func load() async {
-    isLoading = true
+  /// 请求可见周区间内的订阅播出排期（`end` 为开区间故 +7 天）；命中周缓存时静默复用，下拉刷新强制重拉。
+  private func load(forceRefresh: Bool = false) async {
+    let weekKey = "calendar|\(Self.isoDate(anchorWeekStart))"
+    if !forceRefresh,
+      let cached: [NativeCalendarEntry] = NativePageDataCache.shared.get(weekKey, session: session)
+    {
+      entries = cached
+      isLoading = false
+      loadFailed = false
+      return
+    }
+    if entries.isEmpty { isLoading = true }
     loadFailed = false
     defer { isLoading = false }
     let end = calendar.date(byAdding: .day, value: 7, to: anchorWeekStart) ?? anchorWeekStart
@@ -316,11 +327,13 @@ struct NativeCalendarPage: View {
         endpoint, as: NativeCalendarPagePayload.self, requiring: .init(category: .subscribe)
       ).value
       try Task.checkCancellation()
-      entries = page.items ?? []
+      let loaded = page.items ?? []
+      entries = loaded
+      NativePageDataCache.shared.set(loaded, for: weekKey, session: session)
     } catch is CancellationError {
       return
     } catch {
-      loadFailed = true
+      if entries.isEmpty { loadFailed = true }
     }
   }
 

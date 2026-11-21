@@ -73,7 +73,7 @@ struct NativeFileManagerPage: View {
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
-      .refreshable { await loadCurrentDirectory() }
+      .refreshable { await loadCurrentDirectory(forceRefresh: true) }
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-files-scroll")
     }
@@ -126,7 +126,7 @@ struct NativeFileManagerPage: View {
     }
     .task { await loadStorages() }
     .task(id: "\(activeStorage)|\(currentDirectory.path)|\(attempt)") {
-      await loadCurrentDirectory()
+      await loadCurrentDirectory(forceRefresh: attempt > 0)
     }
     .alert("新建文件夹", isPresented: $showingNewFolder) {
       TextField("文件夹名称", text: $newFolderName)
@@ -474,9 +474,18 @@ struct NativeFileManagerPage: View {
     }
   }
 
-  /// 请求当前目录内容（`POST /api/v1/storage/list`）。
-  private func loadCurrentDirectory() async {
-    isLoading = true
+  /// 请求当前目录内容（`POST /api/v1/storage/list`）；命中目录缓存时静默复用，下拉刷新强制重拉。
+  private func loadCurrentDirectory(forceRefresh: Bool = false) async {
+    let cacheKey = "files|\(activeStorage)|\(currentDirectory.path)"
+    if !forceRefresh,
+      let cached: [NativeFileItem] = NativePageDataCache.shared.get(cacheKey, session: session)
+    {
+      items = cached
+      isLoading = false
+      loadFailed = false
+      return
+    }
+    if items.isEmpty { isLoading = true }
     loadFailed = false
     defer { isLoading = false }
     do {
@@ -486,10 +495,11 @@ struct NativeFileManagerPage: View {
       let loaded = try await session.request(endpoint, as: [NativeFileItem].self).value
       try Task.checkCancellation()
       items = loaded
+      NativePageDataCache.shared.set(loaded, for: cacheKey, session: session)
     } catch is CancellationError {
       return
     } catch {
-      loadFailed = true
+      if items.isEmpty { loadFailed = true }
     }
   }
 
@@ -506,7 +516,7 @@ struct NativeFileManagerPage: View {
       try await session.perform(endpoint)
       try Task.checkCancellation()
       feedback = NativeFileFeedback(isError: false, message: "已创建文件夹「\(name)」。")
-      await loadCurrentDirectory()
+      await loadCurrentDirectory(forceRefresh: true)
     } catch is CancellationError {
       return
     } catch {
@@ -523,6 +533,8 @@ struct NativeFileManagerPage: View {
       try await session.perform(endpoint)
       try Task.checkCancellation()
       items.removeAll { $0.id == item.id }
+      NativePageDataCache.shared.set(
+        items, for: "files|\(activeStorage)|\(currentDirectory.path)", session: session)
       feedback = NativeFileFeedback(isError: false, message: "已删除「\(item.displayName)」。")
     } catch is CancellationError {
       return

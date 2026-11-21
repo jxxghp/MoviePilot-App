@@ -70,7 +70,7 @@ struct NativeDownloadsPage: View {
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
-      .refreshable { await load() }
+      .refreshable { await load(forceRefresh: true) }
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-downloads-scroll")
     }
@@ -113,7 +113,9 @@ struct NativeDownloadsPage: View {
         .accessibilityIdentifier("native-downloads-filter-menu")
       }
     }
-    .task(id: "\(attempt)|\(selectedClient ?? "")") { await load() }
+    .task(id: "\(attempt)|\(selectedClient ?? "")") {
+      await load(forceRefresh: attempt > 0)
+    }
     .alert(
       "删除下载任务",
       isPresented: Binding(
@@ -394,9 +396,20 @@ struct NativeDownloadsPage: View {
     }
   }
 
-  /// 并行拉取已启用下载器清单与活跃任务列表。
-  private func load() async {
-    isLoading = true
+  /// 并行拉取已启用下载器清单与活跃任务列表；命中页面缓存时静默复用，下拉刷新强制重拉。
+  private func load(forceRefresh: Bool = false) async {
+    let cacheKey = "downloads|\(selectedClient ?? "all")"
+    if !forceRefresh,
+      let cached: (clients: [NativeDownloaderClient], tasks: [NativeDownloadTask]) =
+        NativePageDataCache.shared.get(cacheKey, session: session)
+    {
+      clients = cached.clients
+      tasks = cached.tasks
+      isLoading = false
+      loadFailed = false
+      return
+    }
+    if tasks.isEmpty { isLoading = true }
     loadFailed = false
     defer { isLoading = false }
     do {
@@ -412,10 +425,12 @@ struct NativeDownloadsPage: View {
       try Task.checkCancellation()
       if let resolvedClients { clients = resolvedClients }
       tasks = loadedTasks
+      NativePageDataCache.shared.set(
+        (clients: clients, tasks: loadedTasks), for: cacheKey, session: session)
     } catch is CancellationError {
       return
     } catch {
-      loadFailed = true
+      if tasks.isEmpty { loadFailed = true }
     }
   }
 
@@ -432,7 +447,7 @@ struct NativeDownloadsPage: View {
       try Task.checkCancellation()
       feedback = NativeDownloadFeedback(
         isError: false, message: task.isPaused ? "已发送继续下载指令。" : "已发送暂停下载指令。")
-      await load()
+      await load(forceRefresh: true)
     } catch is CancellationError {
       return
     } catch {
