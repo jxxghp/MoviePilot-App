@@ -440,7 +440,7 @@ struct NativeSettingsHubPage: View {
         statusText: appearance.summaryText,
         symbol: "paintpalette.fill",
         tint: appearance.accentColor,
-        statusColor: Color(red: 0.48, green: 0.90, blue: 0.66),
+        statusColor: NativeTheme.success,
         id: "native-settings-hub-appearance-card"
       ) {
         onNavigate(.appearance)
@@ -656,7 +656,7 @@ private struct NativePluginMarketSourcesSheet: View {
                       ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
                   )
                   .foregroundStyle(
-                    feedback.isError ? .orange : Color(red: 0.46, green: 0.88, blue: 0.64))
+                    feedback.isError ? .orange : NativeTheme.success)
                   Text(feedback.text)
                     .font(.caption)
                     .foregroundStyle(.primary.opacity(0.90))

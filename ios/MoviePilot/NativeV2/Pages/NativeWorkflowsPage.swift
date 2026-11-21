@@ -113,7 +113,7 @@ struct NativeWorkflowsPage: View {
         } label: {
           Text(option.rawValue)
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(active ? .white : .white.opacity(0.75))
+            .foregroundStyle(active ? Color.white : NativeTheme.chipText)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .background {
@@ -121,7 +121,7 @@ struct NativeWorkflowsPage: View {
                 .fill(
                   active
                     ? Color(red: 0.58, green: 0.42, blue: 0.88).opacity(0.78)
-                    : .white.opacity(0.08)
+                    : NativeTheme.chipFill
                 )
                 .overlay {
                   Capsule().strokeBorder(.primary.opacity(active ? 0.32 : 0.14), lineWidth: 0.7)
@@ -230,13 +230,12 @@ struct NativeWorkflowsPage: View {
               Image(systemName: "flowchart").font(.caption2.weight(.semibold))
               Text("画布").font(.caption.weight(.semibold))
             }
-            .foregroundStyle(.primary)
+            .foregroundStyle(.white)
             .padding(.horizontal, 11)
             .padding(.vertical, 6)
             .background {
               Capsule()
-                .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.75))
-                .overlay { Capsule().strokeBorder(.primary.opacity(0.24), lineWidth: 0.6) }
+                .fill(Color(red: 0.56, green: 0.40, blue: 0.86))
             }
             .frame(minHeight: 34)
           }
@@ -248,19 +247,18 @@ struct NativeWorkflowsPage: View {
           } label: {
             HStack(spacing: 5) {
               if isMutating {
-                ProgressView().controlSize(.mini).tint(.primary)
+                ProgressView().controlSize(.mini).tint(.white)
               } else {
                 Image(systemName: "play.fill").font(.caption2.weight(.semibold))
               }
               Text("运行").font(.caption.weight(.semibold))
             }
-            .foregroundStyle(.primary)
+            .foregroundStyle(.white)
             .padding(.horizontal, 11)
             .padding(.vertical, 6)
             .background {
               Capsule()
-                .fill(Color(red: 0.45, green: 0.34, blue: 0.68).opacity(0.72))
-                .overlay { Capsule().strokeBorder(.primary.opacity(0.24), lineWidth: 0.6) }
+                .fill(Color(red: 0.45, green: 0.34, blue: 0.68))
             }
             .frame(minHeight: 34)
           }
@@ -336,7 +334,7 @@ struct NativeWorkflowsPage: View {
           if share.count > 0 {
             Label("\(share.count)", systemImage: "arrow.triangle.branch")
               .font(.caption2.monospacedDigit().weight(.semibold))
-              .foregroundStyle(Color(red: 0.84, green: 0.72, blue: 1.0))
+              .foregroundStyle(NativeTheme.brand)
               .padding(.horizontal, 8)
               .padding(.vertical, 3.5)
               .background {
@@ -384,9 +382,9 @@ struct NativeWorkflowsPage: View {
     let (text, tint): (String, Color) =
       switch (workflow.state ?? "W").uppercased() {
       case "R": ("运行中", Color(red: 0.52, green: 0.80, blue: 1.0))
-      case "S": ("已完成", Color(red: 0.56, green: 0.92, blue: 0.72))
-      case "F": ("失败", Color(red: 1.0, green: 0.52, blue: 0.52))
-      case "P": ("已停用", Color.white.opacity(0.55))
+      case "S": ("已完成", NativeTheme.success)
+      case "F": ("失败", NativeTheme.danger)
+      case "P": ("已停用", NativeTheme.badgeMutedText)
       default: ("待触发", Color(red: 0.82, green: 0.70, blue: 1.0))
       }
     return Text(text)
@@ -408,7 +406,7 @@ struct NativeWorkflowsPage: View {
         Image(
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
-        .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
+        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
         Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {

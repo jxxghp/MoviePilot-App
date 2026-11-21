@@ -232,7 +232,7 @@ struct NativeTransferHistoryPage: View {
             .padding(.vertical, 7)
             .background {
               Capsule()
-                .fill(.white.opacity(selected ? 0.22 : 0.08))
+                .fill(selected ? NativeTheme.brand.opacity(0.18) : NativeTheme.chipFill)
                 .overlay {
                   Capsule().strokeBorder(.primary.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
                 }
@@ -388,7 +388,7 @@ struct NativeTransferHistoryPage: View {
   private func statusBadge(_ succeeded: Bool) -> some View {
     let tint: Color =
       succeeded
-      ? Color(red: 0.56, green: 0.92, blue: 0.72) : Color(red: 1.0, green: 0.52, blue: 0.52)
+      ? NativeTheme.success : NativeTheme.danger
     return Text(succeeded ? "成功" : "失败")
       .font(.caption2.weight(.semibold))
       .foregroundStyle(tint)
@@ -408,7 +408,7 @@ struct NativeTransferHistoryPage: View {
         Image(
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
-        .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
+        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
         Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {

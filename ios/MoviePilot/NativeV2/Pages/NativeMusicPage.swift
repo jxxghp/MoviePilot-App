@@ -398,7 +398,7 @@ struct NativeMusicAlbumDetailPage: View {
                 Text(artist).font(.subheadline.weight(.semibold))
                 Image(systemName: "chevron.right").font(.caption2.weight(.semibold))
               }
-              .foregroundStyle(Color(red: 0.84, green: 0.72, blue: 1.0))
+              .foregroundStyle(NativeTheme.brand)
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("native-music-album-artist")
@@ -578,7 +578,7 @@ struct NativeMusicAlbumDetailPage: View {
         Image(
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
-        .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
+        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
         Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
       }

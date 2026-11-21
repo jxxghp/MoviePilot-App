@@ -28,7 +28,7 @@ struct NativeUsersPage: View {
             CinematicPanel(padding: 10) {
               HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle.fill")
-                  .foregroundStyle(Color(red: 0.56, green: 0.92, blue: 0.72))
+                  .foregroundStyle(NativeTheme.success)
                 Text(feedback).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
                 Spacer(minLength: 0)
               }
@@ -125,7 +125,7 @@ struct NativeUsersPage: View {
               tagPill(
                 user.isSuperuser ? "超级管理员" : "普通用户",
                 tint: user.isSuperuser
-                  ? Color(red: 0.86, green: 0.72, blue: 1.0) : .white.opacity(0.75))
+                  ? NativeTheme.brand : NativeTheme.chipText)
             }
             if let email = user.email, !email.isEmpty {
               Text(email)
@@ -137,7 +137,7 @@ struct NativeUsersPage: View {
           VStack(alignment: .trailing, spacing: 4) {
             tagPill(
               user.isActive ? "正常" : "已停用",
-              tint: user.isActive ? Color(red: 0.56, green: 0.92, blue: 0.72) : .orange)
+              tint: user.isActive ? NativeTheme.success : .orange)
             if user.isOTP {
               Text("已启用 2FA")
                 .font(.caption2)
@@ -359,7 +359,7 @@ private struct NativeUserEditorSheet: View {
                   .autocorrectionDisabled()
                   .foregroundStyle(.primary)
                   .padding(10)
-                  .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                  .background(NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10))
                   .accessibilityIdentifier("native-user-editor-name")
                 }
                 VStack(alignment: .leading, spacing: 4) {
@@ -373,7 +373,7 @@ private struct NativeUserEditorSheet: View {
                   .keyboardType(.emailAddress)
                   .foregroundStyle(.primary)
                   .padding(10)
-                  .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                  .background(NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10))
                   .accessibilityIdentifier("native-user-editor-email")
                 }
                 VStack(alignment: .leading, spacing: 4) {
@@ -387,7 +387,7 @@ private struct NativeUserEditorSheet: View {
                   )
                   .foregroundStyle(.primary)
                   .padding(10)
-                  .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                  .background(NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10))
                   .accessibilityIdentifier("native-user-editor-password")
                 }
               }

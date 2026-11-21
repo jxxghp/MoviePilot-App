@@ -49,7 +49,7 @@ struct NativeNotificationSettingsSheet: View {
                       .font(.caption.weight(.semibold))
                       .foregroundStyle(
                         isBound && systemAuthorized
-                          ? Color(red: 0.48, green: 0.90, blue: 0.66) : .white.opacity(0.65)
+                          ? NativeTheme.success : NativeTheme.badgeMutedText
                       )
                       .padding(.horizontal, 8)
                       .padding(.vertical, 3)
@@ -97,7 +97,7 @@ struct NativeNotificationSettingsSheet: View {
                       .font(.subheadline.weight(.semibold))
                       .foregroundStyle(.primary)
                       .frame(maxWidth: .infinity, minHeight: 44)
-                      .background(.white.opacity(0.14), in: Capsule())
+                      .background(NativeTheme.chipFill, in: Capsule())
                   }
                   .buttonStyle(.plain)
                   .disabled(isBusy)
@@ -110,7 +110,7 @@ struct NativeNotificationSettingsSheet: View {
                       .font(.subheadline.weight(.semibold))
                       .foregroundStyle(Color(red: 1.0, green: 0.58, blue: 0.60))
                       .frame(maxWidth: .infinity, minHeight: 44)
-                      .background(.white.opacity(0.08), in: Capsule())
+                      .background(NativeTheme.chipFill, in: Capsule())
                   }
                   .buttonStyle(.plain)
                   .disabled(isBusy)
@@ -146,7 +146,7 @@ struct NativeNotificationSettingsSheet: View {
         .foregroundStyle(.primary.opacity(0.76))
       Spacer()
       Image(systemName: ok ? "checkmark.circle.fill" : "circle")
-        .foregroundStyle(ok ? Color(red: 0.48, green: 0.90, blue: 0.66) : .white.opacity(0.40))
+        .foregroundStyle(ok ? NativeTheme.success : .white.opacity(0.40))
     }
   }
 
@@ -265,7 +265,7 @@ struct NativeWidgetSettingsSheet: View {
                       .font(.caption.weight(.semibold))
                       .foregroundStyle(
                         state.profile != nil
-                          ? Color(red: 0.48, green: 0.90, blue: 0.66) : .white.opacity(0.65)
+                          ? NativeTheme.success : NativeTheme.badgeMutedText
                       )
                       .padding(.horizontal, 8)
                       .padding(.vertical, 3)
@@ -281,7 +281,7 @@ struct NativeWidgetSettingsSheet: View {
                     .foregroundStyle(.primary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
-                    .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                    .background(NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10))
                     .accessibilityIdentifier("native-widget-profile-name")
 
                   if let generatedAt = state.generatedAt {
@@ -317,7 +317,7 @@ struct NativeWidgetSettingsSheet: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                         .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(.white.opacity(0.14), in: Capsule())
+                        .background(NativeTheme.chipFill, in: Capsule())
                     }
                     .buttonStyle(.plain)
                     .disabled(isBusy)
@@ -329,7 +329,7 @@ struct NativeWidgetSettingsSheet: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                         .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(.white.opacity(0.14), in: Capsule())
+                        .background(NativeTheme.chipFill, in: Capsule())
                     }
                     .buttonStyle(.plain)
                     .disabled(isBusy)
@@ -342,7 +342,7 @@ struct NativeWidgetSettingsSheet: View {
                       .font(.subheadline.weight(.semibold))
                       .foregroundStyle(Color(red: 1.0, green: 0.58, blue: 0.60))
                       .frame(maxWidth: .infinity, minHeight: 44)
-                      .background(.white.opacity(0.08), in: Capsule())
+                      .background(NativeTheme.chipFill, in: Capsule())
                   }
                   .buttonStyle(.plain)
                   .disabled(isBusy)

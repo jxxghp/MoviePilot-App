@@ -121,7 +121,7 @@ struct NativeMessagesPage: View {
               .padding(.vertical, 7)
               .background {
                 Capsule()
-                  .fill(.white.opacity(selected ? 0.22 : 0.08))
+                  .fill(selected ? NativeTheme.brand.opacity(0.18) : NativeTheme.chipFill)
                   .overlay {
                     Capsule().strokeBorder(.primary.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
                   }

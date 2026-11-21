@@ -255,7 +255,7 @@ struct NativeResourceSearchPage: View {
               .padding(.vertical, 7)
               .background {
                 Capsule()
-                  .fill(.white.opacity(selected ? 0.22 : 0.08))
+                  .fill(selected ? NativeTheme.brand.opacity(0.18) : NativeTheme.chipFill)
                   .overlay {
                     Capsule().strokeBorder(.primary.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
                   }
@@ -331,7 +331,7 @@ struct NativeResourceSearchPage: View {
     .padding(.vertical, 7)
     .background {
       Capsule()
-        .fill(.white.opacity(active ? 0.22 : 0.08))
+        .fill(active ? NativeTheme.brand.opacity(0.18) : NativeTheme.chipFill)
         .overlay {
           Capsule().strokeBorder(.primary.opacity(active ? 0.28 : 0.14), lineWidth: 0.6)
         }
@@ -355,13 +355,13 @@ struct NativeResourceSearchPage: View {
               foreground: Color(red: 0.72, green: 0.98, blue: 0.80))
           }
           if !item.pixBadge.isEmpty {
-            tagCapsule(item.pixBadge, fill: .white.opacity(0.14), foreground: .white.opacity(0.92))
+            tagCapsule(item.pixBadge, fill: NativeTheme.chipFill, foreground: NativeTheme.chipText)
           }
           if let edition = item.meta?.edition, !edition.isEmpty {
-            tagCapsule(edition, fill: .white.opacity(0.10), foreground: .white.opacity(0.82))
+            tagCapsule(edition, fill: NativeTheme.chipFill, foreground: NativeTheme.chipText)
           }
           if let seasonEp = item.meta?.seasonEpisode, !seasonEp.isEmpty {
-            tagCapsule(seasonEp, fill: .white.opacity(0.10), foreground: .white.opacity(0.86))
+            tagCapsule(seasonEp, fill: NativeTheme.chipFill, foreground: NativeTheme.chipText)
           }
           Spacer(minLength: 0)
         }
@@ -380,7 +380,7 @@ struct NativeResourceSearchPage: View {
         HStack(spacing: 12) {
           Label(item.sizeText, systemImage: "internaldrive")
           Label("\(item.torrent.seeders ?? 0)", systemImage: "arrow.up")
-            .foregroundStyle(Color(red: 0.56, green: 0.92, blue: 0.72))
+            .foregroundStyle(NativeTheme.success)
           if let elapsed = item.torrent.dateElapsed, !elapsed.isEmpty {
             Text(elapsed).foregroundStyle(.primary.opacity(0.56))
           }
@@ -428,7 +428,7 @@ struct NativeResourceSearchPage: View {
         Image(
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
-        .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
+        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
         Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {

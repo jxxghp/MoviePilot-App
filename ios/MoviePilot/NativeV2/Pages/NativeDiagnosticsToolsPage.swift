@@ -4,7 +4,7 @@ import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
 
-/// 原生捷径与诊断工具集：涵盖系统健康检查、网络连通测试、名称识别与过滤规则测试、实时日志查看及定时服务手动触发。
+/// 原生捷径与诊断工具集：覆盖系统检查、网络测试、名称识别与规则测试、词表管理、结构化实时日志与定时服务。
 @MainActor
 struct NativeDiagnosticsToolsPage: View {
   /// 诊断与快捷工具分区。
@@ -12,102 +12,157 @@ struct NativeDiagnosticsToolsPage: View {
     case health = "系统检查"
     case nettest = "网络测试"
     case ruleTest = "识别与规则"
+    case words = "词表"
     case liveLog = "实时日志"
     case scheduler = "定时服务"
 
-    /// 稳定工具标识。
     var id: String { rawValue }
 
-    /// 对应 SF Symbol 图标。
     var symbol: String {
       switch self {
       case .health: "checkmark.shield"
       case .nettest: "network"
       case .ruleTest: "text.magnifyingglass"
+      case .words: "character.book.closed"
       case .liveLog: "terminal"
       case .scheduler: "clock.arrow.2.circlepath"
       }
     }
   }
 
-  /// 识别与规则测试的子模式。
   private enum TestMode: String, CaseIterable, Identifiable {
     case recognize = "名称识别"
     case rule = "规则测试"
     var id: String { rawValue }
   }
 
-  /// 实时日志级别筛选。
+  private enum HealthFilter: String, CaseIterable, Identifiable {
+    case all = "全部"
+    case failed = "异常"
+    case ok = "正常"
+    case disabled = "未启用"
+    var id: String { rawValue }
+  }
+
   private enum LogLevel: String, CaseIterable, Identifiable {
     case all = "全部"
     case error = "ERROR"
     case warning = "WARNING"
     case info = "INFO"
+    case debug = "DEBUG"
+    var id: String { rawValue }
+  }
+
+  private enum SchedulerCategoryFilter: String, CaseIterable, Identifiable {
+    case all = "全部"
+    case system = "系统任务"
+    case plugin = "插件任务"
+    case automation = "工作流/助手"
+    var id: String { rawValue }
+  }
+
+  private enum WordsTab: String, CaseIterable, Identifiable {
+    case identifiers = "识别词"
+    case releaseGroups = "制作组"
+    case customization = "占位符"
+    case excludeWords = "屏蔽词"
+    case episodeRules = "剧集规则"
     var id: String { rawValue }
   }
 
   let session: NativeSession
   let initialTool: Tool
 
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
   @State private var tool: Tool
 
-  // 系统检查
+  // 1. 系统检查
   @State private var modules: [NativeHealthModuleRow] = []
   @State private var isCheckingHealth = false
   @State private var healthProgress: Double = 0
+  @State private var healthFilter: HealthFilter = .all
 
-  // 网络测试
+  // 2. 网络测试
   @State private var netTargets: [NativeDiagNetTarget] = []
   @State private var netResults: [String: NativeDiagNetResult] = [:]
   @State private var testingNetID: String?
   @State private var isTestingAllNet = false
   @State private var isLoadingNet = false
 
-  // 识别与规则测试
+  // 3. 识别与规则测试
   @State private var testMode: TestMode = .recognize
   @State private var testTitle = ""
   @State private var testSubtitle = ""
-  @State private var ruleGroups: [String] = []
+  @State private var testCustomWords = ""
+  @State private var showCustomWordsField = false
+  @State private var mediaSources: [NativeDiagMediaSource] = []
+  @State private var selectedMediaSource = ""
+  @State private var ruleGroups: [NativeDiagRuleGroup] = []
   @State private var selectedRuleGroup = ""
   @State private var isRunningTest = false
-  @State private var testVerdict: NativeRuleTestVerdict?
+  @State private var recognizeResult: NativeRecognizeDisplayResult?
+  @State private var ruleTestResult: NativeRuleTestDisplayResult?
+  @State private var testErrorMessage: String?
 
-  // 实时日志
-  @State private var logLines: [String] = []
+  // 4. 词表
+  @State private var wordsTab: WordsTab = .identifiers
+  @State private var identifiersText = ""
+  @State private var originalIdentifiers: [String] = []
+  @State private var releaseGroupsText = ""
+  @State private var customizationText = ""
+  @State private var excludeWordsText = ""
+  @State private var episodeRules: [NativeEpisodeFormatRule] = []
+  @State private var isLoadingWords = false
+  @State private var isSavingWords = false
+  @State private var editingEpisodeRule: NativeEpisodeFormatRule?
+  @State private var showsAddEpisodeRule = false
+
+  // 5. 实时日志
+  @State private var logEntries: [NativeStructuredLogEntry] = []
   @State private var logFilter = ""
   @State private var logLevel: LogLevel = .all
   @State private var liveFollow = true
   @State private var isLoadingLog = false
 
-  // 定时服务
+  // 6. 定时服务
   @State private var schedules: [NativeDiagSchedule] = []
+  @State private var schedulerFilter: SchedulerCategoryFilter = .all
   @State private var isLoadingSchedules = false
   @State private var runningJobID: String?
 
-  @State private var feedback: String?
+  @State private var feedback: (isError: Bool, text: String)?
 
-  /// 指定初始进入的诊断工具标签。
   init(session: NativeSession, initialTool: Tool = .health) {
     self.session = session
     self.initialTool = initialTool
     _tool = State(initialValue: initialTool)
   }
 
-  /// 连续深色紫玫瑰渐变与当前诊断工具主内容（由设置主菜单直接进入，不展示横向一级跳转条）。
   var body: some View {
     ZStack {
       CinematicBackground()
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
           if let feedback {
-            CinematicPanel(padding: 10) {
+            CinematicPanel(padding: 11) {
               HStack(spacing: 8) {
-                Image(systemName: "info.circle.fill")
-                  .foregroundStyle(Color(red: 0.78, green: 0.68, blue: 1.0))
-                Text(feedback)
+                Image(
+                  systemName: feedback.isError
+                    ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+                )
+                .foregroundStyle(feedback.isError ? NativeTheme.warning : NativeTheme.success)
+                Text(feedback.text)
                   .font(.caption.weight(.medium))
                   .foregroundStyle(.primary.opacity(0.92))
                 Spacer(minLength: 0)
+                Button {
+                  self.feedback = nil
+                } label: {
+                  Image(systemName: "xmark")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
               }
             }
             .accessibilityIdentifier("native-diag-feedback")
@@ -141,9 +196,23 @@ struct NativeDiagnosticsToolsPage: View {
         await fetchLiveLog(silent: true)
       }
     }
+    .sheet(item: $editingEpisodeRule) { rule in
+      NativeEpisodeRuleEditorSheet(rule: rule) { updated in
+        if let idx = episodeRules.firstIndex(where: { $0.id == updated.id }) {
+          episodeRules[idx] = updated
+        }
+      }
+    }
+    .sheet(isPresented: $showsAddEpisodeRule) {
+      NativeEpisodeRuleEditorSheet(
+        rule: NativeEpisodeFormatRule(
+          name: "", enabled: true, order: episodeRules.count + 1, pattern: "", minFileSizeMB: 0)
+      ) { created in
+        episodeRules.append(created)
+      }
+    }
   }
 
-  /// 右上角场景化工具按钮。
   @ViewBuilder
   private var trailingAction: some View {
     switch tool {
@@ -163,6 +232,18 @@ struct NativeDiagnosticsToolsPage: View {
       }
       .disabled(isTestingAllNet || netTargets.isEmpty)
       .accessibilityIdentifier("native-diag-nettest-all")
+    case .words:
+      Button {
+        Task { await saveCurrentWordsTab() }
+      } label: {
+        if isSavingWords {
+          ProgressView().controlSize(.small)
+        } else {
+          Text("保存").fontWeight(.semibold)
+        }
+      }
+      .disabled(isSavingWords || isLoadingWords)
+      .accessibilityIdentifier("native-diag-words-save")
     case .liveLog:
       Button {
         liveFollow.toggle()
@@ -170,45 +251,118 @@ struct NativeDiagnosticsToolsPage: View {
         Image(systemName: liveFollow ? "pause.circle" : "play.circle")
       }
       .accessibilityLabel(liveFollow ? "暂停实时跟随" : "恢复实时跟随")
+    case .scheduler:
+      Button {
+        Task { await loadSchedules() }
+      } label: {
+        Image(systemName: "arrow.clockwise")
+      }
+      .disabled(isLoadingSchedules)
     default:
       EmptyView()
     }
   }
 
-  /// 根据当前工具展示对应的原生功能界面。
   @ViewBuilder
   private var toolContent: some View {
     switch tool {
-    case .health:
-      healthContent
-    case .nettest:
-      nettestContent
-    case .ruleTest:
-      ruleTestContent
-    case .liveLog:
-      liveLogContent
-    case .scheduler:
-      schedulerContent
+    case .health: healthContent
+    case .nettest: nettestContent
+    case .ruleTest: ruleTestContent
+    case .words: wordsContent
+    case .liveLog: liveLogContent
+    case .scheduler: schedulerContent
     }
   }
 
-  // MARK: - 1. 系统健康检查
+  // MARK: - 1. 系统检查（进度条 + 总数/正常/未启用/异常统计 + 状态筛选）
+
+  private var filteredHealthModules: [NativeHealthModuleRow] {
+    switch healthFilter {
+    case .all: modules
+    case .failed: modules.filter { $0.state == .failed }
+    case .ok: modules.filter { $0.state == .ok }
+    case .disabled: modules.filter { $0.state == .disabled }
+    }
+  }
 
   private var healthContent: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      CinematicPanel(padding: 14) {
-        VStack(alignment: .leading, spacing: 8) {
-          HStack {
-            Text(isCheckingHealth ? "正在逐项检查系统模块…" : "系统模块健康检查")
-              .font(.headline)
+    let okCount = modules.filter { $0.state == .ok }.count
+    let failedCount = modules.filter { $0.state == .failed }.count
+    let disabledCount = modules.filter { $0.state == .disabled }.count
+    let testedCount = okCount + failedCount + disabledCount
+    return VStack(alignment: .leading, spacing: 12) {
+      CinematicPanel(padding: 15) {
+        VStack(alignment: .leading, spacing: 12) {
+          HStack(alignment: .center, spacing: 10) {
+            Image(
+              systemName: isCheckingHealth
+                ? "waveform.path.ecg"
+                : (failedCount > 0 ? "exclamationmark.shield.fill" : "checkmark.shield.fill")
+            )
+            .font(.title3.weight(.semibold))
+            .foregroundStyle(
+              isCheckingHealth
+                ? appearance.accentColor
+                : (failedCount > 0 ? NativeTheme.danger : NativeTheme.success)
+            )
+            VStack(alignment: .leading, spacing: 2) {
+              Text(
+                isCheckingHealth
+                  ? "正在检测系统模块 (\(testedCount)/\(modules.count))"
+                  : (failedCount > 0 ? "发现 \(failedCount) 项模块异常" : "全部已启用模块正常")
+              )
+              .font(.subheadline.weight(.semibold))
               .foregroundStyle(.primary)
+              Text(isCheckingHealth ? "逐项连通性与依赖健康校验中…" : "共检测 \(modules.count) 个系统模块")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
             Spacer()
-            Text("\(Int(healthProgress * 100))%")
-              .font(.caption.monospacedDigit().weight(.semibold))
-              .foregroundStyle(Color(red: 0.82, green: 0.72, blue: 1.0))
+            Text("\(Int((healthProgress * 100).rounded()))%")
+              .font(.subheadline.monospacedDigit().weight(.bold))
+              .foregroundStyle(appearance.accentColor)
           }
-          ProgressView(value: healthProgress)
-            .tint(Color(red: 0.64, green: 0.48, blue: 0.96))
+
+          GeometryReader { bar in
+            let w = max(bar.size.width, 1)
+            ZStack(alignment: .leading) {
+              Capsule().fill(NativeTheme.chipFill)
+              Capsule()
+                .fill(
+                  LinearGradient(
+                    colors: failedCount > 0
+                      ? [appearance.accentColor, NativeTheme.danger]
+                      : [appearance.accentColor, NativeTheme.success],
+                    startPoint: .leading, endPoint: .trailing)
+                )
+                .frame(width: w * min(max(healthProgress, 0.02), 1))
+                .animation(.easeOut(duration: 0.25), value: healthProgress)
+            }
+          }
+          .frame(height: 7)
+
+          HStack(spacing: 8) {
+            healthStatTile(title: "总计", count: modules.count, tint: NativeTheme.info)
+            healthStatTile(title: "正常", count: okCount, tint: NativeTheme.success)
+            healthStatTile(title: "异常", count: failedCount, tint: NativeTheme.danger)
+            healthStatTile(title: "未启用", count: disabledCount, tint: NativeTheme.badgeMutedText)
+          }
+        }
+      }
+
+      if !modules.isEmpty {
+        ScrollView(.horizontal, showsIndicators: false) {
+          HStack(spacing: 7) {
+            ForEach(HealthFilter.allCases) { option in
+              Button {
+                healthFilter = option
+              } label: {
+                NativeAdaptivePill(option.rawValue, isSelected: healthFilter == option)
+              }
+              .buttonStyle(.plain)
+            }
+          }
         }
       }
 
@@ -216,19 +370,26 @@ struct NativeDiagnosticsToolsPage: View {
         ProgressView("正在读取模块清单…")
           .tint(.primary)
           .frame(maxWidth: .infinity, minHeight: 160)
+      } else if filteredHealthModules.isEmpty {
+        emptyCard("当前筛选状态下暂无模块")
       } else {
-        ForEach(modules) { mod in
-          CinematicPanel(padding: 12) {
-            HStack(spacing: 10) {
+        ForEach(filteredHealthModules) { mod in
+          CinematicPanel(padding: 13) {
+            HStack(spacing: 11) {
+              healthIcon(mod)
               VStack(alignment: .leading, spacing: 3) {
                 Text(mod.displayName)
                   .font(.subheadline.weight(.semibold))
                   .foregroundStyle(.primary)
                 if !mod.errorMessage.isEmpty {
                   Text(mod.errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(NativeTheme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+                } else if mod.state == .disabled {
+                  Text("当前未配置或未启用此模块")
                     .font(.caption2)
-                    .foregroundStyle(.orange)
-                    .lineLimit(2)
+                    .foregroundStyle(.secondary)
                 }
               }
               Spacer(minLength: 6)
@@ -244,25 +405,42 @@ struct NativeDiagnosticsToolsPage: View {
     }
   }
 
-  /// 模块健康状态徽标。
-  private func healthBadge(_ state: NativeHealthState) -> some View {
-    let (label, color): (String, Color) =
-      switch state {
-      case .pending: ("等待中", .white.opacity(0.55))
-      case .ok: ("正常", Color(red: 0.48, green: 0.90, blue: 0.66))
-      case .disabled: ("未启用", .white.opacity(0.50))
-      case .failed: ("异常", Color(red: 1.0, green: 0.56, blue: 0.58))
+  private func healthStatTile(title: String, count: Int, tint: Color) -> some View {
+    VStack(spacing: 2) {
+      Text("\(count)")
+        .font(.subheadline.monospacedDigit().weight(.bold))
+        .foregroundStyle(tint)
+      Text(title)
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+    }
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 7)
+    .background(NativeTheme.chipFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+
+  private func healthIcon(_ mod: NativeHealthModuleRow) -> some View {
+    let (symbol, color): (String, Color) =
+      switch mod.state {
+      case .pending: ("ellipsis.circle", NativeTheme.badgeMutedText)
+      case .ok: ("checkmark.circle.fill", NativeTheme.success)
+      case .disabled: ("minus.circle.fill", NativeTheme.badgeMutedText)
+      case .failed: ("xmark.octagon.fill", NativeTheme.danger)
       }
-    return Text(label)
-      .font(.caption2.weight(.semibold))
+    return Image(systemName: symbol)
+      .font(.body.weight(.semibold))
       .foregroundStyle(color)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 3)
-      .background {
-        Capsule()
-          .fill(.primary.opacity(0.08))
-          .overlay { Capsule().strokeBorder(color.opacity(0.32), lineWidth: 0.6) }
-      }
+      .frame(width: 28, height: 28)
+      .background(color.opacity(0.14), in: Circle())
+  }
+
+  private func healthBadge(_ state: NativeHealthState) -> some View {
+    switch state {
+    case .pending: NativeAdaptiveBadge("等待中")
+    case .ok: NativeAdaptiveBadge("正常", tint: NativeTheme.success)
+    case .disabled: NativeAdaptiveBadge("未启用")
+    case .failed: NativeAdaptiveBadge("异常", tint: NativeTheme.danger)
+    }
   }
 
   // MARK: - 2. 网络测试
@@ -287,13 +465,12 @@ struct NativeDiagnosticsToolsPage: View {
                   .foregroundStyle(.primary)
                 Text(target.address)
                   .font(.caption2.monospaced())
-                  .foregroundStyle(.primary.opacity(0.58))
+                  .foregroundStyle(.secondary)
                   .lineLimit(1)
                 if let result {
                   Text(result.summary)
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(
-                      result.success ? Color(red: 0.56, green: 0.92, blue: 0.72) : .orange)
+                    .foregroundStyle(result.success ? NativeTheme.success : NativeTheme.danger)
                 }
               }
               Spacer(minLength: 6)
@@ -308,10 +485,14 @@ struct NativeDiagnosticsToolsPage: View {
                   }
                   Text("测速").font(.caption.weight(.semibold))
                 }
-                .foregroundStyle(.primary)
+                .foregroundStyle(NativeTheme.chipText)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background { Capsule().fill(.primary.opacity(0.14)) }
+                .background {
+                  Capsule()
+                    .fill(NativeTheme.chipFill)
+                    .overlay { Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.6) }
+                }
               }
               .buttonStyle(.plain)
               .disabled(testingNetID != nil)
@@ -323,28 +504,22 @@ struct NativeDiagnosticsToolsPage: View {
     }
   }
 
-  // MARK: - 3. 名称识别与过滤规则测试
+  // MARK: - 3. 名称识别与过滤规则测试（对标 Web 英雄卡与解析明细）
 
   private var ruleTestContent: some View {
     VStack(alignment: .leading, spacing: 14) {
       HStack(spacing: 8) {
         ForEach(TestMode.allCases) { option in
-          let active = testMode == option
           Button {
             testMode = option
-            testVerdict = nil
+            testErrorMessage = nil
           } label: {
-            Text(option.rawValue)
-              .font(.subheadline.weight(.semibold))
-              .foregroundStyle(active ? .white : .white.opacity(0.72))
-              .padding(.horizontal, 14)
-              .padding(.vertical, 7)
-              .background {
-                Capsule().fill(
-                  active
-                    ? Color(red: 0.56, green: 0.40, blue: 0.88).opacity(0.80) : .white.opacity(0.08)
-                )
-              }
+            NativeAdaptivePill(
+              option.rawValue,
+              symbol: option == .recognize
+                ? "sparkle.magnifyingglass" : "line.3.horizontal.decrease.circle",
+              isSelected: testMode == option
+            )
           }
           .buttonStyle(.plain)
           .accessibilityIdentifier("native-diag-testmode-\(option.rawValue)")
@@ -352,51 +527,113 @@ struct NativeDiagnosticsToolsPage: View {
         Spacer(minLength: 0)
       }
 
-      CinematicPanel(padding: 14) {
+      CinematicPanel(padding: 15) {
         VStack(alignment: .leading, spacing: 12) {
-          VStack(alignment: .leading, spacing: 4) {
+          VStack(alignment: .leading, spacing: 5) {
             Text("标题 / 文件名 / 种子名称")
               .font(.caption.weight(.medium))
-              .foregroundStyle(.primary.opacity(0.70))
+              .foregroundStyle(.secondary)
             TextField("例如：The.Matrix.1999.2160p.BluRay.x265", text: $testTitle)
               .textFieldStyle(.plain)
               .font(.subheadline)
               .foregroundStyle(.primary)
               .padding(10)
-              .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+              .background(
+                NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+              )
+              .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                  .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.6)
+              }
               .accessibilityIdentifier("native-diag-test-title")
           }
 
-          VStack(alignment: .leading, spacing: 4) {
+          VStack(alignment: .leading, spacing: 5) {
             Text("副标题 / 种子描述（可选）")
               .font(.caption.weight(.medium))
-              .foregroundStyle(.primary.opacity(0.70))
+              .foregroundStyle(.secondary)
             TextField("可选补充描述或中文译名", text: $testSubtitle)
               .textFieldStyle(.plain)
               .font(.subheadline)
               .foregroundStyle(.primary)
               .padding(10)
-              .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+              .background(
+                NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+              )
+              .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                  .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.6)
+              }
           }
 
-          if testMode == .rule {
-            HStack {
-              Text("优先级规则组")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.primary.opacity(0.70))
-              Spacer()
-              if ruleGroups.isEmpty {
-                Text("未配置规则组")
-                  .font(.caption)
-                  .foregroundStyle(.primary.opacity(0.50))
-              } else {
-                Picker("规则组", selection: $selectedRuleGroup) {
-                  ForEach(ruleGroups, id: \.self) { name in
-                    Text(name).tag(name)
+          if testMode == .recognize {
+            if !mediaSources.isEmpty {
+              HStack {
+                Text("识别数据源")
+                  .font(.caption.weight(.medium))
+                  .foregroundStyle(.secondary)
+                Spacer()
+                Picker("识别数据源", selection: $selectedMediaSource) {
+                  Text("系统默认").tag("")
+                  ForEach(mediaSources) { src in
+                    Text(src.displayName).tag(src.mediaSource)
                   }
                 }
                 .pickerStyle(.menu)
-                .tint(Color(red: 0.84, green: 0.74, blue: 1.0))
+                .tint(appearance.accentColor)
+              }
+            }
+
+            DisclosureGroup("临时自定义识别词（仅本次测试生效）", isExpanded: $showCustomWordsField) {
+              TextEditor(text: $testCustomWords)
+                .font(.system(.caption, design: .monospaced))
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: 74)
+                .padding(8)
+                .background(
+                  NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
+                .overlay {
+                  RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.6)
+                }
+                .padding(.top, 6)
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .tint(appearance.accentColor)
+          } else {
+            VStack(alignment: .leading, spacing: 6) {
+              HStack {
+                Text("优先级规则组")
+                  .font(.caption.weight(.medium))
+                  .foregroundStyle(.secondary)
+                Spacer()
+                if ruleGroups.isEmpty {
+                  Text("未检测到规则组")
+                    .font(.caption)
+                    .foregroundStyle(NativeTheme.warning)
+                } else {
+                  Picker("规则组", selection: $selectedRuleGroup) {
+                    ForEach(ruleGroups) { group in
+                      Text(group.name).tag(group.name)
+                    }
+                  }
+                  .pickerStyle(.menu)
+                  .tint(appearance.accentColor)
+                }
+              }
+              if let current = ruleGroups.first(where: { $0.name == selectedRuleGroup }),
+                let ruleStr = current.ruleString, !ruleStr.isEmpty
+              {
+                Text(ruleStr)
+                  .font(.system(size: 11, design: .monospaced))
+                  .foregroundStyle(.secondary)
+                  .lineLimit(3)
+                  .padding(8)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+                  .background(
+                    NativeTheme.chipFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
               }
             }
           }
@@ -406,14 +643,17 @@ struct NativeDiagnosticsToolsPage: View {
           } label: {
             HStack(spacing: 8) {
               if isRunningTest {
-                ProgressView().controlSize(.small).tint(Color(red: 0.12, green: 0.10, blue: 0.16))
+                ProgressView().controlSize(.small).tint(.white)
+              } else {
+                Image(systemName: testMode == .recognize ? "wand.and.stars" : "checkmark.seal")
+                  .font(.subheadline.weight(.semibold))
               }
-              Text(testMode == .recognize ? "开始识别测试" : "开始过滤规则测试")
+              Text(testMode == .recognize ? "开始名称识别" : "开始规则测试")
                 .font(.subheadline.weight(.bold))
             }
-            .foregroundStyle(Color(red: 0.12, green: 0.10, blue: 0.16))
+            .foregroundStyle(.white)
             .frame(maxWidth: .infinity, minHeight: 44)
-            .background(.white, in: Capsule())
+            .background(appearance.accentColor, in: Capsule())
           }
           .buttonStyle(.plain)
           .disabled(
@@ -424,60 +664,365 @@ struct NativeDiagnosticsToolsPage: View {
         }
       }
 
-      if let verdict = testVerdict {
-        CinematicPanel(padding: 14) {
-          VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-              Image(
-                systemName: verdict.matched
-                  ? "checkmark.seal.fill" : "exclamationmark.triangle.fill"
-              )
-              .foregroundStyle(
-                verdict.matched ? Color(red: 0.48, green: 0.90, blue: 0.66) : .orange)
-              Text(verdict.headline)
-                .font(.headline)
-                .foregroundStyle(.primary)
-            }
-            if !verdict.detail.isEmpty {
-              Text(verdict.detail)
-                .font(.subheadline)
-                .foregroundStyle(.primary.opacity(0.84))
-            }
-            if !verdict.tags.isEmpty {
-              ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                  ForEach(verdict.tags, id: \.self) { tag in
-                    Text(tag)
-                      .font(.caption2.weight(.semibold))
-                      .foregroundStyle(Color(red: 0.86, green: 0.76, blue: 1.0))
-                      .padding(.horizontal, 8)
-                      .padding(.vertical, 3)
-                      .background { Capsule().fill(.primary.opacity(0.10)) }
-                  }
-                }
-              }
-            }
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
+      if let testErrorMessage {
+        CinematicPanel(padding: 13) {
+          Label(testErrorMessage, systemImage: "exclamationmark.triangle.fill")
+            .font(.subheadline)
+            .foregroundStyle(NativeTheme.danger)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .accessibilityIdentifier("native-diag-test-result")
+      }
+
+      if testMode == .recognize, let rec = recognizeResult {
+        recognizeResultCard(rec)
+      } else if testMode == .rule, let ruleRes = ruleTestResult {
+        ruleResultCard(ruleRes)
       }
     }
   }
 
-  // MARK: - 4. 实时日志
+  /// 对标 Web `NameTestView.vue` 的识别英雄卡 + 多维解析链路 + 应用识别词。
+  private func recognizeResultCard(_ result: NativeRecognizeDisplayResult) -> some View {
+    VStack(alignment: .leading, spacing: 12) {
+      CinematicPanel(padding: 14) {
+        VStack(alignment: .leading, spacing: 12) {
+          HStack(alignment: .top, spacing: 12) {
+            if let poster = result.posterPath, !poster.isEmpty {
+              NativeMediaArtwork(
+                session: session, reference: poster, role: .poster, maximumWidth: 320
+              )
+              .frame(width: 78, height: 112)
+              .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            }
+            VStack(alignment: .leading, spacing: 6) {
+              HStack(spacing: 6) {
+                Image(
+                  systemName: result.matched
+                    ? "checkmark.seal.fill" : "questionmark.circle.fill"
+                )
+                .foregroundStyle(result.matched ? NativeTheme.success : NativeTheme.warning)
+                Text(result.headline)
+                  .font(.headline)
+                  .foregroundStyle(.primary)
+                  .lineLimit(2)
+              }
 
-  private var filteredLogLines: [String] {
+              ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                  if let type = result.mediaType, !type.isEmpty {
+                    NativeAdaptiveBadge(type, tint: appearance.accentColor, filled: true)
+                  }
+                  if let source = result.mediaSource, !source.isEmpty {
+                    NativeAdaptiveBadge(source, tint: NativeTheme.info)
+                  }
+                  if let rating = result.voteAverage, rating > 0 {
+                    NativeAdaptiveBadge(
+                      "★ \(String(format: "%.1f", rating))", tint: NativeTheme.warning)
+                  }
+                  if let category = result.category, !category.isEmpty {
+                    NativeAdaptiveBadge(category, tint: NativeTheme.brand)
+                  }
+                }
+              }
+
+              if let overview = result.overview, !overview.isEmpty {
+                Text(overview)
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+                  .lineLimit(3)
+              }
+
+              if let identity = result.detailIdentity {
+                NavigationLink {
+                  NativeMediaDetailPage(session: session, identity: identity)
+                } label: {
+                  Label("查看媒体详情", systemImage: "arrow.up.right.square")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(appearance.accentColor)
+                }
+                .padding(.top, 2)
+              }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+          }
+
+          if !result.metaFields.isEmpty {
+            Divider().overlay(NativeTheme.divider)
+            Text("元信息解析链路")
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(.secondary)
+            LazyVGrid(
+              columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)],
+              spacing: 8
+            ) {
+              ForEach(result.metaFields, id: \.label) { field in
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(field.label)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                  Text(field.value)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(9)
+                .background(
+                  NativeTheme.chipFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+              }
+            }
+          }
+
+          if !result.applyWords.isEmpty {
+            Divider().overlay(NativeTheme.divider)
+            VStack(alignment: .leading, spacing: 6) {
+              Text("已命中识别词（\(result.applyWords.count)）")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+              ForEach(result.applyWords, id: \.self) { word in
+                Text(word)
+                  .font(.system(size: 11, design: .monospaced))
+                  .foregroundStyle(NativeTheme.brand)
+                  .padding(.horizontal, 8)
+                  .padding(.vertical, 4)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+                  .background(
+                    NativeTheme.brand.opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+              }
+            }
+          }
+        }
+      }
+      .accessibilityIdentifier("native-diag-test-result")
+    }
+  }
+
+  /// 对标 Web `RuleTestView.vue` 的过滤规则测试结果卡（突出命中优先级徽标与解析标签）。
+  private func ruleResultCard(_ result: NativeRuleTestDisplayResult) -> some View {
+    CinematicPanel(padding: 15) {
+      VStack(alignment: .leading, spacing: 11) {
+        HStack(spacing: 10) {
+          Image(
+            systemName: result.matched ? "checkmark.seal.fill" : "xmark.circle.fill"
+          )
+          .font(.title2)
+          .foregroundStyle(result.matched ? NativeTheme.success : NativeTheme.danger)
+          VStack(alignment: .leading, spacing: 2) {
+            Text(result.matched ? "命中优先级过滤规则" : "未命中过滤规则")
+              .font(.headline)
+              .foregroundStyle(.primary)
+            Text(result.subtitle)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          Spacer()
+          if let priority = result.priority, result.matched {
+            NativeAdaptiveBadge("优先级 P\(priority)", tint: NativeTheme.success, filled: true)
+          }
+        }
+
+        if !result.tags.isEmpty {
+          ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+              ForEach(result.tags, id: \.self) { tag in
+                NativeAdaptiveBadge(tag, tint: NativeTheme.brand)
+              }
+            }
+          }
+        }
+
+        if let detail = result.ruleDetail, !detail.isEmpty {
+          Text(detail)
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundStyle(.secondary)
+            .padding(9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+              NativeTheme.chipFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .accessibilityIdentifier("native-diag-test-result")
+  }
+
+  // MARK: - 4. 词表管理（5 大板块，对标 Web WordsView.vue）
+
+  private var wordsContent: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 7) {
+          ForEach(WordsTab.allCases) { tab in
+            Button {
+              wordsTab = tab
+            } label: {
+              NativeAdaptivePill(tab.rawValue, isSelected: wordsTab == tab)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-diag-words-tab-\(tab.rawValue)")
+          }
+        }
+      }
+
+      if isLoadingWords {
+        ProgressView("正在读取词表配置…")
+          .tint(.primary)
+          .frame(maxWidth: .infinity, minHeight: 160)
+      } else {
+        switch wordsTab {
+        case .identifiers:
+          wordsTextEditorCard(
+            title: "自定义识别词",
+            hint: "每行一条规则，支持屏蔽词、替换词（原词 => 替换词）与剧集偏移语法，保存后立即生效。",
+            placeholder: "例如：\n屏蔽词\n原名称 => 目标名称",
+            text: $identifiersText
+          )
+        case .releaseGroups:
+          wordsTextEditorCard(
+            title: "自定义制作组 / 字幕组",
+            hint: "每行一个制作组名称，用于增强种子标题中制作组与字幕组的提取识别。",
+            placeholder: "例如：\nCMCT\nFRDS\nCHD",
+            text: $releaseGroupsText
+          )
+        case .customization:
+          wordsTextEditorCard(
+            title: "自定义占位符（Customization）",
+            hint: "每行一个关键词，命中后可作为自定义占位符参与媒体重命名。",
+            placeholder: "例如：\n国粤双语\n特效字幕",
+            text: $customizationText
+          )
+        case .excludeWords:
+          wordsTextEditorCard(
+            title: "整理屏蔽词",
+            hint: "每行一个正则或关键字，文件名或目录命中后将被整理任务自动跳过。",
+            placeholder: "例如：\nSample\nTrailer\n花絮",
+            text: $excludeWordsText
+          )
+        case .episodeRules:
+          episodeRulesSection
+        }
+      }
+    }
+  }
+
+  private func wordsTextEditorCard(
+    title: String, hint: String, placeholder: String, text: Binding<String>
+  ) -> some View {
+    let lineCount = text.wrappedValue
+      .split(whereSeparator: \.isNewline)
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .filter { !$0.isEmpty }.count
+    return CinematicPanel(padding: 15) {
+      VStack(alignment: .leading, spacing: 10) {
+        HStack {
+          Text(title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+          Spacer()
+          NativeAdaptiveBadge("\(lineCount) 条", tint: NativeTheme.info)
+        }
+        Text(hint)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        ZStack(alignment: .topLeading) {
+          if text.wrappedValue.isEmpty {
+            Text(placeholder)
+              .font(.system(.caption, design: .monospaced))
+              .foregroundStyle(.secondary.opacity(0.7))
+              .padding(.horizontal, 12)
+              .padding(.vertical, 12)
+          }
+          TextEditor(text: text)
+            .font(.system(.caption, design: .monospaced))
+            .scrollContentBackground(.hidden)
+            .frame(minHeight: 240)
+            .padding(6)
+        }
+        .background(
+          NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .overlay {
+          RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.7)
+        }
+      }
+    }
+  }
+
+  private var episodeRulesSection: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack {
+        Text("剧集识别正则规则（\(episodeRules.count) 条）")
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(.primary)
+        Spacer()
+        Button {
+          showsAddEpisodeRule = true
+        } label: {
+          Label("新增规则", systemImage: "plus.circle.fill")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(appearance.accentColor)
+        }
+        .buttonStyle(.plain)
+      }
+      .padding(.horizontal, 2)
+
+      if episodeRules.isEmpty {
+        emptyCard("暂无自定义剧集识别规则，可点击右上角新增后保存。")
+      } else {
+        ForEach($episodeRules) { $rule in
+          CinematicPanel(padding: 13) {
+            VStack(alignment: .leading, spacing: 8) {
+              HStack {
+                Text(rule.name.isEmpty ? "未命名规则" : rule.name)
+                  .font(.subheadline.weight(.semibold))
+                  .foregroundStyle(.primary)
+                Spacer()
+                Toggle("", isOn: $rule.enabled)
+                  .labelsHidden()
+                  .tint(appearance.accentColor)
+              }
+              Text(rule.pattern)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+              HStack {
+                NativeAdaptiveBadge("排序 #\(rule.order)", tint: NativeTheme.info)
+                if rule.minFileSizeMB > 0 {
+                  NativeAdaptiveBadge("≥ \(rule.minFileSizeMB) MB", tint: NativeTheme.brand)
+                }
+                Spacer()
+                Button("编辑") { editingEpisodeRule = rule }
+                  .font(.caption.weight(.semibold))
+                  .foregroundStyle(appearance.accentColor)
+                Button("删除", role: .destructive) {
+                  episodeRules.removeAll { $0.id == rule.id }
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(NativeTheme.danger)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // MARK: - 5. 实时日志（Web 4 类正则结构化解析 + 严格级别筛选）
+
+  private var filteredLogEntries: [NativeStructuredLogEntry] {
     let keyword = logFilter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    return logLines.filter { line in
-      switch logLevel {
-      case .all: break
-      case .error: guard line.localizedCaseInsensitiveContains("ERROR") else { return false }
-      case .warning: guard line.localizedCaseInsensitiveContains("WARN") else { return false }
-      case .info: guard line.localizedCaseInsensitiveContains("INFO") else { return false }
+    return logEntries.filter { entry in
+      if logLevel != .all {
+        if logLevel == .error {
+          guard entry.level == "ERROR" || entry.level == "CRITICAL" else { return false }
+        } else {
+          guard entry.level == logLevel.rawValue else { return false }
+        }
       }
       if !keyword.isEmpty {
-        return line.lowercased().contains(keyword)
+        return entry.searchableText.contains(keyword)
       }
       return true
     }
@@ -489,15 +1034,31 @@ struct NativeDiagnosticsToolsPage: View {
         HStack(spacing: 6) {
           Image(systemName: "magnifyingglass")
             .font(.caption)
-            .foregroundStyle(.primary.opacity(0.58))
-          TextField("过滤日志关键字", text: $logFilter)
+            .foregroundStyle(.secondary)
+          TextField("过滤模块或日志关键字", text: $logFilter)
             .textFieldStyle(.plain)
             .font(.caption)
             .foregroundStyle(.primary)
+          if !logFilter.isEmpty {
+            Button {
+              logFilter = ""
+            } label: {
+              Image(systemName: "xmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+          }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .background(
+          NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .overlay {
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.6)
+        }
 
         Button {
           liveFollow.toggle()
@@ -507,57 +1068,70 @@ struct NativeDiagnosticsToolsPage: View {
             systemImage: liveFollow ? "dot.radiowaves.left.and.right" : "pause.circle"
           )
           .font(.caption2.weight(.semibold))
-          .foregroundStyle(
-            liveFollow ? Color(red: 0.48, green: 0.90, blue: 0.66) : .white.opacity(0.75)
-          )
+          .foregroundStyle(liveFollow ? NativeTheme.success : NativeTheme.chipText)
           .padding(.horizontal, 10)
           .padding(.vertical, 8)
-          .background(.white.opacity(0.10), in: Capsule())
+          .background(NativeTheme.chipFill, in: Capsule())
+          .overlay { Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.6) }
         }
         .buttonStyle(.plain)
       }
 
-      HStack(spacing: 6) {
-        ForEach(LogLevel.allCases) { level in
-          let active = logLevel == level
-          Button {
-            logLevel = level
-          } label: {
-            Text(level.rawValue)
-              .font(.caption2.weight(.semibold))
-              .foregroundStyle(active ? .white : .white.opacity(0.68))
-              .padding(.horizontal, 10)
-              .padding(.vertical, 5)
-              .background {
-                Capsule().fill(
-                  active
-                    ? Color(red: 0.56, green: 0.40, blue: 0.88).opacity(0.78) : .white.opacity(0.07)
-                )
-              }
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 6) {
+          ForEach(LogLevel.allCases) { level in
+            Button {
+              logLevel = level
+            } label: {
+              NativeAdaptivePill(
+                level.rawValue,
+                isSelected: logLevel == level,
+                tint: logLevelTint(level.rawValue)
+              )
+            }
+            .buttonStyle(.plain)
           }
-          .buttonStyle(.plain)
+          Text("\(filteredLogEntries.count) 条")
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.secondary)
+            .padding(.leading, 4)
         }
-        Spacer(minLength: 0)
-        Text("\(filteredLogLines.count) 行")
-          .font(.caption2.monospacedDigit())
-          .foregroundStyle(.primary.opacity(0.55))
       }
 
-      if isLoadingLog && logLines.isEmpty {
+      if isLoadingLog && logEntries.isEmpty {
         ProgressView("正在载入实时日志…")
           .tint(.primary)
           .frame(maxWidth: .infinity, minHeight: 180)
-      } else if filteredLogLines.isEmpty {
+      } else if filteredLogEntries.isEmpty {
         emptyCard("暂无匹配的日志记录")
       } else {
-        CinematicPanel(padding: 10) {
-          LazyVStack(alignment: .leading, spacing: 5) {
-            ForEach(Array(filteredLogLines.suffix(120).enumerated()), id: \.offset) { _, line in
-              Text(line)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(logColor(for: line))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
+        LazyVStack(alignment: .leading, spacing: 8) {
+          ForEach(Array(filteredLogEntries.suffix(150).reversed())) { entry in
+            let tint = logLevelTint(entry.level)
+            CinematicPanel(padding: 11) {
+              VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                  NativeAdaptiveBadge(entry.level, tint: tint)
+                  if !entry.source.isEmpty {
+                    Text(entry.source)
+                      .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                      .foregroundStyle(NativeTheme.brand)
+                      .lineLimit(1)
+                  }
+                  Spacer(minLength: 4)
+                  if !entry.timestamp.isEmpty {
+                    Text(entry.timestamp)
+                      .font(.system(size: 10, design: .monospaced))
+                      .foregroundStyle(.secondary)
+                      .lineLimit(1)
+                  }
+                }
+                Text(entry.message)
+                  .font(.system(size: 11.5, design: .monospaced))
+                  .foregroundStyle(.primary.opacity(0.90))
+                  .frame(maxWidth: .infinity, alignment: .leading)
+                  .textSelection(.enabled)
+              }
             }
           }
         }
@@ -566,72 +1140,132 @@ struct NativeDiagnosticsToolsPage: View {
     }
   }
 
-  /// 按日志级别着色。
-  private func logColor(for line: String) -> Color {
-    if line.localizedCaseInsensitiveContains("ERROR") {
-      return Color(red: 1.0, green: 0.54, blue: 0.58)
+  private func logLevelTint(_ level: String) -> Color {
+    switch level.uppercased() {
+    case "ERROR", "CRITICAL": NativeTheme.danger
+    case "WARNING", "WARN": NativeTheme.warning
+    case "INFO": NativeTheme.info
+    case "DEBUG": NativeTheme.badgeMutedText
+    default: appearance.accentColor
     }
-    if line.localizedCaseInsensitiveContains("WARN") {
-      return Color(red: 1.0, green: 0.80, blue: 0.42)
-    }
-    if line.localizedCaseInsensitiveContains("DEBUG") {
-      return .white.opacity(0.55)
-    }
-    return .white.opacity(0.88)
   }
 
-  // MARK: - 5. 定时服务
+  // MARK: - 6. 定时服务（Web 图标色彩映射 + 系统/插件/工作流分类）
+
+  private var filteredSchedules: [NativeDiagSchedule] {
+    schedules.filter { item in
+      let visual = NativeSchedulerVisualResolver.resolve(
+        id: item.id, name: item.rawName, provider: item.provider ?? "")
+      switch schedulerFilter {
+      case .all: return true
+      case .system: return visual.category == .system
+      case .plugin: return visual.category == .plugin
+      case .automation: return visual.category == .workflow || visual.category == .agent
+      }
+    }
+  }
 
   private var schedulerContent: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: 11) {
+      if !schedules.isEmpty {
+        ScrollView(.horizontal, showsIndicators: false) {
+          HStack(spacing: 7) {
+            ForEach(SchedulerCategoryFilter.allCases) { option in
+              Button {
+                schedulerFilter = option
+              } label: {
+                NativeAdaptivePill(option.rawValue, isSelected: schedulerFilter == option)
+              }
+              .buttonStyle(.plain)
+            }
+          }
+        }
+      }
+
       if isLoadingSchedules && schedules.isEmpty {
         ProgressView("正在读取定时服务…")
           .tint(.primary)
           .frame(maxWidth: .infinity, minHeight: 160)
-      } else if schedules.isEmpty {
+      } else if filteredSchedules.isEmpty {
         emptyCard("暂无定时服务任务")
       } else {
-        ForEach(schedules) { item in
-          let isRunning = runningJobID == item.id
+        ForEach(filteredSchedules) { item in
+          let isTriggering = runningJobID == item.id
+          let visual = NativeSchedulerVisualResolver.resolve(
+            id: item.id, name: item.rawName, provider: item.provider ?? "")
           CinematicPanel(padding: 13) {
-            HStack(spacing: 12) {
-              VStack(alignment: .leading, spacing: 4) {
-                Text(item.displayName)
-                  .font(.subheadline.weight(.semibold))
-                  .foregroundStyle(.primary)
-                HStack(spacing: 8) {
-                  Text(item.statusLabel)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(
-                      item.isRunningNow
-                        ? Color(red: 0.48, green: 0.90, blue: 0.66) : .white.opacity(0.65))
-                  if let next = item.nextRun, !next.isEmpty {
-                    Text("下次：\(next)")
+            VStack(alignment: .leading, spacing: 9) {
+              HStack(spacing: 12) {
+                Image(systemName: item.isRunningNow ? "arrow.triangle.2.circlepath" : visual.symbol)
+                  .font(.body.weight(.semibold))
+                  .foregroundStyle(item.isRunningNow ? NativeTheme.success : visual.tint)
+                  .frame(width: 38, height: 38)
+                  .background(
+                    (item.isRunningNow ? NativeTheme.success : visual.tint).opacity(0.15),
+                    in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 4) {
+                  HStack(spacing: 6) {
+                    Text(item.displayName)
+                      .font(.subheadline.weight(.semibold))
+                      .foregroundStyle(.primary)
+                      .lineLimit(1)
+                    if let badge = visual.providerBadge {
+                      NativeAdaptiveBadge(badge, tint: visual.tint)
+                    }
+                  }
+                  HStack(spacing: 8) {
+                    HStack(spacing: 4) {
+                      Circle()
+                        .fill(item.isRunningNow ? NativeTheme.success : NativeTheme.badgeMutedText)
+                        .frame(width: 6, height: 6)
+                      Text(item.statusLabel)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(item.isRunningNow ? NativeTheme.success : .secondary)
+                    }
+                    if let next = item.nextRunLabel, !next.isEmpty, !item.isRunningNow {
+                      Text("下次：\(next)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    }
+                  }
+                }
+                Spacer(minLength: 4)
+
+                Button {
+                  Task { await triggerSchedule(item) }
+                } label: {
+                  HStack(spacing: 4) {
+                    if isTriggering {
+                      ProgressView().controlSize(.mini).tint(.white)
+                    } else {
+                      Image(systemName: "play.fill").font(.caption2)
+                    }
+                    Text("运行").font(.caption.weight(.semibold))
+                  }
+                  .foregroundStyle(.white)
+                  .padding(.horizontal, 12)
+                  .padding(.vertical, 7)
+                  .background(appearance.accentColor, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(runningJobID != nil)
+                .accessibilityIdentifier("native-diag-scheduler-\(item.id)")
+              }
+
+              if let frac = item.runningFraction {
+                VStack(alignment: .leading, spacing: 4) {
+                  ProgressView(value: frac)
+                    .tint(NativeTheme.success)
+                  if let txt = item.runningDetailText, !txt.isEmpty {
+                    Text(txt)
                       .font(.caption2)
-                      .foregroundStyle(.primary.opacity(0.55))
+                      .foregroundStyle(.secondary)
+                      .lineLimit(1)
                   }
                 }
               }
-              Spacer(minLength: 6)
-              Button {
-                Task { await triggerSchedule(item) }
-              } label: {
-                HStack(spacing: 5) {
-                  if isRunning {
-                    ProgressView().controlSize(.mini).tint(.primary)
-                  } else {
-                    Image(systemName: "play.fill").font(.caption2)
-                  }
-                  Text("运行").font(.caption.weight(.semibold))
-                }
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background { Capsule().fill(.primary.opacity(0.14)) }
-              }
-              .buttonStyle(.plain)
-              .disabled(runningJobID != nil)
-              .accessibilityIdentifier("native-diag-scheduler-\(item.id)")
             }
           }
         }
@@ -639,17 +1273,16 @@ struct NativeDiagnosticsToolsPage: View {
     }
   }
 
-  /// 通用空态卡片。
   private func emptyCard(_ text: String) -> some View {
-    CinematicPanel {
+    CinematicPanel(padding: 16) {
       Text(text)
         .font(.subheadline)
-        .foregroundStyle(.primary.opacity(0.68))
-        .frame(maxWidth: .infinity, minHeight: 90)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, minHeight: 80)
     }
   }
 
-  // MARK: - 网络请求
+  // MARK: - 网络请求实现
 
   private func loadCurrentTool() async {
     switch tool {
@@ -658,7 +1291,11 @@ struct NativeDiagnosticsToolsPage: View {
     case .nettest:
       await loadNetTargets()
     case .ruleTest:
-      await loadRuleGroups()
+      async let groups: () = loadRuleGroups()
+      async let sources: () = loadMediaSources()
+      _ = await (groups, sources)
+    case .words:
+      await loadAllWords()
     case .liveLog:
       await fetchLiveLog(silent: false)
     case .scheduler:
@@ -666,11 +1303,11 @@ struct NativeDiagnosticsToolsPage: View {
     }
   }
 
-  /// 读取模块清单并逐项执行 `GET /api/v1/system/moduletest/{id}`。
   private func runHealthCheck() async {
     guard !isCheckingHealth else { return }
     isCheckingHealth = true
     healthProgress = 0
+    healthFilter = .all
     defer { isCheckingHealth = false }
     do {
       let endpoint = try APIEndpoint(path: ["system", "modulelist"])
@@ -712,17 +1349,16 @@ struct NativeDiagnosticsToolsPage: View {
           }
         } catch {
           modules[index].state = .failed
-          modules[index].errorMessage = "模块检查请求失败"
+          modules[index].errorMessage = "模块检测请求失败"
         }
         modules[index].isTesting = false
         healthProgress = Double(index + 1) / Double(modules.count)
       }
     } catch {
-      feedback = "无法获取系统模块清单，请稍后重试。"
+      feedback = (true, "无法获取系统模块清单，请稍后重试。")
     }
   }
 
-  /// 加载网络诊断目标，并在首次进入时自动开始全部节点连通测试。
   private func loadNetTargets() async {
     isLoadingNet = true
     defer { isLoadingNet = false }
@@ -735,11 +1371,10 @@ struct NativeDiagnosticsToolsPage: View {
         await runAllNetTests()
       }
     } catch {
-      feedback = "暂时无法载入网络测试目标。"
+      feedback = (true, "暂时无法载入网络测试目标。")
     }
   }
 
-  /// 依次测试全部网络节点并实时刷新延迟与连通状态。
   private func runAllNetTests() async {
     guard !isTestingAllNet, !netTargets.isEmpty else { return }
     isTestingAllNet = true
@@ -752,7 +1387,6 @@ struct NativeDiagnosticsToolsPage: View {
     }
   }
 
-  /// 单节点网络连通测速。
   private func runNetTest(_ target: NativeDiagNetTarget) async {
     testingNetID = target.id
     defer { testingNetID = nil }
@@ -770,19 +1404,49 @@ struct NativeDiagnosticsToolsPage: View {
     }
   }
 
-  /// 读取过滤规则组清单供规则测试使用。
-  private func loadRuleGroups() async {
-    guard ruleGroups.isEmpty else { return }
+  /// 加载识别数据源清单（`GET /api/v1/media/source`）。
+  private func loadMediaSources() async {
+    guard mediaSources.isEmpty else { return }
     do {
-      let ep = try APIEndpoint(path: ["system", "setting", "UserFilterRuleGroups"])
+      let ep = try APIEndpoint(path: ["media", "source"])
+      mediaSources = try await session.request(
+        ep, as: [NativeDiagMediaSource].self, requiring: PermissionRequirement(category: .discovery)
+      ).value
+    } catch {
+      return
+    }
+  }
+
+  /// 优先通过 V3 `GET /api/v1/rule/groups?include_usage=false` 读取优先级规则组，兼容回退旧设置项。
+  private func loadRuleGroups() async {
+    if !ruleGroups.isEmpty { return }
+    do {
+      let ep = try APIEndpoint(
+        path: ["rule", "groups"],
+        query: [URLQueryItem(name: "include_usage", value: "false")])
+      let payload = try await session.request(
+        ep, as: NativeRuleGroupsQueryPayload.self,
+        requiring: PermissionRequirement(category: .discovery)
+      ).value
+      let loaded = (payload.ruleGroups ?? []).filter { !$0.name.isEmpty }
+      if !loaded.isEmpty {
+        ruleGroups = loaded
+        if selectedRuleGroup.isEmpty { selectedRuleGroup = loaded[0].name }
+        return
+      }
+    } catch {
+      // 回退到旧接口
+    }
+    do {
+      let fallbackEp = try APIEndpoint(path: ["system", "setting", "UserFilterRuleGroups"])
       let wrapper = try await session.request(
-        ep, as: NativeDiagSettingWrapper<[NativeDiagRuleGroup]>.self,
+        fallbackEp, as: NativeDiagSettingWrapper<[NativeDiagRuleGroup]>.self,
         requiring: PermissionRequirement(category: .admin)
       ).value
-      let names = (wrapper.value ?? []).compactMap(\.name).filter { !$0.isEmpty }
-      ruleGroups = names
-      if selectedRuleGroup.isEmpty, let first = names.first {
-        selectedRuleGroup = first
+      let loaded = (wrapper.value ?? []).filter { !$0.name.isEmpty }
+      ruleGroups = loaded
+      if selectedRuleGroup.isEmpty, let first = loaded.first {
+        selectedRuleGroup = first.name
       }
     } catch {
       return
@@ -793,32 +1457,27 @@ struct NativeDiagnosticsToolsPage: View {
   private func executeRecognitionOrRuleTest() async {
     let title = testTitle.trimmingCharacters(in: .whitespacesAndNewlines)
     let subtitle = testSubtitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    let customWords = testCustomWords.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !title.isEmpty else { return }
     isRunningTest = true
+    testErrorMessage = nil
     defer { isRunningTest = false }
     do {
       if testMode == .recognize {
         var query = [URLQueryItem(name: "title", value: title)]
         if !subtitle.isEmpty { query.append(URLQueryItem(name: "subtitle", value: subtitle)) }
-        let ep = try APIEndpoint(path: ["media", "recognize"], query: query)
+        if !customWords.isEmpty {
+          query.append(URLQueryItem(name: "custom_words", value: customWords))
+        }
+        if !selectedMediaSource.isEmpty {
+          query.append(URLQueryItem(name: "media_source", value: selectedMediaSource))
+        }
+        let ep = try APIEndpoint(path: ["media", "recognize"], query: query, timeout: 60)
         let data = try await session.request(
           ep, as: NativeRecognizeContextPayload.self,
-          requiring: PermissionRequirement(category: .admin)
+          requiring: PermissionRequirement(category: .discovery)
         ).value
-        let mediaTitle = data.mediaInfo?.titleYear ?? data.mediaInfo?.title ?? data.metaInfo?.name
-        var tags: [String] = []
-        if let type = data.mediaInfo?.type ?? data.metaInfo?.type, !type.isEmpty {
-          tags.append(type)
-        }
-        if let se = data.metaInfo?.seasonEpisode, !se.isEmpty { tags.append(se) }
-        if let pix = data.metaInfo?.resourcePix, !pix.isEmpty { tags.append(pix) }
-        if let edition = data.metaInfo?.edition, !edition.isEmpty { tags.append(edition) }
-        if let team = data.metaInfo?.resourceTeam, !team.isEmpty { tags.append(team) }
-        testVerdict = NativeRuleTestVerdict(
-          matched: data.mediaInfo != nil,
-          headline: mediaTitle.map { "识别成功：\($0)" } ?? "未识别到匹配媒体",
-          detail: data.mediaInfo?.overview ?? "已解析基础元信息，可继续调整识别词。",
-          tags: tags)
+        recognizeResult = NativeRecognizeDisplayResult(from: data)
       } else {
         var query = [
           URLQueryItem(name: "title", value: title),
@@ -826,36 +1485,144 @@ struct NativeDiagnosticsToolsPage: View {
         ]
         if !subtitle.isEmpty { query.append(URLQueryItem(name: "subtitle", value: subtitle)) }
         let ep = try APIEndpoint(
-          path: ["system", "ruletest"], query: query, responseContract: .payload)
+          path: ["system", "ruletest"], query: query, responseContract: .payload, timeout: 45)
         let reply = try await session.request(
           ep, as: NativeDiagRawEnvelope<NativeRuleTestPayload>.self,
           requiring: PermissionRequirement(category: .admin)
         ).value
-        if let data = reply.data, reply.success == true, data.matched == true {
-          let priority = data.priority.map { " · 优先级 \($0)" } ?? ""
-          var tags: [String] = []
-          if let group = data.rulegroupName, !group.isEmpty { tags.append("规则组：\(group)") }
-          if let pix = data.metaInfo?.resourcePix, !pix.isEmpty { tags.append(pix) }
-          if let team = data.metaInfo?.resourceTeam, !team.isEmpty { tags.append(team) }
-          testVerdict = NativeRuleTestVerdict(
-            matched: true,
-            headline: "命中过滤规则\(priority)",
-            detail: data.mediaInfo?.titleYear ?? data.mediaInfo?.title ?? title,
-            tags: tags)
-        } else {
-          testVerdict = NativeRuleTestVerdict(
-            matched: false,
-            headline: "未命中过滤规则",
-            detail: reply.message?.isEmpty == false ? reply.message! : "当前标题未通过所选优先级规则组。",
-            tags: ["规则组：\(selectedRuleGroup)"])
-        }
+        let data = reply.data
+        let isMatched = (reply.success == true) && (data?.matched == true)
+        var tags: [String] = []
+        if let g = data?.rulegroupName, !g.isEmpty { tags.append("规则组：\(g)") }
+        if let t = data?.metaInfo?.type, !t.isEmpty { tags.append(t) }
+        if let se = data?.metaInfo?.seasonEpisode, !se.isEmpty { tags.append(se) }
+        if let pix = data?.metaInfo?.resourcePix, !pix.isEmpty { tags.append(pix) }
+        if let ed = data?.metaInfo?.edition, !ed.isEmpty { tags.append(ed) }
+        if let team = data?.metaInfo?.resourceTeam, !team.isEmpty { tags.append(team) }
+        ruleTestResult = NativeRuleTestDisplayResult(
+          matched: isMatched,
+          priority: data?.priority,
+          subtitle: isMatched
+            ? (data?.mediaInfo?.titleYear ?? data?.mediaInfo?.title ?? data?.metaInfo?.name ?? title)
+            : (reply.message?.isEmpty == false ? reply.message! : "当前标题未通过所选优先级规则组"),
+          tags: tags,
+          ruleDetail: data?.rulegroup?.ruleString
+        )
       }
     } catch {
-      feedback = "执行测试失败，请稍后重试。"
+      testErrorMessage = "测试请求失败或超时，请检查标题与服务连接状态。"
     }
   }
 
-  /// 拉取最近实时日志文本并保留尾部 250 行（`GET /api/v1/system/logging?length=-1`）。
+  /// 加载词表 5 大板块数据。
+  private func loadAllWords() async {
+    isLoadingWords = true
+    defer { isLoadingWords = false }
+
+    async let idResult: [String]? = {
+      guard let ep = try? APIEndpoint(path: ["system", "identifiers"]) else { return nil }
+      return try? await session.request(
+        ep, as: NativeIdentifiersPayload.self, requiring: .init(category: .admin)
+      ).value.identifiers
+    }()
+    async let rgResult: [String]? = readSettingList("CustomReleaseGroups")
+    async let cuResult: [String]? = readSettingList("Customization")
+    async let exResult: [String]? = readSettingList("TransferExcludeWords")
+    async let epRulesResult: [NativeEpisodeFormatRule]? = {
+      guard
+        let ep = try? APIEndpoint(path: ["system", "setting", "public", "EpisodeFormatRuleTable"])
+      else { return nil }
+      return try? await session.request(
+        ep, as: NativeDiagSettingWrapper<[NativeEpisodeFormatRule]>.self,
+        requiring: .init(category: .admin)
+      ).value.value
+    }()
+
+    let (ids, rgs, cus, exs, rules) = await (idResult, rgResult, cuResult, exResult, epRulesResult)
+    if let ids {
+      originalIdentifiers = ids
+      identifiersText = ids.joined(separator: "\n")
+    }
+    if let rgs { releaseGroupsText = rgs.joined(separator: "\n") }
+    if let cus { customizationText = cus.joined(separator: "\n") }
+    if let exs { excludeWordsText = exs.joined(separator: "\n") }
+    if let rules { episodeRules = rules }
+  }
+
+  private func readSettingList(_ key: String) async -> [String]? {
+    guard let ep = try? APIEndpoint(path: ["system", "setting", key]) else { return nil }
+    guard
+      let raw = try? await session.request(
+        ep, as: NativeDiagSettingWrapper<JSONValue>.self, requiring: .init(category: .admin)
+      ).value.value
+    else { return nil }
+    switch raw {
+    case .array(let items):
+      return items.compactMap {
+        if case .string(let s) = $0 { return s }
+        return nil
+      }
+    case .string(let text):
+      return text.split(whereSeparator: \.isNewline).map(String.init)
+    default:
+      return []
+    }
+  }
+
+  private func saveCurrentWordsTab() async {
+    isSavingWords = true
+    defer { isSavingWords = false }
+    do {
+      switch wordsTab {
+      case .identifiers:
+        let lines = Self.nonEmptyLines(identifiersText)
+        let payload = NativeIdentifiersUpdateRequest(
+          identifiers: lines, expectedIdentifiers: originalIdentifiers)
+        let body = try JSONEncoder().encode(payload)
+        let ep = try APIEndpoint(path: ["system", "identifiers"], method: .post, body: body)
+        try await session.perform(ep, requiring: .init(category: .admin))
+        originalIdentifiers = lines
+        feedback = (false, "已保存自定义识别词（\(lines.count) 条）。")
+      case .releaseGroups:
+        let lines = Self.nonEmptyLines(releaseGroupsText)
+        let body = try JSONEncoder().encode(lines)
+        let ep = try APIEndpoint(
+          path: ["system", "setting", "CustomReleaseGroups"], method: .post, body: body)
+        try await session.perform(ep, requiring: .init(category: .admin))
+        feedback = (false, "已保存自定义制作组（\(lines.count) 条）。")
+      case .customization:
+        let lines = Self.nonEmptyLines(customizationText)
+        let body = try JSONEncoder().encode(lines)
+        let ep = try APIEndpoint(
+          path: ["system", "setting", "Customization"], method: .post, body: body)
+        try await session.perform(ep, requiring: .init(category: .admin))
+        feedback = (false, "已保存自定义占位符（\(lines.count) 条）。")
+      case .excludeWords:
+        let lines = Self.nonEmptyLines(excludeWordsText)
+        let body = try JSONEncoder().encode(lines)
+        let ep = try APIEndpoint(
+          path: ["system", "setting", "TransferExcludeWords"], method: .post, body: body)
+        try await session.perform(ep, requiring: .init(category: .admin))
+        feedback = (false, "已保存整理屏蔽词（\(lines.count) 条）。")
+      case .episodeRules:
+        let body = try JSONEncoder().encode(episodeRules)
+        let ep = try APIEndpoint(
+          path: ["system", "setting", "EpisodeFormatRuleTable"], method: .post, body: body)
+        try await session.perform(ep, requiring: .init(category: .admin))
+        feedback = (false, "已保存剧集识别规则（\(episodeRules.count) 条）。")
+      }
+    } catch {
+      feedback = (true, "保存词表失败，请检查格式或权限后重试。")
+    }
+  }
+
+  private static func nonEmptyLines(_ text: String) -> [String] {
+    text.split(whereSeparator: \.isNewline)
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+  }
+
+  /// 拉取实时日志并通过 4 类正则结构化解析时间戳、级别、来源模块与正文。
   private func fetchLiveLog(silent: Bool) async {
     if !silent { isLoadingLog = true }
     defer { if !silent { isLoadingLog = false } }
@@ -872,14 +1639,13 @@ struct NativeDiagnosticsToolsPage: View {
         ep, requiring: PermissionRequirement(category: .admin)
       ).value
       let text = String(decoding: raw, as: UTF8.self)
-      let all = text.split(whereSeparator: \.isNewline).map(String.init)
-      logLines = Array(all.suffix(250))
+      let rawLines = text.split(whereSeparator: \.isNewline).map(String.init)
+      logEntries = NativeLogParser.parse(Array(rawLines.suffix(400)))
     } catch {
-      if !silent { feedback = "无法读取实时日志，请确认管理员权限与日志文件状态。" }
+      if !silent { feedback = (true, "无法读取实时日志，请确认管理员权限与日志文件状态。") }
     }
   }
 
-  /// 读取后台定时服务清单（`GET /api/v1/dashboard/schedule`）。
   private func loadSchedules() async {
     isLoadingSchedules = true
     defer { isLoadingSchedules = false }
@@ -889,11 +1655,10 @@ struct NativeDiagnosticsToolsPage: View {
         ep, as: [NativeDiagSchedule].self, requiring: PermissionRequirement(category: .admin)
       ).value
     } catch {
-      feedback = "无法读取定时服务清单。"
+      feedback = (true, "无法读取定时服务清单。")
     }
   }
 
-  /// 手动触发单条定时服务（`GET /api/v1/system/runscheduler?jobid={id}`）。
   private func triggerSchedule(_ item: NativeDiagSchedule) async {
     runningJobID = item.id
     defer { runningJobID = nil }
@@ -902,15 +1667,208 @@ struct NativeDiagnosticsToolsPage: View {
         path: ["system", "runscheduler"],
         query: [URLQueryItem(name: "jobid", value: item.id)])
       try await session.perform(ep, requiring: PermissionRequirement(category: .admin))
-      feedback = "已触发定时服务「\(item.displayName)」。"
+      feedback = (false, "已触发定时服务「\(item.displayName)」。")
       await loadSchedules()
     } catch {
-      feedback = "触发定时服务失败，请稍后重试。"
+      feedback = (true, "触发定时服务失败，请稍后重试。")
     }
   }
 }
 
-// MARK: - 解码模型
+// MARK: - 剧集识别规则编辑弹窗
+
+@MainActor
+private struct NativeEpisodeRuleEditorSheet: View {
+  @State private var rule: NativeEpisodeFormatRule
+  let onSave: (NativeEpisodeFormatRule) -> Void
+  @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+
+  init(rule: NativeEpisodeFormatRule, onSave: @escaping (NativeEpisodeFormatRule) -> Void) {
+    _rule = State(initialValue: rule)
+    self.onSave = onSave
+  }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 14) {
+            CinematicPanel(padding: 15) {
+              VStack(alignment: .leading, spacing: 12) {
+                field("规则名称", placeholder: "例如：番剧集数提取", text: $rule.name)
+                field("正则表达式", placeholder: "例如：\\[(\\d{2,3})\\]", text: $rule.pattern)
+                Stepper("排序优先级：\(rule.order)", value: $rule.order, in: 1...999)
+                  .font(.subheadline)
+                Stepper(
+                  "最小文件体积：\(rule.minFileSizeMB) MB", value: $rule.minFileSizeMB, in: 0...10000,
+                  step: 10
+                )
+                .font(.subheadline)
+                Toggle("启用此规则", isOn: $rule.enabled)
+                  .font(.subheadline)
+                  .tint(appearance.accentColor)
+              }
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
+        }
+      }
+      .navigationTitle(rule.name.isEmpty ? "新增剧集规则" : "编辑剧集规则")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+        ToolbarItem(placement: .topBarTrailing) {
+          Button("确定") {
+            onSave(rule)
+            dismiss()
+          }
+          .fontWeight(.semibold)
+          .disabled(
+            rule.name.trimmingCharacters(in: .whitespaces).isEmpty
+              || rule.pattern.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+      }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  private func field(_ label: String, placeholder: String, text: Binding<String>) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Text(label).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+      TextField(placeholder, text: text)
+        .textFieldStyle(.plain)
+        .font(.subheadline)
+        .padding(10)
+        .background(
+          NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .overlay {
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.6)
+        }
+    }
+  }
+}
+
+// MARK: - 结构化日志解析器（对标 Web LoggingView.vue 4 类格式）
+
+private struct NativeStructuredLogEntry: Identifiable {
+  let id: Int
+  let level: String
+  let timestamp: String
+  let source: String
+  var message: String
+
+  var searchableText: String {
+    "\(level) \(timestamp) \(source) \(message)".lowercased()
+  }
+}
+
+private enum NativeLogParser {
+  private static let ansiRegex = try? NSRegularExpression(pattern: "\u{001B}\\[[0-9;]*[a-zA-Z]")
+  // 1) 【INFO】2026-11-21 17:30:12,123 [cid] - source - message
+  private static let cnBracketRegex = try? NSRegularExpression(
+    pattern: #"^【([A-Za-z]+)】\s*([0-9\-:,\.\s]+?)(?:\s*\[[^\]]*\])?\s*-\s*([^\-]+?)\s*-\s*(.*)$"#)
+  // 2) 【INFO】2026-11-21 17:30:12 - message
+  private static let cnSimpleRegex = try? NSRegularExpression(
+    pattern: #"^【([A-Za-z]+)】\s*([0-9\-:,\.\s]+?)\s*-\s*(.*)$"#)
+  // 3) INFO:     2026-11-21 17:30:12 - source - message
+  private static let pythonColonRegex = try? NSRegularExpression(
+    pattern: #"^(DEBUG|INFO|WARN|WARNING|ERROR|CRITICAL|FATAL)\s*:\s*(.*)$"#,
+    options: .caseInsensitive)
+  // 4) 2026-11-21 17:30:12 [INFO] source - message
+  private static let timestampFirstRegex = try? NSRegularExpression(
+    pattern:
+      #"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:[.,]\d+)?)\s+[\[\(]?(DEBUG|INFO|WARN|WARNING|ERROR|CRITICAL|FATAL)[\]\)]?\s*(.*)$"#,
+    options: .caseInsensitive)
+
+  static func parse(_ rawLines: [String]) -> [NativeStructuredLogEntry] {
+    var entries: [NativeStructuredLogEntry] = []
+    var nextID = 0
+    for raw in rawLines {
+      let cleaned = stripANSI(raw).trimmingCharacters(in: .newlines)
+      if cleaned.trimmingCharacters(in: .whitespaces).isEmpty { continue }
+      if let parsed = parseSingleLine(cleaned, id: nextID) {
+        entries.append(parsed)
+        nextID += 1
+      } else if !entries.isEmpty {
+        // 堆栈或续行归并到上一条日志
+        entries[entries.count - 1].message += "\n" + cleaned
+      } else {
+        entries.append(
+          NativeStructuredLogEntry(
+            id: nextID, level: "INFO", timestamp: "", source: "", message: cleaned))
+        nextID += 1
+      }
+    }
+    return entries
+  }
+
+  private static func stripANSI(_ s: String) -> String {
+    guard let ansiRegex else { return s }
+    let range = NSRange(s.startIndex..<s.endIndex, in: s)
+    return ansiRegex.stringByReplacingMatches(in: s, range: range, withTemplate: "")
+  }
+
+  private static func normalizeLevel(_ raw: String) -> String {
+    switch raw.uppercased() {
+    case "WARN", "WARNING": "WARNING"
+    case "FATAL", "CRITICAL": "CRITICAL"
+    case "ERR", "ERROR": "ERROR"
+    case "DEBUG": "DEBUG"
+    default: "INFO"
+    }
+  }
+
+  private static func matchGroups(_ regex: NSRegularExpression?, in text: String) -> [String]? {
+    guard let regex else { return nil }
+    let ns = text as NSString
+    let range = NSRange(location: 0, length: ns.length)
+    guard let match = regex.firstMatch(in: text, range: range) else { return nil }
+    return (1..<match.numberOfRanges).map { idx in
+      let r = match.range(at: idx)
+      return r.location != NSNotFound
+        ? ns.substring(with: r).trimmingCharacters(in: .whitespaces) : ""
+    }
+  }
+
+  private static func parseSingleLine(_ line: String, id: Int) -> NativeStructuredLogEntry? {
+    if let g = matchGroups(cnBracketRegex, in: line), g.count >= 4 {
+      return NativeStructuredLogEntry(
+        id: id, level: normalizeLevel(g[0]), timestamp: shortTimestamp(g[1]), source: g[2],
+        message: g[3])
+    }
+    if let g = matchGroups(cnSimpleRegex, in: line), g.count >= 3 {
+      return NativeStructuredLogEntry(
+        id: id, level: normalizeLevel(g[0]), timestamp: shortTimestamp(g[1]), source: "",
+        message: g[2])
+    }
+    if let g = matchGroups(timestampFirstRegex, in: line), g.count >= 3 {
+      return NativeStructuredLogEntry(
+        id: id, level: normalizeLevel(g[1]), timestamp: shortTimestamp(g[0]), source: "",
+        message: g[2])
+    }
+    if let g = matchGroups(pythonColonRegex, in: line), g.count >= 2 {
+      return NativeStructuredLogEntry(
+        id: id, level: normalizeLevel(g[0]), timestamp: "", source: "", message: g[1])
+    }
+    return nil
+  }
+
+  private static func shortTimestamp(_ raw: String) -> String {
+    let trimmed = raw.trimmingCharacters(in: .whitespaces)
+    if let comma = trimmed.firstIndex(of: ",") {
+      return String(trimmed[..<comma])
+    }
+    return trimmed
+  }
+}
+
+// MARK: - 解码与展示模型
 
 private enum NativeHealthState {
   case pending, ok, disabled, failed
@@ -962,23 +1920,94 @@ private struct NativeDiagRawEnvelope<Value: Decodable & Sendable>: Decodable, Se
   let data: Value?
 }
 
-private struct NativeDiagRuleGroup: Decodable, Sendable {
+private struct NativeDiagMediaSource: Decodable, Sendable, Identifiable {
   let name: String?
+  let mediaSource: String
+
+  var id: String { mediaSource }
+  var displayName: String { (name?.isEmpty == false ? name! : mediaSource) }
+
+  private enum CodingKeys: String, CodingKey {
+    case name
+    case mediaSource = "media_source"
+  }
+}
+
+private struct NativeRuleGroupsQueryPayload: Decodable, Sendable {
+  let ruleGroups: [NativeDiagRuleGroup]?
+  private enum CodingKeys: String, CodingKey {
+    case ruleGroups = "rule_groups"
+  }
+}
+
+private struct NativeDiagRuleGroup: Decodable, Sendable, Identifiable {
+  let name: String
+  let ruleString: String?
+  let mediaType: String?
+  let category: String?
+
+  var id: String { name }
+
+  private enum CodingKeys: String, CodingKey {
+    case name, category
+    case ruleString = "rule_string"
+    case mediaType = "media_type"
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    name = (try? c.decode(String.self, forKey: .name)) ?? ""
+    ruleString = try? c.decode(String.self, forKey: .ruleString)
+    mediaType = try? c.decode(String.self, forKey: .mediaType)
+    category = try? c.decode(String.self, forKey: .category)
+  }
 }
 
 private struct NativeDiagMetaBrief: Decodable, Sendable {
   let name: String?
+  let cnName: String?
+  let enName: String?
   let type: String?
+  let year: String?
   let seasonEpisode: String?
   let resourcePix: String?
+  let resourceType: String?
   let edition: String?
+  let videoEncode: String?
+  let audioEncode: String?
   let resourceTeam: String?
+  let applyWords: [String]?
 
   private enum CodingKeys: String, CodingKey {
-    case name, type, edition
+    case name, type, year, edition
+    case cnName = "cn_name"
+    case enName = "en_name"
     case seasonEpisode = "season_episode"
     case resourcePix = "resource_pix"
+    case resourceType = "resource_type"
+    case videoEncode = "video_encode"
+    case audioEncode = "audio_encode"
     case resourceTeam = "resource_team"
+    case applyWords = "apply_words"
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    name = try? c.decode(String.self, forKey: .name)
+    cnName = try? c.decode(String.self, forKey: .cnName)
+    enName = try? c.decode(String.self, forKey: .enName)
+    type = try? c.decode(String.self, forKey: .type)
+    year =
+      (try? c.decode(String.self, forKey: .year))
+      ?? (try? String(c.decode(Int.self, forKey: .year)))
+    seasonEpisode = try? c.decode(String.self, forKey: .seasonEpisode)
+    resourcePix = try? c.decode(String.self, forKey: .resourcePix)
+    resourceType = try? c.decode(String.self, forKey: .resourceType)
+    edition = try? c.decode(String.self, forKey: .edition)
+    videoEncode = try? c.decode(String.self, forKey: .videoEncode)
+    audioEncode = try? c.decode(String.self, forKey: .audioEncode)
+    resourceTeam = try? c.decode(String.self, forKey: .resourceTeam)
+    applyWords = try? c.decode([String].self, forKey: .applyWords)
   }
 }
 
@@ -986,11 +2015,40 @@ private struct NativeDiagMediaBrief: Decodable, Sendable {
   let title: String?
   let titleYear: String?
   let type: String?
+  let category: String?
+  let mediaSource: String?
+  let mediaID: String?
+  let tmdbID: String?
   let overview: String?
+  let posterPath: String?
+  let voteAverage: Double?
 
   private enum CodingKeys: String, CodingKey {
-    case title, type, overview
+    case title, type, category, overview
     case titleYear = "title_year"
+    case mediaSource = "media_source"
+    case mediaID = "media_id"
+    case tmdbID = "tmdb_id"
+    case posterPath = "poster_path"
+    case voteAverage = "vote_average"
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    title = try? c.decode(String.self, forKey: .title)
+    titleYear = try? c.decode(String.self, forKey: .titleYear)
+    type = try? c.decode(String.self, forKey: .type)
+    category = try? c.decode(String.self, forKey: .category)
+    mediaSource = try? c.decode(String.self, forKey: .mediaSource)
+    mediaID =
+      (try? c.decode(String.self, forKey: .mediaID))
+      ?? (try? String(c.decode(Int64.self, forKey: .mediaID)))
+    tmdbID =
+      (try? c.decode(String.self, forKey: .tmdbID))
+      ?? (try? String(c.decode(Int64.self, forKey: .tmdbID)))
+    overview = try? c.decode(String.self, forKey: .overview)
+    posterPath = try? c.decode(String.self, forKey: .posterPath)
+    voteAverage = try? c.decode(Double.self, forKey: .voteAverage)
   }
 }
 
@@ -1002,36 +2060,167 @@ private struct NativeRecognizeContextPayload: Decodable, Sendable {
     case metaInfo = "meta_info"
     case mediaInfo = "media_info"
   }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    metaInfo = try? c.decode(NativeDiagMetaBrief.self, forKey: .metaInfo)
+    mediaInfo = try? c.decode(NativeDiagMediaBrief.self, forKey: .mediaInfo)
+  }
+}
+
+private struct NativeRecognizeDisplayResult {
+  struct MetaField {
+    let label: String
+    let value: String
+  }
+
+  let matched: Bool
+  let headline: String
+  let mediaType: String?
+  let mediaSource: String?
+  let category: String?
+  let voteAverage: Double?
+  let overview: String?
+  let posterPath: String?
+  let detailIdentity: NativeMediaIdentity?
+  let metaFields: [MetaField]
+  let applyWords: [String]
+
+  init(from payload: NativeRecognizeContextPayload) {
+    let media = payload.mediaInfo
+    let meta = payload.metaInfo
+    matched = media != nil && (media?.title?.isEmpty == false || media?.titleYear?.isEmpty == false)
+    headline =
+      media?.titleYear ?? media?.title ?? meta?.name ?? meta?.cnName ?? meta?.enName ?? "未识别到匹配媒体"
+    mediaType = media?.type ?? meta?.type
+    mediaSource = media?.mediaSource
+    category = media?.category
+    voteAverage = media?.voteAverage
+    overview = media?.overview
+    posterPath = media?.posterPath
+    if let src = media?.mediaSource, !src.isEmpty,
+      let mid = (media?.mediaID?.isEmpty == false ? media?.mediaID : media?.tmdbID),
+      let typ = media?.type, typ != "音乐"
+    {
+      detailIdentity = NativeMediaIdentity(source: src, mediaID: mid, type: typ)
+    } else {
+      detailIdentity = nil
+    }
+    var fields: [MetaField] = []
+    if let v = meta?.name, !v.isEmpty { fields.append(.init(label: "提取名称", value: v)) }
+    if let v = meta?.cnName, !v.isEmpty { fields.append(.init(label: "中文名", value: v)) }
+    if let v = meta?.enName, !v.isEmpty { fields.append(.init(label: "英文名", value: v)) }
+    if let v = meta?.year, !v.isEmpty { fields.append(.init(label: "年份", value: v)) }
+    if let v = meta?.seasonEpisode, !v.isEmpty { fields.append(.init(label: "季 / 集", value: v)) }
+    if let v = meta?.resourcePix, !v.isEmpty { fields.append(.init(label: "分辨率", value: v)) }
+    if let v = meta?.edition ?? meta?.resourceType, !v.isEmpty {
+      fields.append(.init(label: "质量版本", value: v))
+    }
+    if let v = meta?.videoEncode, !v.isEmpty { fields.append(.init(label: "视频编码", value: v)) }
+    if let v = meta?.audioEncode, !v.isEmpty { fields.append(.init(label: "音频编码", value: v)) }
+    if let v = meta?.resourceTeam, !v.isEmpty { fields.append(.init(label: "制作组", value: v)) }
+    metaFields = fields
+    applyWords = meta?.applyWords ?? []
+  }
 }
 
 private struct NativeRuleTestPayload: Decodable, Sendable {
   let matched: Bool?
   let priority: Int?
   let rulegroupName: String?
+  let rulegroup: NativeDiagRuleGroup?
   let metaInfo: NativeDiagMetaBrief?
   let mediaInfo: NativeDiagMediaBrief?
 
   private enum CodingKeys: String, CodingKey {
-    case matched, priority
+    case matched, priority, rulegroup
     case rulegroupName = "rulegroup_name"
     case metaInfo = "meta_info"
     case mediaInfo = "media_info"
   }
 }
 
-private struct NativeRuleTestVerdict {
+private struct NativeRuleTestDisplayResult {
   let matched: Bool
-  let headline: String
-  let detail: String
+  let priority: Int?
+  let subtitle: String
   let tags: [String]
+  let ruleDetail: String?
+}
+
+private struct NativeIdentifiersPayload: Decodable, Sendable {
+  let identifiers: [String]?
+}
+
+private struct NativeIdentifiersUpdateRequest: Encodable, Sendable {
+  let identifiers: [String]
+  let expectedIdentifiers: [String]?
+
+  private enum CodingKeys: String, CodingKey {
+    case identifiers
+    case expectedIdentifiers = "expected_identifiers"
+  }
+}
+
+private struct NativeEpisodeFormatRule: Codable, Sendable, Identifiable {
+  var id: String { "\(name)|\(pattern)|\(order)" }
+  var name: String
+  var enabled: Bool
+  var order: Int
+  var pattern: String
+  var minFileSizeMB: Int
+
+  private enum CodingKeys: String, CodingKey {
+    case name, enabled, order, pattern
+    case minFileSizeMB = "min_file_size_mb"
+  }
+
+  init(name: String, enabled: Bool, order: Int, pattern: String, minFileSizeMB: Int) {
+    self.name = name
+    self.enabled = enabled
+    self.order = order
+    self.pattern = pattern
+    self.minFileSizeMB = minFileSizeMB
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    name = (try? c.decode(String.self, forKey: .name)) ?? ""
+    enabled = (try? c.decode(Bool.self, forKey: .enabled)) ?? true
+    order = (try? c.decode(Int.self, forKey: .order)) ?? 1
+    pattern = (try? c.decode(String.self, forKey: .pattern)) ?? ""
+    minFileSizeMB = (try? c.decode(Int.self, forKey: .minFileSizeMB)) ?? 0
+  }
 }
 
 private struct NativeDiagSchedule: Decodable, Sendable, Identifiable {
+  struct ProgressDetail: Decodable, Sendable {
+    let enable: Bool?
+    let status: String?
+    let value: Double?
+    let text: String?
+    let textI18n: String?
+    private enum CodingKeys: String, CodingKey {
+      case enable, status, value, text
+      case textI18n = "text_i18n"
+    }
+  }
+
   let id: String
   let name: String?
   let nameI18n: String?
+  let provider: String?
   let status: String?
+  let statusI18n: String?
   let nextRun: String?
+  let nextRunI18n: String?
+  let progress: Double?
+  let progressEnable: Bool?
+  let progressText: String?
+  let progressTextI18n: String?
+  let progressDetail: ProgressDetail?
+
+  var rawName: String { name ?? id }
 
   var displayName: String {
     if let nameI18n, !nameI18n.isEmpty { return nameI18n }
@@ -1041,16 +2230,41 @@ private struct NativeDiagSchedule: Decodable, Sendable, Identifiable {
 
   var isRunningNow: Bool {
     (status ?? "").lowercased().contains("run") || (status ?? "").contains("运行")
+      || progressEnable == true || progressDetail?.enable == true
+      || progressDetail?.status == "running"
   }
 
   var statusLabel: String {
+    if let statusI18n, !statusI18n.isEmpty { return statusI18n }
     if let status, !status.isEmpty { return status }
     return "等待"
   }
 
+  var nextRunLabel: String? {
+    if let nextRunI18n, !nextRunI18n.isEmpty { return nextRunI18n }
+    return nextRun
+  }
+
+  var runningFraction: Double? {
+    guard isRunningNow, let val = progressDetail?.value ?? progress, val.isFinite else {
+      return nil
+    }
+    return min(100, max(0, val)) / 100
+  }
+
+  var runningDetailText: String? {
+    progressDetail?.textI18n ?? progressDetail?.text ?? progressTextI18n ?? progressText
+  }
+
   private enum CodingKeys: String, CodingKey {
-    case id, name, status
+    case id, name, provider, status, progress
     case nameI18n = "name_i18n"
+    case statusI18n = "status_i18n"
     case nextRun = "next_run"
+    case nextRunI18n = "next_run_i18n"
+    case progressEnable = "progress_enable"
+    case progressText = "progress_text"
+    case progressTextI18n = "progress_text_i18n"
+    case progressDetail = "progress_detail"
   }
 }

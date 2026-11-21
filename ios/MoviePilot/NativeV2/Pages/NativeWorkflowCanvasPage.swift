@@ -162,7 +162,7 @@ struct NativeWorkflowCanvasPage: View {
           .font(.caption.weight(.semibold))
           .foregroundStyle(.primary)
           .frame(width: 30, height: 30)
-          .background(.white.opacity(0.10), in: Circle())
+          .background(NativeTheme.chipFill, in: Circle())
       }
       .buttonStyle(.plain)
       .accessibilityLabel("缩小画布")
@@ -178,7 +178,7 @@ struct NativeWorkflowCanvasPage: View {
           .foregroundStyle(.primary.opacity(0.88))
           .padding(.horizontal, 8)
           .padding(.vertical, 5)
-          .background(.white.opacity(0.10), in: Capsule())
+          .background(NativeTheme.chipFill, in: Capsule())
       }
       .buttonStyle(.plain)
       .accessibilityLabel("重置画布视角")
@@ -191,7 +191,7 @@ struct NativeWorkflowCanvasPage: View {
           .font(.caption.weight(.semibold))
           .foregroundStyle(.primary)
           .frame(width: 30, height: 30)
-          .background(.white.opacity(0.10), in: Circle())
+          .background(NativeTheme.chipFill, in: Circle())
       }
       .buttonStyle(.plain)
       .accessibilityLabel("放大画布")
@@ -309,7 +309,7 @@ struct NativeWorkflowCanvasPage: View {
         }
         Text(node.type)
           .font(.caption2.monospaced())
-          .foregroundStyle(Color(red: 0.86, green: 0.76, blue: 1.0))
+          .foregroundStyle(NativeTheme.brand)
           .lineLimit(1)
         HStack(spacing: 6) {
           if !node.description.isEmpty {
@@ -446,7 +446,7 @@ struct NativeWorkflowCanvasPage: View {
           } label: {
             Label("删除", systemImage: "trash")
               .font(.caption.weight(.semibold))
-              .foregroundStyle(Color(red: 1.0, green: 0.56, blue: 0.58))
+              .foregroundStyle(NativeTheme.danger)
               .frame(minHeight: 34)
           }
           .buttonStyle(.plain)
@@ -463,7 +463,7 @@ struct NativeWorkflowCanvasPage: View {
         Image(
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
-        .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
+        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
         Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {
@@ -810,7 +810,7 @@ private struct NativeWorkflowNodeEditorSheet: View {
                   )
                   .foregroundStyle(.primary)
                   .padding(10)
-                  .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                  .background(NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10))
                   .accessibilityIdentifier("native-workflow-node-name-field")
                 }
                 VStack(alignment: .leading, spacing: 4) {
@@ -821,7 +821,7 @@ private struct NativeWorkflowNodeEditorSheet: View {
                   )
                   .foregroundStyle(.primary)
                   .padding(10)
-                  .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                  .background(NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10))
                 }
                 VStack(alignment: .leading, spacing: 4) {
                   Text("超时时间（秒）").font(.caption).foregroundStyle(.primary.opacity(0.72))
@@ -832,7 +832,7 @@ private struct NativeWorkflowNodeEditorSheet: View {
                   .keyboardType(.numberPad)
                   .foregroundStyle(.primary)
                   .padding(10)
-                  .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                  .background(NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10))
                 }
               }
             }
@@ -864,7 +864,7 @@ private struct NativeWorkflowNodeEditorSheet: View {
                     )
                     .foregroundStyle(.primary)
                     .padding(10)
-                    .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                    .background(NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10))
                     .accessibilityIdentifier("native-workflow-param-\(item.key)")
                   }
                 }
@@ -893,7 +893,7 @@ private struct NativeWorkflowNodeEditorSheet: View {
                     newValue = ""
                   }
                   .font(.caption.weight(.semibold))
-                  .foregroundStyle(Color(red: 0.84, green: 0.72, blue: 1.0))
+                  .foregroundStyle(NativeTheme.brand)
                 }
               }
             }
@@ -1002,7 +1002,7 @@ private struct NativeWorkflowLinkSheet: View {
                     Image(systemName: linked ? "link.circle.fill" : "plus.circle")
                       .foregroundStyle(
                         linked
-                          ? Color(red: 0.56, green: 0.92, blue: 0.72)
+                          ? NativeTheme.success
                           : Color(red: 0.80, green: 0.68, blue: 1.0))
                   }
                 }

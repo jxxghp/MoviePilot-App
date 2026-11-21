@@ -330,18 +330,7 @@ struct NativePluginMarketPage: View {
         Button {
           marketFilter = option
         } label: {
-          Text(option.rawValue)
-            .font(.caption.weight(active ? .semibold : .medium))
-            .foregroundStyle(active ? .white : .white.opacity(0.72))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background {
-              Capsule()
-                .fill(.white.opacity(active ? 0.20 : 0.08))
-                .overlay {
-                  Capsule().strokeBorder(.primary.opacity(active ? 0.28 : 0.12), lineWidth: 0.6)
-                }
-            }
+          NativeAdaptivePill(option.rawValue, isSelected: active)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("native-plugin-market-filter-\(option.rawValue)")
@@ -407,7 +396,7 @@ struct NativePluginMarketPage: View {
                   ForEach(plugin.labels.prefix(3), id: \.self) { label in
                     Text(label)
                       .font(.caption2.weight(.medium))
-                      .foregroundStyle(Color(red: 0.84, green: 0.76, blue: 1.0))
+                      .foregroundStyle(NativeTheme.brand)
                       .padding(.horizontal, 6.5)
                       .padding(.vertical, 2)
                       .background {
@@ -416,7 +405,7 @@ struct NativePluginMarketPage: View {
                           .overlay {
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
                               .strokeBorder(
-                                Color(red: 0.74, green: 0.64, blue: 1.0).opacity(0.22),
+                                NativeTheme.brand.opacity(0.13),
                                 lineWidth: 0.5)
                           }
                       }
@@ -590,11 +579,11 @@ struct NativePluginMarketPage: View {
     if plugin.hasUpdate {
       badgePill("有更新", tint: Color(red: 0.98, green: 0.78, blue: 0.44))
     } else if mode == .market && plugin.installed {
-      badgePill("已安装", tint: Color(red: 0.56, green: 0.92, blue: 0.72))
+      badgePill("已安装", tint: NativeTheme.success)
     } else if mode == .installed {
       badgePill(
         plugin.isRunning ? "运行中" : "未启用",
-        tint: plugin.isRunning ? Color(red: 0.56, green: 0.92, blue: 0.72) : .white.opacity(0.58))
+        tint: plugin.isRunning ? NativeTheme.success : NativeTheme.badgeMutedText)
     }
   }
 
@@ -619,7 +608,7 @@ struct NativePluginMarketPage: View {
         Image(
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
-        .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
+        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
         Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {

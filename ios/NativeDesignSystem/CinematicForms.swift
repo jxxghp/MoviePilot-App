@@ -59,10 +59,10 @@ struct CinematicFormSection<Content: View>: View {
     self.content = content()
   }
 
-  /// 原生 Section 持有标题/说明，只有内容共享半透明背景。
+  /// 原生 Section 持有标题/说明，只有内容共享半透明背景（Form 单元格自身会裁切外延阴影，故禁用阴影避免切边）。
   var body: some View {
     Section {
-      CinematicPanel(padding: 0) {
+      CinematicPanel(padding: 0, showsShadow: false) {
         VStack(alignment: .leading, spacing: 0) { content }
           .buttonStyle(.borderless)
       }

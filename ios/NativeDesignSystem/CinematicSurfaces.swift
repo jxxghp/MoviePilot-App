@@ -1,4 +1,163 @@
 import SwiftUI
+import UIKit
+
+/// 全局自适应语义色彩体系：基于 iOS UIColor 动态 trait 自动响应深色/浅色主题，统一保障导航栏底色、角标、胶囊、状态色与输入框的高对比可读性。
+enum NativeTheme {
+  /// 构造自动响应深/浅色环境的动态 SwiftUI Color。
+  static func adaptive(light: UIColor, dark: UIColor) -> Color {
+    Color(
+      uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark ? dark : light
+      })
+  }
+
+  // MARK: - 语义状态文字与图标色（浅色深饱和高对比，深色柔和明亮）
+  static let success = adaptive(
+    light: UIColor(red: 0.08, green: 0.54, blue: 0.28, alpha: 1),
+    dark: UIColor(red: 0.46, green: 0.90, blue: 0.64, alpha: 1))
+  static let warning = adaptive(
+    light: UIColor(red: 0.74, green: 0.42, blue: 0.03, alpha: 1),
+    dark: UIColor(red: 1.00, green: 0.80, blue: 0.42, alpha: 1))
+  static let danger = adaptive(
+    light: UIColor(red: 0.80, green: 0.16, blue: 0.20, alpha: 1),
+    dark: UIColor(red: 1.00, green: 0.54, blue: 0.58, alpha: 1))
+  static let info = adaptive(
+    light: UIColor(red: 0.10, green: 0.44, blue: 0.84, alpha: 1),
+    dark: UIColor(red: 0.46, green: 0.78, blue: 1.00, alpha: 1))
+  static let brand = adaptive(
+    light: UIColor(red: 0.40, green: 0.22, blue: 0.78, alpha: 1),
+    dark: UIColor(red: 0.84, green: 0.74, blue: 1.00, alpha: 1))
+  static let pink = adaptive(
+    light: UIColor(red: 0.76, green: 0.18, blue: 0.46, alpha: 1),
+    dark: UIColor(red: 0.96, green: 0.56, blue: 0.74, alpha: 1))
+  static let cyan = adaptive(
+    light: UIColor(red: 0.05, green: 0.50, blue: 0.62, alpha: 1),
+    dark: UIColor(red: 0.46, green: 0.84, blue: 0.90, alpha: 1))
+
+  // MARK: - 胶囊 / 角标 / 输入框 / 次级文案
+  static let chipFill = adaptive(
+    light: UIColor(white: 0.0, alpha: 0.055),
+    dark: UIColor(white: 1.0, alpha: 0.09))
+  static let chipBorder = adaptive(
+    light: UIColor(white: 0.0, alpha: 0.11),
+    dark: UIColor(white: 1.0, alpha: 0.15))
+  static let chipText = adaptive(
+    light: UIColor(white: 0.14, alpha: 0.88),
+    dark: UIColor(white: 1.0, alpha: 0.86))
+  static let badgeFill = adaptive(
+    light: UIColor(white: 0.0, alpha: 0.06),
+    dark: UIColor(white: 1.0, alpha: 0.10))
+  static let badgeMutedText = adaptive(
+    light: UIColor(white: 0.28, alpha: 0.82),
+    dark: UIColor(white: 1.0, alpha: 0.68))
+  static let fieldFill = adaptive(
+    light: UIColor(white: 0.0, alpha: 0.055),
+    dark: UIColor(white: 1.0, alpha: 0.09))
+  static let fieldBorder = adaptive(
+    light: UIColor(white: 0.0, alpha: 0.10),
+    dark: UIColor(white: 1.0, alpha: 0.14))
+  static let primaryButtonBackground = adaptive(
+    light: UIColor(red: 0.12, green: 0.12, blue: 0.16, alpha: 1),
+    dark: UIColor(white: 1.0, alpha: 0.94))
+  static let primaryButtonForeground = adaptive(
+    light: UIColor.white,
+    dark: UIColor(red: 0.12, green: 0.10, blue: 0.16, alpha: 1))
+  static let divider = adaptive(
+    light: UIColor(white: 0.0, alpha: 0.09),
+    dark: UIColor(white: 1.0, alpha: 0.11))
+
+  /// 根据当前外观与背景色板计算顶部状态栏安全区柔和遮罩色（浅色模式无缝贴合浅色底，深色模式无缝贴合深色底）。
+  @MainActor
+  static func topVeilColor(for colorScheme: ColorScheme, appearance: NativeAppearanceStore) -> Color
+  {
+    if let first = appearance.backgroundStops(for: colorScheme).first?.color {
+      return first
+    }
+    return colorScheme == .light
+      ? Color(red: 0.94, green: 0.93, blue: 0.99)
+      : Color(red: 0.17, green: 0.15, blue: 0.21)
+  }
+}
+
+/// 统一自适应小角标组件：深浅色主题下均保证高对比度与柔和边框层次。
+@MainActor
+struct NativeAdaptiveBadge: View {
+  let text: String
+  let tint: Color?
+  let filled: Bool
+
+  init(_ text: String, tint: Color? = nil, filled: Bool = false) {
+    self.text = text
+    self.tint = tint
+    self.filled = filled
+  }
+
+  var body: some View {
+    Text(text)
+      .font(.caption2.weight(.semibold))
+      .foregroundStyle(
+        filled ? Color.white : (tint ?? NativeTheme.chipText)
+      )
+      .padding(.horizontal, 8)
+      .padding(.vertical, 3)
+      .background {
+        if filled, let tint {
+          Capsule().fill(tint)
+        } else if let tint {
+          Capsule()
+            .fill(tint.opacity(0.14))
+            .overlay { Capsule().strokeBorder(tint.opacity(0.28), lineWidth: 0.6) }
+        } else {
+          Capsule()
+            .fill(NativeTheme.chipFill)
+            .overlay { Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.6) }
+        }
+      }
+  }
+}
+
+/// 统一自适应筛选/切换胶囊按钮：选中态高对比实色白字，未选态自适应磨砂底与清晰边框文字。
+@MainActor
+struct NativeAdaptivePill: View {
+  let title: String
+  let symbol: String?
+  let isSelected: Bool
+  let tint: Color?
+
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+
+  init(_ title: String, symbol: String? = nil, isSelected: Bool, tint: Color? = nil) {
+    self.title = title
+    self.symbol = symbol
+    self.isSelected = isSelected
+    self.tint = tint
+  }
+
+  var body: some View {
+    let activeColor = tint ?? appearance.accentColor
+    HStack(spacing: 5) {
+      if let symbol {
+        Image(systemName: symbol)
+          .font(.caption2.weight(.semibold))
+      }
+      Text(title)
+        .font(.caption.weight(.semibold))
+        .lineLimit(1)
+    }
+    .foregroundStyle(isSelected ? Color.white : NativeTheme.chipText)
+    .padding(.horizontal, 12)
+    .padding(.vertical, 6)
+    .background {
+      if isSelected {
+        Capsule().fill(activeColor)
+      } else {
+        Capsule()
+          .fill(NativeTheme.chipFill)
+          .overlay { Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.7) }
+      }
+    }
+  }
+}
 
 /// Cinematic 单一视觉体系的基础常量；不读取旧版主题、主色或壁纸偏好。
 @MainActor
@@ -34,11 +193,13 @@ struct CinematicPanel<Content: View>: View {
   @Environment(\.colorScheme) private var colorScheme
   @ObservedObject private var appearance = NativeAppearanceStore.shared
   private let padding: CGFloat
+  private let showsShadow: Bool
   private let content: Content
 
-  /// 统一边距和圆角，同时允许表单行使用零内边距的同一分组外壳。
-  init(padding: CGFloat = 18, @ViewBuilder content: () -> Content) {
+  /// 统一边距和圆角，同时允许表单行使用零内边距或禁用阴影避免在 Form 单元格内被裁切。
+  init(padding: CGFloat = 18, showsShadow: Bool = true, @ViewBuilder content: () -> Content) {
     self.padding = padding
+    self.showsShadow = showsShadow
     self.content = content()
   }
 
@@ -75,9 +236,9 @@ struct CinematicPanel<Content: View>: View {
         ).allowsHitTesting(false)
       )
       .shadow(
-        color: isLight ? .black.opacity(0.06) : .black.opacity(0.08),
-        radius: isLight ? 10 : 12,
-        y: isLight ? 4 : 6)
+        color: showsShadow ? (isLight ? .black.opacity(0.055) : .black.opacity(0.08)) : .clear,
+        radius: showsShadow ? (isLight ? 8 : 10) : 0,
+        y: showsShadow ? (isLight ? 3 : 5) : 0)
   }
 
   /// 相关卡片、表单与状态面板采用相同的连续圆角。
@@ -248,8 +409,8 @@ struct NativeLiquidGlassPopoverSurface: ViewModifier {
             lineWidth: 0.7)
         }
         .shadow(
-          color: colorScheme == .light ? .black.opacity(0.14) : .black.opacity(0.36),
-          radius: 22, y: 10)
+          color: colorScheme == .light ? .black.opacity(0.12) : .black.opacity(0.32),
+          radius: 14, y: 8)
     } else if #available(iOS 26, *) {
       content
         .background {
@@ -257,8 +418,8 @@ struct NativeLiquidGlassPopoverSurface: ViewModifier {
         }
         .glassEffect(.regular.interactive(), in: shape)
         .shadow(
-          color: colorScheme == .light ? .black.opacity(0.12) : .black.opacity(0.30),
-          radius: 24, y: 12)
+          color: colorScheme == .light ? .black.opacity(0.10) : .black.opacity(0.28),
+          radius: 14, y: 8)
     } else {
       content
         .background {
@@ -289,8 +450,8 @@ struct NativeLiquidGlassPopoverSurface: ViewModifier {
             }
         }
         .shadow(
-          color: colorScheme == .light ? .black.opacity(0.14) : .black.opacity(0.38),
-          radius: 24, y: 12)
+          color: colorScheme == .light ? .black.opacity(0.12) : .black.opacity(0.32),
+          radius: 14, y: 8)
     }
   }
 }

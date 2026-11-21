@@ -295,7 +295,7 @@ struct NativeAgentChatPage: View {
         } label: {
           Image(systemName: "stop.circle.fill")
             .font(.system(size: 32))
-            .foregroundStyle(Color(red: 1.0, green: 0.56, blue: 0.58))
+            .foregroundStyle(NativeTheme.danger)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("停止生成")
@@ -425,7 +425,7 @@ struct NativeAgentChatPage: View {
         Image(
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
-        .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
+        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
         Text(feedback.message).font(.caption).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {

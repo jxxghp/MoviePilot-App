@@ -297,7 +297,7 @@ struct NativeV2RootView: View {
               } label: {
                 Text(prefix)
                   .font(.caption.monospaced().weight(.semibold))
-                  .foregroundStyle(Color(red: 0.86, green: 0.78, blue: 1.0))
+                  .foregroundStyle(NativeTheme.brand)
                   .padding(.horizontal, 10)
                   .padding(.vertical, 4)
                   .background {
@@ -333,7 +333,7 @@ struct NativeV2RootView: View {
                     .font(.body.weight(.semibold))
                     .foregroundStyle(
                       isSelected
-                        ? Color(red: 0.56, green: 0.92, blue: 0.72)
+                        ? NativeTheme.success
                         : Color(red: 0.78, green: 0.66, blue: 1.0)
                     )
                     .frame(width: 36, height: 36)
@@ -354,7 +354,7 @@ struct NativeV2RootView: View {
                   Spacer(minLength: 8)
                   if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                      .foregroundStyle(Color(red: 0.48, green: 0.90, blue: 0.66))
+                      .foregroundStyle(NativeTheme.success)
                       .accessibilityLabel(L10n.text("当前服务"))
                   } else {
                     Image(systemName: "chevron.right")

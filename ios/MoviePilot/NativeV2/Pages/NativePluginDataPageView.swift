@@ -30,7 +30,7 @@ struct NativePluginDataPageView: View {
             CinematicPanel(padding: 11) {
               HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle.fill")
-                  .foregroundStyle(Color(red: 0.56, green: 0.92, blue: 0.72))
+                  .foregroundStyle(NativeTheme.success)
                 Text(actionFeedback).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
                 Spacer(minLength: 0)
               }
@@ -203,7 +203,7 @@ struct NativePluginJSONRenderer: View {
           Text(node.text)
             .font(name.hasPrefix("h") ? .headline : .subheadline)
             .foregroundStyle(
-              name == "a" ? Color(red: 0.78, green: 0.68, blue: 1.0) : .white.opacity(0.92))
+              name == "a" ? NativeTheme.brand : Color.primary.opacity(0.90))
         }
         if !node.children.isEmpty {
           ForEach(node.children) { child in AnyView(renderNode(child)) }
@@ -446,9 +446,9 @@ struct NativePluginJSONRenderer: View {
   /// 语义色彩映射到暗紫玫瑰柔和色板。
   private static func tintColor(_ raw: String?) -> Color {
     switch (raw ?? "").lowercased() {
-    case "success", "green": Color(red: 0.56, green: 0.92, blue: 0.72)
+    case "success", "green": NativeTheme.success
     case "warning", "orange", "amber": Color(red: 0.98, green: 0.78, blue: 0.44)
-    case "error", "red": Color(red: 1.0, green: 0.56, blue: 0.58)
+    case "error", "red": NativeTheme.danger
     case "primary", "purple": Color(red: 0.82, green: 0.70, blue: 1.0)
     default: Color(red: 0.66, green: 0.84, blue: 1.0)
     }

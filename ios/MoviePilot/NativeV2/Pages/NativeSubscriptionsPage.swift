@@ -213,7 +213,7 @@ struct NativeSubscriptionsPage: View {
               .padding(.vertical, 7)
               .background {
                 Capsule()
-                  .fill(.white.opacity(selected ? 0.22 : 0.08))
+                  .fill(selected ? NativeTheme.brand.opacity(0.18) : NativeTheme.chipFill)
                   .overlay {
                     Capsule().strokeBorder(.primary.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
                   }
@@ -379,10 +379,10 @@ struct NativeSubscriptionsPage: View {
     let text = item.isPaused ? "已暂停" : (item.bestVersion == 1 ? "洗版" : "订阅中")
     let tint: Color =
       item.isPaused
-      ? Color.white.opacity(0.55)
+      ? NativeTheme.badgeMutedText
       : (item.bestVersion == 1
-        ? Color(red: 0.96, green: 0.78, blue: 0.45)
-        : Color(red: 0.56, green: 0.92, blue: 0.72))
+        ? NativeTheme.warning
+        : NativeTheme.success)
     return Text(text)
       .font(.caption2.weight(.semibold))
       .foregroundStyle(tint)
@@ -402,7 +402,7 @@ struct NativeSubscriptionsPage: View {
         Image(
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
-        .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
+        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
         Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {
