@@ -57,18 +57,18 @@ struct NativeBrandIcon: View {
       }
     case .notification:
       switch key {
-      case "wechat": return "logo-wechat"
-      case "wechatclawbot", "clawbot": return "logo-clawbot"
-      case "feishu": return "logo-feishu"
+      case "wechat", "微信", "企业微信": return "logo-wechat"
+      case "wechatclawbot", "clawbot", "微信clawbot": return "logo-clawbot"
+      case "feishu", "飞书": return "logo-feishu"
       case "telegram": return "logo-telegram"
       case "qqbot", "qq": return "logo-qq"
       case "vocechat": return "logo-vocechat"
       case "synologychat": return "logo-synologychat"
       case "slack": return "logo-slack"
       case "discord": return "logo-discord"
-      case "dingtalk": return "logo-dingtalk"
-      case "webpush": return "logo-chrome"
-      case "apppush": return "BrandMark"
+      case "dingtalk", "钉钉": return "logo-dingtalk"
+      case "webpush", "web": return "logo-chrome"
+      case "apppush", "webagent": return "BrandMark"
       default: return "logo-notification"
       }
     case .storage:
