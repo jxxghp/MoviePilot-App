@@ -4,7 +4,7 @@ import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
 
-/// 原生用户与权限管理页：展示账号角色、启用状态、MFA 标记与四类权限徽标，仅超级管理员可见。
+/// 原生用户管理页（五.3）：全面采用 iOS 原生分组列表风格，支持新增、编辑与删除非管理员用户（保护当前账号与管理员）。
 @MainActor
 struct NativeUsersPage: View {
   let session: NativeSession
@@ -16,20 +16,23 @@ struct NativeUsersPage: View {
   @State private var attempt = 0
   @State private var showsCreateSheet = false
   @State private var editingUser: NativeUserRecord?
-  @State private var feedback: String?
+  @State private var pendingDeleteUser: NativeUserRecord?
+  @State private var feedback: (isError: Bool, text: String)?
 
-  /// 统一深色紫玫瑰渐变背景、用户透色玻璃卡与原生刷新按钮。
   var body: some View {
     ZStack {
       CinematicBackground()
       ScrollView {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
           if let feedback {
-            CinematicPanel(padding: 10) {
+            CinematicPanel(padding: 11) {
               HStack(spacing: 8) {
-                Image(systemName: "checkmark.circle.fill")
-                  .foregroundStyle(NativeTheme.success)
-                Text(feedback).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
+                Image(
+                  systemName: feedback.isError
+                    ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+                )
+                .foregroundStyle(feedback.isError ? NativeTheme.warning : NativeTheme.success)
+                Text(feedback.text).font(.caption.weight(.medium))
                 Spacer(minLength: 0)
               }
             }
@@ -44,14 +47,18 @@ struct NativeUsersPage: View {
           } else if filteredUsers.isEmpty {
             emptyCard
           } else {
-            LazyVStack(spacing: 12) {
-              ForEach(filteredUsers) { user in
-                userCard(user)
-              }
+            let admins = filteredUsers.filter(\.isSuperuser)
+            let members = filteredUsers.filter { !$0.isSuperuser }
+
+            if !admins.isEmpty {
+              userGroupSection(title: "管理员 (\(admins.count))", list: admins)
+            }
+            if !members.isEmpty {
+              userGroupSection(title: "普通成员 (\(members.count))", list: members)
             }
           }
         }
-        .frame(maxWidth: 820)
+        .frame(maxWidth: 740, alignment: .leading)
         .padding(.horizontal, CinematicStyle.margin)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
@@ -77,21 +84,52 @@ struct NativeUsersPage: View {
       }
     }
     .sheet(isPresented: $showsCreateSheet) {
-      NativeUserEditorSheet(session: session, existing: nil) { message in
-        feedback = message
+      NativeUserEditorSheet(session: session, existing: nil, canDelete: false) { message in
+        feedback = (false, message)
+        NativePageDataCache.shared.remove("users|all", session: session)
+        NativePageDataCache.shared.remove("settingsHub|overview.v2", session: session)
         attempt += 1
       }
     }
     .sheet(item: $editingUser) { target in
-      NativeUserEditorSheet(session: session, existing: target) { message in
-        feedback = message
+      let allowDelete = canDeleteUser(target)
+      NativeUserEditorSheet(
+        session: session,
+        existing: target,
+        canDelete: allowDelete,
+        onDelete: {
+          editingUser = nil
+          pendingDeleteUser = target
+        }
+      ) { message in
+        feedback = (false, message)
+        NativePageDataCache.shared.remove("users|all", session: session)
+        NativePageDataCache.shared.remove("settingsHub|overview.v2", session: session)
         attempt += 1
       }
+    }
+    .alert(
+      "删除用户",
+      isPresented: Binding(
+        get: { pendingDeleteUser != nil },
+        set: { if !$0 { pendingDeleteUser = nil } }),
+      presenting: pendingDeleteUser
+    ) { target in
+      Button("删除用户", role: .destructive) {
+        Task { await deleteUser(target) }
+      }
+      Button("取消", role: .cancel) {}
+    } message: { target in
+      Text("确认删除普通用户「\(target.name)」吗？删除后该账号将立即失效。")
     }
     .task(id: attempt) { await load(forceRefresh: attempt > 0) }
   }
 
-  /// 按关键词筛选后的用户清单。
+  /// 仅允许删除非管理员且非当前登录账号的用户。
+  private func canDeleteUser(_ user: NativeUserRecord) -> Bool {
+    !user.isSuperuser && user.id != session.user.id
+  }
+
   private var filteredUsers: [NativeUserRecord] {
     let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     guard !trimmed.isEmpty else { return users }
@@ -101,112 +139,98 @@ struct NativeUsersPage: View {
     }
   }
 
-  /// 单条用户资料与权限玻璃卡片（显示真实用户头像，编辑操作收纳进长按菜单）。
-  private func userCard(_ user: NativeUserRecord) -> some View {
-    let isCurrent = user.id == session.user.id
-    return CinematicPanel(padding: 14) {
-      VStack(alignment: .leading, spacing: 10) {
-        HStack(spacing: 12) {
-          NativeUserAvatarView(
-            session: session,
-            avatar: user.avatar,
-            name: user.name,
-            isSuperuser: user.isSuperuser,
-            size: 44
-          )
-          VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-              Text(user.name)
-                .font(.headline)
-                .foregroundStyle(.primary)
-              if isCurrent {
-                tagPill("当前账号", tint: Color(red: 0.62, green: 0.86, blue: 1.0))
-              }
-              tagPill(
-                user.isSuperuser ? "超级管理员" : "普通用户",
-                tint: user.isSuperuser
-                  ? NativeTheme.brand : NativeTheme.chipText)
-            }
-            if let email = user.email, !email.isEmpty {
-              Text(email)
-                .font(.caption)
-                .foregroundStyle(.primary.opacity(0.64))
-            }
-          }
-          Spacer(minLength: 0)
-          VStack(alignment: .trailing, spacing: 4) {
-            tagPill(
-              user.isActive ? "正常" : "已停用",
-              tint: user.isActive ? NativeTheme.success : .orange)
-            if user.isOTP {
-              Text("已启用 2FA")
-                .font(.caption2)
-                .foregroundStyle(.primary.opacity(0.60))
-            }
-          }
-        }
-        let perms = user.permissionLabels
-        if !perms.isEmpty {
-          HStack(spacing: 6) {
-            ForEach(perms, id: \.self) { label in
-              Text(label)
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.primary.opacity(0.84))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background {
-                  Capsule()
-                    .fill(.primary.opacity(0.10))
-                    .overlay { Capsule().strokeBorder(.primary.opacity(0.14), lineWidth: 0.5) }
-                }
-            }
-            Spacer(minLength: 0)
+  private func userGroupSection(title: String, list: [NativeUserRecord]) -> some View {
+    VStack(alignment: .leading, spacing: 7) {
+      Text(title)
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 6)
+      CinematicPanel(padding: 0) {
+        VStack(spacing: 0) {
+          ForEach(Array(list.enumerated()), id: \.element.id) { idx, user in
+            if idx > 0 { CinematicFormDivider() }
+            userRow(user)
           }
         }
       }
     }
-    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-    .onTapGesture {
+  }
+
+  private func userRow(_ user: NativeUserRecord) -> some View {
+    let isCurrent = user.id == session.user.id
+    return Button {
       editingUser = user
+    } label: {
+      HStack(spacing: 12) {
+        NativeUserAvatarView(
+          session: session,
+          avatar: user.avatar,
+          name: user.name,
+          isSuperuser: user.isSuperuser,
+          size: 38
+        )
+        VStack(alignment: .leading, spacing: 3) {
+          HStack(spacing: 6) {
+            Text(user.name)
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(.primary)
+            if isCurrent {
+              NativeAdaptiveBadge("当前", tint: NativeTheme.info)
+            }
+            if user.isOTP {
+              NativeAdaptiveBadge("2FA", tint: NativeTheme.cyan)
+            }
+          }
+          Text(
+            (user.email?.isEmpty == false
+              ? user.email! : user.permissionLabels.joined(separator: " · "))
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+        }
+        Spacer(minLength: 6)
+        NativeAdaptiveBadge(
+          user.isActive ? "正常" : "已停用",
+          tint: user.isActive ? NativeTheme.success : NativeTheme.warning)
+        Image(systemName: "chevron.right")
+          .font(.caption2.weight(.semibold))
+          .foregroundStyle(.secondary.opacity(0.55))
+      }
+      .padding(.horizontal, 14)
+      .padding(.vertical, 11)
+      .contentShape(Rectangle())
     }
+    .buttonStyle(.plain)
     .contextMenu {
       Button {
         editingUser = user
       } label: {
         Label("编辑用户", systemImage: "pencil")
       }
+      if canDeleteUser(user) {
+        Button(role: .destructive) {
+          pendingDeleteUser = user
+        } label: {
+          Label("删除用户", systemImage: "trash")
+        }
+      }
     }
     .accessibilityIdentifier("native-user-card-\(user.id)")
   }
 
-  /// 紧凑角色/状态徽标胶囊。
-  private func tagPill(_ text: String, tint: Color) -> some View {
-    Text(text)
-      .font(.caption2.weight(.semibold))
-      .foregroundStyle(tint)
-      .padding(.horizontal, 7)
-      .padding(.vertical, 2.5)
-      .background {
-        Capsule()
-          .fill(.primary.opacity(0.10))
-          .overlay { Capsule().strokeBorder(tint.opacity(0.32), lineWidth: 0.6) }
-      }
-  }
-
-  /// 空态卡片。
   private var emptyCard: some View {
     CinematicPanel {
       VStack(spacing: 10) {
         Image(systemName: "person.2")
           .font(.largeTitle)
-          .foregroundStyle(.primary.opacity(0.55))
+          .foregroundStyle(.secondary)
         Text("暂无匹配的用户").font(.headline)
       }
       .frame(maxWidth: .infinity, minHeight: 150)
     }
   }
 
-  /// 载入失败卡片。
   private var failureCard: some View {
     CinematicPanel {
       VStack(alignment: .leading, spacing: 10) {
@@ -219,7 +243,6 @@ struct NativeUsersPage: View {
     }
   }
 
-  /// 从 `GET /api/v1/user/` 拉取非敏感账号与权限快照；命中页面缓存时静默复用，下拉刷新强制重拉。
   private func load(forceRefresh: Bool = false) async {
     let cacheKey = "users|all"
     if !forceRefresh,
@@ -245,11 +268,23 @@ struct NativeUsersPage: View {
       if users.isEmpty { loadFailed = true }
     }
   }
+
+  private func deleteUser(_ user: NativeUserRecord) async {
+    guard canDeleteUser(user) else { return }
+    do {
+      let ep = try APIEndpoint(path: ["user", "id", String(user.id)], method: .delete)
+      try await session.perform(ep, requiring: .init(category: .admin))
+      users.removeAll { $0.id == user.id }
+      NativePageDataCache.shared.remove("users|all", session: session)
+      NativePageDataCache.shared.remove("settingsHub|overview.v2", session: session)
+      feedback = (false, "已删除用户「\(user.name)」。")
+    } catch {
+      feedback = (true, "删除用户失败，请稍后重试。")
+    }
+  }
 }
 
-/// `GET /api/v1/user/` 单条非敏感用户投影。
 private struct NativeUserRecord: Decodable, Sendable, Identifiable {
-  /// 用户四类权限布尔映射。
   struct Permissions: Decodable, Sendable {
     let discovery: Bool?
     let search: Bool?
@@ -266,7 +301,6 @@ private struct NativeUserRecord: Decodable, Sendable, Identifiable {
   let isOTP: Bool
   let permissions: Permissions?
 
-  /// 汇总可读权限标签。
   var permissionLabels: [String] {
     if isSuperuser { return ["全部管理权限"] }
     var labels: [String] = []
@@ -277,7 +311,6 @@ private struct NativeUserRecord: Decodable, Sendable, Identifiable {
     return labels
   }
 
-  /// 解码后端用户非敏感字段，绝不解码密码哈希或密钥。
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     id = try container.decode(Int.self, forKey: .id)
@@ -290,27 +323,25 @@ private struct NativeUserRecord: Decodable, Sendable, Identifiable {
     permissions = try container.decodeIfPresent(Permissions.self, forKey: .permissions)
   }
 
-  /// 对应 `_SchemaUser` 字段。
   private enum CodingKeys: String, CodingKey {
-    case id
-    case name
-    case email
-    case avatar
+    case id, name, email, avatar, permissions
     case isActive = "is_active"
     case isSuperuser = "is_superuser"
     case isOTP = "is_otp"
-    case permissions
   }
 }
 
-/// 原生用户新增与编辑弹层：单次提交 `POST /api/v1/user/` 或 `PUT /api/v1/user/`，密码字段仅作一次性提交且不落盘留存。
+/// 原生用户新增/编辑弹层：采用 iOS 原生分组列表行布局（右对齐内联输入 + 原生开关），非管理员支持底部删除。
 @MainActor
 private struct NativeUserEditorSheet: View {
   let session: NativeSession
   let existing: NativeUserRecord?
+  let canDelete: Bool
+  var onDelete: (() -> Void)? = nil
   let onSaved: (String) -> Void
-  @Environment(\.dismiss) private var dismiss
 
+  @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
   @State private var name = ""
   @State private var email = ""
   @State private var password = ""
@@ -337,81 +368,119 @@ private struct NativeUserEditorSheet: View {
       ZStack {
         CinematicBackground()
         ScrollView {
-          VStack(alignment: .leading, spacing: 14) {
+          VStack(alignment: .leading, spacing: 18) {
             if let errorMessage {
-              CinematicPanel(padding: 10) {
+              CinematicPanel(padding: 11) {
                 Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                  .font(.subheadline)
-                  .foregroundStyle(.orange)
+                  .font(.caption)
+                  .foregroundStyle(NativeTheme.danger)
                   .frame(maxWidth: .infinity, alignment: .leading)
               }
             }
-            CinematicPanel(padding: 14) {
-              VStack(alignment: .leading, spacing: 12) {
-                Text("账号信息").font(.headline).foregroundStyle(.primary)
-                VStack(alignment: .leading, spacing: 4) {
-                  Text("用户名").font(.caption).foregroundStyle(.primary.opacity(0.72))
-                  TextField(
-                    "", text: $name,
-                    prompt: Text("输入用户名").foregroundColor(.secondary)
-                  )
-                  .textInputAutocapitalization(.never)
-                  .autocorrectionDisabled()
-                  .foregroundStyle(.primary)
-                  .padding(10)
-                  .background(NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10))
-                  .accessibilityIdentifier("native-user-editor-name")
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                  Text("邮箱（可选）").font(.caption).foregroundStyle(.primary.opacity(0.72))
-                  TextField(
-                    "", text: $email,
-                    prompt: Text("name@example.com").foregroundColor(.secondary)
-                  )
-                  .textInputAutocapitalization(.never)
-                  .autocorrectionDisabled()
-                  .keyboardType(.emailAddress)
-                  .foregroundStyle(.primary)
-                  .padding(10)
-                  .background(NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10))
-                  .accessibilityIdentifier("native-user-editor-email")
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                  Text(isCreate ? "初始密码" : "重置密码（留空不修改）")
-                    .font(.caption)
-                    .foregroundStyle(.primary.opacity(0.72))
-                  SecureField(
-                    "", text: $password,
-                    prompt: Text(isCreate ? "输入初始密码" : "留空保持原密码").foregroundColor(
-                      .white.opacity(0.45))
-                  )
-                  .foregroundStyle(.primary)
-                  .padding(10)
-                  .background(NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10))
-                  .accessibilityIdentifier("native-user-editor-password")
+
+            VStack(alignment: .leading, spacing: 7) {
+              Text("账号资料")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+              CinematicPanel(padding: 0) {
+                VStack(spacing: 0) {
+                  HStack(spacing: 12) {
+                    Text("用户名").font(.subheadline).frame(width: 78, alignment: .leading)
+                    TextField("必填", text: $name)
+                      .font(.subheadline)
+                      .multilineTextAlignment(.trailing)
+                      .textInputAutocapitalization(.never)
+                      .autocorrectionDisabled()
+                      .accessibilityIdentifier("native-user-editor-name")
+                  }
+                  .padding(.horizontal, 15).padding(.vertical, 12)
+                  CinematicFormDivider()
+                  HStack(spacing: 12) {
+                    Text("邮箱").font(.subheadline).frame(width: 78, alignment: .leading)
+                    TextField("可选", text: $email)
+                      .font(.subheadline)
+                      .multilineTextAlignment(.trailing)
+                      .textInputAutocapitalization(.never)
+                      .autocorrectionDisabled()
+                      .keyboardType(.emailAddress)
+                      .accessibilityIdentifier("native-user-editor-email")
+                  }
+                  .padding(.horizontal, 15).padding(.vertical, 12)
+                  CinematicFormDivider()
+                  HStack(spacing: 12) {
+                    Text(isCreate ? "密码" : "重置密码").font(.subheadline)
+                      .frame(width: 78, alignment: .leading)
+                    SecureField(isCreate ? "输入初始密码" : "留空不修改", text: $password)
+                      .font(.subheadline)
+                      .multilineTextAlignment(.trailing)
+                      .accessibilityIdentifier("native-user-editor-password")
+                  }
+                  .padding(.horizontal, 15).padding(.vertical, 12)
                 }
               }
             }
-            CinematicPanel(padding: 14) {
-              VStack(spacing: 12) {
-                Toggle("账号启用", isOn: $isActive)
-                  .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
-                  .accessibilityIdentifier("native-user-editor-active")
-                Divider().overlay(.primary.opacity(0.08))
-                Toggle("超级管理员", isOn: $isSuperuser)
-                  .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
-                  .accessibilityIdentifier("native-user-editor-superuser")
-                if !isSuperuser {
-                  Divider().overlay(.primary.opacity(0.08))
-                  Toggle("发现权限", isOn: $permDiscovery)
-                    .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
-                  Toggle("搜索权限", isOn: $permSearch)
-                    .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
-                  Toggle("订阅权限", isOn: $permSubscribe)
-                    .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
-                  Toggle("管理权限", isOn: $permManage)
-                    .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
+
+            VStack(alignment: .leading, spacing: 7) {
+              Text("状态与角色")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+              CinematicPanel(padding: 0) {
+                VStack(spacing: 0) {
+                  Toggle("启用账号", isOn: $isActive)
+                    .font(.subheadline)
+                    .tint(appearance.accentColor)
+                    .padding(.horizontal, 15).padding(.vertical, 10)
+                    .accessibilityIdentifier("native-user-editor-active")
+                  CinematicFormDivider()
+                  Toggle("超级管理员", isOn: $isSuperuser)
+                    .font(.subheadline)
+                    .tint(appearance.accentColor)
+                    .padding(.horizontal, 15).padding(.vertical, 10)
+                    .accessibilityIdentifier("native-user-editor-superuser")
                 }
+              }
+            }
+
+            if !isSuperuser {
+              VStack(alignment: .leading, spacing: 7) {
+                Text("功能权限")
+                  .font(.footnote.weight(.medium))
+                  .foregroundStyle(.secondary)
+                  .padding(.horizontal, 6)
+                CinematicPanel(padding: 0) {
+                  VStack(spacing: 0) {
+                    Toggle("发现与媒体浏览", isOn: $permDiscovery)
+                      .font(.subheadline).tint(appearance.accentColor)
+                      .padding(.horizontal, 15).padding(.vertical, 10)
+                    CinematicFormDivider()
+                    Toggle("站点资源搜索", isOn: $permSearch)
+                      .font(.subheadline).tint(appearance.accentColor)
+                      .padding(.horizontal, 15).padding(.vertical, 10)
+                    CinematicFormDivider()
+                    Toggle("订阅管理", isOn: $permSubscribe)
+                      .font(.subheadline).tint(appearance.accentColor)
+                      .padding(.horizontal, 15).padding(.vertical, 10)
+                    CinematicFormDivider()
+                    Toggle("下载与整理管理", isOn: $permManage)
+                      .font(.subheadline).tint(appearance.accentColor)
+                      .padding(.horizontal, 15).padding(.vertical, 10)
+                  }
+                }
+              }
+            }
+
+            if canDelete, let onDelete {
+              CinematicPanel(padding: 0) {
+                Button(role: .destructive, action: onDelete) {
+                  Text("删除此用户")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(NativeTheme.danger)
+                    .frame(maxWidth: .infinity, minHeight: 46)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-user-editor-delete")
               }
             }
           }

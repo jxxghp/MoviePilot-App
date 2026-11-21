@@ -4,30 +4,9 @@ import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
 
-/// 原生站点管理页：展示站点列表、状态筛选与单站实时连通检测，绝不展示 Cookie/API Key/Passkey 敏感信息。
+/// 原生站点管理页（五.2）：去除过滤与排序，右上角提供新增站点，支持完整新增/编辑/删除、单站连通检测与站点流量/做种历史数据查看。
 @MainActor
 struct NativeSitesPage: View {
-  /// 站点启用状态过滤。
-  private enum Filter: String, CaseIterable, Identifiable {
-    case all = "全部"
-    case active = "已启用"
-    case inactive = "已停用"
-
-    /// 固定标签作为标识。
-    var id: String { rawValue }
-  }
-
-  /// 站点排序维度。
-  private enum SortMode: String, CaseIterable, Identifiable {
-    case priority = "默认优先级"
-    case upload = "上传量最高"
-    case download = "下载量最高"
-    case name = "站点名称"
-
-    var id: String { rawValue }
-  }
-
-  /// 单站连通测试实时状态。
   private enum TestState: Equatable {
     case testing
     case passed
@@ -39,21 +18,36 @@ struct NativeSitesPage: View {
   @State private var sites: [NativeSiteItem] = []
   @State private var userdataByDomain: [String: NativeSiteUserData] = [:]
   @State private var userdataByName: [String: NativeSiteUserData] = [:]
-  @State private var filter: Filter = .all
-  @State private var sortMode: SortMode = .priority
   @State private var searchText = ""
   @State private var isLoading = true
   @State private var loadFailed = false
   @State private var attempt = 0
   @State private var testStates: [Int: TestState] = [:]
+  @State private var showsCreateSheet = false
+  @State private var editingSite: NativeSiteItem?
+  @State private var inspectingSite: NativeSiteItem?
+  @State private var pendingDeleteSite: NativeSiteItem?
+  @State private var feedback: (isError: Bool, text: String)?
 
-  /// 连续深色紫玫瑰渐变背景、站点筛选胶囊与透色玻璃站点卡。
   var body: some View {
     ZStack {
       CinematicBackground()
       ScrollView {
-        VStack(alignment: .leading, spacing: 16) {
-          filterBar
+        VStack(alignment: .leading, spacing: 14) {
+          if let feedback {
+            CinematicPanel(padding: 11) {
+              HStack(spacing: 8) {
+                Image(
+                  systemName: feedback.isError
+                    ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+                )
+                .foregroundStyle(feedback.isError ? NativeTheme.warning : NativeTheme.success)
+                Text(feedback.text).font(.caption.weight(.medium))
+                Spacer()
+              }
+            }
+          }
+
           if isLoading && sites.isEmpty {
             ProgressView("正在载入站点清单…")
               .tint(.primary)
@@ -83,119 +77,81 @@ struct NativeSitesPage: View {
     .navigationTitle(sites.isEmpty ? "站点管理" : "站点管理 (\(sites.count))")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
-    .searchable(text: $searchText, prompt: "按站点名或域名筛选")
+    .searchable(text: $searchText, prompt: "搜索站点名称或域名")
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
-        Menu {
-          Section("站点状态") {
-            ForEach(Filter.allCases) { option in
-              Button {
-                filter = option
-              } label: {
-                if filter == option {
-                  Label(option.rawValue, systemImage: "checkmark")
-                } else {
-                  Text(option.rawValue)
-                }
-              }
-            }
-          }
-          Section("排序方式") {
-            ForEach(SortMode.allCases) { option in
-              Button {
-                sortMode = option
-              } label: {
-                if sortMode == option {
-                  Label(option.rawValue, systemImage: "checkmark")
-                } else {
-                  Text(option.rawValue)
-                }
-              }
-            }
-          }
+        Button {
+          showsCreateSheet = true
         } label: {
-          Image(systemName: "line.3.horizontal.decrease.circle")
+          Image(systemName: "plus")
         }
-        .accessibilityLabel("筛选与排序")
-        .accessibilityIdentifier("native-sites-filter-menu")
+        .accessibilityLabel("新增站点")
+        .accessibilityIdentifier("native-sites-add")
       }
+    }
+    .sheet(isPresented: $showsCreateSheet) {
+      NativeSiteEditorSheet(session: session, existing: nil) { message in
+        feedback = (false, message)
+        NativePageDataCache.shared.remove("sites|all", session: session)
+        NativePageDataCache.shared.remove("settingsHub|overview.v2", session: session)
+        attempt += 1
+      }
+    }
+    .sheet(item: $editingSite) { target in
+      NativeSiteEditorSheet(
+        session: session,
+        existing: target,
+        onDelete: {
+          editingSite = nil
+          pendingDeleteSite = target
+        }
+      ) { message in
+        feedback = (false, message)
+        NativePageDataCache.shared.remove("sites|all", session: session)
+        NativePageDataCache.shared.remove("settingsHub|overview.v2", session: session)
+        attempt += 1
+      }
+    }
+    .sheet(item: $inspectingSite) { target in
+      NativeSiteDataSheet(
+        session: session,
+        site: target,
+        onEdit: {
+          inspectingSite = nil
+          editingSite = target
+        },
+        onDelete: {
+          inspectingSite = nil
+          pendingDeleteSite = target
+        }
+      )
+    }
+    .alert(
+      "删除站点",
+      isPresented: Binding(
+        get: { pendingDeleteSite != nil },
+        set: { if !$0 { pendingDeleteSite = nil } }),
+      presenting: pendingDeleteSite
+    ) { target in
+      Button("删除", role: .destructive) {
+        Task { await deleteSite(target) }
+      }
+      Button("取消", role: .cancel) {}
+    } message: { target in
+      Text("确认删除站点「\(target.name)」吗？删除后将无法恢复。")
     }
     .task(id: attempt) { await load(forceRefresh: attempt > 0) }
   }
 
-  /// 按启用状态、关键字与排序方式整理后的站点清单。
   private var filteredSites: [NativeSiteItem] {
     let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    let matched = sites.filter { site in
-      let matchesFilter: Bool =
-        switch filter {
-        case .all: true
-        case .active: site.isActive ?? true
-        case .inactive: !(site.isActive ?? true)
-        }
-      guard matchesFilter else { return false }
-      guard !trimmed.isEmpty else { return true }
-      return site.name.lowercased().contains(trimmed)
+    guard !trimmed.isEmpty else { return sites }
+    return sites.filter { site in
+      site.name.lowercased().contains(trimmed)
         || (site.domain ?? "").lowercased().contains(trimmed)
     }
-    switch sortMode {
-    case .priority:
-      return matched
-    case .upload:
-      return matched.sorted {
-        (trafficStats(for: $0)?.upload ?? 0) > (trafficStats(for: $1)?.upload ?? 0)
-      }
-    case .download:
-      return matched.sorted {
-        (trafficStats(for: $0)?.download ?? 0) > (trafficStats(for: $1)?.download ?? 0)
-      }
-    case .name:
-      return matched.sorted {
-        $0.name.localizedStandardCompare($1.name) == .orderedAscending
-      }
-    }
   }
 
-  /// 顶部分类胶囊栏，实时显示各状态站点数。
-  private var filterBar: some View {
-    HStack(spacing: 8) {
-      ForEach(Filter.allCases) { option in
-        let count = countFor(option)
-        let selected = filter == option
-        Button {
-          filter = option
-        } label: {
-          Text(count > 0 ? "\(option.rawValue) \(count)" : option.rawValue)
-            .font(.subheadline.weight(selected ? .semibold : .regular))
-            .foregroundStyle(.primary.opacity(selected ? 0.98 : 0.78))
-            .padding(.horizontal, 13)
-            .padding(.vertical, 7)
-            .background {
-              Capsule()
-                .fill(selected ? NativeTheme.brand.opacity(0.18) : NativeTheme.chipFill)
-                .overlay {
-                  Capsule().strokeBorder(.primary.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
-                }
-            }
-            .frame(minHeight: 36)
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("native-sites-filter-\(option.rawValue)")
-      }
-      Spacer()
-    }
-  }
-
-  /// 计算单个状态下的站点数量。
-  private func countFor(_ option: Filter) -> Int {
-    switch option {
-    case .all: sites.count
-    case .active: sites.filter { $0.isActive ?? true }.count
-    case .inactive: sites.filter { !($0.isActive ?? true) }.count
-    }
-  }
-
-  /// 单站透色玻璃卡片：站名、域名、启用徽标、上下行流量比例图示与一键连通测试。
   private func siteCard(_ site: NativeSiteItem) -> some View {
     let active = site.isActive ?? true
     let state = testStates[site.id]
@@ -210,26 +166,20 @@ struct NativeSitesPage: View {
                 .font(.headline)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-              Text(active ? "已启用" : "已停用")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(
-                  active ? NativeTheme.success : NativeTheme.badgeMutedText
-                )
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2.5)
-                .background { Capsule().fill(.primary.opacity(0.10)) }
+              NativeAdaptiveBadge(
+                active ? "已启用" : "已停用", tint: active ? NativeTheme.success : nil)
             }
             HStack(spacing: 8) {
               if let domain = site.domain, !domain.isEmpty {
                 Text(domain)
                   .font(.caption)
-                  .foregroundStyle(.primary.opacity(0.65))
+                  .foregroundStyle(.secondary)
                   .lineLimit(1)
               }
               if let pri = site.pri {
                 Text("优先级 \(pri)")
                   .font(.caption2)
-                  .foregroundStyle(.primary.opacity(0.52))
+                  .foregroundStyle(.secondary)
               }
             }
             if let state {
@@ -250,13 +200,13 @@ struct NativeSitesPage: View {
               Text(state == .testing ? "检测中" : "测试")
                 .font(.caption.weight(.semibold))
             }
-            .foregroundStyle(.primary)
+            .foregroundStyle(NativeTheme.chipText)
             .padding(.horizontal, 11)
             .padding(.vertical, 6)
             .background {
               Capsule()
-                .fill(.primary.opacity(0.14))
-                .overlay { Capsule().strokeBorder(.primary.opacity(0.22), lineWidth: 0.6) }
+                .fill(NativeTheme.chipFill)
+                .overlay { Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.6) }
             }
             .frame(minHeight: 34)
           }
@@ -270,21 +220,35 @@ struct NativeSitesPage: View {
         }
       }
     }
+    .contentShape(RoundedRectangle(cornerRadius: CinematicStyle.radius, style: .continuous))
+    .onTapGesture {
+      inspectingSite = site
+    }
     .contextMenu {
+      Button {
+        inspectingSite = site
+      } label: {
+        Label("查看站点数据", systemImage: "chart.bar.doc.horizontal")
+      }
+      Button {
+        editingSite = site
+      } label: {
+        Label("编辑站点", systemImage: "pencil")
+      }
       Button {
         Task { await testSite(site) }
       } label: {
-        Label("测试站点连通性", systemImage: "antenna.radiowaves.left.and.right")
+        Label("测试连通性", systemImage: "antenna.radiowaves.left.and.right")
       }
-      Button {
-        attempt += 1
+      Divider()
+      Button(role: .destructive) {
+        pendingDeleteSite = site
       } label: {
-        Label("刷新站点流量数据", systemImage: "arrow.clockwise")
+        Label("删除站点", systemImage: "trash")
       }
     }
   }
 
-  /// 站点上传 / 下载流量双向比例彩条图示与分享率摘要。
   private func siteTrafficBar(_ stats: NativeSiteUserData) -> some View {
     let up = max(stats.upload, 0)
     let down = max(stats.download, 0)
@@ -295,7 +259,7 @@ struct NativeSitesPage: View {
         HStack(spacing: 4) {
           Image(systemName: "arrow.up")
             .font(.caption2.weight(.bold))
-            .foregroundStyle(Color(red: 0.50, green: 0.90, blue: 0.76))
+            .foregroundStyle(NativeTheme.success)
           Text(Self.formatBytes(up))
             .font(.caption.monospacedDigit().weight(.semibold))
             .foregroundStyle(.primary.opacity(0.92))
@@ -303,7 +267,7 @@ struct NativeSitesPage: View {
         HStack(spacing: 4) {
           Image(systemName: "arrow.down")
             .font(.caption2.weight(.bold))
-            .foregroundStyle(Color(red: 0.94, green: 0.54, blue: 0.72))
+            .foregroundStyle(NativeTheme.pink)
           Text(Self.formatBytes(down))
             .font(.caption.monospacedDigit().weight(.semibold))
             .foregroundStyle(.primary.opacity(0.84))
@@ -317,7 +281,7 @@ struct NativeSitesPage: View {
         if stats.seeding > 0 {
           Text("做种 \(stats.seeding)")
             .font(.caption2.monospacedDigit())
-            .foregroundStyle(.primary.opacity(0.62))
+            .foregroundStyle(.secondary)
         }
       }
       GeometryReader { bar in
@@ -326,17 +290,12 @@ struct NativeSitesPage: View {
           Capsule()
             .fill(
               LinearGradient(
-                colors: [
-                  Color(red: 0.44, green: 0.86, blue: 0.76),
-                  Color(red: 0.62, green: 0.50, blue: 0.96),
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-              )
+                colors: [NativeTheme.success, NativeTheme.brand],
+                startPoint: .leading, endPoint: .trailing)
             )
             .frame(width: up > 0 ? max(width * upRatio - 1, 6) : 0)
           Capsule()
-            .fill(Color(red: 0.92, green: 0.52, blue: 0.68).opacity(0.85))
+            .fill(NativeTheme.pink.opacity(0.85))
             .frame(width: down > 0 ? max(width * (1 - upRatio) - 1, 6) : 0)
         }
       }
@@ -345,7 +304,6 @@ struct NativeSitesPage: View {
     .padding(.top, 2)
   }
 
-  /// 按域名或站点名匹配最新流量快照。
   private func trafficStats(for site: NativeSiteItem) -> NativeSiteUserData? {
     if let domain = site.domain?.lowercased(), let matched = userdataByDomain[domain] {
       return matched
@@ -353,18 +311,16 @@ struct NativeSitesPage: View {
     return userdataByName[site.name.lowercased()]
   }
 
-  /// 字节格式化为可读容量单位。
-  private static func formatBytes(_ bytes: Double) -> String {
-    let value = Int64(exactly: min(bytes, Double(Int64.max - 1)).rounded(.towardZero)) ?? 0
+  fileprivate static func formatBytes(_ bytes: Double) -> String {
+    let value = Int64(exactly: min(max(0, bytes), Double(Int64.max - 1)).rounded(.towardZero)) ?? 0
     return ByteCountFormatter.string(fromByteCount: value, countStyle: .binary)
   }
 
-  /// 连通检测状态文本。
   @ViewBuilder
   private func testResultBadge(_ state: TestState) -> some View {
     switch state {
     case .testing:
-      Text("正在测试站点连通性…").font(.caption2).foregroundStyle(.primary.opacity(0.68))
+      Text("正在测试站点连通性…").font(.caption2).foregroundStyle(.secondary)
     case .passed:
       Label("连接正常", systemImage: "checkmark.circle.fill")
         .font(.caption2.weight(.semibold))
@@ -373,24 +329,22 @@ struct NativeSitesPage: View {
     case .failed:
       Label("连接测试失败", systemImage: "exclamationmark.triangle.fill")
         .font(.caption2.weight(.semibold))
-        .foregroundStyle(.orange)
+        .foregroundStyle(NativeTheme.danger)
     }
   }
 
-  /// 空态卡片。
   private var emptyCard: some View {
     CinematicPanel {
       VStack(spacing: 10) {
         Image(systemName: "globe")
           .font(.largeTitle)
-          .foregroundStyle(.primary.opacity(0.55))
-        Text("暂无匹配的站点").font(.headline)
+          .foregroundStyle(.secondary)
+        Text("暂无站点，点击右上角「+」新增站点").font(.subheadline).foregroundStyle(.secondary)
       }
-      .frame(maxWidth: .infinity, minHeight: 150)
+      .frame(maxWidth: .infinity, minHeight: 140)
     }
   }
 
-  /// 载入失败卡片。
   private var failureCard: some View {
     CinematicPanel {
       VStack(alignment: .leading, spacing: 10) {
@@ -403,7 +357,6 @@ struct NativeSitesPage: View {
     }
   }
 
-  /// 从 `GET /api/v1/site/` 并发读取站点清单与流量快照；命中页面缓存时静默复用，下拉刷新强制重拉。
   private func load(forceRefresh: Bool = false) async {
     let cacheKey = "sites|all"
     if !forceRefresh,
@@ -449,7 +402,6 @@ struct NativeSitesPage: View {
     }
   }
 
-  /// 读取所有站点最新流量统计，失败时静默降级不阻断站点管理。
   private func loadLatestTraffic() async -> [NativeSiteUserData] {
     do {
       let endpoint = try APIEndpoint(path: ["site", "userdata", "latest"])
@@ -459,7 +411,6 @@ struct NativeSitesPage: View {
     }
   }
 
-  /// 单次执行站点连通性测试（`GET /api/v1/site/test/{id}`）。
   private func testSite(_ site: NativeSiteItem) async {
     testStates[site.id] = .testing
     do {
@@ -473,48 +424,543 @@ struct NativeSitesPage: View {
       testStates[site.id] = .failed
     }
   }
+
+  private func deleteSite(_ site: NativeSiteItem) async {
+    do {
+      let ep = try APIEndpoint(path: ["site", String(site.id)], method: .delete)
+      try await session.perform(ep, requiring: .init(category: .admin))
+      sites.removeAll { $0.id == site.id }
+      NativePageDataCache.shared.remove("sites|all", session: session)
+      NativePageDataCache.shared.remove("settingsHub|overview.v2", session: session)
+      feedback = (false, "已删除站点「\(site.name)」。")
+    } catch {
+      feedback = (true, "删除站点失败，请稍后重试。")
+    }
+  }
 }
 
-/// 站点清单非敏感投影，主动忽略 cookie / apikey / token / rss 敏感字段。
+// MARK: - 站点数据详情弹窗（`GET/POST /api/v1/site/userdata/{id}`）
+
+@MainActor
+private struct NativeSiteDataSheet: View {
+  let session: NativeSession
+  let site: NativeSiteItem
+  let onEdit: () -> Void
+  let onDelete: () -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @State private var history: [NativeSiteUserData] = []
+  @State private var isLoading = true
+  @State private var isRefreshing = false
+  @State private var message: String?
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 16) {
+            // 站点头部
+            CinematicPanel(padding: 15) {
+              HStack(spacing: 12) {
+                NativeSiteIconView(
+                  session: session, siteID: site.id, size: 46, active: site.isActive ?? true)
+                VStack(alignment: .leading, spacing: 3) {
+                  Text(site.name).font(.headline)
+                  Text(site.url ?? site.domain ?? "").font(.caption.monospaced())
+                    .foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+                Button {
+                  Task { await refreshLiveData() }
+                } label: {
+                  HStack(spacing: 4) {
+                    if isRefreshing {
+                      ProgressView().controlSize(.mini).tint(.white)
+                    } else {
+                      Image(systemName: "arrow.clockwise").font(.caption2.weight(.semibold))
+                    }
+                    Text("刷新数据").font(.caption.weight(.semibold))
+                  }
+                  .foregroundStyle(.white)
+                  .padding(.horizontal, 12).padding(.vertical, 7)
+                  .background(appearance.accentColor, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(isRefreshing)
+              }
+            }
+
+            if let message {
+              CinematicPanel(padding: 11) {
+                Text(message).font(.caption).foregroundStyle(.secondary)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+              }
+            }
+
+            if isLoading {
+              ProgressView("正在载入站点数据…").tint(.primary)
+                .frame(maxWidth: .infinity, minHeight: 140)
+            } else if let latest = history.first {
+              LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+                spacing: 10
+              ) {
+                metricTile(
+                  "上传量", value: NativeSitesPage.formatBytes(latest.upload),
+                  tint: NativeTheme.success)
+                metricTile(
+                  "下载量", value: NativeSitesPage.formatBytes(latest.download), tint: NativeTheme.pink
+                )
+                metricTile(
+                  "分享率", value: String(format: "%.2f", latest.ratio), tint: NativeTheme.brand)
+                metricTile(
+                  "做种数 / 体积",
+                  value: "\(latest.seeding) · \(NativeSitesPage.formatBytes(latest.seedingSize))",
+                  tint: NativeTheme.info)
+                metricTile(
+                  "魔力 / 积分", value: String(format: "%.1f", latest.bonus), tint: NativeTheme.warning)
+                metricTile(
+                  "用户等级", value: latest.userLevel?.isEmpty == false ? latest.userLevel! : "-",
+                  tint: NativeTheme.cyan)
+              }
+
+              CinematicPanel(padding: 0) {
+                VStack(spacing: 0) {
+                  if let username = latest.username, !username.isEmpty {
+                    kvRow("站点账号", value: username)
+                    CinematicFormDivider()
+                  }
+                  if let joinAt = latest.joinAt, !joinAt.isEmpty {
+                    kvRow("加入时间", value: joinAt)
+                    CinematicFormDivider()
+                  }
+                  if let updated = latest.updatedDay, !updated.isEmpty {
+                    kvRow("统计日期", value: updated)
+                    CinematicFormDivider()
+                  }
+                  kvRow("未读消息", value: "\(latest.messageUnread)")
+                }
+              }
+
+              if history.count > 1 {
+                VStack(alignment: .leading, spacing: 7) {
+                  Text("历史记录（最近 \(min(history.count, 10)) 次）")
+                    .font(.footnote.weight(.medium)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                  CinematicPanel(padding: 0) {
+                    VStack(spacing: 0) {
+                      ForEach(Array(history.prefix(10).enumerated()), id: \.offset) { idx, row in
+                        if idx > 0 { CinematicFormDivider() }
+                        HStack {
+                          Text(row.updatedDay ?? "记录 #\(idx + 1)")
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                          Spacer()
+                          Text("↑ \(NativeSitesPage.formatBytes(row.upload))")
+                            .font(.caption.monospacedDigit()).foregroundStyle(NativeTheme.success)
+                          Text("↓ \(NativeSitesPage.formatBytes(row.download))")
+                            .font(.caption.monospacedDigit()).foregroundStyle(NativeTheme.pink)
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                      }
+                    }
+                  }
+                }
+              }
+            } else {
+              CinematicPanel(padding: 16) {
+                Text("暂无该站点的流量统计记录，可点击上方「刷新数据」实时抓取。")
+                  .font(.subheadline).foregroundStyle(.secondary)
+                  .frame(maxWidth: .infinity, minHeight: 80)
+              }
+            }
+
+            // 快捷操作
+            CinematicPanel(padding: 0) {
+              VStack(spacing: 0) {
+                Button(action: onEdit) {
+                  HStack {
+                    Image(systemName: "pencil").foregroundStyle(appearance.accentColor)
+                    Text("编辑站点配置").font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
+                  }
+                  .padding(.horizontal, 15).padding(.vertical, 12)
+                  .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                CinematicFormDivider()
+                Button(role: .destructive, action: onDelete) {
+                  HStack {
+                    Image(systemName: "trash").foregroundStyle(NativeTheme.danger)
+                    Text("删除此站点").font(.subheadline.weight(.medium)).foregroundStyle(
+                      NativeTheme.danger)
+                    Spacer()
+                  }
+                  .padding(.horizontal, 15).padding(.vertical, 12)
+                  .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+              }
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
+        }
+      }
+      .navigationTitle("站点数据")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) { Button("关闭") { dismiss() } }
+      }
+      .task { await loadUserData() }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  private func metricTile(_ title: String, value: String, tint: Color) -> some View {
+    CinematicPanel(padding: 13) {
+      VStack(alignment: .leading, spacing: 5) {
+        Text(title).font(.caption2).foregroundStyle(.secondary)
+        Text(value)
+          .font(.subheadline.monospacedDigit().weight(.bold))
+          .foregroundStyle(tint)
+          .lineLimit(1)
+          .minimumScaleFactor(0.75)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
+  private func kvRow(_ k: String, value: String) -> some View {
+    HStack {
+      Text(k).font(.subheadline).foregroundStyle(.secondary)
+      Spacer()
+      Text(value).font(.subheadline.monospacedDigit()).foregroundStyle(.primary)
+    }
+    .padding(.horizontal, 15).padding(.vertical, 11)
+  }
+
+  private func loadUserData() async {
+    isLoading = true
+    defer { isLoading = false }
+    do {
+      let ep = try APIEndpoint(
+        path: ["site", "userdata", String(site.id)],
+        query: [
+          URLQueryItem(name: "page", value: "1"),
+          URLQueryItem(name: "count", value: "90"),
+          URLQueryItem(name: "latest_seeding_only", value: "true"),
+        ],
+        responseContract: .payload)
+      let reply = try await session.request(
+        ep, as: NativeSiteUserDataEnvelope.self, requiring: .init(category: .admin)
+      ).value
+      history = reply.data ?? []
+    } catch {
+      history = []
+    }
+  }
+
+  private func refreshLiveData() async {
+    isRefreshing = true
+    message = nil
+    defer { isRefreshing = false }
+    do {
+      let ep = try APIEndpoint(
+        path: ["site", "userdata", String(site.id)], method: .post, timeout: 45)
+      try await session.perform(ep, requiring: .init(category: .admin))
+      message = "已刷新最新站点流量与做种统计。"
+      await loadUserData()
+    } catch {
+      message = "实时刷新失败，请检查站点 Cookie 或代理状态。"
+    }
+  }
+}
+
+// MARK: - 站点新增 / 编辑弹窗（iOS 原生分组列表风格）
+
+@MainActor
+private struct NativeSiteEditorSheet: View {
+  let session: NativeSession
+  let existing: NativeSiteItem?
+  var onDelete: (() -> Void)? = nil
+  let onSaved: (String) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @State private var name = ""
+  @State private var url = ""
+  @State private var pri = 1
+  @State private var rss = ""
+  @State private var cookie = ""
+  @State private var ua = ""
+  @State private var apiKey = ""
+  @State private var token = ""
+  @State private var timeout = 15
+  @State private var proxy = false
+  @State private var render = false
+  @State private var isActive = true
+  @State private var downloader = ""
+  @State private var filter = ""
+  @State private var isSubmitting = false
+  @State private var errorMsg: String?
+
+  private var isCreate: Bool { existing == nil }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 16) {
+            if let errorMsg {
+              CinematicPanel(padding: 11) {
+                Label(errorMsg, systemImage: "exclamationmark.triangle.fill")
+                  .font(.caption).foregroundStyle(NativeTheme.danger)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+              }
+            }
+
+            // 基本信息
+            CinematicPanel(padding: 0) {
+              VStack(spacing: 0) {
+                rowField("站点名称", placeholder: "必填，如 M-Team", text: $name)
+                CinematicFormDivider()
+                rowField("站点地址", placeholder: "https://example.com", text: $url)
+                CinematicFormDivider()
+                Stepper("搜索优先级：\(pri)", value: $pri, in: 0...999)
+                  .font(.subheadline)
+                  .padding(.horizontal, 15).padding(.vertical, 10)
+                CinematicFormDivider()
+                Toggle("启用站点", isOn: $isActive)
+                  .font(.subheadline).tint(appearance.accentColor)
+                  .padding(.horizontal, 15).padding(.vertical, 10)
+              }
+            }
+
+            // 认证凭据与 RSS
+            CinematicPanel(padding: 0) {
+              VStack(spacing: 0) {
+                rowField("RSS 地址", placeholder: "可选", text: $rss)
+                CinematicFormDivider()
+                rowField("Cookie", placeholder: isCreate ? "可选" : "留空保留原值", text: $cookie)
+                CinematicFormDivider()
+                rowField("User-Agent", placeholder: "可选", text: $ua)
+                CinematicFormDivider()
+                rowField("API Key", placeholder: "可选", text: $apiKey)
+                CinematicFormDivider()
+                rowField("Token", placeholder: "可选", text: $token)
+              }
+            }
+
+            // 请求与下载选项
+            CinematicPanel(padding: 0) {
+              VStack(spacing: 0) {
+                Toggle("使用代理访问", isOn: $proxy)
+                  .font(.subheadline).tint(appearance.accentColor)
+                  .padding(.horizontal, 15).padding(.vertical, 10)
+                CinematicFormDivider()
+                Toggle("浏览器仿真渲染", isOn: $render)
+                  .font(.subheadline).tint(appearance.accentColor)
+                  .padding(.horizontal, 15).padding(.vertical, 10)
+                CinematicFormDivider()
+                Stepper("请求超时：\(timeout) 秒", value: $timeout, in: 5...120, step: 5)
+                  .font(.subheadline)
+                  .padding(.horizontal, 15).padding(.vertical, 10)
+                CinematicFormDivider()
+                rowField("指定下载器", placeholder: "留空使用默认", text: $downloader)
+                CinematicFormDivider()
+                rowField("过滤规则", placeholder: "可选正则", text: $filter)
+              }
+            }
+
+            if let onDelete {
+              CinematicPanel(padding: 0) {
+                Button(role: .destructive, action: onDelete) {
+                  Text("删除此站点")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(NativeTheme.danger)
+                    .frame(maxWidth: .infinity, minHeight: 46)
+                }
+                .buttonStyle(.plain)
+              }
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
+        }
+      }
+      .navigationTitle(isCreate ? "新增站点" : "编辑站点")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+        ToolbarItem(placement: .topBarTrailing) {
+          Button {
+            Task { await submit() }
+          } label: {
+            if isSubmitting {
+              ProgressView().controlSize(.small)
+            } else {
+              Text("保存").fontWeight(.semibold)
+            }
+          }
+          .disabled(
+            isSubmitting
+              || name.trimmingCharacters(in: .whitespaces).isEmpty
+              || url.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+      }
+      .onAppear {
+        if let existing {
+          name = existing.name
+          url = existing.url ?? (existing.domain.map { "https://\($0)" } ?? "")
+          pri = existing.pri ?? 1
+          rss = existing.rss ?? ""
+          ua = existing.ua ?? ""
+          timeout = existing.timeout ?? 15
+          proxy = (existing.proxy ?? 0) != 0
+          render = (existing.render ?? 0) != 0
+          isActive = existing.isActive ?? true
+          downloader = existing.downloader ?? ""
+          filter = existing.filter ?? ""
+        }
+      }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  private func rowField(_ label: String, placeholder: String, text: Binding<String>) -> some View {
+    HStack(spacing: 12) {
+      Text(label).font(.subheadline).frame(width: 86, alignment: .leading)
+      TextField(placeholder, text: text)
+        .font(.subheadline).multilineTextAlignment(.trailing)
+        .textInputAutocapitalization(.never).autocorrectionDisabled()
+    }
+    .padding(.horizontal, 15).padding(.vertical, 11)
+  }
+
+  private func submit() async {
+    isSubmitting = true
+    errorMsg = nil
+    defer { isSubmitting = false }
+    let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedURL = url.trimmingCharacters(in: .whitespacesAndNewlines)
+    var payload: [String: JSONValue] = [
+      "name": .string(trimmedName),
+      "url": .string(trimmedURL),
+      "pri": .number(Double(pri)),
+      "timeout": .number(Double(timeout)),
+      "proxy": .number(proxy ? 1 : 0),
+      "render": .number(render ? 1 : 0),
+      "is_active": .bool(isActive),
+    ]
+    if let existing {
+      payload["id"] = .number(Double(existing.id))
+      if let domain = existing.domain, !domain.isEmpty { payload["domain"] = .string(domain) }
+    }
+    if !rss.trimmingCharacters(in: .whitespaces).isEmpty {
+      payload["rss"] = .string(rss.trimmingCharacters(in: .whitespaces))
+    }
+    if !cookie.trimmingCharacters(in: .whitespaces).isEmpty {
+      payload["cookie"] = .string(cookie.trimmingCharacters(in: .whitespaces))
+    }
+    if !ua.trimmingCharacters(in: .whitespaces).isEmpty {
+      payload["ua"] = .string(ua.trimmingCharacters(in: .whitespaces))
+    }
+    if !apiKey.trimmingCharacters(in: .whitespaces).isEmpty {
+      payload["apikey"] = .string(apiKey.trimmingCharacters(in: .whitespaces))
+    }
+    if !token.trimmingCharacters(in: .whitespaces).isEmpty {
+      payload["token"] = .string(token.trimmingCharacters(in: .whitespaces))
+    }
+    if !downloader.trimmingCharacters(in: .whitespaces).isEmpty {
+      payload["downloader"] = .string(downloader.trimmingCharacters(in: .whitespaces))
+    }
+    if !filter.trimmingCharacters(in: .whitespaces).isEmpty {
+      payload["filter"] = .string(filter.trimmingCharacters(in: .whitespaces))
+    }
+
+    do {
+      let body = try JSONEncoder().encode(payload)
+      let ep = try APIEndpoint(
+        path: ["site"], method: isCreate ? .post : .put, body: body, trailingSlash: true)
+      try await session.perform(ep, requiring: .init(category: .admin))
+      onSaved(isCreate ? "已新增站点「\(trimmedName)」。" : "已更新站点「\(trimmedName)」。")
+      dismiss()
+    } catch {
+      errorMsg = "保存站点失败，请检查站点地址与格式。"
+    }
+  }
+}
+
+// MARK: - 站点解码模型
+
 private struct NativeSiteItem: Decodable, Sendable, Identifiable {
   let id: Int
   let name: String
   let domain: String?
+  let url: String?
   let isActive: Bool?
   let pri: Int?
-  let isPublic: Int?
+  let rss: String?
+  let ua: String?
+  let proxy: Int?
+  let render: Int?
+  let timeout: Int?
+  let downloader: String?
+  let filter: String?
 
-  /// 仅解码展示所需的非敏感字段。
   private enum CodingKeys: String, CodingKey {
-    case id
-    case name
-    case domain
+    case id, name, domain, url, pri, rss, ua, proxy, render, timeout, downloader, filter
     case isActive = "is_active"
-    case pri
-    case isPublic = "public"
   }
 }
 
-/// `GET /api/v1/site/userdata/latest` 非敏感站点上下行流量投影。
+private struct NativeSiteUserDataEnvelope: Decodable, Sendable {
+  let success: Bool?
+  let data: [NativeSiteUserData]?
+}
+
 private struct NativeSiteUserData: Decodable, Sendable {
   let domain: String?
   let name: String?
+  let username: String?
+  let userLevel: String?
+  let joinAt: String?
+  let updatedDay: String?
   let upload: Double
   let download: Double
   let ratio: Double
   let seeding: Int
+  let seedingSize: Double
+  let bonus: Double
+  let messageUnread: Int
 
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     domain = try? c.decodeIfPresent(String.self, forKey: .domain)
     name = try? c.decodeIfPresent(String.self, forKey: .name)
+    username = try? c.decodeIfPresent(String.self, forKey: .username)
+    userLevel = try? c.decodeIfPresent(String.self, forKey: .userLevel)
+    joinAt = try? c.decodeIfPresent(String.self, forKey: .joinAt)
+    updatedDay = try? c.decodeIfPresent(String.self, forKey: .updatedDay)
     upload = (try? c.decodeIfPresent(Double.self, forKey: .upload)) ?? 0
     download = (try? c.decodeIfPresent(Double.self, forKey: .download)) ?? 0
     ratio = (try? c.decodeIfPresent(Double.self, forKey: .ratio)) ?? 0
     seeding = (try? c.decodeIfPresent(Int.self, forKey: .seeding)) ?? 0
+    seedingSize = (try? c.decodeIfPresent(Double.self, forKey: .seedingSize)) ?? 0
+    bonus = (try? c.decodeIfPresent(Double.self, forKey: .bonus)) ?? 0
+    messageUnread = (try? c.decodeIfPresent(Int.self, forKey: .messageUnread)) ?? 0
   }
 
   private enum CodingKeys: String, CodingKey {
-    case domain, name, upload, download, ratio, seeding
+    case domain, name, username, upload, download, ratio, seeding, bonus
+    case userLevel = "user_level"
+    case joinAt = "join_at"
+    case updatedDay = "updated_day"
+    case seedingSize = "seeding_size"
+    case messageUnread = "message_unread"
   }
 }

@@ -452,12 +452,15 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   // MARK: - State
   private var pictureInPictureAvailable = false
   private var isLocked = false
-  private var isAspectFill = false
+  private var isAspectFill = UserDefaults.standard.bool(forKey: "nativeV2.playback.aspectFill")
   private var isMinimizedAudio = false
   private var showRemainingTime = false
   private var showsFullLyrics = false
   private var audioSessionClaimed = false
-  private var currentPlaybackRate: Float = 1.0
+  private var currentPlaybackRate: Float = {
+    let saved = UserDefaults.standard.double(forKey: "nativeV2.playback.defaultRate")
+    return saved > 0 ? Float(saved) : 1.0
+  }()
   private var lastKnownProgress: Double = 0
   private var currentMiniArtworkImage: UIImage?
   var onAudioMiniStateChanged: ((NativeMiniMusicState) -> Void)?
