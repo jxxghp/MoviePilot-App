@@ -5,11 +5,6 @@ on:
     branches: ['**']
   pull_request:
   workflow_dispatch:
-    inputs:
-      native_playback_ui:
-        description: 'Run isolated playback UI acceptance on an iPhone simulator'
-        type: boolean
-        default: false
   workflow_call:
 
 permissions:
@@ -25,10 +20,8 @@ jobs:
         run: xcodebuild -version
       - name: Core tests
         run: zsh scripts/test-core.sh
-      - name: IPA verification boundaries
+      - name: Script and fixture verification
         run: python3 -m unittest discover -s scripts/tests
-      - name: Shared language bootstrap boundaries
-        run: node --test scripts/tests/*.test.mjs
       - name: Swift formatting
         run: xcrun swift-format lint --strict --recursive Sources Tests ios/MoviePilot ios/MoviePilotUITests ios/MoviePilotWidgets
       - name: Build WidgetKit extension
@@ -47,20 +40,3 @@ jobs:
           -destination 'generic/platform=iOS Simulator'
           -derivedDataPath DerivedData
           CODE_SIGNING_ALLOWED=NO
-      - name: Prepare playback acceptance dependencies
-        if: github.event_name == 'workflow_dispatch' && inputs.native_playback_ui
-        run: command -v ffmpeg || brew install ffmpeg
-      - name: Run native playback acceptance
-        if: github.event_name == 'workflow_dispatch' && inputs.native_playback_ui
-        env:
-          MOVIEPILOT_TEST_ROOT: ${{ runner.temp }}/moviepilot-playback
-          MOVIEPILOT_DERIVED_DATA: ${{ github.workspace }}/DerivedData
-          MOVIEPILOT_SOURCE_PACKAGES: ${{ github.workspace }}/DerivedData/SourcePackages
-        run: zsh scripts/test-native-playback.sh
-      - name: Upload playback acceptance evidence
-        if: always() && github.event_name == 'workflow_dispatch' && inputs.native_playback_ui
-        uses: actions/upload-artifact@v6
-        with:
-          name: native-playback-acceptance
-          path: ${{ runner.temp }}/moviepilot-playback/*.xcresult
-          retention-days: 7

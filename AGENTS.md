@@ -1,18 +1,9 @@
-# MoviePilot-App v2 原生迁移
+# MoviePilot-App v2 开发约定
 
-本文件用于本仓的 v2 长期迁移分支。用户在 2026-11-19 明确要求主体全部功能改为 iOS 原生实现、直接访问后端；此范围取代工作区旧版“业务页面继续复用 Web”约定。main / 1.x 的既有交付不因本分支而改变。
+本仓库 `v2` 分支为 MoviePilot 全原生 SwiftUI iOS 客户端，直接调用 MoviePilot 后端 REST/SSE API，不依赖前端构建产物或主流程 WebView。
 
-- 接续入口为 [v2 路线图](docs/native-v2/ROADMAP.md)，方案、范围和验收分别见同目录文档。一次只激活一个可独立验证和回滚的实现叶子。
-- 开始或审阅任何 v2 UI 前，必须读取路线图的“用户确认的全局视觉约束”与 [设计规范](docs/native-v2/design.md)。用户已否定普通系统白底/深灰分组表单的视觉方向，明确选择视觉参考的全局渐变、玻璃卡片/表单、海报主导和 Apple 原生语言。不得把首次账号页功能截图当成已获批准的设计。
-- 用户后续明确只需要单一深色渐变玻璃风格：v2 固定这套渐变/材质与深色内容层，不实现多主题、浅深方案或主题切换入口。旧版外观偏好保留以便回退，但不参与 v2 风格选择；可访问性适配不是额外主题，仍须保留。
-- 源代码、注释和所有文档中禁止出现第三方应用名称，统一使用“深色渐变玻璃”或“Cinematic 视觉体系”等中性表述，避免法律风险。
-- 所有 SwiftUI 玻璃界面实现/审阅使用用户点名的 `swiftui-liquid-glass` 技能，先读取本机 `~/.codex/skills/swiftui-liquid-glass/SKILL.md` 及其引用文档，再结合 Apple 官方文档；遵守 iOS 26 可用性、GlassEffectContainer、修饰器顺序、交互性及旧系统/可访问性降级要求。
-- 主体页面不得新增 WKWebView、HTML/Vue 渲染、网页桥调用或回退网页的实现。迁移期间未切换的 1.x 源码仅用于对照；总验收时必须从 v2 主体构建与运行链中移除。
-- 既有 Web/Vue 插件可以保留受控 WebKit 兼容模块；它只接收已认证的插件上下文，不能承接主体页面。JSON 插件优先使用原生解析器；未支持的节点、表达式和事件不得悄悄丢弃。
-- 保持后端现有 API、用户身份、权限和插件物理实例/源插件语义。先复用现有接口；新增协议必须另记兼容方案和验收证据。
-- 所有新增类型、初始化方法、方法及测试辅助实现补充中文说明；修改范围内发现缺失的存量注释同时补齐。
-- Swift 核心采用 Swift 6 严格并发和现有 swift-format 风格；修改到的文件按需格式化，不重排全仓。
-- 不覆盖本机签名、实例、Keychain、真实配置或其它仓库脏文件。不把真实账号、令牌、Cookie、证书、用户数据放入日志、测试夹具或截图。
-- 本地构建、SwiftPM scratch、测试结果和一次性材料均放到 /Volumes/DISK/TmpBuild/；iOS 模拟器安装验收按工作区允许的 ~/Library/Caches/MoviePilotSimulator/<任务>/ 例外执行。共享依赖固定使用 /Volumes/DISK/Xcode/SourcePackages。批量完成相关修改后再编译。
-- 完成一个叶子时记录实际测试与未验收事项，并保存聚焦的本地 Git 提交后再开始下一个实现跨度。普通长期实施不自动授权推送、发布、覆盖真机正式 App 或变更生产服务。
-- 总目标在全范围、插件矩阵、无主体 WebView、真实设备及回归门禁均通过前保持 active。完成当前页面、文档或基础库不等于完成全原生迁移。
+- **视觉体系**：固定单一深色紫玫瑰渐变 + 低雾感透色玻璃（Cinematic 视觉体系）与 Apple iOS 26+ Liquid Glass 原生导航，不引入多主题切换器；源代码、注释与文档禁止出现第三方竞品名称。
+- **WebKit 边界**：主流程禁止新增 `WKWebView` 或 HTML/JS 桥接；仅保留 `PluginWeb/LegacyWebsiteStorage.swift`（忘记旧实例清理残留）与 `NativeV2/Pages/NativePluginDataPageView.swift`（受控 `render_mode == "vue"` 遗留插件隔离宿主）。
+- **权限与安全**：严格复用后端身份与权限门禁；真实凭据、令牌、Cookie、证书和个人数据绝不写入源码、日志、测试夹具或截图。
+- **Swift 规范**：采用 Swift 6 严格并发与 `xcrun swift-format lint --strict`；所有新增类型与方法保持中文说明。
+- **构建与缓存路径**：本地临时构建与 SwiftPM scratch 放于 `/Volumes/DISK/TmpBuild/`，模拟器测试缓存放于 `~/Library/Caches/MoviePilotSimulator/`（严禁写入 `/tmp`），共享依赖目录固定 `-clonedSourcePackagesDirPath /Volumes/DISK/Xcode/SourcePackages`。

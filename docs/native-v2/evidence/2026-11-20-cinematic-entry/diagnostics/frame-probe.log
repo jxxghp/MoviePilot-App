@@ -1,3 +1,0 @@
-getpwuid_r did not find a match for uid 501
-Timestamp               Ty Process[PID:TID]
-2026-11-20 02:17:34.734 F  MPFrameProbe[27342:446870] [com.apple.runtime-issues:SwiftUI] Invalid frame dimension (negative or non-finite).

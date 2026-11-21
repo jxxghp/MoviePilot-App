@@ -1,9 +1,0 @@
-{
-  "ios/NativeDesignSystem/CinematicForms.swift": "aa12f84022368a9040bfba2b28cc4b406c6eef697c39edc7ea3a65417125a473",
-  "ios/NativeDesignSystem/CinematicSurfaces.swift": "e976cca114f157efe043ee9c53d79ee629ee7b4689452826c184f09b66e04c90",
-  "ios/MoviePilot/NativeV2/NativeV2RootView.swift": "cc5bc712a330c0003ffb01e0d09f0a773051430bdddfb64954e37e9b6e09c34f",
-  "ios/MoviePilot/NativeV2/NativeV2SceneDelegate.swift": "57f6f32708360f65a17b12403b73dc9d9a648c85f1a026aa8f49d83216567455",
-  "ios/MoviePilotUITests/NativeV2EntryTests.swift": "856052657ebb0b77b67822121a14ec972dd193d8a53a781f580a7b2d234527d1",
-  "ios/project.yml": "61ccf2d7d499106e6b3d45a2184c250f75dde4767a98a549c8452b2feba18cf1",
-  "ios/MoviePilot.xcodeproj/project.pbxproj": "e21375801c7ba73a1cd869f60dc0e512ac2cfacbf93ef8f73149ccef58ba80e2"
-}
