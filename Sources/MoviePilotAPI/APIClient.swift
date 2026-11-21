@@ -35,14 +35,43 @@ public struct APIExportedResourceCookie: Sendable, Equatable {
   }
 }
 
+/// 线程安全语言持有盒，允许运行时切换界面语言时立刻更新同一活跃会话后续请求的 `X-MoviePilot-Locale`。
+private final class APILanguageBox: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value: AppLanguage
+
+  init(_ initial: AppLanguage) {
+    self.value = initial
+  }
+
+  func get() -> AppLanguage {
+    lock.lock()
+    defer { lock.unlock() }
+    return value
+  }
+
+  func set(_ next: AppLanguage) {
+    lock.lock()
+    value = next
+    lock.unlock()
+  }
+}
+
 /// 原生主体的私有 JSON 客户端；一个实例/身份会话拥有一个客户端，不依赖网页状态。
 public final class APIClient: Sendable {
   private let address: ServerAddress
   private let token: String?
-  private let language: AppLanguage
+  private let languageBox: APILanguageBox
   private let session: URLSession
   private let imageSession: URLSession
   private let resourceCookies = APIResourceCookieStore()
+
+  private var currentLanguage: AppLanguage { languageBox.get() }
+
+  /// 运行时切换界面语言，后续 API 与 SSE 请求立刻携带最新 `X-MoviePilot-Locale`。
+  public func updateLanguage(_ value: AppLanguage) {
+    languageBox.set(value)
+  }
 
   /// 生产使用独立临时会话；未登录端点可省略令牌，不从全局 Cookie 或 Keychain 猜测身份。
   public convenience init(
@@ -64,7 +93,7 @@ public final class APIClient: Sendable {
     }
     self.address = address
     self.token = token
-    self.language = language
+    self.languageBox = APILanguageBox(language)
     configuration.httpShouldSetCookies = false
     configuration.httpCookieStorage = nil
     configuration.urlCredentialStorage = nil
@@ -114,7 +143,7 @@ public final class APIClient: Sendable {
           request.httpShouldHandleCookies = false
           request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
           request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
-          request.setValue(language.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
+          request.setValue(currentLanguage.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
           if endpoint.body != nil {
             request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
           }
@@ -136,6 +165,8 @@ public final class APIClient: Sendable {
 
           var currentEvent = "message"
           var dataLines: [String] = []
+          var lineBuffer: [UInt8] = []
+          lineBuffer.reserveCapacity(512)
 
           func flushFrame() {
             guard !dataLines.isEmpty else { return }
@@ -146,19 +177,38 @@ public final class APIClient: Sendable {
             dataLines.removeAll(keepingCapacity: true)
           }
 
-          for try await rawLine in bytes.lines {
-            try Task.checkCancellation()
-            let line = rawLine.hasSuffix("\r") ? String(rawLine.dropLast()) : rawLine
-            if line.isEmpty {
+          func processLineBytes(_ rawBytes: [UInt8]) {
+            var bytesSlice = rawBytes[...]
+            if bytesSlice.last == 0x0D {  // '\r'
+              bytesSlice = bytesSlice.dropLast()
+            }
+            if bytesSlice.isEmpty {
               flushFrame()
-            } else if line.hasPrefix(":") {
-              continue
+              return
+            }
+            let line = String(decoding: bytesSlice, as: UTF8.self)
+            if line.hasPrefix(":") {
+              return
             } else if line.hasPrefix("event:") {
               currentEvent = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
             } else if line.hasPrefix("data:") {
               let value = String(line.dropFirst(5))
               dataLines.append(value.hasPrefix(" ") ? String(value.dropFirst()) : value)
             }
+          }
+
+          // 逐字节切行以完整保留 SSE 空行分隔符（URLSession.AsyncBytes.lines 在 iOS 上会吞掉空行导致全部事件粘连至流结束）。
+          for try await byte in bytes {
+            try Task.checkCancellation()
+            if byte == 0x0A {  // '\n'
+              processLineBytes(lineBuffer)
+              lineBuffer.removeAll(keepingCapacity: true)
+            } else {
+              lineBuffer.append(byte)
+            }
+          }
+          if !lineBuffer.isEmpty {
+            processLineBytes(lineBuffer)
           }
           flushFrame()
           continuation.finish()
@@ -223,7 +273,7 @@ public final class APIClient: Sendable {
     request.setValue(
       "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
     request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
-    request.setValue(language.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
+    request.setValue(currentLanguage.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
     if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
 
     do {
@@ -413,7 +463,7 @@ public final class APIClient: Sendable {
       }
     request.setValue(acceptHeader, forHTTPHeaderField: "Accept")
     request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
-    request.setValue(language.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
+    request.setValue(currentLanguage.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
     if endpoint.body != nil {
       request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
     }
@@ -484,7 +534,7 @@ public final class APIClient: Sendable {
       }
     request.setValue(acceptHeader, forHTTPHeaderField: "Accept")
     request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
-    request.setValue(language.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
+    request.setValue(currentLanguage.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
     request.setValue(cookie.header, forHTTPHeaderField: "Cookie")
     do {
       let (bytes, raw) = try await session.bytes(for: request)
@@ -530,7 +580,7 @@ public final class APIClient: Sendable {
     request.httpShouldHandleCookies = false
     request.setValue("image/jpeg, image/png, image/webp", forHTTPHeaderField: "Accept")
     request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
-    request.setValue(language.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
+    request.setValue(currentLanguage.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
     request.setValue(cookie.header, forHTTPHeaderField: "Cookie")
     do {
       let (bytes, raw) = try await imageSession.bytes(for: request)

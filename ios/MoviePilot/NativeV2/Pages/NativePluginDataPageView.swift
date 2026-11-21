@@ -29,18 +29,30 @@ struct NativePluginDataPageView: View {
   @State private var reloadToken = 0
   @State private var actionFeedback: String?
   @State private var actionIsError = false
+  @State private var showsVueSheet = false
+  @Environment(\.dismiss) private var dismiss
 
   var body: some View {
     ZStack {
       CinematicBackground()
-      if renderMode.lowercased() == "vue" {
+      if renderMode.lowercased() == "vue", let navKey {
         NativeVuePluginWebContainer(
           session: session,
           pluginID: pluginID,
           pluginName: pluginName,
-          surface: navKey.map { .appPage(navKey: $0) } ?? .dataPage
+          surface: .appPage(navKey: navKey)
         )
         .ignoresSafeArea(edges: .bottom)
+      } else if renderMode.lowercased() == "vue" {
+        VStack(spacing: 14) {
+          ProgressView("正在打开插件弹窗…")
+            .tint(.primary)
+          Button("重新打开插件界面") {
+            showsVueSheet = true
+          }
+          .buttonStyle(.borderedProminent)
+          .tint(NativeTheme.brand)
+        }
       } else {
         ScrollView {
           VStack(alignment: .leading, spacing: 14) {
@@ -112,6 +124,19 @@ struct NativePluginDataPageView: View {
     .navigationTitle(pluginName)
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
+    .sheet(isPresented: $showsVueSheet, onDismiss: { dismiss() }) {
+      NativeVuePluginSheet(
+        session: session,
+        pluginID: pluginID,
+        pluginName: pluginName,
+        surface: .dataPage
+      )
+    }
+    .onChange(of: renderMode) { mode in
+      if mode.lowercased() == "vue", navKey == nil {
+        showsVueSheet = true
+      }
+    }
     .task(id: reloadToken) {
       if navKey != nil {
         renderMode = "vue"
@@ -969,10 +994,181 @@ private struct NativeApexChartSpec {
   }
 }
 
-/// 免登自动渲染的 Vue 远程插件容器（对标十一.2）：
-/// 1. 在文档首帧前自动向同源 `localStorage` 写入 Pinia `auth` 与 `user` 会话（彻底免去再次登录）；
-/// 2. 自动向非持久化 `WKHTTPCookieStore` 写入当前实例 `MoviePilot` 资源 Cookie，确保远程联邦脚本与图片代理直通；
-/// 3. 注入 `data-native-chrome="active"` 与精简样式，隐藏 Web 顶部栏、侧边栏、底栏与悬浮球，仅呈现纯插件页面内容。
+/// 从 Vue 插件弹出页顶部栏提取并投影到原生 Sheet 导航栏的动作按钮。
+struct NativeVueSheetAction: Identifiable, Equatable, Sendable {
+  let id: String
+  let title: String
+  let icon: String?
+  let enabled: Bool
+
+  /// 将 Material Design Icon 名称映射为原生 SF Symbol。
+  var sfSymbol: String {
+    let raw = (icon ?? "").lowercased()
+    if raw.contains("cog") || raw.contains("tune") || raw.contains("setting") { return "gearshape" }
+    if raw.contains("refresh") || raw.contains("reload") || raw.contains("sync") {
+      return "arrow.clockwise"
+    }
+    if raw.contains("save") || raw.contains("content-save") || raw.contains("check") {
+      return "checkmark"
+    }
+    if raw.contains("delete") || raw.contains("trash") { return "trash" }
+    if raw.contains("plus") || raw.contains("add") { return "plus" }
+    if raw.contains("undo") || raw.contains("restore") || raw.contains("reset") {
+      return "arrow.counterclockwise"
+    }
+    if raw.contains("information") || raw.contains("info") || raw.contains("help") {
+      return "info.circle"
+    }
+    if raw.contains("file") || raw.contains("text") || raw.contains("list") || raw.contains("page")
+      || raw.contains("view") || raw.contains("chart")
+    {
+      return "doc.text"
+    }
+    if raw.contains("download") { return "arrow.down.circle" }
+    if raw.contains("upload") { return "arrow.up.circle" }
+    if raw.contains("play") { return "play.fill" }
+    if raw.contains("stop") { return "stop.fill" }
+    if raw.contains("search") || raw.contains("magnify") { return "magnifyingglass" }
+    if raw.contains("link") || raw.contains("open-in-new") { return "arrow.up.right" }
+    if raw.contains("history") || raw.contains("clock") { return "clock" }
+    if raw.contains("bell") { return "bell" }
+    if raw.contains("pencil") || raw.contains("edit") { return "pencil" }
+    return "ellipsis.circle"
+  }
+}
+
+/// Vue 插件原生 Sheet 接管桥接器：参考 V1 原生弹层方案，接管弹窗标题、顶部操作按钮与关闭按钮。
+@MainActor
+final class NativeVueSheetBridge: ObservableObject {
+  @Published var title: String
+  @Published var actions: [NativeVueSheetAction] = []
+  @Published var isReady = false
+  @Published var shouldDismiss = false
+  weak var webView: WKWebView?
+
+  init(defaultTitle: String) {
+    self.title = defaultTitle
+  }
+
+  func invokeAction(id: String) {
+    let escaped = Self.jsString(id)
+    webView?.evaluateJavaScript(
+      "window.__mpNativeSheetInvoke && window.__mpNativeSheetInvoke(\(escaped));",
+      completionHandler: nil)
+  }
+
+  func requestWebDismiss() {
+    webView?.evaluateJavaScript(
+      "window.__mpNativeSheetDismiss && window.__mpNativeSheetDismiss();",
+      completionHandler: nil)
+  }
+
+  private static func jsString(_ value: String) -> String {
+    guard let data = try? JSONSerialization.data(withJSONObject: [value]),
+      let json = String(data: data, encoding: .utf8), json.count >= 2
+    else { return "\"\"" }
+    return String(json.dropFirst().dropLast())
+  }
+}
+
+/// V1 风格原生 Modal Sheet 接管容器：专用于 `render_mode == "vue"` 的插件数据页与配置弹窗。
+/// 自动隔离 Web 端 `.v-overlay--active.v-dialog`，把弹窗标题、公共按钮与关闭按钮接管到原生 Sheet 导航栏。
+@MainActor
+struct NativeVuePluginSheet: View {
+  let session: NativeSession
+  let pluginID: String
+  let pluginName: String
+  let surface: NativeVuePluginWebContainer.Surface
+
+  @Environment(\.dismiss) private var dismiss
+  @StateObject private var bridge: NativeVueSheetBridge
+
+  init(
+    session: NativeSession,
+    pluginID: String,
+    pluginName: String,
+    surface: NativeVuePluginWebContainer.Surface
+  ) {
+    self.session = session
+    self.pluginID = pluginID
+    self.pluginName = pluginName
+    self.surface = surface
+    _bridge = StateObject(wrappedValue: NativeVueSheetBridge(defaultTitle: pluginName))
+  }
+
+  var body: some View {
+    NavigationStack {
+      NativeVuePluginWebContainer(
+        session: session,
+        pluginID: pluginID,
+        pluginName: pluginName,
+        surface: surface,
+        sheetBridge: bridge
+      )
+      .ignoresSafeArea(edges: .bottom)
+      .navigationTitle(bridge.title.isEmpty ? pluginName : bridge.title)
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.visible, for: .navigationBar)
+      .toolbar {
+        if !bridge.actions.isEmpty {
+          ToolbarItemGroup(placement: .topBarLeading) {
+            if bridge.actions.count <= 2 {
+              ForEach(bridge.actions) { action in
+                Button {
+                  bridge.invokeAction(id: action.id)
+                } label: {
+                  if let icon = action.icon, !icon.isEmpty {
+                    Image(systemName: action.sfSymbol)
+                  } else {
+                    Text(action.title)
+                  }
+                }
+                .disabled(!action.enabled)
+                .accessibilityLabel(action.title)
+              }
+            } else {
+              Menu {
+                ForEach(bridge.actions) { action in
+                  Button {
+                    bridge.invokeAction(id: action.id)
+                  } label: {
+                    Label(action.title, systemImage: action.sfSymbol)
+                  }
+                  .disabled(!action.enabled)
+                }
+              } label: {
+                Image(systemName: "ellipsis.circle")
+              }
+              .accessibilityLabel("更多操作")
+            }
+          }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+          Button {
+            bridge.requestWebDismiss()
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+              .font(.body.weight(.semibold))
+          }
+          .accessibilityLabel("关闭")
+          .accessibilityIdentifier("native-vue-plugin-sheet-close")
+        }
+      }
+    }
+    .presentationDetents([.large])
+    .presentationDragIndicator(.visible)
+    .onChange(of: bridge.shouldDismiss) { closed in
+      if closed { dismiss() }
+    }
+    .nativeAppearanceRoot()
+  }
+}
+
+/// 免登自动渲染的 Vue 远程插件容器：
+/// 1. 首帧前向同源 `localStorage` 写入 Pinia `auth` 与 `user` 会话（彻底免登）；
+/// 2. 向非持久化 `WKHTTPCookieStore` 写入当前实例资源 Cookie，确保远程联邦脚本与图片代理直通；
+/// 3. 在 Sheet 接管模式下仅隔离当前最顶层 `.v-overlay--active.v-dialog`，将标题、顶部按钮和关闭按钮投影给原生导航栏。
 @MainActor
 struct NativeVuePluginWebContainer: View {
   enum Surface: Equatable {
@@ -985,11 +1181,20 @@ struct NativeVuePluginWebContainer: View {
   let pluginID: String
   let pluginName: String
   let surface: Surface
+  var sheetBridge: NativeVueSheetBridge? = nil
 
   @Environment(\.colorScheme) private var colorScheme
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
   @State private var launchConfig: VuePluginLaunchConfig?
   @State private var isWebLoading = true
   @State private var loadError: String?
+
+  private var showsLoader: Bool {
+    if let sheetBridge {
+      return !sheetBridge.isReady
+    }
+    return isWebLoading
+  }
 
   var body: some View {
     ZStack {
@@ -997,9 +1202,12 @@ struct NativeVuePluginWebContainer: View {
       if let launchConfig {
         NativeVuePluginWebView(
           config: launchConfig,
-          isLoading: $isWebLoading
+          isLoading: $isWebLoading,
+          sheetBridge: sheetBridge
         )
-        if isWebLoading {
+        .opacity(sheetBridge != nil && showsLoader ? 0 : 1)
+        .animation(.easeOut(duration: 0.2), value: showsLoader)
+        if showsLoader {
           VStack(spacing: 10) {
             ProgressView()
               .controlSize(.regular)
@@ -1040,7 +1248,10 @@ struct NativeVuePluginWebContainer: View {
           .tint(.primary)
       }
     }
-    .task(id: "\(pluginID)|\(colorScheme)") {
+    .task(
+      id:
+        "\(pluginID)|\(colorScheme)|\(AppLanguage.current.rawValue)|\(NativeAppearanceStore.hexString(from: appearance.accentColor))"
+    ) {
       await prepareLaunch()
     }
   }
@@ -1084,13 +1295,23 @@ struct NativeVuePluginWebContainer: View {
         loadError = "会话初始化失败。"
         return
       }
+      let preferDark: Bool
+      switch appearance.mode {
+      case .dark: preferDark = true
+      case .light: preferDark = false
+      case .system: preferDark = (colorScheme == .dark)
+      }
+      let accentHex = NativeAppearanceStore.hexString(from: appearance.accentColor)
+      let locale = AppLanguage.current.rawValue
       launchConfig = VuePluginLaunchConfig(
         url: targetURL,
         origin: auth.address,
         authJSON: authJSON,
         userJSON: userJSON,
         resourceCookie: resourceCookie,
-        preferDark: colorScheme == .dark,
+        preferDark: preferDark,
+        accentHex: accentHex,
+        locale: locale,
         surface: surface)
     } catch {
       loadError = "当前登录会话不可用，无法打开 Vue 插件。"
@@ -1121,7 +1342,7 @@ struct NativeVuePluginWebContainer: View {
   }
 }
 
-/// Vue 插件 WebView 启动参数。
+/// Vue 插件 WebView 启动参数（共享认证态、资源 Cookie、当前界面语言与主题/强调色设置）。
 private struct VuePluginLaunchConfig: Equatable {
   let url: URL
   let origin: ServerAddress
@@ -1129,20 +1350,36 @@ private struct VuePluginLaunchConfig: Equatable {
   let userJSON: String
   let resourceCookie: APIExportedResourceCookie?
   let preferDark: Bool
+  let accentHex: String
+  let locale: String
   let surface: NativeVuePluginWebContainer.Surface
 
   static func == (lhs: VuePluginLaunchConfig, rhs: VuePluginLaunchConfig) -> Bool {
-    lhs.url == rhs.url && lhs.preferDark == rhs.preferDark && lhs.surface == rhs.surface
+    lhs.url == rhs.url && lhs.preferDark == rhs.preferDark && lhs.accentHex == rhs.accentHex
+      && lhs.locale == rhs.locale && lhs.surface == rhs.surface
   }
 }
 
-/// 同源免登隔离 `WKWebView`：在首帧前写入 Pinia 会话与资源 Cookie，并隐藏全部 Web 导航外壳，仅呈现纯插件页面。
+/// 弱引用消息代理，避免 `WKUserContentController` 与 `Coordinator` 形成循环引用。
+private final class WeakVueSheetScriptHandler: NSObject, WKScriptMessageHandler {
+  weak var target: (any WKScriptMessageHandler)?
+  init(_ target: any WKScriptMessageHandler) { self.target = target }
+  func userContentController(
+    _ userContentController: WKUserContentController, didReceive message: WKScriptMessage
+  ) {
+    target?.userContentController(userContentController, didReceive: message)
+  }
+}
+
+/// 同源免登隔离 `WKWebView`：在首帧前写入 Pinia 会话与资源 Cookie；
+/// 传入 `sheetBridge` 时采用 V1 风格弹窗接管，隔离最顶层 `.v-dialog` 并将标题/顶部按钮/关闭按钮投影到原生 Sheet 栏。
 private struct NativeVuePluginWebView: UIViewRepresentable {
   let config: VuePluginLaunchConfig
   @Binding var isLoading: Bool
+  let sheetBridge: NativeVueSheetBridge?
 
   func makeCoordinator() -> Coordinator {
-    Coordinator(origin: config.origin, isLoading: $isLoading)
+    Coordinator(origin: config.origin, isLoading: $isLoading, sheetBridge: sheetBridge)
   }
 
   func makeUIView(context: Context) -> WKWebView {
@@ -1150,7 +1387,12 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
     wkConfig.websiteDataStore = .nonPersistent()
     wkConfig.allowsInlineMediaPlayback = true
 
-    let bootstrapScript = makeBootstrapScript(config)
+    if sheetBridge != nil {
+      wkConfig.userContentController.add(
+        WeakVueSheetScriptHandler(context.coordinator), name: "mpVuePluginSheet")
+    }
+
+    let bootstrapScript = makeBootstrapScript(config, sheetTakeover: sheetBridge != nil)
     wkConfig.userContentController.addUserScript(
       WKUserScript(
         source: bootstrapScript,
@@ -1163,6 +1405,12 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
     webView.backgroundColor = .clear
     webView.scrollView.backgroundColor = .clear
     webView.scrollView.contentInsetAdjustmentBehavior = .automatic
+    webView.overrideUserInterfaceStyle = config.preferDark ? .dark : .light
+    sheetBridge?.webView = webView
+
+    var request = URLRequest(url: config.url)
+    request.setValue(config.locale, forHTTPHeaderField: "Accept-Language")
+    request.setValue(config.locale, forHTTPHeaderField: "X-MoviePilot-Locale")
 
     // 先写入同源资源 Cookie，再触发首次导航，确保远程联邦 JS 模块和图片代理零 401。
     if let cookieInfo = config.resourceCookie,
@@ -1170,16 +1418,24 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
     {
       wkConfig.websiteDataStore.httpCookieStore.setCookie(cookie) {
         DispatchQueue.main.async {
-          webView.load(URLRequest(url: config.url))
+          webView.load(request)
         }
       }
     } else {
-      webView.load(URLRequest(url: config.url))
+      webView.load(request)
     }
     return webView
   }
 
-  func updateUIView(_ uiView: WKWebView, context: Context) {}
+  func updateUIView(_ uiView: WKWebView, context: Context) {
+    uiView.overrideUserInterfaceStyle = config.preferDark ? .dark : .light
+    sheetBridge?.webView = uiView
+  }
+
+  static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+    uiView.configuration.userContentController.removeScriptMessageHandler(
+      forName: "mpVuePluginSheet")
+  }
 
   private func makeHTTPCookie(
     from info: APIExportedResourceCookie, targetURL: URL
@@ -1196,27 +1452,49 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
     return HTTPCookie(properties: props)
   }
 
-  /// 构造首帧前注入脚本：同步登录态、主题色、原生精简样式以及自动切换 Vue 配置/数据视图。
-  private func makeBootstrapScript(_ cfg: VuePluginLaunchConfig) -> String {
+  /// 构造首帧前注入脚本：同步登录态、语言（`MP_LOCALE`）、主题与强调色以及 V1 风格 `.v-dialog` 隔离与顶栏投影。
+  private func makeBootstrapScript(_ cfg: VuePluginLaunchConfig, sheetTakeover: Bool) -> String {
     let authLiteral = Self.jsStringLiteral(cfg.authJSON)
     let userLiteral = Self.jsStringLiteral(cfg.userJSON)
     let themeName = cfg.preferDark ? "dark" : "light"
+    let localeLiteral = Self.jsStringLiteral(cfg.locale)
+    let accentLiteral = Self.jsStringLiteral(cfg.accentHex)
+    let customizerDict: [String: Any] = [
+      "theme": themeName,
+      "primaryColor": cfg.accentHex,
+    ]
+    let customizerJSON =
+      (try? JSONSerialization.data(withJSONObject: customizerDict)).flatMap {
+        String(data: $0, encoding: .utf8)
+      } ?? "{}"
+    let customizerLiteral = Self.jsStringLiteral(customizerJSON)
     let wantsConfigSwitch = (cfg.surface == .config) ? "true" : "false"
-    let isDialogMode = (cfg.surface == .dataPage || cfg.surface == .config) ? "true" : "false"
+    let isSheetTakeover = sheetTakeover ? "true" : "false"
 
     return """
       (function() {
         try {
           window.localStorage.setItem('auth', \(authLiteral));
           window.localStorage.setItem('user', \(userLiteral));
+          window.localStorage.setItem('MP_LOCALE', \(localeLiteral));
           window.localStorage.setItem('theme', '\(themeName)');
+          window.localStorage.setItem('materio-initial-resolved-theme', '\(themeName)');
+          window.localStorage.setItem('materio-initial-loader-color', \(accentLiteral));
+          window.localStorage.setItem('moviepilot-theme-customizer', \(customizerLiteral));
         } catch (e) {}
+
+        var isSheetTakeover = \(isSheetTakeover);
+        var wantsConfigSwitch = \(wantsConfigSwitch);
 
         function applyNativePluginChrome() {
           try {
             var root = document.documentElement;
             if (!root) return;
+            root.lang = \(localeLiteral);
             root.dataset.nativeChrome = 'active';
+            if (isSheetTakeover) {
+              root.dataset.nativeSheet = 'active';
+            }
             root.style.setProperty('--native-top', '0px');
             root.style.setProperty('--native-bottom', '0px');
             root.style.setProperty('--native-left', '0px');
@@ -1225,7 +1503,7 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
             if (!document.getElementById('mp-native-vue-plugin-style')) {
               var style = document.createElement('style');
               style.id = 'mp-native-vue-plugin-style';
-              style.textContent = [
+              var rules = [
                 '.layout-navbar, .layout-vertical-nav, .layout-overlay, .layout-footer,',
                 '.footer-content-container, .mobile-dock, .v-bottom-navigation,',
                 '.app-customizer-toggler, .agent-pet-container, .floating-agent-btn,',
@@ -1233,11 +1511,39 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
                 '  display: none !important;',
                 '}',
                 '.layout-content-wrapper { padding-inline-start: 0 !important; }',
-                '.layout-page-content { padding-block-start: 8px !important; padding-block-end: 12px !important; }',
-                \(isDialogMode) ? '.v-dialog > .v-overlay__content { margin: 0 !important; width: 100vw !important; max-width: 100vw !important; height: 100dvh !important; max-height: 100dvh !important; border-radius: 0 !important; }' : '',
-                \(isDialogMode) ? '.v-dialog > .v-overlay__content > .v-card { border-radius: 0 !important; min-height: 100dvh !important; }' : '',
-                \(isDialogMode) ? '.v-dialog .v-dialog-close-btn { display: none !important; }' : ''
-              ].join('\\n');
+                '.layout-page-content { padding-block-start: 8px !important; padding-block-end: 12px !important; }'
+              ];
+              if (isSheetTakeover) {
+                rules.push(
+                  'html[data-native-sheet="active"] body { overflow: hidden !important; background: transparent !important; }',
+                  'html[data-native-sheet="active"] #app { visibility: hidden !important; pointer-events: none !important; }',
+                  '[data-native-sheet-background="true"] { visibility: hidden !important; pointer-events: none !important; }',
+                  '[data-native-sheet-current="true"] { position: fixed !important; inset: 0 !important; visibility: visible !important; pointer-events: auto !important; }',
+                  '[data-native-sheet-current="true"] > .v-overlay__scrim { display: none !important; }',
+                  '[data-native-sheet-current="true"] > .v-overlay__content {',
+                  '  margin: 0 !important; padding: 0 !important; inset: 0 !important;',
+                  '  width: 100vw !important; max-width: 100vw !important;',
+                  '  height: 100dvh !important; max-height: 100dvh !important;',
+                  '  border-radius: 0 !important; box-shadow: none !important; transform: none !important;',
+                  '}',
+                  '[data-native-sheet-current="true"] > .v-overlay__content > .v-card,',
+                  '[data-native-sheet-current="true"] > .v-overlay__content > .v-sheet {',
+                  '  border-radius: 0 !important; box-shadow: none !important;',
+                  '  min-height: 100dvh !important; max-height: 100dvh !important;',
+                  '  display: flex !important; flex-direction: column !important;',
+                  '}',
+                  '[data-native-sheet-current="true"] > .v-overlay__content > .v-card > .v-card-text {',
+                  '  flex: 1 1 auto !important; overflow-y: auto !important; -webkit-overflow-scrolling: touch;',
+                  '}',
+                  '[data-native-sheet-current="true"] [data-native-sheet-header="true"],',
+                  '[data-native-sheet-current="true"] [data-native-sheet-heading="true"],',
+                  '[data-native-sheet-current="true"] [data-native-dialog-close],',
+                  '[data-native-sheet-current="true"] .v-dialog-close-btn {',
+                  '  display: none !important;',
+                  '}'
+                );
+              }
+              style.textContent = rules.join('\\n');
               (document.head || root).appendChild(style);
             }
           } catch (e) {}
@@ -1246,30 +1552,191 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
         applyNativePluginChrome();
         document.addEventListener('DOMContentLoaded', applyNativePluginChrome, { once: true });
 
-        if (\(wantsConfigSwitch)) {
-          var switched = false;
-          var observer = new MutationObserver(function() {
-            if (switched) return;
-            var btns = document.querySelectorAll('.v-dialog button, .v-dialog .v-btn');
+        if (!isSheetTakeover) { return; }
+
+        function postSheetMessage(payload) {
+          try {
+            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.mpVuePluginSheet) {
+              window.webkit.messageHandlers.mpVuePluginSheet.postMessage(payload);
+            }
+          } catch (e) {}
+        }
+
+        function extractMdiIcon(el) {
+          var iconEl = el.querySelector('[class*="mdi-"]') || (el.className && String(el.className).indexOf('mdi-') >= 0 ? el : null);
+          if (!iconEl) return '';
+          var cls = String(iconEl.className || '');
+          var m = cls.match(/mdi-[a-z0-9-]+/i);
+          return m ? m[0] : '';
+        }
+
+        function isCloseButton(btn) {
+          if (btn.hasAttribute('data-native-dialog-close') || btn.classList.contains('v-dialog-close-btn')) return true;
+          var icon = extractMdiIcon(btn).toLowerCase();
+          if (icon === 'mdi-close' || icon === 'mdi-close-circle' || icon === 'mdi-close-circle-outline') return true;
+          var text = (btn.textContent || '').trim();
+          var aria = (btn.getAttribute('aria-label') || '').trim();
+          return text === '关闭' || text === 'Close' || aria === '关闭' || aria === 'Close';
+        }
+
+        var hadActiveDialog = false;
+        var switchedToConfig = false;
+        var configSwitchAttempts = 0;
+        var lastSignature = '';
+        var scheduled = false;
+
+        window.__mpNativeSheetInvoke = function(actionId) {
+          var target = document.querySelector('[data-mp-sheet-action-id="' + actionId + '"]');
+          if (target) { target.click(); }
+        };
+
+        window.__mpNativeSheetDismiss = function() {
+          var current = document.querySelector('[data-native-sheet-current="true"]');
+          if (!current) return;
+          var closeEl = current.querySelector('[data-native-dialog-close], .v-dialog-close-btn');
+          if (!closeEl) {
+            var btns = current.querySelectorAll('button, .v-btn');
             for (var i = 0; i < btns.length; i++) {
-              var b = btns[i];
+              if (isCloseButton(btns[i])) { closeEl = btns[i]; break; }
+            }
+          }
+          if (closeEl) { closeEl.click(); }
+        };
+
+        function syncNativeSheet() {
+          scheduled = false;
+          var dialogs = Array.prototype.slice.call(
+            document.querySelectorAll('.v-overlay--active.v-dialog')
+          );
+
+          var allOverlays = document.querySelectorAll('.v-overlay');
+          for (var k = 0; k < allOverlays.length; k++) {
+            allOverlays[k].removeAttribute('data-native-sheet-current');
+            allOverlays[k].removeAttribute('data-native-sheet-background');
+          }
+
+          if (dialogs.length === 0) {
+            if (hadActiveDialog) {
+              hadActiveDialog = false;
+              postSheetMessage({ type: 'sheet.closed' });
+            }
+            return;
+          }
+
+          dialogs.sort(function(a, b) {
+            var za = parseInt(getComputedStyle(a).zIndex || '0', 10) || 0;
+            var zb = parseInt(getComputedStyle(b).zIndex || '0', 10) || 0;
+            return za - zb;
+          });
+          var topDialog = dialogs[dialogs.length - 1];
+          for (var j = 0; j < dialogs.length - 1; j++) {
+            dialogs[j].setAttribute('data-native-sheet-background', 'true');
+          }
+          topDialog.setAttribute('data-native-sheet-current', 'true');
+          hadActiveDialog = true;
+
+          // 如果目标是配置弹窗而前端默认先打开了数据弹窗，则自动触发一次「设置/配置」按钮
+          if (wantsConfigSwitch && !switchedToConfig && configSwitchAttempts < 12) {
+            configSwitchAttempts++;
+            var allBtns = topDialog.querySelectorAll('button, .v-btn');
+            for (var bi = 0; bi < allBtns.length; bi++) {
+              var b = allBtns[bi];
               var txt = (b.textContent || '').trim();
-              var hasCog = b.querySelector('.mdi-cog, .mdi-cog-outline, .mdi-tune');
-              if (hasCog || txt === '设置' || txt === '配置' || txt === 'Settings') {
-                switched = true;
+              var ico = extractMdiIcon(b).toLowerCase();
+              if (ico === 'mdi-cog' || ico === 'mdi-cog-outline' || ico === 'mdi-tune' || txt === '设置' || txt === '配置') {
+                switchedToConfig = true;
                 b.click();
-                observer.disconnect();
                 return;
               }
             }
-          });
-          window.addEventListener('load', function() {
-            if (document.body) {
-              observer.observe(document.body, { childList: true, subtree: true });
-              setTimeout(function() { observer.disconnect(); }, 6000);
+          }
+
+          var card = topDialog.querySelector('.v-overlay__content > .v-card, .v-overlay__content > .v-sheet') || topDialog;
+          var headerEl = card.querySelector('[data-native-sheet-header]')
+            || card.querySelector(':scope > .v-toolbar')
+            || card.querySelector(':scope > .v-card-item')
+            || card.querySelector(':scope > .v-card-title');
+
+          var titleText = '';
+          var actions = [];
+          if (headerEl) {
+            headerEl.setAttribute('data-native-sheet-header', 'true');
+            var headingEl = headerEl.querySelector('[data-native-sheet-heading], .v-toolbar-title, .v-card-title, h1, h2, h3, h4, span');
+            if (headingEl) {
+              var clone = headingEl.cloneNode(true);
+              var junk = clone.querySelectorAll('button, .v-btn, .v-icon, svg');
+              for (var ji = 0; ji < junk.length; ji++) junk[ji].remove();
+              titleText = (clone.textContent || '').replace(/\\s+/g, ' ').trim();
             }
-          }, { once: true });
+            if (!titleText) {
+              var hClone = headerEl.cloneNode(true);
+              var hJunk = hClone.querySelectorAll('button, .v-btn, .v-icon, svg');
+              for (var hi = 0; hi < hJunk.length; hi++) hJunk[hi].remove();
+              titleText = (hClone.textContent || '').replace(/\\s+/g, ' ').trim();
+            }
+
+            var headerBtns = headerEl.querySelectorAll('button, .v-btn');
+            var actionIdx = 0;
+            for (var i = 0; i < headerBtns.length; i++) {
+              var btn = headerBtns[i];
+              if (btn.hidden || getComputedStyle(btn).display === 'none') continue;
+              if (isCloseButton(btn)) continue;
+              var actionId = 'mp_act_' + actionIdx++;
+              btn.setAttribute('data-mp-sheet-action-id', actionId);
+              var iconName = extractMdiIcon(btn);
+              var btnTitle = (btn.getAttribute('aria-label') || btn.getAttribute('title') || btn.textContent || '').replace(/\\s+/g, ' ').trim();
+              if (!btnTitle) {
+                if (iconName.indexOf('cog') >= 0 || iconName.indexOf('tune') >= 0) btnTitle = '设置';
+                else if (iconName.indexOf('refresh') >= 0 || iconName.indexOf('sync') >= 0) btnTitle = '刷新';
+                else if (iconName.indexOf('save') >= 0) btnTitle = '保存';
+                else btnTitle = '操作';
+              }
+              var disabled = btn.disabled || btn.getAttribute('aria-disabled') === 'true' || btn.classList.contains('v-btn--disabled');
+              actions.push({ id: actionId, title: btnTitle, icon: iconName, enabled: !disabled });
+            }
+          }
+
+          var signature = JSON.stringify({ title: titleText, actions: actions });
+          if (signature !== lastSignature) {
+            lastSignature = signature;
+            postSheetMessage({
+              type: 'sheet.state',
+              ready: true,
+              title: titleText,
+              actions: actions
+            });
+          }
         }
+
+        function scheduleSync() {
+          if (scheduled) return;
+          scheduled = true;
+          requestAnimationFrame(syncNativeSheet);
+        }
+
+        var observer = new MutationObserver(scheduleSync);
+        function startObserver() {
+          if (document.body) {
+            observer.observe(document.body, {
+              childList: true,
+              subtree: true,
+              attributes: true,
+              attributeFilter: ['class', 'style', 'disabled', 'aria-disabled', 'hidden']
+            });
+            scheduleSync();
+          }
+        }
+        if (document.body) {
+          startObserver();
+        } else {
+          document.addEventListener('DOMContentLoaded', startObserver, { once: true });
+        }
+        // 安全兜底：即使插件未使用 .v-dialog 渲染，6 秒后也展示内容避免永久白屏
+        setTimeout(function() {
+          if (!hadActiveDialog) {
+            postSheetMessage({ type: 'sheet.state', ready: true, title: '', actions: [] });
+          }
+        }, 6000);
       })();
       """
   }
@@ -1283,14 +1750,54 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
     return String(json.dropFirst().dropLast())
   }
 
-  /// 严格拦截跨域主文档导航（外链交由系统 Safari 打开，同源导航放行）。
-  final class Coordinator: NSObject, WKNavigationDelegate {
+  /// 严格拦截跨域主文档导航（外链交由系统 Safari 打开，同源导航放行），并接收 Sheet 接管消息。
+  final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     let origin: ServerAddress
     @Binding var isLoading: Bool
+    weak var sheetBridge: NativeVueSheetBridge?
 
-    init(origin: ServerAddress, isLoading: Binding<Bool>) {
+    init(
+      origin: ServerAddress,
+      isLoading: Binding<Bool>,
+      sheetBridge: NativeVueSheetBridge?
+    ) {
       self.origin = origin
       _isLoading = isLoading
+      self.sheetBridge = sheetBridge
+    }
+
+    func userContentController(
+      _ userContentController: WKUserContentController, didReceive message: WKScriptMessage
+    ) {
+      guard message.name == "mpVuePluginSheet",
+        let body = message.body as? [String: Any],
+        let type = body["type"] as? String
+      else { return }
+      DispatchQueue.main.async { [weak self] in
+        guard let bridge = self?.sheetBridge else { return }
+        if type == "sheet.closed" {
+          bridge.shouldDismiss = true
+          return
+        }
+        if type == "sheet.state" {
+          if let title = body["title"] as? String, !title.isEmpty {
+            bridge.title = title
+          }
+          if let rawActions = body["actions"] as? [[String: Any]] {
+            bridge.actions = rawActions.compactMap { dict in
+              guard let id = dict["id"] as? String, !id.isEmpty else { return nil }
+              let title = (dict["title"] as? String) ?? "操作"
+              let icon = dict["icon"] as? String
+              let enabled = (dict["enabled"] as? Bool) ?? true
+              return NativeVueSheetAction(id: id, title: title, icon: icon, enabled: enabled)
+            }
+          }
+          if (body["ready"] as? Bool) == true {
+            bridge.isReady = true
+            self?.isLoading = false
+          }
+        }
+      }
     }
 
     func webView(
@@ -1315,13 +1822,18 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-        self.isLoading = false
+      if sheetBridge == nil {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+          self.isLoading = false
+        }
       }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-      DispatchQueue.main.async { self.isLoading = false }
+      DispatchQueue.main.async {
+        self.isLoading = false
+        self.sheetBridge?.isReady = true
+      }
     }
   }
 }

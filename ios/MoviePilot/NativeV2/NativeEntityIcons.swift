@@ -7,12 +7,13 @@ import MoviePilotSession
 import SwiftUI
 import UIKit
 
-/// 实体品牌图标分类：下载器、媒体服务器、通知渠道与存储类型。
+/// 实体品牌图标分类：下载器、媒体服务器、通知渠道、媒体数据源与存储类型。
 enum NativeBrandIconKind {
   case downloader
   case mediaServer
   case notification
   case storage
+  case mediaSource
 }
 
 /// 真实品牌图标组件：复用 MoviePilot 官方前端一致的品牌 Logo 资产。
@@ -86,6 +87,169 @@ struct NativeBrandIcon: View {
       case "smb": return "logo-smb"
       default: return "logo-storage"
       }
+    case .mediaSource:
+      switch key {
+      case "themoviedb", "tmdb": return "logo-tmdb"
+      case "douban": return "logo-douban"
+      case "bangumi": return "logo-bangumi"
+      case "musicbrainz": return "logo-musicbrainz"
+      default: return "logo-mediaserver"
+      }
+    }
+  }
+}
+
+/// 品牌图标可视化选项描述：用于下载器、媒体服务器、媒体数据源、通知渠道与存储类型的卡片选择。
+struct NativeBrandChoiceItem: Identifiable, Hashable {
+  let id: String
+  let title: String
+  var subtitle: String? = nil
+  var iconType: String? = nil
+
+  var resolvedIconType: String { iconType ?? id }
+}
+
+/// 单选品牌 Logo 卡片网格：以品牌图标 + 名称 + 选中高光描边与勾选徽章替代纯文字下拉框。
+@MainActor
+struct NativeBrandOptionGrid: View {
+  let kind: NativeBrandIconKind
+  let items: [NativeBrandChoiceItem]
+  @Binding var selection: String
+  var columns: Int = 3
+  var disabled: Bool = false
+
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+
+  var body: some View {
+    let gridColumns = Array(
+      repeating: GridItem(.flexible(), spacing: 10), count: max(columns, 1))
+    LazyVGrid(columns: gridColumns, spacing: 10) {
+      ForEach(items) { item in
+        let isSelected = selection.lowercased() == item.id.lowercased()
+        Button {
+          guard !disabled else { return }
+          withAnimation(.easeOut(duration: 0.16)) {
+            selection = item.id
+          }
+        } label: {
+          brandTile(item: item, isSelected: isSelected)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+      }
+    }
+    .opacity(disabled ? 0.72 : 1.0)
+  }
+
+  private func brandTile(item: NativeBrandChoiceItem, isSelected: Bool) -> some View {
+    VStack(spacing: 8) {
+      NativeBrandIcon(
+        kind: kind, type: item.resolvedIconType, size: 36, cornerRadius: 10)
+      VStack(spacing: 2) {
+        Text(item.title)
+          .font(.caption.weight(isSelected ? .semibold : .medium))
+          .foregroundStyle(isSelected ? appearance.accentColor : .primary)
+          .lineLimit(1)
+          .minimumScaleFactor(0.82)
+        if let subtitle = item.subtitle, !subtitle.isEmpty {
+          Text(subtitle)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.82)
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, minHeight: item.subtitle == nil ? 80 : 92)
+    .padding(.horizontal, 8)
+    .padding(.vertical, 10)
+    .background {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .fill(isSelected ? appearance.accentColor.opacity(0.14) : NativeTheme.chipFill)
+        .overlay {
+          RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .strokeBorder(
+              isSelected ? appearance.accentColor.opacity(0.75) : NativeTheme.chipBorder,
+              lineWidth: isSelected ? 1.4 : 0.7
+            )
+        }
+    }
+    .overlay(alignment: .topTrailing) {
+      if isSelected {
+        Image(systemName: "checkmark.circle.fill")
+          .font(.system(size: 14, weight: .semibold))
+          .foregroundStyle(appearance.accentColor)
+          .padding(6)
+      }
+    }
+    .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+  }
+}
+
+/// 多选品牌 Logo 卡片网格：用于媒体搜索数据源等可多选的品牌配置。
+@MainActor
+struct NativeBrandMultiOptionGrid: View {
+  let kind: NativeBrandIconKind
+  let items: [NativeBrandChoiceItem]
+  @Binding var selection: Set<String>
+  var columns: Int = 2
+
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+
+  var body: some View {
+    let gridColumns = Array(
+      repeating: GridItem(.flexible(), spacing: 10), count: max(columns, 1))
+    LazyVGrid(columns: gridColumns, spacing: 10) {
+      ForEach(items) { item in
+        let isSelected = selection.contains(item.id)
+        Button {
+          withAnimation(.easeOut(duration: 0.16)) {
+            if isSelected {
+              selection.remove(item.id)
+            } else {
+              selection.insert(item.id)
+            }
+          }
+        } label: {
+          HStack(spacing: 11) {
+            NativeBrandIcon(
+              kind: kind, type: item.resolvedIconType, size: 36, cornerRadius: 10)
+            VStack(alignment: .leading, spacing: 2) {
+              Text(item.title)
+                .font(.subheadline.weight(isSelected ? .semibold : .medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+              if let subtitle = item.subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                  .font(.caption2)
+                  .foregroundStyle(.secondary)
+                  .lineLimit(1)
+              }
+            }
+            Spacer(minLength: 4)
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+              .font(.system(size: 18, weight: .medium))
+              .foregroundStyle(isSelected ? appearance.accentColor : Color.secondary.opacity(0.45))
+          }
+          .padding(.horizontal, 12)
+          .padding(.vertical, 12)
+          .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
+          .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+              .fill(isSelected ? appearance.accentColor.opacity(0.14) : NativeTheme.chipFill)
+              .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                  .strokeBorder(
+                    isSelected ? appearance.accentColor.opacity(0.75) : NativeTheme.chipBorder,
+                    lineWidth: isSelected ? 1.4 : 0.7
+                  )
+              }
+          }
+          .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+      }
     }
   }
 }
@@ -100,24 +264,16 @@ struct NativeSiteIconView: View {
   @State private var image: UIImage?
 
   var body: some View {
-    ZStack {
-      RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-        .fill(.white.opacity(active ? 0.12 : 0.06))
-        .overlay {
-          RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-            .strokeBorder(.white.opacity(active ? 0.18 : 0.10), lineWidth: 0.6)
-        }
+    Group {
       if let resolved = image ?? NativeEntityIconCache.shared.image(for: cacheKey) {
         Image(uiImage: resolved)
           .resizable()
-          .scaledToFill()
-          .frame(width: size - 6, height: size - 6)
-          .clipShape(RoundedRectangle(cornerRadius: max(size * 0.20, 6), style: .continuous))
+          .scaledToFit()
+          .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
       } else {
         Image("logo-site")
           .resizable()
           .scaledToFit()
-          .padding(size * 0.16)
       }
     }
     .frame(width: size, height: size)
@@ -172,24 +328,15 @@ struct NativePluginIconView: View {
   @State private var image: UIImage?
 
   var body: some View {
-    ZStack {
-      RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        .fill(.white.opacity(0.09))
-        .overlay {
-          RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .strokeBorder(.white.opacity(0.15), lineWidth: 0.6)
-        }
+    Group {
       if let resolved = image ?? NativeEntityIconCache.shared.image(for: cacheKey) {
         Image(uiImage: resolved)
           .resizable()
-          .scaledToFill()
-          .frame(width: size, height: size)
-          .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+          .scaledToFit()
       } else {
         Image("logo-plugin")
           .resizable()
           .scaledToFit()
-          .padding(size * 0.16)
       }
     }
     .frame(width: size, height: size)

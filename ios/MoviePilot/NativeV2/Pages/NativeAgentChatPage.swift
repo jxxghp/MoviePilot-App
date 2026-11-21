@@ -23,8 +23,7 @@ struct NativeAgentChatPage: View {
   @State private var pendingUploads: [NativeAgentUploadedAttachment] = []
   @State private var isUploadingAttachment = false
   @State private var isSending = false
-  @State private var thinkingStartedAt: Date?
-  @State private var thinkingSeconds: Int = 0
+  @State private var isLoadingInitialSession = true
   @State private var sendTask: Task<Void, Never>?
   @State private var showsSessionsSheet = false
   @State private var isLoadingSessions = false
@@ -51,26 +50,29 @@ struct NativeAgentChatPage: View {
         ScrollViewReader { proxy in
           ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-              if messages.isEmpty {
+              if isLoadingInitialSession && messages.isEmpty {
+                ProgressView("正在载入会话…")
+                  .tint(.primary)
+                  .frame(maxWidth: .infinity, minHeight: 220)
+              } else if messages.isEmpty {
                 welcomeSection
               } else {
                 ForEach(messages) { message in
-                  messageRow(message)
-                    .id(message.id)
+                  if message.isUser || message.hasVisibleContent {
+                    messageRow(message)
+                      .id(message.id)
+                  }
                 }
               }
               if isSending {
                 HStack(spacing: 8) {
                   ProgressView().controlSize(.small).tint(appearance.accentColor)
-                  Text(
-                    thinkingSeconds > 0
-                      ? "智能助手思考与执行中 (\(thinkingSeconds)s)…" : "智能助手正在思考与执行…"
-                  )
-                  .font(.caption.monospacedDigit())
-                  .foregroundStyle(.secondary)
+                  Text("思考中")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.vertical, 7)
                 .background(NativeTheme.chipFill, in: Capsule())
                 .overlay { Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.6) }
                 .id("native-agent-thinking")
@@ -166,19 +168,6 @@ struct NativeAgentChatPage: View {
     }
     .task {
       await loadBootstrap()
-    }
-    .task(id: isSending) {
-      guard isSending else {
-        thinkingStartedAt = nil
-        thinkingSeconds = 0
-        return
-      }
-      let start = thinkingStartedAt ?? Date()
-      thinkingStartedAt = start
-      while !Task.isCancelled && isSending {
-        thinkingSeconds = max(0, Int(Date().timeIntervalSince(start)))
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
-      }
     }
     .onDisappear {
       sendTask?.cancel()
@@ -810,10 +799,26 @@ struct NativeAgentChatPage: View {
 
   // MARK: - 网络与多模态流式逻辑（全部修复为 `/api/v1/message/agent/*`）
 
+  private var lastSessionStorageKey: String {
+    "nativeV2.agent.lastSession|\(session.scope.instanceID.uuidString)|\(session.scope.userID)"
+  }
+
   private func loadBootstrap() async {
+    defer { isLoadingInitialSession = false }
     async let cmds: () = loadCommands()
     async let sess: () = loadSessions()
     _ = await (cmds, sess)
+    guard messages.isEmpty && !isSending else { return }
+    let savedID = UserDefaults.standard.string(forKey: lastSessionStorageKey)
+    let targetID: String? =
+      if let savedID, !savedID.isEmpty, sessions.contains(where: { $0.sessionID == savedID }) {
+        savedID
+      } else {
+        sessions.first?.sessionID
+      }
+    if let targetID {
+      await openSession(targetID, silentOnFailure: true)
+    }
   }
 
   private func loadCommands() async {
@@ -838,15 +843,20 @@ struct NativeAgentChatPage: View {
     }
   }
 
-  private func openSession(_ sessionID: String) async {
+  private func openSession(_ sessionID: String, silentOnFailure: Bool = false) async {
     do {
       let endpoint = try APIEndpoint(path: ["message", "agent", "sessions", sessionID])
       let detail = try await session.request(endpoint, as: NativeAgentSessionDetailRaw.self).value
-      activeSessionID = detail.sessionID
-      messages = detail.messages.map { $0.toDisplayMessage() }
+      activeSessionID = detail.sessionID ?? sessionID
+      UserDefaults.standard.set(activeSessionID, forKey: lastSessionStorageKey)
+      messages = detail.messages.map { $0.toDisplayMessage() }.filter {
+        $0.isUser || $0.hasVisibleContent
+      }
       feedback = nil
     } catch {
-      feedback = NativeAgentFeedback(isError: true, message: "读取会话记录失败。")
+      if !silentOnFailure {
+        feedback = NativeAgentFeedback(isError: true, message: "读取会话记录失败。")
+      }
     }
   }
 
@@ -867,6 +877,7 @@ struct NativeAgentChatPage: View {
     sendTask?.cancel()
     isSending = false
     activeSessionID = "ios-\(UUID().uuidString.prefix(12).lowercased())"
+    UserDefaults.standard.removeObject(forKey: lastSessionStorageKey)
     messages = []
     pendingUploads = []
     draftText = ""
@@ -877,8 +888,8 @@ struct NativeAgentChatPage: View {
     sendTask?.cancel()
     isSending = false
     do {
-      let body = try JSONEncoder().encode(["session_id": activeSessionID])
-      let endpoint = try APIEndpoint(path: ["message", "agent", "stop"], method: .post, body: body)
+      let endpoint = try APIEndpoint(
+        path: ["message", "agent", "sessions", activeSessionID, "stop"], method: .post)
       try await session.perform(endpoint)
       feedback = NativeAgentFeedback(isError: false, message: "已停止当前助手任务。")
     } catch {
@@ -921,11 +932,10 @@ struct NativeAgentChatPage: View {
 
     var payload: [String: JSONValue] = [
       "text": .string(text),
+      "display_text": .string(userDisplay),
       "session_id": .string(activeSessionID),
+      "echo_user": .bool(true),
     ]
-    if let displayText, !displayText.isEmpty {
-      payload["display_text"] = .string(displayText)
-    }
     let imageRefs = uploads.filter { $0.kind == "image" }.map(\.ref)
     if !imageRefs.isEmpty {
       payload["images"] = .array(imageRefs.map(JSONValue.string))
@@ -968,7 +978,6 @@ struct NativeAgentChatPage: View {
         isProtected: false
       ))
     isSending = true
-    thinkingStartedAt = Date()
 
     sendTask?.cancel()
     sendTask = Task {
@@ -1052,17 +1061,11 @@ struct NativeAgentChatPage: View {
     case "start":
       if let sid = obj?["session_id"] as? String, !sid.isEmpty {
         activeSessionID = sid
+        UserDefaults.standard.set(sid, forKey: lastSessionStorageKey)
       }
     case "thinking":
-      if let msg = obj?["message"] as? String, !msg.isEmpty {
-        let toolID = "thinking"
-        if let ti = messages[idx].tools.firstIndex(where: { $0.id == toolID }) {
-          messages[idx].tools[ti].message = msg
-        } else {
-          messages[idx].tools.append(
-            NativeAgentToolEntry(id: toolID, toolName: "思考", message: msg, status: "running"))
-        }
-      }
+      // 思考状态已由底部精简的「思考中」胶囊统一展示，不额外堆积大段思考提示。
+      break
     case "tool":
       let tid = (obj?["id"] as? String) ?? (obj?["tool_name"] as? String) ?? UUID().uuidString
       let toolName = obj?["tool_name"] as? String
@@ -1745,8 +1748,18 @@ private struct NativeAgentChoiceButton: Decodable, Sendable {
   let description: String?
 
   private enum CodingKeys: String, CodingKey {
-    case label, description
+    case label, text, description
     case callbackData = "callback_data"
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    label =
+      (try? c.decode(String.self, forKey: .label))
+      ?? (try? c.decode(String.self, forKey: .text))
+      ?? ""
+    callbackData = (try? c.decode(String.self, forKey: .callbackData)) ?? ""
+    description = try? c.decode(String.self, forKey: .description)
   }
 }
 
@@ -1783,6 +1796,14 @@ private struct NativeAgentMessage: Identifiable {
   var attachments: [NativeAgentAttachmentItem]
   var choices: [NativeAgentChoiceCard]
   var isProtected: Bool
+
+  var hasVisibleContent: Bool {
+    !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      || !tools.isEmpty
+      || !attachments.isEmpty
+      || !choices.isEmpty
+      || isProtected
+  }
 }
 
 private struct NativeAgentUploadedAttachment: Decodable, Sendable, Identifiable {
@@ -1885,6 +1906,13 @@ private struct NativeAgentSessionDetailRaw: Decodable, Sendable {
       case id, message, status
       case toolName = "tool_name"
     }
+    init(from decoder: Decoder) throws {
+      let c = try decoder.container(keyedBy: CodingKeys.self)
+      id = try? c.decodeIfPresent(String.self, forKey: .id)
+      toolName = try? c.decodeIfPresent(String.self, forKey: .toolName)
+      message = try? c.decodeIfPresent(String.self, forKey: .message)
+      status = try? c.decodeIfPresent(String.self, forKey: .status)
+    }
   }
   struct RawAttachment: Decodable, Sendable {
     let kind: String?
@@ -1898,44 +1926,90 @@ private struct NativeAgentSessionDetailRaw: Decodable, Sendable {
       case downloadURL = "download_url"
       case mimeType = "mime_type"
     }
+    init(from decoder: Decoder) throws {
+      let c = try decoder.container(keyedBy: CodingKeys.self)
+      kind = try? c.decodeIfPresent(String.self, forKey: .kind)
+      url = try? c.decodeIfPresent(String.self, forKey: .url)
+      downloadURL = try? c.decodeIfPresent(String.self, forKey: .downloadURL)
+      name = try? c.decodeIfPresent(String.self, forKey: .name)
+      mimeType = try? c.decodeIfPresent(String.self, forKey: .mimeType)
+      size = try? c.decodeIfPresent(Int.self, forKey: .size)
+    }
+  }
+  struct RawSegment: Decodable, Sendable {
+    let type: String?
+    let content: String?
   }
   struct RawMessage: Decodable, Sendable {
     let id: String?
     let role: String?
     let content: String?
-    let tools: [RawTool]?
-    let attachments: [RawAttachment]?
-    let choices: [NativeAgentChoiceCard]?
+    let tools: [RawTool]
+    let segments: [RawSegment]
+    let attachments: [RawAttachment]
+    let choices: [NativeAgentChoiceCard]
+
+    private enum CodingKeys: String, CodingKey {
+      case id, role, content, tools, segments, attachments, choices
+    }
+
+    init(from decoder: Decoder) throws {
+      let c = try decoder.container(keyedBy: CodingKeys.self)
+      id = try? c.decodeIfPresent(String.self, forKey: .id)
+      role = try? c.decodeIfPresent(String.self, forKey: .role)
+      content = try? c.decodeIfPresent(String.self, forKey: .content)
+      tools = (try? c.decodeIfPresent([RawTool].self, forKey: .tools)) ?? []
+      segments = (try? c.decodeIfPresent([RawSegment].self, forKey: .segments)) ?? []
+      attachments = (try? c.decodeIfPresent([RawAttachment].self, forKey: .attachments)) ?? []
+      choices = (try? c.decodeIfPresent([NativeAgentChoiceCard].self, forKey: .choices)) ?? []
+    }
 
     func toDisplayMessage() -> NativeAgentMessage {
-      NativeAgentMessage(
+      let primaryContent = content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      let resolvedContent: String
+      if !primaryContent.isEmpty {
+        resolvedContent = content ?? ""
+      } else {
+        resolvedContent =
+          segments
+          .filter { ($0.type ?? "").lowercased() == "text" }
+          .compactMap(\.content)
+          .joined()
+      }
+      return NativeAgentMessage(
         id: id ?? UUID().uuidString,
         isUser: (role ?? "").lowercased() == "user",
-        content: content ?? "",
-        tools: (tools ?? []).compactMap { t in
+        content: resolvedContent,
+        tools: tools.compactMap { t in
           guard let msg = t.message, !msg.isEmpty else { return nil }
           return NativeAgentToolEntry(
             id: t.id ?? UUID().uuidString, toolName: t.toolName, message: msg,
             status: t.status ?? "done")
         },
-        attachments: (attachments ?? []).compactMap { a in
+        attachments: attachments.compactMap { a in
           guard let url = a.url, !url.isEmpty else { return nil }
           return NativeAgentAttachmentItem(
             kind: a.kind ?? "file", url: url, downloadURL: a.downloadURL, name: a.name,
             mimeType: a.mimeType, size: a.size)
         },
-        choices: choices ?? [],
+        choices: choices,
         isProtected: false
       )
     }
   }
 
-  let sessionID: String
+  let sessionID: String?
   let messages: [RawMessage]
 
   private enum CodingKeys: String, CodingKey {
     case sessionID = "session_id"
     case messages
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    sessionID = try? c.decodeIfPresent(String.self, forKey: .sessionID)
+    messages = (try? c.decodeIfPresent([RawMessage].self, forKey: .messages)) ?? []
   }
 }
 

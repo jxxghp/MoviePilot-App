@@ -91,6 +91,40 @@ struct NativeResourceSearchPage: View {
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         if !results.isEmpty {
+          Menu {
+            Section("排序依据") {
+              ForEach(SortField.allCases) { field in
+                Button {
+                  sortField = field
+                } label: {
+                  if sortField == field {
+                    Label(field.rawValue, systemImage: "checkmark")
+                  } else {
+                    Text(field.rawValue)
+                  }
+                }
+              }
+            }
+            Section("排序方向") {
+              Button {
+                sortDescending = true
+              } label: {
+                if sortDescending { Label("降序", systemImage: "checkmark") } else { Text("降序") }
+              }
+              Button {
+                sortDescending = false
+              } label: {
+                if !sortDescending { Label("升序", systemImage: "checkmark") } else { Text("升序") }
+              }
+            }
+          } label: {
+            Image(
+              systemName: sortField == .defaultPriority && sortDescending
+                ? "arrow.up.arrow.down.circle" : "arrow.up.arrow.down.circle.fill")
+          }
+          .accessibilityLabel("排序方式")
+          .accessibilityIdentifier("native-resource-search-sort-menu")
+
           Button {
             showsAllFiltersSheet = true
           } label: {
@@ -144,6 +178,11 @@ struct NativeResourceSearchPage: View {
 
   private var targetIdentity: NativeMediaIdentity? {
     if case .media(let identity, _, _) = target { return identity }
+    return nil
+  }
+
+  private var fallbackTargetTitle: String? {
+    if case .media(_, let title, _) = target, !title.isEmpty { return title }
     return nil
   }
 
@@ -246,7 +285,7 @@ struct NativeResourceSearchPage: View {
     }
   }
 
-  /// 对标 Web 9 维级联多选过滤条：全部筛选入口 + 站点/优惠/分辨率/字幕/版本/编码/季集/来源/制作组 + 排序字段与升降序。
+  /// 对标 Web 9 维级联多选过滤条：全部筛选入口 + 站点/优惠/分辨率/字幕/版本/编码/季集/来源/制作组（排序已置于右上角工具栏）。
   private var cascadingFilterBar: some View {
     let facets = NativeResourceFacetOptions(from: results, currentFilter: filter)
     return ScrollView(.horizontal, showsIndicators: false) {
@@ -269,42 +308,6 @@ struct NativeResourceSearchPage: View {
             NativeAdaptivePill("重置", symbol: "xmark", isSelected: false, tint: NativeTheme.danger)
           }
           .buttonStyle(.plain)
-        }
-
-        // 排序字段 + 升降序切换
-        Menu {
-          Section("排序依据") {
-            ForEach(SortField.allCases) { field in
-              Button {
-                sortField = field
-              } label: {
-                if sortField == field {
-                  Label(field.rawValue, systemImage: "checkmark")
-                } else {
-                  Text(field.rawValue)
-                }
-              }
-            }
-          }
-          Section("排序方向") {
-            Button {
-              sortDescending = true
-            } label: {
-              if sortDescending { Label("降序", systemImage: "checkmark") } else { Text("降序") }
-            }
-            Button {
-              sortDescending = false
-            } label: {
-              if !sortDescending { Label("升序", systemImage: "checkmark") } else { Text("升序") }
-            }
-          }
-        } label: {
-          NativeAdaptivePill(
-            sortField == .defaultPriority
-              ? "排序" : "\(sortField.rawValue)\(sortDescending ? "↓" : "↑")",
-            symbol: "arrow.up.arrow.down",
-            isSelected: sortField != .defaultPriority
-          )
         }
 
         facetMenuPill(title: "站点", options: facets.sites, selection: $filter.sites)
@@ -353,13 +356,49 @@ struct NativeResourceSearchPage: View {
     }
   }
 
-  /// 整张卡片即可点击弹出下载确认窗（去除卡片内部多余下载按钮）。
+  /// 整张卡片即可点击弹出下载确认窗（顶部标明所属识别媒体，去除卡片内部多余下载按钮）。
   private func resourceCard(_ item: NativeResourceContext) -> some View {
-    Button {
+    let mediaHeading = item.recognizedMediaTitle ?? fallbackTargetTitle
+    return Button {
       selectedForDownload = item
     } label: {
       CinematicPanel(padding: 13) {
         VStack(alignment: .leading, spacing: 8) {
+          if let mediaHeading, !mediaHeading.isEmpty {
+            HStack(spacing: 8) {
+              if let poster = item.recognizedPosterReference {
+                NativeMediaArtwork(
+                  session: session, reference: poster, role: .poster, maximumWidth: 120
+                )
+                .frame(width: 24, height: 34)
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+              } else {
+                Image(systemName: item.recognizedMediaSymbol)
+                  .font(.caption.weight(.semibold))
+                  .foregroundStyle(appearance.accentColor)
+                  .frame(width: 24, height: 24)
+                  .background(
+                    appearance.accentColor.opacity(0.14),
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+              }
+              HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(mediaHeading)
+                  .font(.footnote.weight(.semibold))
+                  .foregroundStyle(.primary)
+                  .lineLimit(1)
+                if let year = item.recognizedMediaYear, !year.isEmpty {
+                  Text(year)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                }
+              }
+              Spacer(minLength: 4)
+              if let typeLabel = item.recognizedMediaType, !typeLabel.isEmpty {
+                NativeAdaptiveBadge(typeLabel, tint: NativeTheme.brand)
+              }
+            }
+            Divider().overlay(NativeTheme.divider)
+          }
           ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
               if let siteName = item.torrent.siteName, !siteName.isEmpty {
@@ -643,6 +682,43 @@ private struct NativeDownloadConfirmSheet: View {
             // 满宽种子详情摘要卡片
             CinematicPanel(padding: 15) {
               VStack(alignment: .leading, spacing: 10) {
+                if let mediaTitle = item.recognizedMediaTitle, !mediaTitle.isEmpty {
+                  HStack(spacing: 10) {
+                    if let poster = item.recognizedPosterReference {
+                      NativeMediaArtwork(
+                        session: session, reference: poster, role: .poster, maximumWidth: 160
+                      )
+                      .frame(width: 34, height: 48)
+                      .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    } else {
+                      Image(systemName: item.recognizedMediaSymbol)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(appearance.accentColor)
+                        .frame(width: 32, height: 32)
+                        .background(
+                          appearance.accentColor.opacity(0.14),
+                          in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                      Text(mediaTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                      let metaParts = [
+                        item.recognizedMediaType, item.recognizedMediaYear,
+                        item.meta?.seasonEpisode,
+                      ].compactMap { $0 }.filter { !$0.isEmpty }
+                      if !metaParts.isEmpty {
+                        Text(metaParts.joined(separator: " · "))
+                          .font(.caption)
+                          .foregroundStyle(.secondary)
+                      }
+                    }
+                    Spacer(minLength: 0)
+                  }
+                  Divider().overlay(NativeTheme.divider)
+                }
+
                 ScrollView(.horizontal, showsIndicators: false) {
                   HStack(spacing: 6) {
                     if let site = item.torrent.siteName, !site.isEmpty {
@@ -698,7 +774,7 @@ private struct NativeDownloadConfirmSheet: View {
               .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // iOS 原生分组选择下载器与保存目录
+            // iOS 原生分组选择下载器与保存目录（单行不换行）
             VStack(alignment: .leading, spacing: 7) {
               Text("下载配置")
                 .font(.footnote.weight(.medium))
@@ -706,35 +782,96 @@ private struct NativeDownloadConfirmSheet: View {
                 .padding(.horizontal, 6)
               CinematicPanel(padding: 0) {
                 VStack(spacing: 0) {
-                  HStack {
+                  HStack(spacing: 12) {
                     Label("下载器", systemImage: "arrow.down.circle")
                       .font(.subheadline)
                       .foregroundStyle(.primary)
-                    Spacer()
-                    Picker("下载器", selection: $selectedDownloader) {
-                      Text("默认下载器").tag("")
-                      ForEach(downloaders, id: \.self) { name in Text(name).tag(name) }
+                      .lineLimit(1)
+                      .fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 8)
+                    Menu {
+                      Button {
+                        selectedDownloader = ""
+                      } label: {
+                        if selectedDownloader.isEmpty {
+                          Label("默认下载器", systemImage: "checkmark")
+                        } else {
+                          Text("默认下载器")
+                        }
+                      }
+                      ForEach(downloaders, id: \.self) { name in
+                        Button {
+                          selectedDownloader = name
+                        } label: {
+                          if selectedDownloader == name {
+                            Label(name, systemImage: "checkmark")
+                          } else {
+                            Text(name)
+                          }
+                        }
+                      }
+                    } label: {
+                      HStack(spacing: 5) {
+                        Text(selectedDownloader.isEmpty ? "默认下载器" : selectedDownloader)
+                          .font(.subheadline)
+                          .lineLimit(1)
+                          .truncationMode(.middle)
+                        Image(systemName: "chevron.up.chevron.down")
+                          .font(.caption2.weight(.semibold))
+                      }
+                      .foregroundStyle(appearance.accentColor)
                     }
-                    .tint(appearance.accentColor)
                     .accessibilityIdentifier("native-download-confirm-downloader")
                   }
-                  .padding(.horizontal, 15).padding(.vertical, 11)
+                  .padding(.horizontal, 15)
+                  .frame(minHeight: 50)
                   CinematicFormDivider()
-                  HStack {
+                  HStack(spacing: 12) {
                     Label("保存目录", systemImage: "folder")
                       .font(.subheadline)
                       .foregroundStyle(.primary)
-                    Spacer()
-                    Picker("保存目录", selection: $selectedPath) {
-                      Text("自动匹配默认目录").tag("")
-                      ForEach(paths) { option in
-                        Text(option.displayLabel).tag(option.submitValue)
+                      .lineLimit(1)
+                      .fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 8)
+                    Menu {
+                      Button {
+                        selectedPath = ""
+                      } label: {
+                        if selectedPath.isEmpty {
+                          Label("自动匹配", systemImage: "checkmark")
+                        } else {
+                          Text("自动匹配")
+                        }
                       }
+                      ForEach(paths) { option in
+                        Button {
+                          selectedPath = option.submitValue
+                        } label: {
+                          if selectedPath == option.submitValue {
+                            Label(option.displayLabel, systemImage: "checkmark")
+                          } else {
+                            Text(option.displayLabel)
+                          }
+                        }
+                      }
+                    } label: {
+                      let currentPathLabel =
+                        paths.first(where: { $0.submitValue == selectedPath })?.displayLabel
+                        ?? (selectedPath.isEmpty ? "自动匹配" : selectedPath)
+                      HStack(spacing: 5) {
+                        Text(currentPathLabel)
+                          .font(.subheadline)
+                          .lineLimit(1)
+                          .truncationMode(.middle)
+                        Image(systemName: "chevron.up.chevron.down")
+                          .font(.caption2.weight(.semibold))
+                      }
+                      .foregroundStyle(appearance.accentColor)
                     }
-                    .tint(appearance.accentColor)
                     .accessibilityIdentifier("native-download-confirm-path")
                   }
-                  .padding(.horizontal, 15).padding(.vertical, 11)
+                  .padding(.horizontal, 15)
+                  .frame(minHeight: 50)
                 }
               }
             }
@@ -807,8 +944,9 @@ private struct NativeDownloadConfirmSheet: View {
       let body = try JSONEncoder().encode(
         NativeDownloadAddRequest(
           torrentIn: item.torrent,
-          mediaSource: targetMediaIdentity?.source ?? item.torrent.mediaSource,
-          mediaID: targetMediaIdentity?.mediaID ?? item.torrent.mediaID,
+          mediaSource: targetMediaIdentity?.source ?? item.mediaInfo?.mediaSource
+            ?? item.torrent.mediaSource,
+          mediaID: targetMediaIdentity?.mediaID ?? item.mediaInfo?.mediaID ?? item.torrent.mediaID,
           downloader: selectedDownloader.isEmpty ? nil : selectedDownloader,
           savePath: selectedPath.isEmpty ? nil : selectedPath))
       let endpoint = try APIEndpoint(path: ["download", "add"], method: .post, body: body)
@@ -1003,7 +1141,74 @@ private struct NativeResourceSearchEnvelope: Decodable, Sendable {
 }
 
 private struct NativeResourceContext: Decodable, Sendable, Identifiable {
+  struct MediaBrief: Decodable, Sendable {
+    let title: String?
+    let enTitle: String?
+    let year: String?
+    let type: String?
+    let posterPath: String?
+    let mediaSource: String?
+    let mediaID: String?
+
+    var displayTitle: String? {
+      if let t = title?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty { return t }
+      if let e = enTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !e.isEmpty { return e }
+      return nil
+    }
+
+    private enum CodingKeys: String, CodingKey {
+      case title, year, type, cover
+      case enTitle = "en_title"
+      case posterPath = "poster_path"
+      case mediaSource = "media_source"
+      case mediaID = "media_id"
+      case source
+      case tmdbID = "tmdb_id"
+      case doubanID = "douban_id"
+      case bangumiID = "bangumi_id"
+    }
+
+    init(from decoder: Decoder) throws {
+      let c = try decoder.container(keyedBy: CodingKeys.self)
+      title = try? c.decodeIfPresent(String.self, forKey: .title)
+      enTitle = try? c.decodeIfPresent(String.self, forKey: .enTitle)
+      if let yStr = try? c.decodeIfPresent(String.self, forKey: .year) {
+        year = yStr
+      } else if let yInt = try? c.decodeIfPresent(Int.self, forKey: .year) {
+        year = String(yInt)
+      } else {
+        year = nil
+      }
+      type = try? c.decodeIfPresent(String.self, forKey: .type)
+      posterPath =
+        (try? c.decodeIfPresent(String.self, forKey: .posterPath))
+        ?? (try? c.decodeIfPresent(String.self, forKey: .cover))
+      let rawSource =
+        (try? c.decodeIfPresent(String.self, forKey: .mediaSource))
+        ?? (try? c.decodeIfPresent(String.self, forKey: .source))
+      mediaSource = rawSource
+      if let s = try? c.decodeIfPresent(String.self, forKey: .mediaID), !s.isEmpty {
+        mediaID = s
+      } else if let n = try? c.decodeIfPresent(Int64.self, forKey: .mediaID) {
+        mediaID = String(n)
+      } else if let n = try? c.decodeIfPresent(Int64.self, forKey: .tmdbID) {
+        mediaID = String(n)
+      } else if let s = try? c.decodeIfPresent(String.self, forKey: .doubanID), !s.isEmpty {
+        mediaID = s
+      } else if let n = try? c.decodeIfPresent(Int64.self, forKey: .bangumiID) {
+        mediaID = String(n)
+      } else {
+        mediaID = nil
+      }
+    }
+  }
+
   struct Meta: Decodable, Sendable {
+    let name: String?
+    let cnName: String?
+    let enName: String?
+    let year: String?
+    let type: String?
     let resourcePix: String?
     let videoEncode: String?
     let audioEncode: String?
@@ -1012,8 +1217,19 @@ private struct NativeResourceContext: Decodable, Sendable, Identifiable {
     let webSource: String?
     let resourceTeam: String?
 
+    var displayName: String? {
+      for candidate in [cnName, name, enName] {
+        if let v = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty {
+          return v
+        }
+      }
+      return nil
+    }
+
     private enum CodingKeys: String, CodingKey {
-      case edition
+      case name, year, type, edition
+      case cnName = "cn_name"
+      case enName = "en_name"
       case resourcePix = "resource_pix"
       case videoEncode = "video_encode"
       case audioEncode = "audio_encode"
@@ -1021,10 +1237,92 @@ private struct NativeResourceContext: Decodable, Sendable, Identifiable {
       case webSource = "web_source"
       case resourceTeam = "resource_team"
     }
+
+    init(from decoder: Decoder) throws {
+      let c = try decoder.container(keyedBy: CodingKeys.self)
+      name = try? c.decodeIfPresent(String.self, forKey: .name)
+      cnName = try? c.decodeIfPresent(String.self, forKey: .cnName)
+      enName = try? c.decodeIfPresent(String.self, forKey: .enName)
+      if let yStr = try? c.decodeIfPresent(String.self, forKey: .year) {
+        year = yStr
+      } else if let yInt = try? c.decodeIfPresent(Int.self, forKey: .year) {
+        year = String(yInt)
+      } else {
+        year = nil
+      }
+      type = try? c.decodeIfPresent(String.self, forKey: .type)
+      resourcePix = try? c.decodeIfPresent(String.self, forKey: .resourcePix)
+      videoEncode = try? c.decodeIfPresent(String.self, forKey: .videoEncode)
+      audioEncode = try? c.decodeIfPresent(String.self, forKey: .audioEncode)
+      edition = try? c.decodeIfPresent(String.self, forKey: .edition)
+      seasonEpisode = try? c.decodeIfPresent(String.self, forKey: .seasonEpisode)
+      webSource = try? c.decodeIfPresent(String.self, forKey: .webSource)
+      resourceTeam = try? c.decodeIfPresent(String.self, forKey: .resourceTeam)
+    }
   }
 
   let torrent: NativeTorrentPayload
   let meta: Meta?
+  let mediaInfo: MediaBrief?
+
+  private enum CodingKeys: String, CodingKey {
+    case torrent = "torrent_info"
+    case torrentLegacy = "torrent"
+    case meta = "meta_info"
+    case metaLegacy = "meta"
+    case mediaInfo = "media_info"
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    if let t = try c.decodeIfPresent(NativeTorrentPayload.self, forKey: .torrent) {
+      torrent = t
+    } else {
+      torrent = try c.decode(NativeTorrentPayload.self, forKey: .torrentLegacy)
+    }
+    meta =
+      (try? c.decodeIfPresent(Meta.self, forKey: .meta))
+      ?? (try? c.decodeIfPresent(Meta.self, forKey: .metaLegacy))
+    mediaInfo = try? c.decodeIfPresent(MediaBrief.self, forKey: .mediaInfo)
+  }
+
+  var recognizedMediaTitle: String? {
+    mediaInfo?.displayTitle ?? meta?.displayName
+  }
+
+  var recognizedMediaYear: String? {
+    let raw = mediaInfo?.year ?? meta?.year
+    let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
+  var recognizedMediaType: String? {
+    let raw = (mediaInfo?.type ?? meta?.type)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if raw.isEmpty { return nil }
+    switch raw.lowercased() {
+    case "movie", "电影": return "电影"
+    case "tv", "电视剧": return "电视剧"
+    case "music", "音乐": return "音乐"
+    default: return raw
+    }
+  }
+
+  var recognizedMediaSymbol: String {
+    switch recognizedMediaType {
+    case "电视剧": "tv.fill"
+    case "音乐": "music.note"
+    default: "film.fill"
+    }
+  }
+
+  @MainActor
+  var recognizedPosterReference: String? {
+    guard let raw = mediaInfo?.posterPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !raw.isEmpty
+    else { return nil }
+    return NativeMediaDetailPage.resolveArtwork(
+      raw, source: mediaInfo?.mediaSource ?? "themoviedb")
+  }
 
   var id: String {
     let raw =
@@ -1082,11 +1380,6 @@ private struct NativeResourceContext: Decodable, Sendable, Identifiable {
       index += 1
     }
     return String(format: "%.1f %@", value, units[index])
-  }
-
-  private enum CodingKeys: String, CodingKey {
-    case torrent = "torrent_info"
-    case meta = "meta_info"
   }
 }
 

@@ -292,10 +292,13 @@ final class NativeAppModel: ObservableObject {
     }
   }
 
-  /// 语言更新立即作用于本机文案；不伪装已经同步未接入的后端用户偏好。
+  /// 语言更新立即作用于本机文案、活跃会话 `X-MoviePilot-Locale` 请求头并清空陈旧语言快照缓存。
   func selectLanguage(_ value: AppLanguage) {
     LanguagePreferences(defaults: .standard).select(value, instanceID: selected?.id)
     language = value
+    manager.currentSession?.updateLanguage(value)
+    NativePageDataCache.shared.clearAll()
+    NativeMediaLibraryStatusStore.shared.clearAll()
     LanguageSettings.refreshShortcuts()
   }
 

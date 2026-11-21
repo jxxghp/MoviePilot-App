@@ -17,7 +17,6 @@ struct NativeWorkflowsPage: View {
   @State private var mutatingID: Int?
   @State private var showsCreateSheet = false
   @State private var editingWorkflow: NativeWorkflowItem?
-  @State private var showsCommunitySheet = false
   @State private var pendingReset: NativeWorkflowItem?
   @State private var pendingDelete: NativeWorkflowItem?
   @State private var feedback: NativeWorkflowFeedback?
@@ -61,8 +60,12 @@ struct NativeWorkflowsPage: View {
     .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
-        Button {
-          showsCommunitySheet = true
+        NavigationLink {
+          NativeWorkflowCommunityPage(session: session) { msg in
+            feedback = NativeWorkflowFeedback(isError: false, message: msg)
+            NativePageDataCache.shared.remove("workflows|mine", session: session)
+            attempt += 1
+          }
         } label: {
           Image(systemName: "square.stack.3d.up")
         }
@@ -88,13 +91,6 @@ struct NativeWorkflowsPage: View {
     }
     .sheet(item: $editingWorkflow) { target in
       NativeWorkflowEditorSheet(session: session, existing: target) { msg in
-        feedback = NativeWorkflowFeedback(isError: false, message: msg)
-        NativePageDataCache.shared.remove("workflows|mine", session: session)
-        attempt += 1
-      }
-    }
-    .sheet(isPresented: $showsCommunitySheet) {
-      NativeWorkflowCommunitySheet(session: session) { msg in
         feedback = NativeWorkflowFeedback(isError: false, message: msg)
         NativePageDataCache.shared.remove("workflows|mine", session: session)
         attempt += 1
@@ -562,10 +558,10 @@ private struct NativeWorkflowEditorSheet: View {
   }
 }
 
-// MARK: - 社区工作流分享弹层
+// MARK: - 社区工作流分享页（与订阅广场/插件市场统一的推入导航）
 
 @MainActor
-private struct NativeWorkflowCommunitySheet: View {
+private struct NativeWorkflowCommunityPage: View {
   let session: NativeSession
   let onForked: (String) -> Void
 
@@ -576,80 +572,79 @@ private struct NativeWorkflowCommunitySheet: View {
   @State private var pendingFork: NativeWorkflowShareItem?
 
   var body: some View {
-    NavigationStack {
-      ZStack {
-        CinematicBackground()
-        ScrollView {
-          VStack(alignment: .leading, spacing: 12) {
-            if isLoading && shares.isEmpty {
-              ProgressView("正在载入社区工作流分享…").tint(.primary)
-                .frame(maxWidth: .infinity, minHeight: 180)
-            } else if shares.isEmpty {
-              CinematicPanel {
-                Text("暂无社区工作流分享").font(.subheadline).foregroundStyle(.secondary)
-                  .frame(maxWidth: .infinity, minHeight: 120)
-              }
-            } else {
-              ForEach(shares) { share in
-                CinematicPanel(padding: 14) {
-                  VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .top) {
-                      VStack(alignment: .leading, spacing: 4) {
-                        Text(share.displayTitle).font(.headline).foregroundStyle(.primary)
-                        if let comment = share.displaySummary {
-                          Text(comment).font(.caption).foregroundStyle(.secondary).lineLimit(3)
-                        }
-                      }
-                      Spacer()
-                      if share.count > 0 {
-                        NativeAdaptiveBadge("\(share.count) 复用", tint: NativeTheme.brand)
+    ZStack {
+      CinematicBackground()
+      ScrollView {
+        VStack(alignment: .leading, spacing: 12) {
+          if isLoading && shares.isEmpty {
+            ProgressView("正在载入社区工作流分享…").tint(.primary)
+              .frame(maxWidth: .infinity, minHeight: 180)
+          } else if shares.isEmpty {
+            CinematicPanel {
+              Text("暂无社区工作流分享").font(.subheadline).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 120)
+            }
+          } else {
+            ForEach(shares) { share in
+              CinematicPanel(padding: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                  HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                      Text(share.displayTitle).font(.headline).foregroundStyle(.primary)
+                      if let comment = share.displaySummary {
+                        Text(comment).font(.caption).foregroundStyle(.secondary).lineLimit(3)
                       }
                     }
-                    HStack {
-                      if let user = share.shareUser, !user.isEmpty {
-                        Label(user, systemImage: "person.circle").font(.caption2).foregroundStyle(
-                          .secondary)
-                      }
-                      Spacer()
-                      Button {
-                        pendingFork = share
-                      } label: {
-                        Label("复用", systemImage: "square.and.arrow.down")
-                          .font(.caption.weight(.semibold))
-                          .foregroundStyle(.white)
-                          .padding(.horizontal, 12).padding(.vertical, 6)
-                          .background(appearance.accentColor, in: Capsule())
-                      }
-                      .buttonStyle(.plain)
+                    Spacer()
+                    if share.count > 0 {
+                      NativeAdaptiveBadge("\(share.count) 复用", tint: NativeTheme.brand)
                     }
+                  }
+                  HStack {
+                    if let user = share.shareUser, !user.isEmpty {
+                      Label(user, systemImage: "person.circle").font(.caption2).foregroundStyle(
+                        .secondary)
+                    }
+                    Spacer()
+                    Button {
+                      pendingFork = share
+                    } label: {
+                      Label("复用", systemImage: "square.and.arrow.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(appearance.accentColor, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
                   }
                 }
               }
             }
           }
-          .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
         }
+        .frame(maxWidth: 840, alignment: .leading)
+        .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
+        .frame(maxWidth: .infinity)
       }
-      .navigationTitle("社区分享")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
-      .toolbar {
-        ToolbarItem(placement: .topBarLeading) { Button("关闭") { dismiss() } }
-      }
-      .alert(
-        "复用工作流",
-        isPresented: Binding(
-          get: { pendingFork != nil }, set: { if !$0 { pendingFork = nil } }),
-        presenting: pendingFork
-      ) { share in
-        Button("确认复用") { Task { await forkShare(share) } }
-        Button("取消", role: .cancel) {}
-      } message: { share in
-        Text("确认将「\(share.displayTitle)」复制到我的工作流吗？")
-      }
-      .task { await loadShares() }
+      .scrollIndicators(.hidden)
+      .refreshable { await loadShares() }
+      .modifier(NativeSoftTopScrollEdge())
     }
-    .nativeAppearanceRoot()
+    .navigationTitle("社区分享")
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbarBackground(.hidden, for: .navigationBar)
+    .alert(
+      "复用工作流",
+      isPresented: Binding(
+        get: { pendingFork != nil }, set: { if !$0 { pendingFork = nil } }),
+      presenting: pendingFork
+    ) { share in
+      Button("确认复用") { Task { await forkShare(share) } }
+      Button("取消", role: .cancel) {}
+    } message: { share in
+      Text("确认将「\(share.displayTitle)」复制到我的工作流吗？")
+    }
+    .task { await loadShares() }
   }
 
   private func loadShares() async {

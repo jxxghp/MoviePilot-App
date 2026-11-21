@@ -72,6 +72,13 @@ struct NativeSystemModulesPage: View {
   @State private var testingTargetID: String?
   @State private var isTestingAllNet = false
   @State private var feedback: String?
+  @State private var feedbackIsError = false
+  @State private var editingNotificationIndex: Int?
+  @State private var showsNotificationCreate = false
+  @State private var pendingDeleteNotificationIndex: Int?
+  @State private var editingDirectoryIndex: Int?
+  @State private var showsDirectoryCreate = false
+  @State private var pendingDeleteDirectoryIndex: Int?
 
   /// 指定初始进入的设置分区。
   init(session: NativeSession, initialDomain: Domain = .directories) {
@@ -82,15 +89,101 @@ struct NativeSystemModulesPage: View {
 
   /// 深色紫玫瑰渐变背景与当前专项配置玻璃卡片（由系统设置主菜单直接进入，不再展示横向一级跳转条）。
   var body: some View {
+    mainWithModals
+  }
+
+  private var mainWithModals: some View {
+    basePage
+      .sheet(isPresented: $showsNotificationCreate) {
+        NativeNotificationEditorSheet(initial: nil) { created in
+          Task { await saveNotification(created, replaceAt: nil) }
+        }
+      }
+      .sheet(
+        isPresented: Binding(
+          get: { editingNotificationIndex != nil },
+          set: { if !$0 { editingNotificationIndex = nil } })
+      ) {
+        if let idx = editingNotificationIndex, notifications.indices.contains(idx) {
+          NativeNotificationEditorSheet(
+            initial: notifications[idx],
+            onDelete: {
+              editingNotificationIndex = nil
+              pendingDeleteNotificationIndex = idx
+            }
+          ) { updated in
+            Task { await saveNotification(updated, replaceAt: idx) }
+          }
+        }
+      }
+      .sheet(isPresented: $showsDirectoryCreate) {
+        NativeDirectoryEditorSheet(initial: nil, storages: storages) { created in
+          Task { await saveDirectory(created, replaceAt: nil) }
+        }
+      }
+      .sheet(
+        isPresented: Binding(
+          get: { editingDirectoryIndex != nil },
+          set: { if !$0 { editingDirectoryIndex = nil } })
+      ) {
+        if let idx = editingDirectoryIndex, directories.indices.contains(idx) {
+          NativeDirectoryEditorSheet(
+            initial: directories[idx],
+            storages: storages,
+            onDelete: {
+              editingDirectoryIndex = nil
+              pendingDeleteDirectoryIndex = idx
+            }
+          ) { updated in
+            Task { await saveDirectory(updated, replaceAt: idx) }
+          }
+        }
+      }
+      .alert(
+        "删除通知渠道",
+        isPresented: Binding(
+          get: { pendingDeleteNotificationIndex != nil },
+          set: { if !$0 { pendingDeleteNotificationIndex = nil } })
+      ) {
+        Button("删除", role: .destructive) {
+          if let idx = pendingDeleteNotificationIndex, notifications.indices.contains(idx) {
+            Task { await deleteNotification(at: idx) }
+          }
+        }
+        Button("取消", role: .cancel) {}
+      } message: {
+        Text("确认删除该服务端通知渠道吗？")
+      }
+      .alert(
+        "删除整理目录",
+        isPresented: Binding(
+          get: { pendingDeleteDirectoryIndex != nil },
+          set: { if !$0 { pendingDeleteDirectoryIndex = nil } })
+      ) {
+        Button("删除", role: .destructive) {
+          if let idx = pendingDeleteDirectoryIndex, directories.indices.contains(idx) {
+            Task { await deleteDirectory(at: idx) }
+          }
+        }
+        Button("取消", role: .cancel) {}
+      } message: {
+        Text("确认删除该整理目录配置吗？")
+      }
+  }
+
+  private var basePage: some View {
     ZStack {
       CinematicBackground()
       ScrollView {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 18) {
           if let feedback {
-            CinematicPanel(padding: 10) {
+            CinematicPanel(padding: 12) {
               HStack(spacing: 8) {
-                Image(systemName: "checkmark.circle.fill")
-                  .foregroundStyle(NativeTheme.success)
+                Image(
+                  systemName: feedbackIsError
+                    ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+                )
+                .foregroundStyle(feedbackIsError ? NativeTheme.warning : NativeTheme.success)
                 Text(feedback).font(.subheadline).foregroundStyle(.primary.opacity(0.88))
                 Spacer(minLength: 0)
               }
@@ -101,7 +194,7 @@ struct NativeSystemModulesPage: View {
         }
         .frame(maxWidth: 840)
         .padding(.horizontal, CinematicStyle.margin)
-        .padding(.vertical, 14)
+        .padding(.vertical, 16)
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
@@ -150,6 +243,22 @@ struct NativeSystemModulesPage: View {
           }
           .disabled(isTestingAllNet || netTargets.isEmpty)
           .accessibilityIdentifier("native-sysmod-nettest-all")
+        } else if domain == .notifications {
+          Button {
+            showsNotificationCreate = true
+          } label: {
+            Image(systemName: "plus")
+          }
+          .accessibilityLabel("新增通知渠道")
+          .accessibilityIdentifier("native-sysmod-notification-add")
+        } else if domain == .directories {
+          Button {
+            showsDirectoryCreate = true
+          } label: {
+            Image(systemName: "plus")
+          }
+          .accessibilityLabel("新增整理目录")
+          .accessibilityIdentifier("native-sysmod-directory-add")
         }
       }
     }
@@ -339,90 +448,165 @@ struct NativeSystemModulesPage: View {
     }
   }
 
-  /// 目录与存储配置视图。
+  /// 目录与存储配置视图（支持新增、编辑、优先级调整、删除整理目录，以及跳转刮削开关）。
   private var directoriesContent: some View {
-    VStack(alignment: .leading, spacing: 14) {
+    VStack(alignment: .leading, spacing: 18) {
       sectionHeader("刮削策略", count: 0)
       CinematicPanel(padding: 0) {
         NavigationLink {
           NativeSystemModulesPage(session: session, initialDomain: .scraping)
         } label: {
-          HStack(spacing: 12) {
+          HStack(spacing: 14) {
             Image(systemName: "wand.and.stars")
-              .font(.subheadline.weight(.semibold))
+              .font(.system(size: 15, weight: .semibold))
               .foregroundStyle(NativeTheme.brand)
-              .frame(width: 28, height: 28)
-              .background(NativeTheme.brand.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 2) {
-              Text("刮削开关").font(.subheadline.weight(.medium)).foregroundStyle(.primary)
-              Text("配置电影、剧集、音乐 NFO 与图片刮削").font(.caption2).foregroundStyle(.secondary)
+              .frame(width: 34, height: 34)
+              .background(NativeTheme.brand.opacity(0.15), in: RoundedRectangle(cornerRadius: 9))
+            VStack(alignment: .leading, spacing: 3) {
+              Text("刮削开关").font(.body.weight(.medium)).foregroundStyle(.primary)
+              Text("配置电影、剧集、音乐 NFO 与图片刮削").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
+            Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
+              .foregroundStyle(.secondary.opacity(0.55))
           }
-          .padding(.horizontal, 14).padding(.vertical, 11)
+          .padding(.horizontal, 16).padding(.vertical, 14)
+          .frame(minHeight: 58)
           .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
       }
 
-      sectionHeader("已配置存储", count: storages.count)
-      if storages.isEmpty {
-        emptyCard("暂无存储配置")
+      sectionHeader("下载与媒体库整理目录", count: directories.count)
+      if directories.isEmpty {
+        emptyCard("暂无目录映射配置，点击右上角「+」新增整理目录。")
       } else {
-        ForEach(storages) { storage in
-          CinematicPanel(padding: 13) {
-            HStack(spacing: 12) {
-              NativeBrandIcon(kind: .storage, type: storage.type, size: 38, cornerRadius: 10)
-              VStack(alignment: .leading, spacing: 3) {
-                Text(storage.name).font(.headline).foregroundStyle(.primary)
-                Text(storage.type).font(.caption.monospaced()).foregroundStyle(
-                  .primary.opacity(0.65))
+        ForEach(Array(directories.enumerated()), id: \.offset) { idx, dir in
+          Button {
+            editingDirectoryIndex = idx
+          } label: {
+            CinematicPanel(padding: 15) {
+              VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                  Text("#\(idx + 1)")
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(NativeTheme.brand)
+                    .padding(.horizontal, 7).padding(.vertical, 2.5)
+                    .background(NativeTheme.brand.opacity(0.14), in: Capsule())
+                  Text(dir.displayName)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                  Spacer()
+                  if !dir.transferLabel.isEmpty {
+                    statusTag(dir.transferLabel, active: true)
+                  }
+                  Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary.opacity(0.55))
+                }
+
+                VStack(alignment: .leading, spacing: 7) {
+                  if let src = dir.downloadPath, !src.isEmpty {
+                    HStack(spacing: 8) {
+                      NativeBrandIcon(
+                        kind: .storage, type: dir.storage ?? "local", size: 22, cornerRadius: 6)
+                      Text(src)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.primary.opacity(0.82))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    }
+                  }
+                  if let dst = dir.libraryPath, !dst.isEmpty {
+                    HStack(spacing: 8) {
+                      NativeBrandIcon(
+                        kind: .storage, type: dir.libraryStorage ?? "local", size: 22,
+                        cornerRadius: 6)
+                      Text(dst)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(NativeTheme.brand)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    }
+                  }
+                }
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                  HStack(spacing: 6) {
+                    if let mediaType = dir.mediaType, !mediaType.isEmpty {
+                      miniChip(mediaType)
+                    }
+                    if let category = dir.mediaCategory, !category.isEmpty {
+                      miniChip(category)
+                    }
+                    if !dir.monitorLabel.isEmpty {
+                      miniChip(dir.monitorLabel)
+                    }
+                    if dir.renaming == true {
+                      miniChip("智能重命名")
+                    }
+                    if dir.scraping == true {
+                      miniChip("自动刮削")
+                    }
+                    if dir.notify == true {
+                      miniChip("通知")
+                    }
+                  }
+                }
               }
-              Spacer()
-              statusTag("已挂载", active: true)
+              .frame(maxWidth: .infinity, alignment: .leading)
+            }
+          }
+          .buttonStyle(.plain)
+          .contextMenu {
+            Button {
+              editingDirectoryIndex = idx
+            } label: {
+              Label("编辑目录", systemImage: "pencil")
+            }
+            if idx > 0 {
+              Button {
+                Task { await moveDirectory(from: idx, to: idx - 1) }
+              } label: {
+                Label("提高优先级", systemImage: "arrow.up")
+              }
+            }
+            if idx < directories.count - 1 {
+              Button {
+                Task { await moveDirectory(from: idx, to: idx + 1) }
+              } label: {
+                Label("降低优先级", systemImage: "arrow.down")
+              }
+            }
+            Divider()
+            Button(role: .destructive) {
+              pendingDeleteDirectoryIndex = idx
+            } label: {
+              Label("删除目录", systemImage: "trash")
             }
           }
         }
       }
 
-      sectionHeader("下载与媒体库目录", count: directories.count)
-      if directories.isEmpty {
-        emptyCard("暂无目录映射配置")
+      sectionHeader("已挂载存储", count: storages.count)
+      if storages.isEmpty {
+        emptyCard("暂无存储配置")
       } else {
-        ForEach(directories) { dir in
-          CinematicPanel(padding: 13) {
-            VStack(alignment: .leading, spacing: 6) {
-              HStack {
-                Text(dir.displayName).font(.headline).foregroundStyle(.primary)
+        CinematicPanel(padding: 0) {
+          VStack(spacing: 0) {
+            ForEach(Array(storages.enumerated()), id: \.element.id) { idx, storage in
+              if idx > 0 { CinematicFormDivider() }
+              HStack(spacing: 13) {
+                NativeBrandIcon(kind: .storage, type: storage.type, size: 38, cornerRadius: 10)
+                VStack(alignment: .leading, spacing: 3) {
+                  Text(storage.name).font(.body.weight(.semibold)).foregroundStyle(.primary)
+                  Text(storage.type).font(.caption.monospaced()).foregroundStyle(.secondary)
+                }
                 Spacer()
-                if !dir.transferLabel.isEmpty {
-                  statusTag(dir.transferLabel, active: true)
-                }
+                statusTag("已挂载", active: true)
               }
-              if let src = dir.downloadPath, !src.isEmpty {
-                Label(src, systemImage: "arrow.down.doc")
-                  .font(.caption.monospaced())
-                  .foregroundStyle(.primary.opacity(0.76))
-                  .lineLimit(2)
-              }
-              if let dst = dir.libraryPath, !dst.isEmpty {
-                Label(dst, systemImage: "folder.fill")
-                  .font(.caption.monospaced())
-                  .foregroundStyle(NativeTheme.brand)
-                  .lineLimit(2)
-              }
-              HStack(spacing: 8) {
-                if let mediaType = dir.mediaType, !mediaType.isEmpty {
-                  miniChip(mediaType)
-                }
-                if let category = dir.mediaCategory, !category.isEmpty {
-                  miniChip(category)
-                }
-                if let monitor = dir.monitorType, !monitor.isEmpty {
-                  miniChip("监控: \(monitor)")
-                }
-              }
+              .padding(.horizontal, 16).padding(.vertical, 13)
             }
           }
         }
@@ -475,35 +659,80 @@ struct NativeSystemModulesPage: View {
     }
   }
 
-  /// 通知渠道视图（脱敏显示真实渠道品牌图标、名称、类型与订阅场景）。
+  /// 通知渠道视图（支持点击编辑、长按启停/排序/删除及右上角「+」新增渠道）。
   private var notificationsContent: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: 14) {
       sectionHeader("通知渠道", count: notifications.count)
       if notifications.isEmpty {
-        emptyCard("暂无已配置通知渠道")
+        emptyCard("暂无已配置通知渠道，点击右上角「+」新增推送渠道。")
       } else {
-        ForEach(notifications) { item in
-          CinematicPanel(padding: 13) {
-            VStack(alignment: .leading, spacing: 8) {
-              HStack(spacing: 12) {
-                NativeBrandIcon(kind: .notification, type: item.type, size: 40, cornerRadius: 11)
-                VStack(alignment: .leading, spacing: 3) {
-                  Text(item.name).font(.headline).foregroundStyle(.primary)
-                  Text(item.type).font(.caption.monospaced()).foregroundStyle(
-                    .primary.opacity(0.66))
+        ForEach(Array(notifications.enumerated()), id: \.offset) { idx, item in
+          Button {
+            editingNotificationIndex = idx
+          } label: {
+            CinematicPanel(padding: 15) {
+              VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 13) {
+                  NativeBrandIcon(
+                    kind: .notification, type: item.type, size: 42, cornerRadius: 11)
+                  VStack(alignment: .leading, spacing: 3) {
+                    Text(item.name).font(.body.weight(.semibold)).foregroundStyle(.primary)
+                    Text("\(NativeNotificationConfig.displayTypeName(item.type)) · \(item.type)")
+                      .font(.caption)
+                      .foregroundStyle(.secondary)
+                      .lineLimit(1)
+                  }
+                  Spacer()
+                  statusTag(item.enabled ? "已启用" : "已停用", active: item.enabled)
+                  Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary.opacity(0.55))
                 }
-                Spacer()
-                statusTag(item.enabled ? "已启用" : "已停用", active: item.enabled)
-              }
-              if !item.switchs.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                  HStack(spacing: 6) {
-                    ForEach(item.switchs.prefix(6), id: \.self) { scene in
-                      miniChip(scene)
+                if !item.switchs.isEmpty {
+                  ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                      ForEach(item.switchs.prefix(8), id: \.self) { scene in
+                        miniChip(scene)
+                      }
                     }
                   }
                 }
               }
+            }
+          }
+          .buttonStyle(.plain)
+          .contextMenu {
+            Button {
+              editingNotificationIndex = idx
+            } label: {
+              Label("编辑配置", systemImage: "pencil")
+            }
+            Button {
+              Task { await toggleNotificationEnabled(at: idx) }
+            } label: {
+              Label(
+                item.enabled ? "停用渠道" : "启用渠道",
+                systemImage: item.enabled ? "pause.circle" : "play.circle")
+            }
+            if idx > 0 {
+              Button {
+                Task { await moveNotification(from: idx, to: idx - 1) }
+              } label: {
+                Label("上移", systemImage: "arrow.up")
+              }
+            }
+            if idx < notifications.count - 1 {
+              Button {
+                Task { await moveNotification(from: idx, to: idx + 1) }
+              } label: {
+                Label("下移", systemImage: "arrow.down")
+              }
+            }
+            Divider()
+            Button(role: .destructive) {
+              pendingDeleteNotificationIndex = idx
+            } label: {
+              Label("删除渠道", systemImage: "trash")
             }
           }
         }
@@ -796,6 +1025,115 @@ struct NativeSystemModulesPage: View {
     }
   }
 
+  // MARK: - 通知渠道 CRUD 持久化
+
+  private func saveNotification(_ item: NativeNotificationConfig, replaceAt index: Int?) async {
+    var next = notifications
+    if let index, next.indices.contains(index) {
+      next[index] = item
+    } else {
+      next.append(item)
+    }
+    await persistNotifications(
+      next,
+      successMessage: index == nil ? "已新增通知渠道「\(item.name)」。" : "已保存通知渠道「\(item.name)」。")
+  }
+
+  private func toggleNotificationEnabled(at index: Int) async {
+    guard notifications.indices.contains(index) else { return }
+    var next = notifications
+    next[index].enabled.toggle()
+    let stateLabel = next[index].enabled ? "已启用" : "已停用"
+    await persistNotifications(next, successMessage: "\(stateLabel)通知渠道「\(next[index].name)」。")
+  }
+
+  private func moveNotification(from source: Int, to destination: Int) async {
+    guard notifications.indices.contains(source), notifications.indices.contains(destination) else {
+      return
+    }
+    var next = notifications
+    let item = next.remove(at: source)
+    next.insert(item, at: destination)
+    await persistNotifications(next, successMessage: "已调整通知渠道顺序。")
+  }
+
+  private func deleteNotification(at index: Int) async {
+    guard notifications.indices.contains(index) else { return }
+    var next = notifications
+    let removed = next.remove(at: index)
+    await persistNotifications(next, successMessage: "已删除通知渠道「\(removed.name)」。")
+  }
+
+  private func persistNotifications(
+    _ next: [NativeNotificationConfig], successMessage: String
+  ) async {
+    do {
+      let body = try JSONEncoder().encode(next)
+      let ep = try APIEndpoint(
+        path: ["system", "setting", "Notifications"], method: .post, body: body)
+      try await session.perform(ep, requiring: PermissionRequirement(category: .admin))
+      notifications = next
+      feedbackIsError = false
+      feedback = successMessage
+    } catch {
+      feedbackIsError = true
+      feedback = "保存通知渠道配置失败，请稍后重试。"
+    }
+  }
+
+  // MARK: - 整理目录 CRUD 持久化
+
+  private func saveDirectory(_ item: NativeDirectoryConfig, replaceAt index: Int?) async {
+    var next = directories
+    if let index, next.indices.contains(index) {
+      next[index] = item
+    } else {
+      next.append(item)
+    }
+    await persistDirectories(
+      next,
+      successMessage: index == nil
+        ? "已新增整理目录「\(item.displayName)」。" : "已保存整理目录「\(item.displayName)」。")
+  }
+
+  private func moveDirectory(from source: Int, to destination: Int) async {
+    guard directories.indices.contains(source), directories.indices.contains(destination) else {
+      return
+    }
+    var next = directories
+    let item = next.remove(at: source)
+    next.insert(item, at: destination)
+    await persistDirectories(next, successMessage: "已更新整理目录优先级。")
+  }
+
+  private func deleteDirectory(at index: Int) async {
+    guard directories.indices.contains(index) else { return }
+    var next = directories
+    let removed = next.remove(at: index)
+    await persistDirectories(next, successMessage: "已删除整理目录「\(removed.displayName)」。")
+  }
+
+  private func persistDirectories(
+    _ rawNext: [NativeDirectoryConfig], successMessage: String
+  ) async {
+    var normalized = rawNext
+    for i in normalized.indices {
+      normalized[i].priority = i
+    }
+    do {
+      let body = try JSONEncoder().encode(normalized)
+      let ep = try APIEndpoint(
+        path: ["system", "setting", "Directories"], method: .post, body: body)
+      try await session.perform(ep, requiring: PermissionRequirement(category: .admin))
+      directories = normalized
+      feedbackIsError = false
+      feedback = successMessage
+    } catch {
+      feedbackIsError = true
+      feedback = "保存整理目录配置失败，请稍后重试。"
+    }
+  }
+
   /// 单次保存刮削开关配置至 `POST /api/v1/system/setting/ScrapingSwitchs`。
   private func saveScrapingSwitches() async {
     guard !isSavingScraping else { return }
@@ -863,36 +1201,68 @@ private struct NativeSettingValueWrapper<Value: Decodable & Sendable>: Decodable
   let value: Value?
 }
 
-private struct NativeDirectoryConfig: Decodable, Sendable, Identifiable {
-  let name: String?
-  let storage: String?
-  let downloadPath: String?
-  let libraryPath: String?
-  let mediaType: String?
-  let mediaCategory: String?
-  let transferType: String?
-  let monitorType: String?
+private struct NativeDirectoryConfig: Codable, Sendable, Identifiable {
+  var name: String?
+  var priority: Int?
+  var storage: String?
+  var downloadPath: String?
+  var mediaType: String?
+  var mediaCategory: String?
+  var mediaCategoryID: String?
+  var downloadTypeFolder: Bool?
+  var downloadCategoryFolder: Bool?
+  var monitorType: String?
+  var monitorMode: String?
+  var transferType: String?
+  var overwriteMode: String?
+  var libraryPath: String?
+  var libraryStorage: String?
+  var renaming: Bool?
+  var scraping: Bool?
+  var notify: Bool?
+  var libraryTypeFolder: Bool?
+  var libraryCategoryFolder: Bool?
 
-  var id: String { "\(name ?? "")|\(downloadPath ?? "")|\(libraryPath ?? "")" }
+  var id: String { "\(priority ?? 0)|\(name ?? "")|\(downloadPath ?? "")|\(libraryPath ?? "")" }
   var displayName: String { (name?.isEmpty == false ? name : nil) ?? storage ?? "媒体目录" }
+
   var transferLabel: String {
     switch (transferType ?? "").lowercased() {
     case "link": "硬链接"
     case "softlink": "软链接"
     case "copy": "复制"
     case "move": "移动"
+    case "reflink": "Reflink"
+    case "": ""
     default: transferType ?? ""
     }
   }
 
+  var monitorLabel: String {
+    switch (monitorType ?? "").lowercased() {
+    case "downloader": "下载器监控"
+    case "monitor": "目录监控"
+    case "": ""
+    default: monitorType ?? ""
+    }
+  }
+
   private enum CodingKeys: String, CodingKey {
-    case name, storage
+    case name, priority, storage, renaming, scraping, notify
     case downloadPath = "download_path"
-    case libraryPath = "library_path"
     case mediaType = "media_type"
     case mediaCategory = "media_category"
-    case transferType = "transfer_type"
+    case mediaCategoryID = "media_category_id"
+    case downloadTypeFolder = "download_type_folder"
+    case downloadCategoryFolder = "download_category_folder"
     case monitorType = "monitor_type"
+    case monitorMode = "monitor_mode"
+    case transferType = "transfer_type"
+    case overwriteMode = "overwrite_mode"
+    case libraryPath = "library_path"
+    case libraryStorage = "library_storage"
+    case libraryTypeFolder = "library_type_folder"
+    case libraryCategoryFolder = "library_category_folder"
   }
 }
 
@@ -931,22 +1301,67 @@ private struct NativeServiceConfig: Decodable, Sendable, Identifiable {
   }
 }
 
-private struct NativeNotificationConfig: Decodable, Sendable, Identifiable {
-  let name: String
-  let type: String
-  let enabled: Bool
-  let switchs: [String]
-  var id: String { "\(type)-\(name)" }
+private struct NativeNotificationConfig: Codable, Sendable, Identifiable {
+  var id: String
+  var name: String
+  var type: String
+  var enabled: Bool
+  var switchs: [String]
+  var config: [String: JSONValue]
+
+  func configString(_ key: String) -> String {
+    if case .string(let s) = config[key] { return s }
+    if case .number(let n) = config[key] {
+      return n.rounded() == n ? String(Int64(n)) : String(n)
+    }
+    return ""
+  }
+
+  static func displayTypeName(_ type: String) -> String {
+    switch type.lowercased() {
+    case "wechat": "企业微信"
+    case "wechatclawbot": "微信客服"
+    case "telegram": "Telegram"
+    case "feishu": "飞书"
+    case "qqbot": "QQ 机器人"
+    case "slack": "Slack"
+    case "discord": "Discord"
+    case "dingtalk": "钉钉"
+    case "vocechat": "VoceChat"
+    case "synologychat": "Synology Chat"
+    case "webpush": "WebPush"
+    case "apppush": "AppPush"
+    default: type.isEmpty ? "自定义" : type
+    }
+  }
+
+  init(
+    id: String = UUID().uuidString,
+    name: String,
+    type: String,
+    enabled: Bool,
+    switchs: [String],
+    config: [String: JSONValue]
+  ) {
+    self.id = id
+    self.name = name
+    self.type = type
+    self.enabled = enabled
+    self.switchs = switchs
+    self.config = config
+  }
 
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? UUID().uuidString
     name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? "通知渠道"
     type = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? ""
     enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? false
     switchs = (try? c.decodeIfPresent([String].self, forKey: .switchs)) ?? []
+    config = (try? c.decodeIfPresent([String: JSONValue].self, forKey: .config)) ?? [:]
   }
 
-  private enum CodingKeys: String, CodingKey { case name, type, enabled, switchs }
+  private enum CodingKeys: String, CodingKey { case id, name, type, enabled, switchs, config }
 }
 
 private struct NativeFilterRuleGroup: Decodable, Sendable, Identifiable {
@@ -1002,5 +1417,862 @@ private struct NativeSiteScopeOption: Decodable, Sendable, Identifiable {
     name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? "站点 #\(id)"
     domain = (try? c.decodeIfPresent(String.self, forKey: .domain)) ?? ""
     isActive = (try? c.decodeIfPresent(Bool.self, forKey: .isActive)) ?? true
+  }
+}
+
+// MARK: - 通知渠道新增/编辑弹窗
+
+@MainActor
+private struct NativeNotificationEditorSheet: View {
+  let initial: NativeNotificationConfig?
+  var onDelete: (() -> Void)? = nil
+  let onSave: (NativeNotificationConfig) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+
+  @State private var name: String
+  @State private var type: String
+  @State private var enabled: Bool
+  @State private var selectedScenes: Set<String>
+  @State private var configValues: [String: String]
+  @State private var baseConfig: [String: JSONValue]
+
+  private struct FieldSpec: Identifiable {
+    let key: String
+    let label: String
+    let placeholder: String
+    var isSecret: Bool = false
+    var isNumber: Bool = false
+    var id: String { key }
+  }
+
+  private static let allScenes: [String] = [
+    "资源下载", "整理入库", "订阅", "站点", "媒体服务器", "手动处理", "插件", "智能体", "其它",
+  ]
+
+  private static let channelChoices: [NativeBrandChoiceItem] = [
+    .init(id: "wechat", title: "企业微信"),
+    .init(id: "wechatclawbot", title: "微信客服"),
+    .init(id: "telegram", title: "Telegram"),
+    .init(id: "feishu", title: "飞书"),
+    .init(id: "qqbot", title: "QQ 机器人"),
+    .init(id: "slack", title: "Slack"),
+    .init(id: "discord", title: "Discord"),
+    .init(id: "dingtalk", title: "钉钉"),
+    .init(id: "vocechat", title: "VoceChat"),
+    .init(id: "synologychat", title: "Synology"),
+    .init(id: "apppush", title: "AppPush"),
+    .init(id: "webpush", title: "WebPush"),
+  ]
+
+  init(
+    initial: NativeNotificationConfig?,
+    onDelete: (() -> Void)? = nil,
+    onSave: @escaping (NativeNotificationConfig) -> Void
+  ) {
+    self.initial = initial
+    self.onDelete = onDelete
+    self.onSave = onSave
+    let startType = initial?.type.isEmpty == false ? initial!.type : "wechat"
+    _name = State(initialValue: initial?.name ?? "")
+    _type = State(initialValue: startType)
+    _enabled = State(initialValue: initial?.enabled ?? true)
+    _selectedScenes = State(initialValue: Set(initial?.switchs ?? Self.allScenes))
+    var values: [String: String] = [:]
+    if let cfg = initial?.config {
+      for (k, v) in cfg {
+        switch v {
+        case .string(let s): values[k] = s
+        case .number(let n):
+          values[k] = n.rounded() == n ? String(Int64(n)) : String(n)
+        default: break
+        }
+      }
+    }
+    if startType == "wechat" && (values["WECHAT_MODE"] ?? "").isEmpty {
+      values["WECHAT_MODE"] = "app"
+    }
+    _configValues = State(initialValue: values)
+    _baseConfig = State(initialValue: initial?.config ?? [:])
+  }
+
+  private var wechatMode: String {
+    let raw = (configValues["WECHAT_MODE"] ?? "app").lowercased()
+    return raw == "bot" ? "bot" : "app"
+  }
+
+  private var activeFields: [FieldSpec] {
+    switch type.lowercased() {
+    case "wechat":
+      if wechatMode == "bot" {
+        return [
+          .init(key: "WECHAT_BOT_ID", label: "机器人 ID", placeholder: "WECHAT_BOT_ID"),
+          .init(
+            key: "WECHAT_BOT_SECRET", label: "机器人密钥", placeholder: "WECHAT_BOT_SECRET",
+            isSecret: true),
+          .init(key: "WECHAT_BOT_CHAT_ID", label: "默认会话 ID", placeholder: "可选，单聊/群聊 ID"),
+          .init(
+            key: "WECHAT_BOT_WS_URL", label: "WebSocket 地址",
+            placeholder: "wss://openws.work.weixin.qq.com"),
+        ]
+      }
+      return [
+        .init(key: "WECHAT_CORPID", label: "企业 ID", placeholder: "WECHAT_CORPID"),
+        .init(key: "WECHAT_APP_ID", label: "应用 AgentId", placeholder: "WECHAT_APP_ID"),
+        .init(
+          key: "WECHAT_APP_SECRET", label: "应用 Secret", placeholder: "WECHAT_APP_SECRET",
+          isSecret: true),
+        .init(key: "WECHAT_PROXY", label: "代理地址", placeholder: "默认 https://qyapi.weixin.qq.com"),
+        .init(key: "WECHAT_TOKEN", label: "回调 Token", placeholder: "可选"),
+        .init(
+          key: "WECHAT_ENCODING_AESKEY", label: "EncodingAESKey", placeholder: "可选", isSecret: true),
+      ]
+    case "wechatclawbot":
+      return [
+        .init(
+          key: "WECHATCLAWBOT_BASE_URL", label: "服务地址", placeholder: "https://ilinkai.weixin.qq.com"
+        ),
+        .init(key: "WECHATCLAWBOT_DEFAULT_TARGET", label: "默认接收目标", placeholder: "可选"),
+        .init(
+          key: "WECHATCLAWBOT_POLL_TIMEOUT", label: "轮询超时 (秒)", placeholder: "25", isNumber: true),
+      ]
+    case "telegram":
+      return [
+        .init(
+          key: "TELEGRAM_TOKEN", label: "Bot Token", placeholder: "123456:ABC-DEF...",
+          isSecret: true),
+        .init(key: "TELEGRAM_CHAT_ID", label: "Chat ID", placeholder: "接收用户或群组 ID"),
+        .init(key: "TELEGRAM_TOPIC_ID", label: "Topic ID", placeholder: "可选，超级群主题 ID"),
+        .init(key: "API_URL", label: "自定义 API 地址", placeholder: "默认 https://api.telegram.org"),
+      ]
+    case "feishu":
+      return [
+        .init(key: "FEISHU_APP_ID", label: "App ID", placeholder: "cli_xxx"),
+        .init(key: "FEISHU_APP_SECRET", label: "App Secret", placeholder: "应用密钥", isSecret: true),
+        .init(key: "FEISHU_OPEN_ID", label: "用户 Open ID", placeholder: "可选"),
+        .init(key: "FEISHU_CHAT_ID", label: "群组 Chat ID", placeholder: "可选"),
+        .init(key: "FEISHU_VERIFICATION_TOKEN", label: "Verification Token", placeholder: "可选"),
+        .init(key: "FEISHU_ENCRYPT_KEY", label: "Encrypt Key", placeholder: "可选", isSecret: true),
+      ]
+    case "slack":
+      return [
+        .init(
+          key: "SLACK_OAUTH_TOKEN", label: "Bot OAuth Token", placeholder: "xoxb-...",
+          isSecret: true),
+        .init(
+          key: "SLACK_APP_TOKEN", label: "App-Level Token", placeholder: "xapp-...", isSecret: true),
+        .init(key: "SLACK_CHANNEL", label: "频道名称", placeholder: "如 全体 / general"),
+      ]
+    case "discord":
+      return [
+        .init(
+          key: "DISCORD_BOT_TOKEN", label: "Bot Token", placeholder: "Discord 机器人令牌", isSecret: true
+        ),
+        .init(key: "DISCORD_GUILD_ID", label: "服务器 Guild ID", placeholder: "可选"),
+        .init(key: "DISCORD_CHANNEL_ID", label: "频道 Channel ID", placeholder: "目标频道 ID"),
+      ]
+    case "dingtalk":
+      return [
+        .init(
+          key: "DINGTALK_WEBHOOK", label: "Webhook 地址",
+          placeholder: "https://oapi.dingtalk.com/robot/send?..."),
+        .init(key: "DINGTALK_SECRET", label: "加签密钥", placeholder: "SEC...", isSecret: true),
+      ]
+    case "vocechat":
+      return [
+        .init(key: "VOCECHAT_HOST", label: "服务器地址", placeholder: "https://chat.example.com"),
+        .init(key: "VOCECHAT_API_KEY", label: "API Key", placeholder: "机器人密钥", isSecret: true),
+        .init(key: "VOCECHAT_CHANNEL_ID", label: "频道 ID", placeholder: "数字频道 ID"),
+      ]
+    case "synologychat":
+      return [
+        .init(
+          key: "SYNOLOGYCHAT_WEBHOOK", label: "Webhook 地址", placeholder: "群晖 Chat Incoming Webhook"),
+        .init(key: "SYNOLOGYCHAT_TOKEN", label: "Token", placeholder: "可选", isSecret: true),
+      ]
+    case "qqbot":
+      return [
+        .init(key: "QQ_APP_ID", label: "App ID", placeholder: "QQ 开放平台 AppID"),
+        .init(key: "QQ_APP_SECRET", label: "App Secret", placeholder: "QQ 开放平台密钥", isSecret: true),
+        .init(key: "QQ_OPENID", label: "单聊 OpenID", placeholder: "可选"),
+        .init(key: "QQ_GROUP_OPENID", label: "群聊 Group OpenID", placeholder: "可选"),
+      ]
+    case "apppush":
+      return [
+        .init(key: "PUSH_SERVER_URL", label: "推送中继地址", placeholder: "https://..."),
+        .init(key: "PUSH_RELAY_KEY", label: "中继密钥", placeholder: "Relay Key", isSecret: true),
+      ]
+    case "webpush":
+      return [
+        .init(key: "WEBPUSH_USERNAME", label: "目标用户名", placeholder: "留空则向所有已订阅浏览器推送")
+      ]
+    default:
+      return []
+    }
+  }
+
+  private var canSubmit: Bool {
+    !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !type.isEmpty
+  }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 20) {
+            channelTypeSection
+            basicInfoSection
+            configFieldsSection
+            sceneSwitchesSection
+            if let onDelete {
+              Button(role: .destructive) {
+                dismiss()
+                onDelete()
+              } label: {
+                Label("删除该通知渠道", systemImage: "trash")
+                  .font(.body.weight(.semibold))
+                  .foregroundStyle(NativeTheme.danger)
+                  .frame(maxWidth: .infinity, minHeight: 50)
+                  .background(
+                    NativeTheme.danger.opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+              }
+              .buttonStyle(.plain)
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 16)
+        }
+        .scrollIndicators(.hidden)
+      }
+      .navigationTitle(initial == nil ? "新增通知渠道" : "编辑通知渠道")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("取消") { dismiss() }
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button("保存") { commitSave() }
+            .fontWeight(.semibold)
+            .disabled(!canSubmit)
+        }
+      }
+    }
+  }
+
+  private var channelTypeSection: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("渠道类型")
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
+      NativeBrandOptionGrid(
+        kind: .notification,
+        items: Self.channelChoices,
+        selection: $type,
+        columns: 3
+      )
+      .onChange(of: type) { next in
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          name = NativeNotificationConfig.displayTypeName(next)
+        }
+        if next == "wechat" && (configValues["WECHAT_MODE"] ?? "").isEmpty {
+          configValues["WECHAT_MODE"] = "app"
+        }
+      }
+    }
+  }
+
+  private var basicInfoSection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("基本设置")
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
+      CinematicPanel(padding: 0) {
+        VStack(spacing: 0) {
+          HStack(spacing: 12) {
+            Text("渠道名称")
+              .font(.body)
+              .foregroundStyle(.primary)
+            TextField("例如：家庭 Telegram", text: $name)
+              .multilineTextAlignment(.trailing)
+              .font(.body)
+          }
+          .padding(.horizontal, 16)
+          .frame(minHeight: 54)
+          CinematicFormDivider()
+          Toggle("启用此渠道", isOn: $enabled)
+            .font(.body)
+            .tint(appearance.accentColor)
+            .padding(.horizontal, 16)
+            .frame(minHeight: 54)
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var configFieldsSection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("连接参数")
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
+      CinematicPanel(padding: 0) {
+        VStack(spacing: 0) {
+          if type.lowercased() == "wechat" {
+            HStack {
+              Text("接入方式")
+                .font(.body)
+                .foregroundStyle(.primary)
+              Spacer()
+              Picker(
+                "接入方式",
+                selection: Binding(
+                  get: { wechatMode },
+                  set: { configValues["WECHAT_MODE"] = $0 }
+                )
+              ) {
+                Text("自建应用").tag("app")
+                Text("智能机器人").tag("bot")
+              }
+              .pickerStyle(.segmented)
+              .frame(maxWidth: 190)
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: 54)
+            CinematicFormDivider()
+          }
+          if activeFields.isEmpty {
+            Text("该渠道无需额外连接参数，或保留原配置不变。")
+              .font(.footnote)
+              .foregroundStyle(.secondary)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(16)
+          } else {
+            ForEach(Array(activeFields.enumerated()), id: \.element.id) { idx, spec in
+              if idx > 0 { CinematicFormDivider() }
+              VStack(alignment: .leading, spacing: 6) {
+                Text(spec.label)
+                  .font(.footnote.weight(.medium))
+                  .foregroundStyle(.secondary)
+                if spec.isSecret {
+                  SecureField(
+                    spec.placeholder,
+                    text: Binding(
+                      get: { configValues[spec.key] ?? "" },
+                      set: { configValues[spec.key] = $0 }
+                    )
+                  )
+                  .textInputAutocapitalization(.never)
+                  .autocorrectionDisabled()
+                  .font(.body)
+                } else {
+                  TextField(
+                    spec.placeholder,
+                    text: Binding(
+                      get: { configValues[spec.key] ?? "" },
+                      set: { configValues[spec.key] = $0 }
+                    )
+                  )
+                  .textInputAutocapitalization(.never)
+                  .autocorrectionDisabled()
+                  .keyboardType(spec.isNumber ? .numberPad : .default)
+                  .font(.body)
+                }
+              }
+              .padding(.horizontal, 16)
+              .padding(.vertical, 12)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private var sceneSwitchesSection: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack {
+        Text("推送场景")
+          .font(.footnote.weight(.medium))
+          .foregroundStyle(.secondary)
+        Spacer()
+        Button(selectedScenes.count == Self.allScenes.count ? "清空" : "全选") {
+          if selectedScenes.count == Self.allScenes.count {
+            selectedScenes.removeAll()
+          } else {
+            selectedScenes = Set(Self.allScenes)
+          }
+        }
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(appearance.accentColor)
+      }
+      .padding(.horizontal, 4)
+
+      CinematicPanel(padding: 14) {
+        let cols = [GridItem(.adaptive(minimum: 92), spacing: 8)]
+        LazyVGrid(columns: cols, spacing: 8) {
+          ForEach(Self.allScenes, id: \.self) { scene in
+            let active = selectedScenes.contains(scene)
+            Button {
+              if active {
+                selectedScenes.remove(scene)
+              } else {
+                selectedScenes.insert(scene)
+              }
+            } label: {
+              Text(scene)
+                .font(.footnote.weight(active ? .semibold : .regular))
+                .foregroundStyle(active ? appearance.accentColor : .secondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, minHeight: 36)
+                .padding(.horizontal, 8)
+                .background {
+                  RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(active ? appearance.accentColor.opacity(0.15) : NativeTheme.chipFill)
+                    .overlay {
+                      RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(
+                          active ? appearance.accentColor.opacity(0.6) : NativeTheme.chipBorder,
+                          lineWidth: active ? 1.1 : 0.6)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      }
+    }
+  }
+
+  private func commitSave() {
+    let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedName.isEmpty else { return }
+    var mergedConfig = baseConfig
+    if type.lowercased() == "wechat" {
+      mergedConfig["WECHAT_MODE"] = .string(wechatMode)
+    }
+    for spec in activeFields {
+      let val = (configValues[spec.key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+      if val.isEmpty {
+        mergedConfig.removeValue(forKey: spec.key)
+      } else if spec.isNumber, let num = Double(val) {
+        mergedConfig[spec.key] = .number(num)
+      } else {
+        mergedConfig[spec.key] = .string(val)
+      }
+    }
+    let orderedScenes = Self.allScenes.filter { selectedScenes.contains($0) }
+    let record = NativeNotificationConfig(
+      id: initial?.id ?? UUID().uuidString,
+      name: trimmedName,
+      type: type,
+      enabled: enabled,
+      switchs: orderedScenes,
+      config: mergedConfig
+    )
+    onSave(record)
+    dismiss()
+  }
+}
+
+// MARK: - 整理目录新增/编辑弹窗
+
+@MainActor
+private struct NativeDirectoryEditorSheet: View {
+  let initial: NativeDirectoryConfig?
+  let storages: [NativeStorageConfig]
+  var onDelete: (() -> Void)? = nil
+  let onSave: (NativeDirectoryConfig) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+
+  @State private var name: String
+  @State private var storage: String
+  @State private var downloadPath: String
+  @State private var mediaType: String
+  @State private var mediaCategory: String
+  @State private var downloadTypeFolder: Bool
+  @State private var downloadCategoryFolder: Bool
+  @State private var monitorType: String
+  @State private var monitorMode: String
+  @State private var transferType: String
+  @State private var overwriteMode: String
+  @State private var libraryStorage: String
+  @State private var libraryPath: String
+  @State private var libraryTypeFolder: Bool
+  @State private var libraryCategoryFolder: Bool
+  @State private var renaming: Bool
+  @State private var scraping: Bool
+  @State private var notify: Bool
+
+  init(
+    initial: NativeDirectoryConfig?,
+    storages: [NativeStorageConfig],
+    onDelete: (() -> Void)? = nil,
+    onSave: @escaping (NativeDirectoryConfig) -> Void
+  ) {
+    self.initial = initial
+    self.storages = storages
+    self.onDelete = onDelete
+    self.onSave = onSave
+    _name = State(initialValue: initial?.name ?? "")
+    _storage = State(initialValue: initial?.storage ?? "local")
+    _downloadPath = State(initialValue: initial?.downloadPath ?? "")
+    _mediaType = State(initialValue: initial?.mediaType ?? "")
+    _mediaCategory = State(initialValue: initial?.mediaCategory ?? "")
+    _downloadTypeFolder = State(initialValue: initial?.downloadTypeFolder ?? false)
+    _downloadCategoryFolder = State(initialValue: initial?.downloadCategoryFolder ?? false)
+    _monitorType = State(initialValue: initial?.monitorType ?? "downloader")
+    _monitorMode = State(initialValue: initial?.monitorMode ?? "fast")
+    _transferType = State(initialValue: initial?.transferType ?? "link")
+    _overwriteMode = State(initialValue: initial?.overwriteMode ?? "size")
+    _libraryStorage = State(initialValue: initial?.libraryStorage ?? "local")
+    _libraryPath = State(initialValue: initial?.libraryPath ?? "")
+    _libraryTypeFolder = State(initialValue: initial?.libraryTypeFolder ?? false)
+    _libraryCategoryFolder = State(initialValue: initial?.libraryCategoryFolder ?? false)
+    _renaming = State(initialValue: initial?.renaming ?? true)
+    _scraping = State(initialValue: initial?.scraping ?? false)
+    _notify = State(initialValue: initial?.notify ?? true)
+  }
+
+  private var storageChoices: [NativeBrandChoiceItem] {
+    if !storages.isEmpty {
+      return storages.map {
+        NativeBrandChoiceItem(id: $0.type, title: $0.name, iconType: $0.type)
+      }
+    }
+    return [
+      .init(id: "local", title: "本地存储"),
+      .init(id: "alipan", title: "阿里云盘"),
+      .init(id: "u115", title: "115 网盘"),
+      .init(id: "rclone", title: "Rclone"),
+      .init(id: "alist", title: "Alist"),
+      .init(id: "smb", title: "SMB"),
+    ]
+  }
+
+  private var canSubmit: Bool {
+    !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      || !downloadPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      || !libraryPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 20) {
+            basicSection
+            sourceStorageSection
+            transferRuleSection
+            targetLibrarySection
+            behaviorSwitchesSection
+            if let onDelete {
+              Button(role: .destructive) {
+                dismiss()
+                onDelete()
+              } label: {
+                Label("删除该整理目录", systemImage: "trash")
+                  .font(.body.weight(.semibold))
+                  .foregroundStyle(NativeTheme.danger)
+                  .frame(maxWidth: .infinity, minHeight: 50)
+                  .background(
+                    NativeTheme.danger.opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+              }
+              .buttonStyle(.plain)
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 16)
+        }
+        .scrollIndicators(.hidden)
+      }
+      .navigationTitle(initial == nil ? "新增整理目录" : "编辑整理目录")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("取消") { dismiss() }
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button("保存") { commitSave() }
+            .fontWeight(.semibold)
+            .disabled(!canSubmit)
+        }
+      }
+    }
+  }
+
+  private var basicSection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("目录标识与适用范围")
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
+      CinematicPanel(padding: 0) {
+        VStack(spacing: 0) {
+          HStack(spacing: 12) {
+            Text("别名")
+              .font(.body)
+            TextField("例如：电影主目录", text: $name)
+              .multilineTextAlignment(.trailing)
+              .font(.body)
+          }
+          .padding(.horizontal, 16)
+          .frame(minHeight: 54)
+          CinematicFormDivider()
+          HStack {
+            Text("媒体类型")
+              .font(.body)
+            Spacer()
+            Picker("媒体类型", selection: $mediaType) {
+              Text("全部").tag("")
+              Text("电影").tag("电影")
+              Text("电视剧").tag("电视剧")
+              Text("音乐").tag("音乐")
+            }
+            .tint(appearance.accentColor)
+          }
+          .padding(.horizontal, 16)
+          .frame(minHeight: 54)
+          CinematicFormDivider()
+          HStack(spacing: 12) {
+            Text("媒体分类")
+              .font(.body)
+            TextField("留空表示全部类别", text: $mediaCategory)
+              .multilineTextAlignment(.trailing)
+              .font(.body)
+          }
+          .padding(.horizontal, 16)
+          .frame(minHeight: 54)
+        }
+      }
+    }
+  }
+
+  private var sourceStorageSection: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("源目录与存储")
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
+      NativeBrandOptionGrid(
+        kind: .storage,
+        items: storageChoices,
+        selection: $storage,
+        columns: 3
+      )
+      CinematicPanel(padding: 0) {
+        VStack(spacing: 0) {
+          VStack(alignment: .leading, spacing: 6) {
+            Text("源目录路径（下载目录）")
+              .font(.footnote.weight(.medium))
+              .foregroundStyle(.secondary)
+            TextField("/downloads", text: $downloadPath)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
+              .font(.body.monospaced())
+          }
+          .padding(.horizontal, 16)
+          .padding(.vertical, 12)
+          CinematicFormDivider()
+          Toggle("按媒体类型建子目录", isOn: $downloadTypeFolder)
+            .font(.body)
+            .tint(appearance.accentColor)
+            .padding(.horizontal, 16)
+            .frame(minHeight: 52)
+          CinematicFormDivider()
+          Toggle("按媒体分类建子目录", isOn: $downloadCategoryFolder)
+            .font(.body)
+            .tint(appearance.accentColor)
+            .padding(.horizontal, 16)
+            .frame(minHeight: 52)
+        }
+      }
+    }
+  }
+
+  private var transferRuleSection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("监控与整理方式")
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
+      CinematicPanel(padding: 0) {
+        VStack(spacing: 0) {
+          HStack {
+            Text("监控方式")
+              .font(.body)
+            Spacer()
+            Picker("监控方式", selection: $monitorType) {
+              Text("不监控").tag("")
+              Text("下载器监控").tag("downloader")
+              Text("目录监控").tag("monitor")
+            }
+            .tint(appearance.accentColor)
+          }
+          .padding(.horizontal, 16)
+          .frame(minHeight: 54)
+          if monitorType == "monitor" {
+            CinematicFormDivider()
+            HStack {
+              Text("监控模式")
+                .font(.body)
+              Spacer()
+              Picker("监控模式", selection: $monitorMode) {
+                Text("性能模式").tag("fast")
+                Text("兼容模式").tag("compatibility")
+              }
+              .tint(appearance.accentColor)
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: 54)
+          }
+          CinematicFormDivider()
+          HStack {
+            Text("整理方式")
+              .font(.body)
+            Spacer()
+            Picker("整理方式", selection: $transferType) {
+              Text("不整理").tag("")
+              Text("硬链接").tag("link")
+              Text("软链接").tag("softlink")
+              Text("移动").tag("move")
+              Text("复制").tag("copy")
+              Text("Reflink").tag("reflink")
+            }
+            .tint(appearance.accentColor)
+          }
+          .padding(.horizontal, 16)
+          .frame(minHeight: 54)
+          CinematicFormDivider()
+          HStack {
+            Text("覆盖模式")
+              .font(.body)
+            Spacer()
+            Picker("覆盖模式", selection: $overwriteMode) {
+              Text("从不覆盖").tag("never")
+              Text("总是覆盖").tag("always")
+              Text("按文件大小覆盖").tag("size")
+              Text("仅保留最新版本").tag("latest")
+            }
+            .tint(appearance.accentColor)
+          }
+          .padding(.horizontal, 16)
+          .frame(minHeight: 54)
+        }
+      }
+    }
+  }
+
+  private var targetLibrarySection: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("目标媒体库目录")
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
+      NativeBrandOptionGrid(
+        kind: .storage,
+        items: storageChoices,
+        selection: $libraryStorage,
+        columns: 3
+      )
+      CinematicPanel(padding: 0) {
+        VStack(spacing: 0) {
+          VStack(alignment: .leading, spacing: 6) {
+            Text("媒体库路径")
+              .font(.footnote.weight(.medium))
+              .foregroundStyle(.secondary)
+            TextField("/media", text: $libraryPath)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
+              .font(.body.monospaced())
+          }
+          .padding(.horizontal, 16)
+          .padding(.vertical, 12)
+          CinematicFormDivider()
+          Toggle("按媒体类型建子目录", isOn: $libraryTypeFolder)
+            .font(.body)
+            .tint(appearance.accentColor)
+            .padding(.horizontal, 16)
+            .frame(minHeight: 52)
+          CinematicFormDivider()
+          Toggle("按媒体分类建子目录", isOn: $libraryCategoryFolder)
+            .font(.body)
+            .tint(appearance.accentColor)
+            .padding(.horizontal, 16)
+            .frame(minHeight: 52)
+        }
+      }
+    }
+  }
+
+  private var behaviorSwitchesSection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("入库处理选项")
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
+      CinematicPanel(padding: 0) {
+        VStack(spacing: 0) {
+          Toggle("智能重命名", isOn: $renaming)
+            .font(.body)
+            .tint(appearance.accentColor)
+            .padding(.horizontal, 16)
+            .frame(minHeight: 52)
+          CinematicFormDivider()
+          Toggle("自动刮削元数据", isOn: $scraping)
+            .font(.body)
+            .tint(appearance.accentColor)
+            .padding(.horizontal, 16)
+            .frame(minHeight: 52)
+          CinematicFormDivider()
+          Toggle("入库完成后发送通知", isOn: $notify)
+            .font(.body)
+            .tint(appearance.accentColor)
+            .padding(.horizontal, 16)
+            .frame(minHeight: 52)
+        }
+      }
+    }
+  }
+
+  private func commitSave() {
+    let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedDownload = downloadPath.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedLibrary = libraryPath.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedCategory = mediaCategory.trimmingCharacters(in: .whitespacesAndNewlines)
+    let record = NativeDirectoryConfig(
+      name: trimmedName.isEmpty ? nil : trimmedName,
+      priority: initial?.priority,
+      storage: storage.isEmpty ? "local" : storage,
+      downloadPath: trimmedDownload.isEmpty ? nil : trimmedDownload,
+      mediaType: mediaType.isEmpty ? nil : mediaType,
+      mediaCategory: trimmedCategory.isEmpty ? nil : trimmedCategory,
+      mediaCategoryID: initial?.mediaCategoryID,
+      downloadTypeFolder: downloadTypeFolder,
+      downloadCategoryFolder: downloadCategoryFolder,
+      monitorType: monitorType.isEmpty ? nil : monitorType,
+      monitorMode: monitorType == "monitor" ? monitorMode : initial?.monitorMode,
+      transferType: transferType.isEmpty ? nil : transferType,
+      overwriteMode: overwriteMode,
+      libraryPath: trimmedLibrary.isEmpty ? nil : trimmedLibrary,
+      libraryStorage: libraryStorage.isEmpty ? "local" : libraryStorage,
+      renaming: renaming,
+      scraping: scraping,
+      notify: notify,
+      libraryTypeFolder: libraryTypeFolder,
+      libraryCategoryFolder: libraryCategoryFolder
+    )
+    onSave(record)
+    dismiss()
   }
 }

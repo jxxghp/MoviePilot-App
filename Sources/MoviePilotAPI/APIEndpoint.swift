@@ -55,9 +55,9 @@ public struct APIEndpoint: Sendable {
     return result
   }
 
-  /// 路径只容纳普通标识符；拒绝 URL、分隔符和二次解码，文件路径与自由文本用查询或 JSON。
+  /// 路径只容纳普通标识符（含服务端会话 ID 使用的冒号）；拒绝 URL、路径分隔符与二次解码，文件路径与自由文本用查询或 JSON。
   private static func validSegment(_ value: String) -> Bool {
-    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~:"))
     return !value.isEmpty && value.utf8.count <= 1024 && value != "." && value != ".."
       && value.unicodeScalars.allSatisfy { allowed.contains($0) }
   }

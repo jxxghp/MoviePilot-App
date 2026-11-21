@@ -136,12 +136,24 @@ struct NativeMessagesPage: View {
     .scrollIndicators(.hidden)
   }
 
-  /// 单条通知玻璃卡片：分类徽标、时间戳、标题、正文与可选媒体配图。
+  /// 单条通知玻璃卡片：媒体配图置顶于标题和正文上方，随后呈现分类徽标、时间戳、标题与正文。
   private func messageCard(_ item: NativeMessageItem) -> some View {
     let artworkURL = NativeMediaDetailPage.resolveArtwork(
       item.image ?? item.poster, source: "themoviedb")
     return CinematicPanel(padding: 13) {
-      VStack(alignment: .leading, spacing: 9) {
+      VStack(alignment: .leading, spacing: 10) {
+        if let artworkURL {
+          NativeMediaArtwork(
+            session: session, reference: artworkURL, role: .continueWatching, maximumWidth: 720
+          )
+          .frame(maxWidth: .infinity)
+          .frame(height: 156)
+          .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+          .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+              .strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
+          }
+        }
         HStack(spacing: 8) {
           if let mtype = item.mtype, !mtype.isEmpty {
             Text(mtype)
@@ -170,18 +182,6 @@ struct NativeMessagesPage: View {
             .font(.footnote)
             .lineSpacing(3)
             .foregroundStyle(.primary.opacity(0.76))
-        }
-        if let artworkURL {
-          NativeMediaArtwork(
-            session: session, reference: artworkURL, role: .continueWatching, maximumWidth: 720
-          )
-          .frame(maxWidth: .infinity)
-          .frame(height: 148)
-          .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-          .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-              .strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
-          }
         }
       }
     }

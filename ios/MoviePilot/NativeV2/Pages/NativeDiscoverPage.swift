@@ -830,7 +830,7 @@ struct NativeDiscoverPage: View {
                 Button {
                   onOpenMedia(item.id)
                 } label: {
-                  railCard(item, style: rail.style)
+                  railCard(item, style: rail.style, showExistsBadge: rail.id != "latest")
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
@@ -861,7 +861,7 @@ struct NativeDiscoverPage: View {
                   }
                 }
               } else {
-                railCard(item, style: rail.style)
+                railCard(item, style: rail.style, showExistsBadge: rail.id != "latest")
               }
             }
             .accessibilityElement(children: .combine)
@@ -889,12 +889,14 @@ struct NativeDiscoverPage: View {
 
   /// 按轨道样式选择 2:3 竖版居中海报或 16:9 宽幅趋势横卡。
   @ViewBuilder
-  private func railCard(_ item: NativeDiscoverMedia, style: NativeDiscoverRail.Style) -> some View {
+  private func railCard(
+    _ item: NativeDiscoverMedia, style: NativeDiscoverRail.Style, showExistsBadge: Bool = true
+  ) -> some View {
     switch style {
     case .poster:
-      poster(item)
+      poster(item, showExistsBadge: showExistsBadge)
     case .backdrop:
-      backdropCard(item)
+      backdropCard(item, showExistsBadge: showExistsBadge)
     case .square:
       squareCard(item)
     }
@@ -929,7 +931,8 @@ struct NativeDiscoverPage: View {
   }
 
   /// 16:9 宽幅趋势横卡：背景剧照为主视觉，下方左对齐标题与年份/类型摘要。
-  private func backdropCard(_ item: NativeDiscoverMedia) -> some View {
+  private func backdropCard(_ item: NativeDiscoverMedia, showExistsBadge: Bool = true) -> some View
+  {
     VStack(alignment: .leading, spacing: 7) {
       artwork(item.backdropReference ?? item.posterReference, .continueWatching)
         .aspectRatio(16.0 / 9.0, contentMode: .fill)
@@ -939,6 +942,15 @@ struct NativeDiscoverPage: View {
           RoundedRectangle(cornerRadius: 15, style: .continuous)
             .strokeBorder(.white.opacity(0.12), lineWidth: 0.6)
         }
+        .nativeMediaExistsOverlay(
+          session: session,
+          source: item.identity?.source,
+          mediaID: item.identity?.mediaID,
+          title: item.title,
+          year: item.year,
+          type: item.identity?.type,
+          enabled: showExistsBadge
+        )
       Text(item.title)
         .font(.subheadline.weight(.medium))
         .foregroundStyle(.primary.opacity(0.95))
@@ -957,7 +969,7 @@ struct NativeDiscoverPage: View {
   }
 
   /// Cinematic 居中排版海报卡：2:3 比例、细微边缘高光、居中标题与克制年份。
-  private func poster(_ item: NativeDiscoverMedia) -> some View {
+  private func poster(_ item: NativeDiscoverMedia, showExistsBadge: Bool = true) -> some View {
     VStack(alignment: .center, spacing: 6) {
       artwork(item.posterReference, .poster)
         .frame(width: posterWidth, height: posterWidth * 1.5).clipped()
@@ -966,6 +978,15 @@ struct NativeDiscoverPage: View {
           RoundedRectangle(cornerRadius: 13, style: .continuous)
             .strokeBorder(.primary.opacity(0.10), lineWidth: 0.5)
         }
+        .nativeMediaExistsOverlay(
+          session: session,
+          source: item.identity?.source,
+          mediaID: item.identity?.mediaID,
+          title: item.title,
+          year: item.year,
+          type: item.identity?.type,
+          enabled: showExistsBadge
+        )
       Text(item.title)
         .font(.footnote.weight(.medium))
         .foregroundStyle(.primary.opacity(0.95))
@@ -1268,6 +1289,15 @@ struct NativeDiscoverRailGrid<Destination: View>: View {
           RoundedRectangle(cornerRadius: 13, style: .continuous)
             .strokeBorder(.primary.opacity(0.10), lineWidth: 0.5)
         }
+        .nativeMediaExistsOverlay(
+          session: session,
+          source: item.identity?.source,
+          mediaID: item.identity?.mediaID,
+          title: item.title,
+          year: item.year,
+          type: item.identity?.type,
+          enabled: rail.id != "latest" && rail.style != .square
+        )
       Text(item.title).font(.footnote.weight(.medium)).lineLimit(2)
       if let year = item.year { Text(year).font(.caption).foregroundStyle(.secondary) }
     }

@@ -60,6 +60,17 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @State private var lastOverflowToggleAt: Date = .distantPast
   @State private var lastTrailingActionAt: Date = .distantPast
   @State private var hasLoadedDiscoveryOnce = false
+  @State private var launchSplashTimedOut = false
+
+  /// 首次进入发现页前保持与系统 LaunchScreen 一致的居中 Logo 启动屏，彻底消除首屏加载空窗与浮动控件闪烁。
+  private var showsLaunchSplash: Bool {
+    canDiscover && !hasLoadedDiscoveryOnce && !launchSplashTimedOut
+  }
+
+  /// 按当前界面语言实时解析文案。
+  private func t(_ key: String) -> String {
+    L10n.text(key, language: currentLanguage)
+  }
 
   /// 保留 root 原有账号动作与插件路由，主导航由系统 TabView 承载各标签独立栈。
   init(
@@ -93,8 +104,8 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           .transition(.move(edge: .bottom).combined(with: .opacity))
           .zIndex(45)
       }
-      if showFloatingAssistant && !showsOverflowMenu && !showsAgentSheet && !showsShortcutsSheet
-        && !showsMessagesSheet
+      if showFloatingAssistant && !showsLaunchSplash && !showsOverflowMenu && !showsAgentSheet
+        && !showsShortcutsSheet && !showsMessagesSheet
       {
         NativeAgentFloatingMascot(
           onOpen: { showsAgentSheet = true },
@@ -111,8 +122,26 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           .transition(overflowMenuTransition)
           .zIndex(50)
       }
-      if let banner = routeHub.bannerMessage {
+      if let banner = routeHub.bannerMessage, !showsLaunchSplash {
         systemBannerOverlay(banner)
+      }
+      if showsLaunchSplash {
+        NativeLaunchSplashView()
+          .transition(.opacity)
+          .zIndex(100)
+      }
+    }
+    .animation(.easeOut(duration: 0.28), value: showsLaunchSplash)
+    .task {
+      guard canDiscover else { return }
+      try? await Task.sleep(for: .seconds(8))
+      if !Task.isCancelled {
+        launchSplashTimedOut = true
+      }
+    }
+    .onChange(of: currentLanguage) { _ in
+      if canDiscover {
+        discoveryAttempt += 1
       }
     }
     .environmentObject(dynamicActionCenter)
@@ -305,12 +334,12 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     if #available(iOS 18, *) {
       TabView(selection: tabSelection) {
         if canDiscover {
-          Tab("发现", systemImage: "sparkles.tv", value: Page.discover) {
+          Tab(t("发现"), systemImage: "sparkles.tv", value: Page.discover) {
             discoveryTab
           }
           .accessibilityIdentifier("native-v2-tab-发现")
 
-          Tab("探索", systemImage: "safari", value: Page.explore) {
+          Tab(t("探索"), systemImage: "safari", value: Page.explore) {
             exploreTab
           }
           .accessibilityIdentifier("native-v2-tab-探索")
@@ -320,24 +349,24 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         } label: {
           if let userTabAvatar {
             Label {
-              Text("我的")
+              Text(t("我的"))
             } icon: {
               Image(uiImage: userTabAvatar)
             }
           } else {
-            Label("我的", systemImage: "person.crop.circle")
+            Label(t("我的"), systemImage: "person.crop.circle")
           }
         }
         .accessibilityIdentifier("native-v2-tab-我的")
 
-        Tab("设置", systemImage: "gearshape", value: Page.settings) {
+        Tab(t("设置"), systemImage: "gearshape", value: Page.settings) {
           settingsTab
         }
         .accessibilityIdentifier("native-v2-tab-设置")
 
         if canDiscover || hasTrailingCustomAction {
           Tab(
-            trailingButtonTitle,
+            hasTrailingCustomAction ? trailingButtonTitle : t("搜索"),
             systemImage: trailingButtonSymbol,
             value: Page.search,
             role: trailingTabRole
@@ -353,13 +382,13 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           discoveryTab
             .tag(Page.discover)
             .tabItem {
-              Label("发现", systemImage: "sparkles.tv")
+              Label(t("发现"), systemImage: "sparkles.tv")
                 .accessibilityIdentifier("native-v2-tab-发现")
             }
           exploreTab
             .tag(Page.explore)
             .tabItem {
-              Label("探索", systemImage: "safari")
+              Label(t("探索"), systemImage: "safari")
                 .accessibilityIdentifier("native-v2-tab-探索")
             }
         }
@@ -368,26 +397,30 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           .tabItem {
             if let userTabAvatar {
               Label {
-                Text("我的")
+                Text(t("我的"))
               } icon: {
                 Image(uiImage: userTabAvatar)
               }
               .accessibilityIdentifier("native-v2-tab-我的")
             } else {
-              Label("我的", systemImage: "person.crop.circle")
+              Label(t("我的"), systemImage: "person.crop.circle")
                 .accessibilityIdentifier("native-v2-tab-我的")
             }
           }
         settingsTab
           .tag(Page.settings)
           .tabItem {
-            Label("设置", systemImage: "gearshape")
+            Label(t("设置"), systemImage: "gearshape")
               .accessibilityIdentifier("native-v2-tab-设置")
           }
         if canDiscover {
           searchTab
             .tag(Page.search)
-            .tabItem { Label(trailingButtonTitle, systemImage: trailingButtonSymbol) }
+            .tabItem {
+              Label(
+                hasTrailingCustomAction ? trailingButtonTitle : t("搜索"),
+                systemImage: trailingButtonSymbol)
+            }
         }
       }
     }
@@ -1042,7 +1075,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
             Circle()
               .fill(Color(red: 0.42, green: 0.88, blue: 0.56))
               .frame(width: 6, height: 6)
-            Text(snapshot.user.isSuperuser ? "超级管理员" : "普通成员")
+            Text(snapshot.user.isSuperuser ? t("超级管理员") : t("普通成员"))
               .font(.caption2.weight(.medium))
               .foregroundStyle(.primary.opacity(0.68))
               .lineLimit(1)
@@ -1057,55 +1090,22 @@ struct NativeV2MainShell<PluginDestination: View>: View {
 
       Divider().overlay(.primary.opacity(0.12))
 
-      ScrollView {
-        VStack(alignment: .leading, spacing: 2) {
-          if canSubscribe || canSearchResources || canManageDownloads {
-            if canSubscribe {
-              overflowMenuRow(
-                title: "我的订阅", symbol: "bookmark.fill", id: "native-workspace-subscriptions"
-              ) { openFromOverflow(.subscriptions) }
-              overflowMenuRow(
-                title: "订阅日历", symbol: "calendar", id: "native-workspace-calendar"
-              ) { openFromOverflow(.calendar) }
-            }
-            if canSearchResources {
-              overflowMenuRow(
-                title: "站点资源", symbol: "magnifyingglass.circle.fill",
-                id: "native-workspace-resources"
-              ) { openFromOverflow(.resources) }
-            }
-            if canManageDownloads {
-              overflowMenuRow(
-                title: "下载", symbol: "arrow.down.circle.fill", id: "native-workspace-downloads"
-              ) { openFromOverflow(.downloads) }
-            }
-          }
-
-          if canManageDownloads || snapshot.user.isSuperuser {
-            Divider().overlay(.primary.opacity(0.10)).padding(.vertical, 4)
-            if canManageDownloads {
-              overflowMenuRow(
-                title: "文件管理", symbol: "folder.fill", id: "native-workspace-files"
-              ) { openFromOverflow(.files) }
-              overflowMenuRow(
-                title: "整理历史", symbol: "clock.arrow.circlepath", id: "native-workspace-history"
-              ) { openFromOverflow(.history) }
-              overflowMenuRow(
-                title: "工作流", symbol: "flowchart", id: "native-workspace-workflows"
-              ) { openFromOverflow(.workflows) }
-            }
-            if snapshot.user.isSuperuser {
-              overflowMenuRow(
-                title: "插件", symbol: "puzzlepiece.extension.fill",
-                id: "native-overflow-plugin-market"
-              ) { openFromOverflow(.pluginMarket) }
-            }
-          }
+      ViewThatFits(in: .vertical) {
+        overflowMenuRows(
+          canSubscribe: canSubscribe,
+          canSearchResources: canSearchResources,
+          canManageDownloads: canManageDownloads
+        )
+        ScrollView {
+          overflowMenuRows(
+            canSubscribe: canSubscribe,
+            canSearchResources: canSearchResources,
+            canManageDownloads: canManageDownloads
+          )
         }
-        .padding(.vertical, 8)
+        .scrollIndicators(.hidden)
+        .frame(maxHeight: 440)
       }
-      .scrollIndicators(.hidden)
-      .frame(maxHeight: 440)
       .accessibilityIdentifier("native-overflow-menu-scroll")
     }
     .frame(width: 238)
@@ -1113,6 +1113,59 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .padding(.horizontal, 16)
     .padding(.bottom, 92)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: overflowMenuAlignment)
+  }
+
+  /// 悬浮快捷菜单条目容器：优先按内容真实高度紧密包裹，仅在超长字号或小屏时退化为滚动。
+  private func overflowMenuRows(
+    canSubscribe: Bool,
+    canSearchResources: Bool,
+    canManageDownloads: Bool
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      if canSubscribe || canSearchResources || canManageDownloads {
+        if canSubscribe {
+          overflowMenuRow(
+            title: t("我的订阅"), symbol: "bookmark.fill", id: "native-workspace-subscriptions"
+          ) { openFromOverflow(.subscriptions) }
+          overflowMenuRow(
+            title: t("订阅日历"), symbol: "calendar", id: "native-workspace-calendar"
+          ) { openFromOverflow(.calendar) }
+        }
+        if canSearchResources {
+          overflowMenuRow(
+            title: t("站点资源"), symbol: "magnifyingglass.circle.fill",
+            id: "native-workspace-resources"
+          ) { openFromOverflow(.resources) }
+        }
+        if canManageDownloads {
+          overflowMenuRow(
+            title: t("下载"), symbol: "arrow.down.circle.fill", id: "native-workspace-downloads"
+          ) { openFromOverflow(.downloads) }
+        }
+      }
+
+      if canManageDownloads || snapshot.user.isSuperuser {
+        Divider().overlay(.primary.opacity(0.10)).padding(.vertical, 4)
+        if canManageDownloads {
+          overflowMenuRow(
+            title: t("文件管理"), symbol: "folder.fill", id: "native-workspace-files"
+          ) { openFromOverflow(.files) }
+          overflowMenuRow(
+            title: t("整理历史"), symbol: "clock.arrow.circlepath", id: "native-workspace-history"
+          ) { openFromOverflow(.history) }
+          overflowMenuRow(
+            title: t("工作流"), symbol: "flowchart", id: "native-workspace-workflows"
+          ) { openFromOverflow(.workflows) }
+        }
+        if snapshot.user.isSuperuser {
+          overflowMenuRow(
+            title: t("插件"), symbol: "puzzlepiece.extension.fill",
+            id: "native-overflow-plugin-market"
+          ) { openFromOverflow(.pluginMarket) }
+        }
+      }
+    }
+    .padding(.vertical, 8)
   }
 
   /// 悬浮快捷菜单中的单个原生入口行。
@@ -2550,5 +2603,306 @@ private struct NativeMediaServerLibrary: Decodable, Sendable {
     case itemID = "item_id"
     case itemCount = "item_count"
     case imageList = "image_list"
+  }
+}
+
+// MARK: - 媒体库入库状态批量查询与绿色对勾角标（对齐 Web `POST /api/v1/media/status` + `ExistIcon.vue`）
+
+/// 本地媒体库入库状态批量查询与缓存中心：将同一屏可见海报卡片在 30ms 窗口内自动合并为最多 50 项的单次 `POST /api/v1/media/status` 请求。
+@MainActor
+final class NativeMediaLibraryStatusStore {
+  static let shared = NativeMediaLibraryStatusStore()
+
+  private struct QueryPayload: Encodable, Sendable {
+    let mediaSource: String?
+    let mediaID: String?
+    let title: String?
+    let year: String?
+    let mtype: String?
+
+    private enum CodingKeys: String, CodingKey {
+      case title, year, mtype
+      case mediaSource = "media_source"
+      case mediaID = "media_id"
+    }
+  }
+
+  private struct StatusResult: Decodable, Sendable {
+    let itemID: String?
+    private enum CodingKeys: String, CodingKey { case itemID = "item_id" }
+  }
+
+  private struct CacheEntry {
+    let exists: Bool
+    let expiresAt: Date
+  }
+
+  private struct PendingItem {
+    let key: String
+    let payload: QueryPayload
+    let continuation: CheckedContinuation<Bool, Never>
+  }
+
+  private var cache: [String: CacheEntry] = [:]
+  private var pendingByScope: [String: (session: NativeSession, items: [PendingItem])] = [:]
+  private var flushTasks: [String: Task<Void, Never>] = [:]
+
+  private init() {}
+
+  /// 同步读取未过期的本地入库状态缓存（避免卡片滑动复用闪烁）。
+  func cachedExists(
+    session: NativeSession,
+    source: String?,
+    mediaID: String?,
+    title: String?,
+    year: String?,
+    type: String?
+  ) -> Bool? {
+    let normalized = Self.normalizeQuery(
+      source: source, mediaID: mediaID, title: title, year: year, type: type)
+    guard let key = Self.cacheKey(session: session, payload: normalized) else { return false }
+    guard let entry = cache[key], entry.expiresAt > Date() else { return nil }
+    return entry.exists
+  }
+
+  /// 查询单张媒体卡片是否已存在于本地媒体库（自动合并同帧卡片并按会话缓存 3 分钟）。
+  func checkExists(
+    session: NativeSession,
+    source: String?,
+    mediaID: String?,
+    title: String?,
+    year: String?,
+    type: String?
+  ) async -> Bool {
+    let rawType = (type ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    if rawType == "音乐" || rawType.lowercased() == "music" { return false }
+    let payload = Self.normalizeQuery(
+      source: source, mediaID: mediaID, title: title, year: year, type: type)
+    guard let key = Self.cacheKey(session: session, payload: payload) else { return false }
+    if let entry = cache[key], entry.expiresAt > Date() {
+      return entry.exists
+    }
+    let scopeKey = "\(session.scope.instanceID.uuidString)|\(session.scope.userID)"
+    return await withCheckedContinuation { continuation in
+      var bucket = pendingByScope[scopeKey] ?? (session: session, items: [])
+      bucket.items.append(PendingItem(key: key, payload: payload, continuation: continuation))
+      pendingByScope[scopeKey] = bucket
+      if flushTasks[scopeKey] == nil {
+        flushTasks[scopeKey] = Task { @MainActor [weak self] in
+          try? await Task.sleep(for: .milliseconds(35))
+          await self?.flush(scopeKey: scopeKey)
+        }
+      }
+    }
+  }
+
+  /// 清空入库状态缓存（切换实例、退出登录或刷新数据后调用）。
+  func clearAll() {
+    cache.removeAll()
+  }
+
+  private func flush(scopeKey: String) async {
+    flushTasks.removeValue(forKey: scopeKey)
+    while let bucket = pendingByScope.removeValue(forKey: scopeKey), !bucket.items.isEmpty {
+      var groupedByKey:
+        [String: (payload: QueryPayload, continuations: [CheckedContinuation<Bool, Never>])] = [:]
+      var orderedKeys: [String] = []
+      for item in bucket.items {
+        if var existing = groupedByKey[item.key] {
+          existing.continuations.append(item.continuation)
+          groupedByKey[item.key] = existing
+        } else {
+          orderedKeys.append(item.key)
+          groupedByKey[item.key] = (item.payload, [item.continuation])
+        }
+      }
+
+      var cursor = 0
+      while cursor < orderedKeys.count {
+        let end = min(cursor + 50, orderedKeys.count)
+        let sliceKeys = Array(orderedKeys[cursor..<end])
+        cursor = end
+        let payloads = sliceKeys.compactMap { groupedByKey[$0]?.payload }
+        var resolved: [String: Bool] = [:]
+        if let body = try? JSONEncoder().encode(payloads),
+          let endpoint = try? APIEndpoint(
+            path: ["media", "status"], method: .post, body: body, responseContract: .payload)
+        {
+          if let results = try? await bucket.session.request(endpoint, as: [StatusResult].self)
+            .value,
+            results.count == sliceKeys.count
+          {
+            let expires = Date().addingTimeInterval(180)
+            for (idx, key) in sliceKeys.enumerated() {
+              let exists = !(results[idx].itemID ?? "").isEmpty
+              resolved[key] = exists
+              cache[key] = CacheEntry(exists: exists, expiresAt: expires)
+            }
+          }
+        }
+        for key in sliceKeys {
+          let exists = resolved[key] ?? false
+          for cont in groupedByKey[key]?.continuations ?? [] {
+            cont.resume(returning: exists)
+          }
+        }
+      }
+    }
+  }
+
+  private static func normalizeQuery(
+    source: String?, mediaID: String?, title: String?, year: String?, type: String?
+  ) -> QueryPayload {
+    let trimmedSource = source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    let trimmedID = mediaID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let hasPair = !trimmedSource.isEmpty && !trimmedID.isEmpty && trimmedID != "0"
+    let normalizedType: String?
+    switch (type ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "电影", "movie": normalizedType = "电影"
+    case "电视剧", "tv": normalizedType = "电视剧"
+    default: normalizedType = nil
+    }
+    let cleanTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let cleanYear = year?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return QueryPayload(
+      mediaSource: hasPair ? trimmedSource : nil,
+      mediaID: hasPair ? trimmedID : nil,
+      title: cleanTitle?.isEmpty == false ? cleanTitle : nil,
+      year: cleanYear?.isEmpty == false ? cleanYear : nil,
+      mtype: normalizedType
+    )
+  }
+
+  private static func cacheKey(session: NativeSession, payload: QueryPayload) -> String? {
+    if payload.mediaSource == nil && payload.title == nil { return nil }
+    return [
+      session.scope.instanceID.uuidString,
+      String(session.scope.userID),
+      payload.mediaSource ?? "",
+      payload.mediaID ?? "",
+      payload.title ?? "",
+      payload.year ?? "",
+      payload.mtype ?? "",
+    ].joined(separator: "|")
+  }
+}
+
+/// 媒体库已存在绿色对勾徽标（与 Web `ExistIcon.vue` 视觉语义一致）。
+@MainActor
+struct NativeMediaExistsBadge: View {
+  var size: CGFloat = 20
+
+  var body: some View {
+    ZStack {
+      Circle()
+        .fill(Color(red: 0.13, green: 0.77, blue: 0.37).opacity(0.92))
+        .overlay {
+          Circle().strokeBorder(Color(red: 0.52, green: 0.94, blue: 0.67), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.32), radius: 3, y: 1)
+      Image(systemName: "checkmark")
+        .font(.system(size: size * 0.52, weight: .bold))
+        .foregroundStyle(.white)
+    }
+    .frame(width: size, height: size)
+    .accessibilityLabel("媒体库已存在")
+  }
+}
+
+/// 海报卡片右上角媒体库已存在徽标修饰器，按需批量查询入库状态。
+private struct NativeMediaExistsOverlayModifier: ViewModifier {
+  let session: NativeSession
+  let source: String?
+  let mediaID: String?
+  let title: String?
+  let year: String?
+  let type: String?
+  let enabled: Bool
+  let badgeSize: CGFloat
+  let inset: CGFloat
+
+  @State private var exists = false
+
+  private var taskKey: String {
+    "\(enabled)|\(source ?? "")|\(mediaID ?? "")|\(title ?? "")|\(year ?? "")|\(type ?? "")"
+  }
+
+  func body(content: Content) -> some View {
+    let displayExists =
+      enabled
+      && (exists
+        || (NativeMediaLibraryStatusStore.shared.cachedExists(
+          session: session, source: source, mediaID: mediaID, title: title, year: year, type: type)
+          == true))
+    return
+      content
+      .overlay(alignment: .topTrailing) {
+        if displayExists {
+          NativeMediaExistsBadge(size: badgeSize)
+            .padding(inset)
+        }
+      }
+      .task(id: taskKey) {
+        guard enabled else {
+          exists = false
+          return
+        }
+        if let cached = NativeMediaLibraryStatusStore.shared.cachedExists(
+          session: session, source: source, mediaID: mediaID, title: title, year: year, type: type)
+        {
+          exists = cached
+          return
+        }
+        let result = await NativeMediaLibraryStatusStore.shared.checkExists(
+          session: session, source: source, mediaID: mediaID, title: title, year: year, type: type)
+        if !Task.isCancelled {
+          exists = result
+        }
+      }
+  }
+}
+
+extension View {
+  func nativeMediaExistsOverlay(
+    session: NativeSession,
+    source: String?,
+    mediaID: String?,
+    title: String?,
+    year: String?,
+    type: String?,
+    enabled: Bool = true,
+    badgeSize: CGFloat = 20,
+    inset: CGFloat = 6
+  ) -> some View {
+    modifier(
+      NativeMediaExistsOverlayModifier(
+        session: session,
+        source: source,
+        mediaID: mediaID,
+        title: title,
+        year: year,
+        type: type,
+        enabled: enabled,
+        badgeSize: badgeSize,
+        inset: inset
+      ))
+  }
+}
+
+/// 与 `LaunchScreen.storyboard` 像素级一致的启动屏覆层：冷启动自动连接与发现首屏加载完成前持续展示居中 Logo，加载完成后柔和淡出。
+@MainActor
+struct NativeLaunchSplashView: View {
+  var body: some View {
+    ZStack {
+      Color("LaunchBackground")
+        .ignoresSafeArea()
+      Image("LaunchMark")
+        .resizable()
+        .scaledToFit()
+        .frame(width: 128, height: 128)
+        .accessibilityHidden(true)
+    }
+    .ignoresSafeArea()
+    .accessibilityIdentifier("native-launch-splash")
   }
 }

@@ -36,11 +36,15 @@ struct NativeSettingsHubPage: View {
   @AppStorage("nativeV2.playback.defaultRate") private var playbackDefaultRate = 1.0
   @ObservedObject private var appearance = NativeAppearanceStore.shared
 
+  private func t(_ key: String) -> String {
+    L10n.text(key, language: currentLanguage)
+  }
+
   var body: some View {
     ZStack {
       CinematicBackground()
       ScrollView {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 24) {
           if snapshot.user.isSuperuser {
             if let storage, storage.total > 0 {
               storageTelemetryCard(storage)
@@ -58,8 +62,8 @@ struct NativeSettingsHubPage: View {
         }
         .frame(maxWidth: 740, alignment: .leading)
         .padding(.horizontal, CinematicStyle.margin)
-        .padding(.top, 10)
-        .padding(.bottom, 36)
+        .padding(.top, 14)
+        .padding(.bottom, 44)
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
@@ -67,7 +71,7 @@ struct NativeSettingsHubPage: View {
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-settings-scroll")
     }
-    .navigationTitle("设置")
+    .navigationTitle(t("设置"))
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
     .sheet(isPresented: $showsNotificationSettings) {
@@ -76,22 +80,23 @@ struct NativeSettingsHubPage: View {
     .sheet(isPresented: $showsWidgetSettings) {
       NativeWidgetSettingsSheet(session: session)
     }
-    .alert("清理本地缓存", isPresented: $showsClearCacheConfirm) {
-      Button("清理", role: .destructive) {
+    .alert(t("清理本地缓存"), isPresented: $showsClearCacheConfirm) {
+      Button(t("清理"), role: .destructive) {
         NativeMediaArtworkCache.shared.clearSession(session)
         NativePageDataCache.shared.clearAll()
+        NativeMediaLibraryStatusStore.shared.clearAll()
         cacheBytes = 0
         cacheClearedNotice = true
       }
-      Button("取消", role: .cancel) {}
+      Button(t("取消"), role: .cancel) {}
     } message: {
-      Text("将清空本机已缓存的海报图片与页面快照，不会影响服务器数据。")
+      Text(t("将清空本机已缓存的海报图片与页面快照，不会影响服务器数据。"))
     }
-    .alert("退出登录", isPresented: $showsLogoutConfirm) {
-      Button("退出登录", role: .destructive) { onLogout() }
-      Button("取消", role: .cancel) {}
+    .alert(t("退出登录"), isPresented: $showsLogoutConfirm) {
+      Button(t("退出登录"), role: .destructive) { onLogout() }
+      Button(t("取消"), role: .cancel) {}
     } message: {
-      Text("退出后需要重新输入账号密码或凭据登录当前 MoviePilot 服务。")
+      Text(t("退出后需要重新输入账号密码或凭据登录当前 MoviePilot 服务。"))
     }
     .task(id: snapshot.scope) {
       await loadOverview(forceRefresh: false)
@@ -110,20 +115,20 @@ struct NativeSettingsHubPage: View {
     let ratio = storage.usedRatio
     let percentText = "\(Int((ratio * 100).rounded()))%"
     let freeBytes = max(storage.total - storage.used, 0)
-    return CinematicPanel(padding: 15) {
-      VStack(alignment: .leading, spacing: 10) {
+    return CinematicPanel(padding: 16) {
+      VStack(alignment: .leading, spacing: 12) {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
           Circle()
             .fill(NativeTheme.success)
-            .frame(width: 6.5, height: 6.5)
+            .frame(width: 7, height: 7)
           Text(host)
-            .font(.caption.monospaced())
+            .font(.footnote.monospaced())
             .foregroundStyle(.secondary)
             .lineLimit(1)
           Spacer(minLength: 8)
           Text("\(Self.formatBytes(storage.used)) / \(Self.formatBytes(storage.total))")
-            .font(.caption.monospacedDigit().weight(.medium))
-            .foregroundStyle(.primary.opacity(0.86))
+            .font(.footnote.monospacedDigit().weight(.medium))
+            .foregroundStyle(.primary.opacity(0.88))
         }
         GeometryReader { bar in
           let w = max(bar.size.width, 1)
@@ -139,29 +144,29 @@ struct NativeSettingsHubPage: View {
               .frame(width: usedW)
           }
         }
-        .frame(height: 7)
+        .frame(height: 8)
         HStack {
-          HStack(spacing: 4) {
-            Circle().fill(appearance.accentColor).frame(width: 6, height: 6)
-            Text("已用 \(percentText)")
-              .font(.caption2)
+          HStack(spacing: 5) {
+            Circle().fill(appearance.accentColor).frame(width: 6.5, height: 6.5)
+            Text("\(t("已用")) \(percentText)")
+              .font(.caption)
               .foregroundStyle(.secondary)
           }
           Spacer()
-          Text("可用 \(Self.formatBytes(freeBytes))")
-            .font(.caption2.monospacedDigit())
+          Text("\(t("可用")) \(Self.formatBytes(freeBytes))")
+            .font(.caption.monospacedDigit())
             .foregroundStyle(.secondary)
         }
       }
     }
   }
 
-  /// 第二行 3 列紧凑状态卡：站点管理、用户管理、渠道授权。
+  /// 第二行 3 列舒朗状态卡：站点管理、用户管理、渠道授权。
   private var adminTopStatusGrid: some View {
-    HStack(spacing: 10) {
+    HStack(spacing: 12) {
       compactStatusCard(
-        title: "站点管理",
-        statusText: siteCount.map { "\($0) 启用" } ?? "索引与流量",
+        title: t("站点管理"),
+        statusText: siteCount.map { "\($0) \(t("启用"))" } ?? t("索引与流量"),
         symbol: "globe",
         tint: NativeTheme.info,
         statusTint: NativeTheme.success,
@@ -169,8 +174,8 @@ struct NativeSettingsHubPage: View {
       ) { onNavigate(.sites) }
 
       compactStatusCard(
-        title: "用户管理",
-        statusText: userCount.map { "\($0) 位成员" } ?? "权限角色",
+        title: t("用户管理"),
+        statusText: userCount.map { "\($0) \(t("位成员"))" } ?? t("权限角色"),
         symbol: "person.2.fill",
         tint: NativeTheme.brand,
         statusTint: NativeTheme.brand,
@@ -178,8 +183,9 @@ struct NativeSettingsHubPage: View {
       ) { onNavigate(.users) }
 
       compactStatusCard(
-        title: "渠道授权",
-        statusText: pendingAuthCount > 0 ? "\(pendingAuthCount) 待审批" : "已授 \(approvedAuthCount)",
+        title: t("渠道授权"),
+        statusText: pendingAuthCount > 0
+          ? "\(pendingAuthCount) \(t("待审批"))" : "\(t("已授")) \(approvedAuthCount)",
         symbol: "person.badge.key.fill",
         tint: NativeTheme.pink,
         statusTint: pendingAuthCount > 0 ? NativeTheme.warning : NativeTheme.success,
@@ -198,31 +204,31 @@ struct NativeSettingsHubPage: View {
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
-      CinematicPanel(padding: 12) {
-        VStack(alignment: .leading, spacing: 10) {
+      CinematicPanel(padding: 14) {
+        VStack(alignment: .leading, spacing: 12) {
           Image(systemName: symbol)
-            .font(.body.weight(.semibold))
+            .font(.system(size: 16, weight: .semibold))
             .foregroundStyle(tint)
-            .frame(width: 34, height: 34)
+            .frame(width: 38, height: 38)
             .background(
-              tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-          VStack(alignment: .leading, spacing: 3) {
+              tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+          VStack(alignment: .leading, spacing: 4) {
             Text(title)
               .font(.subheadline.weight(.semibold))
               .foregroundStyle(.primary)
               .lineLimit(1)
               .minimumScaleFactor(0.85)
             HStack(spacing: 4) {
-              Circle().fill(statusTint).frame(width: 5, height: 5)
+              Circle().fill(statusTint).frame(width: 5.5, height: 5.5)
               Text(statusText)
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.82)
             }
           }
         }
-        .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 98, alignment: .leading)
       }
     }
     .buttonStyle(.plain)
@@ -233,21 +239,21 @@ struct NativeSettingsHubPage: View {
     Button {
       onNavigate(.channelAuth)
     } label: {
-      CinematicPanel(padding: 15) {
-        HStack(spacing: 12) {
+      CinematicPanel(padding: 16) {
+        HStack(spacing: 14) {
           iconBadge("person.badge.key.fill", tint: NativeTheme.pink)
-          VStack(alignment: .leading, spacing: 2) {
-            Text("渠道授权与绑定")
-              .font(.subheadline.weight(.semibold))
+          VStack(alignment: .leading, spacing: 3) {
+            Text(t("渠道授权与绑定"))
+              .font(.body.weight(.semibold))
               .foregroundStyle(.primary)
-            Text("生成 5 分钟渠道关联绑定码")
-              .font(.caption)
+            Text(t("生成 5 分钟渠道关联绑定码"))
+              .font(.footnote)
               .foregroundStyle(.secondary)
           }
           Spacer()
           Image(systemName: "chevron.right")
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.secondary.opacity(0.6))
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.secondary.opacity(0.55))
         }
       }
     }
@@ -258,47 +264,51 @@ struct NativeSettingsHubPage: View {
   // MARK: - 2. 分组一：核心业务
 
   private var coreWorkflowSection: some View {
-    settingsGroup("核心业务", footer: "底层代理、并发与高级系统参数请在 Web 管理台配置。") {
+    let unit = t("个")
+    let countFmt: (Int) -> String = { count in
+      unit.isEmpty ? "\(count)" : "\(count) \(unit)"
+    }
+    return settingsGroup(t("核心业务"), footer: t("底层代理、并发与高级系统参数请在 Web 管理台配置。")) {
       navRow(
-        title: "订阅与搜索", subtitle: "站点范围 · 规则组", symbol: "magnifyingglass.circle.fill",
+        title: t("订阅与搜索"), subtitle: t("站点范围 · 规则组"), symbol: "magnifyingglass.circle.fill",
         tint: NativeTheme.info, id: "native-settings-subscribe-search"
       ) { onNavigate(.subscribeSearchSettings) }
-      CinematicFormDivider()
+      settingsRowDivider
       navRow(
-        title: "下载器", subtitle: downloaderCount.map { "\($0) 个" } ?? "新增与管理",
+        title: t("下载器"), subtitle: downloaderCount.map(countFmt) ?? t("新增与管理"),
         symbol: "arrow.down.circle.fill", tint: NativeTheme.success,
         id: "native-settings-downloaders"
       ) { onNavigate(.downloadersManage) }
-      CinematicFormDivider()
+      settingsRowDivider
       navRow(
-        title: "媒体服务器", subtitle: mediaServerCount.map { "\($0) 个" } ?? "新增与管理",
+        title: t("媒体服务器"), subtitle: mediaServerCount.map(countFmt) ?? t("新增与管理"),
         symbol: "server.rack", tint: NativeTheme.brand,
         id: "native-settings-mediaservers"
       ) { onNavigate(.mediaServersManage) }
-      CinematicFormDivider()
+      settingsRowDivider
       navRow(
-        title: "整理与目录", subtitle: "目录映射与刮削", symbol: "folder.badge.gearshape.fill",
+        title: t("整理与目录"), subtitle: t("目录映射与刮削"), symbol: "folder.fill.badge.gearshape",
         tint: NativeTheme.warning, id: "native-settings-hub-directories"
       ) { onNavigate(.systemModule(.directories)) }
-      CinematicFormDivider()
+      settingsRowDivider
       navRow(
-        title: "播放偏好", subtitle: playbackSummaryText, symbol: "play.rectangle.fill",
+        title: t("播放偏好"), subtitle: playbackSummaryText, symbol: "play.rectangle.fill",
         tint: NativeTheme.pink, id: "native-settings-playback"
       ) { onNavigate(.playbackSettings) }
     }
   }
 
   private var memberPlaybackSection: some View {
-    settingsGroup("播放") {
+    settingsGroup(t("播放")) {
       navRow(
-        title: "播放偏好", subtitle: playbackSummaryText, symbol: "play.rectangle.fill",
+        title: t("播放偏好"), subtitle: playbackSummaryText, symbol: "play.rectangle.fill",
         tint: NativeTheme.pink, id: "native-settings-playback"
       ) { onNavigate(.playbackSettings) }
     }
   }
 
   private var playbackSummaryText: String {
-    let fill = playbackAspectFill ? "铺满" : "自适应"
+    let fill = playbackAspectFill ? t("铺满") : t("自适应")
     let rate = playbackDefaultRate == 1.0 ? "1.0x" : String(format: "%.2gx", playbackDefaultRate)
     return "\(fill) · \(rate)"
   }
@@ -306,32 +316,32 @@ struct NativeSettingsHubPage: View {
   // MARK: - 3. 分组二：通知与智能
 
   private var notificationAndAssistantSection: some View {
-    settingsGroup("通知与智能") {
+    settingsGroup(t("通知与智能")) {
       navRow(
-        title: "本机推送通知", subtitle: "APNs 提醒", symbol: "bell.and.waves.left.and.right",
+        title: t("本机推送通知"), subtitle: t("APNs 提醒"), symbol: "bell.and.waves.left.and.right",
         tint: NativeTheme.danger, id: "native-settings-hub-push"
       ) { showsNotificationSettings = true }
       if snapshot.user.isSuperuser {
-        CinematicFormDivider()
+        settingsRowDivider
         navRow(
-          title: "服务端通知渠道", subtitle: "消息推送配置", symbol: "bell.badge.fill",
+          title: t("服务端通知渠道"), subtitle: t("消息推送配置"), symbol: "bell.badge.fill",
           tint: NativeTheme.success, id: "native-settings-hub-notifications"
         ) { onNavigate(.systemModule(.notifications)) }
       }
-      CinematicFormDivider()
-      HStack(spacing: 12) {
+      settingsRowDivider
+      HStack(spacing: 14) {
         iconBadge("sparkles", tint: NativeTheme.brand)
-        Text("悬浮智能助手")
-          .font(.subheadline)
+        Text(t("悬浮智能助手"))
+          .font(.body)
           .foregroundStyle(.primary)
         Spacer(minLength: 8)
         Toggle("", isOn: $showFloatingAssistant)
           .labelsHidden()
           .tint(appearance.accentColor)
       }
-      .padding(.horizontal, 15)
-      .padding(.vertical, 9)
-      .frame(minHeight: 48)
+      .padding(.horizontal, 16)
+      .padding(.vertical, 12)
+      .frame(minHeight: 56)
       .accessibilityIdentifier("native-settings-hub-floating-assistant")
     }
   }
@@ -339,17 +349,17 @@ struct NativeSettingsHubPage: View {
   // MARK: - 4. 分组三：外观与本机
 
   private var appearanceAndDeviceSection: some View {
-    settingsGroup("外观与本机") {
+    settingsGroup(t("外观与本机")) {
       navRow(
-        title: "主题与外观", subtitle: appearance.summaryText, symbol: "paintpalette.fill",
+        title: t("主题与外观"), subtitle: appearance.summaryText, symbol: "paintpalette.fill",
         tint: appearance.accentColor, id: "native-settings-hub-appearance"
       ) { onNavigate(.appearance) }
-      CinematicFormDivider()
+      settingsRowDivider
       navRow(
-        title: "桌面小组件", subtitle: "实例与刷新", symbol: "rectangle.3.group.fill",
+        title: t("桌面小组件"), subtitle: t("实例与刷新"), symbol: "rectangle.3.group.fill",
         tint: NativeTheme.cyan, id: "native-settings-hub-widgets"
       ) { showsWidgetSettings = true }
-      CinematicFormDivider()
+      settingsRowDivider
       Menu {
         ForEach(AppLanguage.allCases, id: \.rawValue) { lang in
           Button {
@@ -363,30 +373,30 @@ struct NativeSettingsHubPage: View {
           }
         }
       } label: {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
           iconBadge("globe", tint: NativeTheme.info)
-          Text("界面语言")
-            .font(.subheadline)
+          Text(t("界面语言"))
+            .font(.body)
             .foregroundStyle(.primary)
           Spacer(minLength: 8)
           Text(currentLanguage.title)
-            .font(.caption)
+            .font(.subheadline)
             .foregroundStyle(.secondary)
           Image(systemName: "chevron.up.chevron.down")
-            .font(.caption2.weight(.medium))
+            .font(.caption.weight(.medium))
             .foregroundStyle(.secondary.opacity(0.65))
         }
-        .padding(.horizontal, 15)
-        .padding(.vertical, 10)
-        .frame(minHeight: 48)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(minHeight: 56)
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
       .accessibilityIdentifier("native-v2-language")
-      CinematicFormDivider()
+      settingsRowDivider
       navRow(
-        title: "本地缓存清理",
-        subtitle: cacheClearedNotice ? "已清理" : Self.formatBytes(Double(cacheBytes)),
+        title: t("本地缓存清理"),
+        subtitle: cacheClearedNotice ? t("已清理") : Self.formatBytes(Double(cacheBytes)),
         symbol: "internaldrive.fill", tint: NativeTheme.warning,
         id: "native-settings-clear-cache"
       ) { showsClearCacheConfirm = true }
@@ -397,25 +407,25 @@ struct NativeSettingsHubPage: View {
 
   private var accountAndServerSection: some View {
     let host = session.instance.address.url.host ?? session.instance.address.url.absoluteString
-    return settingsGroup("服务与账号") {
+    return settingsGroup(t("服务与账号")) {
       navRow(
-        title: "切换服务", subtitle: host, symbol: "arrow.left.arrow.right.circle.fill",
+        title: t("切换服务"), subtitle: host, symbol: "arrow.left.arrow.right.circle.fill",
         tint: NativeTheme.info, id: "native-v2-switch"
       ) { onSwitchServer() }
-      CinematicFormDivider()
+      settingsRowDivider
       Button {
         showsLogoutConfirm = true
       } label: {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
           iconBadge("rectangle.portrait.and.arrow.right", tint: NativeTheme.danger)
-          Text("退出登录")
-            .font(.subheadline.weight(.medium))
+          Text(t("退出登录"))
+            .font(.body.weight(.medium))
             .foregroundStyle(NativeTheme.danger)
           Spacer()
         }
-        .padding(.horizontal, 15)
-        .padding(.vertical, 10)
-        .frame(minHeight: 48)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(minHeight: 56)
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
@@ -423,36 +433,43 @@ struct NativeSettingsHubPage: View {
     }
   }
 
-  // MARK: - 原生分组列表基础组件
+  // MARK: - 原生舒朗分组列表基础组件
 
   private func settingsGroup<Content: View>(
     _ title: String,
     footer: String? = nil,
     @ViewBuilder content: () -> Content
   ) -> some View {
-    VStack(alignment: .leading, spacing: 7) {
+    VStack(alignment: .leading, spacing: 10) {
       Text(title)
-        .font(.footnote.weight(.medium))
+        .font(.subheadline.weight(.medium))
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 8)
       CinematicPanel(padding: 0) {
         VStack(spacing: 0) { content() }
       }
       if let footer, !footer.isEmpty {
         Text(footer)
-          .font(.caption2)
+          .font(.caption)
           .foregroundStyle(.secondary)
-          .padding(.horizontal, 6)
+          .padding(.horizontal, 8)
+          .padding(.top, 2)
       }
     }
   }
 
+  private var settingsRowDivider: some View {
+    Divider()
+      .overlay(NativeTheme.divider)
+      .padding(.leading, 64)
+  }
+
   private func iconBadge(_ symbol: String, tint: Color) -> some View {
     Image(systemName: symbol)
-      .font(.system(size: 13, weight: .semibold))
+      .font(.system(size: 15, weight: .semibold))
       .foregroundStyle(tint)
-      .frame(width: 28, height: 28)
-      .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+      .frame(width: 34, height: 34)
+      .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
   }
 
   private func navRow(
@@ -464,25 +481,25 @@ struct NativeSettingsHubPage: View {
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
-      HStack(spacing: 12) {
+      HStack(spacing: 14) {
         iconBadge(symbol, tint: tint)
         Text(title)
-          .font(.subheadline)
+          .font(.body)
           .foregroundStyle(.primary)
         Spacer(minLength: 8)
         if let subtitle, !subtitle.isEmpty {
           Text(subtitle)
-            .font(.caption)
+            .font(.subheadline)
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
         Image(systemName: "chevron.right")
-          .font(.caption2.weight(.semibold))
+          .font(.footnote.weight(.semibold))
           .foregroundStyle(.secondary.opacity(0.55))
       }
-      .padding(.horizontal, 15)
-      .padding(.vertical, 10)
-      .frame(minHeight: 48)
+      .padding(.horizontal, 16)
+      .padding(.vertical, 14)
+      .frame(minHeight: 56)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
@@ -787,18 +804,20 @@ struct NativeChannelAuthorizationPage: View {
               Button {
                 editingMember = member
               } label: {
-                HStack(spacing: 12) {
+                HStack(spacing: 13) {
+                  NativeBrandIcon(
+                    kind: .notification, type: member.channel, size: 38, cornerRadius: 10)
                   VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                       Text(member.displayName.isEmpty ? member.senderID : member.displayName)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.body.weight(.semibold))
                         .foregroundStyle(.primary)
                       NativeAdaptiveBadge(
                         member.role == "admin" ? "管理员" : "普通成员",
                         tint: member.role == "admin" ? NativeTheme.brand : NativeTheme.info)
                     }
                     Text("\(member.source) · \(member.senderID)")
-                      .font(.caption2.monospaced())
+                      .font(.caption.monospaced())
                       .foregroundStyle(.secondary)
                       .lineLimit(1)
                     if !member.scopes.isEmpty {
@@ -809,11 +828,11 @@ struct NativeChannelAuthorizationPage: View {
                   }
                   Spacer()
                   Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
+                    .font(.footnote.weight(.semibold))
                     .foregroundStyle(.secondary.opacity(0.55))
                 }
-                .padding(.horizontal, 15)
-                .padding(.vertical, 11)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
                 .contentShape(Rectangle())
               }
               .buttonStyle(.plain)
@@ -896,36 +915,40 @@ private struct NativeChannelAuthCreateSheet: View {
                   .frame(maxWidth: .infinity, alignment: .leading)
               }
             }
+            if !channels.isEmpty {
+              VStack(alignment: .leading, spacing: 10) {
+                Text("选择通知渠道")
+                  .font(.subheadline.weight(.medium))
+                  .foregroundStyle(.secondary)
+                  .padding(.horizontal, 6)
+                NativeBrandOptionGrid(
+                  kind: .notification,
+                  items: channels.map {
+                    NativeBrandChoiceItem(
+                      id: $0.id, title: $0.name, subtitle: $0.type, iconType: $0.type)
+                  },
+                  selection: $notificationID,
+                  columns: channels.count <= 2 ? 2 : 3
+                )
+              }
+            }
             CinematicPanel(padding: 0) {
               VStack(spacing: 0) {
-                HStack {
-                  Text("通知渠道").font(.subheadline)
-                  Spacer()
-                  Picker("通知渠道", selection: $notificationID) {
-                    ForEach(channels) { ch in
-                      Text("\(ch.name) (\(ch.type))").tag(ch.id)
-                    }
-                  }
-                  .pickerStyle(.menu)
-                  .tint(appearance.accentColor)
-                }
-                .padding(.horizontal, 15).padding(.vertical, 10)
-                CinematicFormDivider()
                 inlineInputRow("发送者 ID", placeholder: "Telegram/企微用户 ID", text: $senderID)
                 CinematicFormDivider()
                 inlineInputRow("显示昵称", placeholder: "便于核对的昵称", text: $displayName)
                 CinematicFormDivider()
                 HStack {
-                  Text("授权角色").font(.subheadline)
+                  Text("授权角色").font(.body)
                   Spacer()
                   Picker("角色", selection: $role) {
                     Text("普通成员").tag("member")
                     Text("管理员").tag("admin")
                   }
                   .pickerStyle(.segmented)
-                  .frame(width: 170)
+                  .frame(width: 176)
                 }
-                .padding(.horizontal, 15).padding(.vertical, 10)
+                .padding(.horizontal, 16).padding(.vertical, 12)
               }
             }
 
@@ -1192,24 +1215,42 @@ struct NativeSubscribeSearchSettingsPage: View {
   @State private var searchRuleGroups: Set<String> = []
   @State private var subscribeMode = "auto"
   @State private var searchSources: Set<String> = ["themoviedb", "douban"]
+  @State private var enabledBackendSources: Set<String>?
   @State private var isLoading = true
   @State private var isSaving = false
   @State private var feedback: (isError: Bool, text: String)?
+
+  private struct BackendMediaSourceRecord: Decodable, Sendable {
+    let mediaSource: String
+    private enum CodingKeys: String, CodingKey { case mediaSource = "media_source" }
+  }
+
+  private static let mediaSourceChoices: [NativeBrandChoiceItem] = [
+    NativeBrandChoiceItem(id: "themoviedb", title: "TMDB", subtitle: "全球影视元数据"),
+    NativeBrandChoiceItem(id: "douban", title: "豆瓣", subtitle: "中文影评与榜单"),
+    NativeBrandChoiceItem(id: "bangumi", title: "Bangumi", subtitle: "番剧与动画索引"),
+    NativeBrandChoiceItem(id: "musicbrainz", title: "MusicBrainz", subtitle: "音乐专辑与曲目"),
+  ]
+
+  private var visibleMediaSourceChoices: [NativeBrandChoiceItem] {
+    guard let enabledBackendSources else { return Self.mediaSourceChoices }
+    return Self.mediaSourceChoices.filter { enabledBackendSources.contains($0.id) }
+  }
 
   var body: some View {
     ZStack {
       CinematicBackground()
       ScrollView {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 22) {
           if let feedback {
-            CinematicPanel(padding: 11) {
+            CinematicPanel(padding: 12) {
               HStack(spacing: 8) {
                 Image(
                   systemName: feedback.isError
                     ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
                 )
                 .foregroundStyle(feedback.isError ? NativeTheme.warning : NativeTheme.success)
-                Text(feedback.text).font(.caption.weight(.medium))
+                Text(feedback.text).font(.subheadline.weight(.medium))
                 Spacer()
               }
             }
@@ -1221,9 +1262,9 @@ struct NativeSubscribeSearchSettingsPage: View {
               .frame(maxWidth: .infinity, minHeight: 200)
           } else {
             // 站点范围
-            VStack(alignment: .leading, spacing: 7) {
-              Text("站点范围").font(.footnote.weight(.medium)).foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
+            VStack(alignment: .leading, spacing: 10) {
+              Text("站点范围").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
               CinematicPanel(padding: 0) {
                 VStack(spacing: 0) {
                   NavigationLink {
@@ -1249,9 +1290,9 @@ struct NativeSubscribeSearchSettingsPage: View {
             }
 
             // 优先级规则组
-            VStack(alignment: .leading, spacing: 7) {
-              Text("优先级规则组").font(.footnote.weight(.medium)).foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
+            VStack(alignment: .leading, spacing: 10) {
+              Text("优先级规则组").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
               CinematicPanel(padding: 0) {
                 VStack(spacing: 0) {
                   NavigationLink {
@@ -1288,44 +1329,49 @@ struct NativeSubscribeSearchSettingsPage: View {
               }
             }
 
-            // 模式与数据源
-            VStack(alignment: .leading, spacing: 7) {
-              Text("模式与数据源").font(.footnote.weight(.medium)).foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
+            // 订阅模式
+            VStack(alignment: .leading, spacing: 10) {
+              Text("订阅刷新模式").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
               CinematicPanel(padding: 0) {
-                VStack(spacing: 0) {
-                  HStack {
-                    Text("订阅刷新模式").font(.subheadline)
-                    Spacer()
-                    Picker("订阅模式", selection: $subscribeMode) {
-                      Text("自动").tag("auto")
-                      Text("站点抓取").tag("spider")
-                      Text("RSS 订阅").tag("rss")
-                    }
-                    .pickerStyle(.menu)
-                    .tint(appearance.accentColor)
+                HStack {
+                  Text("订阅模式").font(.body)
+                  Spacer()
+                  Picker("订阅模式", selection: $subscribeMode) {
+                    Text("自动").tag("auto")
+                    Text("站点抓取").tag("spider")
+                    Text("RSS 订阅").tag("rss")
                   }
-                  .padding(.horizontal, 15).padding(.vertical, 10)
-                  CinematicFormDivider()
-                  NavigationLink {
-                    NativeStringMultiPickerView(
-                      title: "媒体搜索数据源",
-                      options: ["themoviedb", "douban", "bangumi", "musicbrainz"],
-                      selection: $searchSources)
-                  } label: {
-                    pickerRow(
-                      "搜索数据源",
-                      value: searchSources.isEmpty ? "默认" : "\(searchSources.count) 个来源")
-                  }
-                  .buttonStyle(.plain)
+                  .pickerStyle(.menu)
+                  .tint(appearance.accentColor)
                 }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .frame(minHeight: 54)
               }
+            }
+
+            // 媒体数据源（带品牌 Logo 的可视多选卡片）
+            VStack(alignment: .leading, spacing: 10) {
+              HStack {
+                Text("媒体搜索数据源").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                Spacer()
+                Text(searchSources.isEmpty ? "未选择" : "已选 \(searchSources.count) 个")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+              .padding(.horizontal, 8)
+              NativeBrandMultiOptionGrid(
+                kind: .mediaSource,
+                items: visibleMediaSourceChoices,
+                selection: $searchSources,
+                columns: 2
+              )
             }
           }
         }
         .frame(maxWidth: 740, alignment: .leading)
         .padding(.horizontal, CinematicStyle.margin)
-        .padding(.vertical, 14)
+        .padding(.vertical, 16)
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
@@ -1353,14 +1399,15 @@ struct NativeSubscribeSearchSettingsPage: View {
 
   private func pickerRow(_ title: String, value: String) -> some View {
     HStack {
-      Text(title).font(.subheadline).foregroundStyle(.primary)
+      Text(title).font(.body).foregroundStyle(.primary)
       Spacer()
-      Text(value).font(.caption).foregroundStyle(.secondary)
+      Text(value).font(.subheadline).foregroundStyle(.secondary)
       Image(systemName: "chevron.right")
-        .font(.caption2.weight(.semibold))
+        .font(.footnote.weight(.semibold))
         .foregroundStyle(.secondary.opacity(0.55))
     }
-    .padding(.horizontal, 15).padding(.vertical, 12)
+    .padding(.horizontal, 16).padding(.vertical, 14)
+    .frame(minHeight: 56)
     .contentShape(Rectangle())
   }
 
@@ -1394,9 +1441,16 @@ struct NativeSubscribeSearchSettingsPage: View {
         ep, as: [String: JSONValue].self, requiring: .init(category: .admin)
       ).value
     }()
+    async let enabledSourcesTask: [BackendMediaSourceRecord]? = {
+      guard let ep = try? APIEndpoint(path: ["media", "source"], responseContract: .payload) else {
+        return nil
+      }
+      return try? await session.request(ep, as: [BackendMediaSourceRecord].self).value
+    }()
 
-    let (sites, groups, rss, idx, sg, bg, scg, src, env) = await (
-      sitesTask, groupsTask, rssTask, idxTask, subGrpTask, bestGrpTask, schGrpTask, srcTask, envTask
+    let (sites, groups, rss, idx, sg, bg, scg, src, env, activeSources) = await (
+      sitesTask, groupsTask, rssTask, idxTask, subGrpTask, bestGrpTask, schGrpTask, srcTask,
+      envTask, enabledSourcesTask
     )
     if let sites { allSites = sites.filter(\.isActive) }
     if let groups { allRuleGroups = groups }
@@ -1407,6 +1461,11 @@ struct NativeSubscribeSearchSettingsPage: View {
     if let scg { searchRuleGroups = Set(scg) }
     if let src, !src.isEmpty {
       searchSources = Set(src.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+    }
+    if let activeSources {
+      let enabledSet = Set(activeSources.map { $0.mediaSource.lowercased() })
+      enabledBackendSources = enabledSet
+      searchSources = searchSources.intersection(enabledSet)
     }
     if let env, case .string(let mode) = env["SUBSCRIBE_MODE"], !mode.isEmpty {
       subscribeMode = mode
@@ -1610,19 +1669,19 @@ struct NativeDownloadersManagePage: View {
                   Button {
                     editingIndex = idx
                   } label: {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 13) {
                       NativeBrandIcon(
-                        kind: .downloader, type: item.type, size: 36, cornerRadius: 10)
-                      VStack(alignment: .leading, spacing: 3) {
+                        kind: .downloader, type: item.type, size: 40, cornerRadius: 11)
+                      VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
-                          Text(item.name).font(.subheadline.weight(.semibold)).foregroundStyle(
+                          Text(item.name).font(.body.weight(.semibold)).foregroundStyle(
                             .primary)
                           if item.isDefault {
                             NativeAdaptiveBadge("默认", tint: NativeTheme.brand)
                           }
                         }
                         Text("\(item.type) · \(item.hostSummary)")
-                          .font(.caption2.monospaced())
+                          .font(.caption.monospaced())
                           .foregroundStyle(.secondary)
                           .lineLimit(1)
                       }
@@ -1631,10 +1690,10 @@ struct NativeDownloadersManagePage: View {
                         item.enabled ? "已启用" : "停用",
                         tint: item.enabled ? NativeTheme.success : nil)
                       Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.semibold))
+                        .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary.opacity(0.55))
                     }
-                    .padding(.horizontal, 14).padding(.vertical, 11)
+                    .padding(.horizontal, 16).padding(.vertical, 14)
                     .contentShape(Rectangle())
                   }
                   .buttonStyle(.plain)
@@ -1816,35 +1875,42 @@ private struct NativeDownloaderEditorSheet: View {
         separator: "\n"))
   }
 
+  private static let downloaderChoices: [NativeBrandChoiceItem] = [
+    NativeBrandChoiceItem(id: "qbittorrent", title: "qBittorrent"),
+    NativeBrandChoiceItem(id: "transmission", title: "Transmission"),
+    NativeBrandChoiceItem(id: "rtorrent", title: "rTorrent"),
+  ]
+
   var body: some View {
     NavigationStack {
       ZStack {
         CinematicBackground()
         ScrollView {
-          VStack(alignment: .leading, spacing: 16) {
+          VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 10) {
+              Text("下载器类型")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+              NativeBrandOptionGrid(
+                kind: .downloader,
+                items: Self.downloaderChoices,
+                selection: $type,
+                columns: 3
+              )
+            }
+
             CinematicPanel(padding: 0) {
               VStack(spacing: 0) {
                 rowField("名称", placeholder: "例如：qBittorrent", text: $name)
                 CinematicFormDivider()
-                HStack {
-                  Text("类型").font(.subheadline)
-                  Spacer()
-                  Picker("类型", selection: $type) {
-                    Text("qBittorrent").tag("qbittorrent")
-                    Text("Transmission").tag("transmission")
-                  }
-                  .pickerStyle(.segmented)
-                  .frame(width: 210)
-                }
-                .padding(.horizontal, 15).padding(.vertical, 10)
-                CinematicFormDivider()
                 Toggle("启用下载器", isOn: $enabled)
-                  .font(.subheadline).tint(appearance.accentColor)
-                  .padding(.horizontal, 15).padding(.vertical, 10)
+                  .font(.body).tint(appearance.accentColor)
+                  .padding(.horizontal, 16).padding(.vertical, 12)
                 CinematicFormDivider()
                 Toggle("设为默认下载器", isOn: $isDefault)
-                  .font(.subheadline).tint(appearance.accentColor)
-                  .padding(.horizontal, 15).padding(.vertical, 10)
+                  .font(.body).tint(appearance.accentColor)
+                  .padding(.horizontal, 16).padding(.vertical, 12)
               }
             }
 
@@ -1999,14 +2065,14 @@ struct NativeMediaServersManagePage: View {
                   Button {
                     editingIndex = idx
                   } label: {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 13) {
                       NativeBrandIcon(
-                        kind: .mediaServer, type: item.type, size: 36, cornerRadius: 10)
-                      VStack(alignment: .leading, spacing: 3) {
-                        Text(item.name).font(.subheadline.weight(.semibold)).foregroundStyle(
+                        kind: .mediaServer, type: item.type, size: 40, cornerRadius: 11)
+                      VStack(alignment: .leading, spacing: 4) {
+                        Text(item.name).font(.body.weight(.semibold)).foregroundStyle(
                           .primary)
                         Text("\(item.type) · \(item.hostSummary)")
-                          .font(.caption2.monospaced())
+                          .font(.caption.monospaced())
                           .foregroundStyle(.secondary)
                           .lineLimit(1)
                       }
@@ -2015,10 +2081,10 @@ struct NativeMediaServersManagePage: View {
                         item.enabled ? "已启用" : "停用",
                         tint: item.enabled ? NativeTheme.success : nil)
                       Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.semibold))
+                        .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary.opacity(0.55))
                     }
-                    .padding(.horizontal, 14).padding(.vertical, 11)
+                    .padding(.horizontal, 16).padding(.vertical, 14)
                     .contentShape(Rectangle())
                   }
                   .buttonStyle(.plain)
@@ -2144,10 +2210,15 @@ struct NativeMediaServersManagePage: View {
 
 @MainActor
 private struct NativeMediaServerEditorSheet: View {
-  private static let serverTypes: [(id: String, title: String)] = [
-    ("emby", "Emby"), ("jellyfin", "Jellyfin"), ("plex", "Plex"),
-    ("trimemedia", "飞牛影视"), ("ugreen", "绿联影视"), ("zspace", "极空间"),
-    ("navidrome", "Navidrome"), ("mediavault", "MediaVault"),
+  private static let serverTypes: [NativeBrandChoiceItem] = [
+    NativeBrandChoiceItem(id: "emby", title: "Emby"),
+    NativeBrandChoiceItem(id: "jellyfin", title: "Jellyfin"),
+    NativeBrandChoiceItem(id: "plex", title: "Plex"),
+    NativeBrandChoiceItem(id: "trimemedia", title: "飞牛影视"),
+    NativeBrandChoiceItem(id: "ugreen", title: "绿联影视"),
+    NativeBrandChoiceItem(id: "zspace", title: "极空间"),
+    NativeBrandChoiceItem(id: "navidrome", title: "Navidrome"),
+    NativeBrandChoiceItem(id: "mediavault", title: "MediaVault"),
   ]
 
   let initial: NativeMediaServerConf?
@@ -2190,27 +2261,27 @@ private struct NativeMediaServerEditorSheet: View {
       ZStack {
         CinematicBackground()
         ScrollView {
-          VStack(alignment: .leading, spacing: 16) {
+          VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 10) {
+              Text("媒体服务器类型")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+              NativeBrandOptionGrid(
+                kind: .mediaServer,
+                items: Self.serverTypes,
+                selection: $type,
+                columns: 3
+              )
+            }
+
             CinematicPanel(padding: 0) {
               VStack(spacing: 0) {
                 rowField("名称", placeholder: "例如：客厅 Emby", text: $name)
                 CinematicFormDivider()
-                HStack {
-                  Text("类型").font(.subheadline)
-                  Spacer()
-                  Picker("类型", selection: $type) {
-                    ForEach(Self.serverTypes, id: \.id) { item in
-                      Text(item.title).tag(item.id)
-                    }
-                  }
-                  .pickerStyle(.menu)
-                  .tint(appearance.accentColor)
-                }
-                .padding(.horizontal, 15).padding(.vertical, 10)
-                CinematicFormDivider()
                 Toggle("启用服务器", isOn: $enabled)
-                  .font(.subheadline).tint(appearance.accentColor)
-                  .padding(.horizontal, 15).padding(.vertical, 10)
+                  .font(.body).tint(appearance.accentColor)
+                  .padding(.horizontal, 16).padding(.vertical, 12)
               }
             }
 
@@ -2328,26 +2399,27 @@ struct NativePlaybackPreferencesPage: View {
     ZStack {
       CinematicBackground()
       ScrollView {
-        VStack(alignment: .leading, spacing: 18) {
-          VStack(alignment: .leading, spacing: 7) {
-            Text("视频播放").font(.footnote.weight(.medium)).foregroundStyle(.secondary)
-              .padding(.horizontal, 6)
+        VStack(alignment: .leading, spacing: 22) {
+          VStack(alignment: .leading, spacing: 10) {
+            Text("视频播放").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+              .padding(.horizontal, 8)
             CinematicPanel(padding: 0) {
               VStack(spacing: 0) {
                 HStack {
-                  Text("默认画面模式").font(.subheadline)
+                  Text("默认画面模式").font(.body)
                   Spacer()
                   Picker("画面模式", selection: $aspectFill) {
                     Text("自适应").tag(false)
                     Text("铺满屏幕").tag(true)
                   }
                   .pickerStyle(.segmented)
-                  .frame(width: 170)
+                  .frame(width: 176)
                 }
-                .padding(.horizontal, 15).padding(.vertical, 10)
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .frame(minHeight: 54)
                 CinematicFormDivider()
                 HStack {
-                  Text("默认播放倍速").font(.subheadline)
+                  Text("默认播放倍速").font(.body)
                   Spacer()
                   Picker("倍速", selection: $defaultRate) {
                     Text("1.0x").tag(1.0)
@@ -2358,31 +2430,35 @@ struct NativePlaybackPreferencesPage: View {
                   .pickerStyle(.menu)
                   .tint(appearance.accentColor)
                 }
-                .padding(.horizontal, 15).padding(.vertical, 10)
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .frame(minHeight: 54)
                 CinematicFormDivider()
                 Toggle("优先选择中文字幕", isOn: $preferChineseSub)
-                  .font(.subheadline).tint(appearance.accentColor)
-                  .padding(.horizontal, 15).padding(.vertical, 10)
+                  .font(.body).tint(appearance.accentColor)
+                  .padding(.horizontal, 16).padding(.vertical, 12)
+                  .frame(minHeight: 54)
                 CinematicFormDivider()
                 Toggle("移动网络播放前提醒", isOn: $cellularWarn)
-                  .font(.subheadline).tint(appearance.accentColor)
-                  .padding(.horizontal, 15).padding(.vertical, 10)
+                  .font(.body).tint(appearance.accentColor)
+                  .padding(.horizontal, 16).padding(.vertical, 12)
+                  .frame(minHeight: 54)
               }
             }
           }
 
-          VStack(alignment: .leading, spacing: 7) {
-            Text("音乐播放").font(.footnote.weight(.medium)).foregroundStyle(.secondary)
-              .padding(.horizontal, 6)
+          VStack(alignment: .leading, spacing: 10) {
+            Text("音乐播放").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+              .padding(.horizontal, 8)
             CinematicPanel(padding: 0) {
               Toggle("返回时收起为悬浮迷你播放条", isOn: $keepMusicMiniBar)
-                .font(.subheadline).tint(appearance.accentColor)
-                .padding(.horizontal, 15).padding(.vertical, 10)
+                .font(.body).tint(appearance.accentColor)
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .frame(minHeight: 54)
             }
           }
         }
         .frame(maxWidth: 740, alignment: .leading)
-        .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
+        .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 16)
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
