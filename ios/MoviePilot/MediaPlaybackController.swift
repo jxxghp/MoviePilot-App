@@ -392,7 +392,6 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private let topScrimLayer = CAGradientLayer()
   private let bottomScrimLayer = CAGradientLayer()
   private let seekHudLabel = UILabel()
-  private let unlockPill = UIButton(type: .system)
 
   // MARK: - Music Surfaces & Stages
   private let musicAmbientGradient = CAGradientLayer()
@@ -454,10 +453,15 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private var pictureInPictureAvailable = false
   private var isLocked = false
   private var isAspectFill = false
+  private var isMinimizedAudio = false
   private var showRemainingTime = false
   private var showsFullLyrics = false
   private var audioSessionClaimed = false
   private var currentPlaybackRate: Float = 1.0
+  private var lastKnownProgress: Double = 0
+  private var currentMiniArtworkImage: UIImage?
+  var onAudioMiniStateChanged: ((NativeMiniMusicState) -> Void)?
+  var isAudioMiniMode: Bool { isAudioPlayback && isMinimizedAudio }
   private let onMinimize: (MediaPlaybackViewController) -> Void
   private let onExpand: (MediaPlaybackViewController) -> Void
   private let onClosePlayback: (MediaPlaybackViewController) -> Void
@@ -564,7 +568,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 同步渐变遮罩、背景渐变与歌词羽化蒙版尺寸。
+  /// 同步渐变遮罩、背景渐变、歌词羽化蒙版与横屏锁屏按钮可见性。
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
     if isAudioPlayback {
@@ -574,6 +578,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       topScrimLayer.frame = topScrimView.bounds
       bottomScrimLayer.frame = bottomScrimView.bounds
       if isAspectFill { applyAspectMode() }
+      updateLockButtonVisibilityForOrientation()
     }
   }
 
@@ -596,10 +601,12 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   /// 全屏视频播放时自动弱化底部 Home 指示条。
   override var prefersHomeIndicatorAutoHidden: Bool { !isAudioPlayback }
 
-  /// 控制器真正脱离窗口时（且非画中画保活）安全释放资源。
+  /// 控制器真正脱离窗口时（且非画中画保活及非音乐最小化收起）安全释放资源。
   override func viewDidDisappear(_ animated: Bool) {
     super.viewDidDisappear(animated)
-    if isMovingFromParent || (view.window == nil && !pictureInPicture.keepsPlaybackAlive) {
+    if isMovingFromParent
+      || (view.window == nil && !pictureInPicture.keepsPlaybackAlive && !isMinimizedAudio)
+    {
       closePlayback()
     }
   }
@@ -732,17 +739,19 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     let closeButton = UIButton(type: .system)
     if isAudioPlayback {
       configureMusicCircleButton(
-        closeButton, symbol: "chevron.down", accessibility: L10n.text("关闭播放器"), diameter: 40,
+        closeButton, symbol: "chevron.down", accessibility: L10n.text("收起到迷你播放条"), diameter: 40,
         pointSize: 16, primary: false)
       closeButton.accessibilityIdentifier = "music-playback-close"
+      closeButton.addAction(
+        UIAction { [weak self] _ in self?.minimizeAudioPlayback() }, for: .touchUpInside)
     } else {
       configureGlassButton(
         closeButton, symbol: "chevron.left", accessibility: L10n.text("关闭播放器"), diameter: 42,
         pointSize: 17)
       closeButton.accessibilityIdentifier = "video-playback-close"
+      closeButton.addAction(
+        UIAction { [weak self] _ in self?.dismissPlayback() }, for: .touchUpInside)
     }
-    closeButton.addAction(
-      UIAction { [weak self] _ in self?.dismissPlayback() }, for: .touchUpInside)
 
     topBar.axis = .horizontal
     topBar.alignment = .center
@@ -763,6 +772,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       moreButton.menu = makeMusicMenu()
       topBar.addArrangedSubview(fixedSquareControl(moreButton, diameter: 40))
     } else {
+      // 视频模式右上角极简：仅保留画中画（小窗播放）单按钮
       configureGlassButton(
         pipTopButton, symbol: "pip.enter", accessibility: L10n.text("小窗播放"), diameter: 42,
         pointSize: 16)
@@ -770,20 +780,6 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       pipTopButton.addAction(
         UIAction { [weak self] _ in self?.minimizePlayback() }, for: .touchUpInside)
       topBar.addArrangedSubview(fixedSquareControl(pipTopButton, diameter: 42))
-
-      configureGlassButton(
-        lockTopButton, symbol: "lock.open", accessibility: L10n.text("锁定屏幕"), diameter: 42,
-        pointSize: 16)
-      lockTopButton.addAction(
-        UIAction { [weak self] _ in self?.setLocked(true) }, for: .touchUpInside)
-      topBar.addArrangedSubview(fixedSquareControl(lockTopButton, diameter: 42))
-
-      let moreButton = makeGlassButton(
-        symbol: "ellipsis", accessibility: L10n.text("更多播放选项"), diameter: 42, pointSize: 17)
-      moreButton.showsMenuAsPrimaryAction = true
-      playbackMenuButton = moreButton
-      moreButton.menu = makePlaybackMenu()
-      topBar.addArrangedSubview(fixedSquareControl(moreButton, diameter: 42))
     }
 
     view.addSubview(topBar)
@@ -819,26 +815,22 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       seekHudLabel.heightAnchor.constraint(equalToConstant: 36),
     ])
 
-    var unlockConfig = UIButton.Configuration.filled()
-    unlockConfig.cornerStyle = .capsule
-    unlockConfig.baseBackgroundColor = UIColor.black.withAlphaComponent(0.62)
-    unlockConfig.baseForegroundColor = .white
-    unlockConfig.image = UIImage(systemName: "lock.fill")
-    unlockConfig.imagePadding = 6
-    unlockConfig.title = L10n.text("已锁定 · 点击解锁")
-    unlockConfig.contentInsets = NSDirectionalEdgeInsets(
-      top: 9, leading: 16, bottom: 9, trailing: 16)
-    unlockPill.configuration = unlockConfig
-    unlockPill.translatesAutoresizingMaskIntoConstraints = false
-    unlockPill.alpha = 0
-    unlockPill.isHidden = true
-    unlockPill.addAction(
-      UIAction { [weak self] _ in self?.setLocked(false) }, for: .touchUpInside)
-    view.addSubview(unlockPill)
+    // 仅横屏显示于右侧居中的纯图标锁屏/解锁按钮（锁定与解锁复用同一位置，无任何文字）
+    configureGlassButton(
+      lockTopButton, symbol: "lock.open", accessibility: L10n.text("锁定屏幕"), diameter: 44,
+      pointSize: 16)
+    lockTopButton.translatesAutoresizingMaskIntoConstraints = false
+    lockTopButton.isHidden = true
+    lockTopButton.addAction(
+      UIAction { [weak self] _ in
+        guard let self else { return }
+        self.setLocked(!self.isLocked)
+      }, for: .touchUpInside)
+    view.addSubview(lockTopButton)
     NSLayoutConstraint.activate([
-      unlockPill.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-      unlockPill.bottomAnchor.constraint(
-        equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -24),
+      lockTopButton.trailingAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -18),
+      lockTopButton.centerYAnchor.constraint(equalTo: view.centerYAnchor),
     ])
 
     let doubleTap = UITapGestureRecognizer(
@@ -891,7 +883,11 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       title: showsFullLyrics ? L10n.text("返回封面视图") : L10n.text("全屏歌词视图"),
       image: UIImage(systemName: showsFullLyrics ? "photo" : "quote.bubble")
     ) { [weak self] _ in self?.toggleLyricsMode() }
-    var children: [UIMenuElement] = [lyricsAction, speedAction]
+    let stopAction = UIAction(
+      title: L10n.text("停止并关闭"), image: UIImage(systemName: "stop.circle"),
+      attributes: .destructive
+    ) { [weak self] _ in self?.dismissPlayback() }
+    var children: [UIMenuElement] = [lyricsAction, speedAction, stopAction]
     if queue.count > 1 {
       let queueAction = UIAction(
         title: L10n.text("播放队列"), image: UIImage(systemName: "list.bullet")
@@ -1152,36 +1148,35 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     progressRow.alignment = .center
     progressRow.spacing = 10
 
-    // 底部坞快捷胶囊：倍速、画面填充/适应、字幕、音轨
-    configureCompactDockButton(
-      speedButton, title: "1.0x", symbol: nil, accessibility: L10n.text("播放速度"))
-    speedButton.addAction(UIAction { [weak self] _ in self?.showSpeedMenu() }, for: .touchUpInside)
+    // 进度条下方极简纯图标栏：左侧字幕与音轨，右侧画面填充与播放速度（无任何文字）
+    configureVideoIconDockButton(
+      subtitleButton, symbol: "captions.bubble", accessibility: L10n.text("选择字幕"))
+    subtitleButton.addAction(
+      UIAction { [weak self] _ in self?.showSubtitleMenu() }, for: .touchUpInside)
 
-    configureCompactDockButton(
-      aspectButton, title: L10n.text("适应"), symbol: "arrow.up.left.and.arrow.down.right",
+    configureVideoIconDockButton(
+      audioButton, symbol: "waveform", accessibility: L10n.text("选择音轨"))
+    audioButton.addAction(UIAction { [weak self] _ in self?.showAudioMenu() }, for: .touchUpInside)
+
+    configureVideoIconDockButton(
+      aspectButton, symbol: "arrow.up.left.and.arrow.down.right",
       accessibility: L10n.text("切换画面比例"))
     aspectButton.addAction(
       UIAction { [weak self] _ in self?.toggleAspectMode() }, for: .touchUpInside)
 
-    configureCompactDockButton(
-      subtitleButton, title: L10n.text("字幕"), symbol: "captions.bubble",
-      accessibility: L10n.text("选择字幕"))
-    subtitleButton.addAction(
-      UIAction { [weak self] _ in self?.showSubtitleMenu() }, for: .touchUpInside)
-
-    configureCompactDockButton(
-      audioButton, title: L10n.text("音轨"), symbol: "waveform",
-      accessibility: L10n.text("选择音轨"))
-    audioButton.addAction(UIAction { [weak self] _ in self?.showAudioMenu() }, for: .touchUpInside)
+    configureVideoIconDockButton(
+      speedButton, symbol: "gauge.with.dots.needle.67percent",
+      accessibility: L10n.text("播放速度"))
+    speedButton.addAction(UIAction { [weak self] _ in self?.showSpeedMenu() }, for: .touchUpInside)
 
     let dockSpacer = UIView()
     dockSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
     let actionRow = UIStackView(arrangedSubviews: [
-      speedButton, aspectButton, dockSpacer, subtitleButton, audioButton,
+      subtitleButton, audioButton, dockSpacer, aspectButton, speedButton,
     ])
     actionRow.axis = .horizontal
     actionRow.alignment = .center
-    actionRow.spacing = 8
+    actionRow.spacing = 10
 
     let dockStack = UIStackView(arrangedSubviews: [progressRow, actionRow])
     dockStack.axis = .vertical
@@ -1212,24 +1207,16 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     ])
   }
 
-  /// 紧凑视频底坞胶囊按钮。
-  private func configureCompactDockButton(
-    _ button: UIButton, title: String, symbol: String?, accessibility: String
+  /// 极简视频底部纯图标按钮（无文字标签，保持画面通透克制）。
+  private func configureVideoIconDockButton(
+    _ button: UIButton, symbol: String, accessibility: String
   ) {
-    var config = UIButton.Configuration.filled()
-    config.cornerStyle = .capsule
-    config.baseBackgroundColor = UIColor.white.withAlphaComponent(0.12)
-    config.baseForegroundColor = .white
-    config.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)
-    config.imagePadding = 4
-    var attrs = AttributeContainer()
-    attrs.font = .systemFont(ofSize: 12, weight: .semibold)
-    config.attributedTitle = AttributedString(title, attributes: attrs)
-    if let symbol {
-      config.image = UIImage(
-        systemName: symbol,
-        withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .medium))
-    }
+    var config = UIButton.Configuration.plain()
+    config.baseForegroundColor = UIColor.white.withAlphaComponent(0.90)
+    config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8)
+    config.image = UIImage(
+      systemName: symbol,
+      withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .medium))
     button.configuration = config
     button.accessibilityLabel = accessibility
   }
@@ -1615,7 +1602,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       UIView.animate(withDuration: 0.45) {
         self.musicBackdropImageView.alpha = 1
       }
+      self.currentMiniArtworkImage = image
       self.nowPlayingArtwork = Self.makeNowPlayingArtwork(image)
+      self.notifyMiniMusicStateIfNeeded()
       self.refreshNowPlayingInfo()
     }
   }
@@ -1900,13 +1889,16 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
     if !isScrubbing {
       positionSlider.isEnabled = player.isSeekable && duration > 0
-      positionSlider.value = duration > 0 ? min(1, Float(current) / Float(duration)) : 0
+      let progressValue = duration > 0 ? min(1, Double(current) / Double(duration)) : 0
+      lastKnownProgress = progressValue
+      positionSlider.value = Float(progressValue)
       updateTimeLabels(current: current, duration: duration)
     }
 
     updatePlayButtonSymbol(isPlaying: isPlaying)
     if isAudioPlayback {
       updateMusicArtworkScale(isPlaying: isPlaying)
+      notifyMiniMusicStateIfNeeded()
     } else {
       pictureInPicture.refresh()
     }
@@ -2059,28 +2051,24 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     skip(seconds: location.x < view.bounds.midX ? -10 : 10, showHud: true)
   }
 
-  /// 下滑手势关闭音乐播放器。
+  /// 下滑手势将音乐播放器收起为悬浮迷你播放条，持续后台播放不中断。
   @objc private func handleSwipeDown() {
     guard isAudioPlayback else { return }
-    dismissPlayback()
+    minimizeAudioPlayback()
   }
 
-  /// 切换视频画面「适应」与「填充」模式。
+  /// 切换视频画面「适应」与「填充」模式（纯图标更新，无文字）。
   private func toggleAspectMode() {
     isAspectFill.toggle()
     applyAspectMode()
-    var config = aspectButton.configuration
-    var attrs = AttributeContainer()
-    attrs.font = .systemFont(ofSize: 12, weight: .semibold)
-    config?.attributedTitle = AttributedString(
-      isAspectFill ? L10n.text("填充") : L10n.text("适应"), attributes: attrs)
-    config?.image = UIImage(
-      systemName: isAspectFill
-        ? "arrow.down.right.and.arrow.up.left"
-        : "arrow.up.left.and.arrow.down.right",
-      withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .medium))
-    aspectButton.configuration = config
-    playbackMenuButton?.menu = makePlaybackMenu()
+    if var config = aspectButton.configuration {
+      config.image = UIImage(
+        systemName: isAspectFill
+          ? "arrow.down.right.and.arrow.up.left"
+          : "arrow.up.left.and.arrow.down.right",
+        withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .medium))
+      aspectButton.configuration = config
+    }
     presentSeekHud(isAspectFill ? L10n.text("画面已填充") : L10n.text("画面已适应"))
   }
 
@@ -2090,30 +2078,77 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     player.videoFitMode = isAspectFill ? .larger : .smaller
   }
 
-  /// 切换视频防误触锁屏状态。
+  /// 当前视频是否处于横屏状态（锁定图标仅横屏展示）。
+  private var isVideoLandscape: Bool {
+    !isAudioPlayback && view.bounds.width > view.bounds.height
+  }
+
+  /// 根据横竖屏方向自动显隐右侧居中锁定按钮；切回竖屏时自动解除锁屏防止用户被卡住。
+  private func updateLockButtonVisibilityForOrientation() {
+    guard !isAudioPlayback else { return }
+    if isVideoLandscape {
+      lockTopButton.isHidden = false
+      lockTopButton.alpha = (controlsVisible || isLocked) ? 1 : 0
+    } else {
+      if isLocked {
+        isLocked = false
+        updateLockButtonSymbol(locked: false)
+      }
+      lockTopButton.isHidden = true
+      lockTopButton.alpha = 0
+    }
+  }
+
+  /// 刷新右侧居中锁定/解锁纯图标按钮样式（锁定与解锁复用同一位置，无任何文字）。
+  private func updateLockButtonSymbol(locked: Bool) {
+    let symbol = locked ? "lock.fill" : "lock.open"
+    let accessibility = locked ? L10n.text("解锁屏幕") : L10n.text("锁定屏幕")
+    lockTopButton.accessibilityLabel = accessibility
+    let image = UIImage(
+      systemName: symbol,
+      withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold))
+    if var config = lockTopButton.configuration {
+      config.image = image
+      lockTopButton.configuration = config
+    } else {
+      lockTopButton.setImage(image, for: .normal)
+    }
+  }
+
+  /// 切换视频防误触锁屏状态（仅横屏生效，锁屏与解锁复用右侧居中纯图标按钮）。
   private func setLocked(_ locked: Bool) {
+    guard !isAudioPlayback else { return }
+    if locked && !isVideoLandscape { return }
     isLocked = locked
+    updateLockButtonSymbol(locked: locked)
     hideControlsTask?.cancel()
     hideControlsTask = nil
     if locked {
       controlsVisible = false
-      unlockPill.isHidden = false
+      lockTopButton.isHidden = false
       UIView.animate(withDuration: 0.22) {
         self.topBar.alpha = 0
         self.topScrimView.alpha = 0
         self.controls.alpha = 0
         self.bottomScrimView.alpha = 0
         self.transport.alpha = 0
-        self.unlockPill.alpha = 1
+        self.lockTopButton.alpha = 1
       }
+      scheduleLockedButtonHide()
       setNeedsStatusBarAppearanceUpdate()
     } else {
-      UIView.animate(withDuration: 0.2) {
-        self.unlockPill.alpha = 0
-      } completion: { _ in
-        self.unlockPill.isHidden = true
-      }
       showControls()
+    }
+  }
+
+  /// 锁屏状态下右侧居中纯图标按钮短暂停留后淡出，轻触画面可随时再次呼出解锁。
+  private func scheduleLockedButtonHide() {
+    hideControlsTask?.cancel()
+    guard isLocked else { return }
+    hideControlsTask = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(3))
+      guard !Task.isCancelled, let self, self.isLocked else { return }
+      UIView.animate(withDuration: 0.22) { self.lockTopButton.alpha = 0 }
     }
   }
 
@@ -2271,8 +2306,11 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   /// 视频画面轻点切换控制栏可见性；锁屏时仅闪烁解锁提示胶囊。
   @objc private func toggleControls() {
     if isLocked {
-      unlockPill.isHidden = false
-      UIView.animate(withDuration: 0.16) { self.unlockPill.alpha = 1 }
+      guard isVideoLandscape else { return }
+      lockTopButton.isHidden = false
+      let reveal = lockTopButton.alpha < 0.5
+      UIView.animate(withDuration: 0.16) { self.lockTopButton.alpha = reveal ? 1 : 0 }
+      if reveal { scheduleLockedButtonHide() }
       return
     }
     controlsVisible ? hideControls() : showControls()
@@ -2302,8 +2340,57 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
   /// 立即安全停止播放器并通知调度器关闭模态页面（零主线程阻塞）。
   func closeFromShell() {
+    isMinimizedAudio = false
     closePlayback()
     onClosePlayback(self)
+  }
+
+  /// 将音乐播放器最小化收起为悬浮迷你条，保持音频在后台持续播放不中断。
+  private func minimizeAudioPlayback() {
+    guard isAudioPlayback, !closed else {
+      dismissPlayback()
+      return
+    }
+    isMinimizedAudio = true
+    onMinimize(self)
+    notifyMiniMusicStateIfNeeded()
+  }
+
+  /// 从悬浮迷你条还原全屏音乐播放界面。
+  func restoreFromMinimizedAudio() {
+    isMinimizedAudio = false
+  }
+
+  /// 供悬浮迷你条直接控制播放/暂停。
+  func togglePlaybackFromShell() {
+    togglePlayback()
+    notifyMiniMusicStateIfNeeded()
+  }
+
+  /// 供悬浮迷你条直接切到下一首。
+  func nextTrackFromShell() {
+    playNextTrack()
+  }
+
+  /// 构造当前曲目的迷你播放条状态快照。
+  func currentMiniMusicState() -> NativeMiniMusicState {
+    let subtitleParts = [manifest.artist, manifest.album]
+      .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+    return NativeMiniMusicState(
+      title: displayTitle,
+      subtitle: subtitleParts.joined(separator: " · "),
+      artwork: currentMiniArtworkImage,
+      isPlaying: player.isPlaying,
+      progress: lastKnownProgress,
+      hasNext: queue.count > 1 && queueIndex + 1 < queue.count
+    )
+  }
+
+  /// 仅当处于音乐最小化状态时向宿主推送迷你条最新状态。
+  private func notifyMiniMusicStateIfNeeded() {
+    guard isAudioPlayback, isMinimizedAudio, !closed else { return }
+    onAudioMiniStateChanged?(currentMiniMusicState())
   }
 
   /// 显示视频控制栏与渐变遮罩并在短暂停留后自动淡出。
@@ -2317,6 +2404,10 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       self.controls.alpha = 1
       self.bottomScrimView.alpha = 1
       self.transport.alpha = 1
+      if self.isVideoLandscape {
+        self.lockTopButton.isHidden = false
+        self.lockTopButton.alpha = 1
+      }
     }
     setNeedsStatusBarAppearanceUpdate()
     scheduleControlsHide()
@@ -2332,6 +2423,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       self.controls.alpha = 0
       self.bottomScrimView.alpha = 0
       self.transport.alpha = 0
+      if !self.isLocked {
+        self.lockTopButton.alpha = 0
+      }
     }
     setNeedsStatusBarAppearanceUpdate()
   }
@@ -2435,11 +2529,14 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
           self.player.rate = rate
           self.playButton.accessibilityValue = L10n.format("%@ 倍", rate.formatted())
           if var config = self.speedButton.configuration {
-            var attrs = AttributeContainer()
-            attrs.font = .systemFont(ofSize: 12, weight: .semibold)
-            config.attributedTitle = AttributedString(
-              rate == 1.0 ? "1.0x" : "\(rate.formatted())x", attributes: attrs)
+            config.baseForegroundColor =
+              abs(rate - 1.0) < 0.01
+              ? UIColor.white.withAlphaComponent(0.90)
+              : UIColor(red: 0.84, green: 0.72, blue: 1.0, alpha: 1.0)
             self.speedButton.configuration = config
+          }
+          if !self.isAudioPlayback {
+            self.presentSeekHud("\(rate.formatted())x")
           }
         })
     }

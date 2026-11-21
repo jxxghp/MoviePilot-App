@@ -96,6 +96,7 @@ final class NativeAppModel: ObservableObject {
     WidgetService.shared.cancelOpen()
     NativeSystemRouteHub.shared.clearPending()
     manager.disconnect()
+    NativeMediaPlaybackLauncher.shared.dismissActivePlayer(animated: false)
     NotificationService.shared.attachNative(nil)
     clearSecrets()
     username = ""
@@ -171,6 +172,7 @@ final class NativeAppModel: ObservableObject {
     guard let selected else { return }
     do {
       try manager.logout()
+      NativeMediaPlaybackLauncher.shared.dismissActivePlayer(animated: false)
       WidgetService.shared.endSession(instanceId: selected.id, clear: true)
       WidgetService.shared.cancelOpen()
       NativeSystemRouteHub.shared.clearPending()
@@ -195,6 +197,7 @@ final class NativeAppModel: ObservableObject {
       return
     }
     if case .loginRequired(_, .expired) = state, let selected {
+      NativeMediaPlaybackLauncher.shared.dismissActivePlayer(animated: false)
       NativePageDataCache.shared.clearAll()
       NativeMediaArtworkCache.shared.clearMemory()
       Self.dismissPresentedModals()

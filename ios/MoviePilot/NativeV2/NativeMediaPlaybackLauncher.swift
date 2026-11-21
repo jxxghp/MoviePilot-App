@@ -1,12 +1,25 @@
+import Combine
 import Foundation
 import MoviePilotCore
 import MoviePilotSession
 import UIKit
 
-/// 原生媒体播放调度器：脱离 WebCoordinator 直接拉起 `MediaPlaybackViewController`（VLCKit/AVKit/PiP），支持媒体服务器流、音乐队列与存储本地文件播放。
+/// 最小化悬浮音乐迷你播放条的实时状态快照。
+struct NativeMiniMusicState {
+  let title: String
+  let subtitle: String
+  let artwork: UIImage?
+  let isPlaying: Bool
+  let progress: Double
+  let hasNext: Bool
+}
+
+/// 原生媒体播放调度器：脱离 WebCoordinator 直接拉起 `MediaPlaybackViewController`（VLCKit/AVKit/PiP），支持媒体服务器流、音乐队列、存储本地文件播放与可最小化悬浮音乐迷你条。
 @MainActor
-final class NativeMediaPlaybackLauncher {
+final class NativeMediaPlaybackLauncher: ObservableObject {
   static let shared = NativeMediaPlaybackLauncher()
+
+  @Published private(set) var miniMusicState: NativeMiniMusicState?
 
   private var activePlayer: MediaPlaybackViewController?
   private var minimizedPlayer: MediaPlaybackViewController?
@@ -113,8 +126,9 @@ final class NativeMediaPlaybackLauncher {
     }
   }
 
-  /// 强制关闭当前活跃或画中画最小化的播放器（实例切换、退出登录或新起播替换时调用）。
+  /// 强制关闭当前活跃或最小化的播放器（实例切换、退出登录或新起播替换时调用）。
   func dismissActivePlayer(animated: Bool = true) {
+    miniMusicState = nil
     if let player = activePlayer {
       activePlayer = nil
       let wasPresented = player.presentingViewController != nil && !player.isBeingDismissed
@@ -131,6 +145,33 @@ final class NativeMediaPlaybackLauncher {
       }
       mini.closeFromShell()
     }
+  }
+
+  /// 点击悬浮音乐迷你播放条，将持续播放中的音乐控制器平滑还原为全屏播放界面。
+  func expandMinimizedAudio() {
+    guard let mini = minimizedPlayer else { return }
+    miniMusicState = nil
+    minimizedPlayer = nil
+    activePlayer = mini
+    mini.restoreFromMinimizedAudio()
+    if mini.presentingViewController == nil, let top = Self.topViewController(), top !== mini {
+      top.present(mini, animated: true)
+    }
+  }
+
+  /// 在悬浮音乐迷你播放条上直接切换播放/暂停。
+  func toggleMinimizedPlayPause() {
+    minimizedPlayer?.togglePlaybackFromShell()
+  }
+
+  /// 在悬浮音乐迷你播放条上切到下一首。
+  func skipNextMinimizedTrack() {
+    minimizedPlayer?.nextTrackFromShell()
+  }
+
+  /// 点击悬浮音乐迷你播放条关闭按钮，彻底停止音乐播放。
+  func stopMinimizedAudio() {
+    dismissActivePlayer(animated: false)
   }
 
   /// 查找前台活跃窗口顶层控制器并全屏呈现原生播放器。
@@ -161,12 +202,16 @@ final class NativeMediaPlaybackLauncher {
         guard let self else { return }
         self.minimizedPlayer = vc
         if self.activePlayer === vc { self.activePlayer = nil }
+        if vc.isAudioMiniMode {
+          self.miniMusicState = vc.currentMiniMusicState()
+        }
         if vc.presentingViewController != nil {
           vc.dismiss(animated: true)
         }
       },
       onExpand: { [weak self] vc in
         guard let self else { return }
+        self.miniMusicState = nil
         self.minimizedPlayer = nil
         self.activePlayer = vc
         if vc.presentingViewController == nil, let top = Self.topViewController(), top !== vc {
@@ -175,12 +220,19 @@ final class NativeMediaPlaybackLauncher {
       },
       onClosePlayback: { [weak self] vc in
         if self?.activePlayer === vc { self?.activePlayer = nil }
-        if self?.minimizedPlayer === vc { self?.minimizedPlayer = nil }
+        if self?.minimizedPlayer === vc {
+          self?.minimizedPlayer = nil
+          self?.miniMusicState = nil
+        }
         if vc.presentingViewController != nil, !vc.isBeingDismissed {
           vc.dismiss(animated: true)
         }
       }
     )
+    player.onAudioMiniStateChanged = { [weak self, weak player] state in
+      guard let self, let player, self.minimizedPlayer === player else { return }
+      self.miniMusicState = state
+    }
     player.modalPresentationStyle = .fullScreen
     activePlayer = player
     presenter.present(player, animated: true)
