@@ -121,6 +121,7 @@ public struct PluginUIDocument: Equatable, Sendable {
 /// 节点预算独立于 JSON 值预算，阻止大量很小的组件消耗 UI 资源。
 public enum PluginUIDecodingError: Error, Equatable, Sendable {
   case invalidNodeLimit
+  case invalidResponseEnvelope
   case nodeLimitExceeded(pointer: String)
   case pathLimitExceeded
 }

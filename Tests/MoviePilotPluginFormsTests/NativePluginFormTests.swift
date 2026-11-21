@@ -109,6 +109,32 @@ struct NativePluginFormTests {
     #expect(form.saveOutcome == .accepted && form.lastSave != nil && form.failure == nil)
   }
 
+  /// 插件配置端点的标准 MoviePilot envelope 必须解到完整原生表单，同时保留大数字词法。
+  @Test func loadsStandardPluginResponseEnvelopeWithoutChangingModelValues() async throws {
+    FormHTTPProtocol.state.reset()
+    FormHTTPProtocol.state.configure(
+      .init(
+        body: Data(
+          #"{"success":true,"message":"","data":{"render_mode":"vuetify","conf":[{"component":"VSwitch","props":{"model":"enabled","label":"Enable"}}],"model":{"enabled":false,"hidden":{"value":"synthetic-only"},"big":9007199254740993,"ratio":1.2300,"success":false,"data":{"retained":true}}}}"#
+            .utf8)))
+    let harness = try await FormHarness.make()
+    let form = try harness.form()
+    defer { form.close() }
+
+    try await form.load()
+
+    #expect(form.phase == .ready && form.failure == nil)
+    #expect(form.draft?.value(forExactField: "enabled") == .bool(false))
+    #expect(
+      form.draft?.value(forExactField: "hidden") == .object(["value": .string("synthetic-only")]))
+    #expect(
+      form.draft?.value(forExactField: "big") == .number(try PluginJSONNumber("9007199254740993")))
+    #expect(form.draft?.value(forExactField: "ratio") == .number(try PluginJSONNumber("1.2300")))
+    #expect(form.draft?.value(forExactField: "success") == .bool(false))
+    #expect(form.draft?.value(forExactField: "data") == .object(["retained": .bool(true)]))
+    #expect(form.document?.nodes.first?.component == "VSwitch")
+  }
+
   /// 默认门禁不能把可分类的非空表单误认作已实现组件并发送保存。
   @Test func defaultValidatorBlocksNonemptyForms() async throws {
     FormHTTPProtocol.state.reset()

@@ -34,7 +34,7 @@ final class NativeV2EntryTests: XCTestCase {
     tap(address, app: app)
     let clear = app.buttons["native-v2-clear-address"]
     if clear.exists { clear.tap() }
-    address.typeText("http://127.0.0.1:3001/\n")
+    address.typeText(try XCTUnwrap(input?.backendURL) + "\n")
     let nextPageIdentities = try XCTUnwrap(input?.nextPageIdentities)
     let discoverTab = tabButton("发现", app: app)
     let username = app.textFields["native-v2-username"]
@@ -419,6 +419,142 @@ final class NativeV2EntryTests: XCTestCase {
     let username: String
     let password: String
     let nextPageIdentities: [String]
+    let backendURL: String
+  }
+
+  /// 用真实 UIKit 导航加载两个原生配置和 Vue 联邦插件，并避免保存用户数据截图。
+  func testLivePluginFormsAndVueSheetTakeover() async throws {
+    let input = try await readLiveBackendInput()
+    let backend = try XCTUnwrap(URLComponents(string: input.backendURL))
+    XCTAssertEqual(backend.scheme, "http")
+    XCTAssertEqual(backend.host, "127.0.0.1")
+    XCTAssertEqual(backend.path, "/")
+    XCTAssertNil(backend.user)
+    XCTAssertNil(backend.password)
+
+    let app = XCUIApplication()
+    defer { app.terminate() }
+    app.launchArguments = arguments + ["-moviepilot.instance.selected.v1", ""]
+    app.launch()
+    let address = app.textFields["native-v2-address"]
+    XCTAssertTrue(address.waitForExistence(timeout: 15))
+    tap(address, app: app)
+    let clear = app.buttons["native-v2-clear-address"]
+    if clear.exists { clear.tap() }
+    address.typeText(input.backendURL + "\n")
+
+    let username = app.textFields["native-v2-username"]
+    XCTAssertTrue(username.waitForExistence(timeout: 15))
+    tap(username, app: app)
+    username.typeText(input.username + "\n")
+    app.secureTextFields["native-v2-password"].typeText(input.password + "\n")
+    dismissKeyboard(app)
+    if app.switches["native-v2-remember-session"].value as? String == "1" {
+      toggle("native-v2-remember-session", to: false, app: app)
+    }
+    tap(app.buttons["native-v2-login"], app: app)
+    XCTAssertTrue(tabButton("设置", app: app).waitForExistence(timeout: 20))
+    XCTAssertEqual(app.webViews.count, 0)
+
+    tap(tabButton("探索", app: app), app: app)
+    XCTAssertTrue(app.scrollViews["native-explore-scroll"].waitForExistence(timeout: 10))
+    tap(tabButton("探索", app: app), app: app)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-overflow-menu-scroll"].waitForExistence(timeout: 8))
+    let pluginMarket = app.descendants(matching: .any).matching(
+      NSPredicate(format: "label == %@", "插件")
+    ).firstMatch
+    let hasPluginMarket = pluginMarket.waitForExistence(timeout: 8)
+    let menuAccessibility = app.descendants(matching: .any).allElementsBoundByIndex
+      .filter {
+        $0.identifier.contains("overflow") || $0.identifier == "native-overflow-plugin-market"
+          || $0.label.contains("插件")
+      }
+      .prefix(20)
+      .map { "\($0.elementType):\($0.identifier):\($0.label)" }
+      .joined(separator: "|")
+    XCTAssertTrue(hasPluginMarket, menuAccessibility)
+    tap(pluginMarket, app: app)
+    XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 15))
+
+    let signInCard = app.descendants(matching: .any)[
+      "native-installed-card-AutoSignIn"
+    ].firstMatch
+    reveal(signInCard, app: app)
+    XCTAssertTrue(signInCard.waitForExistence(timeout: 12))
+    tap(signInCard, app: app)
+    XCTAssertTrue(app.scrollViews["native-plugin-page-scroll"].waitForExistence(timeout: 15))
+    let tables = app.descendants(matching: .any).matching(identifier: "native-plugin-json-table")
+    XCTAssertTrue(tables.firstMatch.waitForExistence(timeout: 20))
+    XCTAssertEqual(tables.count, 2, "自动签到页应完整呈现后端两张站点状态表。")
+    XCTAssertEqual(app.webViews.count, 0)
+    app.navigationBars.buttons.firstMatch.tap()
+
+    // 打开原生表单后核对实际 Cron 与多选站点控件；不写入服务端配置。
+    reveal(signInCard, app: app)
+    signInCard.press(forDuration: 1)
+    let signInSettings = app.buttons["设置"].firstMatch
+    XCTAssertTrue(signInSettings.waitForExistence(timeout: 8))
+    tap(signInSettings, app: app)
+    XCTAssertTrue(app.textFields["native-plugin-field-cron"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.buttons["native-plugin-cron-edit-cron"].exists)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-plugin-field-sign_sites"].exists)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-plugin-field-login_sites"].exists
+    )
+    XCTAssertTrue(app.buttons["native-plugin-form-save"].isEnabled)
+    XCTAssertEqual(app.webViews.count, 0)
+    app.navigationBars.buttons.firstMatch.tap()
+    XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 10))
+
+    let refreshCard = app.descendants(matching: .any)[
+      "native-installed-card-MediaServerRefresh"
+    ].firstMatch
+    reveal(refreshCard, app: app)
+    XCTAssertTrue(refreshCard.waitForExistence(timeout: 12))
+    tap(refreshCard, app: app)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-plugin-field-enabled"].firstMatch
+        .waitForExistence(timeout: 12))
+    XCTAssertTrue(app.textFields["native-plugin-field-delay"].exists)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-plugin-field-mediaservers"].exists)
+    XCTAssertTrue(app.buttons["native-plugin-form-save"].isEnabled)
+    app.navigationBars.buttons.firstMatch.tap()
+
+    // 联邦插件通过当前服务 Cookie 与主题外观注入后，原生栏进入协议协商完成态。
+    let vuePlugin = app.descendants(matching: .any)[
+      "native-installed-card-SubscribeAssistantEnhanced"
+    ].firstMatch
+    reveal(vuePlugin, app: app)
+    XCTAssertTrue(vuePlugin.waitForExistence(timeout: 12))
+    tap(vuePlugin, app: app)
+    XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 25))
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-vue-plugin-sheet-ready"].waitForExistence(
+        timeout: 25),
+      "前端必须确认只接管插件弹窗内容后，原生 Sheet 才能结束加载。")
+    XCTAssertTrue(app.buttons["native-vue-plugin-sheet-close"].exists)
+    XCTAssertEqual(app.webViews.count, 1)
+    app.buttons["native-vue-plugin-sheet-close"].tap()
+    XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 12))
+  }
+
+  /// 从隔离的一次性输入通道接收真实凭据，只保存在当前 UI 测试进程的内存。
+  private func readLiveBackendInput() async throws -> LiveBackendInput {
+    let environment = ProcessInfo.processInfo.environment
+    guard let port = environment["MOVIEPILOT_NATIVE_V2_LIVE_INPUT_PORT"],
+      let number = Int(port), (1024...65535).contains(number),
+      let nonce = environment["MOVIEPILOT_NATIVE_V2_LIVE_NONCE"], nonce.count >= 32
+    else { throw XCTSkip("仅由交互式本机验收脚本运行，不从文件或测试源码获取真实凭据。") }
+    var request = URLRequest(url: URL(string: "http://127.0.0.1:\(number)/session-input")!)
+    request.setValue(nonce, forHTTPHeaderField: "X-MoviePilot-Live-Test")
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+      throw XCTSkip("一次性本机输入已由另一项验收消费。")
+    }
+    return try JSONDecoder().decode(LiveBackendInput.self, from: data)
   }
 
   /// 从发现栏打开全部、加载下一页并进入选中作品；图片只由当前服务代理。

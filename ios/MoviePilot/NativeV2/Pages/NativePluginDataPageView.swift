@@ -753,6 +753,7 @@ struct NativePluginJSONRenderer: View {
           }
         }
         .scrollIndicators(.hidden)
+        .accessibilityIdentifier("native-plugin-json-table")
       }
     }
   }
@@ -1436,6 +1437,11 @@ struct NativeVuePluginWebContainer: View {
         .transition(.opacity)
       }
     }
+    .accessibilityIdentifier(
+      sheetBridge.map {
+        $0.isReady ? "native-vue-plugin-sheet-ready" : "native-vue-plugin-sheet-loading"
+      } ?? "native-vue-plugin-web-content"
+    )
     .task(
       id:
         "\(pluginID)|\(colorScheme)|\(AppLanguage.current.rawValue)|\(NativeAppearanceStore.hexString(from: appearance.accentColor))"

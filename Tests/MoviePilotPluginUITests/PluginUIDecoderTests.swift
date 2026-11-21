@@ -141,7 +141,7 @@ struct PluginUIDecoderTests {
         .isStructurallyValid)
   }
 
-  /// response envelope 不猜测；模型中的 success/data 也是普通插件配置。
+  /// 通用 AST 解码不猜测 response envelope；模型中的 success/data 也是普通插件配置。
   @Test func neverUnwrapsPluginOwnedFields() throws {
     let document = try decode(
       #"{"render_mode":"vuetify","conf":[],"model":{"success":false,"data":{"enabled":true}},"future":{"revision":2}}"#
@@ -151,6 +151,28 @@ struct PluginUIDecoderTests {
     let envelope = #"{"success":true,"data":{"render_mode":"vuetify","conf":[],"model":{}}}"#
     #expect(try !decode(envelope).isStructurallyValid)
     #expect(try PluginJSONReader.parse(document.raw.encoded()) == document.raw)
+  }
+
+  /// 显式 API 响应入口只解包成功的标准 envelope，并保留插件模型中大整数和未知字段。
+  @Test func decodesPluginEndpointEnvelopeWithoutChangingStrictDocumentDecoder() throws {
+    let input = Data(
+      #"{"success":true,"message":"","data":{"render_mode":"vuetify","conf":[],"model":{"count":9007199254740993,"ratio":1.2300,"success":false,"data":{"retained":true}},"future":{"revision":2}}}"#
+        .utf8)
+    let document = try PluginUIDecoder.decodeResponse(input, surface: .form)
+    #expect(document.isStructurallyValid)
+    #expect(document.value(forExactModelField: "count") == .number(try .init("9007199254740993")))
+    #expect(document.value(forExactModelField: "ratio") == .number(try .init("1.2300")))
+    #expect(document.value(forExactModelField: "success") == .bool(false))
+    #expect(document.raw.object?["future"] != nil)
+    #expect(throws: PluginUIDecodingError.invalidResponseEnvelope) {
+      try PluginUIDecoder.decodeResponse(
+        Data(#"{"success":false,"message":"unavailable","data":null}"#.utf8),
+        surface: .form)
+    }
+    #expect(throws: PluginUIDecodingError.invalidResponseEnvelope) {
+      try PluginUIDecoder.decodeResponse(
+        Data(#"{"success":true,"message":"","data":null}"#.utf8), surface: .form)
+    }
   }
 
   /// 单节点/数组槽、未知节点、HTML 与原始扩展值均有结构位置和原文。

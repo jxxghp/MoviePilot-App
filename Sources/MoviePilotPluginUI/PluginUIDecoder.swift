@@ -1,7 +1,29 @@
 import Foundation
 
-/// 三种既有 JSON 响应的显式入口，不猜测响应包装，也不启动渲染或动作。
+/// 插件 UI JSON 的显式入口；原生投影不启动远程组件或 UI 动作。
 public enum PluginUIDecoder {
+  /// 显式处理 plugin/form 和 plugin/page 的标准 API envelope，再交给严格的裸插件文档解析器。
+  /// envelope data 仍经保真 JSON 读写，因此数值词法和嵌套字段不会被 Foundation 舍入。
+  public static func decodeResponse(
+    _ data: Data, surface: PluginUISurface, limits: PluginJSONLimits = .standard,
+    maximumNodes: Int = 10_000
+  ) throws -> PluginUIDocument {
+    let response = try PluginJSONReader.parse(data, limits: limits)
+    guard case .object = response,
+      let success = response[exactKey: "success"]
+    else {
+      return try decode(data, surface: surface, limits: limits, maximumNodes: maximumNodes)
+    }
+    guard success == .bool(true), case .string? = response[exactKey: "message"],
+      let payload = response[exactKey: "data"], case .object = payload
+    else {
+      throw PluginUIDecodingError.invalidResponseEnvelope
+    }
+    return try decode(
+      payload.encoded(limits: limits), surface: surface, limits: limits,
+      maximumNodes: maximumNodes)
+  }
+
   /// 原文和未知值随文档保留；结构错误形成诊断，资源越界/取消则整体失败。
   public static func decode(
     _ data: Data, surface: PluginUISurface, limits: PluginJSONLimits = .standard,

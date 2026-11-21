@@ -22,6 +22,7 @@ class LiveInputBoundaryTests(unittest.TestCase):
         """以动态端口启动内存通道，凭据为无实际用途的合成字符串。"""
         self.payload = {
             "username": "synthetic-reader", "password": "synthetic-only",
+            "backendURL": "http://127.0.0.1:3000/",
             "nextPageIdentities": ["themoviedb|123|电影"],
         }
         self.server = MODULE.SessionInputServer(self.payload)
@@ -62,3 +63,10 @@ class LiveInputBoundaryTests(unittest.TestCase):
         self.assertEqual(self.request(nonce="not-authorized"), (403, {}))
         self.assertEqual(self.request(path="/"), (403, {}))
         self.assertEqual(self.request(), (200, self.payload))
+
+    def test_backend_target_is_loopback_with_a_bounded_port(self):
+        """真实验收端口可配置，但目的地址仍固定在本机 loopback。"""
+        self.assertEqual(MODULE.backend_api_base(3000), "http://127.0.0.1:3000/api/v1/")
+        for port in (0, 80, 65536, True, "3000"):
+            with self.subTest(port=port), self.assertRaises(ValueError):
+                MODULE.backend_api_base(port)

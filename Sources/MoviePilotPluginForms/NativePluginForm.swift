@@ -185,7 +185,8 @@ public final class NativePluginForm: ObservableObject {
   {
     try await withThrowingTaskGroup(of: LoadedPluginForm.self) { group in
       group.addTask {
-        let document = try PluginUIDecoder.decode(data, surface: .form, limits: limits)
+        let document = try PluginUIDecoder.decodeResponse(
+          data, surface: .form, limits: limits)
         guard document.isStructurallyValid else { throw PluginFormError.invalidDocument }
         let draft: PluginFormDraft?
         switch document.renderMode {

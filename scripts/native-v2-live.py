@@ -6,6 +6,7 @@ import getpass
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -52,9 +53,9 @@ class SessionInputHandler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-def next_page_identities(username, password):
+def next_page_identities(username, password, port=3001):
     """只读获取真实下一页标识，用来独立确认 UI 自动翻页，令牌不离开本函数。"""
-    base = "http://127.0.0.1:3001/api/v1/"
+    base = backend_api_base(port)
     body = urlencode({"username": username, "password": password}).encode()
     request = Request(
         base + "login/access-token", data=body,
@@ -78,13 +79,24 @@ def next_page_identities(username, password):
     ]
 
 
+def backend_api_base(port):
+    """构造固定 IPv4 loopback 的 API 地址，不接受任意服务器或局域网目标。"""
+    if not isinstance(port, int) or not (1024 <= port <= 65535):
+        raise ValueError("验收只允许连接本机动态端口。")
+    return f"http://127.0.0.1:{port}/api/v1/"
+
+
 def main():
     """运行已构建的原生 UI 测试，仅保留业务截图和无凭据的通过/失败摘要。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--device", required=True)
     parser.add_argument("--derived-data", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--target", choices=("media", "plugins"), default="media")
+    parser.add_argument("--backend-port", type=int, default=3001)
+    parser.add_argument("--username", default="admin")
     args = parser.parse_args()
+    backend_url = backend_api_base(args.backend_port).removesuffix("api/v1/")
     output = args.output.resolve()
     permitted = (
         Path("/Volumes/DISK/TmpBuild").resolve(),
@@ -93,11 +105,15 @@ def main():
     if not any(output.is_relative_to(root) for root in permitted):
         raise SystemExit("验收产物只能位于外置任务目录或专用模拟器缓存。")
     output.mkdir(parents=True, exist_ok=False)
-    username = getpass.getpass("Login name (hidden): ")
+    username = args.username
     password = getpass.getpass("Backend password (hidden): ")
-    identities = next_page_identities(username, password)
+    identities = (
+        next_page_identities(username, password, port=args.backend_port)
+        if args.target == "media" else []
+    )
     server = SessionInputServer({
         "username": username, "password": password, "nextPageIdentities": identities,
+        "backendURL": backend_url,
     })
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -115,7 +131,10 @@ def main():
         "/Volumes/DISK/Xcode/SourcePackages", "-resultBundlePath", str(raw),
         "-parallel-testing-enabled", "NO", "-test-timeouts-enabled", "YES",
         "-maximum-test-execution-time-allowance", "600",
-        "-only-testing:MoviePilotUITests/NativeV2EntryTests/testLiveBackendReadOnlyMediaScreens",
+        "-only-testing:MoviePilotUITests/NativeV2EntryTests/" + (
+            "testLiveBackendReadOnlyMediaScreens"
+            if args.target == "media" else "testLivePluginFormsAndVueSheetTakeover"
+        ),
         "CODE_SIGN_IDENTITY=-", "CODE_SIGNING_ALLOWED=YES", "test-without-building",
     ]
     try:
@@ -125,28 +144,73 @@ def main():
             ["xcrun", "xcresulttool", "get", "test-results", "summary", "--path", str(raw), "--format", "json"],
             env=environment, capture_output=True, text=True, check=True,
         )
+        tests = subprocess.run(
+            ["xcrun", "xcresulttool", "get", "test-results", "tests", "--path", str(raw)],
+            env=environment, capture_output=True, text=True, check=True,
+        )
         value = json.loads(summary.stdout)
+        test_tree = json.loads(tests.stdout)
         evidence = {key: value.get(key) for key in ("result", "passedTests", "failedTests", "skippedTests")}
-        evidence["backend"] = "http://127.0.0.1:3001/"
+        evidence["backend"] = backend_url
+        evidence["failedTestIds"] = [
+            item.get("testIdentifierString")
+            for item in value.get("testFailures", [])
+            if isinstance(item.get("testIdentifierString"), str)
+        ]
+        evidence["failureDetails"] = [
+            re.sub(r"(?i)bearer\s+[A-Za-z0-9._-]+", "Bearer [redacted]", detail)
+            .replace(username, "[redacted]")
+            .replace(password, "[redacted]")[:1200]
+            for item in value.get("testFailures", [])
+            if isinstance(item.get("failureText"), str)
+            for detail in [item["failureText"]]
+        ]
+        def collect_source_lines(node):
+            """仅收集 UI 测试自身的失败源码行号，避免输出 XCTest 活动内容。"""
+            source = node.get("sourceLocation", {})
+            path = source.get("filePath", "")
+            line = source.get("lineNumber")
+            lines = [line] if (
+                node.get("result") == "Failed"
+                and path.endswith("NativeV2EntryTests.swift")
+                and isinstance(line, int)
+            ) else []
+            for child in node.get("children", []):
+                lines.extend(collect_source_lines(child))
+            return lines
+
+        source_lines = {
+            line
+            for node in test_tree.get("testNodes", [])
+            for line in collect_source_lines(node)
+        }
+        log_text = result.stdout.decode("utf-8", errors="replace")
+        source_lines.update(
+            int(line)
+            for line in re.findall(
+                r"NativeV2EntryTests\.swift:(\d+):\s+error:", log_text
+            )
+        )
+        source_lines.update(
+            int(match.group(1))
+            for item in value.get("testFailures", [])
+            if isinstance(item.get("failureText"), str)
+            for match in [re.search(r"NativeV2EntryTests\.swift:(\d+)", item["failureText"])]
+            if match is not None
+        )
+        evidence["failedSourceLines"] = sorted(source_lines)
         (output / "summary.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2))
         subprocess.run(
             ["xcrun", "xcresulttool", "export", "attachments", "--path", str(raw), "--output-path", str(exported)],
             env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True,
         )
-        for row in json.loads((exported / "manifest.json").read_text()):
-            for attachment in row.get("attachments", []):
-                name = attachment.get("suggestedHumanReadableName", "")
-                if name.startswith("native-v2-live-") and name.endswith(".png"):
-                    shutil.copy2(exported / attachment["exportedFileName"], output / (name.split("_")[0] + ".png"))
+        if args.target == "media":
+            for row in json.loads((exported / "manifest.json").read_text()):
+                for attachment in row.get("attachments", []):
+                    name = attachment.get("suggestedHumanReadableName", "")
+                    if name.startswith("native-v2-live-") and name.endswith(".png"):
+                        shutil.copy2(exported / attachment["exportedFileName"], output / (name.split("_")[0] + ".png"))
         print(json.dumps(evidence, ensure_ascii=False), flush=True)
-        if result.returncode:
-            # 只输出已过滤的失败摘要；调用细节和原始活动不保留。
-            failures = [
-                line.replace(username, "[user]").replace(password, "[secret]")
-                for line in result.stdout.decode(errors="replace").splitlines()
-                if "error:" in line or "failed (" in line
-            ]
-            (output / "failures.txt").write_text("\n".join(failures))
     finally:
         server.payload = None
         server.shutdown()
