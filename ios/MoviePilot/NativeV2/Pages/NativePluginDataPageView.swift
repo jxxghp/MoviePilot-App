@@ -1,6 +1,7 @@
 import Foundation
 import MoviePilotAPI
 import MoviePilotCore
+import MoviePilotPluginForms
 import MoviePilotSession
 import SwiftUI
 import UIKit
@@ -15,12 +16,19 @@ struct NativePluginActionRequest: Sendable {
 
 /// 原生插件数据页：直连 `GET /api/v1/plugin/page/{id}` 递归原生渲染 Vuetify JSON 节点与图表；
 /// 当插件声明 `render_mode == "vue"` 时，自动在免登隔离 WebView 中直接呈现纯插件内容（隐藏 Web 壳、自动注入会话令牌与资源 Cookie）。
+/// 与 Web 端数据弹窗一致，右上角提供「插件设置」入口；原生无法完整还原的自定义样式页面可切换到网页样式查看。
 @MainActor
 struct NativePluginDataPageView: View {
   let session: NativeSession
   let pluginID: String
   let pluginName: String
   var navKey: String? = nil
+
+  /// 数据页内打开的原生配置表单（草稿归属本次导航）。
+  private struct SettingsSelection {
+    let plugin: NativeInstalledPlugin
+    let form: NativePluginForm
+  }
 
   @State private var renderMode = "vuetify"
   @State private var nodes: [NativePluginJSONNode] = []
@@ -30,6 +38,8 @@ struct NativePluginDataPageView: View {
   @State private var actionFeedback: String?
   @State private var actionIsError = false
   @State private var showsVueSheet = false
+  @State private var showsWebStyleSheet = false
+  @State private var settingsSelection: SettingsSelection?
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
@@ -93,11 +103,19 @@ struct NativePluginDataPageView: View {
               }
             } else if nodes.isEmpty {
               CinematicPanel {
-                VStack(spacing: 10) {
+                VStack(spacing: 12) {
                   Image(systemName: "doc.plaintext")
                     .font(.largeTitle)
                     .foregroundStyle(.secondary)
-                  Text("当前插件暂无展示数据").font(.headline)
+                  Text("此插件没有详情页面").font(.headline)
+                  Button {
+                    openSettings()
+                  } label: {
+                    Label("打开插件设置", systemImage: "gearshape")
+                  }
+                  .buttonStyle(.borderedProminent)
+                  .tint(NativeTheme.brand)
+                  .accessibilityIdentifier("native-plugin-page-empty-settings")
                 }
                 .frame(maxWidth: .infinity, minHeight: 160)
               }
@@ -124,7 +142,63 @@ struct NativePluginDataPageView: View {
     .navigationTitle(pluginName)
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
+    .toolbar {
+      if navKey == nil, renderMode.lowercased() != "vue" {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button {
+            openSettings()
+          } label: {
+            Image(systemName: "gearshape")
+          }
+          .accessibilityLabel("插件设置")
+          .accessibilityIdentifier("native-plugin-page-settings")
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+          Menu {
+            Button {
+              showsWebStyleSheet = true
+            } label: {
+              Label("网页样式查看", systemImage: "safari")
+            }
+            Button {
+              reloadToken += 1
+            } label: {
+              Label("刷新", systemImage: "arrow.clockwise")
+            }
+          } label: {
+            Image(systemName: "ellipsis.circle")
+          }
+          .accessibilityLabel("更多操作")
+          .accessibilityIdentifier("native-plugin-page-more")
+        }
+      }
+    }
+    .navigationDestination(
+      isPresented: Binding(
+        get: { settingsSelection != nil },
+        set: { presented in
+          if !presented, settingsSelection != nil {
+            settingsSelection = nil
+            // 设置页可能已保存配置，返回后刷新数据页。
+            reloadToken += 1
+          }
+        })
+    ) {
+      if let settingsSelection {
+        NativePluginFormView(plugin: settingsSelection.plugin, form: settingsSelection.form)
+          .id(settingsSelection.plugin.id)
+      }
+    }
     .sheet(isPresented: $showsVueSheet, onDismiss: { dismiss() }) {
+      NativeVuePluginSheet(
+        session: session,
+        pluginID: pluginID,
+        pluginName: pluginName,
+        surface: .dataPage
+      )
+    }
+    .sheet(isPresented: $showsWebStyleSheet, onDismiss: { reloadToken += 1 }) {
+      // 原生无法完整还原插件自定义样式（CSS 网格、状态矩阵等）时，以前端真实渲染的数据弹窗查看。
       NativeVuePluginSheet(
         session: session,
         pluginID: pluginID,
@@ -147,6 +221,20 @@ struct NativePluginDataPageView: View {
     }
   }
 
+  /// 与 Web 数据弹窗的设置按钮一致：在当前导航栈打开插件原生配置表单。
+  private func openSettings() {
+    do {
+      let target = try PluginFormTarget(physicalID: pluginID)
+      let plugin = NativeInstalledPlugin(target: target, name: pluginName, hasPage: true)
+      let form = try NativePluginForm(
+        session: session, target: target, validator: NativeFormValidator())
+      settingsSelection = SettingsSelection(plugin: plugin, form: form)
+    } catch {
+      actionIsError = true
+      actionFeedback = "无法打开该插件的配置。"
+    }
+  }
+
   /// 读取 `GET /api/v1/plugin/page/{pluginID}` 并有界解析节点树。
   private func load() async {
     isLoading = true
@@ -161,7 +249,7 @@ struct NativePluginDataPageView: View {
       try Task.checkCancellation()
       renderMode = envelope.renderMode ?? "vuetify"
       if renderMode.lowercased() != "vue" {
-        var budget = 2000
+        var budget = 8000
         nodes = NativePluginJSONNode.parseArray(envelope.page ?? [], depth: 0, budget: &budget)
       }
     } catch is CancellationError {
@@ -326,7 +414,9 @@ struct NativePluginJSONRenderer: View {
       }
     case "a":
       linkView(node)
-    case "vcol", "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "em", "i",
+    case "div":
+      containerView(node)
+    case "vcol", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "em", "i",
       "u", "small", "code", "pre", "vlabel":
       VStack(alignment: .leading, spacing: 6) {
         if !node.displayText.isEmpty {
@@ -434,9 +524,12 @@ struct NativePluginJSONRenderer: View {
     case "vimg", "img":
       imageView(node)
     case "vicon", "v-icon":
-      Image(systemName: Self.sfSymbol(forMDI: node.stringProp("icon") ?? node.combinedText))
+      let iconName = node.iconName
+      Image(systemName: Self.sfSymbol(forMDI: iconName))
         .font(.subheadline)
-        .foregroundStyle(Self.tintColor(node.stringProp("color")))
+        .foregroundStyle(
+          node.stringProp("color").map { Self.tintColor($0) } ?? Self.semanticTint(forMDI: iconName)
+        )
     case "vavatar":
       if let img = node.children.first(where: {
         ["vimg", "img"].contains($0.component.lowercased())
@@ -507,21 +600,72 @@ struct NativePluginJSONRenderer: View {
     }
   }
 
+  /// `div` 按插件声明的布局意图映射：含 `VSpacer` 的标题行横向排列，网格/概要类样式自适应多列，
+  /// 卡片类样式套用玻璃面板，其余保持纵向堆叠。
+  @ViewBuilder
+  private func containerView(_ node: NativePluginJSONNode) -> some View {
+    let tokens = node.classTokens
+    let children = node.children.filter {
+      !["style", "script"].contains($0.component.lowercased())
+    }
+    if children.contains(where: { $0.component.lowercased() == "vspacer" }) {
+      HStack(alignment: .center, spacing: 8) {
+        if !node.displayText.isEmpty {
+          Text(node.displayText).font(.subheadline).foregroundStyle(.primary)
+        }
+        ForEach(children) { child in AnyView(renderNode(child)) }
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    } else if tokens.contains(where: { $0.contains("grid") || $0.hasSuffix("summary") }) {
+      LazyVGrid(
+        columns: [GridItem(.adaptive(minimum: 150), spacing: 10, alignment: .top)],
+        alignment: .leading, spacing: 10
+      ) {
+        ForEach(children) { child in AnyView(renderNode(child)) }
+      }
+    } else if tokens.contains(where: { $0.contains("card") }) {
+      CinematicPanel(padding: 12) {
+        VStack(alignment: .leading, spacing: 6) {
+          if !node.displayText.isEmpty {
+            Text(node.displayText).font(.subheadline).foregroundStyle(.primary)
+          }
+          ForEach(children) { child in AnyView(renderNode(child)) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    } else {
+      VStack(alignment: .leading, spacing: 6) {
+        if !node.displayText.isEmpty {
+          textElement(node.displayText, tag: "div")
+        }
+        ForEach(children) { child in AnyView(renderNode(child)) }
+      }
+    }
+  }
+
   private func chipView(_ node: NativePluginJSONNode) -> some View {
     let tint = Self.tintColor(node.stringProp("color"))
     let label = node.combinedText.isEmpty ? (node.stringProp("text") ?? "") : node.combinedText
-    return Text(label)
-      .font(.caption.weight(.semibold))
-      .foregroundStyle(tint)
-      .padding(.horizontal, 10)
-      .padding(.vertical, 4)
-      .background {
-        Capsule()
-          .fill(tint.opacity(0.14))
-          .overlay {
-            Capsule().strokeBorder(tint.opacity(0.32), lineWidth: 0.6)
-          }
+    let icon = node.stringProp("prepend-icon") ?? node.stringProp("prependIcon")
+    return HStack(spacing: 4) {
+      if let icon, !icon.isEmpty {
+        Image(systemName: Self.sfSymbol(forMDI: icon)).font(.caption2)
       }
+      if !label.isEmpty {
+        Text(label).lineLimit(1)
+      }
+    }
+    .font(.caption.weight(.semibold))
+    .foregroundStyle(tint)
+    .padding(.horizontal, 10)
+    .padding(.vertical, 4)
+    .background {
+      Capsule()
+        .fill(tint.opacity(0.14))
+        .overlay {
+          Capsule().strokeBorder(tint.opacity(0.32), lineWidth: 0.6)
+        }
+    }
   }
 
   /// 语义提示卡片（info/success/warning/error）。
@@ -568,8 +712,9 @@ struct NativePluginJSONRenderer: View {
   }
 
   /// 原生可横滑自适应玻璃表格（同时支持 HTML `thead/tbody/tr/th/td` 与 Vuetify `VDataTable` `headers`/`items`）。
+  /// 含徽标、图标或按钮的单元格按原生控件渲染，避免把图标名当作文字展示。
   private func tableView(_ node: NativePluginJSONNode) -> some View {
-    let parsed = node.extractTable()
+    let parsed = node.extractTableCells()
     return CinematicPanel(padding: 0) {
       if parsed.headers.isEmpty && parsed.rows.isEmpty {
         Text(node.stringProp("no-data-text") ?? "暂无表格数据")
@@ -596,11 +741,8 @@ struct NativePluginJSONRenderer: View {
               Divider().overlay(NativeTheme.divider)
               HStack(spacing: 12) {
                 ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
-                  Text(cell)
-                    .font(.caption)
-                    .foregroundStyle(.primary)
+                  tableCell(cell)
                     .frame(minWidth: 88, alignment: .leading)
-                    .lineLimit(3)
                 }
               }
               .padding(.horizontal, 14)
@@ -611,6 +753,21 @@ struct NativePluginJSONRenderer: View {
         }
         .scrollIndicators(.hidden)
       }
+    }
+  }
+
+  /// 单元格：纯文本保持紧凑三行；富内容逐个子节点以原生控件横向排列。
+  @ViewBuilder
+  private func tableCell(_ cell: NativePluginTableCell) -> some View {
+    if let content = cell.node, content.containsRichContent {
+      HStack(spacing: 6) {
+        ForEach(content.children) { child in AnyView(renderNode(child)) }
+      }
+    } else {
+      Text(cell.text)
+        .font(.caption)
+        .foregroundStyle(.primary)
+        .lineLimit(3)
     }
   }
 
@@ -688,13 +845,32 @@ struct NativePluginJSONRenderer: View {
     case "warning", "orange", "amber": NativeTheme.warning
     case "error", "red": NativeTheme.danger
     case "primary", "purple", "indigo": NativeTheme.brand
+    case "grey", "gray": Color.secondary
     default: NativeTheme.info
     }
+  }
+
+  /// 未声明颜色的状态图标按图标语义着色（插件常依赖 CSS 类为状态点上色，原生无法读取样式表）。
+  static func semanticTint(forMDI raw: String) -> Color {
+    let icon = raw.lowercased()
+    if icon.contains("cookie") || icon.contains("alert") || icon.contains("close")
+      || icon.contains("cancel") || icon.contains("error")
+    {
+      return NativeTheme.danger
+    }
+    if icon.contains("check") { return NativeTheme.success }
+    if icon.contains("refresh") || icon.contains("sync") || icon.contains("clock") {
+      return NativeTheme.warning
+    }
+    if icon.contains("minus") || icon.contains("help") { return Color.secondary }
+    return NativeTheme.info
   }
 
   /// 常见 MDI 图标名称映射为原生 SF Symbol。
   static func sfSymbol(forMDI raw: String) -> String {
     let icon = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if icon.contains("calendar") { return "calendar" }
+    if icon.contains("cookie") { return "exclamationmark.octagon.fill" }
     if icon.contains("check") { return "checkmark.circle.fill" }
     if icon.contains("alert") || icon.contains("warning") { return "exclamationmark.triangle.fill" }
     if icon.contains("close") || icon.contains("cancel") { return "xmark.circle.fill" }
@@ -723,6 +899,10 @@ struct NativePluginJSONRenderer: View {
     if icon.contains("qrcode") { return "qrcode" }
     if icon.contains("send") { return "paperplane.fill" }
     if icon.contains("plus") || icon.contains("add") { return "plus" }
+    if icon.contains("minus") { return "minus.circle" }
+    if icon.contains("help") { return "questionmark.circle" }
+    if icon.contains("information") || icon.contains("info") { return "info.circle" }
+    if icon.contains("login") || icon.contains("account") { return "person.crop.circle" }
     return "circle.grid.2x2"
   }
 
@@ -994,14 +1174,14 @@ private struct NativeApexChartSpec {
   }
 }
 
-/// 从 Vue 插件弹出页顶部栏提取并投影到原生 Sheet 导航栏的动作按钮。
+/// 前端 `presentation.sheet.actions` 声明、并投影到原生 Sheet 导航栏的标题栏按钮。
 struct NativeVueSheetAction: Identifiable, Equatable, Sendable {
   let id: String
   let title: String
   let icon: String?
   let enabled: Bool
 
-  /// 将 Material Design Icon 名称映射为原生 SF Symbol。
+  /// 将前端声明的语义图标（或 Material Design Icon 名称）映射为原生 SF Symbol。
   var sfSymbol: String {
     let raw = (icon ?? "").lowercased()
     if raw.contains("cog") || raw.contains("tune") || raw.contains("setting") { return "gearshape" }
@@ -1037,48 +1217,63 @@ struct NativeVueSheetAction: Identifiable, Equatable, Sendable {
   }
 }
 
-/// Vue 插件原生 Sheet 接管桥接器：参考 V1 原生弹层方案，接管弹窗标题、顶部操作按钮与关闭按钮。
+/// 前端 `presentation.confirmation` 声明的确认框；原生 Alert 只回传确认结果，业务回调仍留在网页。
+struct NativeVueSheetConfirmation: Identifiable, Equatable, Sendable {
+  let id: String
+  let title: String
+  let message: String
+  let confirmText: String
+  let cancelText: String
+  let confirmEnabled: Bool
+  let cancelEnabled: Bool
+  let destructive: Bool
+}
+
+/// Vue 插件原生 Sheet 的展示状态：标题、按钮与确认框全部来自前端原生容器协议的快照。
 @MainActor
 final class NativeVueSheetBridge: ObservableObject {
   @Published var title: String
   @Published var actions: [NativeVueSheetAction] = []
   @Published var isReady = false
   @Published var shouldDismiss = false
-  weak var webView: WKWebView?
+  @Published var confirmation: NativeVueSheetConfirmation?
+  @Published var failureMessage: String?
+  /// 当前 WebView 文档的协议宿主；WebView 销毁后自动失效，旧文档不能再接收命令。
+  weak var host: NativeVuePluginChromeHost?
 
   init(defaultTitle: String) {
     self.title = defaultTitle
   }
 
+  /// 原生栏按钮只回传前端声明的按钮标识，由前端复核后点击当前弹窗内的真实按钮。
   func invokeAction(id: String) {
-    let escaped = Self.jsString(id)
-    webView?.evaluateJavaScript(
-      "window.__mpNativeSheetInvoke && window.__mpNativeSheetInvoke(\(escaped));",
-      completionHandler: nil)
+    host?.invokeSheetAction(id)
   }
 
-  func requestWebDismiss() {
-    webView?.evaluateJavaScript(
-      "window.__mpNativeSheetDismiss && window.__mpNativeSheetDismiss();",
-      completionHandler: nil)
+  /// 原生关闭：可关闭的网页弹窗先交回前端关闭（嵌套弹窗只关闭最上层）；返回 false 表示应直接关闭整个 Sheet。
+  func requestClose() -> Bool {
+    host?.requestCloseCurrentSheet() ?? false
   }
 
-  private static func jsString(_ value: String) -> String {
-    guard let data = try? JSONSerialization.data(withJSONObject: [value]),
-      let json = String(data: data, encoding: .utf8), json.count >= 2
-    else { return "\"\"" }
-    return String(json.dropFirst().dropLast())
+  /// 原生 Alert 结算后把确认/取消交回前端原组件，不重复执行业务逻辑。
+  func respondConfirmation(_ confirmed: Bool) {
+    guard let current = confirmation else { return }
+    confirmation = nil
+    host?.respondConfirmation(id: current.id, confirmed: confirmed)
   }
 }
 
-/// V1 风格原生 Modal Sheet 接管容器：专用于 `render_mode == "vue"` 的插件数据页与配置弹窗。
-/// 自动隔离 Web 端 `.v-overlay--active.v-dialog`，把弹窗标题、公共按钮与关闭按钮接管到原生 Sheet 导航栏。
+/// V1 风格原生 Modal Sheet 容器：专用于 `render_mode == "vue"` 的插件数据页 / 配置弹窗，
+/// 以及原生无法完整呈现的 JSON 插件兼容视图。网页侧由前端原生容器协议只展示当前插件弹窗内容，
+/// 弹窗标题、标题栏按钮与关闭按钮注册到原生 Sheet 导航栏。
 @MainActor
 struct NativeVuePluginSheet: View {
   let session: NativeSession
   let pluginID: String
   let pluginName: String
   let surface: NativeVuePluginWebContainer.Surface
+  /// 插件是否带详情页：配置入口需先经由详情弹窗的设置按钮切换。
+  let pluginHasPage: Bool
 
   @Environment(\.dismiss) private var dismiss
   @StateObject private var bridge: NativeVueSheetBridge
@@ -1087,12 +1282,14 @@ struct NativeVuePluginSheet: View {
     session: NativeSession,
     pluginID: String,
     pluginName: String,
-    surface: NativeVuePluginWebContainer.Surface
+    surface: NativeVuePluginWebContainer.Surface,
+    pluginHasPage: Bool = true
   ) {
     self.session = session
     self.pluginID = pluginID
     self.pluginName = pluginName
     self.surface = surface
+    self.pluginHasPage = pluginHasPage
     _bridge = StateObject(wrappedValue: NativeVueSheetBridge(defaultTitle: pluginName))
   }
 
@@ -1103,50 +1300,34 @@ struct NativeVuePluginSheet: View {
         pluginID: pluginID,
         pluginName: pluginName,
         surface: surface,
-        sheetBridge: bridge
+        sheetBridge: bridge,
+        pluginHasPage: pluginHasPage
       )
-      .ignoresSafeArea(edges: .bottom)
       .navigationTitle(bridge.title.isEmpty ? pluginName : bridge.title)
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.visible, for: .navigationBar)
       .toolbar {
         if !bridge.actions.isEmpty {
-          ToolbarItemGroup(placement: .topBarLeading) {
-            if bridge.actions.count <= 2 {
+          ToolbarItem(placement: .topBarLeading) {
+            Menu {
               ForEach(bridge.actions) { action in
                 Button {
                   bridge.invokeAction(id: action.id)
                 } label: {
-                  if let icon = action.icon, !icon.isEmpty {
-                    Image(systemName: action.sfSymbol)
-                  } else {
-                    Text(action.title)
-                  }
+                  Label(action.title, systemImage: action.sfSymbol)
                 }
                 .disabled(!action.enabled)
-                .accessibilityLabel(action.title)
               }
-            } else {
-              Menu {
-                ForEach(bridge.actions) { action in
-                  Button {
-                    bridge.invokeAction(id: action.id)
-                  } label: {
-                    Label(action.title, systemImage: action.sfSymbol)
-                  }
-                  .disabled(!action.enabled)
-                }
-              } label: {
-                Image(systemName: "ellipsis.circle")
-              }
-              .accessibilityLabel("更多操作")
+            } label: {
+              Image(systemName: "ellipsis")
             }
+            .accessibilityLabel("弹窗操作")
+            .accessibilityIdentifier("native-sheet-menu")
           }
         }
         ToolbarItem(placement: .topBarTrailing) {
           Button {
-            bridge.requestWebDismiss()
-            dismiss()
+            if !bridge.requestClose() { dismiss() }
           } label: {
             Image(systemName: "xmark")
               .font(.body.weight(.semibold))
@@ -1154,6 +1335,26 @@ struct NativeVuePluginSheet: View {
           .accessibilityLabel("关闭")
           .accessibilityIdentifier("native-vue-plugin-sheet-close")
         }
+      }
+      .alert(
+        bridge.confirmation?.title ?? "",
+        isPresented: Binding(
+          get: { bridge.confirmation != nil },
+          set: { presented in
+            if !presented, bridge.confirmation != nil { bridge.respondConfirmation(false) }
+          }),
+        presenting: bridge.confirmation
+      ) { confirmation in
+        Button(confirmation.cancelText, role: .cancel) {
+          bridge.respondConfirmation(false)
+        }
+        .disabled(!confirmation.cancelEnabled)
+        Button(confirmation.confirmText, role: confirmation.destructive ? .destructive : nil) {
+          bridge.respondConfirmation(true)
+        }
+        .disabled(!confirmation.confirmEnabled)
+      } message: { confirmation in
+        Text(confirmation.message)
       }
     }
     .presentationDetents([.large])
@@ -1166,9 +1367,10 @@ struct NativeVuePluginSheet: View {
 }
 
 /// 免登自动渲染的 Vue 远程插件容器：
-/// 1. 首帧前向同源 `localStorage` 写入 Pinia `auth` 与 `user` 会话（彻底免登）；
+/// 1. 首帧前向同源 `localStorage` 写入 Pinia `auth` / `user` 会话、界面语言与主题皮肤（彻底免登）；
 /// 2. 向非持久化 `WKHTTPCookieStore` 写入当前实例资源 Cookie，确保远程联邦脚本与图片代理直通；
-/// 3. 在 Sheet 接管模式下仅隔离当前最顶层 `.v-overlay--active.v-dialog`，将标题、顶部按钮和关闭按钮投影给原生导航栏。
+/// 3. Sheet 模式下注入 `MoviePilotNative` 传输门面，与前端完成 `moviepilot.chrome` v1 + `sheets.v1` 协商，
+///    由前端自身隔离当前插件弹窗并声明标题/按钮，原生只承载导航栏，不再扫描或改写业务 DOM。
 @MainActor
 struct NativeVuePluginWebContainer: View {
   enum Surface: Equatable {
@@ -1182,6 +1384,7 @@ struct NativeVuePluginWebContainer: View {
   let pluginName: String
   let surface: Surface
   var sheetBridge: NativeVueSheetBridge? = nil
+  var pluginHasPage: Bool = true
 
   @Environment(\.colorScheme) private var colorScheme
   @ObservedObject private var appearance = NativeAppearanceStore.shared
@@ -1191,7 +1394,7 @@ struct NativeVuePluginWebContainer: View {
 
   private var showsLoader: Bool {
     if let sheetBridge {
-      return !sheetBridge.isReady
+      return !sheetBridge.isReady && sheetBridge.failureMessage == nil
     }
     return isWebLoading
   }
@@ -1205,9 +1408,11 @@ struct NativeVuePluginWebContainer: View {
           isLoading: $isWebLoading,
           sheetBridge: sheetBridge
         )
-        .opacity(sheetBridge != nil && showsLoader ? 0 : 1)
+        .opacity(sheetBridge != nil && (showsLoader || sheetBridge?.failureMessage != nil) ? 0 : 1)
         .animation(.easeOut(duration: 0.2), value: showsLoader)
-        if showsLoader {
+        if let failure = sheetBridge?.failureMessage {
+          failurePanel(failure)
+        } else if showsLoader {
           VStack(spacing: 10) {
             ProgressView()
               .controlSize(.regular)
@@ -1224,25 +1429,7 @@ struct NativeVuePluginWebContainer: View {
           }
         }
       } else if let loadError {
-        CinematicPanel {
-          VStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle")
-              .font(.title2)
-              .foregroundStyle(NativeTheme.warning)
-            Text(loadError)
-              .font(.subheadline)
-              .foregroundStyle(.primary)
-              .multilineTextAlignment(.center)
-            Button("重试") {
-              Task { await prepareLaunch() }
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(NativeTheme.brand)
-          }
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 12)
-        }
-        .padding(.horizontal, CinematicStyle.margin)
+        failurePanel(loadError)
       } else {
         ProgressView("正在准备插件环境…")
           .tint(.primary)
@@ -1254,6 +1441,32 @@ struct NativeVuePluginWebContainer: View {
     ) {
       await prepareLaunch()
     }
+  }
+
+  /// 失败提示与重试共用同一块玻璃面板；重试会重建 WebView 文档与协议会话。
+  private func failurePanel(_ message: String) -> some View {
+    CinematicPanel {
+      VStack(spacing: 10) {
+        Image(systemName: "exclamationmark.triangle")
+          .font(.title2)
+          .foregroundStyle(NativeTheme.warning)
+        Text(message)
+          .font(.subheadline)
+          .foregroundStyle(.primary)
+          .multilineTextAlignment(.center)
+        Button("重试") {
+          sheetBridge?.failureMessage = nil
+          sheetBridge?.isReady = false
+          launchConfig = nil
+          Task { await prepareLaunch() }
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(NativeTheme.brand)
+      }
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 12)
+    }
+    .padding(.horizontal, CinematicStyle.margin)
   }
 
   private func prepareLaunch() async {
@@ -1303,6 +1516,13 @@ struct NativeVuePluginWebContainer: View {
       }
       let accentHex = NativeAppearanceStore.hexString(from: appearance.accentColor)
       let locale = AppLanguage.current.rawValue
+      let containingFolder: String?
+      switch surface {
+      case .appPage:
+        containingFolder = nil
+      case .dataPage, .config:
+        containingFolder = await resolveContainingFolder(for: pluginID)
+      }
       launchConfig = VuePluginLaunchConfig(
         url: targetURL,
         origin: auth.address,
@@ -1312,10 +1532,34 @@ struct NativeVuePluginWebContainer: View {
         preferDark: preferDark,
         accentHex: accentHex,
         locale: locale,
-        surface: surface)
+        surface: surface,
+        switchesToConfig: surface == .config && pluginHasPage,
+        containingFolder: containingFolder)
     } catch {
-      loadError = "当前登录会话不可用，无法打开 Vue 插件。"
+      loadError = "当前登录会话不可用，无法打开插件页面。"
     }
+  }
+
+  /// 查询插件是否归属于某个 Web 插件文件夹；若在文件夹内，前端主列表默认隐藏其卡片，需自动展开对应文件夹后触发弹窗。
+  private func resolveContainingFolder(for targetPluginID: String) async -> String? {
+    guard let endpoint = try? APIEndpoint(path: ["plugin", "folders"], responseContract: .payload),
+      let data = try? await session.requestPayload(
+        endpoint, requiring: PermissionRequirement(category: .admin)
+      ).value,
+      let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    else { return nil }
+    for (folderName, entry) in obj {
+      if let list = entry as? [String], list.contains(targetPluginID) {
+        return folderName
+      }
+      if let dict = entry as? [String: Any],
+        let list = dict["plugins"] as? [String],
+        list.contains(targetPluginID)
+      {
+        return folderName
+      }
+    }
+    return nil
   }
 
   /// 基于 Vue Hash Router 构造同源插件入口：AppPage 直达 `/#/plugin-app/{id}/{navKey}`，数据/配置页直达 `/#/plugins?id={id}`。
@@ -1353,14 +1597,20 @@ private struct VuePluginLaunchConfig: Equatable {
   let accentHex: String
   let locale: String
   let surface: NativeVuePluginWebContainer.Surface
+  /// 配置入口且插件带详情页：前端深链先打开详情弹窗，需要切换到配置弹窗后再接管。
+  let switchesToConfig: Bool
+  /// 插件所在的文件夹名（若已归入插件文件夹）。
+  let containingFolder: String?
 
   static func == (lhs: VuePluginLaunchConfig, rhs: VuePluginLaunchConfig) -> Bool {
     lhs.url == rhs.url && lhs.preferDark == rhs.preferDark && lhs.accentHex == rhs.accentHex
       && lhs.locale == rhs.locale && lhs.surface == rhs.surface
+      && lhs.switchesToConfig == rhs.switchesToConfig
+      && lhs.containingFolder == rhs.containingFolder
   }
 }
 
-/// 弱引用消息代理，避免 `WKUserContentController` 与 `Coordinator` 形成循环引用。
+/// 弱引用消息代理，避免 `WKUserContentController` 与协议宿主形成循环引用。
 private final class WeakVueSheetScriptHandler: NSObject, WKScriptMessageHandler {
   weak var target: (any WKScriptMessageHandler)?
   init(_ target: any WKScriptMessageHandler) { self.target = target }
@@ -1371,15 +1621,20 @@ private final class WeakVueSheetScriptHandler: NSObject, WKScriptMessageHandler 
   }
 }
 
-/// 同源免登隔离 `WKWebView`：在首帧前写入 Pinia 会话与资源 Cookie；
-/// 传入 `sheetBridge` 时采用 V1 风格弹窗接管，隔离最顶层 `.v-dialog` 并将标题/顶部按钮/关闭按钮投影到原生 Sheet 栏。
+/// 同源免登隔离 `WKWebView`：首帧前写入 Pinia 会话、语言与主题皮肤以及资源 Cookie；
+/// 传入 `sheetBridge` 时注入前端原生容器传输门面，由 `NativeVuePluginChromeHost` 完成弹窗接管协商。
 private struct NativeVuePluginWebView: UIViewRepresentable {
   let config: VuePluginLaunchConfig
   @Binding var isLoading: Bool
   let sheetBridge: NativeVueSheetBridge?
 
-  func makeCoordinator() -> Coordinator {
-    Coordinator(origin: config.origin, isLoading: $isLoading, sheetBridge: sheetBridge)
+  func makeCoordinator() -> NativeVuePluginChromeHost {
+    NativeVuePluginChromeHost(
+      origin: config.origin,
+      isLoading: $isLoading,
+      sheetBridge: sheetBridge,
+      switchesToConfig: config.switchesToConfig,
+      containingFolder: config.containingFolder)
   }
 
   func makeUIView(context: Context) -> WKWebView {
@@ -1387,26 +1642,32 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
     wkConfig.websiteDataStore = .nonPersistent()
     wkConfig.allowsInlineMediaPlayback = true
 
-    if sheetBridge != nil {
-      wkConfig.userContentController.add(
-        WeakVueSheetScriptHandler(context.coordinator), name: "mpVuePluginSheet")
-    }
-
-    let bootstrapScript = makeBootstrapScript(config, sheetTakeover: sheetBridge != nil)
-    wkConfig.userContentController.addUserScript(
+    let contentController = wkConfig.userContentController
+    contentController.addUserScript(
       WKUserScript(
-        source: bootstrapScript,
+        source: makeSessionScript(config),
         injectionTime: .atDocumentStart,
         forMainFrameOnly: true))
+    if sheetBridge != nil {
+      contentController.add(
+        WeakVueSheetScriptHandler(context.coordinator),
+        name: NativeVuePluginChromeHost.messageHandlerName)
+      contentController.addUserScript(
+        WKUserScript(
+          source: NativeVuePluginChromeHost.transportScript,
+          injectionTime: .atDocumentStart,
+          forMainFrameOnly: true))
+    }
 
     let webView = WKWebView(frame: .zero, configuration: wkConfig)
     webView.navigationDelegate = context.coordinator
     webView.isOpaque = false
     webView.backgroundColor = .clear
     webView.scrollView.backgroundColor = .clear
-    webView.scrollView.contentInsetAdjustmentBehavior = .automatic
+    // Sheet 模式由前端按原生量测的底部安全区留白，避免与 UIKit 自动内边距重复叠加。
+    webView.scrollView.contentInsetAdjustmentBehavior = sheetBridge != nil ? .never : .automatic
     webView.overrideUserInterfaceStyle = config.preferDark ? .dark : .light
-    sheetBridge?.webView = webView
+    context.coordinator.attach(webView)
 
     var request = URLRequest(url: config.url)
     request.setValue(config.locale, forHTTPHeaderField: "Accept-Language")
@@ -1429,12 +1690,13 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
 
   func updateUIView(_ uiView: WKWebView, context: Context) {
     uiView.overrideUserInterfaceStyle = config.preferDark ? .dark : .light
-    sheetBridge?.webView = uiView
+    context.coordinator.layoutChanged()
   }
 
-  static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+  static func dismantleUIView(_ uiView: WKWebView, coordinator: NativeVuePluginChromeHost) {
     uiView.configuration.userContentController.removeScriptMessageHandler(
-      forName: "mpVuePluginSheet")
+      forName: NativeVuePluginChromeHost.messageHandlerName)
+    coordinator.stop()
   }
 
   private func makeHTTPCookie(
@@ -1452,8 +1714,9 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
     return HTTPCookie(properties: props)
   }
 
-  /// 构造首帧前注入脚本：同步登录态、语言（`MP_LOCALE`）、主题与强调色以及 V1 风格 `.v-dialog` 隔离与顶栏投影。
-  private func makeBootstrapScript(_ cfg: VuePluginLaunchConfig, sheetTakeover: Bool) -> String {
+  /// 构造首帧前注入脚本：同步登录态、语言（`MP_LOCALE`）、主题皮肤与强调色，并隐藏网页外壳导航；
+  /// Sheet 接管成功后前端协议同样隐藏外壳，降级展示网页时也不会露出完整站点导航。
+  private func makeSessionScript(_ cfg: VuePluginLaunchConfig) -> String {
     let authLiteral = Self.jsStringLiteral(cfg.authJSON)
     let userLiteral = Self.jsStringLiteral(cfg.userJSON)
     let themeName = cfg.preferDark ? "dark" : "light"
@@ -1468,11 +1731,10 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
         String(data: $0, encoding: .utf8)
       } ?? "{}"
     let customizerLiteral = Self.jsStringLiteral(customizerJSON)
-    let wantsConfigSwitch = (cfg.surface == .config) ? "true" : "false"
-    let isSheetTakeover = sheetTakeover ? "true" : "false"
 
     return """
       (function() {
+        if (window.top !== window) return;
         try {
           window.localStorage.setItem('auth', \(authLiteral));
           window.localStorage.setItem('user', \(userLiteral));
@@ -1483,260 +1745,30 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
           window.localStorage.setItem('moviepilot-theme-customizer', \(customizerLiteral));
         } catch (e) {}
 
-        var isSheetTakeover = \(isSheetTakeover);
-        var wantsConfigSwitch = \(wantsConfigSwitch);
-
         function applyNativePluginChrome() {
           try {
             var root = document.documentElement;
             if (!root) return;
             root.lang = \(localeLiteral);
-            root.dataset.nativeChrome = 'active';
-            if (isSheetTakeover) {
-              root.dataset.nativeSheet = 'active';
-            }
-            root.style.setProperty('--native-top', '0px');
-            root.style.setProperty('--native-bottom', '0px');
-            root.style.setProperty('--native-left', '0px');
-            root.style.setProperty('--native-right', '0px');
-
-            if (!document.getElementById('mp-native-vue-plugin-style')) {
-              var style = document.createElement('style');
-              style.id = 'mp-native-vue-plugin-style';
-              var rules = [
-                '.layout-navbar, .layout-vertical-nav, .layout-overlay, .layout-footer,',
-                '.footer-content-container, .mobile-dock, .v-bottom-navigation,',
-                '.app-customizer-toggler, .agent-pet-container, .floating-agent-btn,',
-                '[data-native-page-title], [data-native-page-heading], [data-native-page-actions] {',
-                '  display: none !important;',
-                '}',
-                '.layout-content-wrapper { padding-inline-start: 0 !important; }',
-                '.layout-page-content { padding-block-start: 8px !important; padding-block-end: 12px !important; }'
-              ];
-              if (isSheetTakeover) {
-                rules.push(
-                  'html[data-native-sheet="active"] body { overflow: hidden !important; background: transparent !important; }',
-                  'html[data-native-sheet="active"] #app { visibility: hidden !important; pointer-events: none !important; }',
-                  '[data-native-sheet-background="true"] { visibility: hidden !important; pointer-events: none !important; }',
-                  '[data-native-sheet-current="true"] { position: fixed !important; inset: 0 !important; visibility: visible !important; pointer-events: auto !important; }',
-                  '[data-native-sheet-current="true"] > .v-overlay__scrim { display: none !important; }',
-                  '[data-native-sheet-current="true"] > .v-overlay__content {',
-                  '  margin: 0 !important; padding: 0 !important; inset: 0 !important;',
-                  '  width: 100vw !important; max-width: 100vw !important;',
-                  '  height: 100dvh !important; max-height: 100dvh !important;',
-                  '  border-radius: 0 !important; box-shadow: none !important; transform: none !important;',
-                  '}',
-                  '[data-native-sheet-current="true"] > .v-overlay__content > .v-card,',
-                  '[data-native-sheet-current="true"] > .v-overlay__content > .v-sheet {',
-                  '  border-radius: 0 !important; box-shadow: none !important;',
-                  '  min-height: 100dvh !important; max-height: 100dvh !important;',
-                  '  display: flex !important; flex-direction: column !important;',
-                  '}',
-                  '[data-native-sheet-current="true"] > .v-overlay__content > .v-card > .v-card-text {',
-                  '  flex: 1 1 auto !important; overflow-y: auto !important; -webkit-overflow-scrolling: touch;',
-                  '}',
-                  '[data-native-sheet-current="true"] [data-native-sheet-header="true"],',
-                  '[data-native-sheet-current="true"] [data-native-sheet-heading="true"],',
-                  '[data-native-sheet-current="true"] [data-native-dialog-close],',
-                  '[data-native-sheet-current="true"] .v-dialog-close-btn {',
-                  '  display: none !important;',
-                  '}'
-                );
-              }
-              style.textContent = rules.join('\\n');
-              (document.head || root).appendChild(style);
-            }
+            if (document.getElementById('mp-native-vue-plugin-style')) return;
+            var style = document.createElement('style');
+            style.id = 'mp-native-vue-plugin-style';
+            style.textContent = [
+              '.layout-navbar, .layout-vertical-nav, .layout-overlay, .layout-footer,',
+              '.footer-content-container, .mobile-dock, .v-bottom-navigation,',
+              '.app-customizer-toggler, .agent-pet-container, .floating-agent-btn,',
+              '[data-native-page-title], [data-native-page-heading], [data-native-page-actions] {',
+              '  display: none !important;',
+              '}',
+              '.layout-content-wrapper { padding-inline-start: 0 !important; }',
+              '.layout-page-content { padding-block-start: 8px !important; padding-block-end: 12px !important; }'
+            ].join('\\n');
+            (document.head || root).appendChild(style);
           } catch (e) {}
         }
 
         applyNativePluginChrome();
         document.addEventListener('DOMContentLoaded', applyNativePluginChrome, { once: true });
-
-        if (!isSheetTakeover) { return; }
-
-        function postSheetMessage(payload) {
-          try {
-            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.mpVuePluginSheet) {
-              window.webkit.messageHandlers.mpVuePluginSheet.postMessage(payload);
-            }
-          } catch (e) {}
-        }
-
-        function extractMdiIcon(el) {
-          var iconEl = el.querySelector('[class*="mdi-"]') || (el.className && String(el.className).indexOf('mdi-') >= 0 ? el : null);
-          if (!iconEl) return '';
-          var cls = String(iconEl.className || '');
-          var m = cls.match(/mdi-[a-z0-9-]+/i);
-          return m ? m[0] : '';
-        }
-
-        function isCloseButton(btn) {
-          if (btn.hasAttribute('data-native-dialog-close') || btn.classList.contains('v-dialog-close-btn')) return true;
-          var icon = extractMdiIcon(btn).toLowerCase();
-          if (icon === 'mdi-close' || icon === 'mdi-close-circle' || icon === 'mdi-close-circle-outline') return true;
-          var text = (btn.textContent || '').trim();
-          var aria = (btn.getAttribute('aria-label') || '').trim();
-          return text === '关闭' || text === 'Close' || aria === '关闭' || aria === 'Close';
-        }
-
-        var hadActiveDialog = false;
-        var switchedToConfig = false;
-        var configSwitchAttempts = 0;
-        var lastSignature = '';
-        var scheduled = false;
-
-        window.__mpNativeSheetInvoke = function(actionId) {
-          var target = document.querySelector('[data-mp-sheet-action-id="' + actionId + '"]');
-          if (target) { target.click(); }
-        };
-
-        window.__mpNativeSheetDismiss = function() {
-          var current = document.querySelector('[data-native-sheet-current="true"]');
-          if (!current) return;
-          var closeEl = current.querySelector('[data-native-dialog-close], .v-dialog-close-btn');
-          if (!closeEl) {
-            var btns = current.querySelectorAll('button, .v-btn');
-            for (var i = 0; i < btns.length; i++) {
-              if (isCloseButton(btns[i])) { closeEl = btns[i]; break; }
-            }
-          }
-          if (closeEl) { closeEl.click(); }
-        };
-
-        function syncNativeSheet() {
-          scheduled = false;
-          var dialogs = Array.prototype.slice.call(
-            document.querySelectorAll('.v-overlay--active.v-dialog')
-          );
-
-          var allOverlays = document.querySelectorAll('.v-overlay');
-          for (var k = 0; k < allOverlays.length; k++) {
-            allOverlays[k].removeAttribute('data-native-sheet-current');
-            allOverlays[k].removeAttribute('data-native-sheet-background');
-          }
-
-          if (dialogs.length === 0) {
-            if (hadActiveDialog) {
-              hadActiveDialog = false;
-              postSheetMessage({ type: 'sheet.closed' });
-            }
-            return;
-          }
-
-          dialogs.sort(function(a, b) {
-            var za = parseInt(getComputedStyle(a).zIndex || '0', 10) || 0;
-            var zb = parseInt(getComputedStyle(b).zIndex || '0', 10) || 0;
-            return za - zb;
-          });
-          var topDialog = dialogs[dialogs.length - 1];
-          for (var j = 0; j < dialogs.length - 1; j++) {
-            dialogs[j].setAttribute('data-native-sheet-background', 'true');
-          }
-          topDialog.setAttribute('data-native-sheet-current', 'true');
-          hadActiveDialog = true;
-
-          // 如果目标是配置弹窗而前端默认先打开了数据弹窗，则自动触发一次「设置/配置」按钮
-          if (wantsConfigSwitch && !switchedToConfig && configSwitchAttempts < 12) {
-            configSwitchAttempts++;
-            var allBtns = topDialog.querySelectorAll('button, .v-btn');
-            for (var bi = 0; bi < allBtns.length; bi++) {
-              var b = allBtns[bi];
-              var txt = (b.textContent || '').trim();
-              var ico = extractMdiIcon(b).toLowerCase();
-              if (ico === 'mdi-cog' || ico === 'mdi-cog-outline' || ico === 'mdi-tune' || txt === '设置' || txt === '配置') {
-                switchedToConfig = true;
-                b.click();
-                return;
-              }
-            }
-          }
-
-          var card = topDialog.querySelector('.v-overlay__content > .v-card, .v-overlay__content > .v-sheet') || topDialog;
-          var headerEl = card.querySelector('[data-native-sheet-header]')
-            || card.querySelector(':scope > .v-toolbar')
-            || card.querySelector(':scope > .v-card-item')
-            || card.querySelector(':scope > .v-card-title');
-
-          var titleText = '';
-          var actions = [];
-          if (headerEl) {
-            headerEl.setAttribute('data-native-sheet-header', 'true');
-            var headingEl = headerEl.querySelector('[data-native-sheet-heading], .v-toolbar-title, .v-card-title, h1, h2, h3, h4, span');
-            if (headingEl) {
-              var clone = headingEl.cloneNode(true);
-              var junk = clone.querySelectorAll('button, .v-btn, .v-icon, svg');
-              for (var ji = 0; ji < junk.length; ji++) junk[ji].remove();
-              titleText = (clone.textContent || '').replace(/\\s+/g, ' ').trim();
-            }
-            if (!titleText) {
-              var hClone = headerEl.cloneNode(true);
-              var hJunk = hClone.querySelectorAll('button, .v-btn, .v-icon, svg');
-              for (var hi = 0; hi < hJunk.length; hi++) hJunk[hi].remove();
-              titleText = (hClone.textContent || '').replace(/\\s+/g, ' ').trim();
-            }
-
-            var headerBtns = headerEl.querySelectorAll('button, .v-btn');
-            var actionIdx = 0;
-            for (var i = 0; i < headerBtns.length; i++) {
-              var btn = headerBtns[i];
-              if (btn.hidden || getComputedStyle(btn).display === 'none') continue;
-              if (isCloseButton(btn)) continue;
-              var actionId = 'mp_act_' + actionIdx++;
-              btn.setAttribute('data-mp-sheet-action-id', actionId);
-              var iconName = extractMdiIcon(btn);
-              var btnTitle = (btn.getAttribute('aria-label') || btn.getAttribute('title') || btn.textContent || '').replace(/\\s+/g, ' ').trim();
-              if (!btnTitle) {
-                if (iconName.indexOf('cog') >= 0 || iconName.indexOf('tune') >= 0) btnTitle = '设置';
-                else if (iconName.indexOf('refresh') >= 0 || iconName.indexOf('sync') >= 0) btnTitle = '刷新';
-                else if (iconName.indexOf('save') >= 0) btnTitle = '保存';
-                else btnTitle = '操作';
-              }
-              var disabled = btn.disabled || btn.getAttribute('aria-disabled') === 'true' || btn.classList.contains('v-btn--disabled');
-              actions.push({ id: actionId, title: btnTitle, icon: iconName, enabled: !disabled });
-            }
-          }
-
-          var signature = JSON.stringify({ title: titleText, actions: actions });
-          if (signature !== lastSignature) {
-            lastSignature = signature;
-            postSheetMessage({
-              type: 'sheet.state',
-              ready: true,
-              title: titleText,
-              actions: actions
-            });
-          }
-        }
-
-        function scheduleSync() {
-          if (scheduled) return;
-          scheduled = true;
-          requestAnimationFrame(syncNativeSheet);
-        }
-
-        var observer = new MutationObserver(scheduleSync);
-        function startObserver() {
-          if (document.body) {
-            observer.observe(document.body, {
-              childList: true,
-              subtree: true,
-              attributes: true,
-              attributeFilter: ['class', 'style', 'disabled', 'aria-disabled', 'hidden']
-            });
-            scheduleSync();
-          }
-        }
-        if (document.body) {
-          startObserver();
-        } else {
-          document.addEventListener('DOMContentLoaded', startObserver, { once: true });
-        }
-        // 安全兜底：即使插件未使用 .v-dialog 渲染，6 秒后也展示内容避免永久白屏
-        setTimeout(function() {
-          if (!hadActiveDialog) {
-            postSheetMessage({ type: 'sheet.state', ready: true, title: '', actions: [] });
-          }
-        }, 6000);
       })();
       """
   }
@@ -1749,91 +1781,684 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
     else { return "\"\"" }
     return String(json.dropFirst().dropLast())
   }
+}
 
-  /// 严格拦截跨域主文档导航（外链交由系统 Safari 打开，同源导航放行），并接收 Sheet 接管消息。
-  final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
-    let origin: ServerAddress
-    @Binding var isLoading: Bool
-    weak var sheetBridge: NativeVueSheetBridge?
+/// Vue 插件容器的前端原生容器协议宿主（`moviepilot.chrome` v1，与 V1 App 一致）：
+/// - `web.ready` → `host.configure`，随后以 `chrome.prepare` 提交布局，前端隐藏自身导航外壳；
+/// - 前端快照中的 `presentation.sheet` 是当前最上层插件弹窗：原生先 `presentation.attach` 让前端
+///   只显示该弹窗内容，再把标题与标题栏按钮注册到原生 Sheet 导航栏；
+/// - 按钮点击回传 `presentation.action`，确认框通过 `confirmation.respond` 交回原组件；
+/// - 协商失败或旧前端不支持时释放接管，直接展示网页内容，不留下空白页面。
+@MainActor
+final class NativeVuePluginChromeHost: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+  static let messageHandlerName = "mpVuePluginChrome"
 
-    init(
-      origin: ServerAddress,
-      isLoading: Binding<Bool>,
-      sheetBridge: NativeVueSheetBridge?
-    ) {
-      self.origin = origin
-      _isLoading = isLoading
-      self.sheetBridge = sheetBridge
-    }
-
-    func userContentController(
-      _ userContentController: WKUserContentController, didReceive message: WKScriptMessage
-    ) {
-      guard message.name == "mpVuePluginSheet",
-        let body = message.body as? [String: Any],
-        let type = body["type"] as? String
-      else { return }
-      DispatchQueue.main.async { [weak self] in
-        guard let bridge = self?.sheetBridge else { return }
-        if type == "sheet.closed" {
-          bridge.shouldDismiss = true
-          return
-        }
-        if type == "sheet.state" {
-          if let title = body["title"] as? String, !title.isEmpty {
-            bridge.title = title
+  /// 只声明本容器真实实现的能力：传输、业务弹窗接管与系统确认框。
+  static let transportScript = """
+    (function () {
+      'use strict';
+      if (window.top !== window || window.MoviePilotNative) return;
+      var handler = window.webkit && window.webkit.messageHandlers
+        && window.webkit.messageHandlers.\(messageHandlerName);
+      if (!handler) return;
+      Object.defineProperty(window, 'MoviePilotNative', {
+        value: Object.freeze({
+          transportVersion: 1,
+          sheetsVersion: 1,
+          confirmationsVersion: 1,
+          postMessage: function (message) { handler.postMessage(message); },
+          authenticationRequired: function () {
+            handler.postMessage({ kind: 'authentication.required' });
           }
-          if let rawActions = body["actions"] as? [[String: Any]] {
-            bridge.actions = rawActions.compactMap { dict in
-              guard let id = dict["id"] as? String, !id.isEmpty else { return nil }
-              let title = (dict["title"] as? String) ?? "操作"
-              let icon = dict["icon"] as? String
-              let enabled = (dict["enabled"] as? Bool) ?? true
-              return NativeVueSheetAction(id: id, title: title, icon: icon, enabled: enabled)
+        }),
+        configurable: false,
+        writable: false
+      });
+      function extractMdi(el) {
+        var iconEl = el.querySelector('[class*="mdi-"]')
+          || (el.className && String(el.className).indexOf('mdi-') >= 0 ? el : null);
+        if (iconEl) {
+          var m = String(iconEl.className || '').match(/mdi-[a-z0-9-]+/i);
+          if (m) return m[0].toLowerCase();
+        }
+        var vIcon = el.querySelector('.v-icon');
+        if (vIcon) {
+          var t = (vIcon.textContent || '').trim().toLowerCase();
+          if (t.indexOf('mdi-') === 0) return t;
+        }
+        return '';
+      }
+
+      function labelForIcon(icon) {
+        if (!icon) return '';
+        if (icon.indexOf('cog') >= 0 || icon.indexOf('tune') >= 0) return '设置';
+        if (icon.indexOf('refresh') >= 0 || icon.indexOf('sync') >= 0 || icon.indexOf('reload') >= 0) return '刷新';
+        if (icon.indexOf('save') >= 0 || icon === 'mdi-check') return '保存';
+        if (icon.indexOf('plus') >= 0 || icon.indexOf('add') >= 0) return '添加';
+        if (icon.indexOf('delete') >= 0 || icon.indexOf('trash') >= 0) return '删除';
+        if (icon.indexOf('history') >= 0 || icon.indexOf('clock') >= 0) return '历史';
+        if (icon.indexOf('undo') >= 0 || icon.indexOf('restore') >= 0) return '重置';
+        if (icon.indexOf('info') >= 0 || icon.indexOf('help') >= 0) return '详情';
+        return '';
+      }
+
+      // 联邦 Vue 插件自身的标题栏常使用纯图标按钮或未声明 data-native-dialog-close 的关闭按钮，
+      // 补齐无障碍语义属性后交给前端 NativeSheetAdapter 统一采集标题、动作与关闭能力。
+      function normalizeVueDialogHeaders() {
+        var dialogs = document.querySelectorAll('.v-overlay--active.v-dialog');
+        for (var d = 0; d < dialogs.length; d++) {
+          var root = dialogs[d];
+          var header = root.querySelector(
+            '[data-native-dialog-header], .v-card-item, .v-toolbar, :scope > .v-overlay__content > .v-card > .v-card-title'
+          );
+          if (!header || header.closest('[data-native-dialog-content]')) continue;
+          var hasClose = Boolean(root.querySelector('[data-native-dialog-close]'));
+          var buttons = header.querySelectorAll('button');
+          for (var i = 0; i < buttons.length; i++) {
+            var btn = buttons[i];
+            var icon = extractMdi(btn);
+            var rawText = (btn.textContent || '').replace(/mdi-[a-z0-9-]+/gi, '').trim();
+            var aria = (btn.getAttribute('aria-label') || '').trim();
+            if (!hasClose && (btn.classList.contains('v-dialog-close-btn')
+              || icon === 'mdi-close' || icon === 'mdi-close-circle' || icon === 'mdi-close-circle-outline'
+              || rawText === '关闭' || rawText === 'Close' || aria === '关闭' || aria === 'Close')) {
+              btn.setAttribute('data-native-dialog-close', '');
+              hasClose = true;
+              continue;
+            }
+            if (icon && !btn.hasAttribute('data-native-sheet-action') && !header.hasAttribute('data-native-sheet-actions')) {
+              btn.setAttribute('data-native-sheet-action', icon);
+            }
+            if (!aria && !btn.getAttribute('title') && !rawText) {
+              var fallback = labelForIcon(icon);
+              if (fallback) btn.setAttribute('aria-label', fallback);
             }
           }
-          if (body["ready"] as? Bool) == true {
-            bridge.isReady = true
-            self?.isLoading = false
+        }
+      }
+
+      function installHeaderObserver() {
+        if (!document.body) return;
+        normalizeVueDialogHeaders();
+        new MutationObserver(function (records) {
+          for (var i = 0; i < records.length; i++) {
+            if (records[i].type === 'childList') {
+              normalizeVueDialogHeaders();
+              break;
+            }
+          }
+        }).observe(document.body, { childList: true, subtree: true });
+      }
+      if (document.body) installHeaderObserver();
+      else document.addEventListener('DOMContentLoaded', installHeaderObserver, { once: true });
+
+      // 若目标插件被用户归入了插件文件夹，主列表默认不挂载其卡片；展开对应文件夹即可触发自动打开。
+      window.__mpNativeOpenPluginFolder = function (folderName) {
+        if (!folderName) return false;
+        var cards = document.querySelectorAll('.plugin-folder-card');
+        for (var i = 0; i < cards.length; i++) {
+          var card = cards[i];
+          var txt = (card.textContent || '').trim();
+          if (txt === folderName || txt.indexOf(folderName) >= 0) {
+            card.click();
+            return true;
           }
         }
-      }
-    }
+        return false;
+      };
 
-    func webView(
-      _ webView: WKWebView,
-      decidePolicyFor navigationAction: WKNavigationAction,
-      decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
-    ) {
-      guard let target = navigationAction.request.url else {
-        decisionHandler(.cancel)
+      // 配置入口：前端深链先打开详情弹窗时，点击其中的「设置/前往配置」按钮切换到配置弹窗。
+      window.__mpNativeSwitchToConfig = function () {
+        var dialogs = Array.prototype.slice.call(document.querySelectorAll('.v-overlay--active.v-dialog'));
+        if (!dialogs.length) return false;
+        dialogs.sort(function (a, b) {
+          return (parseInt(getComputedStyle(a).zIndex || '0', 10) || 0)
+            - (parseInt(getComputedStyle(b).zIndex || '0', 10) || 0);
+        });
+        var buttons = dialogs[dialogs.length - 1].querySelectorAll('button, .v-btn');
+        for (var i = 0; i < buttons.length; i++) {
+          var button = buttons[i];
+          var icon = extractMdi(button);
+          var text = (button.textContent || '').replace(/mdi-[a-z0-9-]+/gi, '').trim();
+          var label = (button.getAttribute('aria-label') || '').trim();
+          if (icon === 'mdi-cog' || icon === 'mdi-cog-outline' || icon === 'mdi-tune'
+            || text === '设置' || text === '配置' || text.indexOf('前往配置') >= 0 || text.indexOf('切换配置') >= 0
+            || label === '设置' || label === 'Settings' || label === '切换配置') {
+            button.click();
+            return true;
+          }
+        }
+        return false;
+      };
+    })();
+    """
+
+  private enum Phase { case waiting, configured, preparing, active, released }
+
+  let origin: ServerAddress
+  @Binding var isLoading: Bool
+  weak var sheetBridge: NativeVueSheetBridge?
+  private let switchesToConfig: Bool
+  private let containingFolder: String?
+  private weak var webView: WKWebView?
+  private var phase: Phase = .waiting
+  private var sessionId: String?
+  private var routeRevision = 0
+  private var stateRevision = 0
+  private var sequence = 0
+  private var layoutRevision = 0
+  private var lastLayoutSize: CGSize = .zero
+  private var latestSnapshot: [String: Any]?
+  private var currentSheetID: String?
+  private var currentSheetCanDismiss = false
+  private var closeRequested = false
+  private var attachedSheetID: String?
+  private var attachingSheetID: String?
+  private var attachAttempts: [String: Int] = [:]
+  private var hasPresentedSheet = false
+  private var folderOpenDone = false
+  private var folderOpenAttempts = 0
+  private var configSwitchDone = false
+  private var configSwitchAttempts = 0
+  private var confirmationID: String?
+  private var pendingCommands: [String: (Bool) -> Void] = [:]
+  private var dismissTask: Task<Void, Never>?
+  private var fallbackTask: Task<Void, Never>?
+  private var folderOpenTask: Task<Void, Never>?
+  private var configSwitchTask: Task<Void, Never>?
+
+  init(
+    origin: ServerAddress,
+    isLoading: Binding<Bool>,
+    sheetBridge: NativeVueSheetBridge?,
+    switchesToConfig: Bool,
+    containingFolder: String?
+  ) {
+    self.origin = origin
+    _isLoading = isLoading
+    self.sheetBridge = sheetBridge
+    self.switchesToConfig = switchesToConfig
+    self.containingFolder = containingFolder
+    super.init()
+  }
+
+  /// 绑定当前 WebView 文档；Sheet 栏的按钮命令只发往这一份文档。
+  func attach(_ webView: WKWebView) {
+    self.webView = webView
+    sheetBridge?.host = self
+  }
+
+  /// WebView 拆除时撤销全部计时与待确认命令，迟到的回包不再改变界面。
+  func stop() {
+    phase = .released
+    dismissTask?.cancel()
+    fallbackTask?.cancel()
+    folderOpenTask?.cancel()
+    configSwitchTask?.cancel()
+    pendingCommands.removeAll()
+    if sheetBridge?.host === self { sheetBridge?.host = nil }
+  }
+
+  /// 接管完成后容器尺寸变化（旋转、分屏）时同步布局，前端据此重算底部安全区。
+  func layoutChanged() {
+    guard phase == .active, let size = webView?.bounds.size, size.width > 0, size.height > 0,
+      size != lastLayoutSize
+    else { return }
+    send("host.layout", payload: layoutPayload())
+  }
+
+  /// 原生栏按钮：只作用于当前快照里的最上层弹窗，前端会再次核对弹窗与按钮是否仍有效。
+  func invokeSheetAction(_ actionID: String) {
+    guard phase == .active, let sheetID = currentSheetID else { return }
+    sendCommand("presentation.action", payload: ["id": sheetID, "actionId": actionID]) { _ in }
+  }
+
+  /// 原生关闭按钮：当前弹窗可关闭时交给前端点击其真实关闭按钮，嵌套弹窗关闭后回到下层弹窗；
+  /// 最上层已无弹窗或前端拒绝时由原生直接关闭整个 Sheet。返回 false 表示调用方应立即关闭。
+  func requestCloseCurrentSheet() -> Bool {
+    guard phase == .active, let sheetID = currentSheetID, currentSheetCanDismiss else {
+      return false
+    }
+    closeRequested = true
+    sendCommand("presentation.dismiss", payload: ["id": sheetID]) { [weak self] accepted in
+      guard let self, !accepted else { return }
+      self.sheetBridge?.shouldDismiss = true
+    }
+    // 前端迟迟未关闭（业务弹窗拦截关闭）时不让用户停在原地。
+    Task { @MainActor [weak self] in
+      try? await Task.sleep(nanoseconds: 1_200_000_000)
+      guard let self, self.closeRequested, self.currentSheetID == sheetID else { return }
+      self.sheetBridge?.shouldDismiss = true
+    }
+    return true
+  }
+
+  /// 原生确认框结果交回前端原确认组件。
+  func respondConfirmation(id: String, confirmed: Bool) {
+    guard phase == .active else { return }
+    sendCommand("confirmation.respond", payload: ["id": id, "confirmed": confirmed]) { _ in }
+  }
+
+  // MARK: - 消息接收
+
+  func userContentController(
+    _ userContentController: WKUserContentController, didReceive message: WKScriptMessage
+  ) {
+    guard message.name == Self.messageHandlerName, message.frameInfo.isMainFrame,
+      let webView, message.webView === webView,
+      let documentURL = webView.url, origin.contains(documentURL),
+      let body = message.body as? [String: Any]
+    else { return }
+    if body["kind"] as? String == "authentication.required" {
+      handleAuthenticationRequired()
+      return
+    }
+    guard body["protocol"] as? String == "moviepilot.chrome",
+      (body["major"] as? NSNumber)?.intValue == 1,
+      let type = body["type"] as? String,
+      let payload = body["payload"] as? [String: Any]
+    else { return }
+    if type != "web.ready" {
+      guard let sessionId, body["sessionId"] as? String == sessionId else { return }
+    }
+    if let route = (body["routeRevision"] as? NSNumber)?.intValue, route >= 0 {
+      routeRevision = route
+    }
+    if let state = (body["stateRevision"] as? NSNumber)?.intValue, state >= 0 {
+      stateRevision = state
+    }
+    handle(type: type, payload: payload)
+  }
+
+  /// 封闭分派表：未知消息直接忽略，不成为通用原生调用入口。
+  private func handle(type: String, payload: [String: Any]) {
+    switch type {
+    case "web.ready":
+      // 网页（重新）就绪：开启新的协商会话，旧会话的命令与弹窗标识全部作废。
+      let id = "ios-" + UUID().uuidString
+      sessionId = id
+      phase = .configured
+      resetPresentationState()
+      send(
+        "host.configure",
+        payload: [
+          "sessionId": id, "major": 1,
+          "capabilities": ["actions.v1", "layout.v1", "menu.v1", "navigation.v1"],
+        ])
+    case "navigation.state":
+      latestSnapshot = payload
+      if phase == .configured {
+        phase = .preparing
+        send("chrome.prepare", payload: layoutPayload())
+      } else if phase == .active {
+        apply(snapshot: payload)
+      }
+    case "chrome.accepted":
+      guard phase == .preparing else { return }
+      phase = .active
+      if let latestSnapshot { apply(snapshot: latestSnapshot) }
+    case "command.result":
+      guard let requestID = payload["requestId"] as? String,
+        let completion = pendingCommands.removeValue(forKey: requestID)
+      else { return }
+      completion((payload["accepted"] as? Bool) == true)
+    case "session.state":
+      // 网页身份或权限变化：轮换会话标识，旧命令全部失效后由前端重新发布快照。
+      guard phase == .active, let previous = sessionId else { return }
+      let next = "ios-" + UUID().uuidString
+      failPendingCommands()
+      send("host.rekey", payload: ["sessionId": next], sessionOverride: previous)
+      sessionId = next
+    case "chrome.failed":
+      releaseToWebContent()
+    default:
+      break
+    }
+  }
+
+  // MARK: - 弹窗接管
+
+  /// 读取前端快照中的当前最上层弹窗与确认框，驱动原生 Sheet 标题、按钮与生命周期。
+  private func apply(snapshot: [String: Any]) {
+    let presentation = snapshot["presentation"] as? [String: Any]
+    updateConfirmation(presentation?["confirmation"] as? [String: Any])
+    guard let sheet = presentation?["sheet"] as? [String: Any],
+      let sheetID = sheet["id"] as? String, !sheetID.isEmpty
+    else {
+      currentSheetID = nil
+      currentSheetCanDismiss = false
+      if closeRequested {
+        // 用户通过原生关闭按钮关闭了最后一层弹窗：立即关闭 Sheet，不再等待切换窗口。
+        sheetBridge?.shouldDismiss = true
+      } else if hasPresentedSheet {
+        scheduleDismiss()
+      } else if let folder = containingFolder, !folder.isEmpty, !folderOpenDone {
+        openContainingFolder(folder)
+      }
+      return
+    }
+    folderOpenTask?.cancel()
+    folderOpenDone = true
+    dismissTask?.cancel()
+    if sheetID != currentSheetID { closeRequested = false }
+    currentSheetID = sheetID
+    currentSheetCanDismiss = (sheet["canDismiss"] as? Bool) == true
+    let route = snapshot["route"] as? [String: Any]
+    updateSheetChrome(sheet, pageTitle: route?["title"] as? String)
+    if sheetID == attachedSheetID || sheetID == attachingSheetID { return }
+    if switchesToConfig && !configSwitchDone {
+      switchToConfig()
+      return
+    }
+    attachSheet(sheetID)
+  }
+
+  /// 标题与按钮完全采用前端声明（已过滤关闭按钮、不可表达的控件与超量按钮）；
+  /// 弹窗未声明标题时前端会回退为页面标题，此时保留插件名称而不显示「插件」等页面名。
+  private func updateSheetChrome(_ sheet: [String: Any], pageTitle: String?) {
+    guard let sheetBridge else { return }
+    if let title = sheet["title"] as? String, !title.isEmpty, title != "MoviePilot",
+      title != pageTitle
+    {
+      sheetBridge.title = title
+    }
+    let rawActions = sheet["actions"] as? [[String: Any]] ?? []
+    sheetBridge.actions = rawActions.compactMap { item in
+      guard let id = item["id"] as? String, !id.isEmpty,
+        let title = item["title"] as? String, !title.isEmpty
+      else { return nil }
+      return NativeVueSheetAction(
+        id: id, title: title, icon: item["icon"] as? String,
+        enabled: (item["enabled"] as? Bool) ?? true)
+    }
+  }
+
+  /// 请求前端只显示指定弹窗；前端在真正绘制后才确认，原生据此揭开 WebView，避免闪出底页。
+  private func attachSheet(_ sheetID: String) {
+    let attempts = (attachAttempts[sheetID] ?? 0) + 1
+    attachAttempts[sheetID] = attempts
+    guard attempts <= 5 else {
+      releaseToWebContent()
+      return
+    }
+    attachingSheetID = sheetID
+    sendCommand("presentation.attach", payload: ["id": sheetID]) { [weak self] accepted in
+      guard let self, self.attachingSheetID == sheetID else { return }
+      self.attachingSheetID = nil
+      guard accepted else { return }
+      self.attachedSheetID = sheetID
+      self.hasPresentedSheet = true
+      self.reveal()
+    }
+  }
+
+  /// 插件被归入插件文件夹时，主列表不挂载其卡片；待文件夹卡片渲染后自动点开一次以触发目标弹窗。
+  private func openContainingFolder(_ folderName: String) {
+    guard folderOpenTask == nil, let webView else { return }
+    folderOpenAttempts += 1
+    folderOpenTask = Task { @MainActor [weak self, weak webView] in
+      guard let webView else { return }
+      let opened: Bool
+      do {
+        let result = try await webView.callAsyncJavaScript(
+          "return window.__mpNativeOpenPluginFolder ? window.__mpNativeOpenPluginFolder(folder) : false;",
+          arguments: ["folder": folderName], in: nil, contentWorld: .page)
+        opened = (result as? Bool) == true
+      } catch {
+        opened = false
+      }
+      guard let self, !Task.isCancelled, self.phase == .active else { return }
+      if opened || self.folderOpenAttempts >= 16 {
+        self.folderOpenDone = true
+        self.folderOpenTask = nil
         return
       }
-      if origin.contains(target) || target.scheme == "about" || target.scheme == "blob" {
-        decisionHandler(.allow)
-      } else if navigationAction.navigationType == .linkActivated,
-        let scheme = target.scheme?.lowercased(), scheme == "http" || scheme == "https"
-      {
-        UIApplication.shared.open(target)
-        decisionHandler(.cancel)
-      } else {
-        decisionHandler(.cancel)
-      }
+      try? await Task.sleep(nanoseconds: 300_000_000)
+      self.folderOpenTask = nil
+      guard !Task.isCancelled, self.phase == .active else { return }
+      if let snapshot = self.latestSnapshot { self.apply(snapshot: snapshot) }
     }
+  }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-      if sheetBridge == nil {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-          self.isLoading = false
-        }
+  /// 配置入口：详情弹窗出现后点击其「设置」按钮切换到配置弹窗；联邦组件可能稍后加载，短暂重试。
+  private func switchToConfig() {
+    guard configSwitchTask == nil, let webView else { return }
+    configSwitchAttempts += 1
+    configSwitchTask = Task { @MainActor [weak self, weak webView] in
+      guard let webView else { return }
+      let switched: Bool
+      do {
+        let result = try await webView.callAsyncJavaScript(
+          "return window.__mpNativeSwitchToConfig ? window.__mpNativeSwitchToConfig() : false;",
+          arguments: [:], in: nil, contentWorld: .page)
+        switched = (result as? Bool) == true
+      } catch {
+        switched = false
       }
+      guard let self, !Task.isCancelled, self.phase == .active else { return }
+      if switched || self.configSwitchAttempts >= 12 {
+        self.configSwitchDone = true
+        self.configSwitchTask = nil
+        if !switched, let current = self.currentSheetID { self.attachSheet(current) }
+        return
+      }
+      try? await Task.sleep(nanoseconds: 250_000_000)
+      self.configSwitchTask = nil
+      guard !Task.isCancelled, self.phase == .active else { return }
+      if let snapshot = self.latestSnapshot { self.apply(snapshot: snapshot) }
     }
+  }
 
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-      DispatchQueue.main.async {
-        self.isLoading = false
-        self.sheetBridge?.isReady = true
+  /// 弹窗关闭后短暂等待：详情与配置互相切换时会先关闭旧弹窗再打开新弹窗。
+  private func scheduleDismiss() {
+    dismissTask?.cancel()
+    dismissTask = Task { @MainActor [weak self] in
+      try? await Task.sleep(nanoseconds: 1_500_000_000)
+      guard let self, !Task.isCancelled, self.currentSheetID == nil, self.hasPresentedSheet
+      else { return }
+      self.sheetBridge?.shouldDismiss = true
+    }
+  }
+
+  /// 确认框按标识去重，只在新出现时弹出原生 Alert。
+  private func updateConfirmation(_ raw: [String: Any]?) {
+    guard let raw, let id = raw["id"] as? String, !id.isEmpty else {
+      confirmationID = nil
+      if sheetBridge?.confirmation != nil { sheetBridge?.confirmation = nil }
+      return
+    }
+    guard id != confirmationID else { return }
+    confirmationID = id
+    sheetBridge?.confirmation = NativeVueSheetConfirmation(
+      id: id,
+      title: (raw["title"] as? String) ?? "MoviePilot",
+      message: (raw["message"] as? String) ?? "",
+      confirmText: (raw["confirmText"] as? String) ?? "确认",
+      cancelText: (raw["cancelText"] as? String) ?? "取消",
+      confirmEnabled: (raw["confirmEnabled"] as? Bool) ?? true,
+      cancelEnabled: (raw["cancelEnabled"] as? Bool) ?? true,
+      destructive: (raw["destructive"] as? Bool) ?? false)
+  }
+
+  // MARK: - 降级与可见性
+
+  private func reveal() {
+    fallbackTask?.cancel()
+    isLoading = false
+    sheetBridge?.isReady = true
+  }
+
+  /// 协商失败、超时或旧前端：释放接管恢复网页原弹窗，再展示内容，保证不会停在空白页。
+  private func releaseToWebContent() {
+    guard phase != .released else { return }
+    if sessionId != nil, phase == .active || phase == .preparing {
+      send("chrome.release", payload: [:])
+    }
+    phase = .released
+    failPendingCommands()
+    reveal()
+  }
+
+  private func handleAuthenticationRequired() {
+    fallbackTask?.cancel()
+    isLoading = false
+    sheetBridge?.failureMessage = "登录状态已失效，请重新登录 App 后再打开插件。"
+  }
+
+  private func resetPresentationState() {
+    latestSnapshot = nil
+    currentSheetID = nil
+    attachedSheetID = nil
+    attachingSheetID = nil
+    attachAttempts.removeAll()
+    folderOpenTask?.cancel()
+    folderOpenTask = nil
+    configSwitchTask?.cancel()
+    configSwitchTask = nil
+    failPendingCommands()
+  }
+
+  // MARK: - 消息发送
+
+  /// 需要前端确认的命令：重复 requestId 不会重放，超时视为拒绝。
+  private func sendCommand(
+    _ type: String, payload: [String: Any], completion: @escaping (Bool) -> Void
+  ) {
+    guard sessionId != nil else {
+      completion(false)
+      return
+    }
+    sequence += 1
+    let requestID = "ios-cmd-\(sequence)"
+    pendingCommands[requestID] = completion
+    send(type, payload: payload, requestID: requestID)
+    Task { @MainActor [weak self] in
+      try? await Task.sleep(nanoseconds: 5_000_000_000)
+      guard let self, let pending = self.pendingCommands.removeValue(forKey: requestID) else {
+        return
       }
+      pending(false)
+    }
+  }
+
+  private func failPendingCommands() {
+    let pending = pendingCommands.values
+    pendingCommands.removeAll()
+    for completion in pending { completion(false) }
+  }
+
+  /// 固定 JS 入口以参数传递完整消息，不把任何载荷拼接为可执行代码。
+  private func send(
+    _ type: String, payload: [String: Any], requestID: String? = nil,
+    sessionOverride: String? = nil
+  ) {
+    guard let webView else { return }
+    let resolvedRequestID: String
+    if let requestID {
+      resolvedRequestID = requestID
+    } else {
+      sequence += 1
+      resolvedRequestID = "ios-msg-\(sequence)"
+    }
+    var envelope: [String: Any] = [
+      "protocol": "moviepilot.chrome",
+      "major": 1,
+      "type": type,
+      "requestId": resolvedRequestID,
+      "payload": payload,
+    ]
+    if let id = sessionOverride ?? sessionId {
+      envelope["sessionId"] = id
+      envelope["routeRevision"] = routeRevision
+      envelope["stateRevision"] = stateRevision
+    }
+    webView.callAsyncJavaScript(
+      "window.dispatchEvent(new CustomEvent('moviepilot:native-message', { detail: message })); return true;",
+      arguments: ["message": envelope], in: nil, in: .page, completionHandler: nil)
+  }
+
+  /// 原生 point 量测：与 V1 `NativeWebSheetController` 一致，WebView 已对齐 Sheet 安全区（排除顶部导航栏与底部 Home Indicator），
+  /// `consumedByNativeFrame: true` 使网页弹窗填满安全区且底部操作栏不被遮挡。
+  private func layoutPayload() -> [String: Any] {
+    layoutRevision += 1
+    let size = webView?.bounds.size ?? .zero
+    lastLayoutSize = size
+    let width = size.width > 0 ? Double(size.width) : 390
+    let height = size.height > 0 ? Double(size.height) : 844
+    let zero: [String: Any] = ["top": 0, "left": 0, "bottom": 0, "right": 0]
+    return [
+      "layoutRevision": layoutRevision,
+      "viewportPoints": ["width": width, "height": height],
+      "contentInsets": zero,
+      "systemSafeArea": zero,
+      "chromeOcclusion": zero,
+      "keyboardOcclusion": 0,
+      "consumedByNativeFrame": true,
+    ]
+  }
+
+  // MARK: - 导航策略
+
+  /// 严格拦截跨域主文档导航：外链交由系统打开，同源导航放行。
+  func webView(
+    _ webView: WKWebView,
+    decidePolicyFor navigationAction: WKNavigationAction,
+    decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
+  ) {
+    guard let target = navigationAction.request.url else {
+      decisionHandler(.cancel)
+      return
+    }
+    if origin.contains(target) || target.scheme == "about" || target.scheme == "blob" {
+      decisionHandler(.allow)
+    } else if navigationAction.navigationType == .linkActivated,
+      let scheme = target.scheme?.lowercased(), scheme == "http" || scheme == "https"
+    {
+      UIApplication.shared.open(target)
+      decisionHandler(.cancel)
+    } else {
+      decisionHandler(.cancel)
+    }
+  }
+
+  func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    guard sheetBridge != nil else {
+      Task { @MainActor [weak self] in
+        try? await Task.sleep(nanoseconds: 350_000_000)
+        self?.isLoading = false
+      }
+      return
+    }
+    // 前端需完成登录态恢复与目录加载后才发起协商；长时间未接管时降级展示网页内容。
+    fallbackTask?.cancel()
+    fallbackTask = Task { @MainActor [weak self] in
+      try? await Task.sleep(nanoseconds: 15_000_000_000)
+      guard let self, !Task.isCancelled, self.sheetBridge?.isReady != true else { return }
+      self.releaseToWebContent()
+    }
+  }
+
+  func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+    reveal()
+  }
+
+  func webView(
+    _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
+    withError error: Error
+  ) {
+    // 策略拦截外链或主动取消产生的失败不代表插件页面不可用。
+    let nsError = error as NSError
+    if nsError.code == NSURLErrorCancelled
+      || (nsError.domain == "WebKitErrorDomain" && nsError.code == 102)
+    {
+      return
+    }
+    if sheetBridge != nil, sheetBridge?.isReady != true {
+      fallbackTask?.cancel()
+      isLoading = false
+      sheetBridge?.failureMessage = "无法连接插件页面，请检查服务器连接后重试。"
+    } else {
+      isLoading = false
     }
   }
 }
@@ -1855,6 +2480,12 @@ private struct NativePluginActionResponse: Decodable, Sendable {
   let message: String?
 }
 
+/// 插件表格单元格：纯文本或保留原节点的富内容（徽标、状态图标等）。
+struct NativePluginTableCell: Sendable {
+  let text: String
+  let node: NativePluginJSONNode?
+}
+
 /// 有界解码的插件 UI 节点。
 struct NativePluginJSONNode: Identifiable, Sendable {
   let id: String
@@ -1865,11 +2496,12 @@ struct NativePluginJSONNode: Identifiable, Sendable {
   let events: [String: JSONValue]
   let children: [NativePluginJSONNode]
 
-  /// 有界递归解析插件 JSON 数组（深度上限 24、节点总数上限 2000）。
+  /// 有界递归解析插件 JSON 数组（深度上限 32、节点总数上限 8000）。
+  /// 状态矩阵类页面（站点 × 日期）单页即可达数千节点，预算过小会静默截断后半部分内容。
   static func parseArray(_ raw: [JSONValue], depth: Int, budget: inout Int)
     -> [NativePluginJSONNode]
   {
-    guard depth < 24, budget > 0 else { return [] }
+    guard depth < 32, budget > 0 else { return [] }
     var output: [NativePluginJSONNode] = []
     for (idx, item) in raw.enumerated() {
       guard budget > 0, let obj = item.objectValue else { continue }
@@ -1905,8 +2537,41 @@ struct NativePluginJSONNode: Identifiable, Sendable {
 
   func doubleProp(_ key: String) -> Double? { props[key]?.numberValue }
 
-  /// 文本展示优先级：`text` -> 剥离 HTML 标签后的 `html` / `props.innerHTML`。
+  /// `VIcon` 的 `text` / `icon` 是 MDI 图标名，不是可读文字，不能混入标题、徽标或表格文本。
+  var isIcon: Bool {
+    let name = component.lowercased()
+    return name == "vicon" || name == "v-icon"
+  }
+
+  /// 图标名优先取 `icon` 属性，其次为节点文本（插件常用 `{'component': 'VIcon', 'text': 'mdi-xxx'}`）。
+  var iconName: String {
+    let raw = stringProp("icon") ?? (text.isEmpty ? displayTextIgnoringIcon : text)
+    return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  /// `class` 属性拆分后的小写样式名，用于识别卡片、网格等布局意图。
+  var classTokens: [String] {
+    (stringProp("class") ?? "").lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
+  }
+
+  /// 子树是否包含需要原生控件呈现的元素（徽标、图标、按钮、链接、图片），决定表格单元格的渲染方式。
+  var containsRichContent: Bool {
+    let name = component.lowercased()
+    if ["vchip", "vicon", "v-icon", "vbtn", "a", "vimg", "img", "vavatar", "vprogresslinear"]
+      .contains(name)
+    {
+      return true
+    }
+    return children.contains { $0.containsRichContent }
+  }
+
+  /// 文本展示优先级：`text` -> 剥离 HTML 标签后的 `html` / `props.innerHTML`；图标节点不产生文字。
   var displayText: String {
+    if isIcon { return "" }
+    return displayTextIgnoringIcon
+  }
+
+  private var displayTextIgnoringIcon: String {
     if !text.isEmpty { return text }
     if !html.isEmpty { return Self.stripHTML(html) }
     if let inner = props["innerHTML"]?.stringValue, !inner.isEmpty {
@@ -1915,8 +2580,9 @@ struct NativePluginJSONNode: Identifiable, Sendable {
     return ""
   }
 
-  /// 聚合当前节点及后代纯文本，用于标题、徽标和表格单元格展示。
+  /// 聚合当前节点及后代纯文本，用于标题、徽标和表格单元格展示（跳过样式、脚本与图标名）。
   var combinedText: String {
+    if isIcon { return "" }
     var parts: [String] = []
     let own = displayText
     if !own.isEmpty { parts.append(own) }
@@ -1938,8 +2604,9 @@ struct NativePluginJSONNode: Identifiable, Sendable {
     return NativePluginActionRequest(api: api, method: method, params: params)
   }
 
-  /// 从 `VTable` / `VDataTable` / `VDataTableVirtual` 提取表头与行数据。
-  func extractTable() -> (headers: [String], rows: [[String]]) {
+  /// 从 `VTable` / `VDataTable` / `VDataTableVirtual` 提取表头与行单元格；
+  /// HTML 表格保留单元格节点，便于徽标与状态图标按原生控件呈现。
+  func extractTableCells() -> (headers: [String], rows: [[NativePluginTableCell]]) {
     if let rawHeaders = props["headers"]?.arrayValue,
       let rawItems = props["items"]?.arrayValue
     {
@@ -1949,14 +2616,14 @@ struct NativePluginJSONNode: Identifiable, Sendable {
         let title = obj["title"]?.stringValue ?? obj["text"]?.stringValue ?? key
         return key.isEmpty ? nil : (title, key)
       }
-      let rows: [[String]] = rawItems.compactMap { row in
+      let rows: [[NativePluginTableCell]] = rawItems.compactMap { row in
         guard let obj = row.objectValue else { return nil }
-        return cols.map { Self.formatCell(obj[$0.key]) }
+        return cols.map { NativePluginTableCell(text: Self.formatCell(obj[$0.key]), node: nil) }
       }
       return (cols.map(\.title), rows)
     }
     var headers: [String] = []
-    var rows: [[String]] = []
+    var rows: [[NativePluginTableCell]] = []
     func walk(_ node: NativePluginJSONNode, inHead: Bool) {
       let name = node.component.lowercased()
       if name == "thead" {
@@ -1964,11 +2631,11 @@ struct NativePluginJSONNode: Identifiable, Sendable {
       } else if name == "tbody" {
         for c in node.children { walk(c, inHead: false) }
       } else if name == "tr" {
-        let cells = node.children.map(\.combinedText)
         if inHead || node.children.allSatisfy({ $0.component.lowercased() == "th" }) {
-          if headers.isEmpty { headers = cells }
-        } else if !cells.isEmpty {
-          rows.append(cells)
+          if headers.isEmpty { headers = node.children.map(\.combinedText) }
+        } else if !node.children.isEmpty {
+          rows.append(
+            node.children.map { NativePluginTableCell(text: $0.combinedText, node: $0) })
         }
       } else {
         for c in node.children { walk(c, inHead: inHead) }

@@ -399,6 +399,140 @@ struct NativeFormPlanTests {
   }
 
   /// 构造完整协议响应，只接受测试数据，不绕过实际解码器。
+  /// 站点自动签到官方表单（含 `VCronField`、多选站点与提示）整体可原生渲染且可保存，不需要兼容弹窗。
+  @Test func plansCompleteAutoSignInFormWithCronNatively() throws {
+    let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .appendingPathComponent("MoviePilotPluginUITests/Fixtures/autosignin-form.json")
+    let document = try PluginUIDecoder.decode(Data(contentsOf: fixture), surface: .form)
+    var draft = try PluginFormDraft(document: document)
+    // 已保存配置常见的空计划与站点 ID 列表也必须保持可保存。
+    try draft.setValue(.null, forExactField: "cron")
+    try draft.setValue(
+      .array([.number(try PluginJSONNumber("1")), .string("__all__")]),
+      forExactField: "sign_sites")
+    let plan = try NativeFormPlan(document: document, draft: draft)
+    #expect(plan.issues.isEmpty)
+    let controls = plan.groups.flatMap(\.elements).map(\.control)
+    #expect(
+      controls.contains { if case .cron(let field) = $0 { field.key == "cron" } else { false } })
+    #expect(controls.filter { if case .toggle = $0 { true } else { false } }.count == 5)
+    #expect(controls.filter { if case .select = $0 { true } else { false } }.count == 2)
+    #expect(controls.filter { if case .notice = $0 { true } else { false } }.count == 3)
+  }
+
+  /// 媒体服务器刷新表单在未保存过媒体服务器、延迟为数字时仍完整原生渲染。
+  @Test func plansMediaServerRefreshFormNatively() throws {
+    let nodes: [[String: Any]] = [
+      [
+        "component": "VForm",
+        "content": [
+          [
+            "component": "VRow",
+            "content": [
+              [
+                "component": "VCol", "props": ["cols": 12, "md": 6],
+                "content": [
+                  ["component": "VSwitch", "props": ["model": "enabled", "label": "启用插件"]]
+                ],
+              ]
+            ],
+          ],
+          [
+            "component": "VRow",
+            "content": [
+              [
+                "component": "VCol", "props": ["cols": 12],
+                "content": [
+                  [
+                    "component": "VSelect",
+                    "props": [
+                      "multiple": true, "chips": true, "clearable": true,
+                      "model": "mediaservers", "label": "媒体服务器",
+                      "items": [["title": "Emby", "value": "Emby"]],
+                    ],
+                  ]
+                ],
+              ]
+            ],
+          ],
+          [
+            "component": "VRow",
+            "content": [
+              [
+                "component": "VCol", "props": ["cols": 12],
+                "content": [
+                  [
+                    "component": "VTextField",
+                    "props": ["model": "delay", "label": "延迟时间（秒）", "placeholder": "0"],
+                  ]
+                ],
+              ]
+            ],
+          ],
+        ],
+      ]
+    ]
+    let document = try decode(nodes, model: ["enabled": false, "delay": 0])
+    let draft = try PluginFormDraft(document: document)
+    let plan = try NativeFormPlan(document: document, draft: draft)
+    #expect(plan.issues.isEmpty)
+    #expect(plan.groups.flatMap(\.elements).count == 3)
+  }
+
+  /// 支持插件常见的 Cron 快捷预设胶囊与选项 `vale` 拼写兼容，同时继续拦截任意函数脚本。
+  @Test func plansCronPresetChipsAndOptionValeFallbackWhileBlockingArbitraryScript() throws {
+    let nodes: [[String: Any]] = [
+      [
+        "component": "VForm",
+        "content": [
+          [
+            "component": "VCronField",
+            "props": ["model": "refresh_cron", "label": "刷新周期"],
+          ],
+          [
+            "component": "VChip",
+            "props": ["class": "mr-2", "onClick": "refresh_cron = '0 */2 * * *'"],
+            "text": "每 2 小时",
+          ],
+          [
+            "component": "VSelect",
+            "props": [
+              "multiple": true, "chips": true, "model": "update_types", "label": "更新类型",
+              "items": [["title": "后端", "vale": "后端"], ["title": "前端", "vale": "前端"]],
+            ],
+          ],
+        ],
+      ]
+    ]
+    let document = try decode(nodes, model: ["refresh_cron": "", "update_types": ["后端"]])
+    let draft = try PluginFormDraft(document: document)
+    let plan = try NativeFormPlan(document: document, draft: draft)
+    #expect(plan.issues.isEmpty)
+    let controls = plan.groups.flatMap(\.elements).map(\.control)
+    #expect(
+      controls.contains {
+        if case .presetChip(let text, _, let field, let val) = $0 {
+          text == "每 2 小时" && field == "refresh_cron" && val == .string("0 */2 * * *")
+        } else {
+          false
+        }
+      })
+
+    let unsafe = try decode(
+      [
+        [
+          "component": "VChip",
+          "props": ["onClick": "function() { window.location.reload() }"],
+          "text": "危险动作",
+        ]
+      ],
+      model: ["refresh_cron": ""])
+    let unsafePlan = try NativeFormPlan(
+      document: unsafe, draft: PluginFormDraft(document: unsafe))
+    #expect(unsafePlan.issues.contains { $0.code == .unsupported })
+  }
+
   private func decode(_ nodes: [[String: Any]], model: [String: Any]) throws -> PluginUIDocument {
     try PluginUIDecoder.decode(
       JSONSerialization.data(withJSONObject: [

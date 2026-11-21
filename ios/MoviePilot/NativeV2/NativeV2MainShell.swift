@@ -321,14 +321,15 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     return "magnifyingglass"
   }
 
-  /// 右侧独立圆形按钮角色：iOS 27+ 使用 `.prominent` 确保始终与主导航胶囊分离成独立圆形玻璃键，iOS 18-26 沿用 `.search`。
+  /// 右侧独立圆形按钮角色：Xcode 27+（Swift 6.4+ / iOS 27+）使用 `.prominent` 确保始终与主导航胶囊分离成独立圆形玻璃键，旧 SDK 与 iOS 18-26 沿用 `.search`。
   @available(iOS 18, *)
   private var trailingTabRole: TabRole {
-    if #available(iOS 27.0, *) {
-      return .prominent
-    } else {
-      return .search
-    }
+    #if compiler(>=6.4)
+      if #available(iOS 27.0, *) {
+        return .prominent
+      }
+    #endif
+    return .search
   }
 
   /// 原生 4+1 TabView：前 4 项为发现、探索、我的（仪表盘）、设置，第 +1 项为右侧动态主按钮/全局搜索。

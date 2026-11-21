@@ -141,6 +141,7 @@ struct NativePluginMarketPage: View {
       ) {
         if let formSelection {
           NativePluginFormView(plugin: formSelection.plugin, form: formSelection.form)
+            .id(formSelection.plugin.id)
         }
       }
       .navigationDestination(
@@ -149,7 +150,9 @@ struct NativePluginMarketPage: View {
       ) {
         if let plugin = dataPageSelection {
           NativePluginDataPageView(
-            session: session, pluginID: plugin.id, pluginName: plugin.displayName)
+            session: session, pluginID: plugin.id, pluginName: plugin.displayName
+          )
+          .id(plugin.id)
         }
       }
       .sheet(item: $vueSheetTarget) { target in
@@ -157,7 +160,8 @@ struct NativePluginMarketPage: View {
           session: session,
           pluginID: target.plugin.id,
           pluginName: target.plugin.displayName,
-          surface: target.surface
+          surface: target.surface,
+          pluginHasPage: target.plugin.hasPage
         )
       }
       .task(id: reloadToken) {
@@ -378,20 +382,24 @@ struct NativePluginMarketPage: View {
     .contextMenu {
       if plugin.hasPage {
         Button {
-          if plugin.isVuePlugin {
-            vueSheetTarget = VueSheetTarget(plugin: plugin, surface: .dataPage)
-          } else {
-            dataPageSelection = plugin
+          DispatchQueue.main.async {
+            if plugin.isVuePlugin {
+              vueSheetTarget = VueSheetTarget(plugin: plugin, surface: .dataPage)
+            } else {
+              dataPageSelection = plugin
+            }
           }
         } label: {
           Label("查看数据", systemImage: "doc.text.magnifyingglass")
         }
       }
       Button {
-        if plugin.isVuePlugin {
-          vueSheetTarget = VueSheetTarget(plugin: plugin, surface: .config)
-        } else {
-          openForm(for: plugin)
+        DispatchQueue.main.async {
+          if plugin.isVuePlugin {
+            vueSheetTarget = VueSheetTarget(plugin: plugin, surface: .config)
+          } else {
+            openForm(for: plugin)
+          }
         }
       } label: {
         Label("设置", systemImage: "slider.horizontal.3")

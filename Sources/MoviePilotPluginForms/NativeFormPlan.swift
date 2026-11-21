@@ -20,6 +20,8 @@ public enum NativeFormControl: Sendable {
   case link(label: String, url: URL)
   case button(label: String, api: String?, method: String?, color: String?, webOnly: Bool)
   case chip(text: String, color: String?)
+  /// 快捷预设胶囊（如 `VChip` 的 `onClick: "refresh_cron = '0 */1 * * *'"`），纯原生写入草稿字段，不执行脚本。
+  case presetChip(text: String, color: String?, field: String, value: PluginJSONValue)
   case table(headers: [String], rows: [[String]])
   case text(String)
   case divider
@@ -336,8 +338,19 @@ private struct NativeFormPlanBuilder {
       if visible {
         let label = Self.combinedPlainText(from: node)
         if !label.isEmpty {
-          current.append(
-            .init(id: node.pointer, control: .chip(text: label, color: props["color"]?.string)))
+          let rawClick = node.properties["onClick"]?.string ?? node.properties["onclick"]?.string
+          if let rawClick, let assignment = Self.parseSimpleFieldAssignment(rawClick, model: model)
+          {
+            current.append(
+              .init(
+                id: node.pointer,
+                control: .presetChip(
+                  text: label, color: props["color"]?.string,
+                  field: assignment.field, value: assignment.value)))
+          } else {
+            current.append(
+              .init(id: node.pointer, control: .chip(text: label, color: props["color"]?.string)))
+          }
         }
       }
     } else if Self.textNodes.contains(component) {
@@ -457,8 +470,13 @@ private struct NativeFormPlanBuilder {
         + key.replacingOccurrences(of: "~", with: "~0").replacingOccurrences(of: "/", with: "~1")
       if key.hasPrefix("on") {
         let lower = key.lowercased()
-        // 允许纯按键拦截（如阻止输入负号）；其它 JS 事件处理仍严格阻断保存。
+        // 允许纯按键拦截（如阻止输入负号）与 VChip 单字段常量预设赋值；其它 JS 事件处理仍严格阻断保存。
         if lower == "onkeydown", Self.inputs.contains(component) {
+          continue
+        }
+        if lower == "onclick", component == "VChip",
+          let script = raw.string, Self.parseSimpleFieldAssignment(script, model: model) != nil
+        {
           continue
         }
         if raw.string != nil { issue(.unsupported, pointer) }
@@ -868,8 +886,11 @@ private struct NativeFormPlanBuilder {
       let payload: PluginJSONValue
       if case .object = value {
         title = NativeFormExpression.text(value[exactKey: titleKey])
-        payload = value[exactKey: valueKey] ?? .null
-        if value[exactKey: valueKey] == nil {
+        let resolvedValue =
+          value[exactKey: valueKey]
+          ?? (valueKey == "value" ? value[exactKey: "vale"] : nil)
+        payload = resolvedValue ?? .null
+        if resolvedValue == nil {
           issue(.unsupported, pointer + "/props/items/" + String(index))
         }
       } else {
@@ -999,6 +1020,49 @@ private struct NativeFormPlanBuilder {
     let lower = token.lowercased()
     return lower == "d-none" || lower == "invisible" || lower == "v-hidden"
       || lower == "hidden" || lower.hasPrefix("d-") && lower.hasSuffix("-none")
+  }
+
+  /// 仅解析已知模型字段的纯字面量预设赋值（例如 `refresh_cron = '0 */1 * * *'`），拒绝任何函数调用或复合语句。
+  private static func parseSimpleFieldAssignment(
+    _ raw: String, model: [String: PluginJSONValue]
+  ) -> (field: String, value: PluginJSONValue)? {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.utf8.count <= 256, !trimmed.contains(";"), !trimmed.contains("\n") else {
+      return nil
+    }
+    guard let eqIndex = trimmed.firstIndex(of: "=") else { return nil }
+    let lhsRaw = trimmed[..<eqIndex]
+    let rhsRaw = trimmed[trimmed.index(after: eqIndex)...]
+    guard lhsRaw.last != "!", lhsRaw.last != "<", lhsRaw.last != ">", lhsRaw.last != "=",
+      rhsRaw.first != "="
+    else { return nil }
+    let field = lhsRaw.trimmingCharacters(in: .whitespaces)
+    guard !field.isEmpty,
+      let firstByte = field.utf8.first,
+      (65...90).contains(firstByte) || (97...122).contains(firstByte) || firstByte == 95,
+      field.utf8.allSatisfy({
+        (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || $0 == 95
+      }),
+      PluginJSONValue.object(model)[exactKey: field] != nil
+    else { return nil }
+
+    let rhs = rhsRaw.trimmingCharacters(in: .whitespaces)
+    guard !rhs.isEmpty else { return nil }
+    if (rhs.hasPrefix("'") && rhs.hasSuffix("'")) || (rhs.hasPrefix("\"") && rhs.hasSuffix("\"")),
+      rhs.count >= 2
+    {
+      let quote = rhs.first!
+      let inner = String(rhs.dropFirst().dropLast())
+      guard !inner.contains("\\"), !inner.contains(quote) else { return nil }
+      return (field, .string(inner))
+    }
+    if rhs == "true" { return (field, .bool(true)) }
+    if rhs == "false" { return (field, .bool(false)) }
+    if rhs == "null" { return (field, .null) }
+    if let number = try? PluginJSONNumber(rhs) {
+      return (field, .number(number))
+    }
+    return nil
   }
 
   /// 检查内联样式是否包含隐藏声明。

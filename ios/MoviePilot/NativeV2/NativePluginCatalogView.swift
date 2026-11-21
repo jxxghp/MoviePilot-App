@@ -148,7 +148,10 @@ struct NativePluginCatalogView: View {
     .navigationDestination(
       isPresented: Binding(get: { selection != nil }, set: { if !$0 { selection = nil } })
     ) {
-      if let selection { NativePluginFormView(plugin: selection.plugin, form: selection.form) }
+      if let selection {
+        NativePluginFormView(plugin: selection.plugin, form: selection.form)
+          .id(selection.plugin.id)
+      }
     }
     .task(id: reload) { await load() }
   }

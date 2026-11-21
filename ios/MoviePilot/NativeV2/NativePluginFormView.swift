@@ -83,6 +83,20 @@ struct NativePluginFormView: View {
                 }
               }
             }
+          } else if !busy && form.document == nil {
+            CinematicFormSection {
+              CinematicFormRow(symbol: "arrow.clockwise.circle") {
+                HStack(spacing: 16) {
+                  Button(L10n.text("重试")) { loadAgain() }.frame(minHeight: 44)
+                  Spacer()
+                  Button("兼容弹窗配置") {
+                    dismissAfterVueSheet = false
+                    showsVueSheet = true
+                  }
+                  .frame(minHeight: 44)
+                }
+              }
+            }
           }
           if let plan {
             if !plan.issues.isEmpty {
@@ -204,7 +218,8 @@ struct NativePluginFormView: View {
         session: form.activeSession,
         pluginID: plugin.id,
         pluginName: plugin.name,
-        surface: .config
+        surface: .config,
+        pluginHasPage: plugin.hasPage
       )
     }
     .onChange(of: form.document?.renderMode) { mode in
@@ -214,9 +229,11 @@ struct NativePluginFormView: View {
       }
     }
     .task { do { try await form.load() } catch {} }
-    .onDisappear {
-      saveTask?.cancel()
-      form.close()
+    .onAppear {
+      // 若导航转场或快捷菜单收起动画曾中断首次 .task，自动补拉一次避免留白。
+      if form.phase == .idle, form.document == nil, form.failure == nil {
+        loadAgain()
+      }
     }
   }
 
@@ -511,6 +528,23 @@ private struct NativePluginControlView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .background { Capsule().fill(tint.opacity(0.15)) }
+
+    case .presetChip(let text, let color, let field, let presetValue):
+      let isSelected = read(field) == presetValue
+      let tint = color.map { NativePluginJSONRenderer.tintColor($0) } ?? NativeTheme.brand
+      Button {
+        update(presetValue, field)
+      } label: {
+        Text(text)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(isSelected ? .white : tint)
+          .padding(.horizontal, 12)
+          .padding(.vertical, 6)
+          .background {
+            Capsule().fill(isSelected ? tint : tint.opacity(0.15))
+          }
+      }
+      .buttonStyle(.plain)
 
     case .table(let headers, let rows):
       ScrollView(.horizontal, showsIndicators: false) {

@@ -9,7 +9,7 @@ on:
         description: '需要同版本重建的现有 Release 标签'
         required: true
         type: string
-        default: v1.1.3
+        default: v2.0.0
       rebuild_existing:
         description: '确认更新该标签的源码、IPA 和校验文件'
         required: true
@@ -48,8 +48,8 @@ jobs:
             exit 1
           fi
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] &&
-             [[ "$GITHUB_REF" != refs/heads/main || "$REBUILD_EXISTING" != true ]]; then
-            echo 'Same-version rebuilds require main and explicit confirmation.' >&2
+             { [[ "$GITHUB_REF" != refs/heads/main && "$GITHUB_REF" != refs/heads/v2 ]] || [[ "$REBUILD_EXISTING" != true ]]; }; then
+            echo 'Same-version rebuilds require main or v2 and explicit confirmation.' >&2
             exit 1
           fi
           echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
@@ -85,9 +85,9 @@ jobs:
               exit 1
             fi
             current_tag_object=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq .object.sha)
-            current_main=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
-            if [[ "$current_tag_object" != "$OLD_TAG_OBJECT" || "$current_main" != "$GITHUB_SHA" ]]; then
-              echo 'The release tag or main changed during the build; rebuild the current source.' >&2
+            current_branch_head=$(gh api "repos/$GH_REPO/commits/${GITHUB_REF_NAME}" --jq .sha)
+            if [[ "$current_tag_object" != "$OLD_TAG_OBJECT" || "$current_branch_head" != "$GITHUB_SHA" ]]; then
+              echo 'The release tag or branch changed during the build; rebuild the current source.' >&2
               exit 1
             fi
             gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$RELEASE_TAG" \
