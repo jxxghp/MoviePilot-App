@@ -31,9 +31,8 @@ struct NativeWorkflowsPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && workflows.isEmpty {
-            ProgressView("正在载入工作流…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 220)
+            NativeCardListSkeletonView(count: 4, style: .workflowCard)
+              .transition(.opacity)
           } else if loadFailed && workflows.isEmpty {
             failureCard
           } else if workflows.isEmpty {
@@ -590,8 +589,8 @@ private struct NativeWorkflowCommunityPage: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 12) {
           if isLoading && shares.isEmpty {
-            ProgressView("正在载入社区工作流分享…").tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 180)
+            NativeCardListSkeletonView(count: 4, style: .workflowCard)
+              .transition(.opacity)
           } else if shares.isEmpty {
             CinematicPanel {
               Text("暂无社区工作流分享").font(.subheadline).foregroundStyle(.secondary)

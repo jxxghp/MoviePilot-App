@@ -26,11 +26,11 @@ struct NativePluginCatalogView: View {
       CinematicBackground()
       Form {
         if loading {
-          CinematicFormSection {
-            CinematicFormRow {
-              ProgressView()
-              Text(L10n.text("正在加载…"))
-            }
+          Section {
+            NativeCardListSkeletonView(count: 4, style: .pluginCard)
+              .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+              .listRowBackground(Color.clear)
+              .listRowSeparator(.hidden)
           }
         }
         if failed {

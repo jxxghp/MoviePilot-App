@@ -79,9 +79,9 @@ struct NativeExplorePage: View {
               filterControls
             }
             if isLoading && items.isEmpty {
-              ProgressView("正在探索片库…")
-                .tint(.primary)
-                .frame(maxWidth: .infinity, minHeight: 240)
+              NativePosterGridSkeletonView(columns: 3, count: 9)
+                .padding(.horizontal, CinematicStyle.margin)
+                .transition(.opacity)
             } else if loadFailed && items.isEmpty {
               failureCard
             } else if items.isEmpty {
@@ -160,7 +160,7 @@ struct NativeExplorePage: View {
   /// 紧凑三列海报网格（iPad 宽屏自动扩展至五列）。
   private var columns: [GridItem] {
     let count = horizontalSizeClass == .regular ? 5 : 3
-    return Array(repeating: GridItem(.flexible(), spacing: 11), count: count)
+    return Array(repeating: GridItem(.flexible(), spacing: 11, alignment: .top), count: count)
   }
 
   /// 横向带品牌 Logo 的一级来源小卡片导航：卡片形态、图标徽标与主题高亮边界，与下方紧凑筛选胶囊形成鲜明视觉层次区分。
@@ -885,31 +885,35 @@ private struct NativeExplorePosterTile: View {
         type: item.identity.type
       ) == true)
     return VStack(alignment: .center, spacing: 6) {
-      ZStack(alignment: .topTrailing) {
-        NativeMediaArtwork(
-          session: session, reference: item.posterReference, role: .poster, maximumWidth: 420
-        )
-        .aspectRatio(2.0 / 3.0, contentMode: .fill)
+      Color.clear
+        .aspectRatio(2.0 / 3.0, contentMode: .fit)
+        .overlay {
+          NativeMediaArtwork(
+            session: session, reference: item.posterReference, role: .poster, maximumWidth: 420
+          )
+        }
+        .clipped()
         .clipShape(.rect(cornerRadius: 13))
         .overlay {
           RoundedRectangle(cornerRadius: 13, style: .continuous)
             .strokeBorder(.primary.opacity(0.10), lineWidth: 0.5)
         }
-        if resolvedExists {
-          NativeMediaExistsBadge(size: 20)
-            .padding(6)
-        } else if let rating = item.ratingText {
-          Text(rating)
-            .font(.caption2.weight(.bold).monospacedDigit())
-            .foregroundStyle(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2.5)
-            .background {
-              Capsule().fill(.black.opacity(0.62))
-            }
-            .padding(6)
+        .overlay(alignment: .topTrailing) {
+          if resolvedExists {
+            NativeMediaExistsBadge(size: 20)
+              .padding(6)
+          } else if let rating = item.ratingText {
+            Text(rating)
+              .font(.caption2.weight(.bold).monospacedDigit())
+              .foregroundStyle(.white)
+              .padding(.horizontal, 6)
+              .padding(.vertical, 2.5)
+              .background {
+                Capsule().fill(.black.opacity(0.62))
+              }
+              .padding(6)
+          }
         }
-      }
       Text(item.title)
         .font(.footnote.weight(.medium))
         .foregroundStyle(.primary.opacity(0.95))
@@ -922,6 +926,7 @@ private struct NativeExplorePosterTile: View {
           .lineLimit(1)
       }
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .multilineTextAlignment(.center)
     .task(id: item.id) {
       if let cached = NativeMediaLibraryStatusStore.shared.cachedExists(

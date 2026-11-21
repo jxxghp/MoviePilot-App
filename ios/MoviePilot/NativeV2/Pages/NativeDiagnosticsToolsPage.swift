@@ -367,9 +367,8 @@ struct NativeDiagnosticsToolsPage: View {
       }
 
       if modules.isEmpty && isCheckingHealth {
-        ProgressView("正在读取模块清单…")
-          .tint(.primary)
-          .frame(maxWidth: .infinity, minHeight: 160)
+        NativeCardListSkeletonView(count: 5, style: .iconRow)
+          .transition(.opacity)
       } else if filteredHealthModules.isEmpty {
         emptyCard("当前筛选状态下暂无模块")
       } else {
@@ -448,9 +447,8 @@ struct NativeDiagnosticsToolsPage: View {
   private var nettestContent: some View {
     VStack(alignment: .leading, spacing: 10) {
       if isLoadingNet && netTargets.isEmpty {
-        ProgressView("正在加载测试节点…")
-          .tint(.primary)
-          .frame(maxWidth: .infinity, minHeight: 160)
+        NativeCardListSkeletonView(count: 5, style: .iconRow)
+          .transition(.opacity)
       } else if netTargets.isEmpty {
         emptyCard("暂无网络测试目标")
       } else {
@@ -866,9 +864,8 @@ struct NativeDiagnosticsToolsPage: View {
       }
 
       if isLoadingWords {
-        ProgressView("正在读取词表配置…")
-          .tint(.primary)
-          .frame(maxWidth: .infinity, minHeight: 160)
+        NativeCardListSkeletonView(count: 2, style: .formPanel)
+          .transition(.opacity)
       } else {
         switch wordsTab {
         case .identifiers:
@@ -1099,9 +1096,8 @@ struct NativeDiagnosticsToolsPage: View {
       }
 
       if isLoadingLog && logEntries.isEmpty {
-        ProgressView("正在载入实时日志…")
-          .tint(.primary)
-          .frame(maxWidth: .infinity, minHeight: 180)
+        NativeCardListSkeletonView(count: 5, style: .messageCard)
+          .transition(.opacity)
       } else if filteredLogEntries.isEmpty {
         emptyCard("暂无匹配的日志记录")
       } else {
@@ -1183,9 +1179,8 @@ struct NativeDiagnosticsToolsPage: View {
       }
 
       if isLoadingSchedules && schedules.isEmpty {
-        ProgressView("正在读取定时服务…")
-          .tint(.primary)
-          .frame(maxWidth: .infinity, minHeight: 160)
+        NativeCardListSkeletonView(count: 5, style: .iconRow)
+          .transition(.opacity)
       } else if filteredSchedules.isEmpty {
         emptyCard("暂无定时服务任务")
       } else {

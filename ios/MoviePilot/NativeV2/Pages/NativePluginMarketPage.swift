@@ -83,9 +83,8 @@ struct NativePluginMarketPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && installedPlugins.isEmpty {
-            ProgressView("正在载入已安装插件…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 220)
+            NativeCardListSkeletonView(count: 5, style: .pluginCard)
+              .transition(.opacity)
           } else if loadFailed && installedPlugins.isEmpty {
             failureCard
           } else if filteredItems.isEmpty {
@@ -780,9 +779,8 @@ private struct NativePluginStorePage: View {
             }
           }
           if isLoading && marketPlugins.isEmpty {
-            ProgressView("正在载入插件市场…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 220)
+            NativeCardListSkeletonView(count: 5, style: .pluginCard)
+              .transition(.opacity)
           } else if loadFailed && marketPlugins.isEmpty {
             CinematicPanel {
               VStack(alignment: .leading, spacing: 10) {
@@ -1957,9 +1955,8 @@ private struct NativePluginVersionHistorySheet: View {
             }
 
             if isLoading && mergedRows.isEmpty {
-              ProgressView("正在读取版本历史…")
-                .tint(.primary)
-                .frame(maxWidth: .infinity, minHeight: 180)
+              NativeCardListSkeletonView(count: 2, style: .formPanel)
+                .transition(.opacity)
             } else if mergedRows.isEmpty {
               CinematicPanel(padding: 16) {
                 Text("暂无版本更新历史记录")
@@ -2408,7 +2405,13 @@ private struct NativePluginLogSheet: View {
       ZStack {
         CinematicBackground()
         if isLoading && lines.isEmpty {
-          ProgressView("正在读取插件日志…").tint(.primary)
+          ScrollView {
+            NativeCardListSkeletonView(count: 5, style: .messageCard)
+              .padding(.horizontal, CinematicStyle.margin)
+              .padding(.vertical, 12)
+          }
+          .scrollIndicators(.hidden)
+          .transition(.opacity)
         } else if let errorMessage {
           CinematicPanel {
             VStack(spacing: 10) {
@@ -2506,7 +2509,8 @@ private struct NativePluginCapabilitiesSheet: View {
         ScrollView {
           VStack(alignment: .leading, spacing: 14) {
             if isLoading {
-              ProgressView("正在读取插件能力…").frame(maxWidth: .infinity, minHeight: 160)
+              NativeCardListSkeletonView(count: 2, style: .formPanel)
+                .transition(.opacity)
             } else if let cap = capabilities {
               capabilityCard(
                 title: "注册命令 (\(cap.commands.count))",
@@ -2597,7 +2601,8 @@ private struct NativePluginDataSummarySheet: View {
         ScrollView {
           VStack(alignment: .leading, spacing: 14) {
             if isLoading {
-              ProgressView("正在读取数据摘要…").frame(maxWidth: .infinity, minHeight: 160)
+              NativeCardListSkeletonView(count: 2, style: .formPanel)
+                .transition(.opacity)
             } else if let s = summary {
               CinematicPanel(padding: 13) {
                 HStack {

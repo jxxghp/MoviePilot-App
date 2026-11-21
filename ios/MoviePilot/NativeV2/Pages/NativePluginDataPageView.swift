@@ -88,9 +88,8 @@ struct NativePluginDataPageView: View {
               }
             }
             if isLoading && nodes.isEmpty {
-              ProgressView("正在载入插件页面…")
-                .tint(.primary)
-                .frame(maxWidth: .infinity, minHeight: 220)
+              NativeCardListSkeletonView(count: 3, style: .formPanel)
+                .transition(.opacity)
             } else if loadFailed && nodes.isEmpty {
               CinematicPanel {
                 VStack(alignment: .leading, spacing: 10) {
@@ -1413,26 +1412,24 @@ struct NativeVuePluginWebContainer: View {
         if let failure = sheetBridge?.failureMessage {
           failurePanel(failure)
         } else if showsLoader {
-          VStack(spacing: 10) {
-            ProgressView()
-              .controlSize(.regular)
-              .tint(NativeTheme.brand)
-            Text("正在加载 \(pluginName)…")
-              .font(.caption)
-              .foregroundStyle(.secondary)
+          ScrollView {
+            NativeCardListSkeletonView(count: 3, style: .formPanel)
+              .padding(.horizontal, CinematicStyle.margin)
+              .padding(.vertical, 16)
           }
-          .padding(.horizontal, 20)
-          .padding(.vertical, 16)
-          .background {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-              .fill(.ultraThinMaterial)
-          }
+          .scrollIndicators(.hidden)
+          .transition(.opacity)
         }
       } else if let loadError {
         failurePanel(loadError)
       } else {
-        ProgressView("正在准备插件环境…")
-          .tint(.primary)
+        ScrollView {
+          NativeCardListSkeletonView(count: 3, style: .formPanel)
+            .padding(.horizontal, CinematicStyle.margin)
+            .padding(.vertical, 16)
+        }
+        .scrollIndicators(.hidden)
+        .transition(.opacity)
       }
     }
     .task(

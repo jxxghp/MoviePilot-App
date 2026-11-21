@@ -49,9 +49,8 @@ struct NativeDownloadsPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && tasks.isEmpty {
-            ProgressView("正在读取下载队列…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 220)
+            NativeCardListSkeletonView(count: 4, style: .posterRow)
+              .transition(.opacity)
           } else if loadFailed && tasks.isEmpty {
             failureCard
           } else if displayedTasks.isEmpty {

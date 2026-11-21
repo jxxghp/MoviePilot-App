@@ -44,7 +44,14 @@ struct NativePluginFormView: View {
         }
       } else {
         Form {
-          if busy {
+          if form.phase == .loading && form.document == nil {
+            Section {
+              NativeCardListSkeletonView(count: 3, style: .formPanel)
+                .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
+          } else if busy {
             CinematicFormSection {
               CinematicFormRow {
                 ProgressView()

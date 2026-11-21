@@ -49,9 +49,8 @@ struct NativeTransferHistoryPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && records.isEmpty {
-            ProgressView("正在载入整理记录…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 220)
+            NativeCardListSkeletonView(count: 5, style: .posterRow)
+              .transition(.opacity)
           } else if loadFailed && records.isEmpty {
             failureCard
           } else if displayedRecords.isEmpty {
@@ -978,9 +977,8 @@ private struct NativeTransferQueueSheet: View {
               }
             }
             if isLoading && jobs.isEmpty {
-              ProgressView("正在读取整理队列…")
-                .tint(.primary)
-                .frame(maxWidth: .infinity, minHeight: 180)
+              NativeCardListSkeletonView(count: 4, style: .iconRow)
+                .transition(.opacity)
             } else if loadFailed && jobs.isEmpty {
               CinematicPanel {
                 VStack(spacing: 10) {

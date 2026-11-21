@@ -250,9 +250,8 @@ struct NativeWidgetSettingsSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
               }
             } else if isLoading && state == nil {
-              ProgressView("正在读取小组件状态…")
-                .tint(.primary)
-                .frame(maxWidth: .infinity, minHeight: 160)
+              NativeCardListSkeletonView(count: 2, style: .formPanel)
+                .transition(.opacity)
             } else if let state {
               CinematicPanel(padding: 16) {
                 VStack(alignment: .leading, spacing: 10) {

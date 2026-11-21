@@ -101,9 +101,10 @@ struct NativeWorkflowCanvasPage: View {
   @ViewBuilder
   private var mainContent: some View {
     if isLoading && detail == nil {
-      ProgressView("正在载入工作流画布…")
-        .tint(.primary)
+      NativeCardListSkeletonView(style: .workflowCanvas)
+        .padding(.horizontal, CinematicStyle.margin)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.opacity)
     } else if loadFailed && detail == nil {
       VStack {
         CinematicPanel {
