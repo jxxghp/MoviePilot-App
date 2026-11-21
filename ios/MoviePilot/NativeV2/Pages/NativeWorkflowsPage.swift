@@ -4,92 +4,47 @@ import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
 
-/// 原生工作流清单、社区分享复用与执行控制页：查看自动化工作流状态与调度，支持进入原生节点画布、手动运行、启用/停用、重置确认及社区复用。
+/// 原生工作流管理页（十.6）：默认直接显示我的工作流、去除页内过滤栏；右上角提供新增工作流与社区分享入口；长按支持编辑、删除、从头/继续运行、启停、分享与重置。
 @MainActor
 struct NativeWorkflowsPage: View {
-  /// 顶部模式切换。
-  enum Mode: String, CaseIterable, Identifiable {
-    case mine = "我的工作流"
-    case shares = "社区分享"
-
-    /// 稳定标识。
-    var id: String { rawValue }
-  }
-
   let session: NativeSession
 
-  @State private var mode: Mode = .mine
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
   @State private var workflows: [NativeWorkflowItem] = []
-  @State private var shares: [NativeWorkflowShareItem] = []
   @State private var isLoading = true
   @State private var loadFailed = false
   @State private var attempt = 0
   @State private var mutatingID: Int?
+  @State private var showsCreateSheet = false
+  @State private var editingWorkflow: NativeWorkflowItem?
+  @State private var showsCommunitySheet = false
   @State private var pendingReset: NativeWorkflowItem?
-  @State private var pendingFork: NativeWorkflowShareItem?
+  @State private var pendingDelete: NativeWorkflowItem?
   @State private var feedback: NativeWorkflowFeedback?
 
-  /// 统一深色紫玫瑰渐变背景、透色工作流卡片与原生工具栏刷新。
   var body: some View {
-    mainContent
-      .navigationTitle("工作流")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
-      .toolbar {
-        ToolbarItem(placement: .topBarTrailing) {
-          Button {
-            mode = mode == .mine ? .shares : .mine
-          } label: {
-            Image(systemName: mode == .mine ? "square.stack.3d.up" : "flowchart")
-          }
-          .accessibilityLabel(mode == .mine ? "浏览社区分享" : "返回我的工作流")
-          .accessibilityIdentifier("native-workflows-switch-mode")
-        }
-      }
-      .task(id: "\(mode.rawValue)|\(attempt)") { await load(forceRefresh: attempt > 0) }
-      .alert(
-        "重置工作流",
-        isPresented: Binding(
-          get: { pendingReset != nil },
-          set: { if !$0 { pendingReset = nil } }
-        ),
-        presenting: pendingReset
-      ) { workflow in
-        Button("确认重置", role: .destructive) {
-          Task { await performAction(workflow, action: "reset", label: "已重置工作流状态。") }
-        }
-        Button("取消", role: .cancel) {}
-      } message: { workflow in
-        Text("确认重置「\(workflow.name)」的执行状态与上下文吗？")
-      }
-      .alert(
-        "复用工作流",
-        isPresented: Binding(
-          get: { pendingFork != nil },
-          set: { if !$0 { pendingFork = nil } }
-        ),
-        presenting: pendingFork
-      ) { share in
-        Button("确认复用") {
-          Task { await forkShare(share) }
-        }
-        Button("取消", role: .cancel) {}
-      } message: { share in
-        Text("确认将社区分享「\(share.displayTitle)」复制到本地工作流吗？")
-      }
-  }
-
-  /// 主滚动区与模式切换条。
-  private var mainContent: some View {
     ZStack {
       CinematicBackground()
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
-          modeBar
           if let feedback {
             feedbackBanner(feedback)
           }
-          listSection
+          if isLoading && workflows.isEmpty {
+            ProgressView("正在载入工作流…")
+              .tint(.primary)
+              .frame(maxWidth: .infinity, minHeight: 220)
+          } else if loadFailed && workflows.isEmpty {
+            failureCard
+          } else if workflows.isEmpty {
+            emptyCard
+          } else {
+            LazyVStack(spacing: 12) {
+              ForEach(workflows) { workflow in
+                workflowCard(workflow)
+              }
+            }
+          }
         }
         .frame(maxWidth: 840)
         .padding(.horizontal, CinematicStyle.margin)
@@ -101,87 +56,82 @@ struct NativeWorkflowsPage: View {
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-workflows-scroll")
     }
-  }
-
-  /// 顶部模式切换胶囊。
-  private var modeBar: some View {
-    HStack(spacing: 8) {
-      ForEach(Mode.allCases) { option in
-        let active = mode == option
+    .navigationTitle("我的工作流")
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbarBackground(.hidden, for: .navigationBar)
+    .toolbar {
+      ToolbarItemGroup(placement: .topBarTrailing) {
         Button {
-          mode = option
+          showsCommunitySheet = true
         } label: {
-          Text(option.rawValue)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(active ? Color.white : NativeTheme.chipText)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background {
-              Capsule()
-                .fill(
-                  active
-                    ? Color(red: 0.58, green: 0.42, blue: 0.88).opacity(0.78)
-                    : NativeTheme.chipFill
-                )
-                .overlay {
-                  Capsule().strokeBorder(.primary.opacity(active ? 0.32 : 0.14), lineWidth: 0.7)
-                }
-            }
+          Image(systemName: "square.stack.3d.up")
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("native-workflow-mode-\(option.rawValue)")
+        .accessibilityLabel("社区分享")
+        .accessibilityIdentifier("native-workflows-switch-mode")
+
+        Button {
+          showsCreateSheet = true
+        } label: {
+          Image(systemName: "plus")
+        }
+        .accessibilityLabel("新增工作流")
+        .accessibilityIdentifier("native-workflows-add")
       }
-      Spacer(minLength: 0)
+    }
+    .task(id: attempt) { await load(forceRefresh: attempt > 0) }
+    .sheet(isPresented: $showsCreateSheet) {
+      NativeWorkflowEditorSheet(session: session, existing: nil) { msg in
+        feedback = NativeWorkflowFeedback(isError: false, message: msg)
+        NativePageDataCache.shared.remove("workflows|mine", session: session)
+        attempt += 1
+      }
+    }
+    .sheet(item: $editingWorkflow) { target in
+      NativeWorkflowEditorSheet(session: session, existing: target) { msg in
+        feedback = NativeWorkflowFeedback(isError: false, message: msg)
+        NativePageDataCache.shared.remove("workflows|mine", session: session)
+        attempt += 1
+      }
+    }
+    .sheet(isPresented: $showsCommunitySheet) {
+      NativeWorkflowCommunitySheet(session: session) { msg in
+        feedback = NativeWorkflowFeedback(isError: false, message: msg)
+        NativePageDataCache.shared.remove("workflows|mine", session: session)
+        attempt += 1
+      }
+    }
+    .alert(
+      "重置工作流",
+      isPresented: Binding(
+        get: { pendingReset != nil },
+        set: { if !$0 { pendingReset = nil } }
+      ),
+      presenting: pendingReset
+    ) { workflow in
+      Button("确认重置", role: .destructive) {
+        Task { await performAction(workflow, action: "reset", label: "已重置工作流状态。") }
+      }
+      Button("取消", role: .cancel) {}
+    } message: { workflow in
+      Text("确认重置「\(workflow.name)」的执行状态与上下文吗？")
+    }
+    .alert(
+      "删除工作流",
+      isPresented: Binding(
+        get: { pendingDelete != nil },
+        set: { if !$0 { pendingDelete = nil } }
+      ),
+      presenting: pendingDelete
+    ) { workflow in
+      Button("确认删除", role: .destructive) {
+        Task { await deleteWorkflow(workflow) }
+      }
+      Button("取消", role: .cancel) {}
+    } message: { workflow in
+      Text("确认删除工作流「\(workflow.name)」吗？删除后无法恢复。")
     }
   }
 
-  /// 按当前模式渲染本地工作流或社区分享列表。
-  @ViewBuilder
-  private var listSection: some View {
-    if mode == .mine {
-      if isLoading && workflows.isEmpty {
-        ProgressView("正在载入工作流…")
-          .tint(.primary)
-          .frame(maxWidth: .infinity, minHeight: 220)
-      } else if loadFailed && workflows.isEmpty {
-        failureCard
-      } else if workflows.isEmpty {
-        emptyCard
-      } else {
-        LazyVStack(spacing: 12) {
-          ForEach(workflows) { workflow in
-            workflowCard(workflow)
-          }
-        }
-      }
-    } else {
-      if isLoading && shares.isEmpty {
-        ProgressView("正在载入社区工作流分享…")
-          .tint(.primary)
-          .frame(maxWidth: .infinity, minHeight: 220)
-      } else if loadFailed && shares.isEmpty {
-        failureCard
-      } else if shares.isEmpty {
-        CinematicPanel {
-          VStack(spacing: 10) {
-            Image(systemName: "square.stack.3d.up")
-              .font(.largeTitle)
-              .foregroundStyle(.primary.opacity(0.55))
-            Text("暂无社区工作流分享").font(.headline)
-          }
-          .frame(maxWidth: .infinity, minHeight: 150)
-        }
-      } else {
-        LazyVStack(spacing: 12) {
-          ForEach(shares) { share in
-            shareCard(share)
-          }
-        }
-      }
-    }
-  }
-
-  /// 单条工作流玻璃卡片：名称、状态徽标、定时计划、执行次数与运行/启停/重置动作。
   private func workflowCard(_ workflow: NativeWorkflowItem) -> some View {
     let isMutating = mutatingID == workflow.id
     return CinematicPanel(padding: 14) {
@@ -196,7 +146,7 @@ struct NativeWorkflowsPage: View {
             {
               Text(desc)
                 .font(.caption)
-                .foregroundStyle(.primary.opacity(0.68))
+                .foregroundStyle(.secondary)
                 .lineLimit(2)
             }
           }
@@ -207,18 +157,18 @@ struct NativeWorkflowsPage: View {
           if let timer = workflow.timer, !timer.isEmpty {
             Label(timer, systemImage: "clock")
               .font(.caption.monospaced())
-              .foregroundStyle(.primary.opacity(0.76))
+              .foregroundStyle(.secondary)
           }
           Label("已运行 \(workflow.runCount ?? 0) 次", systemImage: "bolt.horizontal")
             .font(.caption)
-            .foregroundStyle(.primary.opacity(0.66))
+            .foregroundStyle(.secondary)
         }
         if let result = workflow.result?.trimmingCharacters(in: .whitespacesAndNewlines),
           !result.isEmpty
         {
           Text(result)
             .font(.caption)
-            .foregroundStyle(.primary.opacity(0.72))
+            .foregroundStyle(.secondary)
             .lineLimit(2)
         }
         HStack(spacing: 8) {
@@ -231,19 +181,16 @@ struct NativeWorkflowsPage: View {
               Text("画布").font(.caption.weight(.semibold))
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, 11)
+            .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background {
-              Capsule()
-                .fill(Color(red: 0.56, green: 0.40, blue: 0.86))
-            }
+            .background(appearance.accentColor, in: Capsule())
             .frame(minHeight: 34)
           }
           .buttonStyle(.plain)
           .accessibilityIdentifier("native-workflow-canvas-\(workflow.id)")
 
           Button {
-            Task { await performRun(workflow) }
+            Task { await performRun(workflow, fromBegin: true) }
           } label: {
             HStack(spacing: 5) {
               if isMutating {
@@ -254,12 +201,9 @@ struct NativeWorkflowsPage: View {
               Text("运行").font(.caption.weight(.semibold))
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, 11)
+            .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background {
-              Capsule()
-                .fill(Color(red: 0.45, green: 0.34, blue: 0.68))
-            }
+            .background(NativeTheme.info, in: Capsule())
             .frame(minHeight: 34)
           }
           .buttonStyle(.plain)
@@ -273,13 +217,13 @@ struct NativeWorkflowsPage: View {
           } label: {
             Text(workflow.isPaused ? "启用" : "停用")
               .font(.caption.weight(.semibold))
-              .foregroundStyle(.primary)
+              .foregroundStyle(NativeTheme.chipText)
               .padding(.horizontal, 12)
               .padding(.vertical, 6)
               .background {
                 Capsule()
-                  .fill(.primary.opacity(0.14))
-                  .overlay { Capsule().strokeBorder(.primary.opacity(0.20), lineWidth: 0.6) }
+                  .fill(NativeTheme.chipFill)
+                  .overlay { Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.6) }
               }
               .frame(minHeight: 34)
           }
@@ -293,9 +237,19 @@ struct NativeWorkflowsPage: View {
     }
     .contextMenu {
       Button {
-        Task { await performRun(workflow) }
+        editingWorkflow = workflow
       } label: {
-        Label("立即运行", systemImage: "play.fill")
+        Label("编辑工作流", systemImage: "pencil")
+      }
+      Button {
+        Task { await performRun(workflow, fromBegin: true) }
+      } label: {
+        Label("从头运行", systemImage: "play.fill")
+      }
+      Button {
+        Task { await performRun(workflow, fromBegin: false) }
+      } label: {
+        Label("继续运行", systemImage: "forward.end.fill")
       }
       Button {
         let nextAction = workflow.isPaused ? "start" : "pause"
@@ -306,114 +260,48 @@ struct NativeWorkflowsPage: View {
           workflow.isPaused ? "启用工作流" : "停用工作流",
           systemImage: workflow.isPaused ? "checkmark.circle" : "pause.circle")
       }
-      Button(role: .destructive) {
+      Button {
+        Task { await shareWorkflow(workflow) }
+      } label: {
+        Label("分享到社区", systemImage: "square.and.arrow.up")
+      }
+      Divider()
+      Button {
         pendingReset = workflow
       } label: {
         Label("重置状态", systemImage: "arrow.counterclockwise")
       }
-    }
-  }
-
-  /// 单条社区工作流分享玻璃卡片。
-  private func shareCard(_ share: NativeWorkflowShareItem) -> some View {
-    CinematicPanel(padding: 14) {
-      VStack(alignment: .leading, spacing: 8) {
-        HStack(alignment: .top, spacing: 8) {
-          VStack(alignment: .leading, spacing: 4) {
-            Text(share.displayTitle)
-              .font(.headline)
-              .foregroundStyle(.primary)
-            if let comment = share.displaySummary {
-              Text(comment)
-                .font(.caption)
-                .foregroundStyle(.primary.opacity(0.72))
-                .lineLimit(3)
-            }
-          }
-          Spacer(minLength: 4)
-          if share.count > 0 {
-            Label("\(share.count)", systemImage: "arrow.triangle.branch")
-              .font(.caption2.monospacedDigit().weight(.semibold))
-              .foregroundStyle(NativeTheme.brand)
-              .padding(.horizontal, 8)
-              .padding(.vertical, 3.5)
-              .background {
-                Capsule().fill(.primary.opacity(0.10))
-              }
-          }
-        }
-        HStack(spacing: 10) {
-          if let user = share.shareUser, !user.isEmpty {
-            Label(user, systemImage: "person.circle")
-              .font(.caption2)
-              .foregroundStyle(.primary.opacity(0.62))
-          }
-          if let timer = share.timer, !timer.isEmpty {
-            Label(timer, systemImage: "clock")
-              .font(.caption2.monospaced())
-              .foregroundStyle(.primary.opacity(0.62))
-          }
-          Spacer()
-          Button {
-            pendingFork = share
-          } label: {
-            Label("复用", systemImage: "square.and.arrow.down")
-              .font(.caption.weight(.semibold))
-              .foregroundStyle(.primary)
-              .padding(.horizontal, 12)
-              .padding(.vertical, 6)
-              .background {
-                Capsule()
-                  .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.76))
-                  .overlay { Capsule().strokeBorder(.primary.opacity(0.24), lineWidth: 0.6) }
-              }
-              .frame(minHeight: 34)
-          }
-          .buttonStyle(.plain)
-          .disabled(mutatingID != nil)
-          .accessibilityIdentifier("native-workflow-fork-\(share.id)")
-        }
+      Button(role: .destructive) {
+        pendingDelete = workflow
+      } label: {
+        Label("删除工作流", systemImage: "trash")
       }
     }
   }
 
-  /// 工作流状态胶囊。
   private func stateBadge(_ workflow: NativeWorkflowItem) -> some View {
-    let (text, tint): (String, Color) =
-      switch (workflow.state ?? "W").uppercased() {
-      case "R": ("运行中", Color(red: 0.52, green: 0.80, blue: 1.0))
-      case "S": ("已完成", NativeTheme.success)
-      case "F": ("失败", NativeTheme.danger)
-      case "P": ("已停用", NativeTheme.badgeMutedText)
-      default: ("待触发", Color(red: 0.82, green: 0.70, blue: 1.0))
-      }
-    return Text(text)
-      .font(.caption2.weight(.semibold))
-      .foregroundStyle(tint)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 3.5)
-      .background {
-        Capsule()
-          .fill(.primary.opacity(0.10))
-          .overlay { Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 0.6) }
-      }
+    switch (workflow.state ?? "W").uppercased() {
+    case "R": NativeAdaptiveBadge("运行中", tint: NativeTheme.info)
+    case "S": NativeAdaptiveBadge("已完成", tint: NativeTheme.success)
+    case "F": NativeAdaptiveBadge("失败", tint: NativeTheme.danger)
+    case "P": NativeAdaptiveBadge("已停用")
+    default: NativeAdaptiveBadge("待触发", tint: NativeTheme.brand)
+    }
   }
 
-  /// 操作反馈条。
   private func feedbackBanner(_ feedback: NativeWorkflowFeedback) -> some View {
     CinematicPanel(padding: 11) {
       HStack(spacing: 10) {
         Image(
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
-        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
-        Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
+        .foregroundStyle(feedback.isError ? NativeTheme.warning : NativeTheme.success)
+        Text(feedback.message).font(.subheadline).foregroundStyle(.primary)
         Spacer(minLength: 0)
         Button {
           self.feedback = nil
         } label: {
-          Image(systemName: "xmark").font(.caption.weight(.semibold))
-            .foregroundStyle(.primary.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
+          Image(systemName: "xmark").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
         }
         .buttonStyle(.plain)
       }
@@ -421,174 +309,407 @@ struct NativeWorkflowsPage: View {
     .accessibilityIdentifier("native-workflows-feedback")
   }
 
-  /// 空态卡片。
   private var emptyCard: some View {
     CinematicPanel {
       VStack(spacing: 10) {
-        Image(systemName: "flowchart")
-          .font(.largeTitle)
-          .foregroundStyle(.primary.opacity(0.55))
-        Text("暂无已配置的工作流").font(.headline)
+        Image(systemName: "flowchart").font(.largeTitle).foregroundStyle(.secondary)
+        Text("暂无已配置的工作流，点击右上角「+」新建").font(.subheadline).foregroundStyle(.secondary)
       }
       .frame(maxWidth: .infinity, minHeight: 150)
     }
   }
 
-  /// 失败回退卡片。
   private var failureCard: some View {
     CinematicPanel {
       VStack(alignment: .leading, spacing: 10) {
         Label("暂时无法载入工作流", systemImage: "exclamationmark.triangle").font(.headline)
-        Button("重试") { attempt += 1 }
-          .frame(minHeight: 44)
+        Button("重试") { attempt += 1 }.frame(minHeight: 44)
           .accessibilityIdentifier("native-workflows-retry")
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }
   }
 
-  /// 按模式读取本地工作流或社区分享列表；命中页面缓存时静默复用，下拉刷新强制重拉。
   private func load(forceRefresh: Bool = false) async {
-    let cacheKey = "workflows|\(mode.rawValue)"
-    if !forceRefresh {
-      if mode == .mine,
-        let cached: [NativeWorkflowItem] = NativePageDataCache.shared.get(
-          cacheKey, session: session)
-      {
-        workflows = cached
-        isLoading = false
-        loadFailed = false
-        return
-      }
-      if mode == .shares,
-        let cached: [NativeWorkflowShareItem] = NativePageDataCache.shared.get(
-          cacheKey, session: session)
-      {
-        shares = cached
-        isLoading = false
-        loadFailed = false
-        return
-      }
+    let cacheKey = "workflows|mine"
+    if !forceRefresh,
+      let cached: [NativeWorkflowItem] = NativePageDataCache.shared.get(cacheKey, session: session)
+    {
+      workflows = cached
+      isLoading = false
+      loadFailed = false
+      return
     }
-    let hasExisting = mode == .mine ? !workflows.isEmpty : !shares.isEmpty
-    if !hasExisting { isLoading = true }
+    if workflows.isEmpty { isLoading = true }
     loadFailed = false
     defer { isLoading = false }
     do {
-      if mode == .mine {
-        let endpoint = try APIEndpoint(path: ["workflow"], trailingSlash: true)
-        let loaded = try await session.request(endpoint, as: [NativeWorkflowItem].self).value
-        try Task.checkCancellation()
-        workflows = loaded
-        NativePageDataCache.shared.set(loaded, for: cacheKey, session: session)
-      } else {
-        let endpoint = try APIEndpoint(
-          path: ["workflow", "shares"],
-          query: [
-            URLQueryItem(name: "page", value: "1"),
-            URLQueryItem(name: "count", value: "30"),
-          ])
-        let loaded = try await session.request(endpoint, as: [NativeWorkflowShareItem].self).value
-        try Task.checkCancellation()
-        shares = loaded
-        NativePageDataCache.shared.set(loaded, for: cacheKey, session: session)
-      }
-    } catch is CancellationError {
-      return
-    } catch {
-      if !hasExisting { loadFailed = true }
-    }
-  }
-
-  /// 确认后单次复用社区分享工作流（`POST /api/v1/workflow/fork`）。
-  private func forkShare(_ share: NativeWorkflowShareItem) async {
-    mutatingID = share.id
-    defer { mutatingID = nil }
-    do {
-      let body = try JSONEncoder().encode(share)
-      let endpoint = try APIEndpoint(path: ["workflow", "fork"], method: .post, body: body)
-      try await session.perform(endpoint)
+      let endpoint = try APIEndpoint(path: ["workflow"], trailingSlash: true)
+      let loaded = try await session.request(
+        endpoint, as: [NativeWorkflowItem].self, requiring: .init(category: .manage)
+      ).value
       try Task.checkCancellation()
-      feedback = NativeWorkflowFeedback(
-        isError: false, message: "已复用社区工作流「\(share.displayTitle)」。")
+      workflows = loaded
+      NativePageDataCache.shared.set(loaded, for: cacheKey, session: session)
     } catch is CancellationError {
       return
     } catch {
-      feedback = NativeWorkflowFeedback(isError: true, message: "复用社区工作流失败，请稍后重试。")
+      if workflows.isEmpty { loadFailed = true }
     }
   }
 
-  /// 单次手动触发执行工作流（`POST /api/v1/workflow/{id}/run?from_begin=true`）。
-  private func performRun(_ workflow: NativeWorkflowItem) async {
+  private func performRun(_ workflow: NativeWorkflowItem, fromBegin: Bool) async {
     mutatingID = workflow.id
     defer { mutatingID = nil }
     do {
       let endpoint = try APIEndpoint(
         path: ["workflow", String(workflow.id), "run"],
         method: .post,
-        query: [URLQueryItem(name: "from_begin", value: "true")])
-      try await session.perform(endpoint)
-      try Task.checkCancellation()
-      feedback = NativeWorkflowFeedback(isError: false, message: "已触发工作流「\(workflow.name)」运行。")
+        query: [URLQueryItem(name: "from_begin", value: fromBegin ? "true" : "false")])
+      try await session.perform(endpoint, requiring: .init(category: .manage))
+      feedback = NativeWorkflowFeedback(
+        isError: false,
+        message: fromBegin ? "已触发从头运行「\(workflow.name)」。" : "已触发继续运行「\(workflow.name)」。")
       await load(forceRefresh: true)
-    } catch is CancellationError {
-      return
     } catch {
-      feedback = NativeWorkflowFeedback(isError: true, message: "触发工作流失败，请稍后重试。")
+      feedback = NativeWorkflowFeedback(isError: true, message: "触发运行失败，请稍后重试。")
     }
   }
 
-  /// 单次执行工作流启停或重置动作。
-  private func performAction(_ workflow: NativeWorkflowItem, action: String, label: String) async {
+  private func performAction(
+    _ workflow: NativeWorkflowItem, action: String, label: String
+  ) async {
     mutatingID = workflow.id
     defer { mutatingID = nil }
     do {
       let endpoint = try APIEndpoint(
         path: ["workflow", String(workflow.id), action], method: .post)
-      try await session.perform(endpoint)
-      try Task.checkCancellation()
+      try await session.perform(endpoint, requiring: .init(category: .manage))
       feedback = NativeWorkflowFeedback(isError: false, message: label)
       await load(forceRefresh: true)
-    } catch is CancellationError {
-      return
     } catch {
-      feedback = NativeWorkflowFeedback(isError: true, message: "工作流操作失败，请稍后重试。")
+      feedback = NativeWorkflowFeedback(isError: true, message: "更新工作流状态失败。")
+    }
+  }
+
+  private func deleteWorkflow(_ workflow: NativeWorkflowItem) async {
+    mutatingID = workflow.id
+    defer { mutatingID = nil }
+    do {
+      let endpoint = try APIEndpoint(path: ["workflow", String(workflow.id)], method: .delete)
+      try await session.perform(endpoint, requiring: .init(category: .manage))
+      workflows.removeAll { $0.id == workflow.id }
+      NativePageDataCache.shared.remove("workflows|mine", session: session)
+      feedback = NativeWorkflowFeedback(isError: false, message: "已删除工作流「\(workflow.name)」。")
+    } catch {
+      feedback = NativeWorkflowFeedback(isError: true, message: "删除工作流失败。")
+    }
+  }
+
+  private func shareWorkflow(_ workflow: NativeWorkflowItem) async {
+    mutatingID = workflow.id
+    defer { mutatingID = nil }
+    do {
+      let payload: [String: JSONValue] = [
+        "workflow_id": .number(Double(workflow.id)),
+        "share_title": .string(workflow.name),
+        "share_comment": .string(workflow.description ?? ""),
+      ]
+      let body = try JSONEncoder().encode(payload)
+      let ep = try APIEndpoint(path: ["workflow", "share"], method: .post, body: body)
+      try await session.perform(ep, requiring: .init(category: .manage))
+      feedback = NativeWorkflowFeedback(isError: false, message: "已分享工作流「\(workflow.name)」到社区。")
+    } catch {
+      feedback = NativeWorkflowFeedback(isError: true, message: "分享工作流失败，请稍后重试。")
     }
   }
 }
 
-/// 工作流提示载体。
+// MARK: - 工作流新增 / 编辑弹窗（保留已有 actions/flows）
+
+@MainActor
+private struct NativeWorkflowEditorSheet: View {
+  let session: NativeSession
+  let existing: NativeWorkflowItem?
+  let onSaved: (String) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @State private var name = ""
+  @State private var description = ""
+  @State private var triggerType = "timer"
+  @State private var timer = "0 */6 * * *"
+  @State private var eventType = ""
+  @State private var isSubmitting = false
+  @State private var errorMsg: String?
+
+  private var isCreate: Bool { existing == nil }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 16) {
+            if let errorMsg {
+              CinematicPanel(padding: 11) {
+                Label(errorMsg, systemImage: "exclamationmark.triangle.fill")
+                  .font(.caption).foregroundStyle(NativeTheme.danger)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+              }
+            }
+            CinematicPanel(padding: 0) {
+              VStack(spacing: 0) {
+                rowField("工作流名称", placeholder: "必填", text: $name)
+                CinematicFormDivider()
+                rowField("描述说明", placeholder: "可选", text: $description)
+                CinematicFormDivider()
+                HStack {
+                  Text("触发方式").font(.subheadline)
+                  Spacer()
+                  Picker("触发方式", selection: $triggerType) {
+                    Text("定时任务").tag("timer")
+                    Text("事件触发").tag("event")
+                    Text("手动触发").tag("manual")
+                  }
+                  .pickerStyle(.menu)
+                  .tint(appearance.accentColor)
+                }
+                .padding(.horizontal, 15).padding(.vertical, 10)
+                if triggerType == "timer" {
+                  CinematicFormDivider()
+                  rowField("Cron 周期", placeholder: "0 */6 * * *", text: $timer)
+                } else if triggerType == "event" {
+                  CinematicFormDivider()
+                  rowField("触发事件名", placeholder: "如 transfer.complete", text: $eventType)
+                }
+              }
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
+        }
+      }
+      .navigationTitle(isCreate ? "新增工作流" : "编辑工作流")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+        ToolbarItem(placement: .topBarTrailing) {
+          Button("保存") { Task { await submit() } }
+            .fontWeight(.semibold)
+            .disabled(isSubmitting || name.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+      }
+      .onAppear {
+        if let existing {
+          name = existing.name
+          description = existing.description ?? ""
+          triggerType =
+            existing.triggerType ?? (existing.timer?.isEmpty == false ? "timer" : "manual")
+          timer = existing.timer ?? "0 */6 * * *"
+          eventType = existing.eventType ?? ""
+        }
+      }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  private func rowField(_ label: String, placeholder: String, text: Binding<String>) -> some View {
+    HStack(spacing: 12) {
+      Text(label).font(.subheadline).frame(width: 86, alignment: .leading)
+      TextField(placeholder, text: text)
+        .font(.subheadline).multilineTextAlignment(.trailing)
+        .textInputAutocapitalization(.never).autocorrectionDisabled()
+    }
+    .padding(.horizontal, 15).padding(.vertical, 11)
+  }
+
+  private func submit() async {
+    isSubmitting = true
+    errorMsg = nil
+    defer { isSubmitting = false }
+    let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    var payload: [String: JSONValue] = [
+      "name": .string(trimmedName),
+      "description": .string(description.trimmingCharacters(in: .whitespacesAndNewlines)),
+      "trigger_type": .string(triggerType),
+    ]
+    if triggerType == "timer" {
+      payload["timer"] = .string(timer.trimmingCharacters(in: .whitespacesAndNewlines))
+    } else if triggerType == "event" {
+      payload["event_type"] = .string(eventType.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    if let existing {
+      payload["id"] = .number(Double(existing.id))
+      if let state = existing.state { payload["state"] = .string(state) }
+      if let actions = existing.actions { payload["actions"] = actions }
+      if let flows = existing.flows { payload["flows"] = flows }
+    }
+    do {
+      let body = try JSONEncoder().encode(payload)
+      let ep: APIEndpoint
+      if let existing {
+        ep = try APIEndpoint(path: ["workflow", String(existing.id)], method: .put, body: body)
+      } else {
+        ep = try APIEndpoint(path: ["workflow"], method: .post, body: body, trailingSlash: true)
+      }
+      try await session.perform(ep, requiring: .init(category: .manage))
+      onSaved(isCreate ? "已新增工作流「\(trimmedName)」。" : "已保存工作流「\(trimmedName)」。")
+      dismiss()
+    } catch {
+      errorMsg = "保存工作流失败，请检查名称或 Cron 表达式。"
+    }
+  }
+}
+
+// MARK: - 社区工作流分享弹层
+
+@MainActor
+private struct NativeWorkflowCommunitySheet: View {
+  let session: NativeSession
+  let onForked: (String) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @State private var shares: [NativeWorkflowShareItem] = []
+  @State private var isLoading = true
+  @State private var pendingFork: NativeWorkflowShareItem?
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 12) {
+            if isLoading && shares.isEmpty {
+              ProgressView("正在载入社区工作流分享…").tint(.primary)
+                .frame(maxWidth: .infinity, minHeight: 180)
+            } else if shares.isEmpty {
+              CinematicPanel {
+                Text("暂无社区工作流分享").font(.subheadline).foregroundStyle(.secondary)
+                  .frame(maxWidth: .infinity, minHeight: 120)
+              }
+            } else {
+              ForEach(shares) { share in
+                CinematicPanel(padding: 14) {
+                  VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top) {
+                      VStack(alignment: .leading, spacing: 4) {
+                        Text(share.displayTitle).font(.headline).foregroundStyle(.primary)
+                        if let comment = share.displaySummary {
+                          Text(comment).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                        }
+                      }
+                      Spacer()
+                      if share.count > 0 {
+                        NativeAdaptiveBadge("\(share.count) 复用", tint: NativeTheme.brand)
+                      }
+                    }
+                    HStack {
+                      if let user = share.shareUser, !user.isEmpty {
+                        Label(user, systemImage: "person.circle").font(.caption2).foregroundStyle(
+                          .secondary)
+                      }
+                      Spacer()
+                      Button {
+                        pendingFork = share
+                      } label: {
+                        Label("复用", systemImage: "square.and.arrow.down")
+                          .font(.caption.weight(.semibold))
+                          .foregroundStyle(.white)
+                          .padding(.horizontal, 12).padding(.vertical, 6)
+                          .background(appearance.accentColor, in: Capsule())
+                      }
+                      .buttonStyle(.plain)
+                    }
+                  }
+                }
+              }
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
+        }
+      }
+      .navigationTitle("社区分享")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) { Button("关闭") { dismiss() } }
+      }
+      .alert(
+        "复用工作流",
+        isPresented: Binding(
+          get: { pendingFork != nil }, set: { if !$0 { pendingFork = nil } }),
+        presenting: pendingFork
+      ) { share in
+        Button("确认复用") { Task { await forkShare(share) } }
+        Button("取消", role: .cancel) {}
+      } message: { share in
+        Text("确认将「\(share.displayTitle)」复制到我的工作流吗？")
+      }
+      .task { await loadShares() }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  private func loadShares() async {
+    isLoading = true
+    defer { isLoading = false }
+    do {
+      let ep = try APIEndpoint(
+        path: ["workflow", "shares"],
+        query: [URLQueryItem(name: "page", value: "1"), URLQueryItem(name: "count", value: "30")])
+      shares = try await session.request(
+        ep, as: [NativeWorkflowShareItem].self, requiring: .init(category: .manage)
+      ).value
+    } catch {
+      return
+    }
+  }
+
+  private func forkShare(_ share: NativeWorkflowShareItem) async {
+    do {
+      let body = try JSONEncoder().encode(share)
+      let ep = try APIEndpoint(path: ["workflow", "fork"], method: .post, body: body)
+      try await session.perform(ep, requiring: .init(category: .manage))
+      onForked("已复用社区工作流「\(share.displayTitle)」。")
+      dismiss()
+    } catch {
+      return
+    }
+  }
+}
+
+// MARK: - 模型
+
 private struct NativeWorkflowFeedback {
   let isError: Bool
   let message: String
 }
 
-/// `GET /api/v1/workflow/` 单条工作流投影。
 private struct NativeWorkflowItem: Decodable, Sendable, Identifiable {
   let id: Int
   let name: String
   let description: String?
   let timer: String?
+  let triggerType: String?
+  let eventType: String?
   let state: String?
   let runCount: Int?
   let result: String?
+  let actions: JSONValue?
+  let flows: JSONValue?
 
-  /// `P` 表示当前已停用。
   var isPaused: Bool { (state ?? "").uppercased() == "P" }
 
-  /// 对应 `_SchemaWorkflow` 字段。
   private enum CodingKeys: String, CodingKey {
-    case id
-    case name
-    case description
-    case timer
-    case state
+    case id, name, description, timer, state, result, actions, flows
+    case triggerType = "trigger_type"
+    case eventType = "event_type"
     case runCount = "run_count"
-    case result
   }
 }
 
-/// `GET /api/v1/workflow/shares` 社区分享工作流模型。
 private struct NativeWorkflowShareItem: Codable, Sendable, Identifiable {
   let id: Int
   let shareTitle: String?
@@ -598,27 +719,34 @@ private struct NativeWorkflowShareItem: Codable, Sendable, Identifiable {
   let description: String?
   let timer: String?
   let triggerType: String?
-  let eventType: String?
-  let eventConditions: String?
-  let actions: String?
-  let flows: String?
+  let actions: JSONValue?
+  let flows: JSONValue?
+  let context: JSONValue?
   let count: Int
 
   var displayTitle: String {
     if let shareTitle, !shareTitle.isEmpty { return shareTitle }
     if let name, !name.isEmpty { return name }
-    return "工作流 #\(id)"
+    return "工作流分享 #\(id)"
   }
 
   var displaySummary: String? {
-    let raw = (shareComment?.isEmpty == false ? shareComment : description)?
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-    return raw?.isEmpty == false ? raw : nil
+    if let shareComment, !shareComment.isEmpty { return shareComment }
+    if let description, !description.isEmpty { return description }
+    return nil
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id, name, description, timer, actions, flows, context, count
+    case shareTitle = "share_title"
+    case shareComment = "share_comment"
+    case shareUser = "share_user"
+    case triggerType = "trigger_type"
   }
 
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
-    id = (try? c.decodeIfPresent(Int.self, forKey: .id)) ?? 0
+    id = (try? c.decode(Int.self, forKey: .id)) ?? 0
     shareTitle = try? c.decodeIfPresent(String.self, forKey: .shareTitle)
     shareComment = try? c.decodeIfPresent(String.self, forKey: .shareComment)
     shareUser = try? c.decodeIfPresent(String.self, forKey: .shareUser)
@@ -626,20 +754,9 @@ private struct NativeWorkflowShareItem: Codable, Sendable, Identifiable {
     description = try? c.decodeIfPresent(String.self, forKey: .description)
     timer = try? c.decodeIfPresent(String.self, forKey: .timer)
     triggerType = try? c.decodeIfPresent(String.self, forKey: .triggerType)
-    eventType = try? c.decodeIfPresent(String.self, forKey: .eventType)
-    eventConditions = try? c.decodeIfPresent(String.self, forKey: .eventConditions)
-    actions = try? c.decodeIfPresent(String.self, forKey: .actions)
-    flows = try? c.decodeIfPresent(String.self, forKey: .flows)
+    actions = try? c.decodeIfPresent(JSONValue.self, forKey: .actions)
+    flows = try? c.decodeIfPresent(JSONValue.self, forKey: .flows)
+    context = try? c.decodeIfPresent(JSONValue.self, forKey: .context)
     count = (try? c.decodeIfPresent(Int.self, forKey: .count)) ?? 0
-  }
-
-  private enum CodingKeys: String, CodingKey {
-    case id, name, description, timer, actions, flows, count
-    case shareTitle = "share_title"
-    case shareComment = "share_comment"
-    case shareUser = "share_user"
-    case triggerType = "trigger_type"
-    case eventType = "event_type"
-    case eventConditions = "event_conditions"
   }
 }

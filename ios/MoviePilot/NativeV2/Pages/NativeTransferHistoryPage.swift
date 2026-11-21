@@ -3,8 +3,9 @@ import MoviePilotAPI
 import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
+import UIKit
 
-/// 原生整理历史页：分页查询整理记录、按状态/片名筛选、查看源/目标路径与失败原因、确认删除记录。
+/// 原生整理历史页：分页查询整理记录、Web 风格源→目标紧凑路径卡片、长按重新整理与四选一安全删除弹窗。
 @MainActor
 struct NativeTransferHistoryPage: View {
   /// 整理记录状态筛选。
@@ -13,13 +14,13 @@ struct NativeTransferHistoryPage: View {
     case success = "成功"
     case failed = "失败"
 
-    /// 固定中文标签作为标识。
     var id: String { rawValue }
   }
 
   let session: NativeSession
 
   @State private var records: [NativeTransferRecord] = []
+  @State private var storageNames: [String: String] = [:]
   @State private var total = 0
   @State private var nextPage = 1
   @State private var hasMore = false
@@ -32,10 +33,11 @@ struct NativeTransferHistoryPage: View {
   @State private var loadFailed = false
   @State private var attempt = 0
   @State private var pendingDelete: NativeTransferRecord?
+  @State private var pendingReorganize: NativeTransferRecord?
+  @State private var isDeleting = false
   @State private var showsQueueSheet = false
   @State private var feedback: NativeHistoryFeedback?
 
-  /// 连续紫玫瑰渐变背景、顶部可见搜索框、状态筛选胶囊、带海报的透色记录卡与自动翻页。
   var body: some View {
     ZStack {
       CinematicBackground()
@@ -137,25 +139,36 @@ struct NativeTransferHistoryPage: View {
     .sheet(isPresented: $showsQueueSheet) {
       NativeTransferQueueSheet(session: session, canManage: canManage)
     }
-    .task(id: attempt) { await reload(forceRefresh: attempt > 0) }
-    .alert(
-      "删除整理记录",
-      isPresented: Binding(
-        get: { pendingDelete != nil },
-        set: { if !$0 { pendingDelete = nil } }
-      ),
-      presenting: pendingDelete
-    ) { record in
-      Button("仅删除记录", role: .destructive) {
-        Task { await deleteRecord(record) }
+    .sheet(item: $pendingReorganize) { record in
+      NativeManualTransferSheet(
+        session: session,
+        historyLogID: record.id,
+        sourceHint: record.src,
+        titleHint: record.displayTitle,
+        defaultTargetStorage: record.destStorage ?? record.srcStorage,
+        defaultMediaType: record.type,
+        defaultMediaSource: record.mediaSource,
+        defaultMediaID: record.mediaID
+      ) { message in
+        feedback = NativeHistoryFeedback(isError: false, message: message)
+        Task { await reload(forceRefresh: true) }
       }
-      Button("取消", role: .cancel) {}
-    } message: { record in
-      Text("确认删除「\(record.displayTitle)」的整理记录吗？（不会删除磁盘上的源文件和媒体库文件）")
     }
+    .sheet(item: $pendingDelete) { record in
+      NativeTransferDeleteSheet(
+        record: record,
+        isDeleting: isDeleting
+      ) { deleteSrc, deleteDest in
+        Task { await deleteRecord(record, deleteSrc: deleteSrc, deleteDest: deleteDest) }
+      }
+      .presentationDetents([.height(340), .medium])
+      .presentationDragIndicator(.visible)
+    }
+    .task { await loadStorageNames() }
+    .task(id: attempt) { await reload(forceRefresh: attempt > 0) }
   }
 
-  /// 当前用户具备管理权限时允许删除整理记录。
+  /// 当前用户具备管理权限时允许重新整理与删除记录。
   private var canManage: Bool {
     session.user.isSuperuser || session.user.allows(.init(category: .manage))
   }
@@ -184,7 +197,7 @@ struct NativeTransferHistoryPage: View {
     HStack(spacing: 8) {
       Image(systemName: "magnifyingglass")
         .font(.subheadline.weight(.medium))
-        .foregroundStyle(.primary.opacity(0.62))
+        .foregroundStyle(.secondary)
       TextField("搜索片名或路径", text: $searchText)
         .textFieldStyle(.plain)
         .font(.subheadline)
@@ -199,7 +212,7 @@ struct NativeTransferHistoryPage: View {
         } label: {
           Image(systemName: "xmark.circle.fill")
             .font(.subheadline)
-            .foregroundStyle(.primary.opacity(0.55))
+            .foregroundStyle(.secondary)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("清空搜索")
@@ -209,10 +222,10 @@ struct NativeTransferHistoryPage: View {
     .padding(.vertical, 10)
     .background {
       RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .fill(.primary.opacity(0.09))
+        .fill(NativeTheme.chipFill)
         .overlay {
           RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .strokeBorder(.primary.opacity(0.16), lineWidth: 0.7)
+            .strokeBorder(NativeTheme.chipBorder, lineWidth: 0.7)
         }
     }
   }
@@ -227,14 +240,16 @@ struct NativeTransferHistoryPage: View {
         } label: {
           Text(option.rawValue)
             .font(.subheadline.weight(selected ? .semibold : .regular))
-            .foregroundStyle(.primary.opacity(selected ? 0.98 : 0.78))
+            .foregroundStyle(selected ? NativeTheme.brand : .secondary)
             .padding(.horizontal, 13)
             .padding(.vertical, 7)
             .background {
               Capsule()
                 .fill(selected ? NativeTheme.brand.opacity(0.18) : NativeTheme.chipFill)
                 .overlay {
-                  Capsule().strokeBorder(.primary.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
+                  Capsule().strokeBorder(
+                    selected ? NativeTheme.brand.opacity(0.42) : NativeTheme.chipBorder,
+                    lineWidth: 0.6)
                 }
             }
             .frame(minHeight: 36)
@@ -246,29 +261,29 @@ struct NativeTransferHistoryPage: View {
     }
   }
 
-  /// 单条整理记录玻璃卡片：海报、状态徽标、整理方式/时间、可展开路径详情与安全删除按钮。
+  /// 单条整理记录玻璃卡片：海报、状态徽标、方式/体积/时间、Web 风格链式路径视图与完整长按菜单。
   private func recordCard(_ record: NativeTransferRecord) -> some View {
     let poster = NativeMediaDetailPage.resolveArtwork(
       record.image, source: record.mediaSource ?? "themoviedb")
     let expanded = expandedIDs.contains(record.id)
     return CinematicPanel(padding: 12) {
       VStack(alignment: .leading, spacing: 10) {
-        HStack(alignment: .top, spacing: 12) {
-          NativeMediaArtwork(session: session, reference: poster, role: .poster, maximumWidth: 420)
-            .frame(width: 56, height: 84)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        HStack(alignment: .top, spacing: 11) {
+          NativeMediaArtwork(session: session, reference: poster, role: .poster, maximumWidth: 360)
+            .frame(width: 50, height: 74)
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             .overlay {
-              RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
+              RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(NativeTheme.chipBorder, lineWidth: 0.5)
             }
-          VStack(alignment: .leading, spacing: 5) {
+          VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 6) {
               if let identity = record.detailIdentity {
                 NavigationLink {
                   NativeMediaDetailPage(session: session, identity: identity)
                 } label: {
                   Text(record.displayTitle)
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -276,70 +291,72 @@ struct NativeTransferHistoryPage: View {
                 .buttonStyle(.plain)
               } else {
                 Text(record.displayTitle)
-                  .font(.headline)
+                  .font(.subheadline.weight(.semibold))
                   .foregroundStyle(.primary)
                   .lineLimit(2)
               }
               Spacer(minLength: 4)
               statusBadge(record.status == true)
             }
-            HStack(spacing: 8) {
+
+            HStack(spacing: 6) {
               if let mode = record.modeLabel {
                 Text(mode)
                   .font(.caption2.weight(.semibold))
-                  .foregroundStyle(.primary.opacity(0.82))
+                  .foregroundStyle(NativeTheme.brand)
                   .padding(.horizontal, 7)
-                  .padding(.vertical, 2.5)
-                  .background { Capsule().fill(.primary.opacity(0.12)) }
+                  .padding(.vertical, 2)
+                  .background {
+                    Capsule().fill(NativeTheme.brand.opacity(0.14))
+                  }
+              }
+              if let sizeText = record.formattedSize {
+                Text(sizeText)
+                  .font(.caption2.monospacedDigit())
+                  .foregroundStyle(.secondary)
               }
               if let date = record.date, !date.isEmpty {
+                if record.formattedSize != nil {
+                  Text("·")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                }
                 Text(date)
-                  .font(.caption.monospacedDigit())
-                  .foregroundStyle(.primary.opacity(0.62))
+                  .font(.caption2.monospacedDigit())
+                  .foregroundStyle(.secondary)
                   .lineLimit(1)
               }
             }
-            if let errmsg = record.errmsg, !errmsg.isEmpty {
-              Text(errmsg)
-                .font(.caption)
-                .foregroundStyle(.orange)
-                .lineLimit(expanded ? nil : 2)
-            }
-            HStack(spacing: 12) {
-              Button {
-                if expanded {
-                  expandedIDs.remove(record.id)
-                } else {
-                  expandedIDs.insert(record.id)
-                }
-              } label: {
-                Label(
-                  expanded ? "收起路径" : "查看路径",
-                  systemImage: expanded ? "chevron.up" : "folder"
-                )
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.primary.opacity(0.78))
-                .frame(minHeight: 30)
-              }
-              .buttonStyle(.plain)
-              .accessibilityIdentifier("native-history-expand-\(record.id)")
-              Spacer()
-            }
           }
         }
-        if expanded {
-          Divider().overlay(.primary.opacity(0.08))
-          VStack(alignment: .leading, spacing: 6) {
-            if let src = record.src, !src.isEmpty {
-              Text("源路径：\(src)")
-                .font(.caption2.monospaced())
-                .foregroundStyle(.primary.opacity(0.68))
+
+        // Web 风格源→目标链式路径块：点击切换紧凑单行 / 完整换行展示
+        if (record.src?.isEmpty == false) || (record.dest?.isEmpty == false) {
+          Button {
+            withAnimation(.easeInOut(duration: 0.18)) {
+              if expanded {
+                expandedIDs.remove(record.id)
+              } else {
+                expandedIDs.insert(record.id)
+              }
             }
-            if let dest = record.dest, !dest.isEmpty {
-              Text("目标路径：\(dest)")
-                .font(.caption2.monospaced())
-                .foregroundStyle(.primary.opacity(0.78))
-            }
+          } label: {
+            linkedPathView(record: record, expanded: expanded)
+          }
+          .buttonStyle(.plain)
+          .accessibilityIdentifier("native-history-expand-\(record.id)")
+        }
+
+        if let errmsg = record.errmsg, !errmsg.isEmpty {
+          HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "exclamationmark.circle.fill")
+              .font(.caption)
+              .foregroundStyle(NativeTheme.warning)
+              .padding(.top, 1)
+            Text(errmsg)
+              .font(.caption)
+              .foregroundStyle(NativeTheme.warning)
+              .lineLimit(expanded ? nil : 2)
           }
         }
       }
@@ -353,7 +370,10 @@ struct NativeTransferHistoryPage: View {
           Button {
             Task {
               let err = await NativeMediaPlaybackLauncher.shared.playStorageFile(
-                session: session, storage: "local", path: dest, fileName: fileName)
+                session: session,
+                storage: record.destStorage ?? "local",
+                path: dest,
+                fileName: fileName)
               if let err {
                 feedback = NativeHistoryFeedback(isError: true, message: err)
               }
@@ -363,8 +383,15 @@ struct NativeTransferHistoryPage: View {
           }
         }
       }
+      if canManage {
+        Button {
+          pendingReorganize = record
+        } label: {
+          Label("整理", systemImage: "wand.and.stars")
+        }
+      }
       Button {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(.easeInOut(duration: 0.18)) {
           if expandedIDs.contains(record.id) {
             expandedIDs.remove(record.id)
           } else {
@@ -372,9 +399,28 @@ struct NativeTransferHistoryPage: View {
           }
         }
       } label: {
-        Label(expandedIDs.contains(record.id) ? "收起路径" : "查看路径", systemImage: "doc.text")
+        Label(
+          expandedIDs.contains(record.id) ? "收起完整路径" : "展开完整路径",
+          systemImage: expandedIDs.contains(record.id)
+            ? "chevron.up" : "arrow.up.left.and.arrow.down.right")
+      }
+      if let dest = record.dest, !dest.isEmpty {
+        Button {
+          UIPasteboard.general.string = dest
+          feedback = NativeHistoryFeedback(isError: false, message: "已复制目标路径。")
+        } label: {
+          Label("复制目标路径", systemImage: "doc.on.doc")
+        }
+      } else if let src = record.src, !src.isEmpty {
+        Button {
+          UIPasteboard.general.string = src
+          feedback = NativeHistoryFeedback(isError: false, message: "已复制源路径。")
+        } label: {
+          Label("复制源路径", systemImage: "doc.on.doc")
+        }
       }
       if canManage {
+        Divider()
         Button(role: .destructive) {
           pendingDelete = record
         } label: {
@@ -384,20 +430,154 @@ struct NativeTransferHistoryPage: View {
     }
   }
 
+  /// 对标 Web `TransferHistoryView` 的链式源/目标路径块：
+  /// 左侧源节点(空心圆)与目标节点(实心主题圆)由细线连接，存储徽标 + 弱化目录 + 高亮文件名，点击平滑展开完整路径。
+  private func linkedPathView(record: NativeTransferRecord, expanded: Bool) -> some View {
+    let hasDest = record.dest?.isEmpty == false
+    return VStack(alignment: .leading, spacing: 6) {
+      if let src = record.src, !src.isEmpty {
+        pathRow(
+          path: src,
+          storageLabel: displayStorageName(record.srcStorage),
+          isDestination: false,
+          linkedToNext: hasDest,
+          expanded: expanded)
+      }
+      if let dest = record.dest, !dest.isEmpty {
+        pathRow(
+          path: dest,
+          storageLabel: displayStorageName(record.destStorage),
+          isDestination: true,
+          linkedToNext: false,
+          expanded: expanded)
+      }
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 8)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background {
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .fill(NativeTheme.chipFill.opacity(0.85))
+        .overlay {
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .strokeBorder(NativeTheme.chipBorder, lineWidth: 0.5)
+        }
+    }
+  }
+
+  /// 链式路径单行（节点圆点 + 存储短标 + 目录/文件名分段样式）。
+  private func pathRow(
+    path: String,
+    storageLabel: String,
+    isDestination: Bool,
+    linkedToNext: Bool,
+    expanded: Bool
+  ) -> some View {
+    let parts = splitPath(path)
+    return HStack(alignment: expanded ? .top : .center, spacing: 7) {
+      VStack(spacing: 0) {
+        Circle()
+          .fill(isDestination ? NativeTheme.brand : Color.clear)
+          .overlay {
+            Circle().strokeBorder(
+              isDestination ? NativeTheme.brand : Color.secondary.opacity(0.65),
+              lineWidth: 1.5)
+          }
+          .frame(width: 7, height: 7)
+          .padding(.top, expanded ? 4 : 0)
+        if linkedToNext {
+          Rectangle()
+            .fill(Color.secondary.opacity(0.28))
+            .frame(width: 1, height: expanded ? 14 : 10)
+            .padding(.top, 2)
+        }
+      }
+      .frame(width: 9)
+
+      Text(storageLabel)
+        .font(.system(size: 10, weight: .semibold))
+        .foregroundStyle(isDestination ? NativeTheme.brand : .secondary)
+        .padding(.horizontal, 5.5)
+        .padding(.vertical, 2)
+        .background {
+          RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .fill(isDestination ? NativeTheme.brand.opacity(0.14) : NativeTheme.chipFill)
+        }
+        .fixedSize()
+
+      if expanded {
+        (Text(parts.directory)
+          .foregroundColor(.secondary)
+          + Text(parts.filename)
+          .foregroundColor(.primary)
+          .fontWeight(.medium))
+          .font(.caption2.monospaced())
+          .fixedSize(horizontal: false, vertical: true)
+          .multilineTextAlignment(.leading)
+      } else {
+        HStack(spacing: 0) {
+          if !parts.compactParent.isEmpty {
+            Text(parts.compactParent)
+              .font(.caption2.monospaced())
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+              .truncationMode(.head)
+              .layoutPriority(0)
+          }
+          Text(parts.filename)
+            .font(.caption2.monospaced().weight(.medium))
+            .foregroundStyle(Color.primary.opacity(isDestination ? 1.0 : 0.86))
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .layoutPriority(1)
+        }
+      }
+      Spacer(minLength: 0)
+    }
+  }
+
+  /// 将路径切分为目录前缀、紧凑父目录名与文件名，供折叠态优先保留文件名展示。
+  private func splitPath(_ raw: String) -> (
+    directory: String, compactParent: String, filename: String
+  ) {
+    let ns = raw as NSString
+    let filename = ns.lastPathComponent
+    let dir = ns.deletingLastPathComponent
+    guard !dir.isEmpty && dir != "/" else {
+      return (dir == "/" ? "/" : "", "", filename)
+    }
+    let parentName = (dir as NSString).lastPathComponent
+    let compactParent = parentName.isEmpty ? "" : "…/\(parentName)/"
+    return ("\(dir)/", compactParent, filename)
+  }
+
+  private func displayStorageName(_ storage: String?) -> String {
+    let key = (storage ?? "local").trimmingCharacters(in: .whitespacesAndNewlines)
+    if let mapped = storageNames[key], !mapped.isEmpty { return mapped }
+    switch key.lowercased() {
+    case "local", "": return "本地"
+    case "alipan": return "阿里云盘"
+    case "u115": return "115网盘"
+    case "rclone": return "RClone"
+    case "alist": return "OpenList"
+    case "alistgo": return "AList"
+    case "smb": return "SMB"
+    default: return key
+    }
+  }
+
   /// 成功/失败状态胶囊。
   private func statusBadge(_ succeeded: Bool) -> some View {
-    let tint: Color =
-      succeeded
-      ? NativeTheme.success : NativeTheme.danger
+    let tint: Color = succeeded ? NativeTheme.success : NativeTheme.danger
     return Text(succeeded ? "成功" : "失败")
       .font(.caption2.weight(.semibold))
       .foregroundStyle(tint)
       .padding(.horizontal, 8)
-      .padding(.vertical, 3.5)
+      .padding(.vertical, 3)
       .background {
         Capsule()
-          .fill(.primary.opacity(0.10))
-          .overlay { Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 0.6) }
+          .fill(tint.opacity(0.14))
+          .overlay { Capsule().strokeBorder(tint.opacity(0.32), lineWidth: 0.6) }
       }
   }
 
@@ -408,14 +588,14 @@ struct NativeTransferHistoryPage: View {
         Image(
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
-        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
-        Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
+        .foregroundStyle(feedback.isError ? NativeTheme.warning : NativeTheme.success)
+        Text(feedback.message).font(.subheadline).foregroundStyle(.primary)
         Spacer(minLength: 0)
         Button {
           self.feedback = nil
         } label: {
           Image(systemName: "xmark").font(.caption.weight(.semibold))
-            .foregroundStyle(.primary.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
+            .foregroundStyle(.secondary).frame(minWidth: 32, minHeight: 32)
         }
         .buttonStyle(.plain)
       }
@@ -429,7 +609,7 @@ struct NativeTransferHistoryPage: View {
       VStack(spacing: 10) {
         Image(systemName: "clock.arrow.circlepath")
           .font(.largeTitle)
-          .foregroundStyle(.primary.opacity(0.55))
+          .foregroundStyle(.secondary)
         Text("暂无匹配的整理记录").font(.headline)
       }
       .frame(maxWidth: .infinity, minHeight: 150)
@@ -447,6 +627,13 @@ struct NativeTransferHistoryPage: View {
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }
+  }
+
+  private func loadStorageNames() async {
+    guard let endpoint = try? APIEndpoint(path: ["storage", "options"]),
+      let loaded = try? await session.request(endpoint, as: [NativeStorageOption].self).value
+    else { return }
+    storageNames = Dictionary(uniqueKeysWithValues: loaded.map { ($0.value, $0.title) })
   }
 
   /// 从第一页重新拉取整理历史；命中页面缓存时静默复用，下拉刷新强制重拉。
@@ -519,29 +706,163 @@ struct NativeTransferHistoryPage: View {
     return try await session.request(endpoint, as: NativeTransferHistoryPagePayload.self).value
   }
 
-  /// 显式单次删除单条整理记录（不删除源文件或目标媒体库文件）。
-  private func deleteRecord(_ record: NativeTransferRecord) async {
-    guard canManage else { return }
+  /// 按用户选择的范围删除整理记录及可选的源文件/目标媒体库文件（`DELETE /api/v1/history/transfer?deletesrc=...&deletedest=...`）。
+  private func deleteRecord(
+    _ record: NativeTransferRecord,
+    deleteSrc: Bool,
+    deleteDest: Bool
+  ) async {
+    guard canManage, !isDeleting else { return }
+    isDeleting = true
+    defer { isDeleting = false }
     do {
       let body = try JSONEncoder().encode(["id": record.id])
       let endpoint = try APIEndpoint(
         path: ["history", "transfer"],
         method: .delete,
         query: [
-          URLQueryItem(name: "deletesrc", value: "false"),
-          URLQueryItem(name: "deletedest", value: "false"),
+          URLQueryItem(name: "deletesrc", value: deleteSrc ? "true" : "false"),
+          URLQueryItem(name: "deletedest", value: deleteDest ? "true" : "false"),
         ],
-        body: body)
+        body: body,
+        timeout: 45)
       try await session.perform(endpoint)
       try Task.checkCancellation()
+      pendingDelete = nil
       records.removeAll { $0.id == record.id }
       total = max(total - 1, 0)
-      feedback = NativeHistoryFeedback(isError: false, message: "已删除整理记录。")
+      let scopeDesc: String =
+        switch (deleteSrc, deleteDest) {
+        case (false, false): "已仅删除整理记录。"
+        case (true, false): "已删除整理记录及源文件。"
+        case (false, true): "已删除整理记录及媒体库文件。"
+        case (true, true): "已删除整理记录、源文件及媒体库文件。"
+        }
+      feedback = NativeHistoryFeedback(isError: false, message: scopeDesc)
     } catch is CancellationError {
       return
     } catch {
+      pendingDelete = nil
       feedback = NativeHistoryFeedback(isError: true, message: "删除整理记录失败，请稍后重试。")
     }
+  }
+}
+
+/// 整理历史四选一删除确认弹窗（对标 Web `TransferHistoryDeleteDialog.vue`）。
+@MainActor
+private struct NativeTransferDeleteSheet: View {
+  let record: NativeTransferRecord
+  let isDeleting: Bool
+  let onSelect: (Bool, Bool) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        VStack(alignment: .leading, spacing: 12) {
+          Text("确认删除「\(record.displayTitle)」？请选择需要同步清理的文件范围：")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 4)
+
+          VStack(spacing: 9) {
+            deleteOptionButton(
+              title: "仅删除记录",
+              subtitle: "保留磁盘上的源文件与媒体库文件",
+              icon: "doc.badge.minus",
+              tint: NativeTheme.brand
+            ) { onSelect(false, false) }
+
+            deleteOptionButton(
+              title: "删除记录和源文件",
+              subtitle: "同时删除源下载文件，保留媒体库文件",
+              icon: "arrow.down.doc",
+              tint: NativeTheme.warning
+            ) { onSelect(true, false) }
+
+            deleteOptionButton(
+              title: "删除记录和媒体库文件",
+              subtitle: "同时删除整理后的目标文件，保留源文件",
+              icon: "film.stack",
+              tint: NativeTheme.info
+            ) { onSelect(false, true) }
+
+            deleteOptionButton(
+              title: "删除记录、源文件和媒体库文件",
+              subtitle: "彻底移除记录与两端文件，操作不可恢复",
+              icon: "trash.fill",
+              tint: NativeTheme.danger
+            ) { onSelect(true, true) }
+          }
+          .disabled(isDeleting)
+
+          Spacer(minLength: 0)
+        }
+        .padding(.horizontal, CinematicStyle.margin)
+        .padding(.top, 8)
+        .padding(.bottom, 14)
+      }
+      .navigationTitle("删除整理记录")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("取消") { dismiss() }
+            .disabled(isDeleting)
+        }
+      }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  private func deleteOptionButton(
+    title: String,
+    subtitle: String,
+    icon: String,
+    tint: Color,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      HStack(spacing: 11) {
+        Image(systemName: icon)
+          .font(.body.weight(.semibold))
+          .foregroundStyle(tint)
+          .frame(width: 28, height: 28)
+          .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+              .fill(tint.opacity(0.14))
+          }
+        VStack(alignment: .leading, spacing: 2) {
+          Text(title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(tint == NativeTheme.danger ? tint : .primary)
+          Text(subtitle)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        Spacer(minLength: 0)
+        if isDeleting {
+          ProgressView().controlSize(.mini)
+        } else {
+          Image(systemName: "chevron.right")
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+        }
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 10)
+      .background {
+        RoundedRectangle(cornerRadius: 13, style: .continuous)
+          .fill(NativeTheme.chipFill)
+          .overlay {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+              .strokeBorder(tint.opacity(0.24), lineWidth: 0.7)
+          }
+      }
+    }
+    .buttonStyle(.plain)
   }
 }
 
@@ -559,6 +880,10 @@ private struct NativeTransferHistoryPagePayload: Decodable, Sendable {
 
 /// 单条整理历史记录投影。
 private struct NativeTransferRecord: Decodable, Sendable, Identifiable {
+  struct FileSnapshot: Decodable, Sendable {
+    let size: Int64?
+  }
+
   let id: Int
   let title: String?
   let type: String?
@@ -571,11 +896,13 @@ private struct NativeTransferRecord: Decodable, Sendable, Identifiable {
   let errmsg: String?
   let src: String?
   let dest: String?
+  let srcStorage: String?
+  let destStorage: String?
+  let srcFileitem: FileSnapshot?
   let image: String?
   let mediaSource: String?
   let mediaID: String?
 
-  /// 拼接片名与季集标识。
   var displayTitle: String {
     let base = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "整理任务 #\(id)"
     let suffix = [seasons, episodes]
@@ -585,7 +912,18 @@ private struct NativeTransferRecord: Decodable, Sendable, Identifiable {
     return suffix.isEmpty ? base : "\(base) \(suffix)"
   }
 
-  /// 本地化整理方式标签。
+  var formattedSize: String? {
+    guard let size = srcFileitem?.size, size > 0 else { return nil }
+    let units = ["B", "KB", "MB", "GB", "TB"]
+    var value = Double(size)
+    var index = 0
+    while value >= 1024 && index < units.count - 1 {
+      value /= 1024
+      index += 1
+    }
+    return String(format: "%.2f %@", value, units[index])
+  }
+
   var modeLabel: String? {
     switch (mode ?? "").lowercased() {
     case "copy": "复制"
@@ -599,7 +937,6 @@ private struct NativeTransferRecord: Decodable, Sendable, Identifiable {
     }
   }
 
-  /// 具备有效影视身份时允许直接进入原生详情页。
   var detailIdentity: NativeMediaIdentity? {
     guard let type, ["电影", "电视剧"].contains(type),
       let source = mediaSource, !source.isEmpty,
@@ -608,21 +945,11 @@ private struct NativeTransferRecord: Decodable, Sendable, Identifiable {
     return NativeMediaIdentity(source: source, mediaID: mediaID, type: type)
   }
 
-  /// 对应后端 `_SchemaTransferHistory` 字段。
   private enum CodingKeys: String, CodingKey {
-    case id
-    case title
-    case type
-    case year
-    case seasons
-    case episodes
-    case status
-    case mode
-    case date
-    case errmsg
-    case src
-    case dest
-    case image
+    case id, title, type, year, seasons, episodes, status, mode, date, errmsg, src, dest, image
+    case srcStorage = "src_storage"
+    case destStorage = "dest_storage"
+    case srcFileitem = "src_fileitem"
     case mediaSource = "media_source"
     case mediaID = "media_id"
   }
@@ -640,7 +967,6 @@ private struct NativeTransferQueueSheet: View {
   @State private var loadFailed = false
   @State private var feedback: String?
 
-  /// 深色透色整理队列列表。
   var body: some View {
     NavigationStack {
       ZStack {
@@ -651,7 +977,7 @@ private struct NativeTransferQueueSheet: View {
               CinematicPanel(padding: 11) {
                 Text(feedback)
                   .font(.caption)
-                  .foregroundStyle(.primary.opacity(0.9))
+                  .foregroundStyle(.primary)
                   .frame(maxWidth: .infinity, alignment: .leading)
               }
             }
@@ -672,12 +998,12 @@ private struct NativeTransferQueueSheet: View {
                 VStack(spacing: 10) {
                   Image(systemName: "tray")
                     .font(.largeTitle)
-                    .foregroundStyle(.primary.opacity(0.5))
+                    .foregroundStyle(.secondary)
                   Text("当前整理队列为空")
                     .font(.headline)
                   Text("新的待整理任务将自动显示在此处。")
                     .font(.caption)
-                    .foregroundStyle(.primary.opacity(0.62))
+                    .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, minHeight: 170)
               }
@@ -707,7 +1033,6 @@ private struct NativeTransferQueueSheet: View {
     .nativeAppearanceRoot()
   }
 
-  /// 单个媒体整理作业卡片。
   private func jobCard(_ job: NativeTransferQueueJob) -> some View {
     CinematicPanel(padding: 13) {
       VStack(alignment: .leading, spacing: 8) {
@@ -718,20 +1043,20 @@ private struct NativeTransferQueueSheet: View {
           Spacer()
           Text("\(job.tasks.count) 项")
             .font(.caption2.monospacedDigit())
-            .foregroundStyle(.primary.opacity(0.65))
+            .foregroundStyle(.secondary)
         }
         ForEach(job.tasks) { task in
-          Divider().overlay(.primary.opacity(0.08))
+          Divider().overlay(NativeTheme.chipBorder)
           HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 3) {
               Text(task.displayName)
                 .font(.caption.weight(.medium))
-                .foregroundStyle(.primary.opacity(0.92))
+                .foregroundStyle(.primary)
                 .lineLimit(2)
               if let path = task.fileitem?.path, !path.isEmpty {
                 Text(path)
                   .font(.caption2.monospaced())
-                  .foregroundStyle(.primary.opacity(0.55))
+                  .foregroundStyle(.secondary)
                   .lineLimit(1)
                   .truncationMode(.head)
               }
@@ -739,10 +1064,10 @@ private struct NativeTransferQueueSheet: View {
             Spacer(minLength: 4)
             Text(task.stateLabel)
               .font(.caption2.weight(.semibold))
-              .foregroundStyle(Color(red: 0.80, green: 0.72, blue: 1.0))
+              .foregroundStyle(NativeTheme.brand)
               .padding(.horizontal, 7)
               .padding(.vertical, 3)
-              .background { Capsule().fill(.primary.opacity(0.10)) }
+              .background { Capsule().fill(NativeTheme.brand.opacity(0.14)) }
           }
           .contextMenu {
             if canManage, let file = task.fileitem {
@@ -758,7 +1083,6 @@ private struct NativeTransferQueueSheet: View {
     }
   }
 
-  /// 读取整理队列快照。
   private func load() async {
     isLoading = true
     loadFailed = false
@@ -771,7 +1095,6 @@ private struct NativeTransferQueueSheet: View {
     }
   }
 
-  /// 仅在管理权限下通过长按菜单移出队列。
   private func removeFromQueue(_ file: NativeTransferQueueFileItem) async {
     do {
       let body = try JSONEncoder().encode(file)
@@ -793,7 +1116,6 @@ private struct NativeTransferQueueJob: Decodable, Sendable, Identifiable {
   let season: Int?
   let tasks: [NativeTransferQueueTask]
 
-  /// 展示标题。
   var displayTitle: String {
     let base = mediaTitle?.isEmpty == false ? mediaTitle! : "待整理媒体"
     if let season { return "\(base) S\(String(format: "%02d", season))" }
@@ -829,12 +1151,10 @@ private struct NativeTransferQueueTask: Decodable, Sendable, Identifiable {
   let fileitem: NativeTransferQueueFileItem?
   let state: String?
 
-  /// 文件名回退。
   var displayName: String {
     fileitem?.name ?? fileitem?.path ?? "未知文件"
   }
 
-  /// 状态中文标签。
   var stateLabel: String {
     switch (state ?? "").lowercased() {
     case "running": "整理中"

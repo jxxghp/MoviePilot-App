@@ -4,7 +4,7 @@ import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
 
-/// 原生多存储文件浏览器：支持存储切换、目录钻取、面包屑返回、新建文件夹与二次确认删除。
+/// 原生多存储文件浏览器：支持存储切换、目录钻取、面包屑返回、新建文件夹、长按整理/智能重命名与二次确认删除。
 @MainActor
 struct NativeFileManagerPage: View {
   private enum FileFilter: String, CaseIterable, Identifiable {
@@ -38,10 +38,12 @@ struct NativeFileManagerPage: View {
   @State private var showingNewFolder = false
   @State private var newFolderName = ""
   @State private var pendingDelete: NativeFileItem?
+  @State private var pendingRename: NativeFileItem?
+  @State private var pendingTransfer: NativeFileItem?
   @State private var playingFilePath: String?
   @State private var feedback: NativeFileFeedback?
 
-  /// 连续深色紫玫瑰渐变背景、一体化存储切换与面包屑地址栏、目录/文件玻璃列表。
+  /// 连续语义背景、一体化存储切换与面包屑地址栏、目录/文件玻璃列表。
   var body: some View {
     ZStack {
       CinematicBackground()
@@ -128,6 +130,22 @@ struct NativeFileManagerPage: View {
     .task(id: "\(activeStorage)|\(currentDirectory.path)|\(attempt)") {
       await loadCurrentDirectory(forceRefresh: attempt > 0)
     }
+    .sheet(item: $pendingTransfer) { item in
+      NativeManualTransferSheet(
+        session: session,
+        fileItem: item,
+        initialStorages: storages
+      ) { message in
+        feedback = NativeFileFeedback(isError: false, message: message)
+        Task { await loadCurrentDirectory(forceRefresh: true) }
+      }
+    }
+    .sheet(item: $pendingRename) { item in
+      NativeFileRenameSheet(session: session, item: item) { message in
+        feedback = NativeFileFeedback(isError: false, message: message)
+        Task { await loadCurrentDirectory(forceRefresh: true) }
+      }
+    }
     .alert("新建文件夹", isPresented: $showingNewFolder) {
       TextField("文件夹名称", text: $newFolderName)
       Button("创建") {
@@ -156,7 +174,7 @@ struct NativeFileManagerPage: View {
     }
   }
 
-  /// 当前用户具备管理权限时允许新建目录和删除文件。
+  /// 当前用户具备管理权限时允许新建目录、整理、重命名与删除文件。
   private var canManage: Bool {
     session.user.isSuperuser || session.user.allows(.init(category: .manage))
   }
@@ -227,16 +245,16 @@ struct NativeFileManagerPage: View {
                     .lineLimit(1)
                   Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.primary.opacity(0.65))
+                    .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 9)
                 .padding(.vertical, 6)
                 .background {
                   RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Color(red: 0.56, green: 0.42, blue: 0.88).opacity(0.32))
+                    .fill(NativeTheme.brand.opacity(0.18))
                     .overlay {
                       RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(.primary.opacity(0.22), lineWidth: 0.6)
+                        .strokeBorder(NativeTheme.brand.opacity(0.32), lineWidth: 0.6)
                     }
                 }
               }
@@ -250,7 +268,7 @@ struct NativeFileManagerPage: View {
 
                 Image(systemName: "chevron.right")
                   .font(.system(size: 9.5, weight: .semibold))
-                  .foregroundStyle(.primary.opacity(0.38))
+                  .foregroundStyle(.tertiary)
                   .padding(.horizontal, 1)
 
                 if isLast {
@@ -262,7 +280,7 @@ struct NativeFileManagerPage: View {
                     .padding(.vertical, 5)
                     .background {
                       RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(.primary.opacity(0.14))
+                        .fill(NativeTheme.chipFill)
                     }
                     .id("crumb-\(index)")
                 } else {
@@ -271,13 +289,13 @@ struct NativeFileManagerPage: View {
                   } label: {
                     Text(title)
                       .font(.caption.weight(.medium))
-                      .foregroundStyle(.primary.opacity(0.76))
+                      .foregroundStyle(.secondary)
                       .lineLimit(1)
                       .padding(.horizontal, 7)
                       .padding(.vertical, 5)
                       .background {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                          .fill(.primary.opacity(0.06))
+                          .fill(NativeTheme.chipFill.opacity(0.6))
                       }
                   }
                   .buttonStyle(.plain)
@@ -298,7 +316,7 @@ struct NativeFileManagerPage: View {
 
         Text("\(items.count) 项")
           .font(.caption2.monospacedDigit())
-          .foregroundStyle(.primary.opacity(0.55))
+          .foregroundStyle(.secondary)
           .padding(.trailing, 4)
       }
     }
@@ -306,7 +324,7 @@ struct NativeFileManagerPage: View {
     .accessibilityIdentifier("native-files-address-bar")
   }
 
-  /// 单个目录或文件玻璃行；可播放音视频支持一键拉起原生本地播放器及长按菜单。
+  /// 单个目录或文件玻璃行；可播放音视频支持一键拉起原生本地播放器及完整长按菜单（整理/重命名/删除）。
   private func fileRow(_ item: NativeFileItem) -> some View {
     let playable =
       !item.isDirectory
@@ -326,14 +344,14 @@ struct NativeFileManagerPage: View {
               RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(
                   item.isDirectory
-                    ? Color(red: 0.48, green: 0.36, blue: 0.72).opacity(0.50)
-                    : .white.opacity(0.10))
+                    ? NativeTheme.brand.opacity(0.20)
+                    : NativeTheme.chipFill)
               if isOpeningPlay {
                 ProgressView().controlSize(.mini).tint(.primary)
               } else {
                 Image(systemName: item.symbolName)
                   .font(.body.weight(.medium))
-                  .foregroundStyle(.primary.opacity(0.92))
+                  .foregroundStyle(item.isDirectory ? NativeTheme.brand : .primary)
               }
             }
             .frame(width: 40, height: 40)
@@ -346,18 +364,18 @@ struct NativeFileManagerPage: View {
               if let meta = item.metadataSummary {
                 Text(meta)
                   .font(.caption2)
-                  .foregroundStyle(.primary.opacity(0.60))
+                  .foregroundStyle(.secondary)
               }
             }
             Spacer(minLength: 4)
             if item.isDirectory {
               Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.primary.opacity(0.45))
+                .foregroundStyle(.tertiary)
             } else if playable {
               Image(systemName: "play.circle.fill")
                 .font(.title3)
-                .foregroundStyle(Color(red: 0.80, green: 0.68, blue: 1.0))
+                .foregroundStyle(NativeTheme.brand)
             }
           }
           .contentShape(Rectangle())
@@ -382,6 +400,17 @@ struct NativeFileManagerPage: View {
         }
       }
       if canManage {
+        Button {
+          pendingTransfer = item
+        } label: {
+          Label("整理", systemImage: "wand.and.stars")
+        }
+        Button {
+          pendingRename = item
+        } label: {
+          Label("重命名", systemImage: "pencil")
+        }
+        Divider()
         Button(role: .destructive) {
           pendingDelete = item
         } label: {
@@ -398,7 +427,7 @@ struct NativeFileManagerPage: View {
     defer { playingFilePath = nil }
     let error = await NativeMediaPlaybackLauncher.shared.playStorageFile(
       session: session,
-      storage: item.storage ?? activeStorage,
+      storage: item.storage,
       path: item.path,
       fileName: item.displayName)
     if let error {
@@ -413,14 +442,14 @@ struct NativeFileManagerPage: View {
         Image(
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
-        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
-        Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
+        .foregroundStyle(feedback.isError ? NativeTheme.warning : NativeTheme.success)
+        Text(feedback.message).font(.subheadline).foregroundStyle(.primary)
         Spacer(minLength: 0)
         Button {
           self.feedback = nil
         } label: {
           Image(systemName: "xmark").font(.caption.weight(.semibold))
-            .foregroundStyle(.primary.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
+            .foregroundStyle(.secondary).frame(minWidth: 32, minHeight: 32)
         }
         .buttonStyle(.plain)
       }
@@ -434,7 +463,7 @@ struct NativeFileManagerPage: View {
       VStack(spacing: 10) {
         Image(systemName: "folder")
           .font(.largeTitle)
-          .foregroundStyle(.primary.opacity(0.55))
+          .foregroundStyle(.secondary)
         Text("当前目录为空").font(.headline)
       }
       .frame(maxWidth: .infinity, minHeight: 150)
@@ -544,6 +573,1363 @@ struct NativeFileManagerPage: View {
   }
 }
 
+/// 智能重命名弹窗：支持一键识别推荐命名（`GET /api/v1/transfer/name`）及目录递归重命名（`POST /api/v1/storage/rename`）。
+@MainActor
+private struct NativeFileRenameSheet: View {
+  let session: NativeSession
+  let item: NativeFileItem
+  let onRenamed: (String) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var newName: String
+  @State private var recursive = false
+  @State private var isRecommending = false
+  @State private var isSubmitting = false
+  @State private var statusMessage: String?
+  @State private var statusIsError = false
+
+  init(session: NativeSession, item: NativeFileItem, onRenamed: @escaping (String) -> Void) {
+    self.session = session
+    self.item = item
+    self.onRenamed = onRenamed
+    _newName = State(initialValue: item.displayName)
+  }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 14) {
+            CinematicPanel(padding: 14) {
+              VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                  Image(systemName: item.symbolName)
+                    .foregroundStyle(NativeTheme.brand)
+                  Text(item.path)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                  Text("新名称")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                  TextField("输入新的文件名或目录名", text: $newName)
+                    .textFieldStyle(.plain)
+                    .font(.subheadline)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background {
+                      RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(NativeTheme.chipFill)
+                        .overlay {
+                          RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .strokeBorder(NativeTheme.chipBorder, lineWidth: 0.7)
+                        }
+                    }
+                }
+
+                Button {
+                  Task { await recommendName() }
+                } label: {
+                  HStack(spacing: 6) {
+                    if isRecommending {
+                      ProgressView().controlSize(.small)
+                    } else {
+                      Image(systemName: "sparkles")
+                    }
+                    Text(isRecommending ? "正在智能识别命名…" : "智能识别推荐命名")
+                  }
+                  .font(.subheadline.weight(.medium))
+                  .foregroundStyle(NativeTheme.brand)
+                  .frame(maxWidth: .infinity)
+                  .padding(.vertical, 9)
+                  .background {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                      .fill(NativeTheme.brand.opacity(0.14))
+                  }
+                }
+                .buttonStyle(.plain)
+                .disabled(isRecommending || isSubmitting)
+
+                if item.isDirectory {
+                  Toggle(isOn: $recursive) {
+                    VStack(alignment: .leading, spacing: 2) {
+                      Text("递归智能重命名目录内媒体")
+                        .font(.subheadline)
+                      Text("按当前命名规则同步识别并重命名目录内音视频与字幕文件")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    }
+                  }
+                  .tint(NativeTheme.brand)
+                }
+              }
+            }
+
+            if let statusMessage {
+              CinematicPanel(padding: 11) {
+                HStack(spacing: 8) {
+                  Image(
+                    systemName: statusIsError
+                      ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+                  )
+                  .foregroundStyle(statusIsError ? NativeTheme.warning : NativeTheme.success)
+                  Text(statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+              }
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
+        }
+      }
+      .navigationTitle("重命名")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("取消") { dismiss() }
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button {
+            Task { await submitRename() }
+          } label: {
+            if isSubmitting {
+              ProgressView().controlSize(.small)
+            } else {
+              Text("确认")
+                .fontWeight(.semibold)
+            }
+          }
+          .disabled(
+            isSubmitting || newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+      }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  private func recommendName() async {
+    isRecommending = true
+    statusMessage = nil
+    defer { isRecommending = false }
+    do {
+      let endpoint = try APIEndpoint(
+        path: ["transfer", "name"],
+        query: [
+          URLQueryItem(name: "path", value: item.path),
+          URLQueryItem(name: "filetype", value: item.isDirectory ? "dir" : "file"),
+        ],
+        responseContract: .payload,
+        timeout: 30)
+      let resp = try await session.request(
+        endpoint, as: NativeRecommendNameResponse.self
+      ).value
+      if resp.success == true, let recommended = resp.data?.name, !recommended.isEmpty {
+        newName = recommended
+        statusIsError = false
+        statusMessage = "已填充智能识别命名。"
+      } else {
+        statusIsError = true
+        statusMessage = resp.message?.isEmpty == false ? resp.message! : "未识别到可用推荐名称。"
+      }
+    } catch {
+      statusIsError = true
+      statusMessage = "智能识别命名失败：\(error.localizedDescription)"
+    }
+  }
+
+  private func submitRename() async {
+    let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+    isSubmitting = true
+    statusMessage = nil
+    defer { isSubmitting = false }
+    do {
+      let body = try JSONEncoder().encode(item)
+      var query = [URLQueryItem(name: "new_name", value: trimmed)]
+      if item.isDirectory && recursive {
+        query.append(URLQueryItem(name: "recursive", value: "true"))
+      }
+      let endpoint = try APIEndpoint(
+        path: ["storage", "rename"],
+        method: .post,
+        query: query,
+        body: body,
+        responseContract: .payload,
+        timeout: recursive ? 120 : 30)
+      let resp = try await session.request(
+        endpoint, as: NativeManualTransferEnvelope<JSONValue>.self
+      ).value
+      if resp.success == false {
+        statusIsError = true
+        statusMessage = resp.message?.isEmpty == false ? resp.message! : "重命名失败。"
+        return
+      }
+      onRenamed("已重命名为「\(trimmed)」。")
+      dismiss()
+    } catch {
+      statusIsError = true
+      statusMessage = "重命名失败：\(error.localizedDescription)"
+    }
+  }
+}
+
+/// 跨页面共用的手动整理弹窗（对标 Web `ReorganizeDialog.vue`）：
+/// 支持从文件管理（`fileItem`）或整理历史（`historyLogID`）拉起，自动匹配目标目录、检测历史记录、预览结果与提交整理。
+@MainActor
+struct NativeManualTransferSheet: View {
+  private enum TriStateChoice: String, CaseIterable, Identifiable {
+    case auto = "跟随目录设置"
+    case enabled = "开启"
+    case disabled = "关闭"
+    var id: String { rawValue }
+    var boolValue: Bool? {
+      switch self {
+      case .auto: nil
+      case .enabled: true
+      case .disabled: false
+      }
+    }
+  }
+
+  let session: NativeSession
+  let fileItem: NativeFileItem?
+  let historyLogID: Int?
+  let sourceTitleHint: String
+  let sourcePathHint: String
+  let sourceStorageHint: String
+  let onCompleted: (String) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+
+  @State private var storages: [NativeStorageOption]
+  @State private var libraryDirectories: [NativeTransferDirectoryOption] = []
+  @State private var targetStorage: String
+  @State private var targetPath: String = ""
+  @State private var matchedTargetHint: String?
+  @State private var matchedHistoryCount = 0
+  @State private var skipSuccess = false
+  @State private var reorganize = false
+
+  @State private var transferType: String = ""
+  @State private var overwriteMode: String = "never"
+  @State private var mediaType: String = ""
+  @State private var mediaSource: String = ""
+  @State private var mediaID: String = ""
+  @State private var selectedMediaTitle: String?
+  @State private var seasonText: String = ""
+  @State private var episodeDetail: String = ""
+  @State private var episodeOffset: String = ""
+  @State private var episodePart: String = ""
+  @State private var episodeFormat: String = ""
+  @State private var episodeGroup: String = ""
+  @State private var musicType: String = ""
+  @State private var musicTrackMatch: String = "strict"
+  @State private var minFilesizeText: String = "0"
+
+  @State private var scrapeChoice: TriStateChoice = .auto
+  @State private var typeFolderChoice: TriStateChoice = .auto
+  @State private var categoryFolderChoice: TriStateChoice = .auto
+  @State private var fromHistory: Bool
+  @State private var runInBackground = true
+
+  @State private var showingMediaPicker = false
+  @State private var showingAdvancedOptions = false
+  @State private var isLoadingMetadata = false
+  @State private var isPreviewing = false
+  @State private var isSubmitting = false
+  @State private var previewItems: [NativeManualTransferPreviewItem] = []
+  @State private var previewError: String?
+  @State private var submitFeedback: String?
+  @State private var submitIsError = false
+
+  private let transferTypes: [(label: String, value: String)] = [
+    ("自动（跟随目录配置）", ""),
+    ("硬链接", "link"),
+    ("软链接", "softlink"),
+    ("复制", "copy"),
+    ("移动", "move"),
+    ("Rclone 复制", "rclone_copy"),
+    ("Rclone 移动", "rclone_move"),
+  ]
+
+  private let overwriteModes: [(label: String, value: String)] = [
+    ("从不覆盖", "never"),
+    ("按文件大小覆盖", "size"),
+    ("总是覆盖", "always"),
+    ("仅保留最新版本", "latest"),
+  ]
+
+  private let mediaTypes: [(label: String, value: String)] = [
+    ("自动识别", ""),
+    ("电影", "电影"),
+    ("电视剧", "电视剧"),
+    ("音乐", "音乐"),
+  ]
+
+  private let mediaSources: [(label: String, value: String)] = [
+    ("自动", ""),
+    ("TheMovieDB", "themoviedb"),
+    ("豆瓣", "douban"),
+    ("Bangumi", "bangumi"),
+    ("MusicBrainz", "musicbrainz"),
+  ]
+
+  /// 从文件管理页拉起手动整理。
+  init(
+    session: NativeSession,
+    fileItem: NativeFileItem,
+    initialStorages: [NativeStorageOption] = [],
+    onCompleted: @escaping (String) -> Void
+  ) {
+    self.session = session
+    self.fileItem = fileItem
+    self.historyLogID = nil
+    self.sourceTitleHint = fileItem.displayName
+    self.sourcePathHint = fileItem.path
+    self.sourceStorageHint = fileItem.storage
+    self.onCompleted = onCompleted
+    _storages = State(
+      initialValue: initialStorages.isEmpty
+        ? [NativeStorageOption(value: "local", title: "本地")] : initialStorages)
+    _targetStorage = State(initialValue: fileItem.storage)
+    _fromHistory = State(initialValue: false)
+  }
+
+  /// 从整理历史页拉起重新整理。
+  init(
+    session: NativeSession,
+    historyLogID: Int,
+    sourceHint: String?,
+    titleHint: String,
+    defaultTargetStorage: String?,
+    defaultMediaType: String?,
+    defaultMediaSource: String?,
+    defaultMediaID: String?,
+    onCompleted: @escaping (String) -> Void
+  ) {
+    self.session = session
+    self.fileItem = nil
+    self.historyLogID = historyLogID
+    self.sourceTitleHint = titleHint
+    self.sourcePathHint = sourceHint ?? "历史记录 #\(historyLogID)"
+    self.sourceStorageHint = defaultTargetStorage ?? "local"
+    self.onCompleted = onCompleted
+    _storages = State(initialValue: [NativeStorageOption(value: "local", title: "本地")])
+    _targetStorage = State(initialValue: defaultTargetStorage ?? "local")
+    _mediaType = State(initialValue: defaultMediaType ?? "")
+    _mediaSource = State(initialValue: defaultMediaSource ?? "")
+    _mediaID = State(initialValue: defaultMediaID ?? "")
+    _fromHistory = State(initialValue: true)
+    _reorganize = State(initialValue: true)
+  }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 14) {
+            sourceSummaryCard
+            if matchedHistoryCount > 0 {
+              historyMatchBanner
+            }
+            targetSection
+            mediaOverrideSection
+            behaviorSection
+            if !previewItems.isEmpty || previewError != nil {
+              previewSection
+            }
+            if let submitFeedback {
+              CinematicPanel(padding: 12) {
+                HStack(spacing: 8) {
+                  Image(
+                    systemName: submitIsError
+                      ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+                  )
+                  .foregroundStyle(submitIsError ? NativeTheme.warning : NativeTheme.success)
+                  Text(submitFeedback)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+              }
+            }
+            actionFooter
+          }
+          .frame(maxWidth: 760)
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
+          .frame(maxWidth: .infinity)
+        }
+        .scrollIndicators(.hidden)
+      }
+      .navigationTitle(historyLogID != nil ? "重新整理" : "手动整理")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("关闭") { dismiss() }
+        }
+      }
+      .task { await bootstrap() }
+      .sheet(isPresented: $showingMediaPicker) {
+        NativeManualTransferMediaPickerSheet(
+          session: session,
+          initialKeyword: sourceTitleHint,
+          preferMusic: mediaType == "音乐"
+        ) { picked in
+          mediaSource = picked.source
+          mediaID = picked.mediaID
+          selectedMediaTitle = picked.displayTitle
+          if let pickedType = picked.mediaType, !pickedType.isEmpty {
+            mediaType = pickedType
+          }
+          if let pickedMusicType = picked.musicType, !pickedMusicType.isEmpty {
+            musicType = pickedMusicType
+          }
+        }
+      }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  /// 源文件摘要卡片。
+  private var sourceSummaryCard: some View {
+    CinematicPanel(padding: 13) {
+      VStack(alignment: .leading, spacing: 6) {
+        HStack(spacing: 8) {
+          Image(
+            systemName: historyLogID != nil
+              ? "arrow.clockwise.circle.fill"
+              : (fileItem?.symbolName ?? "doc.fill")
+          )
+          .font(.title3)
+          .foregroundStyle(NativeTheme.brand)
+          VStack(alignment: .leading, spacing: 2) {
+            Text(sourceTitleHint)
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(.primary)
+              .lineLimit(2)
+            Text(sourcePathHint)
+              .font(.caption2.monospaced())
+              .foregroundStyle(.secondary)
+              .lineLimit(2)
+              .truncationMode(.head)
+          }
+          Spacer(minLength: 0)
+        }
+        if let matchedTargetHint, !matchedTargetHint.isEmpty {
+          HStack(spacing: 5) {
+            Image(systemName: "sparkles")
+              .font(.caption2)
+              .foregroundStyle(NativeTheme.success)
+            Text("已自动匹配目录：\(matchedTargetHint)")
+              .font(.caption2)
+              .foregroundStyle(NativeTheme.success)
+              .lineLimit(1)
+              .truncationMode(.middle)
+          }
+        } else if isLoadingMetadata {
+          HStack(spacing: 6) {
+            ProgressView().controlSize(.mini)
+            Text("正在匹配目标目录配置…")
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+          }
+        }
+      }
+    }
+  }
+
+  /// 已存在成功历史提示条。
+  private var historyMatchBanner: some View {
+    CinematicPanel(padding: 12) {
+      VStack(alignment: .leading, spacing: 8) {
+        HStack(spacing: 8) {
+          Image(systemName: "clock.badge.checkmark")
+            .foregroundStyle(NativeTheme.warning)
+          Text("检测到 \(matchedHistoryCount) 条已成功的整理历史")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.primary)
+        }
+        Toggle("跳过已成功记录", isOn: $skipSuccess)
+          .font(.subheadline)
+          .tint(NativeTheme.brand)
+        if !skipSuccess {
+          Toggle("清理旧目标并重新整理", isOn: $reorganize)
+            .font(.subheadline)
+            .tint(NativeTheme.brand)
+        }
+      }
+    }
+  }
+
+  /// 分组 1：目标存储、目标目录、整理方式与覆盖模式。
+  private var targetSection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      sectionHeader("目标存储与方式")
+      CinematicPanel(padding: 14) {
+        VStack(alignment: .leading, spacing: 12) {
+          groupedPickerRow(title: "目标存储") {
+            Menu {
+              ForEach(storages) { storage in
+                Button {
+                  targetStorage = storage.value
+                  Task { await matchTargetPath() }
+                } label: {
+                  if storage.value == targetStorage {
+                    Label(storage.title, systemImage: "checkmark")
+                  } else {
+                    Text(storage.title)
+                  }
+                }
+              }
+            } label: {
+              menuValueLabel(
+                storages.first(where: { $0.value == targetStorage })?.title ?? targetStorage)
+            }
+          }
+
+          Divider().overlay(NativeTheme.chipBorder)
+
+          VStack(alignment: .leading, spacing: 6) {
+            HStack {
+              Text("目标目录")
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+              Spacer()
+              if !filteredLibraryDirectories.isEmpty {
+                Menu {
+                  Button("自动按规则匹配") { targetPath = "" }
+                  Divider()
+                  ForEach(filteredLibraryDirectories) { dir in
+                    Button {
+                      targetPath = dir.libraryPath
+                      if let mode = dir.transferType, !mode.isEmpty {
+                        transferType = mode
+                      }
+                    } label: {
+                      Text(dir.displayLabel)
+                    }
+                  }
+                } label: {
+                  Label("选择媒体库目录", systemImage: "folder.badge.gearshape")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(NativeTheme.brand)
+                }
+              }
+            }
+            TextField("留空按目录设置自动匹配", text: $targetPath)
+              .textFieldStyle(.plain)
+              .font(.caption.monospaced())
+              .autocorrectionDisabled()
+              .textInputAutocapitalization(.never)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 9)
+              .background {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                  .fill(NativeTheme.chipFill)
+              }
+          }
+
+          Divider().overlay(NativeTheme.chipBorder)
+
+          groupedPickerRow(title: "整理方式") {
+            Menu {
+              ForEach(transferTypes, id: \.value) { option in
+                Button {
+                  transferType = option.value
+                } label: {
+                  if transferType == option.value {
+                    Label(option.label, systemImage: "checkmark")
+                  } else {
+                    Text(option.label)
+                  }
+                }
+              }
+            } label: {
+              menuValueLabel(
+                transferTypes.first(where: { $0.value == transferType })?.label ?? "自动")
+            }
+          }
+
+          Divider().overlay(NativeTheme.chipBorder)
+
+          groupedPickerRow(title: "覆盖模式") {
+            Menu {
+              ForEach(overwriteModes, id: \.value) { option in
+                Button {
+                  overwriteMode = option.value
+                } label: {
+                  if overwriteMode == option.value {
+                    Label(option.label, systemImage: "checkmark")
+                  } else {
+                    Text(option.label)
+                  }
+                }
+              }
+            } label: {
+              menuValueLabel(
+                overwriteModes.first(where: { $0.value == overwriteMode })?.label ?? "从不覆盖")
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /// 分组 2：媒体识别覆写（类型、数据源、媒体 ID 搜索、季集/音乐参数）。
+  private var mediaOverrideSection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      sectionHeader("媒体识别与定位（可选）")
+      CinematicPanel(padding: 14) {
+        VStack(alignment: .leading, spacing: 12) {
+          groupedPickerRow(title: "媒体类型") {
+            Menu {
+              ForEach(mediaTypes, id: \.value) { option in
+                Button {
+                  mediaType = option.value
+                } label: {
+                  if mediaType == option.value {
+                    Label(option.label, systemImage: "checkmark")
+                  } else {
+                    Text(option.label)
+                  }
+                }
+              }
+            } label: {
+              menuValueLabel(
+                mediaTypes.first(where: { $0.value == mediaType })?.label ?? "自动识别")
+            }
+          }
+
+          Divider().overlay(NativeTheme.chipBorder)
+
+          groupedPickerRow(title: "识别数据源") {
+            Menu {
+              ForEach(mediaSources, id: \.value) { option in
+                Button {
+                  mediaSource = option.value
+                } label: {
+                  if mediaSource == option.value {
+                    Label(option.label, systemImage: "checkmark")
+                  } else {
+                    Text(option.label)
+                  }
+                }
+              }
+            } label: {
+              menuValueLabel(
+                mediaSources.first(where: { $0.value == mediaSource })?.label ?? "自动")
+            }
+          }
+
+          Divider().overlay(NativeTheme.chipBorder)
+
+          VStack(alignment: .leading, spacing: 6) {
+            HStack {
+              Text("指定媒体 ID")
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+              Spacer()
+              Button {
+                showingMediaPicker = true
+              } label: {
+                Label("搜索媒体", systemImage: "magnifyingglass")
+                  .font(.caption.weight(.medium))
+                  .foregroundStyle(NativeTheme.brand)
+              }
+              .buttonStyle(.plain)
+            }
+            HStack(spacing: 8) {
+              TextField("留空自动识别，或输入 TMDB / 豆瓣 / BGM / MBID", text: $mediaID)
+                .textFieldStyle(.plain)
+                .font(.caption.monospaced())
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 9)
+                .background {
+                  RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(NativeTheme.chipFill)
+                }
+              if !mediaID.isEmpty {
+                Button {
+                  mediaID = ""
+                  selectedMediaTitle = nil
+                } label: {
+                  Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+              }
+            }
+            if let selectedMediaTitle {
+              Text("已选：\(selectedMediaTitle)")
+                .font(.caption2)
+                .foregroundStyle(NativeTheme.brand)
+            }
+          }
+
+          if mediaType == "电视剧" || mediaType.isEmpty {
+            Divider().overlay(NativeTheme.chipBorder)
+            HStack(spacing: 10) {
+              compactField(title: "指定季号", placeholder: "如 1", text: $seasonText, numeric: true)
+              compactField(title: "指定集数", placeholder: "如 1-12", text: $episodeDetail)
+              compactField(title: "集数偏移", placeholder: "如 EP+12", text: $episodeOffset)
+            }
+          }
+
+          if mediaType == "音乐" {
+            Divider().overlay(NativeTheme.chipBorder)
+            groupedPickerRow(title: "音乐实体类型") {
+              Menu {
+                Button("自动") { musicType = "" }
+                Button("专辑 (album)") { musicType = "album" }
+                Button("单曲 (recording)") { musicType = "recording" }
+              } label: {
+                menuValueLabel(
+                  musicType == "album"
+                    ? "专辑" : (musicType == "recording" ? "单曲" : "自动"))
+              }
+            }
+            if musicType == "album" {
+              groupedPickerRow(title: "曲目对齐方式") {
+                Menu {
+                  Button("严格校验 (strict)") { musicTrackMatch = "strict" }
+                  Button("忽略时长 (ignore_duration)") { musicTrackMatch = "ignore_duration" }
+                  Button("按路径顺序 (sequential)") { musicTrackMatch = "sequential" }
+                } label: {
+                  menuValueLabel(musicTrackMatch)
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /// 分组 3：整理行为与高级开关。
+  private var behaviorSection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      sectionHeader("执行选项")
+      CinematicPanel(padding: 14) {
+        VStack(alignment: .leading, spacing: 12) {
+          Toggle("后台异步执行", isOn: $runInBackground)
+            .font(.subheadline)
+            .tint(NativeTheme.brand)
+
+          if historyLogID != nil {
+            Divider().overlay(NativeTheme.chipBorder)
+            Toggle("复用历史识别信息", isOn: $fromHistory)
+              .font(.subheadline)
+              .tint(NativeTheme.brand)
+          }
+
+          Divider().overlay(NativeTheme.chipBorder)
+          DisclosureGroup("更多高级参数", isExpanded: $showingAdvancedOptions) {
+            VStack(alignment: .leading, spacing: 11) {
+              triStatePicker(title: "刮削元数据", selection: $scrapeChoice)
+              triStatePicker(title: "按类型分类子目录", selection: $typeFolderChoice)
+              triStatePicker(title: "按二级分类子目录", selection: $categoryFolderChoice)
+              compactField(
+                title: "最低文件大小阈值 (MiB)", placeholder: "0 表示不限制",
+                text: $minFilesizeText, numeric: true)
+              if mediaType != "音乐" {
+                compactField(
+                  title: "自定义剧集识别格式", placeholder: "留空使用默认", text: $episodeFormat)
+                HStack(spacing: 10) {
+                  compactField(title: "指定 PART", placeholder: "如 part1", text: $episodePart)
+                  compactField(title: "剧集组 ID", placeholder: "可选", text: $episodeGroup)
+                }
+              }
+            }
+            .padding(.top, 10)
+          }
+          .font(.subheadline.weight(.medium))
+          .tint(NativeTheme.brand)
+        }
+      }
+    }
+  }
+
+  /// 手动整理预览结果展示区。
+  private var previewSection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      sectionHeader("整理预览（\(previewItems.count) 项）")
+      CinematicPanel(padding: 13) {
+        VStack(alignment: .leading, spacing: 10) {
+          if let previewError {
+            HStack(spacing: 6) {
+              Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(NativeTheme.warning)
+              Text(previewError)
+                .font(.caption)
+                .foregroundStyle(.primary)
+            }
+          }
+          ForEach(Array(previewItems.enumerated()), id: \.offset) { index, entry in
+            if index > 0 { Divider().overlay(NativeTheme.chipBorder) }
+            VStack(alignment: .leading, spacing: 4) {
+              HStack(spacing: 6) {
+                Image(
+                  systemName: entry.success == false
+                    ? "xmark.circle.fill" : "checkmark.circle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(
+                  entry.success == false ? NativeTheme.danger : NativeTheme.success)
+                Text(entry.displayTitle)
+                  .font(.caption.weight(.semibold))
+                  .foregroundStyle(.primary)
+                  .lineLimit(1)
+                Spacer(minLength: 4)
+                if let type = entry.type, !type.isEmpty {
+                  Text(type)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+              }
+              if let src = entry.source, !src.isEmpty {
+                Text("源：\((src as NSString).lastPathComponent)")
+                  .font(.caption2.monospaced())
+                  .foregroundStyle(.secondary)
+                  .lineLimit(1)
+              }
+              if let target = entry.target, !target.isEmpty {
+                Text("至：\(target)")
+                  .font(.caption2.monospaced())
+                  .foregroundStyle(NativeTheme.brand)
+                  .lineLimit(2)
+              }
+              if let message = entry.message, !message.isEmpty, entry.success == false {
+                Text(message)
+                  .font(.caption2)
+                  .foregroundStyle(NativeTheme.warning)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /// 底部双按钮：预览与提交整理。
+  private var actionFooter: some View {
+    HStack(spacing: 12) {
+      Button {
+        Task { await executeTransfer(preview: true) }
+      } label: {
+        HStack(spacing: 6) {
+          if isPreviewing {
+            ProgressView().controlSize(.small)
+          } else {
+            Image(systemName: "eye")
+          }
+          Text(isPreviewing ? "预览中…" : "预览整理")
+        }
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.primary)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 13)
+        .background {
+          RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(NativeTheme.chipFill)
+            .overlay {
+              RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(NativeTheme.chipBorder, lineWidth: 0.7)
+            }
+        }
+      }
+      .buttonStyle(.plain)
+      .disabled(isPreviewing || isSubmitting)
+
+      Button {
+        Task { await executeTransfer(preview: false) }
+      } label: {
+        HStack(spacing: 6) {
+          if isSubmitting {
+            ProgressView().controlSize(.small).tint(.white)
+          } else {
+            Image(systemName: "wand.and.stars")
+          }
+          Text(isSubmitting ? "正在整理…" : "开始整理")
+        }
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 13)
+        .background {
+          RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(NativeTheme.brand)
+        }
+      }
+      .buttonStyle(.plain)
+      .disabled(isPreviewing || isSubmitting)
+    }
+    .padding(.top, 4)
+  }
+
+  private var filteredLibraryDirectories: [NativeTransferDirectoryOption] {
+    libraryDirectories.filter { dir in
+      guard !dir.libraryPath.isEmpty else { return false }
+      return dir.libraryStorage.isEmpty || dir.libraryStorage == targetStorage
+    }
+  }
+
+  private func sectionHeader(_ text: String) -> some View {
+    Text(text)
+      .font(.caption.weight(.semibold))
+      .foregroundStyle(.secondary)
+      .padding(.horizontal, 4)
+  }
+
+  private func groupedPickerRow<Content: View>(
+    title: String,
+    @ViewBuilder trailing: () -> Content
+  ) -> some View {
+    HStack {
+      Text(title)
+        .font(.subheadline)
+        .foregroundStyle(.primary)
+      Spacer(minLength: 10)
+      trailing()
+    }
+  }
+
+  private func menuValueLabel(_ value: String) -> some View {
+    HStack(spacing: 4) {
+      Text(value)
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+      Image(systemName: "chevron.up.chevron.down")
+        .font(.system(size: 10, weight: .semibold))
+        .foregroundStyle(.tertiary)
+    }
+  }
+
+  private func triStatePicker(title: String, selection: Binding<TriStateChoice>) -> some View {
+    groupedPickerRow(title: title) {
+      Menu {
+        ForEach(TriStateChoice.allCases) { option in
+          Button {
+            selection.wrappedValue = option
+          } label: {
+            if selection.wrappedValue == option {
+              Label(option.rawValue, systemImage: "checkmark")
+            } else {
+              Text(option.rawValue)
+            }
+          }
+        }
+      } label: {
+        menuValueLabel(selection.wrappedValue.rawValue)
+      }
+    }
+  }
+
+  private func compactField(
+    title: String,
+    placeholder: String,
+    text: Binding<String>,
+    numeric: Bool = false
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 5) {
+      Text(title)
+        .font(.caption2.weight(.medium))
+        .foregroundStyle(.secondary)
+      TextField(placeholder, text: text)
+        .textFieldStyle(.plain)
+        .font(.caption)
+        .keyboardType(numeric ? .numberPad : .default)
+        .autocorrectionDisabled()
+        .textInputAutocapitalization(.never)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 8)
+        .background {
+          RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .fill(NativeTheme.chipFill)
+        }
+    }
+  }
+
+  /// 初始化存储列表、媒体库目录、自动目的路径与已有整理历史检测。
+  private func bootstrap() async {
+    isLoadingMetadata = true
+    defer { isLoadingMetadata = false }
+    async let storagesTask: Void = loadStoragesIfNeeded()
+    async let dirsTask: Void = loadLibraryDirectories()
+    async let matchTask: Void = matchTargetPath()
+    async let historyTask: Void = checkExistingHistory()
+    _ = await (storagesTask, dirsTask, matchTask, historyTask)
+  }
+
+  private func loadStoragesIfNeeded() async {
+    guard let endpoint = try? APIEndpoint(path: ["storage", "options"]),
+      let loaded = try? await session.request(endpoint, as: [NativeStorageOption].self).value,
+      !loaded.isEmpty
+    else { return }
+    storages = loaded
+    if !loaded.contains(where: { $0.value == targetStorage }), let first = loaded.first {
+      targetStorage = first.value
+    }
+  }
+
+  private func loadLibraryDirectories() async {
+    guard
+      let endpoint = try? APIEndpoint(
+        path: ["storage", "directories"],
+        query: [URLQueryItem(name: "directory_type", value: "library")]),
+      let loaded = try? await session.request(
+        endpoint, as: [NativeTransferDirectoryOption].self
+      ).value
+    else { return }
+    libraryDirectories = loaded
+  }
+
+  private func matchTargetPath() async {
+    let payload = buildRequestPayload(preview: false, onlyForMatch: true)
+    guard let body = try? JSONEncoder().encode(payload),
+      let endpoint = try? APIEndpoint(
+        path: ["transfer", "manual", "target-path"], method: .post, body: body,
+        responseContract: .payload, timeout: 20),
+      let resp = try? await session.request(
+        endpoint, as: NativeManualTransferEnvelope<NativeManualTargetPathData>.self
+      ).value,
+      let data = resp.data
+    else { return }
+    if let matchedStorage = data.targetStorage, !matchedStorage.isEmpty {
+      targetStorage = matchedStorage
+    }
+    if let matchedPath = data.targetPath, !matchedPath.isEmpty {
+      matchedTargetHint = matchedPath
+      if targetPath.isEmpty {
+        targetPath = matchedPath
+      }
+    }
+    if transferType.isEmpty, let mode = data.transferType, !mode.isEmpty {
+      transferType = mode
+    }
+  }
+
+  private func checkExistingHistory() async {
+    guard fileItem != nil else { return }
+    let payload = buildRequestPayload(preview: false, onlyForMatch: true)
+    guard let body = try? JSONEncoder().encode(payload),
+      let endpoint = try? APIEndpoint(
+        path: ["transfer", "manual", "history"], method: .post, body: body,
+        responseContract: .payload, timeout: 15),
+      let resp = try? await session.request(
+        endpoint, as: NativeManualTransferEnvelope<NativeManualHistoryInfo>.self
+      ).value,
+      let data = resp.data
+    else { return }
+    matchedHistoryCount = data.historyCount ?? 0
+    if data.reorganize == true {
+      reorganize = true
+    }
+  }
+
+  private func buildRequestPayload(preview: Bool, onlyForMatch: Bool = false)
+    -> NativeManualTransferPayload
+  {
+    let trimmedTargetPath = targetPath.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedMediaID = mediaID.trimmingCharacters(in: .whitespacesAndNewlines)
+    let parsedSeason = Int(seasonText.trimmingCharacters(in: .whitespacesAndNewlines))
+    let parsedMinSize = Int(minFilesizeText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+    let cleanedDetail = episodeDetail.trimmingCharacters(in: .whitespacesAndNewlines)
+    let cleanedOffset = episodeOffset.trimmingCharacters(in: .whitespacesAndNewlines)
+    let cleanedPart = episodePart.trimmingCharacters(in: .whitespacesAndNewlines)
+    let cleanedFormat = episodeFormat.trimmingCharacters(in: .whitespacesAndNewlines)
+    let cleanedGroup = episodeGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    return NativeManualTransferPayload(
+      fileitem: fileItem,
+      logid: historyLogID,
+      targetStorage: targetStorage.isEmpty ? nil : targetStorage,
+      targetPath: onlyForMatch || trimmedTargetPath.isEmpty ? nil : trimmedTargetPath,
+      mediaSource: mediaSource.isEmpty ? nil : mediaSource,
+      mediaID: trimmedMediaID.isEmpty ? nil : trimmedMediaID,
+      musicType: (mediaType == "音乐" && !musicType.isEmpty) ? musicType : nil,
+      musicTrackMatch: (mediaType == "音乐" && musicType == "album") ? musicTrackMatch : "strict",
+      typeName: mediaType.isEmpty ? nil : mediaType,
+      season: parsedSeason,
+      transferType: transferType.isEmpty ? nil : transferType,
+      episodeFormat: cleanedFormat.isEmpty ? nil : cleanedFormat,
+      episodeDetail: cleanedDetail.isEmpty ? nil : cleanedDetail,
+      episodePart: cleanedPart.isEmpty ? nil : cleanedPart,
+      episodeOffset: cleanedOffset.isEmpty ? nil : cleanedOffset,
+      minFilesize: max(0, parsedMinSize),
+      scrape: scrapeChoice.boolValue,
+      libraryTypeFolder: typeFolderChoice.boolValue,
+      libraryCategoryFolder: categoryFolderChoice.boolValue,
+      fromHistory: fromHistory,
+      episodeGroup: cleanedGroup.isEmpty ? nil : cleanedGroup,
+      preview: preview,
+      reorganize: skipSuccess ? false : reorganize,
+      skipSuccess: skipSuccess)
+  }
+
+  /// 执行整理预览或正式整理提交（`POST /api/v1/transfer/manual?background=...`）。
+  private func executeTransfer(preview: Bool) async {
+    if preview {
+      isPreviewing = true
+      previewError = nil
+    } else {
+      isSubmitting = true
+      submitFeedback = nil
+    }
+    defer {
+      if preview { isPreviewing = false } else { isSubmitting = false }
+    }
+    do {
+      let payload = buildRequestPayload(preview: preview)
+      let body = try JSONEncoder().encode(payload)
+      let endpoint = try APIEndpoint(
+        path: ["transfer", "manual"],
+        method: .post,
+        query: [
+          URLQueryItem(
+            name: "background", value: preview ? "false" : (runInBackground ? "true" : "false"))
+        ],
+        body: body,
+        responseContract: .payload,
+        timeout: preview ? 60 : (runInBackground ? 30 : 120))
+      let resp = try await session.request(
+        endpoint, as: NativeManualTransferEnvelope<NativeManualTransferResultPayload>.self
+      ).value
+      if preview {
+        previewItems = resp.data?.items ?? []
+        if resp.success == false || previewItems.isEmpty {
+          previewError =
+            resp.message?.isEmpty == false
+            ? resp.message! : (resp.data?.message ?? "未生成可预览的整理项。")
+        }
+      } else {
+        if resp.success == false {
+          submitIsError = true
+          submitFeedback =
+            resp.message?.isEmpty == false
+            ? resp.message! : (resp.data?.message ?? "整理提交失败，请检查参数后重试。")
+          return
+        }
+        let message =
+          resp.message?.isEmpty == false
+          ? resp.message!
+          : (runInBackground ? "已提交后台整理任务「\(sourceTitleHint)」。" : "整理已完成「\(sourceTitleHint)」。")
+        onCompleted(message)
+        dismiss()
+      }
+    } catch {
+      if preview {
+        previewError = "预览失败：\(error.localizedDescription)"
+      } else {
+        submitIsError = true
+        submitFeedback = "整理请求失败：\(error.localizedDescription)"
+      }
+    }
+  }
+}
+
+/// 手动整理内的媒体快速搜索选择器（`GET /api/v1/media/search`）。
+@MainActor
+private struct NativeManualTransferMediaPickerSheet: View {
+  struct PickedMedia {
+    let source: String
+    let mediaID: String
+    let displayTitle: String
+    let mediaType: String?
+    let musicType: String?
+  }
+
+  let session: NativeSession
+  let preferMusic: Bool
+  let onPicked: (PickedMedia) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var keyword: String
+  @State private var searchScope: String
+  @State private var results: [NativeManualMediaCandidate] = []
+  @State private var isSearching = false
+  @State private var errorMessage: String?
+
+  init(
+    session: NativeSession,
+    initialKeyword: String,
+    preferMusic: Bool,
+    onPicked: @escaping (PickedMedia) -> Void
+  ) {
+    self.session = session
+    self.preferMusic = preferMusic
+    self.onPicked = onPicked
+    _keyword = State(initialValue: initialKeyword)
+    _searchScope = State(initialValue: preferMusic ? "music" : "media")
+  }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        VStack(spacing: 10) {
+          HStack(spacing: 8) {
+            TextField("输入片名、剧名或专辑名搜索", text: $keyword)
+              .textFieldStyle(.plain)
+              .font(.subheadline)
+              .submitLabel(.search)
+              .onSubmit { Task { await runSearch() } }
+            Button("搜索") { Task { await runSearch() } }
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(NativeTheme.brand)
+          }
+          .padding(.horizontal, 13)
+          .padding(.vertical, 10)
+          .background {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+              .fill(NativeTheme.chipFill)
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+
+          Picker("范围", selection: $searchScope) {
+            Text("影视").tag("media")
+            Text("音乐").tag("music")
+          }
+          .pickerStyle(.segmented)
+          .padding(.horizontal, CinematicStyle.margin)
+          .onChange(of: searchScope) { _ in
+            if !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+              Task { await runSearch() }
+            }
+          }
+
+          if isSearching {
+            ProgressView("正在搜索媒体信息…")
+              .frame(maxWidth: .infinity, maxHeight: .infinity)
+          } else if let errorMessage {
+            Text(errorMessage)
+              .font(.subheadline)
+              .foregroundStyle(.secondary)
+              .padding()
+              .frame(maxWidth: .infinity, maxHeight: .infinity)
+          } else if results.isEmpty {
+            Text("输入关键词搜索并点选目标媒体以自动填入 ID")
+              .font(.subheadline)
+              .foregroundStyle(.secondary)
+              .padding()
+              .frame(maxWidth: .infinity, maxHeight: .infinity)
+          } else {
+            ScrollView {
+              LazyVStack(spacing: 10) {
+                ForEach(results) { item in
+                  Button {
+                    onPicked(
+                      PickedMedia(
+                        source: item.resolvedSource,
+                        mediaID: item.resolvedMediaID,
+                        displayTitle: item.displayTitle,
+                        mediaType: item.type,
+                        musicType: item.musicType))
+                    dismiss()
+                  } label: {
+                    CinematicPanel(padding: 10) {
+                      HStack(spacing: 11) {
+                        NativeMediaArtwork(
+                          session: session,
+                          reference: NativeMediaDetailPage.resolveArtwork(
+                            item.posterPath, source: item.resolvedSource),
+                          role: .poster,
+                          maximumWidth: 240
+                        )
+                        .frame(width: 44, height: 64)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        VStack(alignment: .leading, spacing: 4) {
+                          Text(item.displayTitle)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                          HStack(spacing: 6) {
+                            if let type = item.type, !type.isEmpty {
+                              Text(type)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(NativeTheme.brand)
+                            }
+                            Text("\(item.resolvedSource) · \(item.resolvedMediaID)")
+                              .font(.caption2.monospaced())
+                              .foregroundStyle(.secondary)
+                              .lineLimit(1)
+                          }
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                          .font(.caption2)
+                          .foregroundStyle(.tertiary)
+                      }
+                    }
+                  }
+                  .buttonStyle(.plain)
+                }
+              }
+              .padding(.horizontal, CinematicStyle.margin)
+              .padding(.bottom, 16)
+            }
+          }
+        }
+        .padding(.top, 10)
+      }
+      .navigationTitle("选择识别媒体")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("关闭") { dismiss() }
+        }
+      }
+      .task {
+        if !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          await runSearch()
+        }
+      }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  private func runSearch() async {
+    let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+    isSearching = true
+    errorMessage = nil
+    defer { isSearching = false }
+    do {
+      let endpoint = try APIEndpoint(
+        path: ["media", "search"],
+        query: [
+          URLQueryItem(name: "title", value: trimmed),
+          URLQueryItem(name: "type", value: searchScope),
+          URLQueryItem(name: "page", value: "1"),
+          URLQueryItem(name: "count", value: "20"),
+        ],
+        timeout: 25)
+      let loaded = try await session.request(endpoint, as: [NativeManualMediaCandidate].self).value
+      results = loaded.filter { !$0.resolvedMediaID.isEmpty }
+      if results.isEmpty {
+        errorMessage = "未找到匹配的媒体结果，请简化关键词重试。"
+      }
+    } catch {
+      errorMessage = "搜索失败：\(error.localizedDescription)"
+    }
+  }
+}
+
 /// 文件操作提示载体。
 private struct NativeFileFeedback {
   let isError: Bool
@@ -551,20 +1937,17 @@ private struct NativeFileFeedback {
 }
 
 /// `GET /api/v1/storage/options` 存储源选项，兼容后端 `type`/`name` 与 `value`/`title` 两种键名。
-private struct NativeStorageOption: Decodable, Sendable, Identifiable {
+struct NativeStorageOption: Decodable, Sendable, Identifiable {
   let value: String
   let title: String
 
-  /// 存储标识作为唯一键。
   var id: String { value }
 
-  /// 直接构造默认本地存储回退项。
   init(value: String, title: String) {
     self.value = value
     self.title = title
   }
 
-  /// 优先解码 MoviePilot v3 的 `type`/`name` 字段，兼顾 `value`/`title`。
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     let resolvedValue =
@@ -583,17 +1966,13 @@ private struct NativeStorageOption: Decodable, Sendable, Identifiable {
     title = resolvedTitle
   }
 
-  /// 兼容两种存储选项键名。
   private enum CodingKeys: String, CodingKey {
-    case type
-    case name
-    case value
-    case title
+    case type, name, value, title
   }
 }
 
-/// `POST /api/v1/storage/list`、`/mkdir` 与 `/delete` 共用的文件项模型。
-private struct NativeFileItem: Codable, Sendable, Identifiable {
+/// `POST /api/v1/storage/list`、`/mkdir`、`/rename`、`/delete` 与 `/transfer/manual` 共用的文件项模型。
+struct NativeFileItem: Codable, Sendable, Identifiable {
   let storage: String
   let type: String
   let path: String
@@ -604,7 +1983,6 @@ private struct NativeFileItem: Codable, Sendable, Identifiable {
   let fileid: String?
   let parentFileid: String?
 
-  /// 构造目录查询请求项。
   init(
     storage: String, type: String, path: String, name: String? = nil, basename: String? = nil,
     fileExtension: String? = nil, size: Int64? = nil, fileid: String? = nil,
@@ -621,20 +1999,16 @@ private struct NativeFileItem: Codable, Sendable, Identifiable {
     self.parentFileid = parentFileid
   }
 
-  /// 唯一列表键。
   var id: String { "\(storage)|\(type)|\(fileid ?? path)" }
 
-  /// 用于 UI 测试的安全字母数字键。
   var safeIdentifier: String {
     let raw = displayName
     let clean = raw.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.prefix(24)
     return clean.isEmpty ? "item" : String(String.UnicodeScalarView(clean))
   }
 
-  /// 是否为目录节点。
   var isDirectory: Bool { type.lowercased() == "dir" }
 
-  /// 展示名称。
   var displayName: String {
     if let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
       return name
@@ -642,18 +2016,18 @@ private struct NativeFileItem: Codable, Sendable, Identifiable {
     return URL(fileURLWithPath: path).lastPathComponent
   }
 
-  /// 按目录与常见视频/音频/字幕扩展名选择原生 SF Symbol。
   var symbolName: String {
     if isDirectory { return "folder.fill" }
     let ext = (fileExtension ?? URL(fileURLWithPath: path).pathExtension).lowercased()
     if ["mkv", "mp4", "avi", "mov", "ts", "iso", "strm"].contains(ext) { return "film" }
-    if ["flac", "mp3", "m4a", "wav", "aac"].contains(ext) { return "music.note" }
+    if ["flac", "mp3", "m4a", "wav", "aac", "alac", "ape", "dsf"].contains(ext) {
+      return "music.note"
+    }
     if ["srt", "ass", "ssa", "vtt", "sub"].contains(ext) { return "captions.bubble" }
     if ["jpg", "jpeg", "png", "webp"].contains(ext) { return "photo" }
     return "doc"
   }
 
-  /// 文件副标展示大小与扩展名。
   var metadataSummary: String? {
     if isDirectory { return "文件夹" }
     var parts: [String] = []
@@ -663,7 +2037,6 @@ private struct NativeFileItem: Codable, Sendable, Identifiable {
     return parts.isEmpty ? nil : parts.joined(separator: " · ")
   }
 
-  /// 格式化字节数为人类可读体积。
   private static func formatBytes(_ bytes: Double) -> String {
     let units = ["B", "KB", "MB", "GB", "TB"]
     var value = bytes
@@ -675,7 +2048,6 @@ private struct NativeFileItem: Codable, Sendable, Identifiable {
     return String(format: "%.1f %@", value, units[index])
   }
 
-  /// 对应后端 `_SchemaFileItem` 字段。
   private enum CodingKeys: String, CodingKey {
     case storage
     case type
@@ -686,5 +2058,201 @@ private struct NativeFileItem: Codable, Sendable, Identifiable {
     case size
     case fileid
     case parentFileid = "parent_fileid"
+  }
+}
+
+/// 智能推荐命名接口响应载荷。
+private struct NativeRecommendNameResponse: Decodable, Sendable {
+  struct NamePayload: Decodable, Sendable {
+    let name: String?
+  }
+  let success: Bool?
+  let message: String?
+  let data: NamePayload?
+}
+
+/// 通用 `_SchemaResponse` 信封。
+private struct NativeManualTransferEnvelope<T: Decodable & Sendable>: Decodable, Sendable {
+  let success: Bool?
+  let message: String?
+  let data: T?
+}
+
+/// `GET /api/v1/storage/directories` 目录选项。
+private struct NativeTransferDirectoryOption: Decodable, Sendable, Identifiable {
+  let name: String?
+  let libraryStorage: String
+  let libraryPath: String
+  let mediaType: String?
+  let transferType: String?
+
+  var id: String { "\(libraryStorage)|\(libraryPath)|\(name ?? "")" }
+
+  var displayLabel: String {
+    let prefix = (name?.isEmpty == false) ? "\(name!) · " : ""
+    return "\(prefix)\(libraryPath)"
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case name
+    case libraryStorage = "library_storage"
+    case libraryPath = "library_path"
+    case mediaType = "media_type"
+    case transferType = "transfer_type"
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    name = try? c.decodeIfPresent(String.self, forKey: .name)
+    libraryStorage = (try? c.decodeIfPresent(String.self, forKey: .libraryStorage)) ?? "local"
+    libraryPath = (try? c.decodeIfPresent(String.self, forKey: .libraryPath)) ?? ""
+    mediaType = try? c.decodeIfPresent(String.self, forKey: .mediaType)
+    transferType = try? c.decodeIfPresent(String.self, forKey: .transferType)
+  }
+}
+
+/// `POST /api/v1/transfer/manual/target-path` 响应数据。
+private struct NativeManualTargetPathData: Decodable, Sendable {
+  let targetStorage: String?
+  let targetPath: String?
+  let transferType: String?
+  let scrape: Bool?
+
+  private enum CodingKeys: String, CodingKey {
+    case targetStorage = "target_storage"
+    case targetPath = "target_path"
+    case transferType = "transfer_type"
+    case scrape
+  }
+}
+
+/// `POST /api/v1/transfer/manual/history` 响应数据。
+private struct NativeManualHistoryInfo: Decodable, Sendable {
+  let reorganize: Bool?
+  let historyCount: Int?
+
+  private enum CodingKeys: String, CodingKey {
+    case reorganize
+    case historyCount = "history_count"
+  }
+}
+
+/// `POST /api/v1/transfer/manual` 请求体（严格匹配 `ManualTransferItem`）。
+private struct NativeManualTransferPayload: Encodable, Sendable {
+  let fileitem: NativeFileItem?
+  let logid: Int?
+  let targetStorage: String?
+  let targetPath: String?
+  let mediaSource: String?
+  let mediaID: String?
+  let musicType: String?
+  let musicTrackMatch: String
+  let typeName: String?
+  let season: Int?
+  let transferType: String?
+  let episodeFormat: String?
+  let episodeDetail: String?
+  let episodePart: String?
+  let episodeOffset: String?
+  let minFilesize: Int
+  let scrape: Bool?
+  let libraryTypeFolder: Bool?
+  let libraryCategoryFolder: Bool?
+  let fromHistory: Bool
+  let episodeGroup: String?
+  let preview: Bool
+  let reorganize: Bool
+  let skipSuccess: Bool
+
+  private enum CodingKeys: String, CodingKey {
+    case fileitem
+    case logid
+    case targetStorage = "target_storage"
+    case targetPath = "target_path"
+    case mediaSource = "media_source"
+    case mediaID = "media_id"
+    case musicType = "music_type"
+    case musicTrackMatch = "music_track_match"
+    case typeName = "type_name"
+    case season
+    case transferType = "transfer_type"
+    case episodeFormat = "episode_format"
+    case episodeDetail = "episode_detail"
+    case episodePart = "episode_part"
+    case episodeOffset = "episode_offset"
+    case minFilesize = "min_filesize"
+    case scrape
+    case libraryTypeFolder = "library_type_folder"
+    case libraryCategoryFolder = "library_category_folder"
+    case fromHistory = "from_history"
+    case episodeGroup = "episode_group"
+    case preview
+    case reorganize
+    case skipSuccess = "skip_success"
+  }
+}
+
+/// 手动整理预览/提交结果数据载荷。
+private struct NativeManualTransferResultPayload: Decodable, Sendable {
+  let items: [NativeManualTransferPreviewItem]?
+  let message: String?
+}
+
+/// 单项手动整理预览条目。
+private struct NativeManualTransferPreviewItem: Decodable, Sendable {
+  let source: String?
+  let target: String?
+  let success: Bool?
+  let message: String?
+  let type: String?
+  let title: String?
+  let season: Int?
+  let episode: Int?
+
+  var displayTitle: String {
+    let base =
+      (title?.isEmpty == false) ? title! : ((source as NSString?)?.lastPathComponent ?? "媒体项")
+    if let season, let episode {
+      return String(format: "%@ S%02dE%02d", base, season, episode)
+    } else if let season {
+      return String(format: "%@ S%02d", base, season)
+    }
+    return base
+  }
+}
+
+/// 手动整理搜索媒体候选项。
+private struct NativeManualMediaCandidate: Decodable, Sendable, Identifiable {
+  let title: String?
+  let year: String?
+  let type: String?
+  let mediaSource: String?
+  let mediaID: String?
+  let musicType: String?
+  let posterPath: String?
+
+  var id: String { "\(resolvedSource)|\(resolvedMediaID)|\(title ?? "")" }
+
+  var resolvedSource: String {
+    mediaSource?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+      ? mediaSource! : "themoviedb"
+  }
+
+  var resolvedMediaID: String {
+    mediaID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+  }
+
+  var displayTitle: String {
+    let base = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "未知媒体"
+    if let year, !year.isEmpty { return "\(base) (\(year))" }
+    return base
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case title, year, type
+    case mediaSource = "media_source"
+    case mediaID = "media_id"
+    case musicType = "music_type"
+    case posterPath = "poster_path"
   }
 }

@@ -10,41 +10,33 @@ enum NativeResourceSearchTarget: Hashable {
   case media(identity: NativeMediaIdentity, title: String, season: Int?)
 }
 
-/// 原生站点资源搜索与下载确认页：支持站点筛选、画质/免费过滤、排序与显式单次添加下载。
+/// 原生站点资源搜索页（十.3）：对标 Web 9 维级联多选筛选（站点/季集/来源/字幕/优惠/编码/版本/分辨率/制作组）、多字段升降序排序；移除卡片内下载按钮，点击整张卡片弹出重构后的满宽下载确认窗。
 @MainActor
 struct NativeResourceSearchPage: View {
-  /// 结果本地快捷过滤项。
-  private enum QuickFilter: String, CaseIterable, Identifiable {
-    case all = "全部"
-    case free = "免费"
-    case uhd = "4K"
-    case fhd = "1080p"
-    case sub = "中字"
-
-    /// 固定中文标签作为标识。
-    var id: String { rawValue }
-  }
-
-  /// 结果本地排序维度。
-  private enum SortMode: String, CaseIterable, Identifiable {
-    case priority = "默认优先级"
-    case seeders = "做种最多"
-    case sizeDesc = "体积从大到小"
-    case pubdateDesc = "最新发布"
-
-    /// 固定标签标识。
+  private enum SortField: String, CaseIterable, Identifiable {
+    case defaultPriority = "默认优先级"
+    case site = "站点"
+    case size = "体积"
+    case seeder = "做种"
+    case pubdate = "发布时间"
     var id: String { rawValue }
   }
 
   let session: NativeSession
   let target: NativeResourceSearchTarget
 
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
   @State private var keyword = ""
   @State private var sites: [NativeSearchSite] = []
-  @State private var selectedSiteIDs: Set<Int> = []
+  @State private var querySiteIDs: Set<Int> = []
   @State private var results: [NativeResourceContext] = []
-  @State private var quickFilter: QuickFilter = .all
-  @State private var sortMode: SortMode = .priority
+
+  // 9 维级联多选筛选状态（对齐 Web TorrentCardListView.vue）
+  @State private var filter = NativeResourceFacetFilter()
+  @State private var sortField: SortField = .defaultPriority
+  @State private var sortDescending = true
+  @State private var showsAllFiltersSheet = false
+
   @State private var isLoading = true
   @State private var loadFailed = false
   @State private var attempt = 0
@@ -53,16 +45,17 @@ struct NativeResourceSearchPage: View {
   @State private var feedback: NativeResourceFeedback?
   @FocusState private var searchFocused: Bool
 
-  /// 采用统一深色紫玫瑰渐变、单行筛选胶囊与透色资源卡，不引入任何 WebView。
   var body: some View {
     ZStack {
       CinematicBackground()
       ScrollView {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
           if case .lastResults = target {
             searchInputCard
           }
-          filterAndSortBar
+          if !results.isEmpty || filter.activeCount > 0 {
+            cascadingFilterBar
+          }
           if let feedback {
             feedbackBanner(feedback)
           }
@@ -75,7 +68,7 @@ struct NativeResourceSearchPage: View {
           } else if displayedResults.isEmpty {
             emptyCard
           } else {
-            LazyVStack(spacing: 12) {
+            LazyVStack(spacing: 11) {
               ForEach(displayedResults) { item in
                 resourceCard(item)
               }
@@ -96,44 +89,26 @@ struct NativeResourceSearchPage: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
-      ToolbarItem(placement: .topBarTrailing) {
-        Menu {
-          Section("筛选条件") {
-            ForEach(QuickFilter.allCases) { option in
-              Button {
-                quickFilter = option
-              } label: {
-                if quickFilter == option {
-                  Label(option.rawValue, systemImage: "checkmark")
-                } else {
-                  Text(option.rawValue)
-                }
-              }
-            }
+      ToolbarItemGroup(placement: .topBarTrailing) {
+        if !results.isEmpty {
+          Button {
+            showsAllFiltersSheet = true
+          } label: {
+            Image(
+              systemName: filter.activeCount > 0
+                ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
           }
-          Section("排序方式") {
-            ForEach(SortMode.allCases) { mode in
-              Button {
-                sortMode = mode
-              } label: {
-                if sortMode == mode {
-                  Label(mode.rawValue, systemImage: "checkmark")
-                } else {
-                  Text(mode.rawValue)
-                }
-              }
-            }
-          }
-        } label: {
-          Image(systemName: "line.3.horizontal.decrease.circle")
+          .accessibilityLabel("全部筛选条件")
+          .accessibilityIdentifier("native-resource-search-filter-menu")
         }
-        .accessibilityLabel("筛选与排序")
-        .accessibilityIdentifier("native-resource-search-filter-menu")
       }
     }
     .task(id: attempt) {
       await loadSitesIfNeeded()
       await performSearch()
+    }
+    .sheet(isPresented: $showsAllFiltersSheet) {
+      NativeResourceAllFiltersSheet(results: results, filter: $filter)
     }
     .sheet(item: $selectedForDownload) { item in
       NativeDownloadConfirmSheet(
@@ -145,20 +120,19 @@ struct NativeResourceSearchPage: View {
       }
       .nativeAppearanceRoot()
       .presentationDetents([.medium, .large])
+      .presentationDragIndicator(.visible)
     }
   }
 
-  /// 导航标题反映当前检索入口语义。
   private var navigationTitle: String {
     switch target {
     case .lastResults:
-      "资源搜索"
+      results.isEmpty ? "站点资源" : "站点资源 (\(displayedResults.count))"
     case .media(_, let title, let season):
       if let season { "\(title) S\(String(format: "%02d", season))" } else { "\(title) · 资源" }
     }
   }
 
-  /// 加载文案区分精确检索与缓存读取。
   private var loadingMessage: String {
     switch target {
     case .lastResults:
@@ -168,274 +142,309 @@ struct NativeResourceSearchPage: View {
     }
   }
 
-  /// 若由影视详情进入，向下载确认单传递规范媒体身份。
   private var targetIdentity: NativeMediaIdentity? {
     if case .media(let identity, _, _) = target { return identity }
     return nil
   }
 
-  /// 经本地快捷过滤与排序后的可见资源列表。
   private var displayedResults: [NativeResourceContext] {
-    let filtered = results.filter { item in
-      switch quickFilter {
-      case .all: true
-      case .free: item.isFree
-      case .uhd: item.pixBadge.contains("2160") || item.pixBadge.uppercased().contains("4K")
-      case .fhd: item.pixBadge.contains("1080")
-      case .sub: item.hasChineseSubtitle
+    let filtered = results.filter { filter.matches($0) }
+    switch sortField {
+    case .defaultPriority:
+      return sortDescending ? filtered : filtered.reversed()
+    case .site:
+      return filtered.sorted { lhs, rhs in
+        let l = lhs.torrent.siteName ?? ""
+        let r = rhs.torrent.siteName ?? ""
+        return sortDescending ? l < r : l > r
       }
-    }
-    switch sortMode {
-    case .priority:
-      return filtered
-    case .seeders:
-      return filtered.sorted { ($0.torrent.seeders ?? 0) > ($1.torrent.seeders ?? 0) }
-    case .sizeDesc:
-      return filtered.sorted { ($0.torrent.size ?? 0) > ($1.torrent.size ?? 0) }
-    case .pubdateDesc:
-      return filtered.sorted { ($0.torrent.pubdate ?? "") > ($1.torrent.pubdate ?? "") }
+    case .size:
+      return filtered.sorted { lhs, rhs in
+        let l = lhs.torrent.size ?? 0
+        let r = rhs.torrent.size ?? 0
+        return sortDescending ? l > r : l < r
+      }
+    case .seeder:
+      return filtered.sorted { lhs, rhs in
+        let l = lhs.torrent.seeders ?? 0
+        let r = rhs.torrent.seeders ?? 0
+        return sortDescending ? l > r : l < r
+      }
+    case .pubdate:
+      return filtered.sorted { lhs, rhs in
+        let l = lhs.torrent.pubdate ?? ""
+        let r = rhs.torrent.pubdate ?? ""
+        return sortDescending ? l > r : l < r
+      }
     }
   }
 
-  /// 关键词检索输入卡，支持按站点多选后显式提交。
+  /// 关键词检索输入卡，支持指定检索站点范围。
   private var searchInputCard: some View {
-    CinematicPanel(padding: 12) {
+    CinematicPanel(padding: 11) {
       HStack(spacing: 10) {
         Image(systemName: "magnifyingglass")
-          .foregroundStyle(.primary.opacity(0.65))
-        TextField(
-          "输入片名或关键词检索站点资源",
-          text: $keyword,
-          prompt: Text("输入片名或关键词检索站点资源").foregroundColor(.secondary)
-        )
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        .submitLabel(.search)
-        .focused($searchFocused)
-        .accessibilityIdentifier("native-resource-search-query")
-        .onSubmit { submitKeywordSearch() }
+          .foregroundStyle(.secondary)
+        TextField("输入片名或关键词检索站点资源", text: $keyword)
+          .textInputAutocapitalization(.never)
+          .autocorrectionDisabled()
+          .submitLabel(.search)
+          .focused($searchFocused)
+          .accessibilityIdentifier("native-resource-search-query")
+          .onSubmit { submitKeywordSearch() }
         if !keyword.isEmpty {
           Button {
             keyword = ""
           } label: {
-            Image(systemName: "xmark.circle.fill")
-              .foregroundStyle(.primary.opacity(0.55))
+            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
           }
           .buttonStyle(.plain)
-          .accessibilityLabel("清空关键词")
         }
-        Button {
-          submitKeywordSearch()
-        } label: {
-          Image(systemName: "arrow.right.circle.fill")
-            .font(.title3)
-            .foregroundStyle(.primary)
-        }
-        .buttonStyle(.plain)
-        .disabled(keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        .accessibilityLabel("搜索资源")
-        .accessibilityIdentifier("native-resource-search-submit")
-      }
-    }
-  }
-
-  /// 单行快捷过滤、排序与站点多选胶囊栏。
-  private var filterAndSortBar: some View {
-    ScrollView(.horizontal) {
-      HStack(spacing: 8) {
-        ForEach(QuickFilter.allCases) { option in
-          let selected = quickFilter == option
-          Button {
-            quickFilter = option
-          } label: {
-            Text(option.rawValue)
-              .font(.subheadline.weight(selected ? .semibold : .regular))
-              .foregroundStyle(.primary.opacity(selected ? 0.98 : 0.80))
-              .padding(.horizontal, 12)
-              .padding(.vertical, 7)
-              .background {
-                Capsule()
-                  .fill(selected ? NativeTheme.brand.opacity(0.18) : NativeTheme.chipFill)
-                  .overlay {
-                    Capsule().strokeBorder(.primary.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
-                  }
-              }
-              .frame(minHeight: 36)
-          }
-          .buttonStyle(.plain)
-          .accessibilityIdentifier("native-resource-filter-\(option.rawValue)")
-        }
-        Menu {
-          ForEach(SortMode.allCases) { mode in
-            Button {
-              sortMode = mode
-            } label: {
-              if sortMode == mode {
-                Label(mode.rawValue, systemImage: "checkmark")
-              } else {
-                Text(mode.rawValue)
-              }
-            }
-          }
-        } label: {
-          pillMenuLabel(
-            title: sortMode == .priority ? "排序" : sortMode.rawValue, active: sortMode != .priority)
-        }
-        .tint(.primary)
-        .accessibilityIdentifier("native-resource-sort")
-
         if !sites.isEmpty {
           Menu {
             ForEach(sites) { site in
-              let chosen = selectedSiteIDs.contains(site.id)
               Button {
-                if chosen {
-                  selectedSiteIDs.remove(site.id)
+                if querySiteIDs.contains(site.id) {
+                  querySiteIDs.remove(site.id)
                 } else {
-                  selectedSiteIDs.insert(site.id)
+                  querySiteIDs.insert(site.id)
                 }
               } label: {
-                if chosen {
+                if querySiteIDs.contains(site.id) {
                   Label(site.name, systemImage: "checkmark")
                 } else {
                   Text(site.name)
                 }
               }
             }
-            if !selectedSiteIDs.isEmpty {
+            if !querySiteIDs.isEmpty {
               Divider()
-              Button("全部站点") { selectedSiteIDs.removeAll() }
+              Button("全部站点") { querySiteIDs.removeAll() }
             }
           } label: {
-            pillMenuLabel(
-              title: selectedSiteIDs.isEmpty ? "站点" : "站点 \(selectedSiteIDs.count)",
-              active: !selectedSiteIDs.isEmpty)
+            Text(querySiteIDs.isEmpty ? "全站" : "\(querySiteIDs.count)站")
+              .font(.caption2.weight(.semibold))
+              .foregroundStyle(querySiteIDs.isEmpty ? NativeTheme.chipText : .white)
+              .padding(.horizontal, 8).padding(.vertical, 4)
+              .background(
+                querySiteIDs.isEmpty ? NativeTheme.chipFill : appearance.accentColor, in: Capsule())
           }
-          .tint(.primary)
-          .accessibilityIdentifier("native-resource-sites")
         }
+        Button {
+          submitKeywordSearch()
+        } label: {
+          Image(systemName: "arrow.right.circle.fill")
+            .font(.title3)
+            .foregroundStyle(
+              keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? .secondary.opacity(0.4) : appearance.accentColor)
+        }
+        .buttonStyle(.plain)
+        .disabled(keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .accessibilityIdentifier("native-resource-search-submit")
       }
     }
-    .scrollIndicators(.hidden)
   }
 
-  /// 排序/站点筛选菜单胶囊外观。
-  private func pillMenuLabel(title: String, active: Bool) -> some View {
-    HStack(spacing: 4) {
-      Text(title)
-      Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
-    }
-    .font(.subheadline.weight(active ? .semibold : .regular))
-    .foregroundStyle(.primary.opacity(active ? 0.98 : 0.84))
-    .padding(.horizontal, 12)
-    .padding(.vertical, 7)
-    .background {
-      Capsule()
-        .fill(active ? NativeTheme.brand.opacity(0.18) : NativeTheme.chipFill)
-        .overlay {
-          Capsule().strokeBorder(.primary.opacity(active ? 0.28 : 0.14), lineWidth: 0.6)
+  /// 对标 Web 9 维级联多选过滤条：全部筛选入口 + 站点/优惠/分辨率/字幕/版本/编码/季集/来源/制作组 + 排序字段与升降序。
+  private var cascadingFilterBar: some View {
+    let facets = NativeResourceFacetOptions(from: results, currentFilter: filter)
+    return ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 7) {
+        Button {
+          showsAllFiltersSheet = true
+        } label: {
+          NativeAdaptivePill(
+            filter.activeCount > 0 ? "筛选 (\(filter.activeCount))" : "全部筛选",
+            symbol: "slider.horizontal.3",
+            isSelected: filter.activeCount > 0
+          )
         }
-    }
-    .frame(minHeight: 36)
-  }
+        .buttonStyle(.plain)
 
-  /// 单条种子资源透色玻璃卡：站点/促销/规格徽标、标题与副标题、体积/做种统计与下载按钮。
-  private func resourceCard(_ item: NativeResourceContext) -> some View {
-    CinematicPanel(padding: 13) {
-      VStack(alignment: .leading, spacing: 8) {
-        HStack(spacing: 6) {
-          if let siteName = item.torrent.siteName, !siteName.isEmpty {
-            tagCapsule(
-              siteName, fill: Color(red: 0.44, green: 0.34, blue: 0.68).opacity(0.65),
-              foreground: .white)
-          }
-          if let promo = item.promoBadge {
-            tagCapsule(
-              promo, fill: Color(red: 0.16, green: 0.46, blue: 0.32).opacity(0.75),
-              foreground: Color(red: 0.72, green: 0.98, blue: 0.80))
-          }
-          if !item.pixBadge.isEmpty {
-            tagCapsule(item.pixBadge, fill: NativeTheme.chipFill, foreground: NativeTheme.chipText)
-          }
-          if let edition = item.meta?.edition, !edition.isEmpty {
-            tagCapsule(edition, fill: NativeTheme.chipFill, foreground: NativeTheme.chipText)
-          }
-          if let seasonEp = item.meta?.seasonEpisode, !seasonEp.isEmpty {
-            tagCapsule(seasonEp, fill: NativeTheme.chipFill, foreground: NativeTheme.chipText)
-          }
-          Spacer(minLength: 0)
-        }
-        Text(item.torrent.title ?? "未命名种子")
-          .font(.subheadline.weight(.semibold))
-          .foregroundStyle(.primary)
-          .lineLimit(2)
-        if let desc = item.torrent.description?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !desc.isEmpty
-        {
-          Text(desc)
-            .font(.caption)
-            .foregroundStyle(.primary.opacity(0.66))
-            .lineLimit(2)
-        }
-        HStack(spacing: 12) {
-          Label(item.sizeText, systemImage: "internaldrive")
-          Label("\(item.torrent.seeders ?? 0)", systemImage: "arrow.up")
-            .foregroundStyle(NativeTheme.success)
-          if let elapsed = item.torrent.dateElapsed, !elapsed.isEmpty {
-            Text(elapsed).foregroundStyle(.primary.opacity(0.56))
-          }
-          Spacer()
+        if filter.activeCount > 0 {
           Button {
-            selectedForDownload = item
+            filter.clearAll()
           } label: {
-            Label("下载", systemImage: "arrow.down.circle.fill")
-              .font(.caption.weight(.semibold))
-              .foregroundStyle(.primary)
-              .padding(.horizontal, 12)
-              .padding(.vertical, 6)
-              .background {
-                Capsule()
-                  .fill(.primary.opacity(0.18))
-                  .overlay { Capsule().strokeBorder(.primary.opacity(0.26), lineWidth: 0.6) }
-              }
-              .frame(minHeight: 34)
+            NativeAdaptivePill("重置", symbol: "xmark", isSelected: false, tint: NativeTheme.danger)
           }
           .buttonStyle(.plain)
-          .accessibilityIdentifier("native-resource-download-\(item.id)")
         }
-        .font(.caption.monospacedDigit())
-        .foregroundStyle(.primary.opacity(0.80))
-        .padding(.top, 2)
+
+        // 排序字段 + 升降序切换
+        Menu {
+          Section("排序依据") {
+            ForEach(SortField.allCases) { field in
+              Button {
+                sortField = field
+              } label: {
+                if sortField == field {
+                  Label(field.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(field.rawValue)
+                }
+              }
+            }
+          }
+          Section("排序方向") {
+            Button {
+              sortDescending = true
+            } label: {
+              if sortDescending { Label("降序", systemImage: "checkmark") } else { Text("降序") }
+            }
+            Button {
+              sortDescending = false
+            } label: {
+              if !sortDescending { Label("升序", systemImage: "checkmark") } else { Text("升序") }
+            }
+          }
+        } label: {
+          NativeAdaptivePill(
+            sortField == .defaultPriority
+              ? "排序" : "\(sortField.rawValue)\(sortDescending ? "↓" : "↑")",
+            symbol: "arrow.up.arrow.down",
+            isSelected: sortField != .defaultPriority
+          )
+        }
+
+        facetMenuPill(title: "站点", options: facets.sites, selection: $filter.sites)
+        facetMenuPill(title: "促销", options: facets.freeStates, selection: $filter.freeStates)
+        facetMenuPill(title: "分辨率", options: facets.resolutions, selection: $filter.resolutions)
+        facetMenuPill(title: "字幕", options: facets.subtitles, selection: $filter.subtitles)
+        facetMenuPill(title: "版本", options: facets.editions, selection: $filter.editions)
+        facetMenuPill(title: "编码", options: facets.videoCodes, selection: $filter.videoCodes)
+        facetMenuPill(title: "季集", options: facets.seasons, selection: $filter.seasons)
+        facetMenuPill(title: "来源", options: facets.webSources, selection: $filter.webSources)
+        facetMenuPill(title: "制作组", options: facets.releaseGroups, selection: $filter.releaseGroups)
+      }
+      .padding(.vertical, 2)
+    }
+  }
+
+  @ViewBuilder
+  private func facetMenuPill(
+    title: String, options: [String], selection: Binding<Set<String>>
+  ) -> some View {
+    if !options.isEmpty {
+      let count = selection.wrappedValue.count
+      Menu {
+        ForEach(options, id: \.self) { opt in
+          let chosen = selection.wrappedValue.contains(opt)
+          Button {
+            if chosen {
+              selection.wrappedValue.remove(opt)
+            } else {
+              selection.wrappedValue.insert(opt)
+            }
+          } label: {
+            if chosen { Label(opt, systemImage: "checkmark") } else { Text(opt) }
+          }
+        }
+        if count > 0 {
+          Divider()
+          Button("清空\(title)") { selection.wrappedValue.removeAll() }
+        }
+      } label: {
+        NativeAdaptivePill(
+          count > 0 ? "\(title) \(count)" : title,
+          isSelected: count > 0
+        )
       }
     }
   }
 
-  /// 紧凑规格与促销标签胶囊。
-  private func tagCapsule(_ text: String, fill: Color, foreground: Color) -> some View {
-    Text(text)
-      .font(.caption2.weight(.semibold))
-      .foregroundStyle(foreground)
-      .padding(.horizontal, 7)
-      .padding(.vertical, 3)
-      .background { Capsule().fill(fill) }
-      .lineLimit(1)
+  /// 整张卡片即可点击弹出下载确认窗（去除卡片内部多余下载按钮）。
+  private func resourceCard(_ item: NativeResourceContext) -> some View {
+    Button {
+      selectedForDownload = item
+    } label: {
+      CinematicPanel(padding: 13) {
+        VStack(alignment: .leading, spacing: 8) {
+          ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+              if let siteName = item.torrent.siteName, !siteName.isEmpty {
+                NativeAdaptiveBadge(siteName, tint: appearance.accentColor, filled: true)
+              }
+              if let promo = item.promoBadge {
+                NativeAdaptiveBadge(promo, tint: NativeTheme.success)
+              }
+              if item.torrent.hitAndRun == true {
+                NativeAdaptiveBadge("H&R", tint: NativeTheme.danger)
+              }
+              if !item.pixBadge.isEmpty {
+                NativeAdaptiveBadge(item.pixBadge, tint: NativeTheme.info)
+              }
+              if let edition = item.meta?.edition, !edition.isEmpty {
+                NativeAdaptiveBadge(edition)
+              }
+              if let codec = item.meta?.videoEncode, !codec.isEmpty {
+                NativeAdaptiveBadge(codec)
+              }
+              if let seasonEp = item.meta?.seasonEpisode, !seasonEp.isEmpty {
+                NativeAdaptiveBadge(seasonEp, tint: NativeTheme.brand)
+              }
+              if item.hasChineseSubtitle {
+                NativeAdaptiveBadge("中字", tint: NativeTheme.warning)
+              }
+            }
+          }
+          Text(item.torrent.title ?? "未命名种子")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+            .multilineTextAlignment(.leading)
+            .lineLimit(2)
+          if let desc = item.torrent.description?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !desc.isEmpty
+          {
+            Text(desc)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .multilineTextAlignment(.leading)
+              .lineLimit(2)
+          }
+          HStack(spacing: 14) {
+            Label(item.sizeText, systemImage: "internaldrive")
+            Label("\(item.torrent.seeders ?? 0)", systemImage: "arrow.up")
+              .foregroundStyle(NativeTheme.success)
+            if let peers = item.torrent.peers, peers > 0 {
+              Label("\(peers)", systemImage: "arrow.down")
+                .foregroundStyle(NativeTheme.pink)
+            }
+            if let elapsed = item.torrent.dateElapsed, !elapsed.isEmpty {
+              Text(elapsed).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let team = item.meta?.resourceTeam, !team.isEmpty {
+              Text(team)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+          }
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(.secondary)
+          .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+    .buttonStyle(.plain)
+    .accessibilityIdentifier("native-resource-download-\(item.id)")
   }
 
-  /// 操作结果提示条。
   private func feedbackBanner(_ feedback: NativeResourceFeedback) -> some View {
     CinematicPanel(padding: 11) {
       HStack(spacing: 10) {
         Image(
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
-        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
-        Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
+        .foregroundStyle(feedback.isError ? NativeTheme.warning : NativeTheme.success)
+        Text(feedback.message).font(.subheadline).foregroundStyle(.primary)
         Spacer(minLength: 0)
         Button {
           self.feedback = nil
         } label: {
-          Image(systemName: "xmark").font(.caption.weight(.semibold))
-            .foregroundStyle(.primary.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
+          Image(systemName: "xmark").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
         }
         .buttonStyle(.plain)
       }
@@ -443,47 +452,39 @@ struct NativeResourceSearchPage: View {
     .accessibilityIdentifier("native-resource-feedback")
   }
 
-  /// 空态卡片。
   private var emptyCard: some View {
     CinematicPanel {
       VStack(spacing: 10) {
-        Image(systemName: "tray")
-          .font(.largeTitle)
-          .foregroundStyle(.primary.opacity(0.55))
-        Text(results.isEmpty ? "未找到匹配的站点资源" : "当前筛选条件下没有资源")
-          .font(.headline)
-        if !results.isEmpty && quickFilter != .all {
-          Button("查看全部结果") { quickFilter = .all }
-            .frame(minHeight: 44)
+        Image(systemName: "tray").font(.largeTitle).foregroundStyle(.secondary)
+        Text(results.isEmpty ? "未找到匹配的站点资源" : "当前筛选条件下没有资源").font(.headline)
+        if !results.isEmpty && filter.activeCount > 0 {
+          Button("清空筛选条件") { filter.clearAll() }.frame(minHeight: 40)
         }
       }
       .frame(maxWidth: .infinity, minHeight: 150)
     }
   }
 
-  /// 检索失败卡片。
   private var failureCard: some View {
     CinematicPanel {
       VStack(alignment: .leading, spacing: 10) {
         Label("暂时无法检索站点资源", systemImage: "exclamationmark.triangle").font(.headline)
-        Button("重试") { attempt += 1 }
-          .frame(minHeight: 44)
+        Button("重试") { attempt += 1 }.frame(minHeight: 44)
           .accessibilityIdentifier("native-resource-retry")
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }
   }
 
-  /// 显式提交关键词检索。
   private func submitKeywordSearch() {
     let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return }
     searchFocused = false
     activeQueryTerm = trimmed
+    filter.clearAll()
     attempt += 1
   }
 
-  /// 读取可用站点列表供站点多选筛选，普通用户若无站点管理权限则静默跳过。
   private func loadSitesIfNeeded() async {
     guard sites.isEmpty,
       let endpoint = try? APIEndpoint(path: ["site"], trailingSlash: true)
@@ -493,14 +494,12 @@ struct NativeResourceSearchPage: View {
     }
   }
 
-  /// 按当前入口发起资源搜索或读取最近搜索快照。
   private func performSearch() async {
     isLoading = true
     loadFailed = false
     defer { isLoading = false }
     let siteQueryValue =
-      selectedSiteIDs.isEmpty
-      ? nil : selectedSiteIDs.sorted().map(String.init).joined(separator: ",")
+      querySiteIDs.isEmpty ? nil : querySiteIDs.sorted().map(String.init).joined(separator: ",")
     do {
       let endpoint: APIEndpoint
       switch target {
@@ -543,7 +542,82 @@ struct NativeResourceSearchPage: View {
   }
 }
 
-/// 原生下载确认弹层：选择下载器与保存路径后显式单次提交 `POST /api/v1/download/add`。
+// MARK: - 9 维全量筛选弹层
+
+@MainActor
+private struct NativeResourceAllFiltersSheet: View {
+  let results: [NativeResourceContext]
+  @Binding var filter: NativeResourceFacetFilter
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    let facets = NativeResourceFacetOptions(from: results, currentFilter: filter)
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 16) {
+            facetGroup("站点", options: facets.sites, selection: $filter.sites)
+            facetGroup("促销优惠", options: facets.freeStates, selection: $filter.freeStates)
+            facetGroup("分辨率", options: facets.resolutions, selection: $filter.resolutions)
+            facetGroup("字幕", options: facets.subtitles, selection: $filter.subtitles)
+            facetGroup("质量版本", options: facets.editions, selection: $filter.editions)
+            facetGroup("视频编码", options: facets.videoCodes, selection: $filter.videoCodes)
+            facetGroup("季集", options: facets.seasons, selection: $filter.seasons)
+            facetGroup("流媒体来源", options: facets.webSources, selection: $filter.webSources)
+            facetGroup("制作组", options: facets.releaseGroups, selection: $filter.releaseGroups)
+          }
+          .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
+        }
+      }
+      .navigationTitle("全部筛选 (\(filter.activeCount))")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("重置") { filter.clearAll() }.disabled(filter.activeCount == 0)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+          Button("完成") { dismiss() }.fontWeight(.semibold)
+        }
+      }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  @ViewBuilder
+  private func facetGroup(
+    _ title: String, options: [String], selection: Binding<Set<String>>
+  ) -> some View {
+    if !options.isEmpty {
+      VStack(alignment: .leading, spacing: 8) {
+        Text(title).font(.footnote.weight(.medium)).foregroundStyle(.secondary).padding(
+          .horizontal, 4)
+        LazyVGrid(
+          columns: [GridItem(.adaptive(minimum: 84), spacing: 8)], alignment: .leading, spacing: 8
+        ) {
+          ForEach(options, id: \.self) { opt in
+            let chosen = selection.wrappedValue.contains(opt)
+            Button {
+              if chosen {
+                selection.wrappedValue.remove(opt)
+              } else {
+                selection.wrappedValue.insert(opt)
+              }
+            } label: {
+              NativeAdaptivePill(opt, isSelected: chosen)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      }
+    }
+  }
+}
+
+// MARK: - 重构后的满宽下载确认弹层（对标 Web AddDownloadDialog.vue）
+
 @MainActor
 private struct NativeDownloadConfirmSheet: View {
   let session: NativeSession
@@ -552,6 +626,7 @@ private struct NativeDownloadConfirmSheet: View {
   let onAdded: (String) -> Void
 
   @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
   @State private var downloaders: [String] = []
   @State private var paths: [NativeDownloadPathOption] = []
   @State private var selectedDownloader = ""
@@ -559,73 +634,143 @@ private struct NativeDownloadConfirmSheet: View {
   @State private var isSubmitting = false
   @State private var errorMessage: String?
 
-  /// 原生表单弹层保持 Cinematic 渐变与玻璃卡片视觉，绝不自动重试写入。
   var body: some View {
     NavigationStack {
       ZStack {
         CinematicBackground()
         ScrollView {
-          VStack(alignment: .leading, spacing: 18) {
-            CinematicPanel {
-              VStack(alignment: .leading, spacing: 8) {
+          VStack(alignment: .leading, spacing: 16) {
+            // 满宽种子详情摘要卡片
+            CinematicPanel(padding: 15) {
+              VStack(alignment: .leading, spacing: 10) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                  HStack(spacing: 6) {
+                    if let site = item.torrent.siteName, !site.isEmpty {
+                      NativeAdaptiveBadge(site, tint: appearance.accentColor, filled: true)
+                    }
+                    if let promo = item.promoBadge {
+                      NativeAdaptiveBadge(promo, tint: NativeTheme.success)
+                    }
+                    if !item.pixBadge.isEmpty {
+                      NativeAdaptiveBadge(item.pixBadge, tint: NativeTheme.info)
+                    }
+                    if let edition = item.meta?.edition, !edition.isEmpty {
+                      NativeAdaptiveBadge(edition)
+                    }
+                    if let codec = item.meta?.videoEncode, !codec.isEmpty {
+                      NativeAdaptiveBadge(codec)
+                    }
+                    if item.hasChineseSubtitle {
+                      NativeAdaptiveBadge("中字", tint: NativeTheme.warning)
+                    }
+                  }
+                }
+
                 Text(item.torrent.title ?? "种子资源")
-                  .font(.headline)
-                HStack(spacing: 10) {
-                  if let site = item.torrent.siteName, !site.isEmpty {
-                    Text(site)
-                  }
-                  Text(item.sizeText)
-                  Text("做种 \(item.torrent.seeders ?? 0)")
+                  .font(.subheadline.weight(.semibold))
+                  .foregroundStyle(.primary)
+                  .fixedSize(horizontal: false, vertical: true)
+
+                if let desc = item.torrent.description?.trimmingCharacters(
+                  in: .whitespacesAndNewlines),
+                  !desc.isEmpty
+                {
+                  Text(desc)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
                 }
-                .font(.caption)
-                .foregroundStyle(.primary.opacity(0.68))
+
+                Divider().overlay(NativeTheme.divider)
+
+                HStack(spacing: 14) {
+                  Label(item.sizeText, systemImage: "internaldrive")
+                  Label("做种 \(item.torrent.seeders ?? 0)", systemImage: "arrow.up")
+                    .foregroundStyle(NativeTheme.success)
+                  if let elapsed = item.torrent.dateElapsed, !elapsed.isEmpty {
+                    Text(elapsed).foregroundStyle(.secondary)
+                  }
+                  Spacer()
+                }
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // iOS 原生分组选择下载器与保存目录
+            VStack(alignment: .leading, spacing: 7) {
+              Text("下载配置")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+              CinematicPanel(padding: 0) {
+                VStack(spacing: 0) {
+                  HStack {
+                    Label("下载器", systemImage: "arrow.down.circle")
+                      .font(.subheadline)
+                      .foregroundStyle(.primary)
+                    Spacer()
+                    Picker("下载器", selection: $selectedDownloader) {
+                      Text("默认下载器").tag("")
+                      ForEach(downloaders, id: \.self) { name in Text(name).tag(name) }
+                    }
+                    .tint(appearance.accentColor)
+                    .accessibilityIdentifier("native-download-confirm-downloader")
+                  }
+                  .padding(.horizontal, 15).padding(.vertical, 11)
+                  CinematicFormDivider()
+                  HStack {
+                    Label("保存目录", systemImage: "folder")
+                      .font(.subheadline)
+                      .foregroundStyle(.primary)
+                    Spacer()
+                    Picker("保存目录", selection: $selectedPath) {
+                      Text("自动匹配默认目录").tag("")
+                      ForEach(paths) { option in
+                        Text(option.displayLabel).tag(option.submitValue)
+                      }
+                    }
+                    .tint(appearance.accentColor)
+                    .accessibilityIdentifier("native-download-confirm-path")
+                  }
+                  .padding(.horizontal, 15).padding(.vertical, 11)
+                }
               }
             }
-            CinematicPanel {
-              VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                  Text("下载器").font(.subheadline.weight(.medium))
-                  Spacer()
-                  Picker("下载器", selection: $selectedDownloader) {
-                    Text("默认下载器").tag("")
-                    ForEach(downloaders, id: \.self) { name in
-                      Text(name).tag(name)
-                    }
-                  }
-                  .tint(.primary)
-                  .accessibilityIdentifier("native-download-confirm-downloader")
-                }
-                Divider().overlay(.primary.opacity(0.10))
-                HStack {
-                  Text("保存目录").font(.subheadline.weight(.medium))
-                  Spacer()
-                  Picker("保存目录", selection: $selectedPath) {
-                    Text("默认目录").tag("")
-                    ForEach(paths) { option in
-                      Text(option.displayLabel).tag(option.submitValue)
-                    }
-                  }
-                  .tint(.primary)
-                  .accessibilityIdentifier("native-download-confirm-path")
-                }
-              }
-            }
+
             if let errorMessage {
-              Text(errorMessage)
-                .font(.footnote)
-                .foregroundStyle(.orange)
+              CinematicPanel(padding: 11) {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                  .font(.caption).foregroundStyle(NativeTheme.danger)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+              }
             }
-            CinematicPrimaryAction(
-              title: isSubmitting ? "正在添加到下载器…" : "添加到下载",
-              symbol: "arrow.down"
-            ) {
+
+            Button {
               Task { await submitDownload() }
+            } label: {
+              HStack(spacing: 8) {
+                if isSubmitting {
+                  ProgressView().controlSize(.small).tint(.white)
+                } else {
+                  Image(systemName: "arrow.down.circle.fill").font(.body.weight(.semibold))
+                }
+                Text(isSubmitting ? "正在添加到下载器…" : "添加到下载")
+                  .font(.subheadline.weight(.bold))
+              }
+              .foregroundStyle(.white)
+              .frame(maxWidth: .infinity, minHeight: 48)
+              .background(appearance.accentColor, in: Capsule())
             }
+            .buttonStyle(.plain)
             .disabled(isSubmitting)
             .accessibilityIdentifier("native-download-confirm-submit")
           }
-          .padding(CinematicStyle.margin)
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
         }
+        .scrollIndicators(.hidden)
       }
       .navigationTitle("确认下载")
       .navigationBarTitleDisplayMode(.inline)
@@ -640,7 +785,6 @@ private struct NativeDownloadConfirmSheet: View {
     }
   }
 
-  /// 读取当前实例已启用的下载器与下载路径选项。
   private func loadOptions() async {
     async let clientTask: [NativeConfirmDownloader]? = {
       guard let endpoint = try? APIEndpoint(path: ["download", "clients"]) else { return nil }
@@ -655,7 +799,6 @@ private struct NativeDownloadConfirmSheet: View {
     paths = loadedPaths ?? []
   }
 
-  /// 显式单次提交 `POST /api/v1/download/add`，透传完整种子字段与可选媒体身份。
   private func submitDownload() async {
     isSubmitting = true
     errorMessage = nil
@@ -681,53 +824,133 @@ private struct NativeDownloadConfirmSheet: View {
   }
 }
 
-/// 资源页轻量提示载体。
+// MARK: - 9 维级联筛选引擎与模型
+
+private struct NativeResourceFacetFilter: Equatable {
+  var sites: Set<String> = []
+  var seasons: Set<String> = []
+  var webSources: Set<String> = []
+  var subtitles: Set<String> = []
+  var freeStates: Set<String> = []
+  var videoCodes: Set<String> = []
+  var editions: Set<String> = []
+  var resolutions: Set<String> = []
+  var releaseGroups: Set<String> = []
+
+  var activeCount: Int {
+    sites.count + seasons.count + webSources.count + subtitles.count + freeStates.count
+      + videoCodes.count + editions.count + resolutions.count + releaseGroups.count
+  }
+
+  mutating func clearAll() {
+    sites.removeAll()
+    seasons.removeAll()
+    webSources.removeAll()
+    subtitles.removeAll()
+    freeStates.removeAll()
+    videoCodes.removeAll()
+    editions.removeAll()
+    resolutions.removeAll()
+    releaseGroups.removeAll()
+  }
+
+  func matches(_ item: NativeResourceContext, excluding: String? = nil) -> Bool {
+    if excluding != "site", !sites.isEmpty {
+      guard let s = item.torrent.siteName, sites.contains(s) else { return false }
+    }
+    if excluding != "season", !seasons.isEmpty {
+      guard let s = item.meta?.seasonEpisode, !s.isEmpty, seasons.contains(s) else { return false }
+    }
+    if excluding != "webSource", !webSources.isEmpty {
+      guard let w = item.meta?.webSource, !w.isEmpty, webSources.contains(w) else { return false }
+    }
+    if excluding != "subtitle", !subtitles.isEmpty {
+      let subs = item.subtitleTags
+      guard !subs.isDisjoint(with: subtitles) else { return false }
+    }
+    if excluding != "freeState", !freeStates.isEmpty {
+      guard let f = item.freeStateLabel, freeStates.contains(f) else { return false }
+    }
+    if excluding != "videoCode", !videoCodes.isEmpty {
+      guard let v = item.meta?.videoEncode, !v.isEmpty, videoCodes.contains(v) else { return false }
+    }
+    if excluding != "edition", !editions.isEmpty {
+      guard let e = item.meta?.edition, !e.isEmpty, editions.contains(e) else { return false }
+    }
+    if excluding != "resolution", !resolutions.isEmpty {
+      guard !item.pixBadge.isEmpty, resolutions.contains(item.pixBadge) else { return false }
+    }
+    if excluding != "releaseGroup", !releaseGroups.isEmpty {
+      guard let g = item.meta?.resourceTeam, !g.isEmpty, releaseGroups.contains(g) else {
+        return false
+      }
+    }
+    return true
+  }
+}
+
+private struct NativeResourceFacetOptions {
+  let sites: [String]
+  let seasons: [String]
+  let webSources: [String]
+  let subtitles: [String]
+  let freeStates: [String]
+  let videoCodes: [String]
+  let editions: [String]
+  let resolutions: [String]
+  let releaseGroups: [String]
+
+  init(from items: [NativeResourceContext], currentFilter: NativeResourceFacetFilter) {
+    func uniqueSorted(_ key: String, extractor: (NativeResourceContext) -> [String]) -> [String] {
+      let pool = items.filter { currentFilter.matches($0, excluding: key) }
+      var set: Set<String> = []
+      for item in pool {
+        for v in extractor(item) where !v.isEmpty { set.insert(v) }
+      }
+      return set.sorted()
+    }
+    sites = uniqueSorted("site") { [$0.torrent.siteName ?? ""] }
+    seasons = uniqueSorted("season") { [$0.meta?.seasonEpisode ?? ""] }
+    webSources = uniqueSorted("webSource") { [$0.meta?.webSource ?? ""] }
+    subtitles = uniqueSorted("subtitle") { Array($0.subtitleTags) }
+    freeStates = uniqueSorted("freeState") { [$0.freeStateLabel ?? ""] }
+    videoCodes = uniqueSorted("videoCode") { [$0.meta?.videoEncode ?? ""] }
+    editions = uniqueSorted("edition") { [$0.meta?.edition ?? ""] }
+    resolutions = uniqueSorted("resolution") { [$0.pixBadge] }
+    releaseGroups = uniqueSorted("releaseGroup") { [$0.meta?.resourceTeam ?? ""] }
+  }
+}
+
 private struct NativeResourceFeedback {
   let isError: Bool
   let message: String
 }
 
-/// 站点筛选条目投影。
 private struct NativeSearchSite: Decodable, Sendable, Identifiable {
   let id: Int
   let name: String
   let isActive: Bool?
-
-  /// 对应站点 `is_active` 字段。
   private enum CodingKeys: String, CodingKey {
-    case id
-    case name
+    case id, name
     case isActive = "is_active"
   }
 }
 
-/// 确认弹层内的下载器选项。
-private struct NativeConfirmDownloader: Decodable, Sendable {
-  let name: String
-}
+private struct NativeConfirmDownloader: Decodable, Sendable { let name: String }
 
-/// `GET /api/v1/download/paths` 路径选项。
 private struct NativeDownloadPathOption: Decodable, Sendable, Identifiable {
   let name: String?
   let savePath: String?
   let downloadPath: String?
-
-  /// 使用路径值作为稳定键。
   var id: String { submitValue }
-
-  /// 提交给后端 `save_path` 的规范值。
   var submitValue: String {
     if let name, !name.isEmpty { return name }
     return savePath ?? downloadPath ?? ""
   }
-
-  /// 展示给用户的可读路径名称。
   var displayLabel: String {
     if let name, !name.isEmpty { return name }
     return downloadPath ?? savePath ?? "默认目录"
   }
-
-  /// 对应 `DownloadDirectory` 字段。
   private enum CodingKeys: String, CodingKey {
     case name
     case savePath = "save_path"
@@ -735,15 +958,12 @@ private struct NativeDownloadPathOption: Decodable, Sendable, Identifiable {
   }
 }
 
-/// `POST /api/v1/download/add` 写入载荷。
 private struct NativeDownloadAddRequest: Encodable {
   let torrentIn: NativeTorrentPayload
   let mediaSource: String?
   let mediaID: String?
   let downloader: String?
   let savePath: String?
-
-  /// 对应后端参数名称。
   private enum CodingKeys: String, CodingKey {
     case torrentIn = "torrent_in"
     case mediaSource = "media_source"
@@ -753,21 +973,15 @@ private struct NativeDownloadAddRequest: Encodable {
   }
 }
 
-/// 兼容后端 `/search/title`、`/search/media/{id}` 的 `Response[List[Context]]` 包装与 `/search/last` 的裸数组返回，同时逐条容错。
 private struct NativeResourceSearchEnvelope: Decodable, Sendable {
   let success: Bool?
   let message: String?
   let items: [NativeResourceContext]
 
-  private enum CodingKeys: String, CodingKey {
-    case success, message, data
-  }
-
+  private enum CodingKeys: String, CodingKey { case success, message, data }
   private struct LossyContext: Decodable, Sendable {
     let value: NativeResourceContext?
-    init(from decoder: Decoder) throws {
-      value = try? NativeResourceContext(from: decoder)
-    }
+    init(from decoder: Decoder) throws { value = try? NativeResourceContext(from: decoder) }
   }
 
   init(from decoder: Decoder) throws {
@@ -788,30 +1002,30 @@ private struct NativeResourceSearchEnvelope: Decodable, Sendable {
   }
 }
 
-/// `search/last`、`search/media` 与 `search/title` 返回的单条上下文结果。
 private struct NativeResourceContext: Decodable, Sendable, Identifiable {
-  /// 识别出的规格元数据。
   struct Meta: Decodable, Sendable {
     let resourcePix: String?
     let videoEncode: String?
     let audioEncode: String?
     let edition: String?
     let seasonEpisode: String?
+    let webSource: String?
+    let resourceTeam: String?
 
-    /// 对应 `MetaInfo` 字段。
     private enum CodingKeys: String, CodingKey {
+      case edition
       case resourcePix = "resource_pix"
       case videoEncode = "video_encode"
       case audioEncode = "audio_encode"
-      case edition
       case seasonEpisode = "season_episode"
+      case webSource = "web_source"
+      case resourceTeam = "resource_team"
     }
   }
 
   let torrent: NativeTorrentPayload
   let meta: Meta?
 
-  /// 对完整站点与链接/标题计算 64 位 FNV-1a 摘要，避免同站点长链接前缀碰撞导致列表折叠。
   var id: String {
     let raw =
       "\(torrent.site ?? 0)|\(torrent.enclosure ?? "")|\(torrent.pageURL ?? "")|\(torrent.title ?? "")|\(Int(torrent.size ?? 0))"
@@ -823,10 +1037,6 @@ private struct NativeResourceContext: Decodable, Sendable, Identifiable {
     return String(hash, radix: 16)
   }
 
-  /// 是否免费下载（下载系数为 0）。
-  var isFree: Bool { (torrent.downloadVolumeFactor ?? 1.0) == 0 }
-
-  /// 促销标签文案。
   var promoBadge: String? {
     let dl = torrent.downloadVolumeFactor ?? 1.0
     let ul = torrent.uploadVolumeFactor ?? 1.0
@@ -836,17 +1046,32 @@ private struct NativeResourceContext: Decodable, Sendable, Identifiable {
     return nil
   }
 
-  /// 分辨率短标签。
+  var freeStateLabel: String? {
+    if torrent.hitAndRun == true { return "H&R" }
+    return promoBadge
+  }
+
   var pixBadge: String { meta?.resourcePix ?? "" }
 
-  /// 判断是否携带中文字幕标签。
   var hasChineseSubtitle: Bool {
     if (torrent.labels ?? []).contains(where: { $0.contains("中") }) { return true }
     let text = "\(torrent.title ?? "") \(torrent.description ?? "")"
-    return text.contains("中字") || text.contains("简繁")
+    return text.contains("中字") || text.contains("简繁") || text.contains("国语")
   }
 
-  /// 可读文件大小。
+  var subtitleTags: Set<String> {
+    var tags: Set<String> = []
+    if hasChineseSubtitle { tags.insert("中字") }
+    let text =
+      "\(torrent.title ?? "") \(torrent.description ?? "") \((torrent.labels ?? []).joined(separator: " "))"
+    if text.contains("特效") { tags.insert("特效字幕") }
+    if text.contains("杜比") || text.localizedCaseInsensitiveContains("Dolby") || text.contains("HDR")
+    {
+      tags.insert("HDR/杜比")
+    }
+    return tags
+  }
+
   var sizeText: String {
     guard let bytes = torrent.size, bytes > 0 else { return "未知大小" }
     let units = ["B", "KB", "MB", "GB", "TB"]
@@ -859,14 +1084,12 @@ private struct NativeResourceContext: Decodable, Sendable, Identifiable {
     return String(format: "%.1f %@", value, units[index])
   }
 
-  /// 对应 `_SchemaContext` 顶层字段。
   private enum CodingKeys: String, CodingKey {
     case torrent = "torrent_info"
     case meta = "meta_info"
   }
 }
 
-/// 完整种子信息模型，同时支持搜索解码与提交下载编码。
 private struct NativeTorrentPayload: Codable, Sendable {
   let site: Int?
   let siteName: String?
@@ -894,30 +1117,20 @@ private struct NativeTorrentPayload: Codable, Sendable {
   let mediaSource: String?
   let mediaID: String?
 
-  /// 匹配 `_SchemaTorrentInfo` snake_case 契约。
   private enum CodingKeys: String, CodingKey {
-    case site
+    case site, title, description, imdbid, enclosure, size, seeders, peers, grabs, pubdate,
+      freedate,
+      labels
     case siteName = "site_name"
     case siteCookie = "site_cookie"
     case siteUA = "site_ua"
     case siteProxy = "site_proxy"
     case siteOrder = "site_order"
-    case title
-    case description
-    case imdbid
-    case enclosure
     case pageURL = "page_url"
-    case size
-    case seeders
-    case peers
-    case grabs
-    case pubdate
     case dateElapsed = "date_elapsed"
-    case freedate
     case uploadVolumeFactor = "uploadvolumefactor"
     case downloadVolumeFactor = "downloadvolumefactor"
     case hitAndRun = "hit_and_run"
-    case labels
     case priOrder = "pri_order"
     case mediaSource = "media_source"
     case mediaID = "media_id"
