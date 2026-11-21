@@ -110,13 +110,13 @@ struct NativeCalendarPage: View {
             VStack(spacing: 4) {
               Text("\(calendar.component(.day, from: day))")
                 .font(.subheadline.weight(.semibold).monospacedDigit())
-                .foregroundStyle(isToday ? Color(red: 1.0, green: 0.42, blue: 0.44) : .white)
+                .foregroundStyle(isToday ? NativeTheme.danger : Color.primary)
               Text(Self.weekdayShort(calendar.component(.weekday, from: day)))
                 .font(.caption2)
                 .foregroundStyle(
                   isToday ? NativeTheme.danger : NativeTheme.chipText)
               Circle()
-                .fill(hasItems ? Color(red: 0.78, green: 0.62, blue: 1.0) : .clear)
+                .fill(hasItems ? NativeTheme.brand : .clear)
                 .frame(width: 4.5, height: 4.5)
             }
             .frame(maxWidth: .infinity)
@@ -159,23 +159,16 @@ struct NativeCalendarPage: View {
     )
   }
 
-  /// 紧贴日期条两侧的周切换按钮。
+  /// 紧贴日期条两侧的极简周切换箭头（无外框、无底色背景，保留舒适触控区）。
   private func weekShiftButton(
     symbol: String, label: String, id: String, action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
       Image(systemName: symbol)
-        .font(.caption.weight(.bold))
-        .foregroundStyle(.primary.opacity(0.86))
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.secondary)
         .frame(width: 28, height: 48)
-        .background {
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(.primary.opacity(0.08))
-            .overlay {
-              RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(.primary.opacity(0.14), lineWidth: 0.5)
-            }
-        }
+        .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .accessibilityLabel(label)
@@ -226,12 +219,28 @@ struct NativeCalendarPage: View {
     }
   }
 
-  /// 单条播出日历卡片：竖版海报 + 剧名/季号 + 播出日期与集列表 + 订阅进度。
+  /// 单条播出日历卡片：竖版海报 + 剧名/季号 + 播出日期与集列表 + 订阅进度，点击直达媒体详情页。
+  @ViewBuilder
   private func calendarEntryCard(_ entry: NativeCalendarEntry) -> some View {
+    if let identity = entry.detailIdentity {
+      NavigationLink {
+        NativeMediaDetailPage(session: session, identity: identity)
+      } label: {
+        calendarEntryCardBody(entry, showChevron: true)
+      }
+      .buttonStyle(.plain)
+      .accessibilityIdentifier("native-calendar-entry-\(entry.id)")
+    } else {
+      calendarEntryCardBody(entry, showChevron: false)
+        .accessibilityIdentifier("native-calendar-entry-\(entry.id)")
+    }
+  }
+
+  private func calendarEntryCardBody(_ entry: NativeCalendarEntry, showChevron: Bool) -> some View {
     let poster = NativeMediaDetailPage.resolveArtwork(
-      entry.subscribe?.poster, source: "themoviedb")
+      entry.subscribe?.poster, source: entry.subscribe?.mediaSource ?? "themoviedb")
     return CinematicPanel(padding: 12) {
-      HStack(alignment: .top, spacing: 12) {
+      HStack(alignment: .center, spacing: 12) {
         NativeMediaArtwork(session: session, reference: poster, role: .poster, maximumWidth: 420)
           .frame(width: 58, height: 87)
           .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -248,7 +257,7 @@ struct NativeCalendarPage: View {
             Spacer(minLength: 4)
             Text(entry.date)
               .font(.caption2.monospacedDigit())
-              .foregroundStyle(.primary.opacity(0.68))
+              .foregroundStyle(.secondary)
           }
           if !entry.episodesSummary.isEmpty {
             Text(entry.episodesSummary)
@@ -259,12 +268,16 @@ struct NativeCalendarPage: View {
           if let progressText = entry.progressSummary {
             Text(progressText)
               .font(.caption)
-              .foregroundStyle(.primary.opacity(0.62))
+              .foregroundStyle(.secondary)
           }
+        }
+        if showChevron {
+          Image(systemName: "chevron.right")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary.opacity(0.55))
         }
       }
     }
-    .accessibilityIdentifier("native-calendar-entry-\(entry.id)")
   }
 
   /// 载入失败卡片。
@@ -384,19 +397,39 @@ private struct NativeCalendarEntry: Decodable, Sendable, Identifiable {
   struct SubscribeSummary: Decodable, Sendable {
     let id: Int?
     let name: String?
+    let type: String?
     let season: Int?
     let poster: String?
+    let mediaSource: String?
+    let mediaID: String?
+    let tmdbid: Int?
+    let doubanid: String?
     let totalEpisode: Int?
     let completedEpisode: Int?
 
-    /// 对应日历内嵌订阅字段。
     private enum CodingKeys: String, CodingKey {
-      case id
-      case name
-      case season
-      case poster
+      case id, name, type, season, poster, tmdbid, doubanid
+      case mediaSource = "media_source"
+      case mediaID = "media_id"
       case totalEpisode = "total_episode"
       case completedEpisode = "completed_episode"
+    }
+
+    init(from decoder: Decoder) throws {
+      let c = try decoder.container(keyedBy: CodingKeys.self)
+      id = try? c.decode(Int.self, forKey: .id)
+      name = try? c.decode(String.self, forKey: .name)
+      type = try? c.decode(String.self, forKey: .type)
+      season = try? c.decode(Int.self, forKey: .season)
+      poster = try? c.decode(String.self, forKey: .poster)
+      mediaSource = try? c.decode(String.self, forKey: .mediaSource)
+      mediaID =
+        (try? c.decode(String.self, forKey: .mediaID))
+        ?? (try? String(c.decode(Int64.self, forKey: .mediaID)))
+      tmdbid = try? c.decode(Int.self, forKey: .tmdbid)
+      doubanid = try? c.decode(String.self, forKey: .doubanid)
+      totalEpisode = try? c.decode(Int.self, forKey: .totalEpisode)
+      completedEpisode = try? c.decode(Int.self, forKey: .completedEpisode)
     }
   }
 
@@ -405,8 +438,23 @@ private struct NativeCalendarEntry: Decodable, Sendable, Identifiable {
   let runtime: Int?
   let subscribe: SubscribeSummary?
 
-  /// 由日期与订阅 ID 构成唯一行键。
   var id: String { "\(date)|\(subscribe?.id ?? 0)|\(subscribe?.name ?? "")" }
+
+  /// 解析可跳转详情页的媒体身份（兼容 media_source/media_id、tmdbid 与 doubanid）。
+  var detailIdentity: NativeMediaIdentity? {
+    guard let sub = subscribe else { return nil }
+    let mediaType = sub.type ?? "电视剧"
+    if let src = sub.mediaSource, !src.isEmpty, let mid = sub.mediaID, !mid.isEmpty {
+      return NativeMediaIdentity(source: src, mediaID: mid, type: mediaType)
+    }
+    if let tmdb = sub.tmdbid, tmdb > 0 {
+      return NativeMediaIdentity(source: "themoviedb", mediaID: String(tmdb), type: mediaType)
+    }
+    if let douban = sub.doubanid, !douban.isEmpty {
+      return NativeMediaIdentity(source: "douban", mediaID: douban, type: mediaType)
+    }
+    return nil
+  }
 
   /// 剧名与季号。
   var displayTitle: String {
