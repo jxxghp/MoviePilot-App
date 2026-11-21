@@ -4,7 +4,7 @@ import MoviePilotSession
 import UIKit
 import UserNotifications
 
-/// 系统通知生命周期与待处理点击；只有当前已登录实例可消费通知。
+/// 系统通知生命周期与待处理点击；只有当前已登录原生实例可消费通知。
 @MainActor
 final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
   static let shared = NotificationService()
@@ -15,7 +15,6 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     UserDefaults.standard.set(value, forKey: key)
     return value
   }()
-  weak var coordinator: WebCoordinator?
   private(set) weak var nativeSession: NativeSession?
   private(set) var owner: String?
   private(set) var token: String?
@@ -30,20 +29,10 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     return value == "production" ? "production" : nil
   }
 
-  /// 切换 WebView 立即撤销旧身份，冷启动通知等新文档完成认证后再判断。
-  func attach(_ value: WebCoordinator?) {
-    coordinator = value
-    if value != nil { nativeSession = nil }
-    owner = nil
-    identityProbe?.cancel()
-    identityProbe = nil
-  }
-
   /// 原生会话接入系统通知生命周期：立即撤销旧身份，按需通过原生 REST 状态接口确认账号不可变 owner。
   func attachNative(_ session: NativeSession?) {
     identityProbe?.cancel()
     identityProbe = nil
-    coordinator = nil
     nativeSession = session
     owner = nil
     guard let session else { return }
@@ -67,7 +56,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     }
   }
 
-  /// 原生直连 `POST /api/v1/notification/app`，不经过旧网页桥。
+  /// 原生直连 `POST /api/v1/notification/app`。
   func nativeRequest(
     session: NativeSession, action: String, extra: [String: String] = [:]
   ) async throws -> [String: JSONValue] {
@@ -95,39 +84,13 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
   /// 显式开启时先复查渠道与账号，再申请权限；配置失败不能误报未登录或消耗系统授权。
   func enable() async -> String {
     guard environment != nil else { return L10n.text("当前安装使用主屏幕通知。") }
-    if let session = nativeSession {
-      do {
-        let data = try await nativeRequest(session: session, action: "status")
-        guard case .string(let resolvedOwner) = data["owner"], !resolvedOwner.isEmpty else {
-          return L10n.text("通知服务未返回账号身份，请更新 MoviePilot 后端后重试。")
-        }
-        identified(resolvedOwner)
-        guard let key = preferenceKey else { return L10n.text("登录状态已改变，请重新打开通知设置。") }
-        guard
-          try await UNUserNotificationCenter.current().requestAuthorization(options: [
-            .alert, .sound, .badge,
-          ])
-        else {
-          return L10n.text("系统通知未开启，可前往设置允许通知。")
-        }
-        guard self.nativeSession === session, preferenceKey == key else {
-          return L10n.text("登录状态已改变，请重新打开通知设置。")
-        }
-        UserDefaults.standard.set(true, forKey: key)
-        registrationError = nil
-        UIApplication.shared.registerForRemoteNotifications()
-        return L10n.text("已向系统申请推送令牌，稍后刷新查看绑定状态。")
-      } catch let error as NotificationFailure {
-        return error.localizedDescription
-      } catch { return L10n.text("无法开启系统通知，请检查通知服务与系统设置。") }
-    }
-    guard let coordinator else { return L10n.text("请等待页面登录并完成加载。") }
+    guard let session = nativeSession else { return L10n.text("请先完成服务登录。") }
     do {
-      let data = try await coordinator.notificationRequest("status")
-      guard case .string(let owner) = data["owner"], !owner.isEmpty else {
+      let data = try await nativeRequest(session: session, action: "status")
+      guard case .string(let resolvedOwner) = data["owner"], !resolvedOwner.isEmpty else {
         return L10n.text("通知服务未返回账号身份，请更新 MoviePilot 后端后重试。")
       }
-      identified(owner)
+      identified(resolvedOwner)
       guard let key = preferenceKey else { return L10n.text("登录状态已改变，请重新打开通知设置。") }
       guard
         try await UNUserNotificationCenter.current().requestAuthorization(options: [
@@ -136,7 +99,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
       else {
         return L10n.text("系统通知未开启，可前往设置允许通知。")
       }
-      guard self.coordinator === coordinator, preferenceKey == key else {
+      guard self.nativeSession === session, preferenceKey == key else {
         return L10n.text("登录状态已改变，请重新打开通知设置。")
       }
       UserDefaults.standard.set(true, forKey: key)
@@ -160,7 +123,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     registrationError = L10n.text("系统未能注册 APNs。请检查签名能力，或使用主屏幕通知。")
   }
 
-  /// 关闭只撤销当前实例账号的安装及配对网页，不影响其他设备。
+  /// 关闭只撤销当前实例账号的本机安装绑定，不影响其他设备。
   func disable() {
     if let key = preferenceKey { UserDefaults.standard.removeObject(forKey: key) }
     UIApplication.shared.unregisterForRemoteNotifications()
@@ -169,65 +132,46 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     pending = nil
   }
 
-  /// 通知点击可先于 Web 认证；只在内存中短暂等待，过期后不重放。
+  /// 通知点击可先于认证到达；只在内存中短暂等待，过期后不重放。
   func receive(_ intent: NotificationIntent) {
     pending = (intent, Date())
     consumePending()
   }
 
-  /// 前台和弹层关闭后再次检查尚未消费的点击，仍遵守五分钟有效期。
+  /// 前台恢复后再次检查尚未消费的点击，仍遵守五分钟有效期。
   func resumePending() { consumePending() }
 
   /// 前台展示也必须匹配当前账号，旧实例的通知不显示在当前会话上。
   private func accepts(_ intent: NotificationIntent) -> Bool {
-    guard let owner else { return false }
-    if let nativeSession {
-      return intent.matches(address: nativeSession.instance.address, owner: owner)
-    }
-    guard let coordinator else { return false }
-    return intent.matches(address: coordinator.instance.address, owner: owner)
+    guard let nativeSession, let owner else { return false }
+    return intent.matches(address: nativeSession.instance.address, owner: owner)
   }
 
   /// 已认证后只提交一次导航意图；账号不匹配只提示，不自动切换实例。
   private func consumePending() {
-    guard let (intent, created) = pending else { return }
+    guard let (intent, created) = pending, let nativeSession else { return }
     guard Date().timeIntervalSince(created) < 300 else {
       pending = nil
       return
     }
-    if let nativeSession {
-      guard let owner else {
-        // 尚在等待身份确认时补发一次只读 status 探针。
-        if identityProbe == nil { attachNative(nativeSession) }
-        return
-      }
-      guard intent.matches(address: nativeSession.instance.address, owner: owner) else {
-        pending = nil
-        NativeSystemRouteHub.shared.postBanner(L10n.text("这条通知属于其他实例或账号，请切换后查看通知中心。"))
-        return
-      }
-      if NativeSystemRouteHub.shared.open(route: intent.route) {
-        pending = nil
-      }
+    guard let owner else {
+      if identityProbe == nil { attachNative(nativeSession) }
       return
     }
-    guard let coordinator, let owner else { return }
-    guard intent.matches(address: coordinator.instance.address, owner: owner) else {
+    guard intent.matches(address: nativeSession.instance.address, owner: owner) else {
       pending = nil
-      coordinator.shell?.showNotificationMessage(L10n.text("这条通知属于其他实例或账号，请切换后查看通知中心。"))
+      NativeSystemRouteHub.shared.postBanner(L10n.text("这条通知属于其他实例或账号，请切换后查看通知中心。"))
       return
     }
-    if coordinator.openNotification(intent) { pending = nil }
+    if NativeSystemRouteHub.shared.open(route: intent.route) {
+      pending = nil
+    }
   }
 
   /// 配置偏好绑定完整实例入口与不可变账号身份，账号改名不影响绑定。
   private var preferenceKey: String? {
-    guard let owner else { return nil }
-    if let nativeSession {
-      return "moviepilot.notification.enabled.\(nativeSession.instance.id).\(owner)"
-    }
-    guard let coordinator else { return nil }
-    return "moviepilot.notification.enabled.\(coordinator.instance.id).\(owner)"
+    guard let nativeSession, let owner else { return nil }
+    return "moviepilot.notification.enabled.\(nativeSession.instance.id).\(owner)"
   }
 
   /// 只有用户启用过且构建声明 APNs 时才向 Apple 注册。
@@ -238,24 +182,17 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
 
   /// 令牌注册直连后端接口；失败留在设置页供用户显式重试。
   private func bindToken() async {
-    guard enabled, let token, let environment else { return }
+    guard enabled, let token, let nativeSession, let environment else { return }
     let extra = [
       "token": token,
       "topic": Bundle.main.bundleIdentifier ?? "",
       "environment": environment,
     ]
-    if let nativeSession {
-      do {
-        _ = try await nativeRequest(session: nativeSession, action: "register", extra: extra)
-      } catch {
-        registrationError = L10n.text("通知令牌尚未绑定，请检查后台渠道并重新开启。")
-      }
-      return
-    }
-    guard let coordinator else { return }
     do {
-      _ = try await coordinator.notificationRequest("register", extra: extra)
-    } catch { registrationError = L10n.text("通知令牌尚未绑定，请检查后台渠道并重新开启。") }
+      _ = try await nativeRequest(session: nativeSession, action: "register", extra: extra)
+    } catch {
+      registrationError = L10n.text("通知令牌尚未绑定，请检查后台渠道并重新开启。")
+    }
   }
 
   /// 在系统回调线程解析不可变载荷，跨执行器只传递经过验证的值。
@@ -270,8 +207,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
   nonisolated func userNotificationCenter(
     _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
     withCompletionHandler completionHandler:
-      @escaping @Sendable (UNNotificationPresentationOptions) ->
-      Void
+      @escaping @Sendable (UNNotificationPresentationOptions) -> Void
   ) {
     let intent = Self.intent(from: notification.request.content.userInfo)
     Task { @MainActor [weak self] in
@@ -287,7 +223,6 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
   ) {
     let intent = Self.intent(from: response.notification.request.content.userInfo)
     Task { @MainActor [weak self] in
-      // 无效载荷和已释放会话也必须完成系统回调，冷启动意图仍交由既有认证流程等待。
       defer { completionHandler() }
       if let intent { self?.receive(intent) }
     }

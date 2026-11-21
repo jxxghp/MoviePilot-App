@@ -64,7 +64,10 @@ public final class APIClient: Sendable {
 
   /// 供保真 JSON 解析器消费原始 payload；HTTP 边界与 typed API 相同，不猜测或跳过标准包装。
   public func requestPayload(_ endpoint: APIEndpoint) async throws -> APIResult<Data> {
-    guard endpoint.responseContract == .payload || endpoint.responseContract == .eventStream else {
+    guard
+      endpoint.responseContract == .payload || endpoint.responseContract == .eventStream
+        || endpoint.responseContract == .plainText
+    else {
       throw APIError.invalidEndpoint
     }
     let response = try await receive(endpoint)
@@ -114,7 +117,7 @@ public final class APIClient: Sendable {
         value = try JSONDecoder().decode(APIEnvelope<Value>.self, from: response.data).value
       case .payload:
         value = try JSONDecoder().decode(type, from: response.data)
-      case .eventStream:
+      case .eventStream, .plainText:
         throw APIError.invalidEndpoint
       }
     } catch let error as APIError {
@@ -138,7 +141,7 @@ public final class APIClient: Sendable {
         _ = try JSONDecoder().decode(APIEnvelope<JSONValue>.self, from: response.data)
       case .payload:
         _ = try JSONDecoder().decode(JSONValue.self, from: response.data)
-      case .eventStream:
+      case .eventStream, .plainText:
         break
       }
     } catch let error as APIError {
@@ -159,9 +162,13 @@ public final class APIClient: Sendable {
     request.httpMethod = endpoint.method.rawValue
     request.httpBody = endpoint.body
     request.httpShouldHandleCookies = false
-    request.setValue(
-      endpoint.responseContract == .eventStream ? "text/event-stream" : "application/json",
-      forHTTPHeaderField: "Accept")
+    let acceptHeader: String =
+      switch endpoint.responseContract {
+      case .eventStream: "text/event-stream"
+      case .plainText: "text/plain"
+      case .envelope, .payload: "application/json"
+      }
+    request.setValue(acceptHeader, forHTTPHeaderField: "Accept")
     request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
     request.setValue(language.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
     if endpoint.body != nil {
@@ -180,6 +187,8 @@ public final class APIClient: Sendable {
         guard let mime = http.mimeType?.lowercased() else { throw APIError.invalidResponse }
         if endpoint.responseContract == .eventStream {
           guard mime == "text/event-stream" else { throw APIError.invalidResponse }
+        } else if endpoint.responseContract == .plainText {
+          guard mime == "text/plain" else { throw APIError.invalidResponse }
         } else {
           guard
             mime == "application/json" || mime.hasPrefix("application/") && mime.hasSuffix("+json")

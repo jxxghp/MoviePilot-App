@@ -244,6 +244,7 @@
 
 | 日期 | 叶子 | 结果与证据 | 未覆盖 |
 | --- | --- | --- | --- |
+| 2026-11-21 | P8（最终收口） | 默认入口切流为原生 SwiftUI v2（移除 `--native-v2` 与 21 个旧 1.x 主流程 WebKit 文件，仅留 `LegacyWebsiteStorage` 与受控 Vue 插件隔离宿主）、新增设置页捷径与诊断工具集（系统检查、网络测试、名称识别/规则测试、实时日志、定时服务）、重设计连接服务与登录页视觉；严格格式 + 35/35 SwiftPM + 27/27 Python + Debug/Release 双构建 + iPhone 17 (10/10) 与 iPad Pro 默认无参数回归全部通过。[验收证据](evidence/2026-11-21-p8-default-cutover.md) | 本地 `v2` 分支已就绪；真机签名、最低 iOS 16 真机矩阵与公开发布留待用户另行授权执行 |
 | 2026-11-21 | P7.2 | 系统集成原生解耦：APNs 推送通知（`POST /api/v1/notification/app`）、桌面小组件（`GET/POST/DELETE /api/v1/widget/*` + 共享仓隔离与注销自撤销）、冷热启动深链与主屏幕快捷项全面脱离 `WebCoordinator`，接入 `NativeSystemRouteHub` 与原生设置弹窗；严格格式 + 35/35 SwiftPM + iPhone 17 API-only 合成 UI（零 WebView）通过。[验收证据](evidence/2026-11-21-system-integration.md) | 进入最终叶子 P8（切换默认原生入口、移除旧主流程 WebKit 与全矩阵最终回归验收） |
 | 2026-11-21 | P6.2b / P6.3b / P7.3 / 导航与交互收口 | 4+1 导航与极简 8 项弹出菜单、动态 `+1` 上下文按钮、多样化设置中心、订阅/搜索站点范围（`IndexerSites`/`RssSites`）、系统专项设置、用户管理编辑、原生本地与媒体服务器播放（脱离 `WebCoordinator`）、发现页透明片名 Logo、无标题仪表盘无缝插件渲染、站点上下行图示、插件作者/下载量/评分、整理历史常驻搜索与整理队列、长按上下文菜单；27 Python + 严格格式 + iPhone 17 / iPad Pro API-only 合成 UI + 本机 3001 实测 47 张逐图验收通过。[验收证据](evidence/2026-11-21-nav41-settings-playback-polish.md) | P7.2（小组件、APNs 推送、外部深链与主屏快捷方式原生解耦）与 P8（默认切流、移除旧主流程 WebKit 与最终全矩阵验收）继续 |
 | 2026-11-21 | P5.2 / P5.4 | 原生多存储文件浏览器（多存储切换、目录钻取、面包屑、新建目录与确认删除）与原生工作流清单/执行控制（运行、启停、确认重置）；27 Python + 严格格式 + iPhone/iPad API-only 全链路 UI + 本机 3001 真实后端逐图验收通过。[验收证据](evidence/2026-11-21-files-workflows.md) | 系统设置中心与用户管理转入下一激活叶子 P6.2/P6.3；工作流节点画布（P5.5）、多来源发现/编排、插件剩余生态与 P8 门禁继续 |

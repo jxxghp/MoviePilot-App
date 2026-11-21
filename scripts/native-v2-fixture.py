@@ -425,7 +425,12 @@ class NativeHandler(BaseHTTPRequestHandler):
             if endpoint in {"api/v1/workflow/actions", "api/v1/workflow/shares"} or re.fullmatch(r"api/v1/workflow/[0-9]+", endpoint):
                 self.workflow_read_endpoint(name, endpoint)
                 return
-            if endpoint in {"api/v1/system/nettest/targets", "api/v1/system/nettest"} or re.fullmatch(r"api/v1/system/setting/[A-Za-z0-9_]+", endpoint):
+            if endpoint in {
+                "api/v1/system/nettest/targets", "api/v1/system/nettest",
+                "api/v1/system/modulelist", "api/v1/system/ruletest",
+                "api/v1/system/logging", "api/v1/system/runscheduler",
+                "api/v1/media/recognize",
+            } or re.fullmatch(r"api/v1/system/(?:setting|moduletest)/[A-Za-z0-9_]+", endpoint):
                 self.system_setting_read_endpoint(name, endpoint)
                 return
             if endpoint == "api/v1/system/img/0":
@@ -1349,6 +1354,57 @@ class NativeHandler(BaseHTTPRequestHandler):
             return
         if endpoint == "api/v1/system/nettest":
             self.reply(200, {"success": True, "message": "", "data": {"time": 42.0}})
+            return
+        if endpoint == "api/v1/system/modulelist":
+            self.reply(200, {
+                "success": True, "message": "",
+                "data": {"modules": [
+                    {"id": "TheMovieDbModule", "name": "TMDB 元数据", "name_i18n": "TMDB 元数据"},
+                    {"id": "QbittorrentModule", "name": "Qbittorrent 下载器", "name_i18n": "Qbittorrent 下载器"},
+                ]},
+            })
+            return
+        if endpoint.startswith("api/v1/system/moduletest/"):
+            self.reply(200, {"success": True, "message": "", "data": None})
+            return
+        if endpoint == "api/v1/media/recognize":
+            self.reply(200, {
+                "success": True, "message": "",
+                "data": {
+                    "meta_info": {
+                        "name": "黑客帝国", "type": "电影", "resource_pix": "2160p",
+                        "edition": "BluRay", "resource_team": "SYN",
+                    },
+                    "media_info": {
+                        "title": "黑客帝国", "title_year": "黑客帝国 (1999)",
+                        "type": "电影", "overview": "合成名称识别测试返回结果。",
+                    },
+                },
+            })
+            return
+        if endpoint == "api/v1/system/ruletest":
+            self.reply(200, {
+                "success": True, "message": "",
+                "data": {
+                    "matched": True, "priority": 98, "rulegroup_name": "4K 优先",
+                    "meta_info": {"name": "黑客帝国", "resource_pix": "2160p", "resource_team": "SYN"},
+                    "media_info": {"title": "黑客帝国", "title_year": "黑客帝国 (1999)", "type": "电影"},
+                },
+            })
+            return
+        if endpoint == "api/v1/system/logging":
+            raw = (
+                "INFO 2026-11-21 09:50:01 MoviePilot 合成日志服务已就绪\n"
+                "WARNING 2026-11-21 09:50:02 合成节点延迟略高\n"
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+            return
+        if endpoint == "api/v1/system/runscheduler":
+            self.reply(200, {"success": True, "message": "", "data": None})
             return
         key = endpoint.rsplit("/", 1)[-1]
         defaults = {

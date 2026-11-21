@@ -1,67 +1,46 @@
 import UIKit
 
-/// 每次场景连接都选择独立驱动，避免系统恢复旧场景时绕过调试入口选择。
+/// 应用默认场景代理：统一承载原生 SwiftUI v2 客户端，主流程不再初始化旧网页协调器。
 @MainActor
 final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
   var window: UIWindow?
-  private var driver: (any UIWindowSceneDelegate)?
+  private var driver: NativeV2SceneDelegate?
 
-  /// 原生模式默认关闭，Release 不接受测试参数切换尚未完成的客户端。
-  private var usesNativeEntry: Bool {
-    #if DEBUG
-      ProcessInfo.processInfo.arguments.contains("--native-v2")
-    #else
-      false
-    #endif
-  }
-
-  /// 驱动各自拥有窗口和生命周期，原生链不初始化旧网页协调器。
+  /// 默认冷启动直接进入原生 v2 驱动并接管窗口、深链与快捷项生命周期。
   func scene(
     _ scene: UIScene, willConnectTo session: UISceneSession,
     options connectionOptions: UIScene.ConnectionOptions
   ) {
-    if usesNativeEntry {
-      let native = NativeV2SceneDelegate()
-      driver = native
-      native.scene(scene, willConnectTo: session, options: connectionOptions)
-      window = native.window
-    } else {
-      let legacy = LegacyWebSceneDelegate()
-      driver = legacy
-      legacy.scene(scene, willConnectTo: session, options: connectionOptions)
-      window = legacy.window
-    }
+    let native = NativeV2SceneDelegate()
+    driver = native
+    native.scene(scene, willConnectTo: session, options: connectionOptions)
+    window = native.window
   }
 
-  /// 快捷项交给当前驱动（原生与旧入口各自按权限消费）。
+  /// 主屏幕快捷方式直接转发给原生驱动。
   func windowScene(
     _ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem,
     completionHandler: @escaping (Bool) -> Void
   ) {
-    if let native = driver as? NativeV2SceneDelegate {
-      native.windowScene(
-        windowScene, performActionFor: shortcutItem, completionHandler: completionHandler)
-      return
-    }
-    guard let legacy = driver as? LegacyWebSceneDelegate else {
+    guard let driver else {
       completionHandler(false)
       return
     }
-    legacy.windowScene(
+    driver.windowScene(
       windowScene, performActionFor: shortcutItem, completionHandler: completionHandler)
   }
 
-  /// 深链由当前实现解释，不从原生入口跨回旧网页。
+  /// 自定义深链统一由原生路由中枢校验和消费。
   func scene(_ scene: UIScene, openURLContexts urlContexts: Set<UIOpenURLContext>) {
-    driver?.scene?(scene, openURLContexts: urlContexts)
+    driver?.scene(scene, openURLContexts: urlContexts)
   }
 
-  /// 前台恢复仅通知已经选定的驱动。
-  func sceneDidBecomeActive(_ scene: UIScene) { driver?.sceneDidBecomeActive?(scene) }
+  /// 前台恢复通知原生驱动撤除隐私遮罩并恢复待处理系统意图。
+  func sceneDidBecomeActive(_ scene: UIScene) { driver?.sceneDidBecomeActive(scene) }
 
-  /// 系统中断转发给当前驱动，用于隐藏认证输入。
-  func sceneWillResignActive(_ scene: UIScene) { driver?.sceneWillResignActive?(scene) }
+  /// 系统中断前隐藏敏感输入。
+  func sceneWillResignActive(_ scene: UIScene) { driver?.sceneWillResignActive(scene) }
 
-  /// 后台取消语义由各驱动负责，不在路由层重新建立会话。
-  func sceneDidEnterBackground(_ scene: UIScene) { driver?.sceneDidEnterBackground?(scene) }
+  /// 后台清理明文认证草稿并取消未完成的认证请求。
+  func sceneDidEnterBackground(_ scene: UIScene) { driver?.sceneDidEnterBackground(scene) }
 }
