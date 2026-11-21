@@ -61,8 +61,9 @@ struct NativeTransferHistoryPage: View {
                   .onAppear { loadMoreIfNeeded(at: index) }
               }
               if isLoadingMore {
-                ProgressView("正在载入更多…")
+                ProgressView()
                   .tint(.primary)
+                  .frame(maxWidth: .infinity)
                   .padding(.vertical, 12)
               }
             }

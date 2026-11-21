@@ -105,6 +105,34 @@ public final class APIClient: Sendable {
     }
   }
 
+  /// 通过同源资源 Cookie 访问实时日志等受资源令牌保护的文本/流式端点；若资源 Cookie 过期则自动续签一次，不污染主登录态。
+  public func requestResourcePayload(_ endpoint: APIEndpoint) async throws -> APIResult<Data> {
+    guard token != nil,
+      endpoint.responseContract == .payload || endpoint.responseContract == .plainText
+        || endpoint.responseContract == .eventStream
+    else { throw token == nil ? APIError.invalidCredential : APIError.invalidEndpoint }
+    let target = try endpoint.url(for: address)
+    try Task.checkCancellation()
+    let cookie = try await resourceCookies.resolve(for: target) {
+      let refreshEndpoint = try APIEndpoint(path: ["media", "source"])
+      _ = try await self.request(refreshEndpoint, as: [JSONValue].self)
+    }
+    do {
+      let response = try await receiveResourcePayload(endpoint, cookie: cookie)
+      return APIResult(
+        value: response.data, statusCode: response.statusCode, collection: response.collection)
+    } catch APIError.unauthorized {
+      resourceCookies.remove(cookie)
+      let renewed = try await resourceCookies.resolve(for: target) {
+        let refreshEndpoint = try APIEndpoint(path: ["media", "source"])
+        _ = try await self.request(refreshEndpoint, as: [JSONValue].self)
+      }
+      let response = try await receiveResourcePayload(endpoint, cookie: renewed)
+      return APIResult(
+        value: response.data, statusCode: response.statusCode, collection: response.collection)
+    }
+  }
+
   /// 端点必须显式选择标准 envelope 或原始 payload；保留分页头而不修改列表。
   public func request<Value: Decodable & Sendable>(
     _ endpoint: APIEndpoint, as type: Value.Type = Value.self
@@ -209,6 +237,58 @@ public final class APIClient: Sendable {
       if token != nil, endpoint.method == .get, let cookie = APIResourceCookie(response: http) {
         resourceCookies.capture(cookie)
       }
+      return APIHTTPResponse(data: data, statusCode: http.statusCode, collection: collection)
+    } catch let error as APIError {
+      throw error
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch let error as URLError {
+      if error.code == .cancelled { throw CancellationError() }
+      throw error.code == .timedOut ? APIError.timedOut : APIError.unavailable
+    } catch {
+      throw APIError.unavailable
+    }
+  }
+
+  /// 只向已校验的 MoviePilot API 地址发请求，并以流式方式限制资源文本响应大小。
+  private func receiveResourcePayload(
+    _ endpoint: APIEndpoint, cookie: APIResourceCookie
+  ) async throws -> APIHTTPResponse {
+    try Task.checkCancellation()
+    let url = try endpoint.url(for: address)
+    var request = URLRequest(
+      url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+      timeoutInterval: endpoint.timeout)
+    request.httpMethod = endpoint.method.rawValue
+    request.httpShouldHandleCookies = false
+    let acceptHeader: String =
+      switch endpoint.responseContract {
+      case .eventStream: "text/event-stream"
+      case .plainText: "text/plain"
+      case .envelope, .payload: "*/*"
+      }
+    request.setValue(acceptHeader, forHTTPHeaderField: "Accept")
+    request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+    request.setValue(language.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
+    request.setValue(cookie.header, forHTTPHeaderField: "Cookie")
+    do {
+      let (bytes, raw) = try await session.bytes(for: request)
+      defer { bytes.task.cancel() }
+      guard let http = raw as? HTTPURLResponse, http.url == url else {
+        throw APIError.invalidResponse
+      }
+      try Self.checkStatus(http)
+      guard http.expectedContentLength <= endpoint.maximumResponseBytes else {
+        throw APIError.responseTooLarge
+      }
+      var data = Data()
+      for try await byte in bytes {
+        try Task.checkCancellation()
+        guard data.count < endpoint.maximumResponseBytes else { throw APIError.responseTooLarge }
+        data.append(byte)
+      }
+      try Task.checkCancellation()
+      let collection = try APICollectionMetadata(response: http)
       return APIHTTPResponse(data: data, statusCode: http.statusCode, collection: collection)
     } catch let error as APIError {
       throw error

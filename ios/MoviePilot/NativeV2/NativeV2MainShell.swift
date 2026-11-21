@@ -48,6 +48,9 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @State private var discoverModules = NativeDiscoverModuleItem.defaults
   @State private var showsModuleSheet = false
   @State private var pendingModuleRefetch = false
+  @State private var latestServerName: String?
+  @State private var railNextPage: [String: Int] = [:]
+  @State private var loadingRailIDs: Set<String> = []
 
   /// 保留 root 原有账号动作与插件路由，主导航由系统 TabView 承载各标签独立栈。
   init(
@@ -501,6 +504,10 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           }
         },
         onManageModules: { showsModuleSheet = true },
+        onLoadMoreRail: { railID in
+          Task { await loadMoreDiscoverRail(railID) }
+        },
+        loadingRailIDs: loadingRailIDs,
         onRetry: { discoveryAttempt += 1 }
       )
       .toolbarBackground(.hidden, for: .navigationBar)
@@ -843,8 +850,9 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     var latestItems: [NativeDiscoverMedia] = []
     var providers: [NativeDiscoverProvider] = []
     if let server = clients?.first?.name, !server.isEmpty {
+      latestServerName = server
       async let playingTask = try? requestMediaServerPlaying(server: server)
-      async let latestTask = try? requestMediaServerLatest(server: server)
+      async let latestTask = try? requestMediaServerLatest(server: server, count: 20, page: 1)
       async let libraryTask = try? requestMediaServerLibraries(server: server)
       let (playingRows, latestRows, libraryRows) = await (playingTask, latestTask, libraryTask)
       guard !Task.isCancelled, discoveryGeneration == generation else { return }
@@ -853,6 +861,8 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       }
       latestItems = (latestRows ?? []).compactMap(projectLatestItem)
       providers = (libraryRows ?? []).compactMap(projectLibraryProvider)
+    } else {
+      latestServerName = nil
     }
 
     let (doubanShowing, doubanTop) = await (doubanShowingTask, doubanTopTask)
@@ -902,8 +912,12 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           hasMore: true))
     }
     if !latestItems.isEmpty {
-      rails.append(NativeDiscoverRail(id: "latest", title: "最新入库", items: latestItems))
+      rails.append(
+        NativeDiscoverRail(
+          id: "latest", title: "最新入库", items: latestItems, hasMore: latestItems.count >= 20))
     }
+    railNextPage = [:]
+    loadingRailIDs = []
 
     let exploreCategories: [NativeDiscoverCategory] = [
       NativeDiscoverCategory(
@@ -1113,15 +1127,18 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     ).value
   }
 
-  /// 读取媒体服务器最新入库条目，以标准海报栏呈现。
-  private func requestMediaServerLatest(server: String) async throws -> [NativeMediaServerPlayItem]
-  {
-    let endpoint = try APIEndpoint(
-      path: ["mediaserver", "latest"],
-      query: [
-        URLQueryItem(name: "server", value: server),
-        URLQueryItem(name: "count", value: "16"),
-      ])
+  /// 读取媒体服务器最新入库条目，支持 `page` 与 `count` 分页滚动加载。
+  private func requestMediaServerLatest(
+    server: String, count: Int = 20, page: Int? = nil
+  ) async throws -> [NativeMediaServerPlayItem] {
+    var query = [
+      URLQueryItem(name: "server", value: server),
+      URLQueryItem(name: "count", value: String(count)),
+    ]
+    if let page {
+      query.append(URLQueryItem(name: "page", value: String(page)))
+    }
+    let endpoint = try APIEndpoint(path: ["mediaserver", "latest"], query: query)
     return try await session.request(
       endpoint, as: [NativeMediaServerPlayItem].self, requiring: .init(category: .discovery)
     ).value
@@ -1138,10 +1155,58 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     ).value
   }
 
+  /// 发现页横向轨道滑到末尾时静默追加下一页，支持最新入库与各推荐栏无限横滑。
+  private func loadMoreDiscoverRail(_ railID: String) async {
+    guard !loadingRailIDs.contains(railID),
+      let railIndex = discovery.rails.firstIndex(where: { $0.id == railID }),
+      discovery.rails[railIndex].hasMore
+    else { return }
+    let nextPage = railNextPage[railID] ?? 2
+    let generation = discoveryGeneration
+    loadingRailIDs.insert(railID)
+    defer { loadingRailIDs.remove(railID) }
+    do {
+      let result = try await loadRailPage(railID, page: nextPage)
+      guard !Task.isCancelled, discoveryGeneration == generation,
+        let idx = discovery.rails.firstIndex(where: { $0.id == railID })
+      else { return }
+      var existing = Set(discovery.rails[idx].items.map(\.id))
+      let additions = result.items.filter { existing.insert($0.id).inserted }
+      for item in additions {
+        if let identity = item.identity {
+          mediaIdentities[item.id] = identity
+        }
+      }
+      var updatedRails = discovery.rails
+      let old = updatedRails[idx]
+      updatedRails[idx] = NativeDiscoverRail(
+        id: old.id, title: old.title, items: old.items + additions,
+        hasMore: result.hasMore && !additions.isEmpty, style: old.style)
+      railNextPage[railID] = nextPage + 1
+      discovery = NativeDiscoverContent(
+        featuredItems: discovery.featuredItems,
+        rails: updatedRails,
+        continueWatching: discovery.continueWatching,
+        providers: discovery.providers,
+        categories: discovery.categories,
+        moduleOrder: discovery.moduleOrder,
+        isLoading: discovery.isLoading,
+        loadFailed: discovery.loadFailed)
+    } catch {
+      return
+    }
+  }
+
   /// 分区只允许映射到已声明的后端接口，未呈现的接口不能从界面任意构造。
   private func loadRailPage(_ railID: String, page: Int) async throws
     -> (items: [NativeDiscoverMedia], hasMore: Bool)
   {
+    if railID == "latest" {
+      guard let server = latestServerName, !server.isEmpty else { return ([], false) }
+      let rows = try await requestMediaServerLatest(server: server, count: 20, page: page)
+      let projected = rows.compactMap(projectLatestItem)
+      return (projected, rows.count >= 20)
+    }
     let rows: [NativeDiscoverAPIItem]
     let fallbackType: String
     switch railID {

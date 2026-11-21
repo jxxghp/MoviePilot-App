@@ -4,7 +4,7 @@ import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
 
-/// 原生系统设置中心：仅读取与编辑白名单非敏感系统设置项，支持显式单次保存至 `POST /api/v1/system/env`。
+/// 原生高级系统设置页：对应原 Web 核心与高级系统参数（网络代理、元数据域名、性能缓存与更新日志），支持单次增量保存至 `POST /api/v1/system/env`。
 @MainActor
 struct NativeSystemSettingsPage: View {
   let session: NativeSession
@@ -17,7 +17,7 @@ struct NativeSystemSettingsPage: View {
   @State private var attempt = 0
   @State private var feedback: NativeSettingsFeedback?
 
-  /// 连续深色紫玫瑰渐变背景、2x2 状态概览卡、分组透色设置卡片与原生保存按钮。
+  /// 连续渐变背景、弱化层次分组玻璃卡（网络与代理、媒体与元数据、性能订阅、更新与日志）与原生保存按钮。
   var body: some View {
     ZStack {
       CinematicBackground()
@@ -33,10 +33,9 @@ struct NativeSystemSettingsPage: View {
           } else if loadFailed && !loaded.isLoaded {
             failureCard
           } else {
-            overviewGrid
-            modulesSection
+            networkSection
             recognitionSection
-            subscribeSection
+            performanceAndSubscribeSection
             runtimeSection
           }
         }
@@ -50,7 +49,7 @@ struct NativeSystemSettingsPage: View {
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-settings-scroll")
     }
-    .navigationTitle("系统设置")
+    .navigationTitle("高级系统设置")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
@@ -74,61 +73,6 @@ struct NativeSystemSettingsPage: View {
   /// 当前草稿相对已载入快照是否存在变更。
   private var hasChanges: Bool { draft != loaded }
 
-  /// 2x2 核心策略状态概览玻璃卡：聚焦高频核心参数（识别来源、订阅策略、新增即搜、媒体库同步）。
-  private var overviewGrid: some View {
-    LazyVGrid(
-      columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
-      spacing: 12
-    ) {
-      overviewTile(
-        title: "主识别源",
-        value: draft.recognizeSource == "douban" ? "豆瓣" : "TheMovieDB",
-        symbol: "film.stack",
-        active: true)
-      overviewTile(
-        title: "订阅策略",
-        value:
-          "\(draft.subscribeMode == "rss" ? "RSS 订阅" : "站点爬虫") · \(draft.subscribeRssInterval)分",
-        symbol: "antenna.radiowaves.left.and.right",
-        active: true)
-      overviewTile(
-        title: "新增订阅即搜",
-        value: draft.subscribeSearch ? "自动触发搜索" : "等待定时刷新",
-        symbol: "sparkle.magnifyingglass",
-        active: draft.subscribeSearch)
-      overviewTile(
-        title: "媒体库同步",
-        value: "每 \(draft.mediaServerSyncInterval) 小时",
-        symbol: "arrow.triangle.2.circlepath.circle",
-        active: true)
-    }
-  }
-
-  /// 单张 2x2 状态概览玻璃小卡（弱化标题与副标字重，降低视觉压迫感）。
-  private func overviewTile(title: String, value: String, symbol: String, active: Bool) -> some View
-  {
-    CinematicPanel(padding: 13) {
-      VStack(alignment: .leading, spacing: 8) {
-        Image(systemName: symbol)
-          .font(.body.weight(.medium))
-          .foregroundStyle(NativeAppearanceStore.shared.accentColor.opacity(0.85))
-        Text(title)
-          .font(.caption.weight(.medium))
-          .foregroundStyle(.primary.opacity(0.76))
-        HStack(spacing: 5) {
-          Circle()
-            .fill(active ? Color(red: 0.50, green: 0.86, blue: 0.66) : .primary.opacity(0.28))
-            .frame(width: 5.5, height: 5.5)
-          Text(value)
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-        }
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-    }
-  }
-
   /// 弱化后的统一设置分区标题。
   private func mutedSectionHeader(_ title: String) -> some View {
     Text(title)
@@ -138,42 +82,122 @@ struct NativeSystemSettingsPage: View {
       .accessibilityAddTraits(.isHeader)
   }
 
-  /// 专项设置与网络诊断直达入口分组。
-  private var modulesSection: some View {
+  /// 弱化行内分隔线。
+  private var rowDivider: some View {
+    Divider().overlay(.primary.opacity(0.08))
+  }
+
+  /// 统一文本输入配置行（适合代理地址、域名、镜像源等较长配置）。
+  private func textSettingRow(
+    title: String,
+    placeholder: String,
+    text: Binding<String>,
+    isURL: Bool = true,
+    id: String
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(title)
+        .font(.subheadline)
+        .foregroundStyle(.primary.opacity(0.84))
+      TextField(
+        placeholder,
+        text: text,
+        prompt: Text(placeholder).foregroundColor(.secondary.opacity(0.75))
+      )
+      .font(.footnote.monospaced())
+      .foregroundStyle(.primary.opacity(0.88))
+      .textInputAutocapitalization(.never)
+      .autocorrectionDisabled()
+      .keyboardType(isURL ? .URL : .default)
+      .padding(.horizontal, 10)
+      .padding(.vertical, 8)
+      .background {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .fill(.primary.opacity(0.06))
+          .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+              .strokeBorder(.primary.opacity(0.10), lineWidth: 0.6)
+          }
+      }
+      .accessibilityIdentifier(id)
+    }
+  }
+
+  /// 统一切换开关行。
+  private func toggleSettingRow(
+    _ title: String,
+    isOn: Binding<Bool>,
+    id: String
+  ) -> some View {
+    Toggle(title, isOn: isOn)
+      .font(.subheadline)
+      .foregroundStyle(.primary.opacity(0.84))
+      .tint(NativeAppearanceStore.shared.accentColor)
+      .accessibilityIdentifier(id)
+  }
+
+  /// 1. 网络与代理高级配置（对应原高级设置「网络」）。
+  private var networkSection: some View {
     VStack(alignment: .leading, spacing: 8) {
-      mutedSectionHeader("专项配置与诊断")
-      CinematicPanel(padding: 0) {
-        VStack(spacing: 0) {
-          ForEach(Array(NativeSystemModulesPage.Domain.allCases.enumerated()), id: \.element.id) {
-            index, domain in
-            if index > 0 { CinematicFormDivider() }
-            NavigationLink {
-              NativeSystemModulesPage(session: session, initialDomain: domain)
-            } label: {
-              CinematicFormRow(symbol: domain.symbol) {
-                HStack {
-                  Text(domain.rawValue)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary.opacity(0.86))
-                  Spacer()
-                  Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary.opacity(0.70))
-                }
-              }
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("native-settings-domain-\(domain.rawValue)")
+      mutedSectionHeader("网络与代理")
+      CinematicPanel {
+        VStack(spacing: 14) {
+          textSettingRow(
+            title: "网络代理服务器",
+            placeholder: "http://127.0.0.1:7890",
+            text: $draft.proxyHost,
+            id: "native-settings-proxy-host"
+          )
+          rowDivider
+          textSettingRow(
+            title: "GitHub 加速代理",
+            placeholder: "https://gh-proxy.com/",
+            text: $draft.githubProxy,
+            id: "native-settings-github-proxy"
+          )
+          rowDivider
+          textSettingRow(
+            title: "PIP 镜像源",
+            placeholder: "https://pypi.tuna.tsinghua.edu.cn/simple",
+            text: $draft.pipProxy,
+            id: "native-settings-pip-proxy"
+          )
+          rowDivider
+          textSettingRow(
+            title: "外网访问域名",
+            placeholder: "https://mp.example.com",
+            text: $draft.appDomain,
+            id: "native-settings-app-domain"
+          )
+          rowDivider
+          toggleSettingRow("启用 DoH 域名解析", isOn: $draft.dohEnable, id: "native-settings-doh-enable")
+          if draft.dohEnable {
+            rowDivider
+            textSettingRow(
+              title: "DoH 解析服务器",
+              placeholder: "1.0.0.1,1.1.1.1,9.9.9.9",
+              text: $draft.dohResolvers,
+              isURL: false,
+              id: "native-settings-doh-resolvers"
+            )
+            rowDivider
+            textSettingRow(
+              title: "DoH 生效域名",
+              placeholder: "api.themoviedb.org,api.github.com",
+              text: $draft.dohDomains,
+              isURL: false,
+              id: "native-settings-doh-domains"
+            )
           }
         }
       }
     }
   }
 
-  /// 媒体识别与搜索配置分组。
+  /// 2. 媒体识别与元数据高级配置（对应原高级设置「媒体」）。
   private var recognitionSection: some View {
     VStack(alignment: .leading, spacing: 8) {
-      mutedSectionHeader("媒体识别与搜索")
+      mutedSectionHeader("媒体与元数据")
       CinematicPanel {
         VStack(spacing: 14) {
           HStack {
@@ -186,7 +210,7 @@ struct NativeSystemSettingsPage: View {
             .tint(.secondary)
             .accessibilityIdentifier("native-settings-recognize-source")
           }
-          Divider().overlay(.primary.opacity(0.08))
+          rowDivider
           HStack {
             Text("搜索数据源").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
             Spacer()
@@ -197,21 +221,59 @@ struct NativeSystemSettingsPage: View {
             .tint(.secondary)
             .accessibilityIdentifier("native-settings-search-source")
           }
-          Divider().overlay(.primary.opacity(0.08))
-          Toggle("刮削跟随 TheMovieDB 语言", isOn: $draft.scrapFollowTmdb)
-            .font(.subheadline)
-            .foregroundStyle(.primary.opacity(0.84))
-            .tint(NativeAppearanceStore.shared.accentColor)
-            .accessibilityIdentifier("native-settings-scrap-follow-tmdb")
+          rowDivider
+          textSettingRow(
+            title: "TheMovieDB API 域名",
+            placeholder: "api.themoviedb.org",
+            text: $draft.tmdbApiDomain,
+            id: "native-settings-tmdb-api-domain"
+          )
+          rowDivider
+          textSettingRow(
+            title: "TheMovieDB 图片域名",
+            placeholder: "image.tmdb.org",
+            text: $draft.tmdbImageDomain,
+            id: "native-settings-tmdb-image-domain"
+          )
+          rowDivider
+          toggleSettingRow(
+            "刮削跟随 TheMovieDB 语言",
+            isOn: $draft.scrapFollowTmdb,
+            id: "native-settings-scrap-follow-tmdb"
+          )
+          rowDivider
+          toggleSettingRow(
+            "优先使用识别插件",
+            isOn: $draft.recognizePluginFirst,
+            id: "native-settings-recognize-plugin-first"
+          )
+          rowDivider
+          toggleSettingRow(
+            "启用 Fanart 扩展图片",
+            isOn: $draft.fanartEnable,
+            id: "native-settings-fanart-enable"
+          )
+          rowDivider
+          toggleSettingRow(
+            "Bangumi 数据与图片代理",
+            isOn: $draft.bangumiProxyEnable,
+            id: "native-settings-bangumi-proxy"
+          )
+          rowDivider
+          toggleSettingRow(
+            "共享媒体识别缓存",
+            isOn: $draft.mediaRecognizeShare,
+            id: "native-settings-recognize-share"
+          )
         }
       }
     }
   }
 
-  /// 订阅与下载核心配置分组。
-  private var subscribeSection: some View {
+  /// 3. 性能、订阅与同步高级参数。
+  private var performanceAndSubscribeSection: some View {
     VStack(alignment: .leading, spacing: 8) {
-      mutedSectionHeader("订阅与下载")
+      mutedSectionHeader("性能、订阅与同步")
       CinematicPanel {
         VStack(spacing: 14) {
           HStack {
@@ -224,25 +286,27 @@ struct NativeSystemSettingsPage: View {
             .tint(.secondary)
             .accessibilityIdentifier("native-settings-subscribe-mode")
           }
-          Divider().overlay(.primary.opacity(0.08))
-          Stepper(
-            value: $draft.subscribeRssInterval, in: 5...720, step: 5
-          ) {
+          rowDivider
+          Stepper(value: $draft.subscribeRssInterval, in: 5...720, step: 5) {
             HStack {
-              Text("刷新周期").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
+              Text("订阅刷新周期").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
               Spacer()
               Text("\(draft.subscribeRssInterval) 分钟")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
             }
           }
-          Divider().overlay(.primary.opacity(0.08))
-          Toggle("新增订阅立即搜索", isOn: $draft.subscribeSearch)
-            .font(.subheadline)
-            .foregroundStyle(.primary.opacity(0.84))
-            .tint(NativeAppearanceStore.shared.accentColor)
-            .accessibilityIdentifier("native-settings-subscribe-search")
-          Divider().overlay(.primary.opacity(0.08))
+          rowDivider
+          Stepper(value: $draft.mediaServerSyncInterval, in: 1...48) {
+            HStack {
+              Text("媒体库同步周期").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
+              Spacer()
+              Text("每 \(draft.mediaServerSyncInterval) 小时")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            }
+          }
+          rowDivider
           HStack {
             Text("种子标签").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
             Spacer()
@@ -259,39 +323,59 @@ struct NativeSystemSettingsPage: View {
             .frame(maxWidth: 160)
             .accessibilityIdentifier("native-settings-torrent-tag")
           }
-          Divider().overlay(.primary.opacity(0.08))
-          Stepper(value: $draft.mediaServerSyncInterval, in: 1...48) {
+          rowDivider
+          Stepper(value: $draft.transferThreads, in: 1...16) {
             HStack {
-              Text("媒体库同步").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
+              Text("文件整理并发线程").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
               Spacer()
-              Text("每 \(draft.mediaServerSyncInterval) 小时")
+              Text("\(draft.transferThreads) 线程")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
             }
           }
+          rowDivider
+          toggleSettingRow(
+            "大内存模式",
+            isOn: $draft.bigMemoryMode,
+            id: "native-settings-big-memory"
+          )
+          rowDivider
+          toggleSettingRow(
+            "全局图片缓存",
+            isOn: $draft.globalImageCache,
+            id: "native-settings-image-cache"
+          )
+          rowDivider
+          toggleSettingRow(
+            "数据库 WAL 模式",
+            isOn: $draft.dbWalEnable,
+            id: "native-settings-db-wal"
+          )
         }
       }
     }
   }
 
-  /// 系统运行与缓存配置分组。
+  /// 4. 更新、日志与服务端信息。
   private var runtimeSection: some View {
     VStack(alignment: .leading, spacing: 8) {
-      mutedSectionHeader("系统与缓存")
+      mutedSectionHeader("更新与日志")
       CinematicPanel {
         VStack(spacing: 14) {
-          Toggle("全局图片缓存", isOn: $draft.globalImageCache)
-            .font(.subheadline)
-            .foregroundStyle(.primary.opacity(0.84))
-            .tint(NativeAppearanceStore.shared.accentColor)
-            .accessibilityIdentifier("native-settings-image-cache")
-          Divider().overlay(.primary.opacity(0.08))
-          Toggle("调试模式", isOn: $draft.debug)
-            .font(.subheadline)
-            .foregroundStyle(.primary.opacity(0.84))
-            .tint(NativeAppearanceStore.shared.accentColor)
-            .accessibilityIdentifier("native-settings-debug")
-          Divider().overlay(.primary.opacity(0.08))
+          toggleSettingRow(
+            "自动检查站点资源更新",
+            isOn: $draft.autoUpdateResource,
+            id: "native-settings-auto-update-resource"
+          )
+          rowDivider
+          toggleSettingRow(
+            "自动检查主程序版本更新",
+            isOn: $draft.moviePilotAutoUpdate,
+            id: "native-settings-auto-update-app"
+          )
+          rowDivider
+          toggleSettingRow("调试模式", isOn: $draft.debug, id: "native-settings-debug")
+          rowDivider
           HStack {
             Text("日志级别").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
             Spacer()
@@ -304,7 +388,7 @@ struct NativeSystemSettingsPage: View {
             .accessibilityIdentifier("native-settings-log-level")
           }
           if !draft.timezone.isEmpty {
-            Divider().overlay(.primary.opacity(0.08))
+            rowDivider
             HStack {
               Text("服务端时区").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
               Spacer()
@@ -312,7 +396,7 @@ struct NativeSystemSettingsPage: View {
             }
           }
           if !draft.appVersion.isEmpty {
-            Divider().overlay(.primary.opacity(0.08))
+            rowDivider
             HStack {
               Text("后端版本").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
               Spacer()
@@ -440,7 +524,7 @@ private struct NativeFlexibleBool: Decodable, Sendable {
     if let flag = try? container.decode(Bool.self) {
       value = flag
     } else if let text = try? container.decode(String.self) {
-      value = ["true", "1", "yes", "on"].contains(
+      value = ["true", "1", "yes", "on", "release", "dev"].contains(
         text.trimmingCharacters(in: .whitespaces).lowercased())
     } else if let number = try? container.decode(Int.self) {
       value = number != 0
@@ -471,17 +555,41 @@ private struct NativeFlexibleInt: Decodable, Sendable {
   }
 }
 
-/// `GET /api/v1/system/env` 非敏感白名单解码结构体。
+/// `GET /api/v1/system/env` 非敏感白名单解码结构体（覆盖网络代理、元数据、性能缓存与更新日志）。
 private struct NativeSystemEnvRaw: Decodable, Sendable {
+  // 网络与代理
+  let proxyHost: String?
+  let githubProxy: String?
+  let pipProxy: String?
+  let appDomain: String?
+  let dohEnable: NativeFlexibleBool?
+  let dohResolvers: String?
+  let dohDomains: String?
+
+  // 媒体与元数据
   let recognizeSource: String?
   let searchSource: String?
+  let tmdbApiDomain: String?
+  let tmdbImageDomain: String?
   let scrapFollowTmdb: NativeFlexibleBool?
+  let recognizePluginFirst: NativeFlexibleBool?
+  let fanartEnable: NativeFlexibleBool?
+  let bangumiProxyEnable: NativeFlexibleBool?
+  let mediaRecognizeShare: NativeFlexibleBool?
+
+  // 性能、订阅与同步
   let subscribeMode: String?
   let subscribeRssInterval: NativeFlexibleInt?
-  let subscribeSearch: NativeFlexibleBool?
   let torrentTag: String?
   let mediaServerSyncInterval: NativeFlexibleInt?
+  let transferThreads: NativeFlexibleInt?
+  let bigMemoryMode: NativeFlexibleBool?
   let globalImageCache: NativeFlexibleBool?
+  let dbWalEnable: NativeFlexibleBool?
+
+  // 更新与日志
+  let autoUpdateResource: NativeFlexibleBool?
+  let moviePilotAutoUpdate: NativeFlexibleBool?
   let debug: NativeFlexibleBool?
   let logLevel: String?
   let timezone: String?
@@ -489,15 +597,35 @@ private struct NativeSystemEnvRaw: Decodable, Sendable {
 
   /// 仅解码允许在移动端展示的非敏感环境键。
   private enum CodingKeys: String, CodingKey {
+    case proxyHost = "PROXY_HOST"
+    case githubProxy = "GITHUB_PROXY"
+    case pipProxy = "PIP_PROXY"
+    case appDomain = "APP_DOMAIN"
+    case dohEnable = "DOH_ENABLE"
+    case dohResolvers = "DOH_RESOLVERS"
+    case dohDomains = "DOH_DOMAINS"
+
     case recognizeSource = "RECOGNIZE_SOURCE"
     case searchSource = "SEARCH_SOURCE"
+    case tmdbApiDomain = "TMDB_API_DOMAIN"
+    case tmdbImageDomain = "TMDB_IMAGE_DOMAIN"
     case scrapFollowTmdb = "SCRAP_FOLLOW_TMDB"
+    case recognizePluginFirst = "RECOGNIZE_PLUGIN_FIRST"
+    case fanartEnable = "FANART_ENABLE"
+    case bangumiProxyEnable = "BANGUMI_PROXY_ENABLE"
+    case mediaRecognizeShare = "MEDIA_RECOGNIZE_SHARE"
+
     case subscribeMode = "SUBSCRIBE_MODE"
     case subscribeRssInterval = "SUBSCRIBE_RSS_INTERVAL"
-    case subscribeSearch = "SUBSCRIBE_SEARCH"
     case torrentTag = "TORRENT_TAG"
     case mediaServerSyncInterval = "MEDIASERVER_SYNC_INTERVAL"
+    case transferThreads = "TRANSFER_THREADS"
+    case bigMemoryMode = "BIG_MEMORY_MODE"
     case globalImageCache = "GLOBAL_IMAGE_CACHE"
+    case dbWalEnable = "DB_WAL_ENABLE"
+
+    case autoUpdateResource = "AUTO_UPDATE_RESOURCE"
+    case moviePilotAutoUpdate = "MOVIEPILOT_AUTO_UPDATE"
     case debug = "DEBUG"
     case logLevel = "LOG_LEVEL"
     case timezone = "TZ"
@@ -508,15 +636,40 @@ private struct NativeSystemEnvRaw: Decodable, Sendable {
 /// 可对比差异的设置草稿快照。
 private struct NativeSystemEnvSnapshot: Equatable {
   var isLoaded = false
+
+  // 网络与代理
+  var proxyHost = ""
+  var githubProxy = ""
+  var pipProxy = ""
+  var appDomain = ""
+  var dohEnable = false
+  var dohResolvers = ""
+  var dohDomains = ""
+
+  // 媒体与元数据
   var recognizeSource = "themoviedb"
   var searchSource = "themoviedb"
+  var tmdbApiDomain = "api.themoviedb.org"
+  var tmdbImageDomain = "image.tmdb.org"
   var scrapFollowTmdb = true
+  var recognizePluginFirst = false
+  var fanartEnable = false
+  var bangumiProxyEnable = false
+  var mediaRecognizeShare = true
+
+  // 性能、订阅与同步
   var subscribeMode = "spider"
   var subscribeRssInterval = 30
-  var subscribeSearch = false
   var torrentTag = "MOVIEPILOT"
   var mediaServerSyncInterval = 6
+  var transferThreads = 1
+  var bigMemoryMode = false
   var globalImageCache = true
+  var dbWalEnable = false
+
+  // 更新与日志
+  var autoUpdateResource = true
+  var moviePilotAutoUpdate = false
   var debug = false
   var logLevel = "INFO"
   var timezone = ""
@@ -528,15 +681,36 @@ private struct NativeSystemEnvSnapshot: Equatable {
   /// 从后端非敏感字段构造已载入快照。
   init(raw: NativeSystemEnvRaw) {
     isLoaded = true
+
+    proxyHost = raw.proxyHost ?? ""
+    githubProxy = raw.githubProxy ?? ""
+    pipProxy = raw.pipProxy ?? ""
+    appDomain = raw.appDomain ?? ""
+    dohEnable = raw.dohEnable?.value ?? false
+    dohResolvers = raw.dohResolvers ?? ""
+    dohDomains = raw.dohDomains ?? ""
+
     recognizeSource = raw.recognizeSource ?? "themoviedb"
     searchSource = raw.searchSource ?? "themoviedb"
+    tmdbApiDomain = raw.tmdbApiDomain ?? "api.themoviedb.org"
+    tmdbImageDomain = raw.tmdbImageDomain ?? "image.tmdb.org"
     scrapFollowTmdb = raw.scrapFollowTmdb?.value ?? true
+    recognizePluginFirst = raw.recognizePluginFirst?.value ?? false
+    fanartEnable = raw.fanartEnable?.value ?? false
+    bangumiProxyEnable = raw.bangumiProxyEnable?.value ?? false
+    mediaRecognizeShare = raw.mediaRecognizeShare?.value ?? true
+
     subscribeMode = raw.subscribeMode ?? "spider"
     subscribeRssInterval = min(max(raw.subscribeRssInterval?.value ?? 30, 5), 720)
-    subscribeSearch = raw.subscribeSearch?.value ?? false
     torrentTag = raw.torrentTag ?? "MOVIEPILOT"
     mediaServerSyncInterval = min(max(raw.mediaServerSyncInterval?.value ?? 6, 1), 48)
+    transferThreads = min(max(raw.transferThreads?.value ?? 1, 1), 16)
+    bigMemoryMode = raw.bigMemoryMode?.value ?? false
     globalImageCache = raw.globalImageCache?.value ?? true
+    dbWalEnable = raw.dbWalEnable?.value ?? false
+
+    autoUpdateResource = raw.autoUpdateResource?.value ?? true
+    moviePilotAutoUpdate = raw.moviePilotAutoUpdate?.value ?? false
     debug = raw.debug?.value ?? false
     logLevel = (raw.logLevel ?? "INFO").uppercased()
     timezone = raw.timezone ?? ""
@@ -546,22 +720,73 @@ private struct NativeSystemEnvSnapshot: Equatable {
   /// 生成仅含用户本次变更键的增量 JSON 字典。
   func changedPayload(relativeTo baseline: Self) -> [String: Any] {
     var payload: [String: Any] = [:]
+
+    if proxyHost != baseline.proxyHost {
+      payload["PROXY_HOST"] = proxyHost.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    if githubProxy != baseline.githubProxy {
+      payload["GITHUB_PROXY"] = githubProxy.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    if pipProxy != baseline.pipProxy {
+      payload["PIP_PROXY"] = pipProxy.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    if appDomain != baseline.appDomain {
+      payload["APP_DOMAIN"] = appDomain.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    if dohEnable != baseline.dohEnable { payload["DOH_ENABLE"] = dohEnable }
+    if dohResolvers != baseline.dohResolvers {
+      payload["DOH_RESOLVERS"] = dohResolvers.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    if dohDomains != baseline.dohDomains {
+      payload["DOH_DOMAINS"] = dohDomains.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     if recognizeSource != baseline.recognizeSource { payload["RECOGNIZE_SOURCE"] = recognizeSource }
     if searchSource != baseline.searchSource { payload["SEARCH_SOURCE"] = searchSource }
+    if tmdbApiDomain != baseline.tmdbApiDomain {
+      payload["TMDB_API_DOMAIN"] = tmdbApiDomain.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    if tmdbImageDomain != baseline.tmdbImageDomain {
+      payload["TMDB_IMAGE_DOMAIN"] = tmdbImageDomain.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
     if scrapFollowTmdb != baseline.scrapFollowTmdb {
       payload["SCRAP_FOLLOW_TMDB"] = scrapFollowTmdb
     }
+    if recognizePluginFirst != baseline.recognizePluginFirst {
+      payload["RECOGNIZE_PLUGIN_FIRST"] = recognizePluginFirst
+    }
+    if fanartEnable != baseline.fanartEnable { payload["FANART_ENABLE"] = fanartEnable }
+    if bangumiProxyEnable != baseline.bangumiProxyEnable {
+      payload["BANGUMI_PROXY_ENABLE"] = bangumiProxyEnable
+    }
+    if mediaRecognizeShare != baseline.mediaRecognizeShare {
+      payload["MEDIA_RECOGNIZE_SHARE"] = mediaRecognizeShare
+    }
+
     if subscribeMode != baseline.subscribeMode { payload["SUBSCRIBE_MODE"] = subscribeMode }
     if subscribeRssInterval != baseline.subscribeRssInterval {
       payload["SUBSCRIBE_RSS_INTERVAL"] = subscribeRssInterval
     }
-    if subscribeSearch != baseline.subscribeSearch { payload["SUBSCRIBE_SEARCH"] = subscribeSearch }
-    if torrentTag != baseline.torrentTag { payload["TORRENT_TAG"] = torrentTag }
+    if torrentTag != baseline.torrentTag {
+      payload["TORRENT_TAG"] = torrentTag.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
     if mediaServerSyncInterval != baseline.mediaServerSyncInterval {
       payload["MEDIASERVER_SYNC_INTERVAL"] = mediaServerSyncInterval
     }
+    if transferThreads != baseline.transferThreads {
+      payload["TRANSFER_THREADS"] = transferThreads
+    }
+    if bigMemoryMode != baseline.bigMemoryMode { payload["BIG_MEMORY_MODE"] = bigMemoryMode }
     if globalImageCache != baseline.globalImageCache {
       payload["GLOBAL_IMAGE_CACHE"] = globalImageCache
+    }
+    if dbWalEnable != baseline.dbWalEnable { payload["DB_WAL_ENABLE"] = dbWalEnable }
+
+    if autoUpdateResource != baseline.autoUpdateResource {
+      payload["AUTO_UPDATE_RESOURCE"] = autoUpdateResource
+    }
+    if moviePilotAutoUpdate != baseline.moviePilotAutoUpdate {
+      payload["MOVIEPILOT_AUTO_UPDATE"] = moviePilotAutoUpdate
     }
     if debug != baseline.debug { payload["DEBUG"] = debug }
     if logLevel != baseline.logLevel { payload["LOG_LEVEL"] = logLevel }

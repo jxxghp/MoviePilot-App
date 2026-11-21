@@ -162,7 +162,6 @@ struct NativePluginCatalogView: View {
       let endpoint = try APIEndpoint(
         path: ["plugin"],
         query: [.init(name: "state", value: "installed")],
-        responseContract: .payload,
         maximumResponseBytes: 12 * 1024 * 1024,
         timeout: 30,
         trailingSlash: true)
