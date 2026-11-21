@@ -60,6 +60,7 @@ struct NativeDiagnosticsToolsPage: View {
   @State private var netTargets: [NativeDiagNetTarget] = []
   @State private var netResults: [String: NativeDiagNetResult] = [:]
   @State private var testingNetID: String?
+  @State private var isTestingAllNet = false
   @State private var isLoadingNet = false
 
   // 识别与规则测试
@@ -154,6 +155,14 @@ struct NativeDiagnosticsToolsPage: View {
       }
       .disabled(isCheckingHealth)
       .accessibilityIdentifier("native-diag-health-rerun")
+    case .nettest:
+      Button {
+        Task { await runAllNetTests() }
+      } label: {
+        Text(isTestingAllNet ? "测试中" : "测试全部").fontWeight(.semibold)
+      }
+      .disabled(isTestingAllNet || netTargets.isEmpty)
+      .accessibilityIdentifier("native-diag-nettest-all")
     case .liveLog:
       Button {
         liveFollow.toggle()
@@ -713,7 +722,7 @@ struct NativeDiagnosticsToolsPage: View {
     }
   }
 
-  /// 加载网络诊断目标。
+  /// 加载网络诊断目标，并在首次进入时自动开始全部节点连通测试。
   private func loadNetTargets() async {
     isLoadingNet = true
     defer { isLoadingNet = false }
@@ -722,8 +731,24 @@ struct NativeDiagnosticsToolsPage: View {
       netTargets = try await session.request(
         ep, as: [NativeDiagNetTarget].self, requiring: PermissionRequirement(category: .admin)
       ).value
+      if !netTargets.isEmpty, netResults.isEmpty {
+        await runAllNetTests()
+      }
     } catch {
       feedback = "暂时无法载入网络测试目标。"
+    }
+  }
+
+  /// 依次测试全部网络节点并实时刷新延迟与连通状态。
+  private func runAllNetTests() async {
+    guard !isTestingAllNet, !netTargets.isEmpty else { return }
+    isTestingAllNet = true
+    defer { isTestingAllNet = false }
+    let targets = netTargets
+    netResults = [:]
+    for target in targets {
+      if Task.isCancelled { break }
+      await runNetTest(target)
     }
   }
 
@@ -734,11 +759,7 @@ struct NativeDiagnosticsToolsPage: View {
     do {
       let ep = try APIEndpoint(
         path: ["system", "nettest"],
-        query: [
-          URLQueryItem(name: "url", value: target.address),
-          URLQueryItem(name: "proxy", value: "true"),
-          URLQueryItem(name: "include", value: ""),
-        ])
+        query: [URLQueryItem(name: "target_id", value: target.id)])
       let payload = try await session.request(
         ep, as: NativeDiagNetTime.self, requiring: PermissionRequirement(category: .admin)
       ).value
@@ -846,8 +867,8 @@ struct NativeDiagnosticsToolsPage: View {
           URLQueryItem(name: "logfile", value: "moviepilot.log"),
         ],
         responseContract: .plainText,
-        maximumResponseBytes: 4 * 1024 * 1024)
-      let raw = try await session.requestPayload(
+        maximumResponseBytes: 16 * 1024 * 1024)
+      let raw = try await session.requestResourcePayload(
         ep, requiring: PermissionRequirement(category: .admin)
       ).value
       let text = String(decoding: raw, as: UTF8.self)

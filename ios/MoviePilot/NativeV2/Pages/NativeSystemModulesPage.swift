@@ -70,6 +70,7 @@ struct NativeSystemModulesPage: View {
   @State private var netTargets: [NativeNetTestTarget] = []
   @State private var netResults: [String: NativeNetTestResult] = [:]
   @State private var testingTargetID: String?
+  @State private var isTestingAllNet = false
   @State private var feedback: String?
 
   /// 指定初始进入的设置分区。
@@ -137,6 +138,18 @@ struct NativeSystemModulesPage: View {
           }
           .disabled(scrapingSwitches == originalScrapingSwitches || isSavingScraping)
           .accessibilityIdentifier("native-sysmod-scraping-save")
+        } else if domain == .nettest {
+          Button {
+            Task { await runAllNetTests() }
+          } label: {
+            if isTestingAllNet {
+              ProgressView().controlSize(.small).tint(.primary)
+            } else {
+              Text("测试全部").fontWeight(.semibold)
+            }
+          }
+          .disabled(isTestingAllNet || netTargets.isEmpty)
+          .accessibilityIdentifier("native-sysmod-nettest-all")
         }
       }
     }
@@ -703,6 +716,10 @@ struct NativeSystemModulesPage: View {
           endpoint, as: [NativeNetTestTarget].self,
           requiring: PermissionRequirement(category: .admin)
         ).value
+        if netResults.isEmpty && !netTargets.isEmpty {
+          isLoading = false
+          await runAllNetTests()
+        }
       }
       try Task.checkCancellation()
     } catch is CancellationError {
@@ -772,6 +789,18 @@ struct NativeSystemModulesPage: View {
       return
     } catch {
       feedback = "保存刮削开关失败，请稍后重试。"
+    }
+  }
+
+  /// 顺序自动测试全部网络目标（用于页面加载完成及右上角「测试全部」）。
+  private func runAllNetTests() async {
+    guard !isTestingAllNet, !netTargets.isEmpty else { return }
+    isTestingAllNet = true
+    defer { isTestingAllNet = false }
+    let snapshot = netTargets
+    for target in snapshot {
+      if Task.isCancelled { break }
+      await runNetTest(target)
     }
   }
 

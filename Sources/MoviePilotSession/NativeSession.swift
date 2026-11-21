@@ -100,6 +100,21 @@ public final class NativeSession {
     }
   }
 
+  /// 资源 Cookie 鉴权读取（如实时日志），资源令牌失效只影响当前读取，绝不触发主登录会话强制退出。
+  public func requestResourcePayload(
+    _ endpoint: APIEndpoint, requiring permission: PermissionRequirement? = nil
+  ) async throws -> APIResult<Data> {
+    try checkActive(requiring: permission)
+    do {
+      let value = try await api.requestResourcePayload(endpoint)
+      try checkActive(requiring: permission)
+      return value
+    } catch {
+      try checkActive(requiring: permission)
+      throw error
+    }
+  }
+
   /// 写入只发一次；返回只说明端点接受动作，不能自动重试或推断后台任务已结束。
   public func perform(
     _ endpoint: APIEndpoint, requiring permission: PermissionRequirement? = nil

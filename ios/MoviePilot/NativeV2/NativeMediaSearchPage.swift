@@ -445,8 +445,10 @@ struct NativeMediaSearchPage: View {
               resultsContent
             }
             if isSearching, loadedPage > 0 {
-              ProgressView("正在加载…")
-                .frame(maxWidth: .infinity, minHeight: 44)
+              ProgressView()
+                .tint(.primary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
             }
           } else if failure == nil {
             if isSearching {

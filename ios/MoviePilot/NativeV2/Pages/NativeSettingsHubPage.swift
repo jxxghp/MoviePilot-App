@@ -21,6 +21,7 @@ struct NativeSettingsHubPage: View {
   @State private var siteCount: Int?
   @State private var showsNotificationSettings = false
   @State private var showsWidgetSettings = false
+  @State private var showsPluginMarketSources = false
   @AppStorage("nativeV2.showFloatingAssistant") private var showFloatingAssistant = true
   @ObservedObject private var appearance = NativeAppearanceStore.shared
   @Environment(\.colorScheme) private var colorScheme
@@ -139,6 +140,9 @@ struct NativeSettingsHubPage: View {
     .sheet(isPresented: $showsWidgetSettings) {
       NativeWidgetSettingsSheet(session: session)
     }
+    .sheet(isPresented: $showsPluginMarketSources) {
+      NativePluginMarketSourcesSheet(session: session)
+    }
     .task(id: snapshot.scope) { await loadOverview() }
   }
 
@@ -221,7 +225,7 @@ struct NativeSettingsHubPage: View {
     }
   }
 
-  /// 第三层：系统核心参数入口卡，保持克制字重与轻量层次。
+  /// 第三层：高级系统设置入口卡，直达网络代理、元数据域名、性能缓存与更新日志等核心高级参数。
   private var featuredSystemBanner: some View {
     CinematicPanel(padding: 15) {
       VStack(alignment: .leading, spacing: 10) {
@@ -229,15 +233,15 @@ struct NativeSettingsHubPage: View {
           Image(systemName: "slider.horizontal.3")
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.secondary)
-          Text("系统核心参数")
+          Text("高级系统设置")
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.primary.opacity(0.88))
           Spacer(minLength: 8)
-          Text("高级项见 Web 后台")
+          Text("代理 · 元数据 · 性能")
             .font(.caption2)
             .foregroundStyle(.secondary)
         }
-        Text("快速调整媒体识别、订阅策略与定时缓存，保持移动端轻量高效。")
+        Text("配置网络代理、DoH、TheMovieDB 域名、并发线程、图片缓存与日志级别。")
           .font(.caption)
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
@@ -245,7 +249,7 @@ struct NativeSettingsHubPage: View {
         Button {
           onNavigate(.settings)
         } label: {
-          Text("进入系统设置")
+          Text("进入高级系统设置")
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(
               colorScheme == .light ? .white : Color(red: 0.12, green: 0.10, blue: 0.16)
@@ -403,11 +407,11 @@ struct NativeSettingsHubPage: View {
     }
   }
 
-  /// 分组二：界面外观、模块顺序、插件与浮动智能助手开关。
+  /// 分组二：界面外观、插件市场源配置、已安装插件配置与浮动智能助手开关。
   private var appearanceAndPluginsSection: some View {
     CinematicFormSection(
       "界面与插件",
-      footer: "复杂过滤规则与底层高级参数可随时在 MoviePilot Web 管理界面中调整。"
+      footer: "完整插件市场浏览可从底部弹出菜单的「插件」进入。"
     ) {
       nativeListRow(
         title: "主题与外观", subtitle: appearance.summaryText, symbol: "paintpalette.fill",
@@ -417,17 +421,10 @@ struct NativeSettingsHubPage: View {
       }
       CinematicFormDivider()
       nativeListRow(
-        title: "发现模块顺序", symbol: "square.grid.2x2",
-        id: "native-settings-hub-modules"
+        title: "插件市场", subtitle: "数据源与同步", symbol: "puzzlepiece.extension",
+        id: "native-settings-hub-plugin-market-sources"
       ) {
-        onOpenModules()
-      }
-      CinematicFormDivider()
-      nativeListRow(
-        title: "插件市场", symbol: "puzzlepiece.extension",
-        id: "native-workspace-plugin-market"
-      ) {
-        onNavigate(.pluginMarket)
+        showsPluginMarketSources = true
       }
       CinematicFormDivider()
       nativeListRow(
@@ -479,14 +476,14 @@ struct NativeSettingsHubPage: View {
   private var standardUserGrid: some View {
     HStack(spacing: 12) {
       squareStatusCard(
-        title: "发现模块",
-        statusText: "首页顺序与显隐",
-        symbol: "square.grid.2x2.fill",
-        tint: Color(red: 0.62, green: 0.50, blue: 0.96),
+        title: "主题与外观",
+        statusText: appearance.summaryText,
+        symbol: "paintpalette.fill",
+        tint: appearance.accentColor,
         statusColor: Color(red: 0.48, green: 0.90, blue: 0.66),
-        id: "native-settings-hub-modules"
+        id: "native-settings-hub-appearance-card"
       ) {
-        onOpenModules()
+        onNavigate(.appearance)
       }
       squareStatusCard(
         title: "消息中心",
@@ -678,5 +675,305 @@ private struct NativeSettingsSiteBrief: Decodable, Sendable {
   init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     isActive = (try? container.decode(Bool.self, forKey: .isActive)) ?? true
+  }
+}
+
+/// 插件市场数据源配置与 Wiki 同步弹层：直连 `GET/POST /api/v1/system/setting/PLUGIN_MARKET` 与 `POST /api/v1/system/setting/PLUGIN_MARKET/sync-wiki`。
+@MainActor
+private struct NativePluginMarketSourcesSheet: View {
+  let session: NativeSession
+
+  @State private var repos: [String] = []
+  @State private var originalRepos: [String] = []
+  @State private var newRepoURL = ""
+  @State private var isLoading = true
+  @State private var isSaving = false
+  @State private var isSyncing = false
+  @State private var feedback: (isError: Bool, text: String)?
+  @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+
+  private var isDirty: Bool { repos != originalRepos }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 16) {
+            if let feedback {
+              CinematicPanel(padding: 11) {
+                HStack(spacing: 8) {
+                  Image(
+                    systemName: feedback.isError
+                      ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+                  )
+                  .foregroundStyle(
+                    feedback.isError ? .orange : Color(red: 0.46, green: 0.88, blue: 0.64))
+                  Text(feedback.text)
+                    .font(.caption)
+                    .foregroundStyle(.primary.opacity(0.90))
+                  Spacer(minLength: 0)
+                }
+              }
+            }
+
+            // 同步官方 Wiki 插件源
+            CinematicPanel(padding: 14) {
+              VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                  Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                    .font(.body)
+                    .foregroundStyle(appearance.accentColor)
+                  Text("同步官方插件源")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary.opacity(0.90))
+                  Spacer()
+                }
+                Text("从 MoviePilot Wiki 插件目录自动合并社区插件仓库地址。")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+                Button {
+                  Task { await syncFromWiki() }
+                } label: {
+                  HStack(spacing: 7) {
+                    if isSyncing {
+                      ProgressView().controlSize(.small).tint(.white)
+                    } else {
+                      Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.caption.weight(.semibold))
+                    }
+                    Text(isSyncing ? "正在同步插件源…" : "从 Wiki 同步插件源")
+                      .font(.subheadline.weight(.semibold))
+                  }
+                  .foregroundStyle(.white)
+                  .frame(maxWidth: .infinity, minHeight: 42)
+                  .background(appearance.accentColor, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(isSyncing || isSaving)
+                .accessibilityIdentifier("native-plugin-market-sync-wiki")
+              }
+            }
+
+            // 添加自定义插件仓库地址
+            VStack(alignment: .leading, spacing: 8) {
+              Text("添加插件源地址")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+              CinematicPanel(padding: 12) {
+                HStack(spacing: 10) {
+                  TextField(
+                    "https://github.com/owner/repo",
+                    text: $newRepoURL,
+                    prompt: Text("https://github.com/owner/repo").foregroundColor(.secondary)
+                  )
+                  .font(.subheadline)
+                  .textInputAutocapitalization(.never)
+                  .autocorrectionDisabled()
+                  .keyboardType(.URL)
+                  .submitLabel(.done)
+                  .onSubmit { appendNewRepo() }
+                  Button("添加") { appendNewRepo() }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(appearance.accentColor)
+                    .disabled(newRepoURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+              }
+            }
+
+            // 已配置的插件源列表
+            VStack(alignment: .leading, spacing: 8) {
+              HStack {
+                Text("已配置数据源")
+                  .font(.footnote.weight(.medium))
+                  .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(repos.count) 个仓库")
+                  .font(.caption2)
+                  .foregroundStyle(.secondary)
+              }
+              .padding(.horizontal, 4)
+
+              if isLoading && repos.isEmpty {
+                ProgressView()
+                  .tint(.primary)
+                  .frame(maxWidth: .infinity, minHeight: 120)
+              } else if repos.isEmpty {
+                CinematicPanel(padding: 16) {
+                  Text("暂无插件市场数据源，可点击上方同步 Wiki 或手动添加。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+              } else {
+                CinematicPanel(padding: 0) {
+                  VStack(spacing: 0) {
+                    ForEach(Array(repos.enumerated()), id: \.offset) { idx, repo in
+                      if idx > 0 { CinematicFormDivider() }
+                      HStack(spacing: 10) {
+                        Image(systemName: "link")
+                          .font(.caption)
+                          .foregroundStyle(.secondary)
+                        Text(repo)
+                          .font(.caption.monospaced())
+                          .foregroundStyle(.primary.opacity(0.86))
+                          .lineLimit(2)
+                          .frame(maxWidth: .infinity, alignment: .leading)
+                      }
+                      .padding(.horizontal, 14)
+                      .padding(.vertical, 11)
+                      .contentShape(Rectangle())
+                      .contextMenu {
+                        Button(role: .destructive) {
+                          repos.remove(at: idx)
+                        } label: {
+                          Label("移除此数据源", systemImage: "trash")
+                        }
+                      }
+                    }
+                  }
+                }
+                Text("长按任意数据源行可将其移除，修改后点击右上角「保存」生效。")
+                  .font(.caption2)
+                  .foregroundStyle(.secondary)
+                  .padding(.horizontal, 4)
+              }
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
+        }
+        .scrollIndicators(.hidden)
+      }
+      .navigationTitle("插件市场数据源")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("关闭") { dismiss() }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+          Button {
+            Task { await saveRepos() }
+          } label: {
+            if isSaving {
+              ProgressView().controlSize(.small).tint(.primary)
+            } else {
+              Text("保存").fontWeight(.semibold)
+            }
+          }
+          .disabled(!isDirty || isSaving || isSyncing)
+          .accessibilityIdentifier("native-plugin-market-sources-save")
+        }
+      }
+      .task { await loadRepos() }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  private func appendNewRepo() {
+    let trimmed = newRepoURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+    if !repos.contains(trimmed) {
+      repos.append(trimmed)
+    }
+    newRepoURL = ""
+  }
+
+  private static func parseRepoString(_ raw: String) -> [String] {
+    var seen: Set<String> = []
+    return
+      raw
+      .split(whereSeparator: { $0 == "," || $0 == "\n" || $0 == "，" })
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty && seen.insert($0).inserted }
+  }
+
+  private func loadRepos() async {
+    isLoading = true
+    defer { isLoading = false }
+    do {
+      let ep = try APIEndpoint(path: ["system", "setting", "public", "PLUGIN_MARKET"])
+      let payload = try await session.request(
+        ep, as: NativePluginMarketSettingValue.self
+      ).value
+      let parsed = Self.parseRepoString(payload.value ?? "")
+      repos = parsed
+      originalRepos = parsed
+    } catch {
+      feedback = (true, "读取插件市场数据源失败，请稍后重试。")
+    }
+  }
+
+  private func saveRepos() async {
+    isSaving = true
+    feedback = nil
+    defer { isSaving = false }
+    do {
+      let joined = repos.joined(separator: ",")
+      let body = try JSONEncoder().encode(joined)
+      let ep = try APIEndpoint(
+        path: ["system", "setting", "PLUGIN_MARKET"], method: .post, body: body)
+      try await session.perform(ep, requiring: PermissionRequirement(category: .admin))
+      originalRepos = repos
+      feedback = (false, "已保存 \(repos.count) 个插件市场数据源。")
+    } catch {
+      feedback = (true, "保存插件市场数据源失败，请检查地址格式或权限。")
+    }
+  }
+
+  private func syncFromWiki() async {
+    isSyncing = true
+    feedback = nil
+    defer { isSyncing = false }
+    do {
+      let ep = try APIEndpoint(
+        path: ["system", "setting", "PLUGIN_MARKET", "sync-wiki"],
+        method: .post,
+        body: Data("{}".utf8),
+        timeout: 45)
+      let reply = try await session.request(
+        ep, as: NativePluginMarketWikiSyncResult.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
+      let updated: [String] =
+        if let list = reply.repos, !list.isEmpty {
+          list
+        } else {
+          Self.parseRepoString(reply.value ?? "")
+        }
+      if !updated.isEmpty {
+        repos = updated
+        originalRepos = updated
+      }
+      let added = reply.addedCount ?? 0
+      feedback = (
+        false,
+        added > 0
+          ? "已从 Wiki 同步，新增 \(added) 个插件源（共 \(repos.count) 个）。"
+          : "已完成 Wiki 同步，当前共 \(repos.count) 个插件源均为最新。"
+      )
+    } catch {
+      feedback = (true, "从 Wiki 同步插件源失败，请检查网络或代理设置。")
+    }
+  }
+}
+
+private struct NativePluginMarketSettingValue: Decodable, Sendable {
+  let value: String?
+}
+
+private struct NativePluginMarketWikiSyncResult: Decodable, Sendable {
+  let addedCount: Int?
+  let totalCount: Int?
+  let repos: [String]?
+  let value: String?
+
+  private enum CodingKeys: String, CodingKey {
+    case addedCount = "added_count"
+    case totalCount = "total_count"
+    case repos, value
   }
 }

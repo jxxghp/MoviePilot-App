@@ -284,6 +284,8 @@ struct NativeDiscoverPage: View {
   let onOpenCategory: ((String) -> Void)?
   let onPlayContinueWatching: ((NativeDiscoverProgress) -> Void)?
   let onManageModules: (() -> Void)?
+  let onLoadMoreRail: ((String) -> Void)?
+  let loadingRailIDs: Set<String>
   let onRetry: () -> Void
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -306,6 +308,8 @@ struct NativeDiscoverPage: View {
     onOpenCategory: ((String) -> Void)? = nil,
     onPlayContinueWatching: ((NativeDiscoverProgress) -> Void)? = nil,
     onManageModules: (() -> Void)? = nil,
+    onLoadMoreRail: ((String) -> Void)? = nil,
+    loadingRailIDs: Set<String> = [],
     onRetry: @escaping () -> Void = {}
   ) {
     self.session = session
@@ -319,6 +323,8 @@ struct NativeDiscoverPage: View {
     self.onOpenCategory = onOpenCategory
     self.onPlayContinueWatching = onPlayContinueWatching
     self.onManageModules = onManageModules
+    self.onLoadMoreRail = onLoadMoreRail
+    self.loadingRailIDs = loadingRailIDs
     self.onRetry = onRetry
   }
 
@@ -770,7 +776,7 @@ struct NativeDiscoverPage: View {
       sectionHeader(rail.title, action: onOpenRail.map { openRail in { openRail(rail.id) } })
       ScrollView(.horizontal) {
         LazyHStack(alignment: .top, spacing: rail.style == .backdrop ? 13 : 11) {
-          ForEach(rail.items) { item in
+          ForEach(Array(rail.items.enumerated()), id: \.element.id) { index, item in
             Group {
               if item.identity != nil {
                 Button {
@@ -799,6 +805,18 @@ struct NativeDiscoverPage: View {
             }
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("native-discover-poster-\(item.id)")
+            .onAppear {
+              if rail.hasMore && !loadingRailIDs.contains(rail.id)
+                && index >= max(rail.items.count - 3, 0)
+              {
+                onLoadMoreRail?(rail.id)
+              }
+            }
+          }
+          if loadingRailIDs.contains(rail.id) {
+            ProgressView()
+              .tint(.primary)
+              .frame(width: 48, height: rail.style == .backdrop ? 130 : 156)
           }
         }
         .padding(.horizontal, legacyHorizontalPadding)
@@ -1168,13 +1186,17 @@ struct NativeDiscoverRailGrid<Destination: View>: View {
     .accessibilityElement(children: .combine)
   }
 
-  /// 下一页自动加载；只在失败时用系统按钮显式重试同一页。
+  /// 下一页自动加载仅显示简洁转圈图标（无方框无文案）；仅失败时展示重试按钮。
+  @ViewBuilder
   private var paginationFooter: some View {
-    CinematicPanel(padding: 10) {
-      VStack(spacing: 3) {
-        if loadRequest != nil {
-          ProgressView("正在载入更多…").frame(minHeight: 44)
-        } else {
+    if loadRequest != nil {
+      ProgressView()
+        .tint(.primary)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+    } else {
+      CinematicPanel(padding: 10) {
+        VStack(spacing: 4) {
           Text("暂时无法载入更多作品").font(.footnote).foregroundStyle(.secondary)
           Button("重试") {
             loadFailed = false
@@ -1231,20 +1253,24 @@ private struct NativeDiscoverArtworkPlaceholder: View {
   let reference: String?
   let role: NativeDiscoverArtworkRole
 
-  /// 主视觉、海报、平台和继续观看缺图分别使用原生符号说明内容类型。
+  /// 主视觉、海报、平台和继续观看缺图使用轻透毛玻璃与系统符号。
   var body: some View {
     ZStack {
+      Rectangle()
+        .fill(.ultraThinMaterial)
       LinearGradient(
         colors: [
-          Color(red: 0.34, green: 0.28, blue: 0.43),
-          Color(red: 0.26, green: 0.22, blue: 0.35),
-          Color(red: 0.18, green: 0.20, blue: 0.29),
+          Color.white.opacity(0.14),
+          Color.white.opacity(0.05),
+          Color.clear,
         ], startPoint: .topLeading, endPoint: .bottomTrailing)
-      Image(systemName: symbol).font(.system(size: role == .backdrop ? 50 : 28, weight: .light))
-        .foregroundStyle(.primary.opacity(0.28))
+      Image(systemName: symbol).font(
+        .system(size: role == .backdrop ? 46 : 24, weight: .ultraLight)
+      )
+      .foregroundStyle(.primary.opacity(0.32))
       if role == .backdrop {
         RadialGradient(
-          colors: [.clear, .black.opacity(0.28)], center: .center, startRadius: 35, endRadius: 310)
+          colors: [.clear, .black.opacity(0.22)], center: .center, startRadius: 35, endRadius: 310)
       }
     }
     .accessibilityHidden(true)
