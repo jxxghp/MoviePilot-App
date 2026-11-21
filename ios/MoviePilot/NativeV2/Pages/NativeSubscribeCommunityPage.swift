@@ -108,7 +108,7 @@ struct NativeSubscribeCommunityPage: View {
         } label: {
           Text(tab.rawValue)
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(active ? .white : .white.opacity(0.75))
+            .foregroundStyle(active ? Color.white : NativeTheme.chipText)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .background {
@@ -116,7 +116,7 @@ struct NativeSubscribeCommunityPage: View {
                 .fill(
                   active
                     ? Color(red: 0.58, green: 0.42, blue: 0.88).opacity(0.78)
-                    : .white.opacity(0.08)
+                    : NativeTheme.chipFill
                 )
                 .overlay {
                   Capsule().strokeBorder(.primary.opacity(active ? 0.32 : 0.14), lineWidth: 0.7)
@@ -237,7 +237,7 @@ struct NativeSubscribeCommunityPage: View {
             if let count = item.count, count > 0 {
               Text("复用 \(count)")
                 .font(.caption2.weight(.semibold).monospacedDigit())
-                .foregroundStyle(Color(red: 0.84, green: 0.72, blue: 1.0))
+                .foregroundStyle(NativeTheme.brand)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
                 .background {
@@ -333,7 +333,7 @@ struct NativeSubscribeCommunityPage: View {
         Image(
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
-        .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
+        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
         Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {

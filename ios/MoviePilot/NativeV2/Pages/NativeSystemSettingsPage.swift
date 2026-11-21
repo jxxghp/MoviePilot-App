@@ -417,7 +417,7 @@ struct NativeSystemSettingsPage: View {
         Image(
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
-        .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
+        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
         Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {

@@ -114,7 +114,7 @@ struct NativeCalendarPage: View {
               Text(Self.weekdayShort(calendar.component(.weekday, from: day)))
                 .font(.caption2)
                 .foregroundStyle(
-                  isToday ? Color(red: 1.0, green: 0.42, blue: 0.44) : .white.opacity(0.68))
+                  isToday ? NativeTheme.danger : NativeTheme.chipText)
               Circle()
                 .fill(hasItems ? Color(red: 0.78, green: 0.62, blue: 1.0) : .clear)
                 .frame(width: 4.5, height: 4.5)

@@ -172,7 +172,7 @@ struct NativeSitesPage: View {
             .padding(.vertical, 7)
             .background {
               Capsule()
-                .fill(.white.opacity(selected ? 0.22 : 0.08))
+                .fill(selected ? NativeTheme.brand.opacity(0.18) : NativeTheme.chipFill)
                 .overlay {
                   Capsule().strokeBorder(.primary.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
                 }
@@ -213,7 +213,7 @@ struct NativeSitesPage: View {
               Text(active ? "已启用" : "已停用")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(
-                  active ? Color(red: 0.56, green: 0.92, blue: 0.72) : .white.opacity(0.50)
+                  active ? NativeTheme.success : NativeTheme.badgeMutedText
                 )
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2.5)
@@ -312,7 +312,7 @@ struct NativeSitesPage: View {
         if stats.ratio > 0 {
           Text(String(format: "分享率 %.2f", stats.ratio))
             .font(.caption2.monospacedDigit().weight(.medium))
-            .foregroundStyle(Color(red: 0.84, green: 0.74, blue: 1.0))
+            .foregroundStyle(NativeTheme.brand)
         }
         if stats.seeding > 0 {
           Text("做种 \(stats.seeding)")
@@ -368,7 +368,7 @@ struct NativeSitesPage: View {
     case .passed:
       Label("连接正常", systemImage: "checkmark.circle.fill")
         .font(.caption2.weight(.semibold))
-        .foregroundStyle(Color(red: 0.56, green: 0.92, blue: 0.72))
+        .foregroundStyle(NativeTheme.success)
         .accessibilityIdentifier("native-site-test-passed")
     case .failed:
       Label("连接测试失败", systemImage: "exclamationmark.triangle.fill")

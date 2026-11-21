@@ -47,6 +47,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @State private var searchPath: [NativeMediaIdentity] = []
   @State private var showsOverflowMenu = false
   @State private var showsAgentSheet = false
+  @State private var showsMessagesSheet = false
   @State private var showsShortcutsSheet = false
   @State private var userTabAvatar: UIImage?
   @AppStorage("nativeV2.showFloatingAssistant") private var showFloatingAssistant = true
@@ -92,7 +93,9 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           .transition(.move(edge: .bottom).combined(with: .opacity))
           .zIndex(45)
       }
-      if showFloatingAssistant && !showsOverflowMenu && !showsAgentSheet && !showsShortcutsSheet {
+      if showFloatingAssistant && !showsOverflowMenu && !showsAgentSheet && !showsShortcutsSheet
+        && !showsMessagesSheet
+      {
         NativeAgentFloatingMascot(
           onOpen: { showsAgentSheet = true },
           onHide: { showFloatingAssistant = false }
@@ -121,6 +124,25 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
     .sheet(isPresented: $showsShortcutsSheet) {
       NativeShortcutsSheet(session: session)
+    }
+    .sheet(isPresented: $showsMessagesSheet) {
+      NavigationStack {
+        NativeMessagesPage(session: session)
+          .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+              Button {
+                showsMessagesSheet = false
+              } label: {
+                Image(systemName: "xmark")
+              }
+              .accessibilityLabel("关闭")
+              .accessibilityIdentifier("native-messages-sheet-close")
+            }
+          }
+      }
+      .presentationDetents([.large])
+      .presentationDragIndicator(.visible)
+      .nativeAppearanceRoot()
     }
     .sheet(isPresented: $showsAgentSheet) {
       NavigationStack {
@@ -204,14 +226,9 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
   }
 
-  /// 当前是否处于「我的」页且管理员身份（右下角搜索按钮自动切换为捷径弹窗入口）。
-  private var isMineShortcutsButtonActive: Bool {
-    selectedTab == .mine && snapshot.user.isSuperuser && dynamicActionCenter.current == nil
-  }
-
-  /// 当前右下角独立按钮是否被自定义动作（页面动态动作或「我的」页捷径弹窗）接管。
+  /// 当前右下角独立按钮是否被页面动态动作接管（无动态动作时固定为全局搜索按钮）。
   private var hasTrailingCustomAction: Bool {
-    dynamicActionCenter.current != nil || isMineShortcutsButtonActive
+    dynamicActionCenter.current != nil
   }
 
   /// 执行右下角自定义动作（内置 180ms 防抖，防止 UIKit 代理拦截与 SwiftUI 绑定重复触发）。
@@ -222,13 +239,10 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     showsOverflowMenu = false
     if let dynamic = dynamicActionCenter.current {
       dynamic.handler()
-    } else if isMineShortcutsButtonActive {
-      UIImpactFeedbackGenerator(style: .light).impactOccurred()
-      showsShortcutsSheet = true
     }
   }
 
-  /// 二次点击底部 4 个主图标中的任意一个时，直接弹出菜单而不滚动回顶部或触发返回；点击右侧 +1 按钮优先执行当前页动态主动作或「我的」页捷径弹窗，否则进入全局搜索。
+  /// 二次点击底部 4 个主图标中的任意一个时弹出溢出菜单；切换主标签时自动清理离开标签上临时承载的溢出页面，避免跨标签堆积无关导航历史。
   private var tabSelection: Binding<Page> {
     Binding(
       get: { selectedTab },
@@ -245,13 +259,14 @@ struct NativeV2MainShell<PluginDestination: View>: View {
               showsOverflowMenu = false
             }
           }
+          clearOverflowDestinations(in: selectedTab)
           dynamicActionCenter.reset()
           selectedTab = next
         }
       })
   }
 
-  /// 拦截 UIKit UITabBarController 对当前已选中标签的重复点击以及右下角自定义按钮（如「我的」页捷径弹窗）的点击。
+  /// 拦截 UIKit UITabBarController 对当前已选中标签的重复点击以及右下角动态自定义按钮的点击。
   private var tabReselectInterceptor: some View {
     NativeTabBarReselectInterceptor(
       shouldInterceptReselect: { selectedTab != .search },
@@ -263,17 +278,15 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .allowsHitTesting(false)
   }
 
-  /// 右侧 +1 圆形按钮标题：页面动态动作 > 「我的」页捷径 > 全局搜索。
+  /// 右侧 +1 圆形按钮标题：页面动态动作 > 全局搜索。
   private var trailingButtonTitle: String {
     if let dynamic = dynamicActionCenter.current { return dynamic.title }
-    if isMineShortcutsButtonActive { return "捷径" }
     return "搜索"
   }
 
-  /// 右侧 +1 圆形按钮图标：页面动态动作 > 「我的」页捷径图标 > 放大镜。
+  /// 右侧 +1 圆形按钮图标：页面动态动作 > 放大镜。
   private var trailingButtonSymbol: String {
     if let dynamic = dynamicActionCenter.current { return dynamic.symbol }
-    if isMineShortcutsButtonActive { return "bolt.fill" }
     return "magnifyingglass"
   }
 
@@ -394,14 +407,15 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .background(tabReselectInterceptor)
   }
 
-  /// 我的标签：超级管理员直显原生仪表盘，普通成员展示个人概览与权限快捷卡。
+  /// 我的标签：超级管理员直显原生仪表盘，普通成员展示个人概览与权限快捷卡；右上角统一提供消息中心与捷径入口。
   private var mineTab: some View {
     NavigationStack(path: $minePath) {
       Group {
         if snapshot.user.isSuperuser {
           NativeDashboardPage(
             session: session,
-            onOpenMessages: { minePath.append(.messages) }
+            onOpenMessages: { showsMessagesSheet = true },
+            onOpenShortcuts: { showsShortcutsSheet = true }
           )
         } else {
           memberDashboardView
@@ -446,16 +460,16 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           HStack(spacing: 12) {
             if canSubscribe {
               memberShortcutCard(title: "我的订阅", symbol: "bookmark.fill") {
-                minePath.append(.subscriptions)
+                openFromOverflow(.subscriptions)
               }
               memberShortcutCard(title: "追剧日历", symbol: "calendar") {
-                minePath.append(.calendar)
+                openFromOverflow(.calendar)
               }
             }
           }
           HStack(spacing: 12) {
             memberShortcutCard(title: "消息中心", symbol: "bell.fill") {
-              minePath.append(.messages)
+              showsMessagesSheet = true
             }
             memberShortcutCard(title: "智能助手", symbol: "sparkles") {
               showsAgentSheet = true
@@ -474,6 +488,17 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .navigationTitle("")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
+    .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        Button {
+          showsMessagesSheet = true
+        } label: {
+          Image(systemName: "bell")
+        }
+        .accessibilityLabel("消息中心")
+        .accessibilityIdentifier("native-dashboard-messages-btn")
+      }
+    }
   }
 
   /// 普通成员「我的」快捷玻璃卡片。
@@ -485,7 +510,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         VStack(alignment: .leading, spacing: 10) {
           Image(systemName: symbol)
             .font(.title2.weight(.semibold))
-            .foregroundStyle(Color(red: 0.78, green: 0.66, blue: 1.0))
+            .foregroundStyle(NativeTheme.brand)
           Text(title)
             .font(.headline)
             .foregroundStyle(.primary)
@@ -496,7 +521,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .buttonStyle(.plain)
   }
 
-  /// 设置标签：承载卡片式设置主中心、全部系统/专项设置与右上角系统菜单（通知/小组件/语言/切换服务/退出登录）。
+  /// 设置标签：承载设置主中心与各专项管理页。
   private var settingsTab: some View {
     NavigationStack(path: $settingsPath) {
       NativeSettingsHubPage(
@@ -504,7 +529,10 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         snapshot: snapshot,
         currentLanguage: currentLanguage,
         onNavigate: { destination in
-          settingsPath.append(destination)
+          clearOverflowDestinations(in: .settings)
+          if settingsPath.last != destination {
+            settingsPath.append(destination)
+          }
         },
         onOpenModules: { showsModuleSheet = true },
         onOpenPlugins: { showsPlugins = true },
@@ -680,11 +708,51 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
   }
 
-  /// 从全局溢出菜单选中任意功能时，在当前激活标签的原生导航栈中平滑推入对应页面。
+  /// 判断路由是否属于底部溢出菜单的跨标签功能页（不属于单个主标签的持久历史）。
+  private func isOverflowWorkspaceDestination(_ destination: NativeWorkspaceDestination) -> Bool {
+    switch destination {
+    case .subscriptions, .subscribeCommunity, .calendar, .resources, .downloads, .files, .history,
+      .workflows, .pluginMarket:
+      true
+    default:
+      false
+    }
+  }
+
+  /// 清理指定主标签栈中由底部溢出菜单临时推入的跨标签页面，保持各主标签导航历史纯净。
+  private func clearOverflowDestinations(in page: Page) {
+    switch page {
+    case .discover:
+      discoverPath.removeAll {
+        if case .workspace = $0 { return true }
+        return false
+      }
+    case .explore:
+      explorePath.removeAll(where: isOverflowWorkspaceDestination)
+    case .mine:
+      minePath.removeAll(where: isOverflowWorkspaceDestination)
+    case .settings:
+      settingsPath.removeAll(where: isOverflowWorkspaceDestination)
+      if showsPlugins { showsPlugins = false }
+    case .search:
+      break
+    }
+  }
+
+  /// 全局清理所有主标签上残留的临时溢出页面，避免多次通过溢出菜单切换后在某标签中堆积多层无关历史。
+  private func clearAllOverflowDestinations() {
+    clearOverflowDestinations(in: .discover)
+    clearOverflowDestinations(in: .explore)
+    clearOverflowDestinations(in: .mine)
+    clearOverflowDestinations(in: .settings)
+  }
+
+  /// 从全局溢出菜单选中任意功能时，单层替换跨标签临时页面（永不层层叠加无关历史），在当前标签中直接呈现。
   private func openFromOverflow(_ destination: NativeWorkspaceDestination) {
     withAnimation(.easeOut(duration: 0.2)) {
       showsOverflowMenu = false
     }
+    clearAllOverflowDestinations()
     switch selectedTab {
     case .discover:
       discoverPath.append(.workspace(destination))
@@ -706,15 +774,26 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     showsOverflowMenu = false
     switch target {
     case .discover:
-      if canDiscover { selectedTab = .discover }
+      if canDiscover {
+        clearOverflowDestinations(in: selectedTab)
+        selectedTab = .discover
+      }
     case .explore:
-      if canDiscover { selectedTab = .explore }
+      if canDiscover {
+        clearOverflowDestinations(in: selectedTab)
+        selectedTab = .explore
+      }
     case .dashboard:
+      clearOverflowDestinations(in: selectedTab)
       selectedTab = .mine
     case .settings:
+      clearOverflowDestinations(in: selectedTab)
       selectedTab = .settings
     case .search:
-      if canDiscover { selectedTab = .search }
+      if canDiscover {
+        clearOverflowDestinations(in: selectedTab)
+        selectedTab = .search
+      }
     case .subscriptions:
       if canSubscribe { openFromOverflow(.subscriptions) }
     case .calendar:
@@ -731,12 +810,12 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       if canManageDownloads { openFromOverflow(.workflows) }
     case .sites:
       if canManageDownloads {
+        clearAllOverflowDestinations()
         selectedTab = .settings
-        settingsPath.append(.sites)
+        settingsPath = [.sites]
       }
     case .messages:
-      selectedTab = .mine
-      minePath.append(.messages)
+      showsMessagesSheet = true
     case .plugins:
       if snapshot.user.isSuperuser { openFromOverflow(.pluginMarket) }
     case .agent:
@@ -863,7 +942,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       CinematicPanel(padding: 12) {
         HStack(spacing: 10) {
           Image(systemName: "info.circle.fill")
-            .foregroundStyle(Color(red: 0.78, green: 0.68, blue: 1.0))
+            .foregroundStyle(NativeTheme.brand)
           Text(message)
             .font(.caption.weight(.medium))
             .foregroundStyle(.primary.opacity(0.92))
@@ -1035,7 +1114,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         Image(systemName: symbol)
           .font(.body.weight(.medium))
           .frame(width: 22)
-          .foregroundStyle(Color(red: 0.84, green: 0.74, blue: 1.0))
+          .foregroundStyle(NativeTheme.brand)
         Text(title)
           .font(.subheadline.weight(.medium))
           .foregroundStyle(.primary)
@@ -2181,7 +2260,7 @@ private struct NativeTabBarReselectInterceptor: UIViewControllerRepresentable {
   }
 }
 
-/// 「我的」页右下角捷径弹窗：集中承载系统检查、网络测试、识别规则、实时日志与定时服务，点击后直接在弹窗栈内进入工具页。
+/// 「我的」页右上角捷径弹窗：集中承载系统检查、网络测试、识别与规则、词表、实时日志与定时服务，点击后直接在弹窗栈内进入工具页。
 @MainActor
 private struct NativeShortcutsSheet: View {
   let session: NativeSession
@@ -2203,19 +2282,22 @@ private struct NativeShortcutsSheet: View {
   private let entries: [ShortcutEntry] = [
     ShortcutEntry(
       tool: .health, title: "系统检查", subtitle: "组件健康与运行状态",
-      symbol: "checkmark.shield", tint: Color(red: 0.44, green: 0.88, blue: 0.66)),
+      symbol: "checkmark.shield", tint: NativeTheme.success),
     ShortcutEntry(
       tool: .nettest, title: "网络测试", subtitle: "自动测速与连通检测",
-      symbol: "network", tint: Color(red: 0.38, green: 0.72, blue: 1.0)),
+      symbol: "network", tint: NativeTheme.info),
     ShortcutEntry(
-      tool: .ruleTest, title: "识别规则", subtitle: "名称识别与规则验证",
-      symbol: "text.magnifyingglass", tint: Color(red: 0.74, green: 0.56, blue: 0.98)),
+      tool: .ruleTest, title: "识别与规则", subtitle: "名称识别与规则验证",
+      symbol: "text.magnifyingglass", tint: NativeTheme.brand),
     ShortcutEntry(
-      tool: .liveLog, title: "实时日志", subtitle: "查看服务端运行日志",
-      symbol: "terminal", tint: Color(red: 0.96, green: 0.68, blue: 0.36)),
+      tool: .words, title: "词表", subtitle: "识别词、屏蔽词与剧集规则",
+      symbol: "character.book.closed", tint: NativeTheme.cyan),
     ShortcutEntry(
-      tool: .scheduler, title: "定时服务", subtitle: "手动触发后台任务",
-      symbol: "clock.arrow.2.circlepath", tint: Color(red: 0.94, green: 0.52, blue: 0.68)),
+      tool: .liveLog, title: "实时日志", subtitle: "结构化查看与级别过滤",
+      symbol: "terminal", tint: NativeTheme.warning),
+    ShortcutEntry(
+      tool: .scheduler, title: "定时服务", subtitle: "系统与插件任务手动触发",
+      symbol: "clock.arrow.2.circlepath", tint: NativeTheme.pink),
   ]
 
   var body: some View {

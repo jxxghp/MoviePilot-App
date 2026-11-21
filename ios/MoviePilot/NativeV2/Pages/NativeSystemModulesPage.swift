@@ -90,7 +90,7 @@ struct NativeSystemModulesPage: View {
             CinematicPanel(padding: 10) {
               HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle.fill")
-                  .foregroundStyle(Color(red: 0.56, green: 0.92, blue: 0.72))
+                  .foregroundStyle(NativeTheme.success)
                 Text(feedback).font(.subheadline).foregroundStyle(.primary.opacity(0.88))
                 Spacer(minLength: 0)
               }
@@ -218,7 +218,7 @@ struct NativeSystemModulesPage: View {
           } label: {
             Text("\(kind.rawValue) (\(count))")
               .font(.subheadline.weight(.semibold))
-              .foregroundStyle(isCurrent ? .white : .white.opacity(0.72))
+              .foregroundStyle(isCurrent ? Color.white : NativeTheme.chipText)
               .padding(.horizontal, 14)
               .padding(.vertical, 8)
               .background {
@@ -226,7 +226,7 @@ struct NativeSystemModulesPage: View {
                   .fill(
                     isCurrent
                       ? Color(red: 0.56, green: 0.40, blue: 0.88).opacity(0.80)
-                      : .white.opacity(0.08)
+                      : NativeTheme.chipFill
                   )
                   .overlay {
                     Capsule().strokeBorder(
@@ -264,7 +264,7 @@ struct NativeSystemModulesPage: View {
             }
           }
           .font(.caption.weight(.semibold))
-          .foregroundStyle(Color(red: 0.84, green: 0.74, blue: 1.0))
+          .foregroundStyle(NativeTheme.brand)
           .buttonStyle(.plain)
           .accessibilityIdentifier("native-sysmod-sitescope-all")
 
@@ -385,7 +385,7 @@ struct NativeSystemModulesPage: View {
               if let dst = dir.libraryPath, !dst.isEmpty {
                 Label(dst, systemImage: "folder.fill")
                   .font(.caption.monospaced())
-                  .foregroundStyle(Color(red: 0.84, green: 0.74, blue: 1.0))
+                  .foregroundStyle(NativeTheme.brand)
                   .lineLimit(2)
               }
               HStack(spacing: 8) {
@@ -581,8 +581,8 @@ struct NativeSystemModulesPage: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(
                       result.success
-                        ? Color(red: 0.56, green: 0.92, blue: 0.72)
-                        : Color(red: 1.0, green: 0.56, blue: 0.58))
+                        ? NativeTheme.success
+                        : NativeTheme.danger)
                 }
               }
               Spacer(minLength: 6)
@@ -648,7 +648,7 @@ struct NativeSystemModulesPage: View {
   private func miniChip(_ text: String) -> some View {
     Text(text)
       .font(.caption2.weight(.medium))
-      .foregroundStyle(Color(red: 0.86, green: 0.76, blue: 1.0))
+      .foregroundStyle(NativeTheme.brand)
       .padding(.horizontal, 7)
       .padding(.vertical, 2.5)
       .background { Capsule().fill(.primary.opacity(0.09)) }

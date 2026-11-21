@@ -293,6 +293,8 @@ struct NativeDiscoverPage: View {
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+  @Environment(\.colorScheme) private var colorScheme
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
   @State private var scrollOffset: CGFloat = 0
   @State private var selectedFeatureIndex = 0
 
@@ -501,13 +503,15 @@ struct NativeDiscoverPage: View {
     return clamped * clamped * (3 - 2 * clamped)
   }
 
-  /// 前景退场时平滑衔接到当前主题背景渐变（支持深/浅色与用户自定义背景过渡颜色）。
+  /// 前景退场时平滑衔接到当前主题背景渐变（深色模式保留首屏微暗压底，浅色模式保持通透明亮底色）。
   @ViewBuilder
   private func ambientSurface(progress: CGFloat) -> some View {
     ZStack {
       CinematicBackground()
-      Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
-        .opacity(max(0, 1 - Double(progress) * 1.15) * 0.55)
+      if colorScheme == .dark {
+        Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
+          .opacity(max(0, 1 - Double(progress) * 1.15) * 0.55)
+      }
     }
   }
 
@@ -527,29 +531,51 @@ struct NativeDiscoverPage: View {
     let parallax = reduceMotion ? 0 : -min(scrollUp, height) * 0.07
     let blurRadius: CGFloat = (reduceMotion || reduceTransparency) ? 0 : eased * 18
     let visibility = max(0, 1 - Double(eased) * 0.94)
+    let isLight = colorScheme == .light
+    let fadeBase =
+      isLight
+      ? NativeTheme.topVeilColor(for: .light, appearance: appearance)
+      : Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
     return ZStack(alignment: .bottom) {
       artwork(item.backdropReference, .backdrop)
         .frame(width: width, height: backdropHeight)
         .clipped()
         .blur(radius: blurRadius, opaque: false)
-      // 底部多段深色压暗保证明亮剧照上的白色文字与评分清晰可读。
+      // 浅色模式顶部轻微柔化，避免深色剧照遮挡黑色状态栏文字。
+      if isLight {
+        VStack {
+          LinearGradient(
+            colors: [fadeBase.opacity(0.62), fadeBase.opacity(0.22), .clear],
+            startPoint: .top, endPoint: .bottom
+          )
+          .frame(height: 112)
+          Spacer(minLength: 0)
+        }
+        .frame(width: width, height: backdropHeight)
+      }
+      // 底部多段平滑融底：深色下压暗托起白字，浅色下柔化融底托起深色文字。
       LinearGradient(
-        stops: [
-          .init(color: .clear, location: 0.36),
-          .init(
-            color: Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255).opacity(0.45),
-            location: 0.64),
-          .init(
-            color: Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255).opacity(0.86),
-            location: 0.86),
-          .init(color: Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255), location: 1),
-        ], startPoint: .top, endPoint: .bottom
+        stops: isLight
+          ? [
+            .init(color: .clear, location: 0.34),
+            .init(color: fadeBase.opacity(0.56), location: 0.62),
+            .init(color: fadeBase.opacity(0.92), location: 0.82),
+            .init(color: fadeBase, location: 1),
+          ]
+          : [
+            .init(color: .clear, location: 0.36),
+            .init(color: fadeBase.opacity(0.45), location: 0.64),
+            .init(color: fadeBase.opacity(0.86), location: 0.86),
+            .init(color: fadeBase, location: 1),
+          ], startPoint: .top, endPoint: .bottom
       )
       .frame(width: width, height: backdropHeight)
-      .opacity(max(0, 1 - Double(eased) * 0.6))
+      .opacity(max(0, 1 - Double(eased) * (isLight ? 0.25 : 0.6)))
     }
     .offset(y: parallax)
-    .overlay(.black.opacity(Double(eased) * 0.22))
+    .overlay(
+      isLight ? fadeBase.opacity(Double(eased) * 0.32) : .black.opacity(Double(eased) * 0.22)
+    )
     .mask(alignment: .top) {
       LinearGradient(
         stops: [
@@ -569,10 +595,10 @@ struct NativeDiscoverPage: View {
     .accessibilityHidden(true)
   }
 
-  /// 滚动离顶后在状态栏安全区呈现渐进柔化过渡，确保退场标题与正文不与系统状态栏硬重叠。
+  /// 滚动离顶后在状态栏安全区呈现渐进柔化过渡，浅/深色自动匹配当前背景主题色。
   private func topSafeAreaVeil(progress: CGFloat, height: CGFloat) -> some View {
     let opacity = Double(progress)
-    let surface = Color(red: 43 / 255, green: 39 / 255, blue: 52 / 255)
+    let surface = NativeTheme.topVeilColor(for: colorScheme, appearance: appearance)
     return LinearGradient(
       stops: [
         .init(color: surface.opacity(opacity), location: 0),
@@ -608,13 +634,17 @@ struct NativeDiscoverPage: View {
     .frame(maxWidth: .infinity)
   }
 
-  /// 圆点指示器只呈现真实推荐数量，不伪造固定数量的装饰点。
+  /// 圆点指示器只呈现真实推荐数量，浅/深色下均清晰可见。
   private var carouselIndicators: some View {
     HStack(spacing: 7) {
       ForEach(Array(content.featuredItems.enumerated()), id: \.element.id) { index, _ in
         let selected = index == selectedFeatureIndex
         Circle()
-          .fill(.white.opacity(selected ? 0.95 : 0.30))
+          .fill(
+            colorScheme == .light
+              ? Color.primary.opacity(selected ? 0.84 : 0.24)
+              : Color.white.opacity(selected ? 0.95 : 0.30)
+          )
           .frame(width: selected ? 6.5 : 5.5, height: selected ? 6.5 : 5.5)
           .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selectedFeatureIndex)
       }
@@ -623,7 +653,7 @@ struct NativeDiscoverPage: View {
     .accessibilityHidden(true)
   }
 
-  /// 标题、评分与简介浮于独立背景上方，随列表正常上移，不与图片捆成卡片。
+  /// 标题、评分与简介浮于独立背景上方，随列表正常上移，深浅色自适应高对比前景。
   private func featureForeground(_ item: NativeDiscoverFeature, height: CGFloat) -> some View {
     Button {
       onOpenMedia(item.id)
@@ -638,13 +668,14 @@ struct NativeDiscoverPage: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .foregroundStyle(.white)
+    .foregroundStyle(colorScheme == .light ? Color.primary : Color.white)
     .accessibilityIdentifier("native-discover-feature-\(item.id)")
   }
 
   /// 海报前景优先展示后端透明媒体标题 Logo，无 Logo 时以电影感大字标题自然降级，下方紧凑排布类型、简介与多维评分标。
   private func featureInformation(_ item: NativeDiscoverFeature) -> some View {
-    VStack(alignment: .center, spacing: 8) {
+    let isLight = colorScheme == .light
+    return VStack(alignment: .center, spacing: 8) {
       if let logoRef = item.logoReference, !logoRef.isEmpty {
         NativeDiscoverLogoBanner(
           session: session,
@@ -656,25 +687,26 @@ struct NativeDiscoverPage: View {
         Text(item.title)
           .font(.system(.largeTitle, design: .serif).weight(.bold))
           .tracking(item.title.count <= 6 ? 4 : 1)
-          .shadow(color: .black.opacity(0.45), radius: 10, y: 3)
+          .shadow(color: isLight ? .clear : .black.opacity(0.45), radius: 10, y: 3)
           .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
       }
       if !item.subtitle.isEmpty {
         Text(item.subtitle)
           .font(.subheadline.weight(.medium))
-          .foregroundStyle(.white.opacity(0.86))
+          .foregroundStyle(isLight ? Color.primary.opacity(0.80) : Color.white.opacity(0.86))
       }
       if !item.synopsis.isEmpty {
         Text(item.synopsis)
           .font(.footnote)
-          .foregroundStyle(.white.opacity(0.76))
+          .foregroundStyle(isLight ? Color.secondary : Color.white.opacity(0.76))
           .lineLimit(2)
       }
       ViewThatFits(in: .horizontal) {
         HStack(spacing: 12) { featureLabels(item) }
         VStack(alignment: .center, spacing: 6) { featureLabels(item) }
       }
-      .font(.caption.weight(.semibold)).foregroundStyle(.white)
+      .font(.caption.weight(.semibold))
+      .foregroundStyle(isLight ? Color.primary : Color.white)
       .padding(.top, 2)
     }
     .multilineTextAlignment(.center)
@@ -682,8 +714,9 @@ struct NativeDiscoverPage: View {
     .padding(.bottom, 10)
   }
 
-  /// 参照视觉参考 06 的评分微标排布：紧凑徽章与评分数值并列，辅助字号下自动分行。
+  /// 紧凑评分微标排布：深/浅色均保持高对比可读性。
   @ViewBuilder private func featureLabels(_ item: NativeDiscoverFeature) -> some View {
+    let isLight = colorScheme == .light
     if let rating = item.rating, !rating.isEmpty {
       HStack(spacing: 5) {
         Text("TheMovieDB")
@@ -696,15 +729,17 @@ struct NativeDiscoverPage: View {
             in: RoundedRectangle(cornerRadius: 4, style: .continuous))
         Text(rating)
           .font(.caption.monospacedDigit().weight(.bold))
-          .foregroundStyle(.white)
+          .foregroundStyle(isLight ? Color.primary : Color.white)
       }
     }
     HStack(spacing: 4) {
       Image(systemName: "star.fill")
         .font(.caption2)
-        .foregroundStyle(Color(red: 0.98, green: 0.78, blue: 0.30))
+        .foregroundStyle(
+          isLight
+            ? Color(red: 0.84, green: 0.56, blue: 0.04) : Color(red: 0.98, green: 0.78, blue: 0.30))
       Text("查看详情")
-        .foregroundStyle(.white.opacity(0.88))
+        .foregroundStyle(isLight ? Color.primary.opacity(0.82) : Color.white.opacity(0.88))
     }
   }
 

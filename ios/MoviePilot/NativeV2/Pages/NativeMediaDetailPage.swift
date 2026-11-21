@@ -25,6 +25,7 @@ struct NativeMediaDetailPage: View {
   @State private var actionFeedback: NativeDetailActionFeedback?
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.colorScheme) private var colorScheme
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
 
   /// 按当前认证会话直接加载单部影视详情、入库/订阅状态、演职员与推荐；不借 WebView。
   var body: some View {
@@ -60,7 +61,7 @@ struct NativeMediaDetailPage: View {
               .padding(.top, 110)
           } else {
             ProgressView("正在载入作品详情…")
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 280)
               .padding(.top, 110)
           }
@@ -102,11 +103,16 @@ struct NativeMediaDetailPage: View {
     session.user.allows(.init(category: .search))
   }
 
-  /// 全宽剧照延伸至顶部安全区，经多段柔边融入 Cinematic 底色并浮置片名与核心元数据。
+  /// 全宽剧照延伸至顶部安全区，经多段柔边融入当前深/浅色底色并浮置片名与核心元数据。
   private func heroSection(_ detail: NativeMediaDetailPayload) -> some View {
     let heroHeight: CGFloat = dynamicTypeSize.isAccessibilitySize ? 470 : 410
     let backdrop = Self.resolveArtwork(
       detail.backdropPath ?? detail.posterPath, source: detail.mediaSource ?? identity.source)
+    let isLight = colorScheme == .light
+    let fadeBase =
+      isLight
+      ? NativeTheme.topVeilColor(for: .light, appearance: appearance)
+      : Color(red: 22 / 255, green: 19 / 255, blue: 32 / 255)
     return ZStack(alignment: .bottomLeading) {
       NativeMediaArtwork(
         session: session, reference: backdrop, role: .backdrop, maximumWidth: 1280
@@ -116,22 +122,28 @@ struct NativeMediaDetailPage: View {
       .clipped()
       .overlay(alignment: .top) {
         LinearGradient(
-          colors: [.black.opacity(0.42), .clear], startPoint: .top, endPoint: .bottom
+          colors: [isLight ? fadeBase.opacity(0.68) : .black.opacity(0.42), .clear],
+          startPoint: .top, endPoint: .bottom
         )
         .frame(height: 110)
       }
       .overlay {
         LinearGradient(
-          stops: [
-            .init(color: .clear, location: 0.30),
-            .init(
-              color: Color(red: 22 / 255, green: 19 / 255, blue: 32 / 255).opacity(0.58),
-              location: 0.68),
-            .init(
-              color: Color(red: 28 / 255, green: 24 / 255, blue: 38 / 255).opacity(0.95),
-              location: 0.94),
-            .init(color: .clear, location: 1.0),
-          ], startPoint: .top, endPoint: .bottom)
+          stops: isLight
+            ? [
+              .init(color: .clear, location: 0.28),
+              .init(color: fadeBase.opacity(0.66), location: 0.64),
+              .init(color: fadeBase.opacity(0.96), location: 0.90),
+              .init(color: fadeBase, location: 1.0),
+            ]
+            : [
+              .init(color: .clear, location: 0.30),
+              .init(color: fadeBase.opacity(0.58), location: 0.68),
+              .init(
+                color: Color(red: 28 / 255, green: 24 / 255, blue: 38 / 255).opacity(0.95),
+                location: 0.94),
+              .init(color: .clear, location: 1.0),
+            ], startPoint: .top, endPoint: .bottom)
       }
       .mask(
         LinearGradient(
@@ -144,32 +156,33 @@ struct NativeMediaDetailPage: View {
       VStack(alignment: .leading, spacing: 10) {
         Text(detail.title ?? "未命名作品")
           .font(.system(.largeTitle, design: .serif).weight(.bold))
-          .shadow(color: .black.opacity(0.45), radius: 10, y: 3)
+          .foregroundStyle(isLight ? Color.primary : Color.white)
+          .shadow(color: isLight ? .clear : .black.opacity(0.45), radius: 10, y: 3)
           .accessibilityIdentifier("native-media-detail-title")
         if let tagline = detail.tagline?.trimmingCharacters(in: .whitespacesAndNewlines),
           !tagline.isEmpty
         {
           Text(tagline)
             .font(.subheadline.italic())
-            .foregroundStyle(.white.opacity(0.76))
+            .foregroundStyle(isLight ? Color.secondary : Color.white.opacity(0.76))
             .lineLimit(2)
         }
         let summaryParts = metadataLineParts(detail)
         if !summaryParts.isEmpty {
           Text(summaryParts.joined(separator: "  ·  "))
             .font(.subheadline.weight(.medium))
-            .foregroundStyle(.white.opacity(0.84))
+            .foregroundStyle(isLight ? Color.primary.opacity(0.80) : Color.white.opacity(0.84))
         }
         HStack(spacing: 10) {
           if let rating = detail.voteAverage, rating > 0 {
             Label(String(format: "%.1f", rating), systemImage: "star.fill")
               .font(.subheadline.weight(.semibold))
-              .foregroundStyle(.yellow)
+              .foregroundStyle(NativeTheme.warning)
           }
           if let server = status.server, !server.isEmpty, status.itemID != nil {
             Label("已在 \(server) 入库", systemImage: "checkmark.seal.fill")
               .font(.caption.weight(.semibold))
-              .foregroundStyle(Color(red: 0.56, green: 0.92, blue: 0.72))
+              .foregroundStyle(NativeTheme.success)
               .padding(.horizontal, 10)
               .padding(.vertical, 5)
               .background {
@@ -189,12 +202,12 @@ struct NativeMediaDetailPage: View {
               ForEach(Array(genres), id: \.self) { genre in
                 Text(genre)
                   .font(.caption.weight(.medium))
-                  .foregroundStyle(.white.opacity(0.88))
+                  .foregroundStyle(NativeTheme.chipText)
                   .padding(.horizontal, 10)
                   .padding(.vertical, 5)
                   .background {
                     Capsule()
-                      .fill(.white.opacity(0.12))
+                      .fill(NativeTheme.chipFill)
                       .overlay { Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 0.5) }
                   }
               }
@@ -388,7 +401,7 @@ struct NativeMediaDetailPage: View {
         Image(
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
-        .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
+        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
         Text(feedback.message)
           .font(.subheadline)
           .foregroundStyle(.primary.opacity(0.92))
@@ -671,7 +684,7 @@ struct NativeMediaDetailPage: View {
             .accessibilityAddTraits(.isHeader)
           ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
             if index > 0 {
-              Divider().overlay(.white.opacity(0.08))
+              Divider().overlay(NativeTheme.divider)
             }
             HStack(alignment: .top, spacing: 12) {
               Text(row.label)
