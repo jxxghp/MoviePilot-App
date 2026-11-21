@@ -458,10 +458,9 @@ struct NativeSystemModulesPage: View {
         } label: {
           HStack(spacing: 14) {
             Image(systemName: "wand.and.stars")
-              .font(.system(size: 15, weight: .semibold))
-              .foregroundStyle(NativeTheme.brand)
-              .frame(width: 34, height: 34)
-              .background(NativeTheme.brand.opacity(0.15), in: RoundedRectangle(cornerRadius: 9))
+              .font(.system(size: 18, weight: .medium))
+              .foregroundStyle(.primary)
+              .frame(width: 24, height: 24)
             VStack(alignment: .leading, spacing: 3) {
               Text("刮削开关").font(.body.weight(.medium)).foregroundStyle(.primary)
               Text("配置电影、剧集、音乐 NFO 与图片刮削").font(.caption).foregroundStyle(.secondary)

@@ -827,13 +827,9 @@ private struct NativeTransferDeleteSheet: View {
     Button(action: action) {
       HStack(spacing: 11) {
         Image(systemName: icon)
-          .font(.body.weight(.semibold))
+          .font(.system(size: 18, weight: .medium))
           .foregroundStyle(tint)
-          .frame(width: 28, height: 28)
-          .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-              .fill(tint.opacity(0.14))
-          }
+          .frame(width: 24, height: 24)
         VStack(alignment: .leading, spacing: 2) {
           Text(title)
             .font(.subheadline.weight(.semibold))

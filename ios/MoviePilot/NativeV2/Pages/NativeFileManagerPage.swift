@@ -340,21 +340,16 @@ struct NativeFileManagerPage: View {
           }
         } label: {
           HStack(spacing: 12) {
-            ZStack {
-              RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(
-                  item.isDirectory
-                    ? NativeTheme.brand.opacity(0.20)
-                    : NativeTheme.chipFill)
+            Group {
               if isOpeningPlay {
                 ProgressView().controlSize(.mini).tint(.primary)
               } else {
                 Image(systemName: item.symbolName)
-                  .font(.body.weight(.medium))
+                  .font(.title3.weight(.medium))
                   .foregroundStyle(item.isDirectory ? NativeTheme.brand : .primary)
               }
             }
-            .frame(width: 40, height: 40)
+            .frame(width: 32, height: 32)
             VStack(alignment: .leading, spacing: 3) {
               Text(item.displayName)
                 .font(.subheadline.weight(.medium))

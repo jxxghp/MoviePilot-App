@@ -731,12 +731,9 @@ struct NativeDashboardPage: View {
       id: service.id ?? "", name: service.name ?? "", provider: service.provider ?? "")
     return HStack(spacing: 12) {
       Image(systemName: service.isRunning ? "arrow.triangle.2.circlepath" : visual.symbol)
-        .font(.subheadline.weight(.semibold))
+        .font(.system(size: 18, weight: .medium))
         .foregroundStyle(service.isRunning ? NativeTheme.success : visual.tint)
-        .frame(width: 32, height: 32)
-        .background(
-          (service.isRunning ? NativeTheme.success : visual.tint).opacity(0.14),
-          in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .frame(width: 26, height: 26)
       VStack(alignment: .leading, spacing: 4) {
         HStack(spacing: 6) {
           Text(service.nameI18n ?? service.name ?? "后台服务")

@@ -374,12 +374,9 @@ struct NativeResourceSearchPage: View {
                 .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
               } else {
                 Image(systemName: item.recognizedMediaSymbol)
-                  .font(.caption.weight(.semibold))
+                  .font(.subheadline.weight(.medium))
                   .foregroundStyle(appearance.accentColor)
                   .frame(width: 24, height: 24)
-                  .background(
-                    appearance.accentColor.opacity(0.14),
-                    in: RoundedRectangle(cornerRadius: 6, style: .continuous))
               }
               HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(mediaHeading)
@@ -692,12 +689,9 @@ private struct NativeDownloadConfirmSheet: View {
                       .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                     } else {
                       Image(systemName: item.recognizedMediaSymbol)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.title3.weight(.medium))
                         .foregroundStyle(appearance.accentColor)
-                        .frame(width: 32, height: 32)
-                        .background(
-                          appearance.accentColor.opacity(0.14),
-                          in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .frame(width: 28, height: 28)
                     }
                     VStack(alignment: .leading, spacing: 2) {
                       Text(mediaTitle)
