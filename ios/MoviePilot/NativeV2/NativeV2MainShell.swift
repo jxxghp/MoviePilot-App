@@ -1,3 +1,4 @@
+import CryptoKit
 import ImageIO
 import MoviePilotAPI
 import MoviePilotCore
@@ -51,6 +52,8 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @State private var latestServerName: String?
   @State private var railNextPage: [String: Int] = [:]
   @State private var loadingRailIDs: Set<String> = []
+  @State private var lastOverflowToggleAt: Date = .distantPast
+  @State private var hasLoadedDiscoveryOnce = false
 
   /// 保留 root 原有账号动作与插件路由，主导航由系统 TabView 承载各标签独立栈。
   init(
@@ -86,7 +89,14 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         )
       }
       if showsOverflowMenu {
-        overflowMenuOverlay
+        overflowMenuBackdrop
+          .transition(.opacity)
+          .zIndex(49)
+      }
+      if showsOverflowMenu {
+        overflowMenuCard
+          .transition(overflowMenuTransition)
+          .zIndex(50)
       }
       if let banner = routeHub.bannerMessage {
         systemBannerOverlay(banner)
@@ -132,7 +142,9 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       }
     }
     .task(id: canDiscover ? discoveryAttempt : nil) {
-      if canDiscover { await loadDiscovery() }
+      if canDiscover {
+        await loadDiscovery(forceRefresh: discoveryAttempt > 0)
+      }
     }
     .onChange(of: snapshot.user.permissions) { _ in
       if !canDiscover {
@@ -163,7 +175,23 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     snapshot.user.isSuperuser || snapshot.user.allows(.init(category: .manage))
   }
 
-  /// 二次点击底部 4 个主图标中的任意一个时，弹出不在底栏中的其余全部功能菜单；点击右侧 +1 按钮优先执行当前页动态主动作，否则进入全局搜索。
+  /// 统一切换底部溢出菜单状态（内置 180ms 防抖，避免 UIKit 拦截代理与 SwiftUI 绑定重复触发）。
+  private func toggleOverflowMenu() {
+    let now = Date()
+    guard now.timeIntervalSince(lastOverflowToggleAt) > 0.18 else { return }
+    lastOverflowToggleAt = now
+    let opening = !showsOverflowMenu
+    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    withAnimation(
+      opening
+        ? .spring(response: 0.36, dampingFraction: 0.64, blendDuration: 0.08)
+        : .spring(response: 0.22, dampingFraction: 0.90)
+    ) {
+      showsOverflowMenu = opening
+    }
+  }
+
+  /// 二次点击底部 4 个主图标中的任意一个时，直接弹出菜单而不滚动回顶部或触发返回；点击右侧 +1 按钮优先执行当前页动态主动作，否则进入全局搜索。
   private var tabSelection: Binding<Page> {
     Binding(
       get: { selectedTab },
@@ -174,18 +202,10 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           return
         }
         if next == selectedTab && next != .search {
-          let opening = !showsOverflowMenu
-          UIImpactFeedbackGenerator(style: .light).impactOccurred()
-          withAnimation(
-            opening
-              ? .spring(response: 0.36, dampingFraction: 0.68, blendDuration: 0.12)
-              : .spring(response: 0.24, dampingFraction: 0.88)
-          ) {
-            showsOverflowMenu = opening
-          }
+          toggleOverflowMenu()
         } else {
           if showsOverflowMenu {
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.90)) {
               showsOverflowMenu = false
             }
           }
@@ -193,6 +213,16 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           selectedTab = next
         }
       })
+  }
+
+  /// 拦截 UIKit UITabBarController 对当前已选中标签的重复点击，阻止默认的滚回顶部与退回根页面，改为直接弹出菜单。
+  private var tabReselectInterceptor: some View {
+    NativeTabBarReselectInterceptor(
+      shouldInterceptReselect: { selectedTab != .search },
+      onReselect: { toggleOverflowMenu() }
+    )
+    .frame(width: 0, height: 0)
+    .allowsHitTesting(false)
   }
 
   /// 右侧 +1 圆形按钮标题：当前页声明动态动作时显示页面动作，否则回退全局搜索。
@@ -319,6 +349,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         workspaceDestinationView(destination)
       }
     }
+    .background(tabReselectInterceptor)
   }
 
   /// 我的标签：超级管理员直显原生仪表盘，普通成员展示个人概览与权限快捷卡。
@@ -338,6 +369,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         workspaceDestinationView(destination)
       }
     }
+    .background(tabReselectInterceptor)
   }
 
   /// 非超级管理员进入「我的」时的个人概览卡片页，避免调用管理员统计接口。
@@ -435,8 +467,17 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         onOpenModules: { showsModuleSheet = true },
         onOpenPlugins: { showsPlugins = true },
         onSelectLanguage: onSelectLanguage,
-        onSwitchServer: onSwitchServer,
-        onLogout: onLogout
+        onSwitchServer: {
+          NativePageDataCache.shared.clearAll()
+          NativeMediaArtworkCache.shared.clearMemory()
+          onSwitchServer()
+        },
+        onLogout: {
+          NativePageDataCache.shared.clearAll()
+          NativeMediaArtworkCache.shared.clearSession(session)
+          NativeEntityIconCache.shared.clearSession(session)
+          onLogout()
+        }
       )
       .navigationDestination(for: NativeWorkspaceDestination.self) { destination in
         workspaceDestinationView(destination)
@@ -445,6 +486,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         pluginDestination()
       }
     }
+    .background(tabReselectInterceptor)
   }
 
   /// 媒体搜索在自身导航栈内推入详情页，不通过遮罩弹窗打断检索上下文。
@@ -508,6 +550,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           Task { await loadMoreDiscoverRail(railID) }
         },
         loadingRailIDs: loadingRailIDs,
+        onRefresh: { await loadDiscovery(forceRefresh: true) },
         onRetry: { discoveryAttempt += 1 }
       )
       .toolbarBackground(.hidden, for: .navigationBar)
@@ -528,6 +571,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         }
       }
     }
+    .background(tabReselectInterceptor)
   }
 
   /// 统一将工作台路由映射到对应原生业务页面，供全部 4 个主标签与全局溢出菜单复用。
@@ -670,124 +714,147 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .accessibilityIdentifier("native-system-route-banner")
   }
 
-  /// 高透液态玻璃悬浮菜单：顶部展示当前用户头像与信息，下方集中承载订阅、日历、资源、下载、文件、历史、工作流、插件与通知中心入口，带弹性水动弹出过渡。
-  private var overflowMenuOverlay: some View {
-    ZStack(alignment: .bottomLeading) {
-      Color.black.opacity(colorScheme == .light ? 0.10 : 0.16)
-        .ignoresSafeArea()
-        .contentShape(Rectangle())
-        .onTapGesture {
-          withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-            showsOverflowMenu = false
-          }
-        }
-        .transition(.opacity)
-        .accessibilityIdentifier("native-overflow-menu-backdrop")
-      VStack(alignment: .leading, spacing: 0) {
-        HStack(spacing: 11) {
-          NativeUserAvatarView(
-            session: session,
-            avatar: snapshot.user.avatar,
-            name: snapshot.user.name,
-            isSuperuser: snapshot.user.isSuperuser,
-            size: 38
-          )
-          VStack(alignment: .leading, spacing: 2) {
-            Text(snapshot.user.name)
-              .font(.subheadline.weight(.semibold))
-              .foregroundStyle(.primary)
-              .lineLimit(1)
-            HStack(spacing: 5) {
-              Circle()
-                .fill(Color(red: 0.42, green: 0.88, blue: 0.56))
-                .frame(width: 6, height: 6)
-              Text(snapshot.user.isSuperuser ? "超级管理员" : "普通成员")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.primary.opacity(0.68))
-                .lineLimit(1)
-            }
-          }
-          Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("native-overflow-user-header")
-
-        Divider().overlay(.primary.opacity(0.12))
-
-        ScrollView {
-          VStack(alignment: .leading, spacing: 2) {
-            if canSubscribe || canSearchResources || canManageDownloads {
-              if canSubscribe {
-                overflowMenuRow(
-                  title: "订阅", symbol: "bookmark.fill", id: "native-workspace-subscriptions"
-                ) { openFromOverflow(.subscriptions) }
-                overflowMenuRow(
-                  title: "日历", symbol: "calendar", id: "native-workspace-calendar"
-                ) { openFromOverflow(.calendar) }
-              }
-              if canSearchResources {
-                overflowMenuRow(
-                  title: "资源", symbol: "magnifyingglass.circle.fill",
-                  id: "native-workspace-resources"
-                ) { openFromOverflow(.resources) }
-              }
-              if canManageDownloads {
-                overflowMenuRow(
-                  title: "下载", symbol: "arrow.down.circle.fill", id: "native-workspace-downloads"
-                ) { openFromOverflow(.downloads) }
-              }
-            }
-
-            if canManageDownloads || snapshot.user.isSuperuser {
-              Divider().overlay(.primary.opacity(0.10)).padding(.vertical, 4)
-              if canManageDownloads {
-                overflowMenuRow(
-                  title: "文件", symbol: "folder.fill", id: "native-workspace-files"
-                ) { openFromOverflow(.files) }
-                overflowMenuRow(
-                  title: "历史", symbol: "clock.arrow.circlepath", id: "native-workspace-history"
-                ) { openFromOverflow(.history) }
-                overflowMenuRow(
-                  title: "工作流", symbol: "flowchart", id: "native-workspace-workflows"
-                ) { openFromOverflow(.workflows) }
-              }
-              if snapshot.user.isSuperuser {
-                overflowMenuRow(
-                  title: "插件", symbol: "puzzlepiece.extension.fill",
-                  id: "native-overflow-plugin-market"
-                ) { openFromOverflow(.pluginMarket) }
-              }
-            }
-
-            Divider().overlay(.primary.opacity(0.10)).padding(.vertical, 4)
-            overflowMenuRow(
-              title: "通知", symbol: "bell.fill", id: "native-overflow-messages"
-            ) { openFromOverflow(.messages) }
-          }
-          .padding(.vertical, 8)
-        }
-        .scrollIndicators(.hidden)
-        .frame(maxHeight: 440)
-        .accessibilityIdentifier("native-overflow-menu-scroll")
-      }
-      .frame(width: 238)
-      .modifier(NativeLiquidGlassPopoverSurface(cornerRadius: 26))
-      .padding(.leading, 16)
-      .padding(.bottom, 92)
-      .transition(
-        .asymmetric(
-          insertion: .scale(scale: 0.72, anchor: .bottomLeading)
-            .combined(with: .offset(y: 26))
-            .combined(with: .opacity),
-          removal: .scale(scale: 0.86, anchor: .bottomLeading)
-            .combined(with: .offset(y: 14))
-            .combined(with: .opacity)
-        )
-      )
+  /// 溢出菜单弹出锚点：跟随当前激活的底部标签，呈现从对应图标处弹性绽放的原生动画。
+  private var overflowMenuAnchor: UnitPoint {
+    switch selectedTab {
+    case .discover: .bottomLeading
+    case .explore: UnitPoint(x: 0.34, y: 1.0)
+    case .mine: UnitPoint(x: 0.66, y: 1.0)
+    case .settings: .bottomTrailing
+    case .search: .bottomLeading
     }
-    .zIndex(50)
+  }
+
+  /// 溢出菜单屏幕停靠位置：左半区标签靠左对齐，右半区标签靠右对齐。
+  private var overflowMenuAlignment: Alignment {
+    switch selectedTab {
+    case .mine, .settings: .bottomTrailing
+    default: .bottomLeading
+    }
+  }
+
+  /// 溢出菜单动态非对称弹性绽放过渡（直接挂在条件渲染卡片节点上，确保每次弹出都有明显缩放、位移与回弹）。
+  private var overflowMenuTransition: AnyTransition {
+    let anchor = overflowMenuAnchor
+    return .asymmetric(
+      insertion: .scale(scale: 0.28, anchor: anchor)
+        .combined(with: .offset(y: 48))
+        .combined(with: .opacity),
+      removal: .scale(scale: 0.64, anchor: anchor)
+        .combined(with: .offset(y: 26))
+        .combined(with: .opacity)
+    )
+  }
+
+  /// 溢出菜单点击关闭透明遮罩层（独立条件节点，仅淡入淡出不吞掉卡片弹性动画）。
+  private var overflowMenuBackdrop: some View {
+    Color.black.opacity(colorScheme == .light ? 0.10 : 0.16)
+      .ignoresSafeArea()
+      .contentShape(Rectangle())
+      .onTapGesture {
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.90)) {
+          showsOverflowMenu = false
+        }
+      }
+      .accessibilityIdentifier("native-overflow-menu-backdrop")
+  }
+
+  /// 高透液态玻璃悬浮菜单卡片：顶部展示当前用户头像与信息，下方集中承载全部次级功能入口。
+  private var overflowMenuCard: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: 11) {
+        NativeUserAvatarView(
+          session: session,
+          avatar: snapshot.user.avatar,
+          name: snapshot.user.name,
+          isSuperuser: snapshot.user.isSuperuser,
+          size: 38
+        )
+        VStack(alignment: .leading, spacing: 2) {
+          Text(snapshot.user.name)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+          HStack(spacing: 5) {
+            Circle()
+              .fill(Color(red: 0.42, green: 0.88, blue: 0.56))
+              .frame(width: 6, height: 6)
+            Text(snapshot.user.isSuperuser ? "超级管理员" : "普通成员")
+              .font(.caption2.weight(.medium))
+              .foregroundStyle(.primary.opacity(0.68))
+              .lineLimit(1)
+          }
+        }
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, 14)
+      .padding(.vertical, 12)
+      .accessibilityElement(children: .combine)
+      .accessibilityIdentifier("native-overflow-user-header")
+
+      Divider().overlay(.primary.opacity(0.12))
+
+      ScrollView {
+        VStack(alignment: .leading, spacing: 2) {
+          if canSubscribe || canSearchResources || canManageDownloads {
+            if canSubscribe {
+              overflowMenuRow(
+                title: "订阅", symbol: "bookmark.fill", id: "native-workspace-subscriptions"
+              ) { openFromOverflow(.subscriptions) }
+              overflowMenuRow(
+                title: "日历", symbol: "calendar", id: "native-workspace-calendar"
+              ) { openFromOverflow(.calendar) }
+            }
+            if canSearchResources {
+              overflowMenuRow(
+                title: "资源", symbol: "magnifyingglass.circle.fill",
+                id: "native-workspace-resources"
+              ) { openFromOverflow(.resources) }
+            }
+            if canManageDownloads {
+              overflowMenuRow(
+                title: "下载", symbol: "arrow.down.circle.fill", id: "native-workspace-downloads"
+              ) { openFromOverflow(.downloads) }
+            }
+          }
+
+          if canManageDownloads || snapshot.user.isSuperuser {
+            Divider().overlay(.primary.opacity(0.10)).padding(.vertical, 4)
+            if canManageDownloads {
+              overflowMenuRow(
+                title: "文件", symbol: "folder.fill", id: "native-workspace-files"
+              ) { openFromOverflow(.files) }
+              overflowMenuRow(
+                title: "历史", symbol: "clock.arrow.circlepath", id: "native-workspace-history"
+              ) { openFromOverflow(.history) }
+              overflowMenuRow(
+                title: "工作流", symbol: "flowchart", id: "native-workspace-workflows"
+              ) { openFromOverflow(.workflows) }
+            }
+            if snapshot.user.isSuperuser {
+              overflowMenuRow(
+                title: "插件", symbol: "puzzlepiece.extension.fill",
+                id: "native-overflow-plugin-market"
+              ) { openFromOverflow(.pluginMarket) }
+            }
+          }
+
+          Divider().overlay(.primary.opacity(0.10)).padding(.vertical, 4)
+          overflowMenuRow(
+            title: "通知", symbol: "bell.fill", id: "native-overflow-messages"
+          ) { openFromOverflow(.messages) }
+        }
+        .padding(.vertical, 8)
+      }
+      .scrollIndicators(.hidden)
+      .frame(maxHeight: 440)
+      .accessibilityIdentifier("native-overflow-menu-scroll")
+    }
+    .frame(width: 238)
+    .modifier(NativeLiquidGlassPopoverSurface(cornerRadius: 26))
+    .padding(.horizontal, 16)
+    .padding(.bottom, 92)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: overflowMenuAlignment)
   }
 
   /// 悬浮快捷菜单中的单个原生入口行。
@@ -813,17 +880,23 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .accessibilityIdentifier(id)
   }
 
-  /// 从 MoviePilot 发现、推荐与媒体服务器端点读取真实海报与进度，失败不注入演示数据。
-  private func loadDiscovery() async {
+  /// 从 MoviePilot 发现、推荐与媒体服务器端点读取真实海报与进度，已加载过则静默复用缓存，仅显式刷新时重拉。
+  private func loadDiscovery(forceRefresh: Bool = false) async {
+    if !forceRefresh && hasLoadedDiscoveryOnce && !discovery.rails.isEmpty {
+      return
+    }
     let generation = UUID()
     discoveryGeneration = generation
-    discovery = NativeDiscoverContent(
-      featuredItems: discovery.featuredItems, rails: discovery.rails,
-      continueWatching: discovery.continueWatching, providers: discovery.providers,
-      categories: discovery.categories,
-      moduleOrder: discoverModules.filter(\.enabled).map(\.id),
-      isLoading: true, loadFailed: discovery.loadFailed
-    )
+    let showLoading = discovery.rails.isEmpty && discovery.featuredItems.isEmpty
+    if showLoading {
+      discovery = NativeDiscoverContent(
+        featuredItems: discovery.featuredItems, rails: discovery.rails,
+        continueWatching: discovery.continueWatching, providers: discovery.providers,
+        categories: discovery.categories,
+        moduleOrder: discoverModules.filter(\.enabled).map(\.id),
+        isLoading: true, loadFailed: discovery.loadFailed
+      )
+    }
 
     async let modulesTask = try? requestDiscoverModules()
     async let moviesTask = try? requestDiscoverMedia("tmdb_movies", page: 1)
@@ -970,6 +1043,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       moduleOrder: resolvedModules.filter(\.enabled).map(\.id),
       loadFailed: movies == nil || television == nil)
     mediaIdentities = identities
+    hasLoadedDiscoveryOnce = true
 
     // 异步补拉主视觉透明标题 Logo 与风格摘要，不阻塞发现首屏呈现。
     Task {
@@ -1374,7 +1448,7 @@ private struct NativeUserConfigValue<Value: Decodable & Sendable>: Decodable, Se
   let value: Value?
 }
 
-/// 搜索结果和发现海报显示后端提供的 HTTPS 图片，并交由当前 MoviePilot 实例代理。
+/// 搜索结果和发现海报显示后端提供的 HTTPS 图片，优先命中同步内存缓存与本地磁盘缓存，无闪烁回显。
 @MainActor
 struct NativeMediaArtwork: View {
   let session: NativeSession
@@ -1382,13 +1456,21 @@ struct NativeMediaArtwork: View {
   let role: NativeDiscoverArtworkRole
   let maximumWidth: Int
   @State private var image: UIImage?
+  @State private var loadedKey: String?
 
-  /// 未验证图片或加载失败时保留 Cinematic 紫玫瑰色海报占位。
+  /// 首帧同步读取内存缓存，命中时直接呈现海报，避免返回页面或切换标签时闪烁占位图。
   var body: some View {
-    GeometryReader { bounds in
+    let key = cacheKey
+    let resolvedImage: UIImage? =
+      if loadedKey == key, let image {
+        image
+      } else {
+        NativeMediaArtworkCache.shared.memoryImage(for: key)
+      }
+    return GeometryReader { bounds in
       Group {
-        if let image {
-          Image(uiImage: image).resizable().scaledToFill()
+        if let resolvedImage {
+          Image(uiImage: resolvedImage).resizable().scaledToFill()
         } else {
           placeholder
         }
@@ -1396,63 +1478,67 @@ struct NativeMediaArtwork: View {
       .frame(width: bounds.size.width, height: bounds.size.height)
       .clipped()
     }
-    .task(id: cacheKey) { await load() }
+    .task(id: key) { await load(for: key) }
     .accessibilityHidden(true)
   }
 
-  /// 只把经过校验的 HTTP(S) 图片地址交给同源后端图片代理，剥离前端附加片段且绝不透传主令牌。
-  private func load() async {
-    image = nil
+  /// 规范化图片地址并构造持久化缓存键（按服务器实例、用户与尺寸隔离）。
+  private var normalizedURL: URL? {
     guard let reference, reference.utf8.count <= 16_384,
       var components = URLComponents(string: reference),
       let scheme = components.scheme?.lowercased(), ["http", "https"].contains(scheme),
       components.host?.isEmpty == false,
       components.user == nil, components.password == nil
-    else { return }
+    else { return nil }
     components.fragment = nil
     if components.path.hasPrefix("/t/p/original/") {
       let bucket = maximumWidth <= 500 ? "w500" : (maximumWidth <= 800 ? "w780" : "w1280")
       components.path =
         "/t/p/\(bucket)/" + components.path.dropFirst("/t/p/original/".count)
     }
-    guard let url = components.url else { return }
-    let key = cacheKey
+    return components.url
+  }
+
+  /// 二级缓存加载：L1 内存命中直出 → L2 本地磁盘后台解码 → 合并同 URL 并发请求拉取并落盘。
+  private func load(for key: String) async {
     guard (try? session.checkActive()) != nil else { return }
-    if let cached = NativeMediaArtworkCache.shared.image(for: key) {
+    if let cached = NativeMediaArtworkCache.shared.memoryImage(for: key) {
       image = cached
+      loadedKey = key
       return
     }
-    do {
-      let response = try await session.requestImage(url, maximumWidth: maximumWidth)
-      try Task.checkCancellation()
-      guard let decoded = Self.thumbnail(response.data, limit: maximumWidth) else { return }
-      NativeMediaArtworkCache.shared.store(decoded, for: key)
-      image = decoded
-    } catch { return }
+    if loadedKey != key {
+      image = nil
+    }
+    guard let url = normalizedURL else { return }
+    let scopeDir = NativeMediaArtworkCache.scopeDirectoryName(for: session)
+    let limit = maximumWidth
+    if let diskImage = await NativeMediaArtworkCache.shared.diskImage(
+      for: key, scopeDir: scopeDir, limit: limit)
+    {
+      guard !Task.isCancelled else { return }
+      image = diskImage
+      loadedKey = key
+      return
+    }
+    let decoded = await NativeMediaArtworkCache.shared.fetchAndCache(
+      key: key, scopeDir: scopeDir, limit: limit
+    ) {
+      let response = try await session.requestImage(url, maximumWidth: limit)
+      return response.data
+    }
+    guard !Task.isCancelled, let decoded else { return }
+    image = decoded
+    loadedKey = key
   }
 
-  /// 在分配显示位图前缩放源图，避免大尺寸原图直接解码进滚动列表。
-  private static func thumbnail(_ data: Data, limit: Int) -> UIImage? {
-    guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-      let image = CGImageSourceCreateThumbnailAtIndex(
-        source, 0,
-        [
-          kCGImageSourceCreateThumbnailFromImageAlways: true,
-          kCGImageSourceCreateThumbnailWithTransform: true,
-          kCGImageSourceThumbnailMaxPixelSize: limit,
-        ] as CFDictionary)
-    else { return nil }
-    return UIImage(cgImage: image)
-  }
-
-  /// 缓存键覆盖服务、用户和登录代次，避免同一 URL 跨认证会话复用。
+  /// 缓存键覆盖服务器实例、用户 ID、尺寸与规范化 URL，跨冷启动复用本地磁盘缓存，登出时按作用域清理。
   private var cacheKey: String {
     [
       session.scope.instanceID.uuidString,
       String(session.scope.userID),
-      session.scope.generation.uuidString,
       String(maximumWidth),
-      reference ?? "",
+      normalizedURL?.absoluteString ?? reference ?? "",
     ].joined(separator: "|")
   }
 
@@ -1488,22 +1574,343 @@ struct NativeMediaArtwork: View {
   }
 }
 
-/// 仅在进程内暂存受控海报，登出代次通过缓存键隔离且没有磁盘持久化。
+/// 二级图片缓存（L1 128MB 内存 + L2 250MB 本地 Caches 磁盘 + 并发请求合并），按实例与用户隔离存储。
 @MainActor
-private final class NativeMediaArtworkCache {
+final class NativeMediaArtworkCache {
   static let shared = NativeMediaArtworkCache()
+
   private let images = NSCache<NSString, UIImage>()
+  private var inFlight: [String: Task<UIImage?, Never>] = [:]
+  private var writesSincePrune = 0
+  nonisolated private static let maxDiskBytes: Int64 = 250 * 1024 * 1024
+  nonisolated private static let targetDiskBytes: Int64 = 180 * 1024 * 1024
 
-  /// 限制页面滚动带来的图像驻留体积，系统内存压力下允许回收。
-  private init() { images.totalCostLimit = 48 * 1024 * 1024 }
+  private init() {
+    images.totalCostLimit = 128 * 1024 * 1024
+    images.countLimit = 600
+  }
 
-  /// 返回同一服务和登录代次已加载的海报。
-  func image(for key: String) -> UIImage? { images.object(forKey: key as NSString) }
+  /// 按当前实例与用户生成隔离的磁盘缓存子目录名。
+  static func scopeDirectoryName(for session: NativeSession) -> String {
+    "\(session.scope.instanceID.uuidString)_\(session.scope.userID)"
+  }
 
-  /// 存放解码图片并以位图尺寸计入缓存成本。
-  func store(_ image: UIImage, for key: String) {
+  /// 同步读取 L1 内存缓存。
+  func memoryImage(for key: String) -> UIImage? {
+    images.object(forKey: key as NSString)
+  }
+
+  /// 写入 L1 内存缓存。
+  func storeMemory(_ image: UIImage, for key: String) {
     let cost = (image.cgImage?.bytesPerRow ?? 0) * (image.cgImage?.height ?? 0)
-    images.setObject(image, forKey: key as NSString, cost: cost)
+    images.setObject(image, forKey: key as NSString, cost: max(cost, 4096))
+  }
+
+  /// 后台线程读取 L2 磁盘缓存并解码缩略图，命中后同步回填 L1 内存缓存。
+  func diskImage(for key: String, scopeDir: String, limit: Int) async -> UIImage? {
+    let decoded: UIImage? = await Task.detached(priority: .userInitiated) {
+      guard let fileURL = Self.diskFileURL(for: key, scopeDir: scopeDir),
+        let data = try? Data(contentsOf: fileURL), !data.isEmpty
+      else { return nil }
+      // 更新访问时间用于 LRU 淘汰
+      try? FileManager.default.setAttributes(
+        [.modificationDate: Date()], ofItemAtPath: fileURL.path)
+      return Self.decodeThumbnail(data, limit: limit)
+    }.value
+    if let decoded {
+      storeMemory(decoded, for: key)
+    }
+    return decoded
+  }
+
+  /// 合并同一缓存键的并发网络请求，成功后后台落盘并写入 L1 内存缓存。
+  func fetchAndCache(
+    key: String,
+    scopeDir: String,
+    limit: Int,
+    fetcher: @escaping @Sendable () async throws -> Data
+  ) async -> UIImage? {
+    if let cached = memoryImage(for: key) { return cached }
+    if let existing = inFlight[key] {
+      return await existing.value
+    }
+    let task = Task<UIImage?, Never> {
+      do {
+        let data = try await fetcher()
+        guard !data.isEmpty else { return nil }
+        let decoded: UIImage? = await Task.detached(priority: .userInitiated) {
+          if let fileURL = Self.diskFileURL(for: key, scopeDir: scopeDir) {
+            let dir = fileURL.deletingLastPathComponent()
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try? data.write(to: fileURL, options: .atomic)
+          }
+          return Self.decodeThumbnail(data, limit: limit)
+        }.value
+        if let decoded {
+          self.storeMemory(decoded, for: key)
+          self.schedulePruneIfNeeded(scopeDir: scopeDir)
+        }
+        return decoded
+      } catch {
+        return nil
+      }
+    }
+    inFlight[key] = task
+    let result = await task.value
+    inFlight.removeValue(forKey: key)
+    return result
+  }
+
+  /// 仅清空内存缓存（切换服务器时使用）。
+  func clearMemory() {
+    images.removeAllObjects()
+    for task in inFlight.values { task.cancel() }
+    inFlight.removeAll()
+  }
+
+  /// 退出登录时清理当前用户对应的内存与本地磁盘图片缓存。
+  func clearSession(_ session: NativeSession) {
+    clearMemory()
+    let scopeDir = Self.scopeDirectoryName(for: session)
+    Task.detached(priority: .utility) {
+      if let dir = Self.cacheDirectory(scopeDir: scopeDir) {
+        try? FileManager.default.removeItem(at: dir)
+      }
+    }
+  }
+
+  /// 定期在后台裁剪超出 250MB 上限的旧磁盘图片缓存。
+  private func schedulePruneIfNeeded(scopeDir: String) {
+    writesSincePrune += 1
+    guard writesSincePrune >= 40 else { return }
+    writesSincePrune = 0
+    Task.detached(priority: .utility) {
+      Self.pruneDiskCache(scopeDir: scopeDir)
+    }
+  }
+
+  nonisolated private static func cacheDirectory(scopeDir: String) -> URL? {
+    FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+      .appendingPathComponent("MoviePilotImageCache", isDirectory: true)
+      .appendingPathComponent(scopeDir, isDirectory: true)
+  }
+
+  nonisolated private static func diskFileURL(for key: String, scopeDir: String) -> URL? {
+    guard let dir = cacheDirectory(scopeDir: scopeDir) else { return nil }
+    let digest = SHA256.hash(data: Data(key.utf8))
+    let hex = digest.map { String(format: "%02x", $0) }.joined()
+    return dir.appendingPathComponent("\(hex).img")
+  }
+
+  nonisolated static func decodeThumbnail(_ data: Data, limit: Int) -> UIImage? {
+    if limit > 0,
+      let source = CGImageSourceCreateWithData(data as CFData, nil),
+      let cgImage = CGImageSourceCreateThumbnailAtIndex(
+        source, 0,
+        [
+          kCGImageSourceCreateThumbnailFromImageAlways: true,
+          kCGImageSourceCreateThumbnailWithTransform: true,
+          kCGImageSourceThumbnailMaxPixelSize: limit,
+        ] as CFDictionary)
+    {
+      return UIImage(cgImage: cgImage)
+    }
+    return UIImage(data: data)
+  }
+
+  nonisolated private static func pruneDiskCache(scopeDir: String) {
+    guard let dir = cacheDirectory(scopeDir: scopeDir),
+      let urls = try? FileManager.default.contentsOfDirectory(
+        at: dir,
+        includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
+        options: .skipsHiddenFiles)
+    else { return }
+    var totalSize: Int64 = 0
+    var records: [(url: URL, date: Date, size: Int64)] = []
+    for url in urls {
+      guard
+        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+      else { continue }
+      let size = Int64(values.fileSize ?? 0)
+      totalSize += size
+      records.append((url, values.contentModificationDate ?? .distantPast, size))
+    }
+    guard totalSize > maxDiskBytes else { return }
+    records.sort { $0.date < $1.date }
+    for item in records {
+      try? FileManager.default.removeItem(at: item.url)
+      totalSize -= item.size
+      if totalSize <= targetDiskBytes { break }
+    }
+  }
+}
+
+/// 会话级页面数据缓存：页面切换与再次进入时首帧直出缓存并静默跳过加载过程，下拉刷新可强制重拉。
+@MainActor
+final class NativePageDataCache {
+  static let shared = NativePageDataCache()
+
+  private struct Entry {
+    let value: Any
+    let storedAt: Date
+  }
+
+  private var entries: [String: Entry] = [:]
+  private var activeOwner: String?
+
+  private init() {}
+
+  private func ensureOwner(for session: NativeSession) {
+    let owner = "\(session.scope.instanceID.uuidString)|\(session.scope.userID)"
+    if activeOwner != owner {
+      entries.removeAll()
+      activeOwner = owner
+    }
+  }
+
+  /// 读取当前实例与账号作用域内的缓存快照。
+  func get<T>(_ key: String, session: NativeSession) -> T? {
+    ensureOwner(for: session)
+    return entries[key]?.value as? T
+  }
+
+  /// 缓存是否存在且仍在保鲜窗口内（默认 5 分钟）。
+  func isFresh(_ key: String, session: NativeSession, maxAge: TimeInterval = 300) -> Bool {
+    ensureOwner(for: session)
+    guard let entry = entries[key] else { return false }
+    return Date().timeIntervalSince(entry.storedAt) < maxAge
+  }
+
+  /// 写入当前实例与账号作用域内的缓存快照。
+  func set<T>(_ value: T, for key: String, session: NativeSession) {
+    ensureOwner(for: session)
+    entries[key] = Entry(value: value, storedAt: Date())
+  }
+
+  /// 移除指定缓存键。
+  func remove(_ key: String, session: NativeSession) {
+    ensureOwner(for: session)
+    entries.removeValue(forKey: key)
+  }
+
+  /// 切换服务器或退出登录时清空全部页面缓存。
+  func clearAll() {
+    entries.removeAll()
+    activeOwner = nil
+  }
+}
+
+/// 通过代理包装底层 UITabBarController，在重复点击已激活标签时返回 `false`，彻底阻止滚回顶部与退回根页并直接弹出菜单。
+private struct NativeTabBarReselectInterceptor: UIViewControllerRepresentable {
+  let shouldInterceptReselect: () -> Bool
+  let onReselect: () -> Void
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(shouldInterceptReselect: shouldInterceptReselect, onReselect: onReselect)
+  }
+
+  func makeUIViewController(context: Context) -> InterceptorHostController {
+    let controller = InterceptorHostController()
+    controller.onAttach = { [weak coordinator = context.coordinator] tabBarController in
+      coordinator?.attach(to: tabBarController)
+    }
+    return controller
+  }
+
+  func updateUIViewController(_ uiViewController: InterceptorHostController, context: Context) {
+    context.coordinator.shouldInterceptReselect = shouldInterceptReselect
+    context.coordinator.onReselect = onReselect
+    if let tabBarController = uiViewController.findTabBarController() {
+      context.coordinator.attach(to: tabBarController)
+    }
+  }
+
+  final class InterceptorHostController: UIViewController {
+    var onAttach: ((UITabBarController) -> Void)?
+
+    override func viewDidAppear(_ animated: Bool) {
+      super.viewDidAppear(animated)
+      attachIfPossible()
+    }
+
+    override func didMove(toParent parent: UIViewController?) {
+      super.didMove(toParent: parent)
+      attachIfPossible()
+    }
+
+    func findTabBarController() -> UITabBarController? {
+      if let direct = tabBarController { return direct }
+      var cursor: UIViewController? = parent
+      while let current = cursor {
+        if let tab = current as? UITabBarController { return tab }
+        if let tab = current.tabBarController { return tab }
+        cursor = current.parent
+      }
+      return nil
+    }
+
+    private func attachIfPossible() {
+      if let tabBarController = findTabBarController() {
+        onAttach?(tabBarController)
+      }
+    }
+  }
+
+  final class Coordinator: NSObject, UITabBarControllerDelegate {
+    var shouldInterceptReselect: () -> Bool
+    var onReselect: () -> Void
+    private weak var observedTabBarController: UITabBarController?
+    private weak var originalDelegate: (any UITabBarControllerDelegate)?
+
+    init(
+      shouldInterceptReselect: @escaping () -> Bool,
+      onReselect: @escaping () -> Void
+    ) {
+      self.shouldInterceptReselect = shouldInterceptReselect
+      self.onReselect = onReselect
+    }
+
+    func attach(to tabBarController: UITabBarController) {
+      if observedTabBarController === tabBarController, tabBarController.delegate === self {
+        return
+      }
+      if let existing = tabBarController.delegate, existing !== self {
+        // 如果已挂过另一个同类代理，保持其底层原始 delegate，避免嵌套死循环
+        if let other = existing as? Coordinator {
+          originalDelegate = other.originalDelegate
+        } else {
+          originalDelegate = existing
+        }
+      }
+      observedTabBarController = tabBarController
+      tabBarController.delegate = self
+    }
+
+    func tabBarController(
+      _ tabBarController: UITabBarController,
+      shouldSelect viewController: UIViewController
+    ) -> Bool {
+      if viewController === tabBarController.selectedViewController,
+        shouldInterceptReselect()
+      {
+        onReselect()
+        return false
+      }
+      return originalDelegate?.tabBarController?(tabBarController, shouldSelect: viewController)
+        ?? true
+    }
+
+    override func responds(to aSelector: Selector!) -> Bool {
+      if super.responds(to: aSelector) { return true }
+      return originalDelegate?.responds(to: aSelector) ?? false
+    }
+
+    override func forwardingTarget(for aSelector: Selector!) -> Any? {
+      if let originalDelegate, originalDelegate.responds(to: aSelector) {
+        return originalDelegate
+      }
+      return super.forwardingTarget(for: aSelector)
+    }
   }
 }
 

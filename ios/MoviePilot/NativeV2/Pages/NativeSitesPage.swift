@@ -76,7 +76,7 @@ struct NativeSitesPage: View {
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
-      .refreshable { await load() }
+      .refreshable { await load(forceRefresh: true) }
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-sites-scroll")
     }
@@ -120,7 +120,7 @@ struct NativeSitesPage: View {
         .accessibilityIdentifier("native-sites-filter-menu")
       }
     }
-    .task(id: attempt) { await load() }
+    .task(id: attempt) { await load(forceRefresh: attempt > 0) }
   }
 
   /// 按启用状态、关键字与排序方式整理后的站点清单。
@@ -403,9 +403,25 @@ struct NativeSitesPage: View {
     }
   }
 
-  /// 从 `GET /api/v1/site/` 并发读取站点清单与 `GET /api/v1/site/userdata/latest` 流量快照。
-  private func load() async {
-    isLoading = true
+  /// 从 `GET /api/v1/site/` 并发读取站点清单与流量快照；命中页面缓存时静默复用，下拉刷新强制重拉。
+  private func load(forceRefresh: Bool = false) async {
+    let cacheKey = "sites|all"
+    if !forceRefresh,
+      let cached:
+        (
+          sites: [NativeSiteItem],
+          byDomain: [String: NativeSiteUserData],
+          byName: [String: NativeSiteUserData]
+        ) = NativePageDataCache.shared.get(cacheKey, session: session)
+    {
+      sites = cached.sites
+      userdataByDomain = cached.byDomain
+      userdataByName = cached.byName
+      isLoading = false
+      loadFailed = false
+      return
+    }
+    if sites.isEmpty { isLoading = true }
     loadFailed = false
     defer { isLoading = false }
     do {
@@ -423,10 +439,13 @@ struct NativeSitesPage: View {
       }
       userdataByDomain = byDomain
       userdataByName = byName
+      NativePageDataCache.shared.set(
+        (sites: loaded, byDomain: byDomain, byName: byName),
+        for: cacheKey, session: session)
     } catch is CancellationError {
       return
     } catch {
-      loadFailed = true
+      if sites.isEmpty { loadFailed = true }
     }
   }
 

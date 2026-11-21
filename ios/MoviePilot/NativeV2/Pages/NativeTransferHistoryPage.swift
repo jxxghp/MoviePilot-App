@@ -75,7 +75,7 @@ struct NativeTransferHistoryPage: View {
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
-      .refreshable { await reload() }
+      .refreshable { await reload(forceRefresh: true) }
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-history-scroll")
     }
@@ -137,7 +137,7 @@ struct NativeTransferHistoryPage: View {
     .sheet(isPresented: $showsQueueSheet) {
       NativeTransferQueueSheet(session: session, canManage: canManage)
     }
-    .task(id: attempt) { await reload() }
+    .task(id: attempt) { await reload(forceRefresh: attempt > 0) }
     .alert(
       "删除整理记录",
       isPresented: Binding(
@@ -449,9 +449,23 @@ struct NativeTransferHistoryPage: View {
     }
   }
 
-  /// 从第一页重新拉取整理历史。
-  private func reload() async {
-    isLoading = true
+  /// 从第一页重新拉取整理历史；命中页面缓存时静默复用，下拉刷新强制重拉。
+  private func reload(forceRefresh: Bool = false) async {
+    let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    let cacheKey = "history|\(keyword)"
+    if !forceRefresh,
+      let cached: (records: [NativeTransferRecord], total: Int, nextPage: Int, hasMore: Bool) =
+        NativePageDataCache.shared.get(cacheKey, session: session)
+    {
+      records = cached.records
+      total = cached.total
+      nextPage = cached.nextPage
+      hasMore = cached.hasMore
+      isLoading = false
+      loadFailed = false
+      return
+    }
+    if records.isEmpty { isLoading = true }
     loadFailed = false
     defer { isLoading = false }
     do {
@@ -461,10 +475,13 @@ struct NativeTransferHistoryPage: View {
       total = page.total ?? records.count
       nextPage = 2
       hasMore = records.count < total && !(page.list ?? []).isEmpty
+      NativePageDataCache.shared.set(
+        (records: records, total: total, nextPage: nextPage, hasMore: hasMore),
+        for: cacheKey, session: session)
     } catch is CancellationError {
       return
     } catch {
-      loadFailed = true
+      if records.isEmpty { loadFailed = true }
     }
   }
 

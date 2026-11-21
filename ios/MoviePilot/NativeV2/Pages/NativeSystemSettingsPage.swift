@@ -45,7 +45,7 @@ struct NativeSystemSettingsPage: View {
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
-      .refreshable { await load() }
+      .refreshable { await load(forceRefresh: true) }
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-settings-scroll")
     }
@@ -67,7 +67,7 @@ struct NativeSystemSettingsPage: View {
         .accessibilityIdentifier("native-settings-save")
       }
     }
-    .task(id: attempt) { await load() }
+    .task(id: attempt) { await load(forceRefresh: attempt > 0) }
   }
 
   /// 当前草稿相对已载入快照是否存在变更。
@@ -445,9 +445,20 @@ struct NativeSystemSettingsPage: View {
     }
   }
 
-  /// 从 `GET /api/v1/system/env` 读取受控白名单字段。
-  private func load() async {
-    isLoading = true
+  /// 从 `GET /api/v1/system/env` 读取受控白名单字段；命中页面缓存时静默复用，下拉刷新强制重拉。
+  private func load(forceRefresh: Bool = false) async {
+    let cacheKey = "systemSettings|env"
+    if !forceRefresh,
+      let cached: NativeSystemEnvSnapshot = NativePageDataCache.shared.get(
+        cacheKey, session: session)
+    {
+      loaded = cached
+      draft = cached
+      isLoading = false
+      loadFailed = false
+      return
+    }
+    if !loaded.isLoaded { isLoading = true }
     loadFailed = false
     defer { isLoading = false }
     do {
@@ -455,16 +466,17 @@ struct NativeSystemSettingsPage: View {
       let envelope = try await session.request(endpoint, as: NativeSystemEnvEnvelope.self).value
       try Task.checkCancellation()
       guard let raw = envelope.payload else {
-        loadFailed = true
+        if !loaded.isLoaded { loadFailed = true }
         return
       }
       let snapshot = NativeSystemEnvSnapshot(raw: raw)
       loaded = snapshot
       draft = snapshot
+      NativePageDataCache.shared.set(snapshot, for: cacheKey, session: session)
     } catch is CancellationError {
       return
     } catch {
-      loadFailed = true
+      if !loaded.isLoaded { loadFailed = true }
     }
   }
 
@@ -481,6 +493,7 @@ struct NativeSystemSettingsPage: View {
       try await session.perform(endpoint)
       try Task.checkCancellation()
       loaded = draft
+      NativePageDataCache.shared.set(draft, for: "systemSettings|env", session: session)
       feedback = NativeSettingsFeedback(isError: false, message: "系统设置已保存。")
     } catch is CancellationError {
       return

@@ -66,7 +66,7 @@ struct NativeMessagesPage: View {
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
-      .refreshable { await reload() }
+      .refreshable { await reload(forceRefresh: true) }
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-messages-scroll")
     }
@@ -96,7 +96,7 @@ struct NativeMessagesPage: View {
         .accessibilityIdentifier("native-messages-filter")
       }
     }
-    .task(id: attempt) { await reload() }
+    .task(id: attempt) { await reload(forceRefresh: attempt > 0) }
   }
 
   /// 经分类过滤后的消息列表。
@@ -213,9 +213,21 @@ struct NativeMessagesPage: View {
     }
   }
 
-  /// 重新加载第一页消息。
-  private func reload() async {
-    isLoading = true
+  /// 重新加载第一页消息；命中页面缓存时静默复用，下拉刷新强制重拉。
+  private func reload(forceRefresh: Bool = false) async {
+    let cacheKey = "messages|list"
+    if !forceRefresh,
+      let cached: (messages: [NativeMessageItem], page: Int, hasMore: Bool) =
+        NativePageDataCache.shared.get(cacheKey, session: session)
+    {
+      messages = cached.messages
+      page = cached.page
+      hasMore = cached.hasMore
+      isLoading = false
+      loadFailed = false
+      return
+    }
+    if messages.isEmpty { isLoading = true }
     loadFailed = false
     defer { isLoading = false }
     do {
@@ -224,10 +236,12 @@ struct NativeMessagesPage: View {
       messages = loaded
       page = 2
       hasMore = loaded.count >= 20
+      NativePageDataCache.shared.set(
+        (messages: loaded, page: page, hasMore: hasMore), for: cacheKey, session: session)
     } catch is CancellationError {
       return
     } catch {
-      loadFailed = true
+      if messages.isEmpty { loadFailed = true }
     }
   }
 

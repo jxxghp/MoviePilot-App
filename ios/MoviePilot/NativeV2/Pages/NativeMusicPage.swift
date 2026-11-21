@@ -89,7 +89,9 @@ struct NativeMusicExploreSection: View {
         }
       }
     }
-    .task(id: "\(selectedFeed.rawValue)|\(reloadToken)|\(localReloadToken)") { await load() }
+    .task(id: "\(selectedFeed.rawValue)|\(reloadToken)|\(localReloadToken)") {
+      await load(forceRefresh: reloadToken > 0 || localReloadToken > 0)
+    }
   }
 
   /// 两列方形封面网格（iPad 宽屏四列）。
@@ -215,9 +217,18 @@ struct NativeMusicExploreSection: View {
     }
   }
 
-  /// 拉取当前所选音乐榜单。
-  private func load() async {
-    isLoading = true
+  /// 拉取当前所选音乐榜单；命中页面缓存时静默复用，下拉刷新强制重拉。
+  private func load(forceRefresh: Bool = false) async {
+    let cacheKey = "music|\(selectedFeed.rawValue)"
+    if !forceRefresh,
+      let cached: [NativeMusicCardItem] = NativePageDataCache.shared.get(cacheKey, session: session)
+    {
+      items = cached
+      isLoading = false
+      loadFailed = false
+      return
+    }
+    if items.isEmpty { isLoading = true }
     loadFailed = false
     defer { isLoading = false }
     do {
@@ -256,11 +267,13 @@ struct NativeMusicExploreSection: View {
       ).value
       try Task.checkCancellation()
       var seen: Set<String> = []
-      items = rows.compactMap { $0.toCardItem() }.filter { seen.insert($0.id).inserted }
+      let projected = rows.compactMap { $0.toCardItem() }.filter { seen.insert($0.id).inserted }
+      items = projected
+      NativePageDataCache.shared.set(projected, for: cacheKey, session: session)
     } catch is CancellationError {
       return
     } catch {
-      loadFailed = true
+      if items.isEmpty { loadFailed = true }
     }
   }
 }

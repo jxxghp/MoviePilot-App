@@ -22,13 +22,21 @@ struct NativeDashboardPage: View {
   @State private var loading = false
   @State private var failedSections: [String] = []
 
-  /// 只注入当前会话，不接触全局 token、实例 ID 或共享网络客户端。
+  /// 只注入当前会话，优先从页面缓存同步恢复数据，避免切换标签时闪烁加载态。
   init(
     session: NativeSession,
     onOpenMessages: (() -> Void)? = nil
   ) {
     self.session = session
     self.onOpenMessages = onOpenMessages
+    if let cached: NativeDashboardCacheSnapshot = NativePageDataCache.shared.get(
+      "dashboard|overview", session: session)
+    {
+      _statistics = State(initialValue: cached.statistics)
+      _storage = State(initialValue: cached.storage)
+      _schedules = State(initialValue: cached.schedules)
+      _pluginWidgets = State(initialValue: cached.pluginWidgets)
+    }
   }
 
   /// 页面自带 Cinematic 全局紫玫瑰渐变背景，保证透色玻璃卡片与顶部原生工具栏层级清晰。
@@ -51,14 +59,14 @@ struct NativeDashboardPage: View {
       }
       .scrollIndicators(.hidden)
       .modifier(NativeSoftTopScrollEdge())
-      .refreshable { await load() }
+      .refreshable { await load(forceRefresh: true) }
       .accessibilityIdentifier("native-dashboard-scroll")
     }
     .navigationTitle("")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
     .onAppear { syncWidgetsFromStorage() }
-    .task(id: reloadID) { await load() }
+    .task(id: reloadID) { await load(forceRefresh: false) }
     .sheet(isPresented: $showsWidgetEditor) {
       NativeDashboardWidgetsSheet(initialItems: widgetItems) { updated in
         widgetItems = updated
@@ -370,10 +378,23 @@ struct NativeDashboardPage: View {
     .accessibilityIdentifier("native-dashboard-loading")
   }
 
-  /// 并行读取三个独立分区，失败和取消均不覆盖当前会话中已读到的数据。
-  private func load() async {
+  /// 并行读取三个独立分区；已有缓存时静默复用，仅首次进入或下拉刷新时请求服务端。
+  private func load(forceRefresh: Bool = false) async {
     guard !loading, !Task.isCancelled, session.user.isSuperuser else { return }
-    loading = true
+    let cacheKey = "dashboard|overview"
+    if !forceRefresh,
+      let cached: NativeDashboardCacheSnapshot = NativePageDataCache.shared.get(
+        cacheKey, session: session)
+    {
+      statistics = cached.statistics
+      storage = cached.storage
+      schedules = cached.schedules
+      pluginWidgets = cached.pluginWidgets
+      syncWidgetsFromStorage()
+      return
+    }
+    let hadContent = statistics != nil || storage != nil || schedules != nil
+    if !hadContent { loading = true }
     defer { loading = false }
 
     async let stats = read("statistic", as: NativeDashboardStatistics.self)
@@ -394,6 +415,13 @@ struct NativeDashboardPage: View {
     if let newSchedules { schedules = newSchedules } else { failedSections.append("后台服务") }
     if let newWidgets { pluginWidgets = newWidgets }
     syncWidgetsFromStorage()
+    if statistics != nil || storage != nil || schedules != nil {
+      NativePageDataCache.shared.set(
+        NativeDashboardCacheSnapshot(
+          statistics: statistics, storage: storage, schedules: schedules,
+          pluginWidgets: pluginWidgets),
+        for: cacheKey, session: session)
+    }
   }
 
   /// 读取插件仪表板元信息并逐项有界解析 JSON 节点，失败时静默降级以免阻塞核心仪表盘分区。
@@ -753,4 +781,11 @@ private struct NativeDashboardWidgetsSheet: View {
     }
     .nativeAppearanceRoot()
   }
+}
+
+private struct NativeDashboardCacheSnapshot {
+  let statistics: NativeDashboardStatistics?
+  let storage: NativeDashboardStorage?
+  let schedules: [NativeDashboardSchedule]?
+  let pluginWidgets: [NativeDashboardPluginWidget]
 }

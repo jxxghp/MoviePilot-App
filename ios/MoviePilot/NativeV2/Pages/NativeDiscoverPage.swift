@@ -286,6 +286,7 @@ struct NativeDiscoverPage: View {
   let onManageModules: (() -> Void)?
   let onLoadMoreRail: ((String) -> Void)?
   let loadingRailIDs: Set<String>
+  let onRefresh: (() async -> Void)?
   let onRetry: () -> Void
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -310,6 +311,7 @@ struct NativeDiscoverPage: View {
     onManageModules: (() -> Void)? = nil,
     onLoadMoreRail: ((String) -> Void)? = nil,
     loadingRailIDs: Set<String> = [],
+    onRefresh: (() async -> Void)? = nil,
     onRetry: @escaping () -> Void = {}
   ) {
     self.session = session
@@ -325,6 +327,7 @@ struct NativeDiscoverPage: View {
     self.onManageModules = onManageModules
     self.onLoadMoreRail = onLoadMoreRail
     self.loadingRailIDs = loadingRailIDs
+    self.onRefresh = onRefresh
     self.onRetry = onRetry
   }
 
@@ -397,6 +400,7 @@ struct NativeDiscoverPage: View {
         }
         .coordinateSpace(name: "native-discover-scroll")
         .scrollIndicators(.hidden)
+        .refreshable { await onRefresh?() }
         .modifier(NativeDiscoverScrollClipping())
         .modifier(NativeSoftTopScrollEdge())
         .ignoresSafeArea(edges: .top)
@@ -1291,8 +1295,10 @@ private struct NativeDiscoverArtworkPlaceholder: View {
 /// 发现页主视觉透明标题 Logo 视图：经当前实例图片代理无底色加载透明标题图，缺图或加载中平滑降级为电影感大字标题。
 @MainActor
 private struct NativeDiscoverLogoBanner: View {
-  private static let publicLogoHosts: Set<String> = ["assets.fanart.tv", "image.tmdb.org"]
-  private static let publicLogoSession: URLSession = {
+  nonisolated private static let publicLogoHosts: Set<String> = [
+    "assets.fanart.tv", "image.tmdb.org",
+  ]
+  nonisolated private static let publicLogoSession: URLSession = {
     let config = URLSessionConfiguration.ephemeral
     config.httpShouldSetCookies = false
     config.httpCookieStorage = nil
@@ -1309,9 +1315,11 @@ private struct NativeDiscoverLogoBanner: View {
   @State private var logoImage: UIImage?
 
   var body: some View {
-    Group {
-      if let logoImage {
-        Image(uiImage: logoImage)
+    let key = logoCacheKey
+    let resolved = logoImage ?? NativeMediaArtworkCache.shared.memoryImage(for: key)
+    return Group {
+      if let resolved {
+        Image(uiImage: resolved)
           .resizable()
           .scaledToFit()
           .frame(maxWidth: 278, maxHeight: 76)
@@ -1325,7 +1333,19 @@ private struct NativeDiscoverLogoBanner: View {
           .lineLimit(isAccessibilitySize ? nil : 2)
       }
     }
-    .task(id: reference) {
+    .task(id: key) {
+      if let cached = NativeMediaArtworkCache.shared.memoryImage(for: key) {
+        logoImage = cached
+        return
+      }
+      let scopeDir = NativeMediaArtworkCache.scopeDirectoryName(for: session)
+      if let disk = await NativeMediaArtworkCache.shared.diskImage(
+        for: key, scopeDir: scopeDir, limit: 640)
+      {
+        guard !Task.isCancelled else { return }
+        logoImage = disk
+        return
+      }
       let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
       let normalized: String
       if trimmed.hasPrefix("/") {
@@ -1334,34 +1354,32 @@ private struct NativeDiscoverLogoBanner: View {
         normalized = trimmed
       }
       guard let url = URL(string: normalized) else { return }
-      if let response = try? await session.requestImage(url, maximumWidth: 640),
-        !Task.isCancelled, !response.data.isEmpty,
-        let decoded = UIImage(data: response.data)
-      {
-        logoImage = decoded
-        return
-      }
-      // 后端图片代理默认白名单不含 Fanart CDN 时，仅对公开片名 Logo 域名使用无凭据、无 Cookie 的临时会话直连。
-      guard url.scheme?.lowercased() == "https",
-        let host = url.host?.lowercased(),
-        Self.publicLogoHosts.contains(host)
-      else {
-        logoImage = nil
-        return
-      }
-      do {
+      let decoded = await NativeMediaArtworkCache.shared.fetchAndCache(
+        key: key, scopeDir: scopeDir, limit: 640
+      ) {
+        if let response = try? await session.requestImage(url, maximumWidth: 640),
+          !response.data.isEmpty
+        {
+          return response.data
+        }
+        guard url.scheme?.lowercased() == "https",
+          let host = url.host?.lowercased(),
+          Self.publicLogoHosts.contains(host)
+        else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
         req.httpShouldHandleCookies = false
         let (data, response) = try await Self.publicLogoSession.data(for: req)
-        guard !Task.isCancelled,
-          let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-          !data.isEmpty, data.count <= 4 * 1024 * 1024,
-          let decoded = UIImage(data: data)
-        else { return }
-        logoImage = decoded
-      } catch {
-        logoImage = nil
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+          !data.isEmpty, data.count <= 4 * 1024 * 1024
+        else { throw URLError(.badServerResponse) }
+        return data
       }
+      guard !Task.isCancelled, let decoded else { return }
+      logoImage = decoded
     }
+  }
+
+  private var logoCacheKey: String {
+    "hero-logo|\(session.scope.instanceID.uuidString)|\(session.scope.userID)|\(reference)"
   }
 }

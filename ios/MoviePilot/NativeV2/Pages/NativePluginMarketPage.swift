@@ -129,7 +129,9 @@ struct NativePluginMarketPage: View {
             session: session, pluginID: plugin.id, pluginName: plugin.displayName)
         }
       }
-      .task(id: "\(mode.rawValue)|\(reloadToken)") { await load(forceMarket: false) }
+      .task(id: "\(mode.rawValue)|\(reloadToken)") {
+        await load(forceMarket: false, forceRefresh: reloadToken > 0)
+      }
   }
 
   /// 插件列表排序方式。
@@ -206,7 +208,7 @@ struct NativePluginMarketPage: View {
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
-      .refreshable { await load(forceMarket: mode == .market) }
+      .refreshable { await load(forceMarket: mode == .market, forceRefresh: true) }
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-plugin-market-scroll")
     }
@@ -658,12 +660,27 @@ struct NativePluginMarketPage: View {
     }
   }
 
-  /// 按模式读取 `GET /api/v1/plugin/?state=market|installed`；市场分页拉取每页 60 条提升首屏速度。
-  private func load(forceMarket: Bool) async {
-    isLoading = true
+  /// 按模式读取 `GET /api/v1/plugin/?state=market|installed`；命中页面缓存时静默复用，下拉刷新强制重拉。
+  private func load(forceMarket: Bool, forceRefresh: Bool = false) async {
+    let stateValue = mode == .market ? "market" : "installed"
+    let cacheKey = "plugins|\(stateValue)"
+    if !forceRefresh && !forceMarket,
+      let cached: [NativeMarketPluginRecord] = NativePageDataCache.shared.get(
+        cacheKey, session: session)
+    {
+      if mode == .market {
+        marketPlugins = cached
+        marketHasMore = cached.count >= 60
+      } else {
+        installedPlugins = cached
+      }
+      isLoading = false
+      loadFailed = false
+      return
+    }
+    if activeItems.isEmpty { isLoading = true }
     loadFailed = false
     defer { isLoading = false }
-    let stateValue = mode == .market ? "market" : "installed"
     var query = [URLQueryItem(name: "state", value: stateValue)]
     if mode == .market {
       marketPage = 1
@@ -690,11 +707,12 @@ struct NativePluginMarketPage: View {
       } else {
         installedPlugins = valid
       }
+      NativePageDataCache.shared.set(valid, for: cacheKey, session: session)
       Task { await loadPluginStatsAndRatings(pluginIDs: valid.map(\.id)) }
     } catch is CancellationError {
       return
     } catch {
-      loadFailed = true
+      if activeItems.isEmpty { loadFailed = true }
     }
   }
 

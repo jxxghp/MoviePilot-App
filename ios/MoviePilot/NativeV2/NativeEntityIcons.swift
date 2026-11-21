@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import ImageIO
 import MoviePilotAPI
@@ -106,8 +107,8 @@ struct NativeSiteIconView: View {
           RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
             .strokeBorder(.white.opacity(active ? 0.18 : 0.10), lineWidth: 0.6)
         }
-      if let image {
-        Image(uiImage: image)
+      if let resolved = image ?? NativeEntityIconCache.shared.image(for: cacheKey) {
+        Image(uiImage: resolved)
           .resizable()
           .scaledToFill()
           .frame(width: size - 6, height: size - 6)
@@ -126,12 +127,21 @@ struct NativeSiteIconView: View {
   }
 
   private var cacheKey: String {
-    "site|\(session.scope.instanceID.uuidString)|\(session.scope.generation.uuidString)|\(siteID)"
+    "site|\(session.scope.instanceID.uuidString)|\(session.scope.userID)|\(siteID)"
   }
 
   private func load() async {
-    if let cached = NativeEntityIconCache.shared.image(for: cacheKey) {
+    let key = cacheKey
+    let scopeDir = NativeMediaArtworkCache.scopeDirectoryName(for: session)
+    if let cached = NativeEntityIconCache.shared.image(for: key) {
       image = cached
+      return
+    }
+    if let disk = await NativeEntityIconCache.shared.diskImage(
+      for: key, scopeDir: scopeDir, limit: Int(size * 3))
+    {
+      guard !Task.isCancelled else { return }
+      image = disk
       return
     }
     guard let endpoint = try? APIEndpoint(path: ["site", "icon", String(siteID)]) else { return }
@@ -145,7 +155,7 @@ struct NativeSiteIconView: View {
       reference: rawIcon, session: session, maximumPixelSize: Int(size * 3))
     {
       guard !Task.isCancelled else { return }
-      NativeEntityIconCache.shared.store(decoded, for: cacheKey)
+      NativeEntityIconCache.shared.store(decoded, for: key, scopeDir: scopeDir)
       image = decoded
     }
   }
@@ -169,8 +179,8 @@ struct NativePluginIconView: View {
           RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .strokeBorder(.white.opacity(0.15), lineWidth: 0.6)
         }
-      if let image {
-        Image(uiImage: image)
+      if let resolved = image ?? NativeEntityIconCache.shared.image(for: cacheKey) {
+        Image(uiImage: resolved)
           .resizable()
           .scaledToFill()
           .frame(width: size, height: size)
@@ -190,18 +200,26 @@ struct NativePluginIconView: View {
   }
 
   private var cacheKey: String {
-    "plugin|\(session.scope.instanceID.uuidString)|\(session.scope.generation.uuidString)|\(iconReference ?? "")"
+    "plugin|\(session.scope.instanceID.uuidString)|\(session.scope.userID)|\(iconReference ?? "")"
   }
 
   private func load() async {
-    image = nil
-    guard let raw = iconReference?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty
-    else { return }
-    if let cached = NativeEntityIconCache.shared.image(for: cacheKey) {
+    let key = cacheKey
+    let scopeDir = NativeMediaArtworkCache.scopeDirectoryName(for: session)
+    if let cached = NativeEntityIconCache.shared.image(for: key) {
       image = cached
       return
     }
+    guard let raw = iconReference?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty
+    else { return }
     let pixelLimit = Int(size * 3)
+    if let disk = await NativeEntityIconCache.shared.diskImage(
+      for: key, scopeDir: scopeDir, limit: pixelLimit)
+    {
+      guard !Task.isCancelled else { return }
+      image = disk
+      return
+    }
     if raw.hasPrefix("data:") || raw.lowercased().hasPrefix("http://")
       || raw.lowercased().hasPrefix("https://")
     {
@@ -209,7 +227,7 @@ struct NativePluginIconView: View {
         reference: raw, session: session, maximumPixelSize: pixelLimit)
       {
         guard !Task.isCancelled else { return }
-        NativeEntityIconCache.shared.store(loaded, for: cacheKey)
+        NativeEntityIconCache.shared.store(loaded, for: key, scopeDir: scopeDir)
         image = loaded
       }
       return
@@ -228,7 +246,7 @@ struct NativePluginIconView: View {
         url: instanceURL, maximumPixelSize: pixelLimit)
     {
       guard !Task.isCancelled else { return }
-      NativeEntityIconCache.shared.store(loaded, for: cacheKey)
+      NativeEntityIconCache.shared.store(loaded, for: key, scopeDir: scopeDir)
       image = loaded
       return
     }
@@ -240,7 +258,7 @@ struct NativePluginIconView: View {
         url: fallbackURL, maximumPixelSize: pixelLimit)
     {
       guard !Task.isCancelled else { return }
-      NativeEntityIconCache.shared.store(loaded, for: cacheKey)
+      NativeEntityIconCache.shared.store(loaded, for: key, scopeDir: scopeDir)
       image = loaded
     }
   }
@@ -349,8 +367,8 @@ struct NativeUserAvatarView: View {
           isSuperuser
             ? Color(red: 0.54, green: 0.38, blue: 0.80).opacity(0.65)
             : .white.opacity(0.14))
-      if let image {
-        Image(uiImage: image)
+      if let resolved = image ?? NativeEntityIconCache.shared.image(for: cacheKey) {
+        Image(uiImage: resolved)
           .resizable()
           .scaledToFill()
           .frame(width: size, height: size)
@@ -377,22 +395,30 @@ struct NativeUserAvatarView: View {
   }
 
   private var cacheKey: String {
-    "user|\(session.scope.instanceID.uuidString)|\(session.scope.generation.uuidString)|\(avatar ?? "")"
+    "user|\(session.scope.instanceID.uuidString)|\(session.scope.userID)|\(avatar ?? "")"
   }
 
   private func load() async {
-    image = nil
+    let key = cacheKey
+    let scopeDir = NativeMediaArtworkCache.scopeDirectoryName(for: session)
+    if let cached = NativeEntityIconCache.shared.image(for: key) {
+      image = cached
+      return
+    }
     guard let raw = avatar?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty
     else { return }
-    if let cached = NativeEntityIconCache.shared.image(for: cacheKey) {
-      image = cached
+    if let disk = await NativeEntityIconCache.shared.diskImage(
+      for: key, scopeDir: scopeDir, limit: Int(size * 3))
+    {
+      guard !Task.isCancelled else { return }
+      image = disk
       return
     }
     if let loaded = await NativeEntityIconLoader.loadImage(
       reference: raw, session: session, maximumPixelSize: Int(size * 3))
     {
       guard !Task.isCancelled else { return }
-      NativeEntityIconCache.shared.store(loaded, for: cacheKey)
+      NativeEntityIconCache.shared.store(loaded, for: key, scopeDir: scopeDir)
       image = loaded
     }
   }
@@ -570,22 +596,67 @@ enum NativeEntityIconLoader {
   }
 }
 
-/// 进程内实体图标缓存，按实例与会话代次隔离且限制内存上限。
+/// 二级实体图标缓存（L1 内存 + L2 本地磁盘），按实例与用户隔离，退出登录时同步清理。
 @MainActor
 final class NativeEntityIconCache {
   static let shared = NativeEntityIconCache()
   private let storage = NSCache<NSString, UIImage>()
 
   private init() {
-    storage.totalCostLimit = 16 * 1024 * 1024
+    storage.totalCostLimit = 24 * 1024 * 1024
   }
 
   func image(for key: String) -> UIImage? {
     storage.object(forKey: key as NSString)
   }
 
-  func store(_ image: UIImage, for key: String) {
+  func diskImage(for key: String, scopeDir: String, limit: Int) async -> UIImage? {
+    let decoded: UIImage? = await Task.detached(priority: .userInitiated) {
+      guard let url = Self.diskFileURL(for: key, scopeDir: scopeDir),
+        let data = try? Data(contentsOf: url), !data.isEmpty
+      else { return nil }
+      return NativeMediaArtworkCache.decodeThumbnail(data, limit: limit)
+    }.value
+    if let decoded {
+      store(decoded, for: key, scopeDir: nil)
+    }
+    return decoded
+  }
+
+  func store(_ image: UIImage, for key: String, scopeDir: String? = nil) {
     let cost = (image.cgImage?.bytesPerRow ?? 0) * (image.cgImage?.height ?? 0)
     storage.setObject(image, forKey: key as NSString, cost: max(cost, 1024))
+    if let scopeDir, let png = image.pngData() {
+      Task.detached(priority: .utility) {
+        if let url = Self.diskFileURL(for: key, scopeDir: scopeDir) {
+          let dir = url.deletingLastPathComponent()
+          try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+          try? png.write(to: url, options: .atomic)
+        }
+      }
+    }
+  }
+
+  func clearSession(_ session: NativeSession) {
+    storage.removeAllObjects()
+    let scopeDir = NativeMediaArtworkCache.scopeDirectoryName(for: session)
+    Task.detached(priority: .utility) {
+      if let dir = Self.cacheDirectory(scopeDir: scopeDir) {
+        try? FileManager.default.removeItem(at: dir)
+      }
+    }
+  }
+
+  nonisolated private static func cacheDirectory(scopeDir: String) -> URL? {
+    FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+      .appendingPathComponent("MoviePilotIconCache", isDirectory: true)
+      .appendingPathComponent(scopeDir, isDirectory: true)
+  }
+
+  nonisolated private static func diskFileURL(for key: String, scopeDir: String) -> URL? {
+    guard let dir = cacheDirectory(scopeDir: scopeDir) else { return nil }
+    let digest = SHA256.hash(data: Data(key.utf8))
+    let hex = digest.map { String(format: "%02x", $0) }.joined()
+    return dir.appendingPathComponent("\(hex).png")
   }
 }

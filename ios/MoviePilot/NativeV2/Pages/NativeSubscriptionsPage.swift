@@ -82,7 +82,7 @@ struct NativeSubscriptionsPage: View {
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
-      .refreshable { await load() }
+      .refreshable { await load(forceRefresh: true) }
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-subscriptions-scroll")
     }
@@ -134,7 +134,7 @@ struct NativeSubscriptionsPage: View {
         .accessibilityIdentifier("native-subscriptions-community")
       }
     }
-    .task(id: attempt) { await load() }
+    .task(id: attempt) { await load(forceRefresh: attempt > 0) }
     .sheet(item: $editingItem) { item in
       NativeSubscribeEditorSheet(session: session, subscribeID: item.id, title: item.displayTitle) {
         feedback = NativeSubscribeFeedback(isError: false, message: "订阅规则已更新。")
@@ -446,9 +446,18 @@ struct NativeSubscriptionsPage: View {
     }
   }
 
-  /// 从 `GET /api/v1/subscribe/` 拉取当前用户可见的全部订阅。
-  private func load() async {
-    isLoading = true
+  /// 从 `GET /api/v1/subscribe/` 拉取当前用户可见的全部订阅；命中缓存时静默复用，下拉刷新强制重拉。
+  private func load(forceRefresh: Bool = false) async {
+    let cacheKey = "subscriptions|list"
+    if !forceRefresh,
+      let cached: [NativeSubscribeItem] = NativePageDataCache.shared.get(cacheKey, session: session)
+    {
+      items = cached
+      isLoading = false
+      loadFailed = false
+      return
+    }
+    if items.isEmpty { isLoading = true }
     loadFailed = false
     defer { isLoading = false }
     do {
@@ -458,10 +467,11 @@ struct NativeSubscriptionsPage: View {
       ).value
       try Task.checkCancellation()
       items = loaded
+      NativePageDataCache.shared.set(loaded, for: cacheKey, session: session)
     } catch is CancellationError {
       return
     } catch {
-      loadFailed = true
+      if items.isEmpty { loadFailed = true }
     }
   }
 
@@ -479,6 +489,7 @@ struct NativeSubscriptionsPage: View {
       try Task.checkCancellation()
       if let index = items.firstIndex(where: { $0.id == item.id }) {
         items[index].state = nextState
+        NativePageDataCache.shared.set(items, for: "subscriptions|list", session: session)
       }
       feedback = NativeSubscribeFeedback(
         isError: false, message: nextState == "S" ? "已暂停订阅。" : "已恢复订阅。")
