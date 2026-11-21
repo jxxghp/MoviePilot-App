@@ -1,6 +1,40 @@
 import Foundation
 import MoviePilotCore
 
+/// 单帧服务器推送事件（SSE），携带事件类型、原始 data 文本与可选控制头。
+public struct APISSEEvent: Sendable, Equatable {
+  public let event: String
+  public let data: String
+  public let controlHeader: String?
+
+  public init(event: String, data: String, controlHeader: String? = nil) {
+    self.event = event
+    self.data = data
+    self.controlHeader = controlHeader
+  }
+}
+
+/// 实时资源 Cookie 投影，供同源 WKWebView 注入 HttpOnly 资源令牌加载受保护插件模块。
+public struct APIExportedResourceCookie: Sendable, Equatable {
+  public let name: String
+  public let value: String
+  public let domain: String
+  public let path: String
+  public let expires: Date
+  public let isSecure: Bool
+
+  public init(
+    name: String, value: String, domain: String, path: String, expires: Date, isSecure: Bool
+  ) {
+    self.name = name
+    self.value = value
+    self.domain = domain
+    self.path = path
+    self.expires = expires
+    self.isSecure = isSecure
+  }
+}
+
 /// 原生主体的私有 JSON 客户端；一个实例/身份会话拥有一个客户端，不依赖网页状态。
 public final class APIClient: Sendable {
   private let address: ServerAddress
@@ -60,6 +94,187 @@ public final class APIClient: Sendable {
     resourceCookies.cancel()
     session.invalidateAndCancel()
     imageSession.invalidateAndCancel()
+  }
+
+  /// 真流式消费同源 SSE 事件流（如智能助手对话），逐帧即时推送给调用方，支持自定义交互头与控制头回传。
+  public func streamEvents(
+    _ endpoint: APIEndpoint,
+    extraHeaders: [String: String] = [:]
+  ) -> AsyncThrowingStream<APISSEEvent, Error> {
+    AsyncThrowingStream { continuation in
+      let task = Task {
+        do {
+          try Task.checkCancellation()
+          let url = try endpoint.url(for: address)
+          var request = URLRequest(
+            url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+            timeoutInterval: max(endpoint.timeout, 120))
+          request.httpMethod = endpoint.method.rawValue
+          request.httpBody = endpoint.body
+          request.httpShouldHandleCookies = false
+          request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+          request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+          request.setValue(language.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
+          if endpoint.body != nil {
+            request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+          }
+          if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+          for (key, value) in extraHeaders {
+            request.setValue(value, forHTTPHeaderField: key)
+          }
+
+          let (bytes, raw) = try await session.bytes(for: request)
+          defer { bytes.task.cancel() }
+          guard let http = raw as? HTTPURLResponse, http.url == url else {
+            throw APIError.invalidResponse
+          }
+          try Self.checkStatus(http)
+          let controlHeader = http.value(forHTTPHeaderField: "X-MoviePilot-Agent-Control")
+          if token != nil, let cookie = APIResourceCookie(response: http) {
+            resourceCookies.capture(cookie)
+          }
+
+          var currentEvent = "message"
+          var dataLines: [String] = []
+
+          func flushFrame() {
+            guard !dataLines.isEmpty else { return }
+            let joined = dataLines.joined(separator: "\n")
+            continuation.yield(
+              APISSEEvent(event: currentEvent, data: joined, controlHeader: controlHeader))
+            currentEvent = "message"
+            dataLines.removeAll(keepingCapacity: true)
+          }
+
+          for try await rawLine in bytes.lines {
+            try Task.checkCancellation()
+            let line = rawLine.hasSuffix("\r") ? String(rawLine.dropLast()) : rawLine
+            if line.isEmpty {
+              flushFrame()
+            } else if line.hasPrefix(":") {
+              continue
+            } else if line.hasPrefix("event:") {
+              currentEvent = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+            } else if line.hasPrefix("data:") {
+              let value = String(line.dropFirst(5))
+              dataLines.append(value.hasPrefix(" ") ? String(value.dropFirst()) : value)
+            }
+          }
+          flushFrame()
+          continuation.finish()
+        } catch is CancellationError {
+          continuation.finish()
+        } catch let error as APIError {
+          continuation.finish(throwing: error)
+        } catch let error as URLError {
+          if error.code == .cancelled {
+            continuation.finish()
+          } else {
+            continuation.finish(
+              throwing: error.code == .timedOut ? APIError.timedOut : APIError.unavailable)
+          }
+        } catch {
+          continuation.finish(throwing: APIError.unavailable)
+        }
+      }
+      continuation.onTermination = { _ in
+        task.cancel()
+      }
+    }
+  }
+
+  /// 通过标准 `multipart/form-data` 上传文件/图片/音频至同源接口并解码标准响应包装。
+  public func uploadMultipart<Value: Decodable & Sendable>(
+    _ endpoint: APIEndpoint,
+    fieldName: String = "file",
+    fileName: String,
+    mimeType: String,
+    fileData: Data,
+    formFields: [String: String] = [:],
+    as type: Value.Type = Value.self
+  ) async throws -> APIResult<Value> {
+    try Task.checkCancellation()
+    guard fileData.count <= 32 * 1024 * 1024 else { throw APIError.invalidEndpoint }
+    let url = try endpoint.url(for: address)
+    let boundary = "Boundary-\(UUID().uuidString)"
+    var body = Data()
+    for (k, v) in formFields {
+      body.append(Data("--\(boundary)\r\n".utf8))
+      body.append(Data("Content-Disposition: form-data; name=\"\(k)\"\r\n\r\n".utf8))
+      body.append(Data("\(v)\r\n".utf8))
+    }
+    let safeFileName = fileName.replacingOccurrences(of: "\"", with: "_")
+    body.append(Data("--\(boundary)\r\n".utf8))
+    body.append(
+      Data(
+        "Content-Disposition: form-data; name=\"\(fieldName)\"; filename=\"\(safeFileName)\"\r\n"
+          .utf8))
+    body.append(Data("Content-Type: \(mimeType)\r\n\r\n".utf8))
+    body.append(fileData)
+    body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+
+    var request = URLRequest(
+      url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+      timeoutInterval: max(endpoint.timeout, 60))
+    request.httpMethod = APIMethod.post.rawValue
+    request.httpBody = body
+    request.httpShouldHandleCookies = false
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    request.setValue(
+      "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+    request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+    request.setValue(language.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
+    if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+
+    do {
+      let (data, raw) = try await session.data(for: request)
+      try Task.checkCancellation()
+      guard let http = raw as? HTTPURLResponse, http.url == url else {
+        throw APIError.invalidResponse
+      }
+      try Self.checkStatus(http)
+      let collection = try APICollectionMetadata(response: http)
+      let value: Value
+      switch endpoint.responseContract {
+      case .envelope:
+        value = try JSONDecoder().decode(APIEnvelope<Value>.self, from: data).value
+      case .payload:
+        value = try JSONDecoder().decode(type, from: data)
+      case .eventStream, .plainText:
+        throw APIError.invalidEndpoint
+      }
+      return APIResult(value: value, statusCode: http.statusCode, collection: collection)
+    } catch let error as APIError {
+      throw error
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch let error as URLError {
+      if error.code == .cancelled { throw CancellationError() }
+      throw error.code == .timedOut ? APIError.timedOut : APIError.unavailable
+    } catch {
+      throw APIError.invalidResponse
+    }
+  }
+
+  /// 获取或自动续签当前同源短效资源 Cookie（用于 WKWebView 加载 Vue 远程插件 ESM 模块时避免 401）。
+  public func resolveResourceCookie() async throws -> APIExportedResourceCookie? {
+    guard token != nil else { throw APIError.invalidCredential }
+    let probe = try APIEndpoint(path: ["media", "source"])
+    let target = try probe.url(for: address)
+    let cookie = try await resourceCookies.resolve(for: target) {
+      let refresh = try APIEndpoint(path: ["media", "source"])
+      _ = try await self.request(refresh, as: [JSONValue].self)
+    }
+    guard let host = target.host, !host.isEmpty else { return nil }
+    let parts = cookie.header.split(separator: "=", maxSplits: 1)
+    guard parts.count == 2 else { return nil }
+    return APIExportedResourceCookie(
+      name: String(parts[0]),
+      value: String(parts[1]),
+      domain: host,
+      path: cookie.path,
+      expires: cookie.expires,
+      isSecure: cookie.secure)
   }
 
   /// 供保真 JSON 解析器消费原始 payload；HTTP 边界与 typed API 相同，不猜测或跳过标准包装。
