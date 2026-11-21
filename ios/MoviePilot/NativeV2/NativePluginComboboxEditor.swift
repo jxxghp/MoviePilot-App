@@ -138,7 +138,7 @@ struct NativePluginComboboxEditor: View {
         }
       }
     }
-    .tint(.white)
+    .tint(.primary)
     .alert(L10n.text("选中项过多"), isPresented: $showsSelectionLimit) {
       Button(L10n.text("确定"), role: .cancel) {}
     }

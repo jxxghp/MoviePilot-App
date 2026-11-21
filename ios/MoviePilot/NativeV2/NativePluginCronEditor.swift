@@ -163,7 +163,7 @@ struct NativePluginCronEditor: View {
           Button(L10n.text("完成")) { NativeCronLabels.endEditing() }
         }
       }
-    }.tint(.white)
+    }.tint(.primary)
   }
 
   /// 格式说明不是全局保存校验，不将合法插件自定义值误判为不可保存。

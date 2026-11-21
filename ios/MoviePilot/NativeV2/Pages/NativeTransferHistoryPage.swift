@@ -47,7 +47,7 @@ struct NativeTransferHistoryPage: View {
           }
           if isLoading && records.isEmpty {
             ProgressView("正在载入整理记录…")
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 220)
           } else if loadFailed && records.isEmpty {
             failureCard
@@ -61,7 +61,7 @@ struct NativeTransferHistoryPage: View {
               }
               if isLoadingMore {
                 ProgressView("正在载入更多…")
-                  .tint(.white)
+                  .tint(.primary)
                   .padding(.vertical, 12)
               }
             }
@@ -170,11 +170,11 @@ struct NativeTransferHistoryPage: View {
     HStack(spacing: 8) {
       Image(systemName: "magnifyingglass")
         .font(.subheadline.weight(.medium))
-        .foregroundStyle(.white.opacity(0.62))
+        .foregroundStyle(.primary.opacity(0.62))
       TextField("搜索片名或路径", text: $searchText)
         .textFieldStyle(.plain)
         .font(.subheadline)
-        .foregroundStyle(.white)
+        .foregroundStyle(.primary)
         .submitLabel(.search)
         .onSubmit { attempt += 1 }
         .accessibilityIdentifier("native-history-search-field")
@@ -185,7 +185,7 @@ struct NativeTransferHistoryPage: View {
         } label: {
           Image(systemName: "xmark.circle.fill")
             .font(.subheadline)
-            .foregroundStyle(.white.opacity(0.55))
+            .foregroundStyle(.primary.opacity(0.55))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("清空搜索")
@@ -195,10 +195,10 @@ struct NativeTransferHistoryPage: View {
     .padding(.vertical, 10)
     .background {
       RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .fill(.white.opacity(0.09))
+        .fill(.primary.opacity(0.09))
         .overlay {
           RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .strokeBorder(.white.opacity(0.16), lineWidth: 0.7)
+            .strokeBorder(.primary.opacity(0.16), lineWidth: 0.7)
         }
     }
   }
@@ -213,14 +213,14 @@ struct NativeTransferHistoryPage: View {
         } label: {
           Text(option.rawValue)
             .font(.subheadline.weight(selected ? .semibold : .regular))
-            .foregroundStyle(.white.opacity(selected ? 0.98 : 0.78))
+            .foregroundStyle(.primary.opacity(selected ? 0.98 : 0.78))
             .padding(.horizontal, 13)
             .padding(.vertical, 7)
             .background {
               Capsule()
                 .fill(.white.opacity(selected ? 0.22 : 0.08))
                 .overlay {
-                  Capsule().strokeBorder(.white.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
+                  Capsule().strokeBorder(.primary.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
                 }
             }
             .frame(minHeight: 36)
@@ -245,7 +245,7 @@ struct NativeTransferHistoryPage: View {
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
               RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+                .strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
             }
           VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .top, spacing: 6) {
@@ -255,7 +255,7 @@ struct NativeTransferHistoryPage: View {
                 } label: {
                   Text(record.displayTitle)
                     .font(.headline)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                 }
@@ -263,7 +263,7 @@ struct NativeTransferHistoryPage: View {
               } else {
                 Text(record.displayTitle)
                   .font(.headline)
-                  .foregroundStyle(.white)
+                  .foregroundStyle(.primary)
                   .lineLimit(2)
               }
               Spacer(minLength: 4)
@@ -273,15 +273,15 @@ struct NativeTransferHistoryPage: View {
               if let mode = record.modeLabel {
                 Text(mode)
                   .font(.caption2.weight(.semibold))
-                  .foregroundStyle(.white.opacity(0.82))
+                  .foregroundStyle(.primary.opacity(0.82))
                   .padding(.horizontal, 7)
                   .padding(.vertical, 2.5)
-                  .background { Capsule().fill(.white.opacity(0.12)) }
+                  .background { Capsule().fill(.primary.opacity(0.12)) }
               }
               if let date = record.date, !date.isEmpty {
                 Text(date)
                   .font(.caption.monospacedDigit())
-                  .foregroundStyle(.white.opacity(0.62))
+                  .foregroundStyle(.primary.opacity(0.62))
                   .lineLimit(1)
               }
             }
@@ -304,7 +304,7 @@ struct NativeTransferHistoryPage: View {
                   systemImage: expanded ? "chevron.up" : "folder"
                 )
                 .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(0.78))
+                .foregroundStyle(.primary.opacity(0.78))
                 .frame(minHeight: 30)
               }
               .buttonStyle(.plain)
@@ -314,17 +314,17 @@ struct NativeTransferHistoryPage: View {
           }
         }
         if expanded {
-          Divider().overlay(.white.opacity(0.08))
+          Divider().overlay(.primary.opacity(0.08))
           VStack(alignment: .leading, spacing: 6) {
             if let src = record.src, !src.isEmpty {
               Text("源路径：\(src)")
                 .font(.caption2.monospaced())
-                .foregroundStyle(.white.opacity(0.68))
+                .foregroundStyle(.primary.opacity(0.68))
             }
             if let dest = record.dest, !dest.isEmpty {
               Text("目标路径：\(dest)")
                 .font(.caption2.monospaced())
-                .foregroundStyle(.white.opacity(0.78))
+                .foregroundStyle(.primary.opacity(0.78))
             }
           }
         }
@@ -382,7 +382,7 @@ struct NativeTransferHistoryPage: View {
       .padding(.vertical, 3.5)
       .background {
         Capsule()
-          .fill(.white.opacity(0.10))
+          .fill(.primary.opacity(0.10))
           .overlay { Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 0.6) }
       }
   }
@@ -395,13 +395,13 @@ struct NativeTransferHistoryPage: View {
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
         .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
-        Text(feedback.message).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+        Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {
           self.feedback = nil
         } label: {
           Image(systemName: "xmark").font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
+            .foregroundStyle(.primary.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
         }
         .buttonStyle(.plain)
       }
@@ -415,7 +415,7 @@ struct NativeTransferHistoryPage: View {
       VStack(spacing: 10) {
         Image(systemName: "clock.arrow.circlepath")
           .font(.largeTitle)
-          .foregroundStyle(.white.opacity(0.55))
+          .foregroundStyle(.primary.opacity(0.55))
         Text("暂无匹配的整理记录").font(.headline)
       }
       .frame(maxWidth: .infinity, minHeight: 150)
@@ -620,13 +620,13 @@ private struct NativeTransferQueueSheet: View {
               CinematicPanel(padding: 11) {
                 Text(feedback)
                   .font(.caption)
-                  .foregroundStyle(.white.opacity(0.9))
+                  .foregroundStyle(.primary.opacity(0.9))
                   .frame(maxWidth: .infinity, alignment: .leading)
               }
             }
             if isLoading && jobs.isEmpty {
               ProgressView("正在读取整理队列…")
-                .tint(.white)
+                .tint(.primary)
                 .frame(maxWidth: .infinity, minHeight: 180)
             } else if loadFailed && jobs.isEmpty {
               CinematicPanel {
@@ -641,12 +641,12 @@ private struct NativeTransferQueueSheet: View {
                 VStack(spacing: 10) {
                   Image(systemName: "tray")
                     .font(.largeTitle)
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(.primary.opacity(0.5))
                   Text("当前整理队列为空")
                     .font(.headline)
                   Text("新的待整理任务将自动显示在此处。")
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.62))
+                    .foregroundStyle(.primary.opacity(0.62))
                 }
                 .frame(maxWidth: .infinity, minHeight: 170)
               }
@@ -673,7 +673,7 @@ private struct NativeTransferQueueSheet: View {
       }
       .task { await load() }
     }
-    .preferredColorScheme(.dark)
+    .nativeAppearanceRoot()
   }
 
   /// 单个媒体整理作业卡片。
@@ -683,24 +683,24 @@ private struct NativeTransferQueueSheet: View {
         HStack {
           Text(job.displayTitle)
             .font(.headline)
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
           Spacer()
           Text("\(job.tasks.count) 项")
             .font(.caption2.monospacedDigit())
-            .foregroundStyle(.white.opacity(0.65))
+            .foregroundStyle(.primary.opacity(0.65))
         }
         ForEach(job.tasks) { task in
-          Divider().overlay(.white.opacity(0.08))
+          Divider().overlay(.primary.opacity(0.08))
           HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 3) {
               Text(task.displayName)
                 .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(0.92))
+                .foregroundStyle(.primary.opacity(0.92))
                 .lineLimit(2)
               if let path = task.fileitem?.path, !path.isEmpty {
                 Text(path)
                   .font(.caption2.monospaced())
-                  .foregroundStyle(.white.opacity(0.55))
+                  .foregroundStyle(.primary.opacity(0.55))
                   .lineLimit(1)
                   .truncationMode(.head)
               }
@@ -711,7 +711,7 @@ private struct NativeTransferQueueSheet: View {
               .foregroundStyle(Color(red: 0.80, green: 0.72, blue: 1.0))
               .padding(.horizontal, 7)
               .padding(.vertical, 3)
-              .background { Capsule().fill(.white.opacity(0.10)) }
+              .background { Capsule().fill(.primary.opacity(0.10)) }
           }
           .contextMenu {
             if canManage, let file = task.fileitem {

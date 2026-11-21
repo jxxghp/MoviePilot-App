@@ -122,7 +122,7 @@ struct NativeV2RootView: View {
       Text(L10n.text("将移除此服务的本机登录信息和缓存。"))
     }
     .environment(\.locale, Locale(identifier: model.language.rawValue))
-    .preferredColorScheme(.dark)
+    .nativeAppearanceRoot()
     .onChange(of: manager.state) { state in
       model.received(state)
       if case .authenticated(let snapshot) = state,
@@ -186,7 +186,7 @@ struct NativeV2RootView: View {
             .clipShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
             .overlay {
               RoundedRectangle(cornerRadius: 21, style: .continuous)
-                .strokeBorder(.white.opacity(0.24), lineWidth: 0.8)
+                .strokeBorder(.primary.opacity(0.24), lineWidth: 0.8)
             }
             .shadow(
               color: Color(red: 0.45, green: 0.25, blue: 0.85).opacity(0.45), radius: 18, y: 8
@@ -198,10 +198,10 @@ struct NativeV2RootView: View {
         VStack(spacing: 5) {
           Text("MoviePilot")
             .font(.title.bold())
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
           Text(L10n.text("你的媒体世界，随时连接。"))
             .font(.subheadline)
-            .foregroundStyle(.white.opacity(0.68))
+            .foregroundStyle(.primary.opacity(0.68))
             .multilineTextAlignment(.center)
         }
 
@@ -215,20 +215,20 @@ struct NativeV2RootView: View {
                 .frame(width: 7, height: 7)
               Text(addressText)
                 .font(.caption.monospaced().weight(.medium))
-                .foregroundStyle(.white.opacity(0.90))
+                .foregroundStyle(.primary.opacity(0.90))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .accessibilityIdentifier("native-v2-server")
               Image(systemName: "arrow.triangle.2.circlepath")
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.55))
+                .foregroundStyle(.primary.opacity(0.55))
             }
             .padding(.horizontal, 13)
             .padding(.vertical, 7)
             .background {
               Capsule()
-                .fill(.white.opacity(0.10))
-                .overlay { Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.6) }
+                .fill(.primary.opacity(0.10))
+                .overlay { Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 0.6) }
             }
           }
           .buttonStyle(.plain)
@@ -281,7 +281,7 @@ struct NativeV2RootView: View {
           HStack(spacing: 8) {
             Text("快捷前缀")
               .font(.caption2)
-              .foregroundStyle(.white.opacity(0.52))
+              .foregroundStyle(.primary.opacity(0.52))
             ForEach(["https://", "http://"], id: \.self) { prefix in
               Button {
                 model.address = prefix + model.address
@@ -294,8 +294,8 @@ struct NativeV2RootView: View {
                   .padding(.vertical, 4)
                   .background {
                     Capsule()
-                      .fill(.white.opacity(0.09))
-                      .overlay { Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 0.6) }
+                      .fill(.primary.opacity(0.09))
+                      .overlay { Capsule().strokeBorder(.primary.opacity(0.16), lineWidth: 0.6) }
                   }
               }
               .buttonStyle(.plain)
@@ -336,11 +336,11 @@ struct NativeV2RootView: View {
                   VStack(alignment: .leading, spacing: 3) {
                     Text(host)
                       .font(.subheadline.weight(.semibold))
-                      .foregroundStyle(.white)
+                      .foregroundStyle(.primary)
                       .lineLimit(1)
                     Text(instance.address.url.absoluteString)
                       .font(.caption.monospaced())
-                      .foregroundStyle(.white.opacity(0.60))
+                      .foregroundStyle(.primary.opacity(0.60))
                       .lineLimit(nil)
                   }
                   Spacer(minLength: 8)
@@ -351,7 +351,7 @@ struct NativeV2RootView: View {
                   } else {
                     Image(systemName: "chevron.right")
                       .font(.caption.weight(.semibold))
-                      .foregroundStyle(.white.opacity(0.40))
+                      .foregroundStyle(.primary.opacity(0.40))
                       .accessibilityHidden(true)
                   }
                 }
@@ -368,7 +368,7 @@ struct NativeV2RootView: View {
         } header: {
           Text(L10n.text("已保存的服务"))
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.72))
+            .foregroundStyle(.primary.opacity(0.72))
         }
         .textCase(nil)
         .disabled(model.busy)
@@ -594,7 +594,7 @@ struct NativeV2RootView: View {
               Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(
                 .secondary)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
             .frame(minHeight: 44)
             .contentShape(Rectangle())
           }
@@ -656,7 +656,7 @@ struct NativeV2RootView: View {
           .fill(disabled ? .white.opacity(0.14) : .white)
           .overlay {
             if disabled {
-              Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.7)
+              Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 0.7)
             }
           }
       }

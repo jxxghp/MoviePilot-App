@@ -19,6 +19,8 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
   @State private var showsNotificationSettings = false
   @State private var showsWidgetSettings = false
   @AppStorage("nativeV2.showFloatingAssistant") private var showFloatingAssistant = true
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @Environment(\.colorScheme) private var colorScheme
 
   /// 连续紫玫瑰渐变背景与多样化层级布局：概览条卡 → 双列状态方卡 → 高亮横幅卡 → 4 列图标瓷砖 → 原生分组列表 → 账号管理。
   var body: some View {
@@ -89,7 +91,7 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
   private var headerTitle: some View {
     Text("设置")
       .font(.largeTitle.bold())
-      .foregroundStyle(.white)
+      .foregroundStyle(.primary)
       .padding(.horizontal, 2)
       .accessibilityAddTraits(.isHeader)
   }
@@ -111,7 +113,7 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
             HStack(spacing: 7) {
               Text(snapshot.user.name)
                 .font(.headline.weight(.bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .lineLimit(1)
               Text(snapshot.user.isSuperuser ? "超级管理员" : "普通成员")
                 .font(.caption2.weight(.semibold))
@@ -119,7 +121,7 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2.5)
                 .background {
-                  Capsule().fill(.white.opacity(0.11))
+                  Capsule().fill(.primary.opacity(0.11))
                 }
             }
             HStack(spacing: 5) {
@@ -128,7 +130,7 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
                 .frame(width: 6.5, height: 6.5)
               Text(host)
                 .font(.caption.monospaced())
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(.primary.opacity(0.72))
                 .lineLimit(1)
             }
           }
@@ -139,22 +141,22 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
           let ratio = storage.usedRatio
           let percentText = "\(Int((ratio * 100).rounded()))%"
           let freeBytes = max(storage.total - storage.used, 0)
-          Divider().overlay(.white.opacity(0.10))
+          Divider().overlay(.primary.opacity(0.10))
           VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
               Text("存储空间")
                 .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(0.68))
+                .foregroundStyle(.primary.opacity(0.68))
               Spacer(minLength: 8)
               Text("\(Self.formatBytes(storage.used)) / \(Self.formatBytes(storage.total))")
                 .font(.caption.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
             }
             GeometryReader { bar in
               let w = max(bar.size.width, 1)
               let usedW = max(w * min(max(ratio, 0.04), 1.0), 8)
               ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.16))
+                Capsule().fill(.primary.opacity(0.16))
                 Capsule()
                   .fill(
                     LinearGradient(
@@ -175,7 +177,7 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
               Spacer()
               Text("可用 \(Self.formatBytes(freeBytes))")
                 .font(.caption2.monospacedDigit())
-                .foregroundStyle(.white.opacity(0.62))
+                .foregroundStyle(.primary.opacity(0.62))
             }
           }
         }
@@ -217,18 +219,18 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
         HStack(alignment: .center, spacing: 8) {
           Image(systemName: "sparkles")
             .font(.headline.weight(.semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
           Text("系统核心参数")
             .font(.headline.weight(.bold))
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
           Spacer(minLength: 8)
           Text("高级项见 Web 后台")
             .font(.caption)
-            .foregroundStyle(.white.opacity(0.55))
+            .foregroundStyle(.primary.opacity(0.55))
         }
         Text("快速调整媒体识别、订阅策略与定时缓存，保持移动端轻量高效。")
           .font(.subheadline)
-          .foregroundStyle(.white.opacity(0.76))
+          .foregroundStyle(.primary.opacity(0.76))
           .fixedSize(horizontal: false, vertical: true)
 
         Button {
@@ -236,9 +238,12 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
         } label: {
           Text("进入系统设置")
             .font(.subheadline.weight(.bold))
-            .foregroundStyle(Color(red: 0.12, green: 0.10, blue: 0.16))
+            .foregroundStyle(
+              colorScheme == .light ? .white : Color(red: 0.12, green: 0.10, blue: 0.16)
+            )
             .frame(maxWidth: .infinity, minHeight: 44)
-            .background(.white, in: Capsule())
+            .background(
+              colorScheme == .light ? appearance.accentColor : .white, in: Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("native-workspace-settings")
@@ -251,7 +256,7 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
     VStack(alignment: .leading, spacing: 10) {
       Text("捷径与诊断")
         .font(.subheadline.weight(.medium))
-        .foregroundStyle(.white.opacity(0.68))
+        .foregroundStyle(.primary.opacity(0.68))
         .padding(.horizontal, 2)
       HStack(spacing: 10) {
         compactTile(
@@ -287,7 +292,7 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
     VStack(alignment: .leading, spacing: 10) {
       Text("常用配置")
         .font(.subheadline.weight(.medium))
-        .foregroundStyle(.white.opacity(0.68))
+        .foregroundStyle(.primary.opacity(0.68))
         .padding(.horizontal, 2)
       VStack(spacing: 10) {
         HStack(spacing: 10) {
@@ -347,11 +352,11 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
           VStack(alignment: .leading, spacing: 2) {
             Text(title)
               .font(.subheadline.weight(.semibold))
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .lineLimit(1)
             Text(subtitle)
               .font(.caption2)
-              .foregroundStyle(.white.opacity(0.62))
+              .foregroundStyle(.primary.opacity(0.62))
               .lineLimit(1)
           }
           Spacer(minLength: 0)
@@ -369,6 +374,12 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
       "使用偏好与目录",
       footer: "复杂过滤规则与底层高级参数可随时在 MoviePilot Web 管理界面中调整。"
     ) {
+      nativeListRow(
+        title: "主题与外观", subtitle: appearance.summaryText, symbol: "paintpalette.fill",
+        id: "native-settings-hub-appearance"
+      ) {
+        onNavigate(.appearance)
+      }
       nativeListRow(
         title: "目录与存储映射", symbol: "folder.badge.gearshape",
         id: "native-settings-hub-directories"
@@ -415,21 +426,27 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
         HStack(spacing: 12) {
           Image(systemName: "sparkles")
             .font(.body.weight(.medium))
-            .foregroundStyle(.white.opacity(0.86))
+            .foregroundStyle(.primary.opacity(0.86))
             .frame(width: 24)
           Text("浮动智能助手")
             .font(.body)
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
         }
       }
-      .tint(Color(red: 0.62, green: 0.48, blue: 0.94))
+      .tint(appearance.accentColor)
       .accessibilityIdentifier("native-settings-hub-floating-assistant")
     }
   }
 
-  /// 普通成员系统集成列表（推送通知、桌面小组件与浮动智能助手）。
+  /// 普通成员系统集成列表（主题外观、推送通知、桌面小组件与浮动智能助手）。
   private var systemIntegrationSection: some View {
-    CinematicFormSection("系统集成") {
+    CinematicFormSection("外观与系统集成") {
+      nativeListRow(
+        title: "主题与外观", subtitle: appearance.summaryText, symbol: "paintpalette.fill",
+        id: "native-settings-hub-appearance"
+      ) {
+        onNavigate(.appearance)
+      }
       nativeListRow(
         title: "系统推送通知", symbol: "bell.and.waves.left.and.right",
         id: "native-settings-hub-push"
@@ -446,14 +463,14 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
         HStack(spacing: 12) {
           Image(systemName: "sparkles")
             .font(.body.weight(.medium))
-            .foregroundStyle(.white.opacity(0.86))
+            .foregroundStyle(.primary.opacity(0.86))
             .frame(width: 24)
           Text("浮动智能助手")
             .font(.body)
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
         }
       }
-      .tint(Color(red: 0.62, green: 0.48, blue: 0.94))
+      .tint(appearance.accentColor)
       .accessibilityIdentifier("native-settings-hub-floating-assistant")
     }
   }
@@ -507,13 +524,13 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
           VStack(alignment: .leading, spacing: 4) {
             Text(title)
               .font(.headline)
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .lineLimit(1)
             HStack(spacing: 5) {
               Circle().fill(statusColor).frame(width: 6, height: 6)
               Text(statusText)
                 .font(.caption)
-                .foregroundStyle(.white.opacity(0.68))
+                .foregroundStyle(.primary.opacity(0.68))
                 .lineLimit(1)
             }
           }
@@ -534,11 +551,11 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
         VStack(spacing: 8) {
           Image(systemName: symbol)
             .font(.title3.weight(.medium))
-            .foregroundStyle(.white.opacity(0.92))
+            .foregroundStyle(.primary.opacity(0.92))
             .frame(height: 26)
           Text(title)
             .font(.caption.weight(.medium))
-            .foregroundStyle(.white.opacity(0.86))
+            .foregroundStyle(.primary.opacity(0.86))
             .lineLimit(1)
             .minimumScaleFactor(0.82)
         }
@@ -549,23 +566,33 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
     .accessibilityIdentifier(id)
   }
 
-  /// 原生 Form 分组列表行，带图标与右侧指示箭头。
+  /// 原生 Form 分组列表行，带图标、可选状态副标题与右侧指示箭头。
   private func nativeListRow(
-    title: String, symbol: String, id: String, action: @escaping () -> Void
+    title: String,
+    subtitle: String? = nil,
+    symbol: String,
+    id: String,
+    action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
       HStack(spacing: 12) {
         Image(systemName: symbol)
           .font(.body.weight(.medium))
-          .foregroundStyle(.white.opacity(0.86))
+          .foregroundStyle(.primary.opacity(0.86))
           .frame(width: 24)
         Text(title)
           .font(.body)
-          .foregroundStyle(.white)
+          .foregroundStyle(.primary)
         Spacer(minLength: 8)
+        if let subtitle, !subtitle.isEmpty {
+          Text(subtitle)
+            .font(.caption)
+            .foregroundStyle(.primary.opacity(0.56))
+            .lineLimit(1)
+        }
         Image(systemName: "chevron.right")
           .font(.caption.weight(.semibold))
-          .foregroundStyle(.white.opacity(0.38))
+          .foregroundStyle(.primary.opacity(0.38))
       }
       .contentShape(Rectangle())
     }
@@ -579,7 +606,7 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
       Circle().fill(color).frame(width: 6, height: 6)
       Text(title)
         .font(.caption2)
-        .foregroundStyle(.white.opacity(0.68))
+        .foregroundStyle(.primary.opacity(0.68))
         .lineLimit(1)
     }
   }

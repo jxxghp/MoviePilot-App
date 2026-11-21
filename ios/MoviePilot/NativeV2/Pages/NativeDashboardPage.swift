@@ -164,7 +164,7 @@ struct NativeDashboardPage: View {
               )
               .minimumScaleFactor(0.72)
               .lineLimit(1)
-            Text(title).font(.subheadline.weight(.medium)).foregroundStyle(.white.opacity(0.76))
+            Text(title).font(.subheadline.weight(.medium)).foregroundStyle(.primary.opacity(0.76))
           }
           Spacer(minLength: 8)
           Image(systemName: symbol)
@@ -254,7 +254,7 @@ struct NativeDashboardPage: View {
       if values.isEmpty {
         CinematicPanel {
           Label("暂时没有后台服务", systemImage: "checkmark.circle")
-            .foregroundStyle(.white.opacity(0.82))
+            .foregroundStyle(.primary.opacity(0.82))
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         }
       } else {
@@ -301,7 +301,7 @@ struct NativeDashboardPage: View {
             CinematicPanel(padding: 12) {
               Label("「\(widget.title)」为远程组件卡片，请从插件管理打开兼容页查看", systemImage: "puzzlepiece.extension")
                 .font(.caption)
-                .foregroundStyle(.white.opacity(0.75))
+                .foregroundStyle(.primary.opacity(0.75))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
           } else {
@@ -333,8 +333,8 @@ struct NativeDashboardPage: View {
   /// 刷新时保留上一次真实数据，加载提示在首屏可见。
   private var loadingIndicator: some View {
     HStack(spacing: 10) {
-      ProgressView().tint(.white)
-      Text("正在更新仪表盘…").font(.caption).foregroundStyle(.white.opacity(0.75))
+      ProgressView().tint(.primary)
+      Text("正在更新仪表盘…").font(.caption).foregroundStyle(.primary.opacity(0.75))
     }
     .frame(maxWidth: .infinity, alignment: .center)
     .padding(.vertical, 10)

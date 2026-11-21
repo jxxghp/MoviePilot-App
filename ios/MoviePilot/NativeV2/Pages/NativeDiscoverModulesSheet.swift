@@ -123,11 +123,11 @@ struct NativeDiscoverModulesSheet: View {
               HStack(spacing: 12) {
                 Image(systemName: item.id.symbol)
                   .font(.body.weight(.medium))
-                  .foregroundStyle(.white.opacity(0.68))
+                  .foregroundStyle(.primary.opacity(0.68))
                   .frame(width: 24)
                 Toggle(item.id.title, isOn: $item.enabled)
                   .font(.body.weight(.medium))
-                  .foregroundStyle(.white)
+                  .foregroundStyle(.primary)
                   .tint(Color(red: 0.24, green: 0.84, blue: 0.48))
                   .accessibilityIdentifier("native-module-toggle-\(item.id.rawValue)")
               }
@@ -153,7 +153,7 @@ struct NativeDiscoverModulesSheet: View {
               }
               .overlay {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
-                  .strokeBorder(.white.opacity(0.15), lineWidth: 0.65)
+                  .strokeBorder(.primary.opacity(0.15), lineWidth: 0.65)
               }
           }
           .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -163,7 +163,7 @@ struct NativeDiscoverModulesSheet: View {
 
           Text("关闭的模块不在「发现」页显示，可拖动右侧手柄调整展示顺序。")
             .font(.caption)
-            .foregroundStyle(.white.opacity(0.58))
+            .foregroundStyle(.primary.opacity(0.58))
             .padding(.horizontal, CinematicStyle.margin + 4)
           Spacer(minLength: 0)
         }
@@ -207,6 +207,6 @@ struct NativeDiscoverModulesSheet: View {
         }
       }
     }
-    .preferredColorScheme(.dark)
+    .nativeAppearanceRoot()
   }
 }

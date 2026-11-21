@@ -183,7 +183,7 @@ struct NativePluginMarketPage: View {
   private var listSection: some View {
     if isLoading && activeItems.isEmpty {
       ProgressView(mode == .market ? "正在载入插件市场…" : "正在载入已安装插件…")
-        .tint(.white)
+        .tint(.primary)
         .frame(maxWidth: .infinity, minHeight: 220)
     } else if loadFailed && activeItems.isEmpty {
       failureCard
@@ -202,7 +202,7 @@ struct NativePluginMarketPage: View {
             }
         }
         if mode == .market && isLoadingMore {
-          ProgressView().tint(.white).padding(.vertical, 10)
+          ProgressView().tint(.primary).padding(.vertical, 10)
         }
       }
     }
@@ -253,7 +253,7 @@ struct NativePluginMarketPage: View {
                     : .white.opacity(0.08)
                 )
                 .overlay {
-                  Capsule().strokeBorder(.white.opacity(active ? 0.32 : 0.14), lineWidth: 0.7)
+                  Capsule().strokeBorder(.primary.opacity(active ? 0.32 : 0.14), lineWidth: 0.7)
                 }
             }
         }
@@ -281,7 +281,7 @@ struct NativePluginMarketPage: View {
               Capsule()
                 .fill(.white.opacity(active ? 0.20 : 0.08))
                 .overlay {
-                  Capsule().strokeBorder(.white.opacity(active ? 0.28 : 0.12), lineWidth: 0.6)
+                  Capsule().strokeBorder(.primary.opacity(active ? 0.28 : 0.12), lineWidth: 0.6)
                 }
             }
         }
@@ -319,17 +319,17 @@ struct NativePluginMarketPage: View {
             }
             Text(plugin.displayName)
               .font(.headline.weight(.semibold))
-              .foregroundStyle(.white.opacity(isInactive ? 0.80 : 0.98))
+              .foregroundStyle(.primary.opacity(isInactive ? 0.80 : 0.98))
               .lineLimit(1)
             if !plugin.version.isEmpty {
               Text("v\(plugin.version)")
                 .font(.caption.monospacedDigit().weight(.medium))
-                .foregroundStyle(.white.opacity(0.56))
+                .foregroundStyle(.primary.opacity(0.56))
                 .lineLimit(1)
             }
             Spacer(minLength: 4)
             if isMutating {
-              ProgressView().controlSize(.mini).tint(.white)
+              ProgressView().controlSize(.mini).tint(.primary)
             } else {
               statusBadge(plugin)
             }
@@ -340,7 +340,7 @@ struct NativePluginMarketPage: View {
               if !plugin.summary.isEmpty {
                 Text(plugin.summary)
                   .font(.caption)
-                  .foregroundStyle(.white.opacity(0.76))
+                  .foregroundStyle(.primary.opacity(0.76))
                   .lineLimit(3)
                   .fixedSize(horizontal: false, vertical: true)
               }
@@ -388,7 +388,7 @@ struct NativePluginMarketPage: View {
             endPoint: .bottomTrailing)
         )
 
-        Divider().overlay(.white.opacity(0.08))
+        Divider().overlay(.primary.opacity(0.08))
 
         // 下段创作者生态铭牌栏：左作者头像+署名，右下载量+星级评分
         HStack(spacing: 8) {
@@ -400,7 +400,7 @@ struct NativePluginMarketPage: View {
             )
             Text(plugin.author.isEmpty ? "MoviePilot" : plugin.author)
               .font(.caption.weight(.medium))
-              .foregroundStyle(.white.opacity(0.72))
+              .foregroundStyle(.primary.opacity(0.72))
               .lineLimit(1)
           }
           Spacer(minLength: 8)
@@ -411,7 +411,7 @@ struct NativePluginMarketPage: View {
               Text(Self.formatInstallCount(downloads))
                 .font(.caption2.monospacedDigit().weight(.medium))
             }
-            .foregroundStyle(.white.opacity(0.70))
+            .foregroundStyle(.primary.opacity(0.70))
           }
           if effectiveRating > 0 {
             HStack(spacing: 2.5) {
@@ -549,7 +549,7 @@ struct NativePluginMarketPage: View {
       .padding(.vertical, 3)
       .background {
         Capsule()
-          .fill(.white.opacity(0.10))
+          .fill(.primary.opacity(0.10))
           .overlay { Capsule().strokeBorder(tint.opacity(0.32), lineWidth: 0.6) }
       }
   }
@@ -562,13 +562,13 @@ struct NativePluginMarketPage: View {
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
         .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
-        Text(feedback.message).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+        Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {
           self.feedback = nil
         } label: {
           Image(systemName: "xmark").font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
+            .foregroundStyle(.primary.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
         }
         .buttonStyle(.plain)
       }
@@ -582,7 +582,7 @@ struct NativePluginMarketPage: View {
       VStack(spacing: 10) {
         Image(systemName: "puzzlepiece.extension")
           .font(.largeTitle)
-          .foregroundStyle(.white.opacity(0.55))
+          .foregroundStyle(.primary.opacity(0.55))
         Text("暂无匹配的插件").font(.headline)
       }
       .frame(maxWidth: .infinity, minHeight: 150)

@@ -29,7 +29,7 @@ struct NativeUsersPage: View {
               HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle.fill")
                   .foregroundStyle(Color(red: 0.56, green: 0.92, blue: 0.72))
-                Text(feedback).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+                Text(feedback).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
                 Spacer(minLength: 0)
               }
             }
@@ -37,7 +37,7 @@ struct NativeUsersPage: View {
           }
           if isLoading && users.isEmpty {
             ProgressView("正在载入用户列表…")
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 220)
           } else if loadFailed && users.isEmpty {
             failureCard
@@ -118,7 +118,7 @@ struct NativeUsersPage: View {
             HStack(spacing: 6) {
               Text(user.name)
                 .font(.headline)
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
               if isCurrent {
                 tagPill("当前账号", tint: Color(red: 0.62, green: 0.86, blue: 1.0))
               }
@@ -130,7 +130,7 @@ struct NativeUsersPage: View {
             if let email = user.email, !email.isEmpty {
               Text(email)
                 .font(.caption)
-                .foregroundStyle(.white.opacity(0.64))
+                .foregroundStyle(.primary.opacity(0.64))
             }
           }
           Spacer(minLength: 0)
@@ -141,7 +141,7 @@ struct NativeUsersPage: View {
             if user.isOTP {
               Text("已启用 2FA")
                 .font(.caption2)
-                .foregroundStyle(.white.opacity(0.60))
+                .foregroundStyle(.primary.opacity(0.60))
             }
           }
         }
@@ -151,13 +151,13 @@ struct NativeUsersPage: View {
             ForEach(perms, id: \.self) { label in
               Text(label)
                 .font(.caption2.weight(.medium))
-                .foregroundStyle(.white.opacity(0.84))
+                .foregroundStyle(.primary.opacity(0.84))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
                 .background {
                   Capsule()
-                    .fill(.white.opacity(0.10))
-                    .overlay { Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 0.5) }
+                    .fill(.primary.opacity(0.10))
+                    .overlay { Capsule().strokeBorder(.primary.opacity(0.14), lineWidth: 0.5) }
                 }
             }
             Spacer(minLength: 0)
@@ -188,7 +188,7 @@ struct NativeUsersPage: View {
       .padding(.vertical, 2.5)
       .background {
         Capsule()
-          .fill(.white.opacity(0.10))
+          .fill(.primary.opacity(0.10))
           .overlay { Capsule().strokeBorder(tint.opacity(0.32), lineWidth: 0.6) }
       }
   }
@@ -199,7 +199,7 @@ struct NativeUsersPage: View {
       VStack(spacing: 10) {
         Image(systemName: "person.2")
           .font(.largeTitle)
-          .foregroundStyle(.white.opacity(0.55))
+          .foregroundStyle(.primary.opacity(0.55))
         Text("暂无匹配的用户").font(.headline)
       }
       .frame(maxWidth: .infinity, minHeight: 150)
@@ -338,22 +338,22 @@ private struct NativeUserEditorSheet: View {
             }
             CinematicPanel(padding: 14) {
               VStack(alignment: .leading, spacing: 12) {
-                Text("账号信息").font(.headline).foregroundStyle(.white)
+                Text("账号信息").font(.headline).foregroundStyle(.primary)
                 VStack(alignment: .leading, spacing: 4) {
-                  Text("用户名").font(.caption).foregroundStyle(.white.opacity(0.72))
+                  Text("用户名").font(.caption).foregroundStyle(.primary.opacity(0.72))
                   TextField(
                     "", text: $name,
                     prompt: Text("输入用户名").foregroundColor(.white.opacity(0.45))
                   )
                   .textInputAutocapitalization(.never)
                   .autocorrectionDisabled()
-                  .foregroundStyle(.white)
+                  .foregroundStyle(.primary)
                   .padding(10)
                   .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                   .accessibilityIdentifier("native-user-editor-name")
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                  Text("邮箱（可选）").font(.caption).foregroundStyle(.white.opacity(0.72))
+                  Text("邮箱（可选）").font(.caption).foregroundStyle(.primary.opacity(0.72))
                   TextField(
                     "", text: $email,
                     prompt: Text("name@example.com").foregroundColor(.white.opacity(0.45))
@@ -361,7 +361,7 @@ private struct NativeUserEditorSheet: View {
                   .textInputAutocapitalization(.never)
                   .autocorrectionDisabled()
                   .keyboardType(.emailAddress)
-                  .foregroundStyle(.white)
+                  .foregroundStyle(.primary)
                   .padding(10)
                   .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                   .accessibilityIdentifier("native-user-editor-email")
@@ -369,13 +369,13 @@ private struct NativeUserEditorSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                   Text(isCreate ? "初始密码" : "重置密码（留空不修改）")
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.72))
+                    .foregroundStyle(.primary.opacity(0.72))
                   SecureField(
                     "", text: $password,
                     prompt: Text(isCreate ? "输入初始密码" : "留空保持原密码").foregroundColor(
                       .white.opacity(0.45))
                   )
-                  .foregroundStyle(.white)
+                  .foregroundStyle(.primary)
                   .padding(10)
                   .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                   .accessibilityIdentifier("native-user-editor-password")
@@ -387,12 +387,12 @@ private struct NativeUserEditorSheet: View {
                 Toggle("账号启用", isOn: $isActive)
                   .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
                   .accessibilityIdentifier("native-user-editor-active")
-                Divider().overlay(.white.opacity(0.08))
+                Divider().overlay(.primary.opacity(0.08))
                 Toggle("超级管理员", isOn: $isSuperuser)
                   .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
                   .accessibilityIdentifier("native-user-editor-superuser")
                 if !isSuperuser {
-                  Divider().overlay(.white.opacity(0.08))
+                  Divider().overlay(.primary.opacity(0.08))
                   Toggle("发现权限", isOn: $permDiscovery)
                     .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
                   Toggle("搜索权限", isOn: $permSearch)
@@ -423,7 +423,7 @@ private struct NativeUserEditorSheet: View {
             Task { await submit() }
           } label: {
             if isSubmitting {
-              ProgressView().controlSize(.small).tint(.white)
+              ProgressView().controlSize(.small).tint(.primary)
             } else {
               Text("保存").fontWeight(.semibold)
             }
@@ -445,7 +445,7 @@ private struct NativeUserEditorSheet: View {
         }
       }
     }
-    .preferredColorScheme(.dark)
+    .nativeAppearanceRoot()
   }
 
   private func submit() async {

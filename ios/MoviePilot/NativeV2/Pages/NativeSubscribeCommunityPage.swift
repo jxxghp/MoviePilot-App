@@ -44,7 +44,7 @@ struct NativeSubscribeCommunityPage: View {
           }
           if isLoading && isCurrentEmpty {
             ProgressView("正在载入订阅广场…")
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 240)
           } else if loadFailed && isCurrentEmpty {
             failureCard
@@ -119,7 +119,7 @@ struct NativeSubscribeCommunityPage: View {
                     : .white.opacity(0.08)
                 )
                 .overlay {
-                  Capsule().strokeBorder(.white.opacity(active ? 0.32 : 0.14), lineWidth: 0.7)
+                  Capsule().strokeBorder(.primary.opacity(active ? 0.32 : 0.14), lineWidth: 0.7)
                 }
             }
         }
@@ -168,7 +168,7 @@ struct NativeSubscribeCommunityPage: View {
         .clipShape(.rect(cornerRadius: 13))
         .overlay {
           RoundedRectangle(cornerRadius: 13, style: .continuous)
-            .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
+            .strokeBorder(.primary.opacity(0.10), lineWidth: 0.5)
         }
         if let hotText = item.hotLabel {
           HStack(spacing: 3) {
@@ -184,13 +184,13 @@ struct NativeSubscribeCommunityPage: View {
       }
       Text(item.title)
         .font(.footnote.weight(.medium))
-        .foregroundStyle(.white.opacity(0.95))
+        .foregroundStyle(.primary.opacity(0.95))
         .lineLimit(1)
         .frame(maxWidth: .infinity, alignment: .center)
       if let year = item.year, !year.isEmpty {
         Text(year)
           .font(.caption)
-          .foregroundStyle(.white.opacity(0.54))
+          .foregroundStyle(.primary.opacity(0.54))
           .lineLimit(1)
       }
     }
@@ -225,13 +225,13 @@ struct NativeSubscribeCommunityPage: View {
           .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
           .overlay {
             RoundedRectangle(cornerRadius: 11, style: .continuous)
-              .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+              .strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
           }
         VStack(alignment: .leading, spacing: 6) {
           HStack(alignment: .top, spacing: 8) {
             Text(item.displayTitle)
               .font(.headline)
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .lineLimit(2)
             Spacer(minLength: 4)
             if let count = item.count, count > 0 {
@@ -242,9 +242,9 @@ struct NativeSubscribeCommunityPage: View {
                 .padding(.vertical, 3)
                 .background {
                   Capsule()
-                    .fill(.white.opacity(0.10))
+                    .fill(.primary.opacity(0.10))
                     .overlay {
-                      Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 0.6)
+                      Capsule().strokeBorder(.primary.opacity(0.16), lineWidth: 0.6)
                     }
                 }
             }
@@ -252,12 +252,12 @@ struct NativeSubscribeCommunityPage: View {
           if let user = item.shareUser, !user.isEmpty {
             Text("分享者：\(user)")
               .font(.caption)
-              .foregroundStyle(.white.opacity(0.64))
+              .foregroundStyle(.primary.opacity(0.64))
           }
           if let comment = item.shareComment, !comment.isEmpty {
             Text(comment)
               .font(.caption)
-              .foregroundStyle(.white.opacity(0.78))
+              .foregroundStyle(.primary.opacity(0.78))
               .lineLimit(2)
           }
           let ruleChips = item.ruleSummaryChips
@@ -266,11 +266,11 @@ struct NativeSubscribeCommunityPage: View {
               ForEach(ruleChips, id: \.self) { chip in
                 Text(chip)
                   .font(.caption2.weight(.medium))
-                  .foregroundStyle(.white.opacity(0.86))
+                  .foregroundStyle(.primary.opacity(0.86))
                   .padding(.horizontal, 7)
                   .padding(.vertical, 2.5)
                   .background {
-                    Capsule().fill(.white.opacity(0.10))
+                    Capsule().fill(.primary.opacity(0.10))
                   }
               }
             }
@@ -281,19 +281,19 @@ struct NativeSubscribeCommunityPage: View {
             } label: {
               HStack(spacing: 5) {
                 if isForking {
-                  ProgressView().controlSize(.mini).tint(.white)
+                  ProgressView().controlSize(.mini).tint(.primary)
                 } else {
                   Image(systemName: "arrow.triangle.branch").font(.caption2.weight(.semibold))
                 }
                 Text("复用订阅").font(.caption.weight(.semibold))
               }
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .padding(.horizontal, 12)
               .padding(.vertical, 6)
               .background {
                 Capsule()
                   .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.70))
-                  .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.6) }
+                  .overlay { Capsule().strokeBorder(.primary.opacity(0.24), lineWidth: 0.6) }
               }
               .frame(minHeight: 32)
             }
@@ -334,13 +334,13 @@ struct NativeSubscribeCommunityPage: View {
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
         .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
-        Text(feedback.message).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+        Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {
           self.feedback = nil
         } label: {
           Image(systemName: "xmark").font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
+            .foregroundStyle(.primary.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
         }
         .buttonStyle(.plain)
       }
@@ -354,9 +354,9 @@ struct NativeSubscribeCommunityPage: View {
       VStack(spacing: 10) {
         Image(systemName: "sparkles.rectangle.stack")
           .font(.largeTitle)
-          .foregroundStyle(.white.opacity(0.55))
+          .foregroundStyle(.primary.opacity(0.55))
         Text(title).font(.headline)
-        Text(subtitle).font(.footnote).foregroundStyle(.white.opacity(0.65))
+        Text(subtitle).font(.footnote).foregroundStyle(.primary.opacity(0.65))
       }
       .frame(maxWidth: .infinity, minHeight: 150)
     }

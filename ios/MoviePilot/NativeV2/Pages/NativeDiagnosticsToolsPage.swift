@@ -106,7 +106,7 @@ struct NativeDiagnosticsToolsPage: View {
                   .foregroundStyle(Color(red: 0.78, green: 0.68, blue: 1.0))
                 Text(feedback)
                   .font(.caption.weight(.medium))
-                  .foregroundStyle(.white.opacity(0.92))
+                  .foregroundStyle(.primary.opacity(0.92))
                 Spacer(minLength: 0)
               }
             }
@@ -216,7 +216,7 @@ struct NativeDiagnosticsToolsPage: View {
                       : .white.opacity(0.08)
                   )
                   .overlay {
-                    Capsule().strokeBorder(.white.opacity(active ? 0.30 : 0.14), lineWidth: 0.6)
+                    Capsule().strokeBorder(.primary.opacity(active ? 0.30 : 0.14), lineWidth: 0.6)
                   }
               }
           }
@@ -253,7 +253,7 @@ struct NativeDiagnosticsToolsPage: View {
           HStack {
             Text(isCheckingHealth ? "正在逐项检查系统模块…" : "系统模块健康检查")
               .font(.headline)
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
             Spacer()
             Text("\(Int(healthProgress * 100))%")
               .font(.caption.monospacedDigit().weight(.semibold))
@@ -266,7 +266,7 @@ struct NativeDiagnosticsToolsPage: View {
 
       if modules.isEmpty && isCheckingHealth {
         ProgressView("正在读取模块清单…")
-          .tint(.white)
+          .tint(.primary)
           .frame(maxWidth: .infinity, minHeight: 160)
       } else {
         ForEach(modules) { mod in
@@ -275,7 +275,7 @@ struct NativeDiagnosticsToolsPage: View {
               VStack(alignment: .leading, spacing: 3) {
                 Text(mod.displayName)
                   .font(.subheadline.weight(.semibold))
-                  .foregroundStyle(.white)
+                  .foregroundStyle(.primary)
                 if !mod.errorMessage.isEmpty {
                   Text(mod.errorMessage)
                     .font(.caption2)
@@ -285,7 +285,7 @@ struct NativeDiagnosticsToolsPage: View {
               }
               Spacer(minLength: 6)
               if mod.isTesting {
-                ProgressView().controlSize(.mini).tint(.white)
+                ProgressView().controlSize(.mini).tint(.primary)
               } else {
                 healthBadge(mod.state)
               }
@@ -312,7 +312,7 @@ struct NativeDiagnosticsToolsPage: View {
       .padding(.vertical, 3)
       .background {
         Capsule()
-          .fill(.white.opacity(0.08))
+          .fill(.primary.opacity(0.08))
           .overlay { Capsule().strokeBorder(color.opacity(0.32), lineWidth: 0.6) }
       }
   }
@@ -323,7 +323,7 @@ struct NativeDiagnosticsToolsPage: View {
     VStack(alignment: .leading, spacing: 10) {
       if isLoadingNet && netTargets.isEmpty {
         ProgressView("正在加载测试节点…")
-          .tint(.white)
+          .tint(.primary)
           .frame(maxWidth: .infinity, minHeight: 160)
       } else if netTargets.isEmpty {
         emptyCard("暂无网络测试目标")
@@ -336,10 +336,10 @@ struct NativeDiagnosticsToolsPage: View {
               VStack(alignment: .leading, spacing: 4) {
                 Text(target.name)
                   .font(.subheadline.weight(.semibold))
-                  .foregroundStyle(.white)
+                  .foregroundStyle(.primary)
                 Text(target.address)
                   .font(.caption2.monospaced())
-                  .foregroundStyle(.white.opacity(0.58))
+                  .foregroundStyle(.primary.opacity(0.58))
                   .lineLimit(1)
                 if let result {
                   Text(result.summary)
@@ -354,16 +354,16 @@ struct NativeDiagnosticsToolsPage: View {
               } label: {
                 HStack(spacing: 5) {
                   if running {
-                    ProgressView().controlSize(.mini).tint(.white)
+                    ProgressView().controlSize(.mini).tint(.primary)
                   } else {
                     Image(systemName: "bolt.horizontal.fill").font(.caption2)
                   }
                   Text("测速").font(.caption.weight(.semibold))
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background { Capsule().fill(.white.opacity(0.14)) }
+                .background { Capsule().fill(.primary.opacity(0.14)) }
               }
               .buttonStyle(.plain)
               .disabled(testingNetID != nil)
@@ -409,11 +409,11 @@ struct NativeDiagnosticsToolsPage: View {
           VStack(alignment: .leading, spacing: 4) {
             Text("标题 / 文件名 / 种子名称")
               .font(.caption.weight(.medium))
-              .foregroundStyle(.white.opacity(0.70))
+              .foregroundStyle(.primary.opacity(0.70))
             TextField("例如：The.Matrix.1999.2160p.BluRay.x265", text: $testTitle)
               .textFieldStyle(.plain)
               .font(.subheadline)
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .padding(10)
               .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
               .accessibilityIdentifier("native-diag-test-title")
@@ -422,11 +422,11 @@ struct NativeDiagnosticsToolsPage: View {
           VStack(alignment: .leading, spacing: 4) {
             Text("副标题 / 种子描述（可选）")
               .font(.caption.weight(.medium))
-              .foregroundStyle(.white.opacity(0.70))
+              .foregroundStyle(.primary.opacity(0.70))
             TextField("可选补充描述或中文译名", text: $testSubtitle)
               .textFieldStyle(.plain)
               .font(.subheadline)
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .padding(10)
               .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
           }
@@ -435,12 +435,12 @@ struct NativeDiagnosticsToolsPage: View {
             HStack {
               Text("优先级规则组")
                 .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(0.70))
+                .foregroundStyle(.primary.opacity(0.70))
               Spacer()
               if ruleGroups.isEmpty {
                 Text("未配置规则组")
                   .font(.caption)
-                  .foregroundStyle(.white.opacity(0.50))
+                  .foregroundStyle(.primary.opacity(0.50))
               } else {
                 Picker("规则组", selection: $selectedRuleGroup) {
                   ForEach(ruleGroups, id: \.self) { name in
@@ -488,12 +488,12 @@ struct NativeDiagnosticsToolsPage: View {
                 verdict.matched ? Color(red: 0.48, green: 0.90, blue: 0.66) : .orange)
               Text(verdict.headline)
                 .font(.headline)
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
             }
             if !verdict.detail.isEmpty {
               Text(verdict.detail)
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.84))
+                .foregroundStyle(.primary.opacity(0.84))
             }
             if !verdict.tags.isEmpty {
               ScrollView(.horizontal, showsIndicators: false) {
@@ -504,7 +504,7 @@ struct NativeDiagnosticsToolsPage: View {
                       .foregroundStyle(Color(red: 0.86, green: 0.76, blue: 1.0))
                       .padding(.horizontal, 8)
                       .padding(.vertical, 3)
-                      .background { Capsule().fill(.white.opacity(0.10)) }
+                      .background { Capsule().fill(.primary.opacity(0.10)) }
                   }
                 }
               }
@@ -541,11 +541,11 @@ struct NativeDiagnosticsToolsPage: View {
         HStack(spacing: 6) {
           Image(systemName: "magnifyingglass")
             .font(.caption)
-            .foregroundStyle(.white.opacity(0.58))
+            .foregroundStyle(.primary.opacity(0.58))
           TextField("过滤日志关键字", text: $logFilter)
             .textFieldStyle(.plain)
             .font(.caption)
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -592,12 +592,12 @@ struct NativeDiagnosticsToolsPage: View {
         Spacer(minLength: 0)
         Text("\(filteredLogLines.count) 行")
           .font(.caption2.monospacedDigit())
-          .foregroundStyle(.white.opacity(0.55))
+          .foregroundStyle(.primary.opacity(0.55))
       }
 
       if isLoadingLog && logLines.isEmpty {
         ProgressView("正在载入实时日志…")
-          .tint(.white)
+          .tint(.primary)
           .frame(maxWidth: .infinity, minHeight: 180)
       } else if filteredLogLines.isEmpty {
         emptyCard("暂无匹配的日志记录")
@@ -638,7 +638,7 @@ struct NativeDiagnosticsToolsPage: View {
     VStack(alignment: .leading, spacing: 10) {
       if isLoadingSchedules && schedules.isEmpty {
         ProgressView("正在读取定时服务…")
-          .tint(.white)
+          .tint(.primary)
           .frame(maxWidth: .infinity, minHeight: 160)
       } else if schedules.isEmpty {
         emptyCard("暂无定时服务任务")
@@ -650,7 +650,7 @@ struct NativeDiagnosticsToolsPage: View {
               VStack(alignment: .leading, spacing: 4) {
                 Text(item.displayName)
                   .font(.subheadline.weight(.semibold))
-                  .foregroundStyle(.white)
+                  .foregroundStyle(.primary)
                 HStack(spacing: 8) {
                   Text(item.statusLabel)
                     .font(.caption2.weight(.semibold))
@@ -660,7 +660,7 @@ struct NativeDiagnosticsToolsPage: View {
                   if let next = item.nextRun, !next.isEmpty {
                     Text("下次：\(next)")
                       .font(.caption2)
-                      .foregroundStyle(.white.opacity(0.55))
+                      .foregroundStyle(.primary.opacity(0.55))
                   }
                 }
               }
@@ -670,16 +670,16 @@ struct NativeDiagnosticsToolsPage: View {
               } label: {
                 HStack(spacing: 5) {
                   if isRunning {
-                    ProgressView().controlSize(.mini).tint(.white)
+                    ProgressView().controlSize(.mini).tint(.primary)
                   } else {
                     Image(systemName: "play.fill").font(.caption2)
                   }
                   Text("运行").font(.caption.weight(.semibold))
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background { Capsule().fill(.white.opacity(0.14)) }
+                .background { Capsule().fill(.primary.opacity(0.14)) }
               }
               .buttonStyle(.plain)
               .disabled(runningJobID != nil)
@@ -696,7 +696,7 @@ struct NativeDiagnosticsToolsPage: View {
     CinematicPanel {
       Text(text)
         .font(.subheadline)
-        .foregroundStyle(.white.opacity(0.68))
+        .foregroundStyle(.primary.opacity(0.68))
         .frame(maxWidth: .infinity, minHeight: 90)
     }
   }

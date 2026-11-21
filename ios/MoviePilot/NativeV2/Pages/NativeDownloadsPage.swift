@@ -33,7 +33,7 @@ struct NativeDownloadsPage: View {
           }
           if isLoading && tasks.isEmpty {
             ProgressView("正在读取下载队列…")
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 220)
           } else if loadFailed && tasks.isEmpty {
             failureCard
@@ -121,14 +121,14 @@ struct NativeDownloadsPage: View {
     Button(action: action) {
       Text(title)
         .font(.subheadline.weight(selected ? .semibold : .regular))
-        .foregroundStyle(.white.opacity(selected ? 0.98 : 0.78))
+        .foregroundStyle(.primary.opacity(selected ? 0.98 : 0.78))
         .padding(.horizontal, 13)
         .padding(.vertical, 7)
         .background {
           Capsule()
             .fill(.white.opacity(selected ? 0.22 : 0.08))
             .overlay {
-              Capsule().strokeBorder(.white.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
+              Capsule().strokeBorder(.primary.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
             }
         }
         .frame(minHeight: 38)
@@ -154,14 +154,14 @@ struct NativeDownloadsPage: View {
                 } label: {
                   Text(task.displayTitle)
                     .font(.headline)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                 }
                 .buttonStyle(.plain)
               } else {
                 Text(task.displayTitle)
                   .font(.headline)
-                  .foregroundStyle(.white)
+                  .foregroundStyle(.primary)
                   .lineLimit(1)
               }
               Spacer(minLength: 4)
@@ -171,26 +171,26 @@ struct NativeDownloadsPage: View {
                     kind: .downloader, type: downloader, size: 16, cornerRadius: 4)
                   Text(downloader)
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.84))
+                    .foregroundStyle(.primary.opacity(0.84))
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
                 .background {
-                  Capsule().fill(.white.opacity(0.12))
+                  Capsule().fill(.primary.opacity(0.12))
                 }
               }
             }
             Text(task.subtitleLine)
               .font(.caption)
-              .foregroundStyle(.white.opacity(0.66))
+              .foregroundStyle(.primary.opacity(0.66))
               .lineLimit(1)
             Text(task.speedLine)
               .font(.caption.monospacedDigit())
-              .foregroundStyle(.white.opacity(0.84))
+              .foregroundStyle(.primary.opacity(0.84))
               .lineLimit(1)
             GeometryReader { bar in
               ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.18))
+                Capsule().fill(.primary.opacity(0.18))
                 Capsule()
                   .fill(
                     task.isPaused
@@ -210,7 +210,7 @@ struct NativeDownloadsPage: View {
             } label: {
               HStack(spacing: 5) {
                 if isMutating {
-                  ProgressView().controlSize(.mini).tint(.white)
+                  ProgressView().controlSize(.mini).tint(.primary)
                 } else {
                   Image(systemName: task.isPaused ? "play.fill" : "pause.fill")
                     .font(.caption2.weight(.semibold))
@@ -218,13 +218,13 @@ struct NativeDownloadsPage: View {
                 Text(task.isPaused ? "继续" : "暂停")
                   .font(.caption.weight(.semibold))
               }
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .padding(.horizontal, 12)
               .padding(.vertical, 6)
               .background {
                 Capsule()
-                  .fill(.white.opacity(0.14))
-                  .overlay { Capsule().strokeBorder(.white.opacity(0.20), lineWidth: 0.6) }
+                  .fill(.primary.opacity(0.14))
+                  .overlay { Capsule().strokeBorder(.primary.opacity(0.20), lineWidth: 0.6) }
               }
               .frame(minHeight: 34)
             }
@@ -269,7 +269,7 @@ struct NativeDownloadsPage: View {
         Text(String(format: "%.1f%%", progress * 100))
           .font(.system(size: 11, weight: .semibold).monospacedDigit())
       }
-      .foregroundStyle(.white)
+      .foregroundStyle(.primary)
       .padding(.horizontal, 7)
       .padding(.bottom, 5)
     }
@@ -277,7 +277,7 @@ struct NativeDownloadsPage: View {
     .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
     .overlay {
       RoundedRectangle(cornerRadius: 11, style: .continuous)
-        .strokeBorder(.white.opacity(0.14), lineWidth: 0.6)
+        .strokeBorder(.primary.opacity(0.14), lineWidth: 0.6)
     }
   }
 
@@ -289,13 +289,13 @@ struct NativeDownloadsPage: View {
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
         .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
-        Text(feedback.message).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+        Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {
           self.feedback = nil
         } label: {
           Image(systemName: "xmark").font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
+            .foregroundStyle(.primary.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
         }
         .buttonStyle(.plain)
       }
@@ -309,11 +309,11 @@ struct NativeDownloadsPage: View {
       VStack(spacing: 10) {
         Image(systemName: "arrow.down.circle")
           .font(.largeTitle)
-          .foregroundStyle(.white.opacity(0.55))
+          .foregroundStyle(.primary.opacity(0.55))
         Text("当前没有正在下载的任务").font(.headline)
         Text("新添加的种子或订阅下载会实时显示在这里。")
           .font(.footnote)
-          .foregroundStyle(.white.opacity(0.65))
+          .foregroundStyle(.primary.opacity(0.65))
       }
       .frame(maxWidth: .infinity, minHeight: 150)
     }

@@ -38,7 +38,7 @@ struct NativeMusicPage: View {
           feedBar
           if isLoading && items.isEmpty {
             ProgressView("正在载入音乐榜单…")
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 240)
           } else if loadFailed && items.isEmpty {
             failureCard
@@ -113,7 +113,7 @@ struct NativeMusicPage: View {
                       : .white.opacity(0.08)
                   )
                   .overlay {
-                    Capsule().strokeBorder(.white.opacity(active ? 0.32 : 0.14), lineWidth: 0.7)
+                    Capsule().strokeBorder(.primary.opacity(active ? 0.32 : 0.14), lineWidth: 0.7)
                   }
               }
           }
@@ -137,12 +137,12 @@ struct NativeMusicPage: View {
           .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
           .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-              .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+              .strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
           }
           if let rating = item.ratingText {
             Text(rating)
               .font(.caption2.weight(.bold).monospacedDigit())
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .padding(.horizontal, 6)
               .padding(.vertical, 2.5)
               .background { Capsule().fill(.black.opacity(0.64)) }
@@ -151,20 +151,20 @@ struct NativeMusicPage: View {
         }
         Text(item.title)
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(.white)
+          .foregroundStyle(.primary)
           .lineLimit(1)
         HStack(spacing: 6) {
           if let artist = item.artist, !artist.isEmpty {
             Text(artist)
               .font(.caption)
-              .foregroundStyle(.white.opacity(0.68))
+              .foregroundStyle(.primary.opacity(0.68))
               .lineLimit(1)
           }
           Spacer(minLength: 0)
           if let year = item.yearText {
             Text(year)
               .font(.caption2.monospacedDigit())
-              .foregroundStyle(.white.opacity(0.50))
+              .foregroundStyle(.primary.opacity(0.50))
           }
         }
       }
@@ -177,9 +177,9 @@ struct NativeMusicPage: View {
       VStack(spacing: 10) {
         Image(systemName: "music.note.list")
           .font(.largeTitle)
-          .foregroundStyle(.white.opacity(0.55))
+          .foregroundStyle(.primary.opacity(0.55))
         Text("暂无音乐条目").font(.headline)
-        Text("可切换其他音乐榜单或下拉刷新。").font(.footnote).foregroundStyle(.white.opacity(0.65))
+        Text("可切换其他音乐榜单或下拉刷新。").font(.footnote).foregroundStyle(.primary.opacity(0.65))
       }
       .frame(maxWidth: .infinity, minHeight: 150)
     }
@@ -277,7 +277,7 @@ struct NativeMusicAlbumDetailPage: View {
           }
           if isLoading && detail == nil {
             ProgressView("正在载入专辑曲目…")
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 120)
           } else {
             if let overview = resolvedOverview, !overview.isEmpty {
@@ -286,7 +286,7 @@ struct NativeMusicAlbumDetailPage: View {
                   Text("简介").font(.headline)
                   Text(overview)
                     .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.82))
+                    .foregroundStyle(.primary.opacity(0.82))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
               }
@@ -348,14 +348,14 @@ struct NativeMusicAlbumDetailPage: View {
       .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
       .overlay {
         RoundedRectangle(cornerRadius: 20, style: .continuous)
-          .strokeBorder(.white.opacity(0.18), lineWidth: 0.7)
+          .strokeBorder(.primary.opacity(0.18), lineWidth: 0.7)
       }
       .shadow(color: .black.opacity(0.45), radius: 22, y: 10)
 
       VStack(spacing: 6) {
         Text(resolvedTitle)
           .font(.title2.bold())
-          .foregroundStyle(.white)
+          .foregroundStyle(.primary)
           .multilineTextAlignment(.center)
           .accessibilityIdentifier("native-music-album-title")
         if let artist = resolvedArtist, !artist.isEmpty {
@@ -375,7 +375,7 @@ struct NativeMusicAlbumDetailPage: View {
           } else {
             Text(artist)
               .font(.subheadline.weight(.medium))
-              .foregroundStyle(.white.opacity(0.76))
+              .foregroundStyle(.primary.opacity(0.76))
           }
         }
         HStack(spacing: 8) {
@@ -408,13 +408,13 @@ struct NativeMusicAlbumDetailPage: View {
         } label: {
           HStack(spacing: 8) {
             if isMutatingSubscribe {
-              ProgressView().controlSize(.small).tint(.white)
+              ProgressView().controlSize(.small).tint(.primary)
             } else {
               Image(systemName: isSubscribed ? "checkmark.circle.fill" : "plus.circle.fill")
             }
             Text(isSubscribed ? "已订阅专辑" : "订阅专辑").font(.headline)
           }
-          .foregroundStyle(.white)
+          .foregroundStyle(.primary)
           .frame(maxWidth: .infinity, minHeight: 48)
           .background {
             Capsule()
@@ -423,7 +423,7 @@ struct NativeMusicAlbumDetailPage: View {
                   ? Color(red: 0.28, green: 0.62, blue: 0.48).opacity(0.75)
                   : Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.84)
               )
-              .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.7) }
+              .overlay { Capsule().strokeBorder(.primary.opacity(0.24), lineWidth: 0.7) }
           }
         }
         .buttonStyle(.plain)
@@ -455,17 +455,17 @@ struct NativeMusicAlbumDetailPage: View {
               HStack(spacing: 12) {
                 Text("\(track.trackNumber ?? (index + 1))")
                   .font(.caption.monospacedDigit().weight(.semibold))
-                  .foregroundStyle(.white.opacity(0.48))
+                  .foregroundStyle(.primary.opacity(0.48))
                   .frame(width: 24, alignment: .trailing)
                 VStack(alignment: .leading, spacing: 2) {
                   Text(track.title ?? "未命名曲目")
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                   if let artist = track.artist, !artist.isEmpty, artist != resolvedArtist {
                     Text(artist)
                       .font(.caption)
-                      .foregroundStyle(.white.opacity(0.58))
+                      .foregroundStyle(.primary.opacity(0.58))
                       .lineLimit(1)
                   }
                 }
@@ -473,7 +473,7 @@ struct NativeMusicAlbumDetailPage: View {
                 if let duration = track.duration, duration > 0 {
                   Text(formatDuration(duration))
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.56))
+                    .foregroundStyle(.primary.opacity(0.56))
                 }
                 Image(systemName: "play.circle")
                   .font(.subheadline)
@@ -501,7 +501,7 @@ struct NativeMusicAlbumDetailPage: View {
               }
             }
             if index < tracks.count - 1 {
-              Divider().overlay(.white.opacity(0.08)).padding(.leading, 48)
+              Divider().overlay(.primary.opacity(0.08)).padding(.leading, 48)
             }
           }
         }
@@ -513,13 +513,13 @@ struct NativeMusicAlbumDetailPage: View {
   private func metaChip(_ text: String) -> some View {
     Text(text)
       .font(.caption.weight(.medium))
-      .foregroundStyle(.white.opacity(0.82))
+      .foregroundStyle(.primary.opacity(0.82))
       .padding(.horizontal, 9)
       .padding(.vertical, 3.5)
       .background {
         Capsule()
-          .fill(.white.opacity(0.10))
-          .overlay { Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 0.6) }
+          .fill(.primary.opacity(0.10))
+          .overlay { Capsule().strokeBorder(.primary.opacity(0.14), lineWidth: 0.6) }
       }
   }
 
@@ -531,7 +531,7 @@ struct NativeMusicAlbumDetailPage: View {
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
         .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
-        Text(feedback.message).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+        Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
       }
     }
@@ -659,14 +659,14 @@ struct NativeMusicArtistDetailPage: View {
           header
           if isLoading && artist == nil && albums.isEmpty {
             ProgressView("正在载入艺术家资料…")
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 160)
           } else {
             if let overview = artist?.overview, !overview.isEmpty {
               CinematicPanel {
                 VStack(alignment: .leading, spacing: 8) {
                   Text("艺人简介").font(.headline)
-                  Text(overview).font(.subheadline).foregroundStyle(.white.opacity(0.82))
+                  Text(overview).font(.subheadline).foregroundStyle(.primary.opacity(0.82))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
               }
@@ -688,10 +688,10 @@ struct NativeMusicArtistDetailPage: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         Text(item.title)
                           .font(.footnote.weight(.semibold))
-                          .foregroundStyle(.white)
+                          .foregroundStyle(.primary)
                           .lineLimit(1)
                         if let year = item.yearText {
-                          Text(year).font(.caption2).foregroundStyle(.white.opacity(0.56))
+                          Text(year).font(.caption2).foregroundStyle(.primary.opacity(0.56))
                         }
                       }
                     }
@@ -732,17 +732,17 @@ struct NativeMusicArtistDetailPage: View {
       )
       .frame(width: 112, height: 112)
       .clipShape(Circle())
-      .overlay { Circle().strokeBorder(.white.opacity(0.22), lineWidth: 1) }
+      .overlay { Circle().strokeBorder(.primary.opacity(0.22), lineWidth: 1) }
 
       Text(artist?.displayName ?? artistName)
         .font(.title2.bold())
-        .foregroundStyle(.white)
+        .foregroundStyle(.primary)
         .accessibilityIdentifier("native-music-artist-name")
 
       let meta = [artist?.area ?? artist?.country, artist?.lifeSpan]
         .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
       if !meta.isEmpty {
-        Text(meta).font(.caption).foregroundStyle(.white.opacity(0.68))
+        Text(meta).font(.caption).foregroundStyle(.primary.opacity(0.68))
       }
     }
     .frame(maxWidth: .infinity)

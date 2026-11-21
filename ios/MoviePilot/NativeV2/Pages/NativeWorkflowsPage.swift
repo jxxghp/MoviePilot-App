@@ -135,7 +135,7 @@ struct NativeWorkflowsPage: View {
                     : .white.opacity(0.08)
                 )
                 .overlay {
-                  Capsule().strokeBorder(.white.opacity(active ? 0.32 : 0.14), lineWidth: 0.7)
+                  Capsule().strokeBorder(.primary.opacity(active ? 0.32 : 0.14), lineWidth: 0.7)
                 }
             }
         }
@@ -152,7 +152,7 @@ struct NativeWorkflowsPage: View {
     if mode == .mine {
       if isLoading && workflows.isEmpty {
         ProgressView("正在载入工作流…")
-          .tint(.white)
+          .tint(.primary)
           .frame(maxWidth: .infinity, minHeight: 220)
       } else if loadFailed && workflows.isEmpty {
         failureCard
@@ -168,7 +168,7 @@ struct NativeWorkflowsPage: View {
     } else {
       if isLoading && shares.isEmpty {
         ProgressView("正在载入社区工作流分享…")
-          .tint(.white)
+          .tint(.primary)
           .frame(maxWidth: .infinity, minHeight: 220)
       } else if loadFailed && shares.isEmpty {
         failureCard
@@ -177,7 +177,7 @@ struct NativeWorkflowsPage: View {
           VStack(spacing: 10) {
             Image(systemName: "square.stack.3d.up")
               .font(.largeTitle)
-              .foregroundStyle(.white.opacity(0.55))
+              .foregroundStyle(.primary.opacity(0.55))
             Text("暂无社区工作流分享").font(.headline)
           }
           .frame(maxWidth: .infinity, minHeight: 150)
@@ -201,13 +201,13 @@ struct NativeWorkflowsPage: View {
           VStack(alignment: .leading, spacing: 4) {
             Text(workflow.name)
               .font(.headline)
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
             if let desc = workflow.description?.trimmingCharacters(in: .whitespacesAndNewlines),
               !desc.isEmpty
             {
               Text(desc)
                 .font(.caption)
-                .foregroundStyle(.white.opacity(0.68))
+                .foregroundStyle(.primary.opacity(0.68))
                 .lineLimit(2)
             }
           }
@@ -218,18 +218,18 @@ struct NativeWorkflowsPage: View {
           if let timer = workflow.timer, !timer.isEmpty {
             Label(timer, systemImage: "clock")
               .font(.caption.monospaced())
-              .foregroundStyle(.white.opacity(0.76))
+              .foregroundStyle(.primary.opacity(0.76))
           }
           Label("已运行 \(workflow.runCount ?? 0) 次", systemImage: "bolt.horizontal")
             .font(.caption)
-            .foregroundStyle(.white.opacity(0.66))
+            .foregroundStyle(.primary.opacity(0.66))
         }
         if let result = workflow.result?.trimmingCharacters(in: .whitespacesAndNewlines),
           !result.isEmpty
         {
           Text(result)
             .font(.caption)
-            .foregroundStyle(.white.opacity(0.72))
+            .foregroundStyle(.primary.opacity(0.72))
             .lineLimit(2)
         }
         HStack(spacing: 8) {
@@ -241,13 +241,13 @@ struct NativeWorkflowsPage: View {
               Image(systemName: "flowchart").font(.caption2.weight(.semibold))
               Text("画布").font(.caption.weight(.semibold))
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
             .padding(.horizontal, 11)
             .padding(.vertical, 6)
             .background {
               Capsule()
                 .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.75))
-                .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.6) }
+                .overlay { Capsule().strokeBorder(.primary.opacity(0.24), lineWidth: 0.6) }
             }
             .frame(minHeight: 34)
           }
@@ -259,19 +259,19 @@ struct NativeWorkflowsPage: View {
           } label: {
             HStack(spacing: 5) {
               if isMutating {
-                ProgressView().controlSize(.mini).tint(.white)
+                ProgressView().controlSize(.mini).tint(.primary)
               } else {
                 Image(systemName: "play.fill").font(.caption2.weight(.semibold))
               }
               Text("运行").font(.caption.weight(.semibold))
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
             .padding(.horizontal, 11)
             .padding(.vertical, 6)
             .background {
               Capsule()
                 .fill(Color(red: 0.45, green: 0.34, blue: 0.68).opacity(0.72))
-                .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.6) }
+                .overlay { Capsule().strokeBorder(.primary.opacity(0.24), lineWidth: 0.6) }
             }
             .frame(minHeight: 34)
           }
@@ -286,13 +286,13 @@ struct NativeWorkflowsPage: View {
           } label: {
             Text(workflow.isPaused ? "启用" : "停用")
               .font(.caption.weight(.semibold))
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .padding(.horizontal, 12)
               .padding(.vertical, 6)
               .background {
                 Capsule()
-                  .fill(.white.opacity(0.14))
-                  .overlay { Capsule().strokeBorder(.white.opacity(0.20), lineWidth: 0.6) }
+                  .fill(.primary.opacity(0.14))
+                  .overlay { Capsule().strokeBorder(.primary.opacity(0.20), lineWidth: 0.6) }
               }
               .frame(minHeight: 34)
           }
@@ -335,11 +335,11 @@ struct NativeWorkflowsPage: View {
           VStack(alignment: .leading, spacing: 4) {
             Text(share.displayTitle)
               .font(.headline)
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
             if let comment = share.displaySummary {
               Text(comment)
                 .font(.caption)
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(.primary.opacity(0.72))
                 .lineLimit(3)
             }
           }
@@ -351,7 +351,7 @@ struct NativeWorkflowsPage: View {
               .padding(.horizontal, 8)
               .padding(.vertical, 3.5)
               .background {
-                Capsule().fill(.white.opacity(0.10))
+                Capsule().fill(.primary.opacity(0.10))
               }
           }
         }
@@ -359,12 +359,12 @@ struct NativeWorkflowsPage: View {
           if let user = share.shareUser, !user.isEmpty {
             Label(user, systemImage: "person.circle")
               .font(.caption2)
-              .foregroundStyle(.white.opacity(0.62))
+              .foregroundStyle(.primary.opacity(0.62))
           }
           if let timer = share.timer, !timer.isEmpty {
             Label(timer, systemImage: "clock")
               .font(.caption2.monospaced())
-              .foregroundStyle(.white.opacity(0.62))
+              .foregroundStyle(.primary.opacity(0.62))
           }
           Spacer()
           Button {
@@ -372,13 +372,13 @@ struct NativeWorkflowsPage: View {
           } label: {
             Label("复用", systemImage: "square.and.arrow.down")
               .font(.caption.weight(.semibold))
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .padding(.horizontal, 12)
               .padding(.vertical, 6)
               .background {
                 Capsule()
                   .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.76))
-                  .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.6) }
+                  .overlay { Capsule().strokeBorder(.primary.opacity(0.24), lineWidth: 0.6) }
               }
               .frame(minHeight: 34)
           }
@@ -407,7 +407,7 @@ struct NativeWorkflowsPage: View {
       .padding(.vertical, 3.5)
       .background {
         Capsule()
-          .fill(.white.opacity(0.10))
+          .fill(.primary.opacity(0.10))
           .overlay { Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 0.6) }
       }
   }
@@ -420,13 +420,13 @@ struct NativeWorkflowsPage: View {
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
         .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
-        Text(feedback.message).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+        Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {
           self.feedback = nil
         } label: {
           Image(systemName: "xmark").font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
+            .foregroundStyle(.primary.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
         }
         .buttonStyle(.plain)
       }
@@ -440,7 +440,7 @@ struct NativeWorkflowsPage: View {
       VStack(spacing: 10) {
         Image(systemName: "flowchart")
           .font(.largeTitle)
-          .foregroundStyle(.white.opacity(0.55))
+          .foregroundStyle(.primary.opacity(0.55))
         Text("暂无已配置的工作流").font(.headline)
       }
       .frame(maxWidth: .infinity, minHeight: 150)

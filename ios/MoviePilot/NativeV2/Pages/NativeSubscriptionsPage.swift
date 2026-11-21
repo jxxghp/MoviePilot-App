@@ -43,7 +43,7 @@ struct NativeSubscriptionsPage: View {
           }
           if isLoading && items.isEmpty {
             ProgressView("正在载入订阅列表…")
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 220)
           } else if loadFailed && items.isEmpty {
             failureCard
@@ -135,14 +135,14 @@ struct NativeSubscriptionsPage: View {
           } label: {
             Text(count > 0 ? "\(option.rawValue) \(count)" : option.rawValue)
               .font(.subheadline.weight(selected ? .semibold : .regular))
-              .foregroundStyle(.white.opacity(selected ? 0.98 : 0.78))
+              .foregroundStyle(.primary.opacity(selected ? 0.98 : 0.78))
               .padding(.horizontal, 13)
               .padding(.vertical, 7)
               .background {
                 Capsule()
                   .fill(.white.opacity(selected ? 0.22 : 0.08))
                   .overlay {
-                    Capsule().strokeBorder(.white.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
+                    Capsule().strokeBorder(.primary.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
                   }
               }
               .frame(minHeight: 38)
@@ -192,7 +192,7 @@ struct NativeSubscriptionsPage: View {
               } label: {
                 Text(item.displayTitle)
                   .font(.headline)
-                  .foregroundStyle(.white)
+                  .foregroundStyle(.primary)
                   .lineLimit(2)
                   .multilineTextAlignment(.leading)
               }
@@ -200,7 +200,7 @@ struct NativeSubscriptionsPage: View {
             } else {
               Text(item.displayTitle)
                 .font(.headline)
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .lineLimit(2)
             }
             Spacer(minLength: 4)
@@ -208,10 +208,10 @@ struct NativeSubscriptionsPage: View {
           }
           HStack(spacing: 8) {
             if let year = item.year, !year.isEmpty {
-              Text(year).font(.caption).foregroundStyle(.white.opacity(0.66))
+              Text(year).font(.caption).foregroundStyle(.primary.opacity(0.66))
             }
             if let type = item.type, !type.isEmpty {
-              Text(type).font(.caption).foregroundStyle(.white.opacity(0.66))
+              Text(type).font(.caption).foregroundStyle(.primary.opacity(0.66))
             }
             if let vote = item.vote, vote > 0 {
               Label(String(format: "%.1f", vote), systemImage: "star.fill")
@@ -223,10 +223,10 @@ struct NativeSubscriptionsPage: View {
             VStack(alignment: .leading, spacing: 4) {
               Text("已更新 \(progress.completed) / \(progress.total) 集")
                 .font(.caption.monospacedDigit())
-                .foregroundStyle(.white.opacity(0.80))
+                .foregroundStyle(.primary.opacity(0.80))
               GeometryReader { bar in
                 ZStack(alignment: .leading) {
-                  Capsule().fill(.white.opacity(0.16))
+                  Capsule().fill(.primary.opacity(0.16))
                   Capsule()
                     .fill(Color(red: 0.72, green: 0.56, blue: 0.96))
                     .frame(width: max(bar.size.width * progress.fraction, 4))
@@ -242,20 +242,20 @@ struct NativeSubscriptionsPage: View {
             } label: {
               HStack(spacing: 4) {
                 if isMutating {
-                  ProgressView().controlSize(.mini).tint(.white)
+                  ProgressView().controlSize(.mini).tint(.primary)
                 } else {
                   Image(systemName: item.isPaused ? "play.fill" : "pause.fill")
                     .font(.caption2.weight(.semibold))
                 }
                 Text(item.isPaused ? "恢复" : "暂停").font(.caption.weight(.semibold))
               }
-              .foregroundStyle(.white)
+              .foregroundStyle(.primary)
               .padding(.horizontal, 10)
               .padding(.vertical, 5)
               .background {
                 Capsule()
-                  .fill(.white.opacity(0.13))
-                  .overlay { Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.6) }
+                  .fill(.primary.opacity(0.13))
+                  .overlay { Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 0.6) }
               }
               .frame(minHeight: 32)
             }
@@ -297,7 +297,7 @@ struct NativeSubscriptionsPage: View {
       .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
       .overlay {
         RoundedRectangle(cornerRadius: 11, style: .continuous)
-          .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+          .strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
       }
   }
 
@@ -317,7 +317,7 @@ struct NativeSubscriptionsPage: View {
       .padding(.vertical, 4)
       .background {
         Capsule()
-          .fill(.white.opacity(0.10))
+          .fill(.primary.opacity(0.10))
           .overlay { Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 0.6) }
       }
   }
@@ -330,13 +330,13 @@ struct NativeSubscriptionsPage: View {
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
         .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
-        Text(feedback.message).font(.subheadline).foregroundStyle(.white.opacity(0.92))
+        Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {
           self.feedback = nil
         } label: {
           Image(systemName: "xmark").font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
+            .foregroundStyle(.primary.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
         }
         .buttonStyle(.plain)
       }
@@ -350,11 +350,11 @@ struct NativeSubscriptionsPage: View {
       VStack(spacing: 10) {
         Image(systemName: "bookmark")
           .font(.largeTitle)
-          .foregroundStyle(.white.opacity(0.55))
+          .foregroundStyle(.primary.opacity(0.55))
         Text("暂无匹配的订阅").font(.headline)
         Text("你可以在发现页或媒体详情中一键添加订阅。")
           .font(.footnote)
-          .foregroundStyle(.white.opacity(0.65))
+          .foregroundStyle(.primary.opacity(0.65))
       }
       .frame(maxWidth: .infinity, minHeight: 150)
     }

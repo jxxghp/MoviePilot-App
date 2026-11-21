@@ -343,7 +343,7 @@ struct NativeMediaSearchPage: View {
           }
           Button(action: submitSearch) {
             if isSearching, loadedPage == 0, committedQuery?.term == trimmedQuery {
-              ProgressView().tint(.white).frame(width: 44, height: 44)
+              ProgressView().tint(.primary).frame(width: 44, height: 44)
             } else {
               Image(systemName: "arrow.right.circle.fill").font(.title3).frame(
                 width: 44, height: 44)
@@ -364,7 +364,7 @@ struct NativeMediaSearchPage: View {
               } label: {
                 Text(option.title)
                   .font(.subheadline.weight(kind == option ? .semibold : .regular))
-                  .foregroundStyle(.white.opacity(kind == option ? 0.98 : 0.80))
+                  .foregroundStyle(.primary.opacity(kind == option ? 0.98 : 0.80))
                   .padding(.horizontal, 14).frame(minHeight: 36)
                   .background {
                     Capsule()
@@ -434,7 +434,7 @@ struct NativeMediaSearchPage: View {
         Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
       }
       .font(.subheadline.weight(selectedSources.isEmpty ? .regular : .semibold))
-      .foregroundStyle(.white.opacity(selectedSources.isEmpty ? 0.86 : 0.98))
+      .foregroundStyle(.primary.opacity(selectedSources.isEmpty ? 0.86 : 0.98))
       .padding(.horizontal, 12).frame(minHeight: 36)
       .background {
         Capsule()
@@ -446,7 +446,7 @@ struct NativeMediaSearchPage: View {
       }
       .frame(minHeight: 44).contentShape(Rectangle())
     }
-    .tint(.white)
+    .tint(.primary)
     .disabled(isLoadingSources)
     .accessibilityIdentifier("native-media-search-sources")
   }
@@ -502,14 +502,14 @@ struct NativeMediaSearchPage: View {
             session: session, reference: reference, role: .poster, maximumWidth: 160)
         } else {
           ZStack {
-            Circle().fill(.white.opacity(0.10))
-            Image(systemName: "person.fill").font(.title2).foregroundStyle(.white.opacity(0.55))
+            Circle().fill(.primary.opacity(0.10))
+            Image(systemName: "person.fill").font(.title2).foregroundStyle(.primary.opacity(0.55))
           }
         }
       }
       .frame(width: 72, height: 72)
       .clipShape(Circle())
-      .overlay { Circle().strokeBorder(.white.opacity(0.16), lineWidth: 0.6) }
+      .overlay { Circle().strokeBorder(.primary.opacity(0.16), lineWidth: 0.6) }
       Text(item.displayTitle).font(.caption.weight(.medium)).lineLimit(1)
       if let role = item.character, !role.isEmpty {
         Text(role).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
@@ -685,8 +685,8 @@ struct NativeMediaSearchPage: View {
   private func statusCard(_ title: String, symbol: String) -> some View {
     CinematicPanel {
       HStack(spacing: 12) {
-        Image(systemName: symbol).font(.title3).foregroundStyle(.white.opacity(0.75))
-        Text(title).font(.callout).foregroundStyle(.white.opacity(0.82))
+        Image(systemName: symbol).font(.title3).foregroundStyle(.primary.opacity(0.75))
+        Text(title).font(.callout).foregroundStyle(.primary.opacity(0.82))
       }
       .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
       .accessibilityElement(children: .combine)
@@ -747,7 +747,7 @@ private struct NativeMediaSearchRow: View {
           .lineLimit(usesAccessibilityLayout ? nil : 1)
       }
       if let overview = item.overview, !overview.isEmpty {
-        Text(overview).font(.footnote).foregroundStyle(.white.opacity(0.78))
+        Text(overview).font(.footnote).foregroundStyle(.primary.opacity(0.78))
           .lineLimit(usesAccessibilityLayout ? nil : 2).multilineTextAlignment(.leading)
       }
       if let rating = item.voteAverage, rating > 0 {
@@ -785,12 +785,12 @@ private struct NativeMediaSearchRow: View {
       )
       .frame(width: artworkSize.width, height: artworkSize.height)
       .clipShape(shape)
-      .overlay { shape.strokeBorder(.white.opacity(0.12), lineWidth: 0.5) }
+      .overlay { shape.strokeBorder(.primary.opacity(0.12), lineWidth: 0.5) }
     } else {
       artworkPlaceholder(symbol: symbol)
         .frame(width: artworkSize.width, height: artworkSize.height)
         .clipShape(shape)
-        .overlay { shape.strokeBorder(.white.opacity(0.12), lineWidth: 0.5) }
+        .overlay { shape.strokeBorder(.primary.opacity(0.12), lineWidth: 0.5) }
         .accessibilityHidden(true)
     }
   }
@@ -804,7 +804,7 @@ private struct NativeMediaSearchRow: View {
           Color(red: 0.24, green: 0.25, blue: 0.34),
         ],
         startPoint: .topLeading, endPoint: .bottomTrailing)
-      Image(systemName: symbol).font(.title3).foregroundStyle(.white.opacity(0.62))
+      Image(systemName: symbol).font(.title3).foregroundStyle(.primary.opacity(0.62))
     }
   }
 

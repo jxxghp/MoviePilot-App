@@ -66,7 +66,7 @@ struct NativeExplorePage: View {
           }
           if isLoading && items.isEmpty {
             ProgressView("正在探索片库…")
-              .tint(.white)
+              .tint(.primary)
               .frame(maxWidth: .infinity, minHeight: 240)
           } else if loadFailed && items.isEmpty {
             failureCard
@@ -76,7 +76,7 @@ struct NativeExplorePage: View {
             posterGrid
             if isLoadingMore {
               ProgressView()
-                .tint(.white)
+                .tint(.primary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
             }
@@ -277,7 +277,7 @@ struct NativeExplorePage: View {
                 : Color(red: 36 / 255, green: 30 / 255, blue: 52 / 255).opacity(0.68)
             )
             .overlay {
-              Capsule().strokeBorder(.white.opacity(active ? 0.34 : 0.14), lineWidth: 0.7)
+              Capsule().strokeBorder(.primary.opacity(active ? 0.34 : 0.14), lineWidth: 0.7)
             }
         }
     }
@@ -301,12 +301,12 @@ struct NativeExplorePage: View {
               .clipShape(.rect(cornerRadius: 13))
               .overlay {
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
-                  .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
+                  .strokeBorder(.primary.opacity(0.10), lineWidth: 0.5)
               }
               if let rating = item.ratingText {
                 Text(rating)
                   .font(.caption2.weight(.bold).monospacedDigit())
-                  .foregroundStyle(.white)
+                  .foregroundStyle(.primary)
                   .padding(.horizontal, 6)
                   .padding(.vertical, 2.5)
                   .background {
@@ -317,13 +317,13 @@ struct NativeExplorePage: View {
             }
             Text(item.title)
               .font(.footnote.weight(.medium))
-              .foregroundStyle(.white.opacity(0.95))
+              .foregroundStyle(.primary.opacity(0.95))
               .lineLimit(1)
               .frame(maxWidth: .infinity, alignment: .center)
             if let subtitle = item.subtitle, !subtitle.isEmpty {
               Text(subtitle)
                 .font(.caption)
-                .foregroundStyle(.white.opacity(0.54))
+                .foregroundStyle(.primary.opacity(0.54))
                 .lineLimit(1)
             }
           }
@@ -362,7 +362,7 @@ struct NativeExplorePage: View {
       VStack(spacing: 10) {
         Image(systemName: "film.stack")
           .font(.largeTitle)
-          .foregroundStyle(.white.opacity(0.55))
+          .foregroundStyle(.primary.opacity(0.55))
         Text("当前筛选条件下暂无片目").font(.headline)
       }
       .frame(maxWidth: .infinity, minHeight: 160)

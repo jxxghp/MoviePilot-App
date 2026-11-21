@@ -34,9 +34,9 @@ struct CinematicFormRow<Content: View>: View {
 struct CinematicFormDivider: View {
   @Environment(\.colorSchemeContrast) private var contrast
 
-  /// 提高对比度时增强分隔，不改变唯一视觉风格。
+  /// 提高对比度与深浅色主题时自动适配分隔线透明度。
   var body: some View {
-    Rectangle().fill(.white.opacity(contrast == .increased ? 0.32 : 0.12))
+    Rectangle().fill(.primary.opacity(contrast == .increased ? 0.28 : 0.12))
       .frame(height: contrast == .increased ? 1 : 0.5).padding(.horizontal, 18)
       .accessibilityHidden(true)
   }
