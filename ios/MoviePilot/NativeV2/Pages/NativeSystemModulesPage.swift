@@ -342,6 +342,30 @@ struct NativeSystemModulesPage: View {
   /// 目录与存储配置视图。
   private var directoriesContent: some View {
     VStack(alignment: .leading, spacing: 14) {
+      sectionHeader("刮削策略", count: 0)
+      CinematicPanel(padding: 0) {
+        NavigationLink {
+          NativeSystemModulesPage(session: session, initialDomain: .scraping)
+        } label: {
+          HStack(spacing: 12) {
+            Image(systemName: "wand.and.stars")
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(NativeTheme.brand)
+              .frame(width: 28, height: 28)
+              .background(NativeTheme.brand.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 2) {
+              Text("刮削开关").font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+              Text("配置电影、剧集、音乐 NFO 与图片刮削").font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
+          }
+          .padding(.horizontal, 14).padding(.vertical, 11)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+      }
+
       sectionHeader("已配置存储", count: storages.count)
       if storages.isEmpty {
         emptyCard("暂无存储配置")

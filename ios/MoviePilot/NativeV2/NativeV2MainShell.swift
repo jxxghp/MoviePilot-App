@@ -705,6 +705,16 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       NativePluginMarketPage(session: session)
     case .appearance:
       NativeAppearanceSettingsPage()
+    case .channelAuth:
+      NativeChannelAuthorizationPage(session: session, isSuperuser: snapshot.user.isSuperuser)
+    case .subscribeSearchSettings:
+      NativeSubscribeSearchSettingsPage(session: session)
+    case .downloadersManage:
+      NativeDownloadersManagePage(session: session)
+    case .mediaServersManage:
+      NativeMediaServersManagePage(session: session)
+    case .playbackSettings:
+      NativePlaybackPreferencesPage()
     }
   }
 
@@ -1770,6 +1780,11 @@ enum NativeWorkspaceDestination: Hashable {
   case users
   case pluginMarket
   case appearance
+  case channelAuth
+  case subscribeSearchSettings
+  case downloadersManage
+  case mediaServersManage
+  case playbackSettings
 }
 
 /// 发现导航栈只接收已加载的分区、可验证媒体身份或受控业务页面。
@@ -1992,7 +2007,7 @@ final class NativeMediaArtworkCache {
     inFlight.removeAll()
   }
 
-  /// 退出登录时清理当前用户对应的内存与本地磁盘图片缓存。
+  /// 退出登录或手动清理时移除当前用户对应的内存与本地磁盘图片缓存。
   func clearSession(_ session: NativeSession) {
     clearMemory()
     let scopeDir = Self.scopeDirectoryName(for: session)
@@ -2001,6 +2016,24 @@ final class NativeMediaArtworkCache {
         try? FileManager.default.removeItem(at: dir)
       }
     }
+  }
+
+  /// 统计当前用户本地磁盘图片缓存占用字节数，供设置页「本地缓存清理」展示。
+  func diskCacheSizeBytes(for session: NativeSession) async -> Int64 {
+    let scopeDir = Self.scopeDirectoryName(for: session)
+    return await Task.detached(priority: .utility) {
+      guard let dir = Self.cacheDirectory(scopeDir: scopeDir),
+        let urls = try? FileManager.default.contentsOfDirectory(
+          at: dir, includingPropertiesForKeys: [.fileSizeKey], options: .skipsHiddenFiles)
+      else { return 0 }
+      var total: Int64 = 0
+      for url in urls {
+        if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+          total += Int64(size)
+        }
+      }
+      return total
+    }.value
   }
 
   /// 定期在后台裁剪超出 250MB 上限的旧磁盘图片缓存。
