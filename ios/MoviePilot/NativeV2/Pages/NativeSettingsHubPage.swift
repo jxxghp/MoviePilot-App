@@ -16,6 +16,8 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
 
   @State private var storage: NativeSettingsStorageBrief?
   @State private var siteCount: Int?
+  @State private var showsNotificationSettings = false
+  @State private var showsWidgetSettings = false
 
   /// 连续紫玫瑰渐变背景与多样化层级布局：概览条卡 → 双列状态方卡 → 高亮横幅卡 → 4 列图标瓷砖 → 原生分组列表 → 账号管理。
   var body: some View {
@@ -54,6 +56,7 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 8, trailing: 0))
             .listRowSeparator(.hidden)
+          systemIntegrationSection
         }
 
         accountContent
@@ -67,6 +70,12 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
     .navigationTitle("")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
+    .sheet(isPresented: $showsNotificationSettings) {
+      NativeNotificationSettingsSheet(session: session)
+    }
+    .sheet(isPresented: $showsWidgetSettings) {
+      NativeWidgetSettingsSheet(session: session)
+    }
     .task(id: snapshot.scope) { await loadOverview() }
   }
 
@@ -285,6 +294,36 @@ struct NativeSettingsHubPage<AccountContent: View>: View {
         id: "native-settings-hub-plugins"
       ) {
         onOpenPlugins()
+      }
+      nativeListRow(
+        title: "系统推送通知", symbol: "bell.and.waves.left.and.right",
+        id: "native-settings-hub-push"
+      ) {
+        showsNotificationSettings = true
+      }
+      nativeListRow(
+        title: "桌面小组件", symbol: "rectangle.3.group",
+        id: "native-settings-hub-widgets"
+      ) {
+        showsWidgetSettings = true
+      }
+    }
+  }
+
+  /// 普通成员系统集成列表（推送通知与桌面小组件）。
+  private var systemIntegrationSection: some View {
+    CinematicFormSection("系统集成") {
+      nativeListRow(
+        title: "系统推送通知", symbol: "bell.and.waves.left.and.right",
+        id: "native-settings-hub-push"
+      ) {
+        showsNotificationSettings = true
+      }
+      nativeListRow(
+        title: "桌面小组件", symbol: "rectangle.3.group",
+        id: "native-settings-hub-widgets"
+      ) {
+        showsWidgetSettings = true
       }
     }
   }

@@ -24,6 +24,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
   let pluginDestination: () -> PluginDestination
 
   @StateObject private var dynamicActionCenter = NativeDynamicActionCenter()
+  @ObservedObject private var routeHub = NativeSystemRouteHub.shared
   @State private var selectedTab: Page = .discover
   @State private var discovery = NativeDiscoverContent(
     featured: nil, rails: [], continueWatching: [], providers: [], categories: [], isLoading: true)
@@ -64,8 +65,13 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
       if showsOverflowMenu {
         overflowMenuOverlay
       }
+      if let banner = routeHub.bannerMessage {
+        systemBannerOverlay(banner)
+      }
     }
     .environmentObject(dynamicActionCenter)
+    .onAppear { consumeSystemRouteIfNeeded() }
+    .onChange(of: routeHub.pendingTarget) { _ in consumeSystemRouteIfNeeded() }
     .sheet(
       isPresented: $showsModuleSheet,
       onDismiss: {
@@ -493,6 +499,82 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
       selectedTab = .mine
       minePath.append(destination)
     }
+  }
+
+  /// 消费来自 APNs 通知、桌面小组件与主屏幕快捷方式的受限路由意图，严格遵循当前账号权限门禁。
+  private func consumeSystemRouteIfNeeded() {
+    guard let target = routeHub.consumeTarget() else { return }
+    showsOverflowMenu = false
+    switch target {
+    case .discover:
+      if canDiscover { selectedTab = .discover }
+    case .explore:
+      if canDiscover { selectedTab = .explore }
+    case .dashboard:
+      selectedTab = .mine
+    case .settings:
+      selectedTab = .settings
+    case .search:
+      if canDiscover { selectedTab = .search }
+    case .subscriptions:
+      if canSubscribe { openFromOverflow(.subscriptions) }
+    case .calendar:
+      if canSubscribe { openFromOverflow(.calendar) }
+    case .resources:
+      if canSearchResources { openFromOverflow(.resources) }
+    case .downloads:
+      if canManageDownloads { openFromOverflow(.downloads) }
+    case .files:
+      if canManageDownloads { openFromOverflow(.files) }
+    case .history:
+      if canManageDownloads { openFromOverflow(.history) }
+    case .workflows:
+      if canManageDownloads { openFromOverflow(.workflows) }
+    case .sites:
+      if canManageDownloads {
+        selectedTab = .settings
+        settingsPath.append(.sites)
+      }
+    case .messages:
+      selectedTab = .mine
+      minePath.append(.messages)
+    case .plugins:
+      if snapshot.user.isSuperuser { openFromOverflow(.pluginMarket) }
+    case .agent:
+      selectedTab = .mine
+      minePath.append(.agent)
+    }
+  }
+
+  /// 跨账号或失效小组件触发时展示顶部安全提示条（不自动切换实例或账号）。
+  private func systemBannerOverlay(_ message: String) -> some View {
+    VStack {
+      CinematicPanel(padding: 12) {
+        HStack(spacing: 10) {
+          Image(systemName: "info.circle.fill")
+            .foregroundStyle(Color(red: 0.78, green: 0.68, blue: 1.0))
+          Text(message)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.white.opacity(0.92))
+            .frame(maxWidth: .infinity, alignment: .leading)
+          Button {
+            routeHub.bannerMessage = nil
+          } label: {
+            Image(systemName: "xmark")
+              .font(.caption2.weight(.semibold))
+              .foregroundStyle(.white.opacity(0.70))
+              .frame(width: 28, height: 28)
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("关闭提示")
+        }
+      }
+      .padding(.horizontal, CinematicStyle.margin)
+      .padding(.top, 12)
+      Spacer()
+    }
+    .transition(.move(edge: .top).combined(with: .opacity))
+    .accessibilityIdentifier("native-system-route-banner")
   }
 
   /// 参照视觉参考 09 的极简深色透色悬浮菜单：二次点击任意底栏主图标弹出，仅展示 8 项两字高频功能入口。

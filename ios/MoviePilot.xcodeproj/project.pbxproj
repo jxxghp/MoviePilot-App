@@ -23,6 +23,7 @@
 		26EA21BAF0EB0F9D663FE97F /* MoviePilotWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E9D58111CB3F6D0CC5F8EB /* MoviePilotWidgets.swift */; };
 		29D3DF44DA14967EB9C79979 /* NativeSystemSettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68C6FA6CA18037E7B4A18B47 /* NativeSystemSettingsPage.swift */; };
 		29E6D5DE3717F6EBA7D36D69 /* NativeDynamicActionCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C61A153F85D5CD1A2B2698 /* NativeDynamicActionCenter.swift */; };
+		2BA2E297A78BF7DB111DB06C /* NativeSystemIntegrationSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A47B559552B90D83BE13166 /* NativeSystemIntegrationSheets.swift */; };
 		2BD57F8FAA89B6CE62520CDF /* CardMenuInteraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32C08F097B084258A76DECD1 /* CardMenuInteraction.swift */; };
 		2E02C60A35D867A2008213A0 /* NativePluginDataPageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D388D03E1CAFD2739ADF561 /* NativePluginDataPageView.swift */; };
 		2ECCFA5FCDCC8BEB234D0B0D /* NativeDashboardPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76B2E764B2FD72F7288DDD30 /* NativeDashboardPage.swift */; };
@@ -65,6 +66,7 @@
 		9DF0F4028DD3BB274401298C /* NativeAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A041E4198BE71B63A2B109 /* NativeAppModel.swift */; };
 		A0AB51CE161F94808B6EE599 /* AccountAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 274895617146E30E9DDE5876 /* AccountAppearance.swift */; };
 		A642DFCFFE0254BB381EE957 /* MoviePilotCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0A56C13BC20DA849FEC8E121 /* MoviePilotCore */; };
+		A7450D804DFEC7AA7069C158 /* NativeSystemRouteHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFCBFC58ED64133835C72B4E /* NativeSystemRouteHub.swift */; };
 		AABED68CFA2524E767AD4CE1 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C5522D23DCCE1A49988D78B /* NotificationService.swift */; };
 		AC5C0E3A9E5BA8C48F089160 /* Provider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA63714518565C74DC4BC92B /* Provider.swift */; };
 		AF1B137366BEA44FD5055EF3 /* ConnectionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E27A900F0778C506F3B44F3E /* ConnectionController.swift */; };
@@ -184,6 +186,7 @@
 		4560BBC8ECE63C86B8D993DF /* NativeFileManagerPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFileManagerPage.swift; sourceTree = "<group>"; };
 		45F7C55CF76C93C422A267E7 /* MoviePilotUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MoviePilotUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		492AB810F34D732AF976E01D /* NativeFrameworkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFrameworkTests.swift; sourceTree = "<group>"; };
+		4A47B559552B90D83BE13166 /* NativeSystemIntegrationSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSystemIntegrationSheets.swift; sourceTree = "<group>"; };
 		4B46855E6AB548E26061B2F7 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		4F2D6BEC371D062C0F306FC1 /* MediaPlaybackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPlaybackTests.swift; sourceTree = "<group>"; };
 		5070375AA5CDC036674BE8F2 /* MoviePilotDesignPreviewTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MoviePilotDesignPreviewTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -230,6 +233,7 @@
 		BC58604027B3E089EE208E25 /* PreviewDiscover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewDiscover.swift; sourceTree = "<group>"; };
 		BDEA5C38B21EC1C887096B9D /* CinematicForms.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CinematicForms.swift; sourceTree = "<group>"; };
 		BEBC6D74B0E889EA46A732AE /* PreviewLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewLibrary.swift; sourceTree = "<group>"; };
+		BFCBFC58ED64133835C72B4E /* NativeSystemRouteHub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSystemRouteHub.swift; sourceTree = "<group>"; };
 		C0583F9328402162806C7EB8 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		C39BCAFDF2337FD0D5D79555 /* ServerProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerProfileTests.swift; sourceTree = "<group>"; };
 		C70F0E54BFC5895C7EBDD0AD /* NativePluginCatalogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginCatalogView.swift; sourceTree = "<group>"; };
@@ -358,6 +362,7 @@
 				F5CA3958D36BFB5E17CA6E7E /* NativeSubscribeCommunityPage.swift */,
 				7566D9064F4C7139A064B5BD /* NativeSubscribeEditorSheet.swift */,
 				DA6542A83716C651A9A5510B /* NativeSubscriptionsPage.swift */,
+				4A47B559552B90D83BE13166 /* NativeSystemIntegrationSheets.swift */,
 				82505BCAA1DF4DB8495B8348 /* NativeSystemModulesPage.swift */,
 				68C6FA6CA18037E7B4A18B47 /* NativeSystemSettingsPage.swift */,
 				DD83F9ADCEC4810F8AB5FA50 /* NativeTransferHistoryPage.swift */,
@@ -413,6 +418,7 @@
 				6FA5AFA5548F3E007A5709E9 /* NativePluginComboboxEditor.swift */,
 				956812F9BDCA0C80A21A1D4D /* NativePluginCronEditor.swift */,
 				B27822CB5BB7D354B979B834 /* NativePluginFormView.swift */,
+				BFCBFC58ED64133835C72B4E /* NativeSystemRouteHub.swift */,
 				326FD64AC22302FFA0758F17 /* NativeV2MainShell.swift */,
 				57AF1DC6B88739AE85862902 /* NativeV2RootView.swift */,
 				18137A11C852F3555A73F283 /* NativeV2SceneDelegate.swift */,
@@ -769,7 +775,9 @@
 				3B7D26D9189BEB1B9C008546 /* NativeSubscribeCommunityPage.swift in Sources */,
 				5D3E6E5DA1BB440CBDF5E6FA /* NativeSubscribeEditorSheet.swift in Sources */,
 				FFBF4A25C55AF8B92FC3E416 /* NativeSubscriptionsPage.swift in Sources */,
+				2BA2E297A78BF7DB111DB06C /* NativeSystemIntegrationSheets.swift in Sources */,
 				D3F8AFBC464110DB485BC873 /* NativeSystemModulesPage.swift in Sources */,
+				A7450D804DFEC7AA7069C158 /* NativeSystemRouteHub.swift in Sources */,
 				29D3DF44DA14967EB9C79979 /* NativeSystemSettingsPage.swift in Sources */,
 				C38CDC369F7BE7AB52EF08E5 /* NativeTransferHistoryPage.swift in Sources */,
 				3C9C4AF98C14ECF412DD19A5 /* NativeUsersPage.swift in Sources */,

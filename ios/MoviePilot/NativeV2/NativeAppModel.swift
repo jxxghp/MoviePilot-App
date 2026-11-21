@@ -85,15 +85,17 @@ final class NativeAppModel: ObservableObject {
     } catch { messageKey = Self.errorKey(error) }
   }
 
-  /// 退出连接页不注销已保存令牌；旧网络和临时 Widget 代次必须先停止。
+  /// 退出连接页不注销已保存令牌；旧网络、通知绑定、快捷项与临时 Widget 代次必须先停止。
   func changeServer() {
     operationID = UUID()
     task?.cancel()
     task = nil
     busy = false
     if let selected { WidgetService.shared.endSession(instanceId: selected.id, clear: false) }
+    WidgetService.shared.cancelOpen()
+    NativeSystemRouteHub.shared.clearPending()
     manager.disconnect()
-    NotificationService.shared.attach(nil)
+    NotificationService.shared.attachNative(nil)
     clearSecrets()
     username = ""
     rememberSession = true
@@ -169,7 +171,9 @@ final class NativeAppModel: ObservableObject {
     do {
       try manager.logout()
       WidgetService.shared.endSession(instanceId: selected.id, clear: true)
-      NotificationService.shared.attach(nil)
+      WidgetService.shared.cancelOpen()
+      NativeSystemRouteHub.shared.clearPending()
+      NotificationService.shared.attachNative(nil)
       clearSecrets()
       form = .login
       loadCredentials(selected)
@@ -181,11 +185,19 @@ final class NativeAppModel: ObservableObject {
     execute { [self] _ in _ = try await manager.requireSession().refreshUser() }
   }
 
-  /// 观察过期只清理本实例的集成资料，不能在 SwiftUI 更新中重入身份状态机。
+  /// 观察状态变迁：已认证时挂载原生系统集成；过期时立即清理本实例集成资料。
   func received(_ state: NativeSessionState) {
+    if case .authenticated = state, let session = manager.currentSession {
+      NotificationService.shared.attachNative(session)
+      WidgetService.shared.reconcile(native: session)
+      NativeSystemRouteHub.shared.resolveShortcut(for: session.instance.id.uuidString)
+      return
+    }
     if case .loginRequired(_, .expired) = state, let selected {
       WidgetService.shared.endSession(instanceId: selected.id, clear: true)
-      NotificationService.shared.attach(nil)
+      WidgetService.shared.cancelOpen()
+      NativeSystemRouteHub.shared.clearPending()
+      NotificationService.shared.attachNative(nil)
       clearSecrets()
       form = .login
       loadCredentials(selected)
@@ -197,9 +209,48 @@ final class NativeAppModel: ObservableObject {
     }
   }
 
-  /// 只在确认删除后执行；先清理旧网页存储，再交由既有地址簿清理安全记录。
+  /// 回到前台或快捷项触发时，对已认证会话恢复未消费的通知、小组件与快捷项路由。
+  func resumeSystemIntegrations() {
+    guard let session = manager.currentSession else { return }
+    NotificationService.shared.resumePending()
+    WidgetService.shared.resumePending(native: session)
+    NativeSystemRouteHub.shared.resolveShortcut(for: session.instance.id.uuidString)
+  }
+
+  /// 解析桌面小组件深链：从本机共享仓查找资料并定位到对应已保存实例，绝不跨账号自动登录。
+  func openWidgetLink(_ link: WidgetLink) {
+    Task { [weak self] in
+      guard let self else { return }
+      do {
+        let profile = try await WidgetService.shared.receive(link)
+        if let active = manager.currentSession, active.instance.id == profile.instanceId,
+          active.instance.address == profile.address
+        {
+          WidgetService.shared.resumePending(native: active)
+          return
+        }
+        guard
+          let savedTarget = instances.instances.first(where: {
+            $0.id == profile.instanceId && $0.address == profile.address
+          })
+        else {
+          WidgetService.shared.cancelOpen()
+          NativeSystemRouteHub.shared.postBanner(L10n.text("无法打开此小组件，请检查当前账号权限或重新启用资料。"))
+          if manager.currentSession == nil { start() }
+          return
+        }
+        connect(savedTarget)
+      } catch {
+        NativeSystemRouteHub.shared.postBanner(L10n.text("无法打开此小组件，请检查当前账号权限或重新启用资料。"))
+        if manager.currentSession == nil { start() }
+      }
+    }
+  }
+
+  /// 只在确认删除后执行；先清理旧网页存储与小组件授权，再交由既有地址簿清理安全记录。
   func forget(_ instance: SavedInstance) {
     execute { [self] id in
+      WidgetService.shared.endSession(instanceId: instance.id, clear: true)
       await LegacyWebsiteStorage.erase(for: instance.id)
       try check(id)
       try instances.forget(instance)

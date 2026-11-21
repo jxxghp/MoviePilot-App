@@ -1,4 +1,6 @@
+import MoviePilotAPI
 import MoviePilotCore
+import MoviePilotSession
 import UIKit
 import WidgetKit
 
@@ -331,5 +333,266 @@ final class WidgetService {
       !trimmed.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
     else { throw WidgetBridgeError.invalidRequest }
     return trimmed
+  }
+
+  // MARK: - 原生会话直连接口（脱离 WebCoordinator）
+
+  /// 通过原生 `NativeSession` 请求小组件上下文或登记接口，复用 `WidgetBridgeResponse` 严格白名单校验。
+  private func nativeRequest(
+    _ session: NativeSession, operation: WidgetBridgeOperation
+  ) async throws -> WidgetBridgeResponse {
+    do {
+      switch operation {
+      case .context:
+        let endpoint = try APIEndpoint(path: ["widget", "context"])
+        let raw = try await session.request(endpoint, as: JSONValue.self).value
+        return try WidgetBridgeResponse.decode(
+          .object(["success": .bool(true), "data": raw]), for: .context)
+      case .register(_, let installationId):
+        let payload = ["installationId": installationId.uuidString.lowercased()]
+        let body = try JSONEncoder().encode(payload)
+        let endpoint = try APIEndpoint(
+          path: ["widget", "registrations"], method: .post, body: body)
+        let raw = try await session.request(endpoint, as: JSONValue.self).value
+        return try WidgetBridgeResponse.decode(
+          .object(["success": .bool(true), "data": raw]), for: operation)
+      case .revoke(_, let registrationId):
+        let endpoint = try APIEndpoint(
+          path: ["widget", "registrations", registrationId.uuidString.lowercased()], method: .delete
+        )
+        _ = try await session.request(endpoint, as: JSONValue.self)
+        return .completed
+      case .open:
+        return .completed
+      }
+    } catch let error as WidgetBridgeError {
+      throw error
+    } catch APIError.unauthorized {
+      throw WidgetBridgeError.unauthorized
+    } catch APIError.forbidden {
+      throw WidgetBridgeError.forbidden
+    } catch is CancellationError {
+      throw WidgetBridgeError.cancelled
+    } catch {
+      throw WidgetBridgeError.unavailable
+    }
+  }
+
+  /// 等待同一实例既有清理任务并确认当前原生会话仍有效。
+  private func prepareNative(_ session: NativeSession, epoch: Int) async throws -> WidgetStore {
+    let instanceId = session.instance.id
+    await cleanups[instanceId]?.value
+    try checkNative(session, epoch: epoch)
+    guard !cleanupFailures.contains(instanceId) else {
+      throw WidgetBridgeError.unavailable
+    }
+    return try store()
+  }
+
+  /// 每个异步边界后核对原生会话代次，避免切实例、注销后迟到提交。
+  private func checkNative(_ session: NativeSession, epoch: Int) throws {
+    try Task.checkCancellation()
+    guard WidgetFeature.isEnabled, epochs[session.instance.id, default: 0] == epoch else {
+      throw WidgetBridgeError.cancelled
+    }
+  }
+
+  /// 原生读取当前登录账号的小组件上下文与已安装资料。
+  func settings(native session: NativeSession) async throws -> WidgetSettingsState {
+    let instanceId = session.instance.id
+    let epoch = epochs[instanceId, default: 0]
+    let repository = try await prepareNative(session, epoch: epoch)
+    let profiles = try await repository.profiles()
+    try checkNative(session, epoch: epoch)
+    let response: WidgetBridgeResponse
+    do {
+      response = try await nativeRequest(session, operation: .context)
+    } catch {
+      clearIfUnauthorized(error, instanceId: instanceId)
+      throw error
+    }
+    try checkNative(session, epoch: epoch)
+    guard case .context(let context) = response else { throw WidgetBridgeError.invalidData }
+    var profile = profiles.first { $0.instanceId == instanceId }
+    if let old = profile, old.owner != context.owner || context.availableContents.isEmpty {
+      try await repository.remove(profileId: old.id, revokeWith: client)
+      try checkNative(session, epoch: epoch)
+      profile = nil
+      WidgetCenter.shared.reloadAllTimelines()
+    }
+    let snapshot: WidgetSnapshot?
+    if let profile {
+      snapshot = try await repository.cachedSnapshot(profileId: profile.id)
+    } else {
+      snapshot = nil
+    }
+    try checkNative(session, epoch: epoch)
+    return WidgetSettingsState(
+      context: context, profile: profile,
+      generatedAt: snapshot.map { Date(timeIntervalSince1970: $0.generatedAt) })
+  }
+
+  /// 原生认证后只为本机已启用小组件资料执行一次静默对账与刷新，未启用实例不发多余请求。
+  func reconcile(native session: NativeSession) {
+    let instanceId = session.instance.id
+    guard WidgetFeature.isEnabled, probes[instanceId] == nil else {
+      resumePending(native: session)
+      return
+    }
+    let epoch = epochs[instanceId, default: 0]
+    probes[instanceId] = Task { [weak self, weak session] in
+      guard let self, let session else { return }
+      defer {
+        if self.epochs[instanceId, default: 0] == epoch {
+          self.probes[instanceId] = nil
+          self.resumePending(native: session)
+        }
+      }
+      do {
+        let repository = try await self.prepareNative(session, epoch: epoch)
+        guard try await repository.profiles().contains(where: { $0.instanceId == instanceId })
+        else { return }
+        let state = try await self.settings(native: session)
+        if let profile = state.profile {
+          try self.checkNative(session, epoch: epoch)
+          let result = await repository.refresh(profileId: profile.id, using: self.client)
+          if result == .updated || result == .removed { WidgetCenter.shared.reloadAllTimelines() }
+        }
+      } catch {
+        // 网络或存储异常时保留重试入口，不伪造成功。
+      }
+    }
+  }
+
+  /// 原生启用或轮换桌面小组件只读凭据。
+  func enable(native session: NativeSession, name: String) async throws {
+    let trimmed = try displayName(name)
+    let instanceId = session.instance.id
+    let epoch = epochs[instanceId, default: 0]
+    let state = try await settings(native: session)
+    guard !state.context.availableContents.isEmpty else { throw WidgetBridgeError.forbidden }
+    let repository = try await prepareNative(session, epoch: epoch)
+    let installation = try await repository.installationId()
+    try checkNative(session, epoch: epoch)
+    let ticket = try await repository.prepareRegistration(
+      instanceId: instanceId, owner: state.context.owner)
+    var received: (WidgetProfile, String)?
+    do {
+      try checkNative(session, epoch: epoch)
+      let response = try await nativeRequest(
+        session, operation: .register(owner: state.context.owner, installationId: installation))
+      try checkNative(session, epoch: epoch)
+      guard case .registered(let reply) = response else { throw WidgetBridgeError.invalidData }
+      let profile = try WidgetProfile(
+        id: state.profile?.id ?? UUID(), instanceId: instanceId,
+        owner: reply.context.owner, name: trimmed, address: session.instance.address,
+        registrationId: reply.registrationId, credentialExpiresAt: reply.expiresAt)
+      received = (profile, reply.secret)
+      try await repository.install(profile, credential: reply.secret, ticket: ticket)
+      received = nil
+      try checkNative(session, epoch: epoch)
+      _ = await repository.refresh(profileId: profile.id, using: client, force: true)
+      WidgetCenter.shared.reloadAllTimelines()
+    } catch {
+      try? await repository.cancelRegistration(ticket)
+      if let (profile, secret) = received {
+        try? await client.revoke(profile: profile, credential: secret)
+      }
+      clearIfUnauthorized(error, instanceId: instanceId)
+      throw error
+    }
+  }
+
+  /// 原生修改本机小组件显示名称。
+  func rename(native session: NativeSession, profile: WidgetProfile, name: String) async throws {
+    let trimmed = try displayName(name)
+    let epoch = epochs[session.instance.id, default: 0]
+    let repository = try await prepareNative(session, epoch: epoch)
+    guard profile.instanceId == session.instance.id else { throw WidgetBridgeError.invalidRequest }
+    try await repository.rename(profileId: profile.id, name: trimmed)
+    WidgetCenter.shared.reloadAllTimelines()
+  }
+
+  /// 原生手动强制刷新小组件快照。
+  func refresh(native session: NativeSession, profile: WidgetProfile) async throws
+    -> WidgetRefreshOutcome
+  {
+    let epoch = epochs[session.instance.id, default: 0]
+    let repository = try await prepareNative(session, epoch: epoch)
+    guard profile.instanceId == session.instance.id else { throw WidgetBridgeError.invalidRequest }
+    let outcome = await repository.refresh(profileId: profile.id, using: client, force: true)
+    WidgetCenter.shared.reloadAllTimelines()
+    return outcome
+  }
+
+  /// 原生停用并撤销当前实例小组件授权。
+  func disable(native session: NativeSession) async throws {
+    let instanceId = session.instance.id
+    endSession(instanceId: instanceId, clear: true)
+    await cleanups[instanceId]?.value
+    if cleanupFailures.contains(instanceId) { throw WidgetBridgeError.unavailable }
+  }
+
+  /// 原生恢复待消费的小组件深度链接点击：先复核当前实例、owner 与权限，一次性路由至原生目标页。
+  func resumePending(native session: NativeSession) {
+    let instanceId = session.instance.id
+    guard let pending = pendingOpen, opening == nil,
+      instanceId == pending.profile.instanceId,
+      session.instance.address == pending.profile.address
+    else { return }
+    guard Date().timeIntervalSince(pending.created) < 300 else {
+      cancelOpen()
+      return
+    }
+    guard WidgetFeature.isEnabled, probes[instanceId] == nil else { return }
+    let attempt = UUID()
+    let epoch = epochs[instanceId, default: 0]
+    openAttempt = attempt
+    opening = Task { [weak self, weak session] in
+      guard let self, let session else { return }
+      defer {
+        if self.openAttempt == attempt {
+          self.openAttempt = nil
+          self.opening = nil
+        }
+      }
+      do {
+        let repository = try await self.prepareNative(session, epoch: epoch)
+        guard
+          let profile = try await repository.profiles().first(where: {
+            $0.id == pending.profile.id && $0.instanceId == pending.profile.instanceId
+              && $0.owner == pending.profile.owner && $0.address == pending.profile.address
+          })
+        else { throw WidgetBridgeError.identityChanged }
+        try self.checkNative(session, epoch: epoch)
+        guard self.pendingOpen?.id == pending.id else { return }
+        let response = try await self.nativeRequest(session, operation: .context)
+        try self.checkNative(session, epoch: epoch)
+        guard self.pendingOpen?.id == pending.id else { return }
+        guard case .context(let context) = response, context.owner == profile.owner else {
+          throw WidgetBridgeError.identityChanged
+        }
+        guard context.availableContents.contains(pending.content) else {
+          throw WidgetBridgeError.forbidden
+        }
+        self.pendingOpen = nil
+        NativeSystemRouteHub.shared.open(widgetContent: pending.content)
+      } catch {
+        guard self.openAttempt == attempt else { return }
+        if Task.isCancelled || (error as? WidgetBridgeError) == .cancelled { return }
+        if self.pendingOpen?.id == pending.id { self.pendingOpen = nil }
+        if let failure = error as? WidgetBridgeError,
+          [.unauthorized, .forbidden, .identityChanged].contains(failure),
+          let repository = try? self.store(),
+          let profile = try? await repository.profiles().first(where: {
+            $0.id == pending.profile.id && $0.owner == pending.profile.owner
+          })
+        {
+          try? await repository.remove(profileId: profile.id, revokeWith: self.client)
+          WidgetCenter.shared.reloadAllTimelines()
+        }
+        NativeSystemRouteHub.shared.postBanner(L10n.text("无法打开此小组件，请检查当前账号权限或重新启用资料。"))
+      }
+    }
   }
 }

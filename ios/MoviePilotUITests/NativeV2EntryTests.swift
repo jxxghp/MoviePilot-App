@@ -1177,6 +1177,22 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["连通正常 · 42 ms"].waitForExistence(timeout: 10))
     app.navigationBars.buttons.firstMatch.tap()
 
+    // P7.2：验证脱离 WebCoordinator 的原生系统推送与桌面小组件设置弹窗
+    let pushRow = app.buttons["native-settings-hub-push"]
+    reveal(pushRow, app: app)
+    XCTAssertTrue(pushRow.waitForExistence(timeout: 10))
+    tap(pushRow, app: app)
+    XCTAssertTrue(
+      app.scrollViews["native-notification-settings-scroll"].waitForExistence(timeout: 10))
+    app.buttons["native-notification-settings-close"].tap()
+
+    let widgetRow = app.buttons["native-settings-hub-widgets"]
+    reveal(widgetRow, app: app)
+    XCTAssertTrue(widgetRow.waitForExistence(timeout: 10))
+    tap(widgetRow, app: app)
+    XCTAssertTrue(app.scrollViews["native-widget-settings-scroll"].waitForExistence(timeout: 10))
+    app.buttons["native-widget-settings-close"].tap()
+
     // 切回「发现」确认右侧 +1 按钮自动回退为「搜索」
     tap(tabButton("发现", app: app), app: app)
     XCTAssertTrue(tabButton("搜索", app: app).waitForExistence(timeout: 8))
