@@ -18,7 +18,7 @@ struct NativePluginCronField: View {
       HStack(alignment: .top, spacing: 6) {
         TextField(
           field.label, text: binding,
-          prompt: Text(field.placeholder).foregroundColor(.white.opacity(0.70))
+          prompt: Text(field.placeholder).foregroundColor(.secondary)
         )
         .font(.system(.body, design: .monospaced))
         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.asciiCapable)
@@ -77,7 +77,7 @@ struct NativePluginCronEditor: View {
             CinematicFormRow {
               TextField(
                 L10n.text("完整表达式"), text: $expression,
-                prompt: Text(field.placeholder).foregroundColor(.white.opacity(0.70))
+                prompt: Text(field.placeholder).foregroundColor(.secondary)
               )
               .font(.system(.body, design: .monospaced))
               .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(

@@ -217,7 +217,7 @@ struct NativeSubscribeEditorSheet: View {
       TextField(
         placeholder,
         text: text,
-        prompt: Text(placeholder).foregroundColor(.white.opacity(0.42))
+        prompt: Text(placeholder).foregroundColor(.secondary)
       )
       .multilineTextAlignment(.trailing)
       .textInputAutocapitalization(.never)

@@ -16,7 +16,6 @@ struct NativeV2RootView: View {
   @State private var showsAPIKey = false
   @State private var showsPassword = false
   @State private var showsPlugins = false
-  @State private var pluginScope: NativeSessionScope?
   @FocusState private var focused: Field?
   @Environment(\.scenePhase) private var scenePhase
 
@@ -36,9 +35,12 @@ struct NativeV2RootView: View {
           session: session,
           snapshot: snapshot,
           showsPlugins: $showsPlugins,
-          accountContent: account(snapshot),
+          currentLanguage: model.language,
+          onSelectLanguage: { model.selectLanguage($0) },
+          onSwitchServer: { model.changeServer() },
+          onLogout: { model.logout() },
           pluginDestination: {
-            if let current = manager.currentSession, current.scope == pluginScope {
+            if let current = manager.currentSession, current.scope == snapshot.scope {
               NativePluginCatalogView(session: current)
             }
           }
@@ -125,13 +127,10 @@ struct NativeV2RootView: View {
     .nativeAppearanceRoot()
     .onChange(of: manager.state) { state in
       model.received(state)
-      if case .authenticated(let snapshot) = state,
-        snapshot.scope == pluginScope, snapshot.user.isSuperuser
-      {
+      if case .authenticated(let snapshot) = state, snapshot.user.isSuperuser {
         return
       }
       showsPlugins = false
-      pluginScope = nil
     }
     .onChange(of: model.selected?.id) { _ in concealSecrets() }
     .onChange(of: model.form) { _ in concealSecrets() }
@@ -545,80 +544,7 @@ struct NativeV2RootView: View {
 
   /// 透底表面上的空字段保持可读；只调整原生 prompt，字段标签与输入语义保持不变。
   private func fieldPrompt(_ key: String) -> Text {
-    Text(L10n.text(key)).foregroundColor(.white.opacity(0.70))
-  }
-
-  /// 首个真实原生页面只展示已验证身份及可执行的会话管理操作。
-  private func account(_ snapshot: NativeSessionSnapshot) -> some View {
-    Group {
-      if let message = model.messageKey {
-        CinematicFormSection {
-          CinematicFormRow(symbol: "info.circle") {
-            Text(L10n.text(message)).font(.callout)
-              .accessibilityIdentifier("native-v2-message")
-          }
-        }
-      }
-      CinematicFormSection(L10n.text("当前账号")) {
-        CinematicFormRow(symbol: "person.crop.circle.fill") {
-          Text(snapshot.user.name)
-            .font(.title3.weight(.semibold)).padding(.vertical, 4)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(snapshot.user.name)
-            .accessibilityIdentifier("native-v2-account")
-        }
-        if snapshot.user.isSuperuser {
-          CinematicFormDivider()
-          CinematicFormRow(symbol: "checkmark.shield") { Text(L10n.text("管理员")) }
-        }
-        CinematicFormDivider()
-        CinematicFormRow(symbol: "server.rack") {
-          Text(snapshot.instance.address.url.absoluteString)
-            .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
-        }
-        CinematicFormDivider()
-        CinematicFormRow(symbol: "arrow.clockwise") {
-          rowAction("刷新账号状态", id: "native-v2-refresh") { model.refreshIdentity() }
-            .disabled(model.busy)
-        }
-      }
-      CinematicFormSection {
-        CinematicFormRow(symbol: "globe") {
-          Menu {
-            languageOptions
-          } label: {
-            HStack {
-              Text(L10n.text("语言"))
-              Spacer()
-              Text(model.language.title).foregroundStyle(.secondary)
-              Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(
-                .secondary)
-            }
-            .foregroundStyle(.primary)
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
-          }
-          .accessibilityIdentifier("native-v2-language")
-        }
-        CinematicFormDivider()
-        if snapshot.user.isSuperuser {
-          CinematicFormRow(symbol: "puzzlepiece.extension") {
-            rowAction("插件", id: "native-v2-plugins") {
-              pluginScope = snapshot.scope
-              showsPlugins = true
-            }
-          }
-          CinematicFormDivider()
-        }
-        CinematicFormRow(symbol: "arrow.left.arrow.right") {
-          rowAction("切换服务", id: "native-v2-switch") { model.changeServer() }
-        }
-        CinematicFormDivider()
-        CinematicFormRow(symbol: "rectangle.portrait.and.arrow.right") {
-          rowAction("退出登录", id: "native-v2-logout", role: .destructive) { model.logout() }
-        }
-      }
-    }
+    Text(L10n.text(key)).foregroundColor(.secondary)
   }
 
   /// 将行内点击区域放进按钮标签，辅助功能边界与实际触控区共同覆盖至少 44pt。

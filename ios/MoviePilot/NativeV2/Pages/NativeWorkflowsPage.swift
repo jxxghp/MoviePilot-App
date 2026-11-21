@@ -37,24 +37,13 @@ struct NativeWorkflowsPage: View {
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
         ToolbarItem(placement: .topBarTrailing) {
-          Menu {
-            Button {
-              mode = mode == .mine ? .shares : .mine
-            } label: {
-              Label(
-                mode == .mine ? "浏览社区分享" : "返回我的工作流",
-                systemImage: mode == .mine ? "square.stack.3d.up" : "flowchart")
-            }
-            Button {
-              attempt += 1
-            } label: {
-              Label("刷新工作流", systemImage: "arrow.clockwise")
-            }
+          Button {
+            mode = mode == .mine ? .shares : .mine
           } label: {
-            Image(systemName: "ellipsis")
+            Image(systemName: mode == .mine ? "square.stack.3d.up" : "flowchart")
           }
-          .accessibilityLabel("更多工作流操作")
-          .accessibilityIdentifier("native-workflows-refresh")
+          .accessibilityLabel(mode == .mine ? "浏览社区分享" : "返回我的工作流")
+          .accessibilityIdentifier("native-workflows-switch-mode")
         }
       }
       .task(id: "\(mode.rawValue)|\(attempt)") { await load() }

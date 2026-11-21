@@ -75,16 +75,6 @@ struct NativeDashboardPage: View {
         .accessibilityLabel("编辑仪表盘组件")
         .accessibilityIdentifier("native-dashboard-edit-widgets")
       }
-      ToolbarItem(placement: .navigationBarTrailing) {
-        Button {
-          refresh()
-        } label: {
-          Image(systemName: "arrow.clockwise")
-        }
-        .disabled(loading)
-        .accessibilityLabel("刷新仪表盘数据")
-        .accessibilityIdentifier("native-dashboard-refresh")
-      }
     }
   }
 

@@ -34,7 +34,7 @@ struct NativePluginComboboxEditor: View {
             CinematicFormRow {
               TextField(
                 L10n.text("搜索或输入自定义值"), text: $input,
-                prompt: Text(L10n.text("搜索或输入自定义值")).foregroundColor(.white.opacity(0.70))
+                prompt: Text(L10n.text("搜索或输入自定义值")).foregroundColor(.secondary)
               )
               .textInputAutocapitalization(.never).autocorrectionDisabled()
               .focused($inputFocused).submitLabel(.done).onSubmit(addInput)

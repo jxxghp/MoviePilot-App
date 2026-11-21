@@ -390,14 +390,14 @@ struct NativeMediaDetailPage: View {
         .foregroundStyle(feedback.isError ? .orange : Color(red: 0.56, green: 0.92, blue: 0.72))
         Text(feedback.message)
           .font(.subheadline)
-          .foregroundStyle(.white.opacity(0.92))
+          .foregroundStyle(.primary.opacity(0.92))
         Spacer(minLength: 0)
         Button {
           actionFeedback = nil
         } label: {
           Image(systemName: "xmark")
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.65))
+            .foregroundStyle(.primary.opacity(0.65))
             .frame(minWidth: 32, minHeight: 32)
         }
         .buttonStyle(.plain)
@@ -421,14 +421,14 @@ struct NativeMediaDetailPage: View {
           Text(overview)
             .font(.body)
             .lineSpacing(5)
-            .foregroundStyle(.white.opacity(0.84))
+            .foregroundStyle(.primary.opacity(0.84))
             .lineLimit(synopsisExpanded ? nil : 5)
           if overview.count > 120 {
             Button(synopsisExpanded ? "收起简介" : "展开全部") {
               withAnimation(.easeInOut(duration: 0.2)) { synopsisExpanded.toggle() }
             }
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.75))
+            .foregroundStyle(.primary.opacity(0.75))
             .buttonStyle(.plain)
           }
         }
@@ -448,7 +448,7 @@ struct NativeMediaDetailPage: View {
         Spacer()
         Text("共 \(seasons.count) 季")
           .font(.caption)
-          .foregroundStyle(.white.opacity(0.62))
+          .foregroundStyle(.primary.opacity(0.62))
       }
       VStack(spacing: 12) {
         ForEach(seasons) { season in
@@ -483,14 +483,14 @@ struct NativeMediaDetailPage: View {
           if !meta.isEmpty {
             Text(meta)
               .font(.caption)
-              .foregroundStyle(.white.opacity(0.66))
+              .foregroundStyle(.primary.opacity(0.66))
           }
           if let overview = season.overview?.trimmingCharacters(in: .whitespacesAndNewlines),
             !overview.isEmpty
           {
             Text(overview)
               .font(.caption)
-              .foregroundStyle(.white.opacity(0.74))
+              .foregroundStyle(.primary.opacity(0.74))
               .lineLimit(2)
           }
           if canSubscribe {
@@ -513,18 +513,18 @@ struct NativeMediaDetailPage: View {
                 Text(isSubscribed ? "已订阅" : "订阅本季")
                   .font(.caption.weight(.semibold))
               }
-              .foregroundStyle(.white)
+              .foregroundStyle(isSubscribed ? .white : .primary)
               .padding(.horizontal, 11)
               .padding(.vertical, 6)
               .background {
                 Capsule()
                   .fill(
                     isSubscribed
-                      ? Color(red: 0.45, green: 0.34, blue: 0.68).opacity(0.72)
-                      : .white.opacity(0.14)
+                      ? NativeAppearanceStore.shared.accentColor
+                      : .primary.opacity(0.10)
                   )
                   .overlay {
-                    Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.6)
+                    Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 0.6)
                   }
               }
               .frame(minHeight: 36)
@@ -582,7 +582,7 @@ struct NativeMediaDetailPage: View {
         } else {
           ZStack {
             Circle().fill(.white.opacity(0.10))
-            Image(systemName: "person.fill").font(.title3).foregroundStyle(.white.opacity(0.55))
+            Image(systemName: "person.fill").font(.title3).foregroundStyle(.primary.opacity(0.55))
           }
         }
       }
@@ -591,12 +591,12 @@ struct NativeMediaDetailPage: View {
       .overlay { Circle().strokeBorder(.white.opacity(0.16), lineWidth: 0.6) }
       Text(person.displayName)
         .font(.caption.weight(.medium))
-        .foregroundStyle(.white)
+        .foregroundStyle(.primary)
         .lineLimit(1)
       if let role = person.subtitle, !role.isEmpty {
         Text(role)
           .font(.caption2)
-          .foregroundStyle(.white.opacity(0.58))
+          .foregroundStyle(.primary.opacity(0.58))
           .lineLimit(1)
       }
     }
@@ -645,12 +645,12 @@ struct NativeMediaDetailPage: View {
         }
       Text(item.title ?? "未命名作品")
         .font(.footnote.weight(.medium))
-        .foregroundStyle(.white)
+        .foregroundStyle(.primary)
         .lineLimit(1)
       if let year = item.year, !year.isEmpty {
         Text(year)
           .font(.caption)
-          .foregroundStyle(.white.opacity(0.56))
+          .foregroundStyle(.primary.opacity(0.56))
           .lineLimit(1)
       }
     }
@@ -675,11 +675,11 @@ struct NativeMediaDetailPage: View {
             HStack(alignment: .top, spacing: 12) {
               Text(row.label)
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.60))
+                .foregroundStyle(.primary.opacity(0.60))
                 .frame(minWidth: 68, alignment: .leading)
               Text(row.value)
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.92))
+                .foregroundStyle(.primary.opacity(0.92))
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .multilineTextAlignment(.trailing)
             }
@@ -1007,14 +1007,14 @@ struct NativePersonDetailPage: View {
                 Text(bio)
                   .font(.body)
                   .lineSpacing(5)
-                  .foregroundStyle(.white.opacity(0.84))
+                  .foregroundStyle(.primary.opacity(0.84))
                   .lineLimit(bioExpanded ? nil : 5)
                 if bio.count > 120 {
                   Button(bioExpanded ? "收起简介" : "展开全部") {
                     withAnimation(.easeInOut(duration: 0.2)) { bioExpanded.toggle() }
                   }
                   .font(.caption.weight(.semibold))
-                  .foregroundStyle(.white.opacity(0.75))
+                  .foregroundStyle(.primary.opacity(0.75))
                   .buttonStyle(.plain)
                 }
               }
@@ -1082,7 +1082,8 @@ struct NativePersonDetailPage: View {
         } else {
           ZStack {
             Circle().fill(.white.opacity(0.10))
-            Image(systemName: "person.fill").font(.largeTitle).foregroundStyle(.white.opacity(0.55))
+            Image(systemName: "person.fill").font(.largeTitle).foregroundStyle(
+              .primary.opacity(0.55))
           }
         }
       }
@@ -1100,7 +1101,7 @@ struct NativePersonDetailPage: View {
       if !facts.isEmpty {
         Text(facts.joined(separator: " · "))
           .font(.subheadline)
-          .foregroundStyle(.white.opacity(0.72))
+          .foregroundStyle(.primary.opacity(0.72))
           .multilineTextAlignment(.center)
       }
     }
@@ -1123,7 +1124,7 @@ struct NativePersonDetailPage: View {
         }
       Text(item.title ?? "未命名作品").font(.footnote.weight(.medium)).lineLimit(2)
       if let year = item.year, !year.isEmpty {
-        Text(year).font(.caption).foregroundStyle(.white.opacity(0.56))
+        Text(year).font(.caption).foregroundStyle(.primary.opacity(0.56))
       }
     }
     .frame(maxWidth: .infinity, alignment: .top)

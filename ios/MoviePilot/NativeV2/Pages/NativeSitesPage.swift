@@ -17,6 +17,16 @@ struct NativeSitesPage: View {
     var id: String { rawValue }
   }
 
+  /// 站点排序维度。
+  private enum SortMode: String, CaseIterable, Identifiable {
+    case priority = "默认优先级"
+    case upload = "上传量最高"
+    case download = "下载量最高"
+    case name = "站点名称"
+
+    var id: String { rawValue }
+  }
+
   /// 单站连通测试实时状态。
   private enum TestState: Equatable {
     case testing
@@ -30,6 +40,7 @@ struct NativeSitesPage: View {
   @State private var userdataByDomain: [String: NativeSiteUserData] = [:]
   @State private var userdataByName: [String: NativeSiteUserData] = [:]
   @State private var filter: Filter = .all
+  @State private var sortMode: SortMode = .priority
   @State private var searchText = ""
   @State private var isLoading = true
   @State private var loadFailed = false
@@ -76,37 +87,46 @@ struct NativeSitesPage: View {
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Menu {
-          Button {
-            attempt += 1
-          } label: {
-            Label("刷新站点与流量", systemImage: "arrow.clockwise")
+          Section("站点状态") {
+            ForEach(Filter.allCases) { option in
+              Button {
+                filter = option
+              } label: {
+                if filter == option {
+                  Label(option.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(option.rawValue)
+                }
+              }
+            }
           }
-          Divider()
-          ForEach(Filter.allCases) { option in
-            Button {
-              filter = option
-            } label: {
-              if filter == option {
-                Label(option.rawValue, systemImage: "checkmark")
-              } else {
-                Text(option.rawValue)
+          Section("排序方式") {
+            ForEach(SortMode.allCases) { option in
+              Button {
+                sortMode = option
+              } label: {
+                if sortMode == option {
+                  Label(option.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(option.rawValue)
+                }
               }
             }
           }
         } label: {
-          Image(systemName: "ellipsis")
+          Image(systemName: "line.3.horizontal.decrease.circle")
         }
-        .accessibilityLabel("更多站点操作")
-        .accessibilityIdentifier("native-sites-refresh")
+        .accessibilityLabel("筛选与排序")
+        .accessibilityIdentifier("native-sites-filter-menu")
       }
     }
     .task(id: attempt) { await load() }
   }
 
-  /// 按启用状态与关键字筛选后的站点清单。
+  /// 按启用状态、关键字与排序方式整理后的站点清单。
   private var filteredSites: [NativeSiteItem] {
     let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    return sites.filter { site in
+    let matched = sites.filter { site in
       let matchesFilter: Bool =
         switch filter {
         case .all: true
@@ -117,6 +137,22 @@ struct NativeSitesPage: View {
       guard !trimmed.isEmpty else { return true }
       return site.name.lowercased().contains(trimmed)
         || (site.domain ?? "").lowercased().contains(trimmed)
+    }
+    switch sortMode {
+    case .priority:
+      return matched
+    case .upload:
+      return matched.sorted {
+        (trafficStats(for: $0)?.upload ?? 0) > (trafficStats(for: $1)?.upload ?? 0)
+      }
+    case .download:
+      return matched.sorted {
+        (trafficStats(for: $0)?.download ?? 0) > (trafficStats(for: $1)?.download ?? 0)
+      }
+    case .name:
+      return matched.sorted {
+        $0.name.localizedStandardCompare($1.name) == .orderedAscending
+      }
     }
   }
 

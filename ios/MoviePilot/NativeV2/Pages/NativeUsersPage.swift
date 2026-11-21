@@ -343,7 +343,7 @@ private struct NativeUserEditorSheet: View {
                   Text("用户名").font(.caption).foregroundStyle(.primary.opacity(0.72))
                   TextField(
                     "", text: $name,
-                    prompt: Text("输入用户名").foregroundColor(.white.opacity(0.45))
+                    prompt: Text("输入用户名").foregroundColor(.secondary)
                   )
                   .textInputAutocapitalization(.never)
                   .autocorrectionDisabled()
@@ -356,7 +356,7 @@ private struct NativeUserEditorSheet: View {
                   Text("邮箱（可选）").font(.caption).foregroundStyle(.primary.opacity(0.72))
                   TextField(
                     "", text: $email,
-                    prompt: Text("name@example.com").foregroundColor(.white.opacity(0.45))
+                    prompt: Text("name@example.com").foregroundColor(.secondary)
                   )
                   .textInputAutocapitalization(.never)
                   .autocorrectionDisabled()

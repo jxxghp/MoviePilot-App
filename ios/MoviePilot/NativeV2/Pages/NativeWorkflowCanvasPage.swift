@@ -806,7 +806,7 @@ private struct NativeWorkflowNodeEditorSheet: View {
                   Text("节点名称").font(.caption).foregroundStyle(.primary.opacity(0.72))
                   TextField(
                     "", text: $nameText,
-                    prompt: Text("输入节点名称").foregroundColor(.white.opacity(0.45))
+                    prompt: Text("输入节点名称").foregroundColor(.secondary)
                   )
                   .foregroundStyle(.primary)
                   .padding(10)
@@ -817,7 +817,7 @@ private struct NativeWorkflowNodeEditorSheet: View {
                   Text("节点描述").font(.caption).foregroundStyle(.primary.opacity(0.72))
                   TextField(
                     "", text: $descText,
-                    prompt: Text("输入说明（可选）").foregroundColor(.white.opacity(0.45))
+                    prompt: Text("输入说明（可选）").foregroundColor(.secondary)
                   )
                   .foregroundStyle(.primary)
                   .padding(10)
@@ -827,7 +827,7 @@ private struct NativeWorkflowNodeEditorSheet: View {
                   Text("超时时间（秒）").font(.caption).foregroundStyle(.primary.opacity(0.72))
                   TextField(
                     "", text: $timeoutText,
-                    prompt: Text("默认不限制").foregroundColor(.white.opacity(0.45))
+                    prompt: Text("默认不限制").foregroundColor(.secondary)
                   )
                   .keyboardType(.numberPad)
                   .foregroundStyle(.primary)
@@ -860,7 +860,7 @@ private struct NativeWorkflowNodeEditorSheet: View {
                         get: { stringParams[idx].value },
                         set: { stringParams[idx].value = $0 }
                       ),
-                      prompt: Text("参数值").foregroundColor(.white.opacity(0.45))
+                      prompt: Text("参数值").foregroundColor(.secondary)
                     )
                     .foregroundStyle(.primary)
                     .padding(10)
@@ -873,14 +873,14 @@ private struct NativeWorkflowNodeEditorSheet: View {
                 HStack(spacing: 8) {
                   TextField(
                     "", text: $newKey,
-                    prompt: Text("新增参数键").foregroundColor(.white.opacity(0.45))
+                    prompt: Text("新增参数键").foregroundColor(.secondary)
                   )
                   .foregroundStyle(.primary)
                   .padding(8)
                   .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                   TextField(
                     "", text: $newValue,
-                    prompt: Text("参数值").foregroundColor(.white.opacity(0.45))
+                    prompt: Text("参数值").foregroundColor(.secondary)
                   )
                   .foregroundStyle(.primary)
                   .padding(8)

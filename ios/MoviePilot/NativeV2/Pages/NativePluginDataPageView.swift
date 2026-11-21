@@ -84,17 +84,6 @@ struct NativePluginDataPageView: View {
     .navigationTitle(pluginName)
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
-    .toolbar {
-      ToolbarItem(placement: .topBarTrailing) {
-        Button {
-          reloadToken += 1
-        } label: {
-          Image(systemName: "arrow.clockwise")
-        }
-        .accessibilityLabel("刷新插件页面")
-        .accessibilityIdentifier("native-plugin-page-refresh")
-      }
-    }
     .sheet(isPresented: $showsCompatWeb) {
       NativePluginCompatSheet(session: session, pluginID: pluginID, pluginName: pluginName)
     }

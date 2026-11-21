@@ -30,6 +30,7 @@ struct NativeResourceSearchPage: View {
     case priority = "默认优先级"
     case seeders = "做种最多"
     case sizeDesc = "体积从大到小"
+    case pubdateDesc = "最新发布"
 
     /// 固定标签标识。
     var id: String { rawValue }
@@ -96,13 +97,38 @@ struct NativeResourceSearchPage: View {
     .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
-        Button {
-          attempt += 1
+        Menu {
+          Section("筛选条件") {
+            ForEach(QuickFilter.allCases) { option in
+              Button {
+                quickFilter = option
+              } label: {
+                if quickFilter == option {
+                  Label(option.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(option.rawValue)
+                }
+              }
+            }
+          }
+          Section("排序方式") {
+            ForEach(SortMode.allCases) { mode in
+              Button {
+                sortMode = mode
+              } label: {
+                if sortMode == mode {
+                  Label(mode.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(mode.rawValue)
+                }
+              }
+            }
+          }
         } label: {
-          Image(systemName: "arrow.clockwise")
+          Image(systemName: "line.3.horizontal.decrease.circle")
         }
-        .accessibilityLabel("重新搜索资源")
-        .accessibilityIdentifier("native-resource-search-refresh")
+        .accessibilityLabel("筛选与排序")
+        .accessibilityIdentifier("native-resource-search-filter-menu")
       }
     }
     .task(id: attempt) {
@@ -166,6 +192,8 @@ struct NativeResourceSearchPage: View {
       return filtered.sorted { ($0.torrent.seeders ?? 0) > ($1.torrent.seeders ?? 0) }
     case .sizeDesc:
       return filtered.sorted { ($0.torrent.size ?? 0) > ($1.torrent.size ?? 0) }
+    case .pubdateDesc:
+      return filtered.sorted { ($0.torrent.pubdate ?? "") > ($1.torrent.pubdate ?? "") }
     }
   }
 
@@ -178,7 +206,7 @@ struct NativeResourceSearchPage: View {
         TextField(
           "输入片名或关键词检索站点资源",
           text: $keyword,
-          prompt: Text("输入片名或关键词检索站点资源").foregroundColor(.white.opacity(0.45))
+          prompt: Text("输入片名或关键词检索站点资源").foregroundColor(.secondary)
         )
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
@@ -480,9 +508,12 @@ struct NativeResourceSearchPage: View {
         if let term = activeQueryTerm, !term.isEmpty {
           var query = [URLQueryItem(name: "keyword", value: term)]
           if let siteQueryValue { query.append(URLQueryItem(name: "sites", value: siteQueryValue)) }
-          endpoint = try APIEndpoint(path: ["search", "title"], query: query, timeout: 60)
+          endpoint = try APIEndpoint(
+            path: ["search", "title"], query: query, maximumResponseBytes: 12 * 1024 * 1024,
+            timeout: 90)
         } else {
-          endpoint = try APIEndpoint(path: ["search", "last"])
+          endpoint = try APIEndpoint(
+            path: ["search", "last"], maximumResponseBytes: 12 * 1024 * 1024, timeout: 30)
         }
       case .media(let identity, _, let season):
         var query = [
@@ -492,13 +523,18 @@ struct NativeResourceSearchPage: View {
         if let season { query.append(URLQueryItem(name: "season", value: String(season))) }
         if let siteQueryValue { query.append(URLQueryItem(name: "sites", value: siteQueryValue)) }
         endpoint = try APIEndpoint(
-          path: ["search", "media", identity.mediaID], query: query, timeout: 90)
+          path: ["search", "media", identity.mediaID], query: query,
+          maximumResponseBytes: 12 * 1024 * 1024, timeout: 90)
       }
-      let loaded = try await session.request(
-        endpoint, as: [NativeResourceContext].self, requiring: .init(category: .search)
+      let envelope = try await session.request(
+        endpoint, as: NativeResourceSearchEnvelope.self, requiring: .init(category: .search)
       ).value
       try Task.checkCancellation()
-      results = loaded
+      results = envelope.items
+      if envelope.items.isEmpty, let msg = envelope.message, !msg.isEmpty, envelope.success == false
+      {
+        feedback = NativeResourceFeedback(isError: false, message: msg)
+      }
     } catch is CancellationError {
       return
     } catch {
@@ -714,6 +750,41 @@ private struct NativeDownloadAddRequest: Encodable {
     case mediaID = "media_id"
     case downloader
     case savePath = "save_path"
+  }
+}
+
+/// 兼容后端 `/search/title`、`/search/media/{id}` 的 `Response[List[Context]]` 包装与 `/search/last` 的裸数组返回，同时逐条容错。
+private struct NativeResourceSearchEnvelope: Decodable, Sendable {
+  let success: Bool?
+  let message: String?
+  let items: [NativeResourceContext]
+
+  private enum CodingKeys: String, CodingKey {
+    case success, message, data
+  }
+
+  private struct LossyContext: Decodable, Sendable {
+    let value: NativeResourceContext?
+    init(from decoder: Decoder) throws {
+      value = try? NativeResourceContext(from: decoder)
+    }
+  }
+
+  init(from decoder: Decoder) throws {
+    if let container = try? decoder.container(keyedBy: CodingKeys.self),
+      container.contains(.success) || container.contains(.data)
+    {
+      success = try? container.decodeIfPresent(Bool.self, forKey: .success)
+      message = try? container.decodeIfPresent(String.self, forKey: .message)
+      let raw = (try? container.decodeIfPresent([LossyContext].self, forKey: .data)) ?? []
+      items = raw.compactMap(\.value)
+      return
+    }
+    let single = try decoder.singleValueContainer()
+    let raw = (try? single.decode([LossyContext].self)) ?? []
+    success = true
+    message = nil
+    items = raw.compactMap(\.value)
   }
 }
 

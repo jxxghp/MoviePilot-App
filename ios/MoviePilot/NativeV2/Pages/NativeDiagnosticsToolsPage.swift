@@ -155,40 +155,14 @@ struct NativeDiagnosticsToolsPage: View {
       .disabled(isCheckingHealth)
       .accessibilityIdentifier("native-diag-health-rerun")
     case .liveLog:
-      Menu {
-        Button {
-          liveFollow.toggle()
-        } label: {
-          Label(liveFollow ? "暂停实时跟随" : "恢复实时跟随", systemImage: liveFollow ? "pause" : "play")
-        }
-        Button {
-          Task { await fetchLiveLog(silent: false) }
-        } label: {
-          Label("立即拉取最新日志", systemImage: "arrow.clockwise")
-        }
+      Button {
+        liveFollow.toggle()
       } label: {
-        Image(systemName: "ellipsis")
+        Image(systemName: liveFollow ? "pause.circle" : "play.circle")
       }
-      .accessibilityLabel("日志操作")
+      .accessibilityLabel(liveFollow ? "暂停实时跟随" : "恢复实时跟随")
     default:
-      Menu {
-        ForEach(Tool.allCases) { item in
-          Button {
-            tool = item
-          } label: {
-            Label(item.rawValue, systemImage: item.symbol)
-          }
-        }
-        Divider()
-        Button {
-          Task { await loadCurrentTool() }
-        } label: {
-          Label("刷新当前工具", systemImage: "arrow.clockwise")
-        }
-      } label: {
-        Image(systemName: "ellipsis")
-      }
-      .accessibilityLabel("更多诊断工具")
+      EmptyView()
     }
   }
 
