@@ -26,15 +26,12 @@ struct NativeFileManagerPage: View {
   @State private var playingFilePath: String?
   @State private var feedback: NativeFileFeedback?
 
-  /// 连续深色紫玫瑰渐变背景、存储切换胶囊、当前路径面包屑与目录/文件玻璃列表。
+  /// 连续深色紫玫瑰渐变背景、一体化存储切换与面包屑地址栏、目录/文件玻璃列表。
   var body: some View {
     ZStack {
       CinematicBackground()
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
-          if storages.count > 1 {
-            storagePickerBar
-          }
           breadcrumbBar
           if let feedback {
             feedbackBanner(feedback)
@@ -142,66 +139,123 @@ struct NativeFileManagerPage: View {
     }
   }
 
-  /// 多存储切换胶囊栏。
-  private var storagePickerBar: some View {
-    ScrollView(.horizontal) {
-      HStack(spacing: 8) {
-        ForEach(storages) { storage in
-          let selected = activeStorage == storage.value
-          Button {
-            switchStorage(to: storage.value)
-          } label: {
-            Text(storage.title)
-              .font(.subheadline.weight(selected ? .semibold : .regular))
-              .foregroundStyle(.white.opacity(selected ? 0.98 : 0.78))
-              .padding(.horizontal, 13)
-              .padding(.vertical, 7)
-              .background {
-                Capsule()
-                  .fill(.white.opacity(selected ? 0.22 : 0.08))
-                  .overlay {
-                    Capsule().strokeBorder(.white.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
-                  }
-              }
-              .frame(minHeight: 36)
-          }
-          .buttonStyle(.plain)
-          .accessibilityIdentifier("native-files-storage-\(storage.value)")
-        }
-      }
-    }
-    .scrollIndicators(.hidden)
+  /// 当前选中存储器的展示名称。
+  private var activeStorageTitle: String {
+    storages.first(where: { $0.value == activeStorage })?.title ?? activeStorage
   }
 
-  /// 当前路径与返回上级目录栏。
+  /// 一体化文件管理器地址栏：首项为存储器下拉切换菜单，后续拼接可点击跳转的横向滚动路径面包屑。
   private var breadcrumbBar: some View {
-    CinematicPanel(padding: 10) {
-      HStack(spacing: 10) {
-        if pathStack.count > 1 {
-          Button {
-            pathStack.removeLast()
-          } label: {
-            Label("上级", systemImage: "arrow.uturn.backward")
-              .font(.caption.weight(.semibold))
-              .foregroundStyle(.white)
-              .padding(.horizontal, 10)
-              .padding(.vertical, 5)
-              .background { Capsule().fill(.white.opacity(0.14)) }
+    CinematicPanel(padding: 8) {
+      HStack(spacing: 8) {
+        ScrollViewReader { proxy in
+          ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+              Menu {
+                ForEach(storages) { storage in
+                  Button {
+                    if storage.value == activeStorage {
+                      if pathStack.count > 1 {
+                        pathStack = Array(pathStack.prefix(1))
+                      }
+                    } else {
+                      switchStorage(to: storage.value)
+                    }
+                  } label: {
+                    if storage.value == activeStorage {
+                      Label(storage.title, systemImage: "checkmark")
+                    } else {
+                      Text(storage.title)
+                    }
+                  }
+                }
+              } label: {
+                HStack(spacing: 5) {
+                  NativeBrandIcon(
+                    kind: .storage, type: activeStorage, size: 18, cornerRadius: 5)
+                  Text(activeStorageTitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                  Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.65))
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 6)
+                .background {
+                  RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Color(red: 0.56, green: 0.42, blue: 0.88).opacity(0.32))
+                    .overlay {
+                      RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .strokeBorder(.white.opacity(0.22), lineWidth: 0.6)
+                    }
+                }
+              }
+              .accessibilityLabel("切换存储器 \(activeStorageTitle)")
+              .accessibilityIdentifier("native-files-storage-menu")
+
+              ForEach(Array(pathStack.enumerated()), id: \.offset) { index, segment in
+                let isLast = index == pathStack.count - 1
+                let isImmediateParent = pathStack.count > 1 && index == pathStack.count - 2
+                let title = index == 0 ? "根目录" : segment.displayName
+
+                Image(systemName: "chevron.right")
+                  .font(.system(size: 9.5, weight: .semibold))
+                  .foregroundStyle(.white.opacity(0.38))
+                  .padding(.horizontal, 1)
+
+                if isLast {
+                  Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background {
+                      RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.white.opacity(0.14))
+                    }
+                    .id("crumb-\(index)")
+                } else {
+                  Button {
+                    pathStack = Array(pathStack.prefix(index + 1))
+                  } label: {
+                    Text(title)
+                      .font(.caption.weight(.medium))
+                      .foregroundStyle(.white.opacity(0.76))
+                      .lineLimit(1)
+                      .padding(.horizontal, 7)
+                      .padding(.vertical, 5)
+                      .background {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                          .fill(.white.opacity(0.06))
+                      }
+                  }
+                  .buttonStyle(.plain)
+                  .id("crumb-\(index)")
+                  .accessibilityIdentifier(
+                    isImmediateParent ? "native-files-up" : "native-files-crumb-\(index)")
+                }
+              }
+            }
+            .padding(.horizontal, 2)
           }
-          .buttonStyle(.plain)
-          .accessibilityIdentifier("native-files-up")
+          .onChange(of: pathStack.count) { count in
+            withAnimation(.easeOut(duration: 0.2)) {
+              proxy.scrollTo("crumb-\(max(count - 1, 0))", anchor: .trailing)
+            }
+          }
         }
-        Text(currentDirectory.path)
-          .font(.caption.monospaced())
-          .foregroundStyle(.white.opacity(0.84))
-          .lineLimit(1)
-          .truncationMode(.head)
-        Spacer(minLength: 0)
+
         Text("\(items.count) 项")
-          .font(.caption2)
+          .font(.caption2.monospacedDigit())
           .foregroundStyle(.white.opacity(0.55))
+          .padding(.trailing, 4)
       }
     }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("native-files-address-bar")
   }
 
   /// 单个目录或文件玻璃行；可播放音视频支持一键拉起原生本地播放器及长按菜单。
