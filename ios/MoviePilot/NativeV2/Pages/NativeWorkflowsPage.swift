@@ -37,12 +37,23 @@ struct NativeWorkflowsPage: View {
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {
         ToolbarItem(placement: .topBarTrailing) {
-          Button {
-            attempt += 1
+          Menu {
+            Button {
+              mode = mode == .mine ? .shares : .mine
+            } label: {
+              Label(
+                mode == .mine ? "浏览社区分享" : "返回我的工作流",
+                systemImage: mode == .mine ? "square.stack.3d.up" : "flowchart")
+            }
+            Button {
+              attempt += 1
+            } label: {
+              Label("刷新工作流", systemImage: "arrow.clockwise")
+            }
           } label: {
-            Image(systemName: "arrow.clockwise")
+            Image(systemName: "ellipsis")
           }
-          .accessibilityLabel("刷新工作流")
+          .accessibilityLabel("更多工作流操作")
           .accessibilityIdentifier("native-workflows-refresh")
         }
       }
@@ -303,6 +314,27 @@ struct NativeWorkflowsPage: View {
           .disabled(mutatingID != nil)
           .accessibilityIdentifier("native-workflow-reset-\(workflow.id)")
         }
+      }
+    }
+    .contextMenu {
+      Button {
+        Task { await performRun(workflow) }
+      } label: {
+        Label("立即运行", systemImage: "play.fill")
+      }
+      Button {
+        let nextAction = workflow.isPaused ? "start" : "pause"
+        let label = workflow.isPaused ? "已启用工作流。" : "已停用工作流。"
+        Task { await performAction(workflow, action: nextAction, label: label) }
+      } label: {
+        Label(
+          workflow.isPaused ? "启用工作流" : "停用工作流",
+          systemImage: workflow.isPaused ? "checkmark.circle" : "pause.circle")
+      }
+      Button(role: .destructive) {
+        pendingReset = workflow
+      } label: {
+        Label("重置状态", systemImage: "arrow.counterclockwise")
       }
     }
   }

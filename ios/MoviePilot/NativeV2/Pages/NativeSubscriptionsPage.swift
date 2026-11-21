@@ -72,7 +72,7 @@ struct NativeSubscriptionsPage: View {
     .toolbarBackground(.hidden, for: .navigationBar)
     .searchable(text: $searchText, prompt: "筛选订阅片名")
     .toolbar {
-      ToolbarItemGroup(placement: .topBarTrailing) {
+      ToolbarItem(placement: .topBarTrailing) {
         NavigationLink {
           NativeSubscribeCommunityPage(session: session)
         } label: {
@@ -80,13 +80,6 @@ struct NativeSubscriptionsPage: View {
         }
         .accessibilityLabel("订阅广场")
         .accessibilityIdentifier("native-subscriptions-community")
-        Button {
-          attempt += 1
-        } label: {
-          Image(systemName: "arrow.clockwise")
-        }
-        .accessibilityLabel("刷新订阅")
-        .accessibilityIdentifier("native-subscriptions-refresh")
       }
     }
     .task(id: attempt) { await load() }
@@ -307,6 +300,24 @@ struct NativeSubscriptionsPage: View {
           }
           .padding(.top, 2)
         }
+      }
+    }
+    .contextMenu {
+      Button {
+        editingItem = item
+      } label: {
+        Label("编辑订阅规则", systemImage: "slider.horizontal.3")
+      }
+      Button {
+        Task { await toggleStatus(item) }
+      } label: {
+        Label(
+          item.isPaused ? "恢复订阅" : "暂停订阅", systemImage: item.isPaused ? "play.fill" : "pause.fill")
+      }
+      Button(role: .destructive) {
+        pendingDelete = item
+      } label: {
+        Label("取消订阅", systemImage: "trash")
       }
     }
   }

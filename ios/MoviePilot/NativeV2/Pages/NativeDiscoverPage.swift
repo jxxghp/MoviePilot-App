@@ -50,11 +50,12 @@ struct NativeDiscoverFeature: Identifiable, Hashable {
   let synopsis: String
   let rating: String?
   let backdropReference: String?
+  let logoReference: String?
 
   /// 图片引用不在此处请求或解释成任意 URL，图像边界交由认证宿主处理。
   init(
     id: String, title: String, subtitle: String, synopsis: String,
-    rating: String? = nil, backdropReference: String? = nil
+    rating: String? = nil, backdropReference: String? = nil, logoReference: String? = nil
   ) {
     self.id = id
     self.title = title
@@ -62,6 +63,7 @@ struct NativeDiscoverFeature: Identifiable, Hashable {
     self.synopsis = synopsis
     self.rating = rating
     self.backdropReference = backdropReference
+    self.logoReference = logoReference
   }
 }
 
@@ -120,6 +122,19 @@ struct NativeDiscoverProgress: Identifiable {
   let media: NativeDiscoverMedia
   let progress: Double
   let progressLabel: String
+  let itemID: String?
+  let server: String?
+
+  init(
+    media: NativeDiscoverMedia, progress: Double, progressLabel: String,
+    itemID: String? = nil, server: String? = nil
+  ) {
+    self.media = media
+    self.progress = progress
+    self.progressLabel = progressLabel
+    self.itemID = itemID
+    self.server = server
+  }
 
   /// 观看项沿用作品标识。
   var id: String { media.id }
@@ -160,8 +175,8 @@ struct NativeDiscoverCategory: Identifiable {
   }
 }
 
-/// 图片引用类型区分横幅、海报及平台素材，调用方可绑定会话安全的缓存加载器。
-enum NativeDiscoverArtworkRole { case backdrop, poster, provider, continueWatching }
+/// 图片引用类型区分横幅、海报、透明标题 Logo 及平台素材，调用方可绑定会话安全的缓存加载器。
+enum NativeDiscoverArtworkRole { case backdrop, poster, provider, continueWatching, logo }
 
 /// 顶级发现滚动位置驱动背景图的轻量视差，不改变文字滚动距离。
 private struct NativeDiscoverScrollOffsetKey: PreferenceKey {
@@ -267,6 +282,7 @@ struct NativeDiscoverPage: View {
   let onOpenRail: ((String) -> Void)?
   let onOpenProvider: ((String) -> Void)?
   let onOpenCategory: ((String) -> Void)?
+  let onPlayContinueWatching: ((NativeDiscoverProgress) -> Void)?
   let onManageModules: (() -> Void)?
   let onRetry: () -> Void
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -288,6 +304,7 @@ struct NativeDiscoverPage: View {
     onOpenRail: ((String) -> Void)? = nil,
     onOpenProvider: ((String) -> Void)? = nil,
     onOpenCategory: ((String) -> Void)? = nil,
+    onPlayContinueWatching: ((NativeDiscoverProgress) -> Void)? = nil,
     onManageModules: (() -> Void)? = nil,
     onRetry: @escaping () -> Void = {}
   ) {
@@ -300,6 +317,7 @@ struct NativeDiscoverPage: View {
     self.onOpenRail = onOpenRail
     self.onOpenProvider = onOpenProvider
     self.onOpenCategory = onOpenCategory
+    self.onPlayContinueWatching = onPlayContinueWatching
     self.onManageModules = onManageModules
     self.onRetry = onRetry
   }
@@ -618,13 +636,23 @@ struct NativeDiscoverPage: View {
     .accessibilityIdentifier("native-discover-feature-\(item.id)")
   }
 
-  /// 海报前景文字按系统字号换行，标题居中紧凑呈现。
+  /// 海报前景优先展示后端透明媒体标题 Logo，无 Logo 时以电影感大字标题自然降级，下方紧凑排布类型、简介与多维评分标。
   private func featureInformation(_ item: NativeDiscoverFeature) -> some View {
     VStack(alignment: .center, spacing: 8) {
-      Text(item.title)
-        .font(.system(.largeTitle, design: .serif).weight(.bold))
-        .shadow(color: .black.opacity(0.45), radius: 10, y: 3)
-        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+      if let logoRef = item.logoReference, !logoRef.isEmpty {
+        NativeDiscoverLogoBanner(
+          session: session,
+          reference: logoRef,
+          fallbackTitle: item.title,
+          isAccessibilitySize: dynamicTypeSize.isAccessibilitySize
+        )
+      } else {
+        Text(item.title)
+          .font(.system(.largeTitle, design: .serif).weight(.bold))
+          .tracking(item.title.count <= 6 ? 4 : 1)
+          .shadow(color: .black.opacity(0.45), radius: 10, y: 3)
+          .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+      }
       if !item.subtitle.isEmpty {
         Text(item.subtitle)
           .font(.subheadline.weight(.medium))
@@ -648,13 +676,30 @@ struct NativeDiscoverPage: View {
     .padding(.bottom, 10)
   }
 
-  /// 辅助字号下评分和详情动作可以分行，避免挤压主要文字。
+  /// 参照视觉参考 06 的评分微标排布：紧凑徽章与评分数值并列，辅助字号下自动分行。
   @ViewBuilder private func featureLabels(_ item: NativeDiscoverFeature) -> some View {
     if let rating = item.rating, !rating.isEmpty {
-      Label(rating, systemImage: "star.fill").foregroundStyle(.yellow)
+      HStack(spacing: 5) {
+        Text("TMDB")
+          .font(.system(size: 9, weight: .black))
+          .foregroundStyle(.black)
+          .padding(.horizontal, 5)
+          .padding(.vertical, 2)
+          .background(
+            Color(red: 0.42, green: 0.86, blue: 0.78),
+            in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+        Text(rating)
+          .font(.caption.monospacedDigit().weight(.bold))
+          .foregroundStyle(.white)
+      }
     }
-    Label("查看详情", systemImage: "arrow.right")
-      .foregroundStyle(.white.opacity(0.88))
+    HStack(spacing: 4) {
+      Image(systemName: "star.fill")
+        .font(.caption2)
+        .foregroundStyle(Color(red: 0.98, green: 0.78, blue: 0.30))
+      Text("查看详情")
+        .foregroundStyle(.white.opacity(0.88))
+    }
   }
 
   /// 横向观看记录保持媒体画面与进度在首屏可见，点击仍回到宿主媒体详情。
@@ -665,7 +710,11 @@ struct NativeDiscoverPage: View {
         LazyHStack(alignment: .top, spacing: 13) {
           ForEach(content.continueWatching) { item in
             Button {
-              onOpenMedia(item.media.id)
+              if item.itemID != nil, let onPlayContinueWatching {
+                onPlayContinueWatching(item)
+              } else {
+                onOpenMedia(item.media.id)
+              }
             } label: {
               VStack(alignment: .leading, spacing: 7) {
                 ZStack(alignment: .bottomLeading) {
@@ -702,6 +751,20 @@ struct NativeDiscoverPage: View {
               .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .contextMenu {
+              if item.itemID != nil, let onPlayContinueWatching {
+                Button {
+                  onPlayContinueWatching(item)
+                } label: {
+                  Label("立即播放", systemImage: "play.fill")
+                }
+              }
+              Button {
+                onOpenMedia(item.media.id)
+              } label: {
+                Label("查看详情", systemImage: "info.circle")
+              }
+            }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("继续观看，\(item.media.title)，\(item.progressLabel)")
             .accessibilityIdentifier("native-discover-continue-\(item.id)")
@@ -729,6 +792,20 @@ struct NativeDiscoverPage: View {
                   railCard(item, style: rail.style)
                 }
                 .buttonStyle(.plain)
+                .contextMenu {
+                  Button {
+                    onOpenMedia(item.id)
+                  } label: {
+                    Label("查看详情", systemImage: "info.circle")
+                  }
+                  if let onOpenSearch {
+                    Button {
+                      onOpenSearch()
+                    } label: {
+                      Label("全局搜索", systemImage: "magnifyingglass")
+                    }
+                  }
+                }
               } else {
                 railCard(item, style: rail.style)
               }
@@ -1184,6 +1261,85 @@ private struct NativeDiscoverArtworkPlaceholder: View {
     case .poster: "film"
     case .provider: "play.rectangle.on.rectangle"
     case .continueWatching: "play.rectangle"
+    case .logo: "textformat"
+    }
+  }
+}
+
+/// 发现页主视觉透明标题 Logo 视图：经当前实例图片代理无底色加载透明标题图，缺图或加载中平滑降级为电影感大字标题。
+@MainActor
+private struct NativeDiscoverLogoBanner: View {
+  private static let publicLogoHosts: Set<String> = ["assets.fanart.tv", "image.tmdb.org"]
+  private static let publicLogoSession: URLSession = {
+    let config = URLSessionConfiguration.ephemeral
+    config.httpShouldSetCookies = false
+    config.httpCookieStorage = nil
+    config.urlCredentialStorage = nil
+    config.timeoutIntervalForRequest = 12
+    config.timeoutIntervalForResource = 15
+    return URLSession(configuration: config)
+  }()
+
+  let session: NativeSession
+  let reference: String
+  let fallbackTitle: String
+  let isAccessibilitySize: Bool
+  @State private var logoImage: UIImage?
+
+  var body: some View {
+    Group {
+      if let logoImage {
+        Image(uiImage: logoImage)
+          .resizable()
+          .scaledToFit()
+          .frame(maxWidth: 278, maxHeight: 76)
+          .shadow(color: .black.opacity(0.55), radius: 12, y: 4)
+          .accessibilityLabel(fallbackTitle)
+      } else {
+        Text(fallbackTitle)
+          .font(.system(.largeTitle, design: .serif).weight(.bold))
+          .tracking(fallbackTitle.count <= 6 ? 4 : 1)
+          .shadow(color: .black.opacity(0.45), radius: 10, y: 3)
+          .lineLimit(isAccessibilitySize ? nil : 2)
+      }
+    }
+    .task(id: reference) {
+      let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+      let normalized: String
+      if trimmed.hasPrefix("/") {
+        normalized = "https://image.tmdb.org/t/p/w500" + trimmed
+      } else {
+        normalized = trimmed
+      }
+      guard let url = URL(string: normalized) else { return }
+      if let response = try? await session.requestImage(url, maximumWidth: 640),
+        !Task.isCancelled, !response.data.isEmpty,
+        let decoded = UIImage(data: response.data)
+      {
+        logoImage = decoded
+        return
+      }
+      // 后端图片代理默认白名单不含 Fanart CDN 时，仅对公开片名 Logo 域名使用无凭据、无 Cookie 的临时会话直连。
+      guard url.scheme?.lowercased() == "https",
+        let host = url.host?.lowercased(),
+        Self.publicLogoHosts.contains(host)
+      else {
+        logoImage = nil
+        return
+      }
+      do {
+        var req = URLRequest(url: url)
+        req.httpShouldHandleCookies = false
+        let (data, response) = try await Self.publicLogoSession.data(for: req)
+        guard !Task.isCancelled,
+          let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+          !data.isEmpty, data.count <= 4 * 1024 * 1024,
+          let decoded = UIImage(data: data)
+        else { return }
+        logoImage = decoded
+      } catch {
+        logoImage = nil
+      }
     }
   }
 }

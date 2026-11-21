@@ -62,12 +62,16 @@ struct NativeDownloadsPage: View {
     .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
-        Button {
-          attempt += 1
+        Menu {
+          Button {
+            attempt += 1
+          } label: {
+            Label("刷新下载任务", systemImage: "arrow.clockwise")
+          }
         } label: {
-          Image(systemName: "arrow.clockwise")
+          Image(systemName: "ellipsis")
         }
-        .accessibilityLabel("刷新下载任务")
+        .accessibilityLabel("更多下载操作")
         .accessibilityIdentifier("native-downloads-refresh")
       }
     }
@@ -239,6 +243,19 @@ struct NativeDownloadsPage: View {
             .accessibilityIdentifier("native-download-delete-\(task.hash)")
           }
         }
+      }
+    }
+    .contextMenu {
+      Button {
+        Task { await toggleTaskState(task) }
+      } label: {
+        Label(
+          task.isPaused ? "恢复下载" : "暂停下载", systemImage: task.isPaused ? "play.fill" : "pause.fill")
+      }
+      Button(role: .destructive) {
+        pendingDelete = task
+      } label: {
+        Label("删除任务", systemImage: "trash")
       }
     }
   }

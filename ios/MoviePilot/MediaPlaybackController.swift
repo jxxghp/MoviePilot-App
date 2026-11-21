@@ -180,8 +180,87 @@ final class MediaPlaybackClient {
     return UIImage(cgImage: image)
   }
 
-  /// 为解码器构造媒体对象，并将资源 Cookie 限制到当前实例的媒体流路径。
+  /// 通过音乐曲目元数据匹配媒体服务器音频流与 LRC 歌词。
+  func loadMusicManifest(title: String, artist: String?, album: String?) async throws
+    -> MediaPlaybackManifest
+  {
+    let url = endpoint(["api", "v1", "mediaserver", "stream-info", "music"])
+    var payload: [String: String] = ["title": title]
+    if let artist, !artist.isEmpty { payload["artist"] = artist }
+    if let album, !album.isEmpty { payload["album"] = album }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONEncoder().encode(payload)
+    let (data, response) = try await session.data(for: request)
+    guard let response = response as? HTTPURLResponse, response.statusCode == 200,
+      let cookieHeader = response.value(forHTTPHeaderField: "Set-Cookie"),
+      let cookie = HTTPCookie.cookies(
+        withResponseHeaderFields: ["Set-Cookie": cookieHeader], for: url
+      ).first,
+      data.count <= 1_048_576
+    else { throw MediaPlaybackError.unavailable }
+    let decoder = JSONDecoder()
+    decoder.keyDecodingStrategy = .convertFromSnakeCase
+    guard
+      let envelope = try? decoder.decode(
+        MediaPlaybackEnvelope<MediaPlaybackManifest>.self, from: data),
+      envelope.success, let manifest = envelope.data,
+      isTrustedMediaURL(manifest.contentUrl, itemId: manifest.itemId, server: manifest.server)
+    else { throw MediaPlaybackError.unavailable }
+    selectedServer = manifest.server
+    resourceCookie = cookie
+    return manifest
+  }
+
+  /// 通过当前实例已鉴权的存储下载接口拉取本地或云盘音视频文件至受管临时缓存并构造本地播放清单。
+  func loadStorageFileManifest(
+    storage: String, path: String, fileName: String, isAudio: Bool
+  ) async throws -> MediaPlaybackManifest {
+    let url = endpoint(["api", "v1", "storage", "download"])
+    let ext = (fileName as NSString).pathExtension
+    let payload: [String: String] = [
+      "storage": storage,
+      "type": "file",
+      "path": path,
+      "name": fileName,
+      "extension": ext,
+    ]
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONEncoder().encode(payload)
+    let (tempURL, response) = try await session.download(for: request)
+    guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
+      throw MediaPlaybackError.unavailable
+    }
+    let destination = FileManager.default.temporaryDirectory
+      .appendingPathComponent("moviepilot-play-\(UUID().uuidString)")
+      .appendingPathExtension(ext.isEmpty ? (isAudio ? "mp3" : "mp4") : ext)
+    try? FileManager.default.removeItem(at: destination)
+    try FileManager.default.moveItem(at: tempURL, to: destination)
+    return MediaPlaybackManifest(
+      itemId: "file:\(storage):\(path)",
+      server: nil,
+      title: fileName,
+      contentUrl: destination,
+      mediaType: isAudio ? "audio" : "video",
+      artist: nil,
+      album: nil,
+      subtitles: [],
+      lyricsUrl: nil
+    )
+  }
+
+  /// 为解码器构造媒体对象，本地受管文件直接播放，流媒体 URL 将资源 Cookie 限制到当前实例路径。
   func makeMedia(url: URL) throws -> VLCMedia {
+    if url.isFileURL {
+      guard let media = VLCMedia(url: url) else { throw MediaPlaybackError.unavailable }
+      return media
+    }
     guard let media = VLCMedia(url: url), let cookie = resourceCookie, let host = url.host,
       media.storeCookie(
         "\(cookie.name)=\(cookie.value)", forHost: host,

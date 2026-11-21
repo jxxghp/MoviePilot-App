@@ -9,6 +9,7 @@ import SwiftUI
 struct NativeExplorePage: View {
   let session: NativeSession
   let initialSource: NativeExploreSourceKind
+  let onOpenMusic: (() -> Void)?
 
   @State private var selectedSource: NativeExploreSourceKind
   @State private var extraSources: [NativeExtraDiscoverSource] = []
@@ -36,13 +37,20 @@ struct NativeExplorePage: View {
   @State private var loadFailed = false
   @State private var queryGeneration = UUID()
   @State private var reloadToken = 0
+  @State private var contextDetailIdentity: NativeMediaIdentity?
+  @State private var contextResourceItem: NativeExploreItem?
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   /// 初始化探索页并选中指定的默认来源。
-  init(session: NativeSession, initialSource: NativeExploreSourceKind = .tmdbMovies) {
+  init(
+    session: NativeSession,
+    initialSource: NativeExploreSourceKind = .tmdbMovies,
+    onOpenMusic: (() -> Void)? = nil
+  ) {
     self.session = session
     self.initialSource = initialSource
+    self.onOpenMusic = onOpenMusic
     _selectedSource = State(initialValue: initialSource)
   }
 
@@ -81,9 +89,50 @@ struct NativeExplorePage: View {
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-explore-scroll")
     }
-    .navigationTitle("探索片库")
+    .navigationTitle("探索")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
+    .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        Menu {
+          if let onOpenMusic {
+            Button(action: onOpenMusic) {
+              Label("音乐发现", systemImage: "music.note.list")
+            }
+            .accessibilityIdentifier("native-explore-music")
+          }
+          Button {
+            reloadToken += 1
+          } label: {
+            Label("刷新片库", systemImage: "arrow.clockwise")
+          }
+        } label: {
+          Image(systemName: "ellipsis")
+        }
+        .accessibilityLabel("更多探索功能")
+        .accessibilityIdentifier("native-explore-more")
+      }
+    }
+    .navigationDestination(
+      isPresented: Binding(
+        get: { contextDetailIdentity != nil },
+        set: { if !$0 { contextDetailIdentity = nil } })
+    ) {
+      if let id = contextDetailIdentity {
+        NativeMediaDetailPage(session: session, identity: id)
+      }
+    }
+    .navigationDestination(
+      isPresented: Binding(
+        get: { contextResourceItem != nil },
+        set: { if !$0 { contextResourceItem = nil } })
+    ) {
+      if let item = contextResourceItem {
+        NativeResourceSearchPage(
+          session: session,
+          target: .media(identity: item.identity, title: item.title, season: nil))
+      }
+    }
     .task { await loadExtraSources() }
     .task(id: filterSignature) { await reload() }
   }
@@ -282,6 +331,20 @@ struct NativeExplorePage: View {
           .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+          Button {
+            contextDetailIdentity = item.identity
+          } label: {
+            Label("查看详情", systemImage: "info.circle")
+          }
+          if session.user.allows(.init(category: .search)) {
+            Button {
+              contextResourceItem = item
+            } label: {
+              Label("搜索资源", systemImage: "magnifyingglass")
+            }
+          }
+        }
         .accessibilityIdentifier("native-explore-poster-\(item.identity.id)")
         .onAppear {
           if hasMore && !isLoadingMore && index >= max(0, items.count - 6) {

@@ -5,14 +5,15 @@ import MoviePilotSession
 import SwiftUI
 import UIKit
 
-/// 已认证 MoviePilot 的原生主导航；每个标签拥有独立原生 NavigationStack，共享同一实例会话。
+/// 已认证 MoviePilot 的原生主导航：4+1 底部架构（发现 / 探索 / 我的 / 设置 + 动态上下文或全局搜索按钮），二次点击任意主标签弹出其余全部功能菜单。
 @MainActor
 struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
-  /// 底栏只包含当前版本已经接入的页面。
+  /// 4+1 底栏标签定义：发现、探索、我的（仪表盘）、设置 + 右侧独立动态按钮/全局搜索。
   private enum Page: Hashable {
     case discover
-    case dashboard
-    case account
+    case explore
+    case mine
+    case settings
     case search
   }
 
@@ -22,6 +23,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
   let accountContent: AccountContent
   let pluginDestination: () -> PluginDestination
 
+  @StateObject private var dynamicActionCenter = NativeDynamicActionCenter()
   @State private var selectedTab: Page = .discover
   @State private var discovery = NativeDiscoverContent(
     featured: nil, rails: [], continueWatching: [], providers: [], categories: [], isLoading: true)
@@ -29,9 +31,11 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
   @State private var discoveryAttempt = 0
   @State private var mediaIdentities: [String: NativeMediaIdentity] = [:]
   @State private var discoverPath: [NativeMediaDestination] = []
-  @State private var accountPath: [NativeWorkspaceDestination] = []
+  @State private var explorePath: [NativeWorkspaceDestination] = []
+  @State private var minePath: [NativeWorkspaceDestination] = []
+  @State private var settingsPath: [NativeWorkspaceDestination] = []
   @State private var searchPath: [NativeMediaIdentity] = []
-  @State private var showsDiscoverQuickMenu = false
+  @State private var showsOverflowMenu = false
   @State private var discoverModules = NativeDiscoverModuleItem.defaults
   @State private var showsModuleSheet = false
   @State private var pendingModuleRefetch = false
@@ -49,29 +53,51 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
     self.accountContent = accountContent
     self.pluginDestination = pluginDestination
     _selectedTab = State(
-      initialValue: snapshot.user.allows(.init(category: .discovery)) ? .discover : .account)
+      initialValue: snapshot.user.allows(.init(category: .discovery)) ? .discover : .mine)
   }
 
-  /// 主导航交给系统 TabView 和每页独立 NavigationStack，保留 iOS 原生标签栏与返回手势。
+  /// 主导航交给系统 TabView 和每页独立 NavigationStack，并注入跨栈动态主按钮中心与全局溢出菜单。
   var body: some View {
-    page
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .task(id: canDiscover ? discoveryAttempt : nil) {
-        if canDiscover { await loadDiscovery() }
+    ZStack {
+      page
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      if showsOverflowMenu {
+        overflowMenuOverlay
       }
-      .onChange(of: snapshot.user.permissions) { _ in
-        if !canDiscover {
-          discovery = NativeDiscoverContent(
-            featured: nil, rails: [], continueWatching: [], providers: [], categories: [])
-          mediaIdentities = [:]
-          discoverPath = []
-          searchPath = []
-          if selectedTab == .discover || selectedTab == .search { selectedTab = .account }
+    }
+    .environmentObject(dynamicActionCenter)
+    .sheet(
+      isPresented: $showsModuleSheet,
+      onDismiss: {
+        if pendingModuleRefetch {
+          pendingModuleRefetch = false
+          discoveryAttempt += 1
         }
       }
+    ) {
+      NativeDiscoverModulesSheet(initialModules: discoverModules) { updated in
+        await saveDiscoverModules(updated)
+      }
+    }
+    .task(id: canDiscover ? discoveryAttempt : nil) {
+      if canDiscover { await loadDiscovery() }
+    }
+    .onChange(of: snapshot.user.permissions) { _ in
+      if !canDiscover {
+        discovery = NativeDiscoverContent(
+          featured: nil, rails: [], continueWatching: [], providers: [], categories: [])
+        mediaIdentities = [:]
+        discoverPath = []
+        explorePath = []
+        searchPath = []
+        if selectedTab == .discover || selectedTab == .explore || selectedTab == .search {
+          selectedTab = .mine
+        }
+      }
+    }
   }
 
-  /// 影视发现、媒体搜索与详情沿用现有发现权限，PT 资源搜索属于单独的权限。
+  /// 影视发现、探索、媒体搜索与详情沿用现有发现权限，PT 资源搜索属于单独的权限。
   private var canDiscover: Bool { snapshot.user.allows(.init(category: .discovery)) }
 
   /// 订阅管理与追剧日历遵循订阅权限门禁。
@@ -85,23 +111,39 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
     snapshot.user.isSuperuser || snapshot.user.allows(.init(category: .manage))
   }
 
-  /// 重复点击当前“发现”标签时弹出深色透色快捷菜单（参照视觉参考 09）。
+  /// 二次点击底部 4 个主图标中的任意一个时，弹出不在底栏中的其余全部功能菜单；点击右侧 +1 按钮优先执行当前页动态主动作，否则进入全局搜索。
   private var tabSelection: Binding<Page> {
     Binding(
       get: { selectedTab },
       set: { next in
-        if next == .discover && selectedTab == .discover && discoverPath.isEmpty {
+        if next == .search, let dynamic = dynamicActionCenter.current {
+          showsOverflowMenu = false
+          dynamic.handler()
+          return
+        }
+        if next == selectedTab && next != .search {
           withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
-            showsDiscoverQuickMenu.toggle()
+            showsOverflowMenu.toggle()
           }
         } else {
-          showsDiscoverQuickMenu = false
+          showsOverflowMenu = false
+          dynamicActionCenter.reset()
           selectedTab = next
         }
       })
   }
 
-  /// 原生 TabView 管理页面切换与底部标签栏，不另绘胶囊或缩窄系统按钮。
+  /// 右侧 +1 圆形按钮标题：当前页声明动态动作时显示页面动作，否则回退全局搜索。
+  private var trailingButtonTitle: String {
+    dynamicActionCenter.current?.title ?? "搜索"
+  }
+
+  /// 右侧 +1 圆形按钮图标：当前页声明动态动作时显示页面图标，否则回退放大镜。
+  private var trailingButtonSymbol: String {
+    dynamicActionCenter.current?.symbol ?? "magnifyingglass"
+  }
+
+  /// 原生 4+1 TabView：前 4 项为发现、探索、我的（仪表盘）、设置，第 +1 项为右侧动态主按钮/全局搜索。
   @ViewBuilder private var page: some View {
     if #available(iOS 18, *) {
       TabView(selection: tabSelection) {
@@ -110,24 +152,36 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
             discoveryTab
           }
           .accessibilityIdentifier("native-v2-tab-发现")
-        }
-        Tab("我的", systemImage: "person.crop.circle", value: Page.account) { accountTab }
-          .accessibilityIdentifier("native-v2-tab-我的")
-        if snapshot.user.isSuperuser {
-          Tab("仪表盘", systemImage: "chart.bar.xaxis", value: Page.dashboard) {
-            dashboardTab
+
+          Tab("探索", systemImage: "safari", value: Page.explore) {
+            exploreTab
           }
-          .accessibilityIdentifier("native-v2-tab-仪表盘")
+          .accessibilityIdentifier("native-v2-tab-探索")
         }
-        if canDiscover {
-          Tab("搜索", systemImage: "magnifyingglass", value: Page.search, role: .search) {
+        Tab("我的", systemImage: "person.crop.circle", value: Page.mine) {
+          mineTab
+        }
+        .accessibilityIdentifier("native-v2-tab-我的")
+
+        Tab("设置", systemImage: "gearshape", value: Page.settings) {
+          settingsTab
+        }
+        .accessibilityIdentifier("native-v2-tab-设置")
+
+        if canDiscover || dynamicActionCenter.current != nil {
+          Tab(
+            trailingButtonTitle,
+            systemImage: trailingButtonSymbol,
+            value: Page.search,
+            role: .search
+          ) {
             searchTab
           }
           .accessibilityIdentifier("native-v2-search-tab-item")
         }
       }
     } else {
-      TabView(selection: $selectedTab) {
+      TabView(selection: tabSelection) {
         if canDiscover {
           discoveryTab
             .tag(Page.discover)
@@ -135,34 +189,169 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
               Label("发现", systemImage: "sparkles.tv")
                 .accessibilityIdentifier("native-v2-tab-发现")
             }
+          exploreTab
+            .tag(Page.explore)
+            .tabItem {
+              Label("探索", systemImage: "safari")
+                .accessibilityIdentifier("native-v2-tab-探索")
+            }
         }
-        accountTab
-          .tag(Page.account)
+        mineTab
+          .tag(Page.mine)
           .tabItem {
             Label("我的", systemImage: "person.crop.circle")
               .accessibilityIdentifier("native-v2-tab-我的")
           }
-        if snapshot.user.isSuperuser {
-          dashboardTab
-            .tag(Page.dashboard)
-            .tabItem {
-              Label("仪表盘", systemImage: "chart.bar.xaxis")
-                .accessibilityIdentifier("native-v2-tab-仪表盘")
-            }
-        }
+        settingsTab
+          .tag(Page.settings)
+          .tabItem {
+            Label("设置", systemImage: "gearshape")
+              .accessibilityIdentifier("native-v2-tab-设置")
+          }
         if canDiscover {
           searchTab
             .tag(Page.search)
-            .tabItem { Label("搜索", systemImage: "magnifyingglass") }
+            .tabItem { Label(trailingButtonTitle, systemImage: trailingButtonSymbol) }
         }
       }
     }
   }
 
-  /// 仪表盘拥有独立导航栈，保证系统工具栏刷新按钮与 Cinematic 渐变正常显示。
-  private var dashboardTab: some View {
-    NavigationStack {
-      NativeDashboardPage(session: session)
+  /// 探索标签：承载原生多来源探索片库，并支持从全局溢出菜单推入任意业务页。
+  private var exploreTab: some View {
+    NavigationStack(path: $explorePath) {
+      NativeExplorePage(
+        session: session,
+        initialSource: .tmdbMovies,
+        onOpenMusic: canDiscover ? { explorePath.append(.music) } : nil
+      )
+      .navigationDestination(for: NativeWorkspaceDestination.self) { destination in
+        workspaceDestinationView(destination)
+      }
+    }
+  }
+
+  /// 我的标签：超级管理员直显原生仪表盘，普通成员展示个人概览与权限快捷卡。
+  private var mineTab: some View {
+    NavigationStack(path: $minePath) {
+      Group {
+        if snapshot.user.isSuperuser {
+          NativeDashboardPage(
+            session: session,
+            onOpenMessages: { minePath.append(.messages) },
+            onOpenAgent: { minePath.append(.agent) }
+          )
+        } else {
+          memberDashboardView
+        }
+      }
+      .navigationDestination(for: NativeWorkspaceDestination.self) { destination in
+        workspaceDestinationView(destination)
+      }
+    }
+  }
+
+  /// 非超级管理员进入「我的」时的个人概览卡片页，避免调用管理员统计接口。
+  private var memberDashboardView: some View {
+    ZStack {
+      CinematicBackground()
+      ScrollView {
+        VStack(alignment: .leading, spacing: 18) {
+          VStack(alignment: .leading, spacing: 4) {
+            Text(Date.now, format: .dateTime.weekday(.wide).month(.wide).day())
+              .font(.subheadline.weight(.medium))
+              .foregroundStyle(.secondary)
+            Text("我的")
+              .font(.largeTitle.bold())
+              .foregroundStyle(.white)
+              .accessibilityAddTraits(.isHeader)
+          }
+          .padding(.horizontal, 2)
+
+          CinematicPanel(padding: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+              Text("欢迎回来，\(snapshot.user.name)")
+                .font(.headline)
+                .foregroundStyle(.white)
+              Text("再次点击底部任意标签图标，可随时展开全部功能菜单。")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.72))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+          }
+
+          HStack(spacing: 12) {
+            if canSubscribe {
+              memberShortcutCard(title: "我的订阅", symbol: "bookmark.fill") {
+                minePath.append(.subscriptions)
+              }
+              memberShortcutCard(title: "追剧日历", symbol: "calendar") {
+                minePath.append(.calendar)
+              }
+            }
+          }
+          HStack(spacing: 12) {
+            memberShortcutCard(title: "消息中心", symbol: "bell.fill") {
+              minePath.append(.messages)
+            }
+            memberShortcutCard(title: "智能助手", symbol: "sparkles") {
+              minePath.append(.agent)
+            }
+          }
+        }
+        .frame(maxWidth: 820)
+        .padding(.horizontal, CinematicStyle.margin)
+        .padding(.top, 8)
+        .padding(.bottom, 34)
+        .frame(maxWidth: .infinity)
+      }
+      .scrollIndicators(.hidden)
+      .modifier(NativeSoftTopScrollEdge())
+    }
+    .navigationTitle("")
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbarBackground(.hidden, for: .navigationBar)
+  }
+
+  /// 普通成员「我的」快捷玻璃卡片。
+  private func memberShortcutCard(
+    title: String, symbol: String, action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      CinematicPanel(padding: 14) {
+        VStack(alignment: .leading, spacing: 10) {
+          Image(systemName: symbol)
+            .font(.title2.weight(.semibold))
+            .foregroundStyle(Color(red: 0.78, green: 0.66, blue: 1.0))
+          Text(title)
+            .font(.headline)
+            .foregroundStyle(.white)
+        }
+        .frame(maxWidth: .infinity, minHeight: 86, alignment: .leading)
+      }
+    }
+    .buttonStyle(.plain)
+  }
+
+  /// 设置标签：承载参考图 04 风格的卡片式设置主中心、全部系统/专项设置、插件与账号管理。
+  private var settingsTab: some View {
+    NavigationStack(path: $settingsPath) {
+      NativeSettingsHubPage(
+        session: session,
+        snapshot: snapshot,
+        onNavigate: { destination in
+          settingsPath.append(destination)
+        },
+        onOpenModules: { showsModuleSheet = true },
+        onOpenPlugins: { showsPlugins = true },
+        accountContent: accountContent
+      )
+      .navigationDestination(for: NativeWorkspaceDestination.self) { destination in
+        workspaceDestinationView(destination)
+      }
+      .navigationDestination(isPresented: $showsPlugins) {
+        pluginDestination()
+      }
     }
   }
 
@@ -210,23 +399,22 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           let source = NativeExploreSourceKind(rawValue: categoryID) ?? .tmdbMovies
           discoverPath.append(.explore(source))
         },
+        onPlayContinueWatching: { item in
+          guard let itemID = item.itemID else {
+            if let identity = mediaIdentities[item.media.id] {
+              discoverPath.append(.media(identity))
+            }
+            return
+          }
+          Task {
+            _ = await NativeMediaPlaybackLauncher.shared.playMediaServerItem(
+              session: session, itemID: itemID, server: item.server, title: item.media.title)
+          }
+        },
         onManageModules: { showsModuleSheet = true },
         onRetry: { discoveryAttempt += 1 }
       )
       .toolbarBackground(.hidden, for: .navigationBar)
-      .sheet(
-        isPresented: $showsModuleSheet,
-        onDismiss: {
-          if pendingModuleRefetch {
-            pendingModuleRefetch = false
-            discoveryAttempt += 1
-          }
-        }
-      ) {
-        NativeDiscoverModulesSheet(initialModules: discoverModules) { updated in
-          await saveDiscoverModules(updated)
-        }
-      }
       .navigationDestination(for: NativeMediaDestination.self) { destination in
         switch destination {
         case .media(let identity):
@@ -237,155 +425,160 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           } destination: { identity in
             NativeMediaDetailPage(session: session, identity: identity)
           }
+        case .workspace(let dest):
+          workspaceDestinationView(dest)
         case .explore(let source):
           NativeExplorePage(session: session, initialSource: source)
-        case .music:
-          NativeMusicPage(session: session)
-        case .subscriptions:
-          NativeSubscriptionsPage(session: session)
-        case .subscribeCommunity:
-          NativeSubscribeCommunityPage(session: session)
-        case .downloads:
-          NativeDownloadsPage(session: session)
-        case .calendar:
-          NativeCalendarPage(session: session)
-        case .resources:
-          NativeResourceSearchPage(session: session, target: .lastResults)
-        case .history:
-          NativeTransferHistoryPage(session: session)
-        case .sites:
-          NativeSitesPage(session: session)
-        case .messages:
-          NativeMessagesPage(session: session)
-        case .agent:
-          NativeAgentChatPage(session: session)
-        case .files:
-          NativeFileManagerPage(session: session)
-        case .workflows:
-          NativeWorkflowsPage(session: session)
-        case .settings:
-          NativeSystemSettingsPage(session: session)
-        case .users:
-          NativeUsersPage(session: session)
-        case .pluginMarket:
-          NativePluginMarketPage(session: session)
-        }
-      }
-      .overlay(alignment: .bottomLeading) {
-        if showsDiscoverQuickMenu && discoverPath.isEmpty {
-          discoverQuickMenuOverlay
         }
       }
     }
   }
 
-  /// 参照视觉参考 09 的深色透色悬浮快捷菜单，直达订阅、下载、日历与仪表盘。
-  private var discoverQuickMenuOverlay: some View {
+  /// 统一将工作台路由映射到对应原生业务页面，供全部 4 个主标签与全局溢出菜单复用。
+  @ViewBuilder
+  private func workspaceDestinationView(_ destination: NativeWorkspaceDestination) -> some View {
+    switch destination {
+    case .explore(let source):
+      NativeExplorePage(session: session, initialSource: source)
+    case .music:
+      NativeMusicPage(session: session)
+    case .subscriptions:
+      NativeSubscriptionsPage(session: session)
+    case .subscribeCommunity:
+      NativeSubscribeCommunityPage(session: session)
+    case .downloads:
+      NativeDownloadsPage(session: session)
+    case .calendar:
+      NativeCalendarPage(session: session)
+    case .resources:
+      NativeResourceSearchPage(session: session, target: .lastResults)
+    case .history:
+      NativeTransferHistoryPage(session: session)
+    case .sites:
+      NativeSitesPage(session: session)
+    case .messages:
+      NativeMessagesPage(session: session)
+    case .agent:
+      NativeAgentChatPage(session: session)
+    case .files:
+      NativeFileManagerPage(session: session)
+    case .workflows:
+      NativeWorkflowsPage(session: session)
+    case .settings:
+      NativeSystemSettingsPage(session: session)
+    case .systemModule(let domain):
+      NativeSystemModulesPage(session: session, initialDomain: domain)
+    case .users:
+      NativeUsersPage(session: session)
+    case .pluginMarket:
+      NativePluginMarketPage(session: session)
+    }
+  }
+
+  /// 从全局溢出菜单选中任意功能时，在当前激活标签的原生导航栈中平滑推入对应页面。
+  private func openFromOverflow(_ destination: NativeWorkspaceDestination) {
+    withAnimation(.easeOut(duration: 0.2)) {
+      showsOverflowMenu = false
+    }
+    switch selectedTab {
+    case .discover:
+      discoverPath.append(.workspace(destination))
+    case .explore:
+      explorePath.append(destination)
+    case .mine:
+      minePath.append(destination)
+    case .settings:
+      settingsPath.append(destination)
+    case .search:
+      selectedTab = .mine
+      minePath.append(destination)
+    }
+  }
+
+  /// 参照视觉参考 09 的极简深色透色悬浮菜单：二次点击任意底栏主图标弹出，仅展示 8 项两字高频功能入口。
+  private var overflowMenuOverlay: some View {
     ZStack(alignment: .bottomLeading) {
-      Color.black.opacity(0.28)
+      Color.black.opacity(0.32)
         .ignoresSafeArea()
+        .contentShape(Rectangle())
         .onTapGesture {
-          withAnimation(.easeOut(duration: 0.2)) { showsDiscoverQuickMenu = false }
+          withAnimation(.easeOut(duration: 0.2)) { showsOverflowMenu = false }
         }
+        .accessibilityIdentifier("native-overflow-menu-backdrop")
       VStack(alignment: .leading, spacing: 0) {
-        HStack(spacing: 10) {
-          Image(systemName: "server.rack")
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Color(red: 0.78, green: 0.66, blue: 1.0))
-            .frame(width: 28, height: 28)
-            .background { Circle().fill(.white.opacity(0.12)) }
-          Text(snapshot.instance.address.url.host ?? "MoviePilot")
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
-            .lineLimit(1)
-          Spacer(minLength: 0)
+        ScrollView {
+          VStack(alignment: .leading, spacing: 2) {
+            if canSubscribe || canSearchResources || canManageDownloads {
+              if canSubscribe {
+                overflowMenuRow(
+                  title: "订阅", symbol: "bookmark.fill", id: "native-workspace-subscriptions"
+                ) { openFromOverflow(.subscriptions) }
+                overflowMenuRow(
+                  title: "日历", symbol: "calendar", id: "native-workspace-calendar"
+                ) { openFromOverflow(.calendar) }
+              }
+              if canSearchResources {
+                overflowMenuRow(
+                  title: "资源", symbol: "magnifyingglass.circle.fill",
+                  id: "native-workspace-resources"
+                ) { openFromOverflow(.resources) }
+              }
+              if canManageDownloads {
+                overflowMenuRow(
+                  title: "下载", symbol: "arrow.down.circle.fill", id: "native-workspace-downloads"
+                ) { openFromOverflow(.downloads) }
+              }
+            }
+
+            if canManageDownloads || snapshot.user.isSuperuser {
+              Divider().overlay(.white.opacity(0.08)).padding(.vertical, 4)
+              if canManageDownloads {
+                overflowMenuRow(
+                  title: "文件", symbol: "folder.fill", id: "native-workspace-files"
+                ) { openFromOverflow(.files) }
+                overflowMenuRow(
+                  title: "历史", symbol: "clock.arrow.circlepath", id: "native-workspace-history"
+                ) { openFromOverflow(.history) }
+                overflowMenuRow(
+                  title: "工作流", symbol: "flowchart", id: "native-workspace-workflows"
+                ) { openFromOverflow(.workflows) }
+              }
+              if snapshot.user.isSuperuser {
+                overflowMenuRow(
+                  title: "插件", symbol: "puzzlepiece.extension.fill",
+                  id: "native-overflow-plugin-market"
+                ) { openFromOverflow(.pluginMarket) }
+              }
+            }
+          }
+          .padding(.vertical, 8)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 13)
-        Divider().overlay(.white.opacity(0.10))
-        Text("打开")
-          .font(.caption)
-          .foregroundStyle(.white.opacity(0.50))
-          .padding(.horizontal, 16)
-          .padding(.top, 10)
-          .padding(.bottom, 4)
-        if canDiscover {
-          quickMenuRow(title: "探索片库", symbol: "safari.fill", id: "native-quick-explore") {
-            showsDiscoverQuickMenu = false
-            discoverPath.append(.explore(.tmdbMovies))
-          }
-          quickMenuRow(title: "音乐发现", symbol: "music.note.list", id: "native-quick-music") {
-            showsDiscoverQuickMenu = false
-            discoverPath.append(.music)
-          }
-          quickMenuRow(title: "管理模块", symbol: "slider.horizontal.3", id: "native-quick-modules") {
-            showsDiscoverQuickMenu = false
-            showsModuleSheet = true
-          }
-          quickMenuRow(title: "智能助手", symbol: "sparkles", id: "native-quick-agent") {
-            showsDiscoverQuickMenu = false
-            discoverPath.append(.agent)
-          }
-        }
-        if canSubscribe {
-          quickMenuRow(title: "我的订阅", symbol: "bookmark.fill", id: "native-quick-subscriptions") {
-            showsDiscoverQuickMenu = false
-            discoverPath.append(.subscriptions)
-          }
-        }
-        if canManageDownloads {
-          quickMenuRow(
-            title: "正在下载", symbol: "arrow.down.circle.fill", id: "native-quick-downloads"
-          ) {
-            showsDiscoverQuickMenu = false
-            discoverPath.append(.downloads)
-          }
-        }
-        if canSubscribe {
-          quickMenuRow(title: "追剧日历", symbol: "calendar", id: "native-quick-calendar") {
-            showsDiscoverQuickMenu = false
-            discoverPath.append(.calendar)
-          }
-        }
-        if canSearchResources {
-          quickMenuRow(
-            title: "资源搜索", symbol: "magnifyingglass.circle.fill", id: "native-quick-resources"
-          ) {
-            showsDiscoverQuickMenu = false
-            discoverPath.append(.resources)
-          }
-        }
-        if snapshot.user.isSuperuser {
-          quickMenuRow(title: "仪表盘", symbol: "chart.bar.xaxis", id: "native-quick-dashboard") {
-            showsDiscoverQuickMenu = false
-            selectedTab = .dashboard
-          }
-        }
+        .scrollIndicators(.hidden)
+        .frame(maxHeight: 400)
+        .accessibilityIdentifier("native-overflow-menu-scroll")
       }
-      .padding(.bottom, 8)
-      .frame(width: 256)
+      .frame(width: 224)
       .background {
         RoundedRectangle(cornerRadius: 24, style: .continuous)
           .fill(.ultraThinMaterial)
           .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-              .fill(Color(red: 28 / 255, green: 24 / 255, blue: 38 / 255).opacity(0.72))
+              .fill(Color(red: 28 / 255, green: 24 / 255, blue: 38 / 255).opacity(0.76))
           }
           .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-              .strokeBorder(.white.opacity(0.16), lineWidth: 0.7)
+              .strokeBorder(.white.opacity(0.18), lineWidth: 0.7)
           }
       }
-      .shadow(color: .black.opacity(0.42), radius: 22, y: 10)
-      .padding(.leading, 18)
-      .padding(.bottom, 16)
+      .shadow(color: .black.opacity(0.45), radius: 24, y: 12)
+      .padding(.leading, 16)
+      .padding(.bottom, 92)
       .transition(.move(edge: .bottom).combined(with: .opacity))
     }
-    .accessibilityIdentifier("native-discover-quick-menu")
   }
 
   /// 悬浮快捷菜单中的单个原生入口行。
-  private func quickMenuRow(
+  private func overflowMenuRow(
     title: String, symbol: String, id: String, action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
@@ -393,321 +586,18 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
         Image(systemName: symbol)
           .font(.body.weight(.medium))
           .frame(width: 22)
-          .foregroundStyle(.white.opacity(0.92))
+          .foregroundStyle(Color(red: 0.84, green: 0.74, blue: 1.0))
         Text(title)
-          .font(.body.weight(.medium))
+          .font(.subheadline.weight(.medium))
           .foregroundStyle(.white)
         Spacer()
       }
       .padding(.horizontal, 16)
-      .frame(minHeight: 46)
+      .frame(minHeight: 42)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .accessibilityIdentifier(id)
-  }
-
-  /// 账号页与插件管理位于同一独立导航栈，底层保留连续 Cinematic 紫玫瑰渐变。
-  private var accountTab: some View {
-    NavigationStack(path: $accountPath) {
-      ZStack {
-        CinematicBackground()
-        Form {
-          Text("我的").font(.largeTitle.bold())
-            .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
-            .accessibilityAddTraits(.isHeader)
-          if canDiscover || canSubscribe || canManageDownloads || canSearchResources {
-            CinematicFormSection("媒体工作台") {
-              if canDiscover {
-                Button {
-                  accountPath.append(.explore(.tmdbMovies))
-                } label: {
-                  CinematicFormRow(symbol: "safari.fill") {
-                    Text("探索片库")
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                      .foregroundStyle(.white.opacity(0.45))
-                  }
-                  .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("native-workspace-explore")
-                CinematicFormDivider()
-                Button {
-                  accountPath.append(.music)
-                } label: {
-                  CinematicFormRow(symbol: "music.note.list") {
-                    Text("音乐发现")
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                      .foregroundStyle(.white.opacity(0.45))
-                  }
-                  .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("native-workspace-music")
-              }
-              if canSubscribe {
-                if canDiscover { CinematicFormDivider() }
-                Button {
-                  accountPath.append(.subscriptions)
-                } label: {
-                  CinematicFormRow(symbol: "bookmark.fill") {
-                    Text("我的订阅")
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                      .foregroundStyle(.white.opacity(0.45))
-                  }
-                  .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("native-workspace-subscriptions")
-                CinematicFormDivider()
-                Button {
-                  accountPath.append(.subscribeCommunity)
-                } label: {
-                  CinematicFormRow(symbol: "flame.fill") {
-                    Text("订阅广场")
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                      .foregroundStyle(.white.opacity(0.45))
-                  }
-                  .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("native-workspace-subscribe-community")
-              }
-              if canSearchResources {
-                if canSubscribe { CinematicFormDivider() }
-                Button {
-                  accountPath.append(.resources)
-                } label: {
-                  CinematicFormRow(symbol: "magnifyingglass.circle.fill") {
-                    Text("资源搜索")
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                      .foregroundStyle(.white.opacity(0.45))
-                  }
-                  .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("native-workspace-resources")
-              }
-              if canManageDownloads {
-                if canSubscribe || canSearchResources { CinematicFormDivider() }
-                Button {
-                  accountPath.append(.downloads)
-                } label: {
-                  CinematicFormRow(symbol: "arrow.down.circle.fill") {
-                    Text("正在下载")
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                      .foregroundStyle(.white.opacity(0.45))
-                  }
-                  .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("native-workspace-downloads")
-              }
-              if canSubscribe {
-                CinematicFormDivider()
-                Button {
-                  accountPath.append(.calendar)
-                } label: {
-                  CinematicFormRow(symbol: "calendar") {
-                    Text("追剧日历")
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                      .foregroundStyle(.white.opacity(0.45))
-                  }
-                  .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("native-workspace-calendar")
-              }
-              if canManageDownloads {
-                CinematicFormDivider()
-                Button {
-                  accountPath.append(.history)
-                } label: {
-                  CinematicFormRow(symbol: "clock.arrow.circlepath") {
-                    Text("整理历史")
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                      .foregroundStyle(.white.opacity(0.45))
-                  }
-                  .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("native-workspace-history")
-                CinematicFormDivider()
-                Button {
-                  accountPath.append(.sites)
-                } label: {
-                  CinematicFormRow(symbol: "globe") {
-                    Text("站点管理")
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                      .foregroundStyle(.white.opacity(0.45))
-                  }
-                  .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("native-workspace-sites")
-                CinematicFormDivider()
-                Button {
-                  accountPath.append(.files)
-                } label: {
-                  CinematicFormRow(symbol: "folder.fill") {
-                    Text("文件管理")
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                      .foregroundStyle(.white.opacity(0.45))
-                  }
-                  .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("native-workspace-files")
-                CinematicFormDivider()
-                Button {
-                  accountPath.append(.workflows)
-                } label: {
-                  CinematicFormRow(symbol: "flowchart") {
-                    Text("工作流")
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                      .foregroundStyle(.white.opacity(0.45))
-                  }
-                  .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("native-workspace-workflows")
-              }
-              CinematicFormDivider()
-              Button {
-                accountPath.append(.messages)
-              } label: {
-                CinematicFormRow(symbol: "bell.fill") {
-                  Text("消息中心")
-                  Spacer()
-                  Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.45))
-                }
-                .contentShape(Rectangle())
-              }
-              .buttonStyle(.plain)
-              .accessibilityIdentifier("native-workspace-messages")
-              CinematicFormDivider()
-              Button {
-                accountPath.append(.agent)
-              } label: {
-                CinematicFormRow(symbol: "sparkles") {
-                  Text("智能助手")
-                  Spacer()
-                  Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.45))
-                }
-                .contentShape(Rectangle())
-              }
-              .buttonStyle(.plain)
-              .accessibilityIdentifier("native-workspace-agent")
-            }
-          }
-          if snapshot.user.isSuperuser {
-            CinematicFormSection("系统管理") {
-              Button {
-                accountPath.append(.settings)
-              } label: {
-                CinematicFormRow(symbol: "gearshape.fill") {
-                  Text("系统设置")
-                  Spacer()
-                  Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.45))
-                }
-                .contentShape(Rectangle())
-              }
-              .buttonStyle(.plain)
-              .accessibilityIdentifier("native-workspace-settings")
-              CinematicFormDivider()
-              Button {
-                accountPath.append(.users)
-              } label: {
-                CinematicFormRow(symbol: "person.2.fill") {
-                  Text("用户管理")
-                  Spacer()
-                  Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.45))
-                }
-                .contentShape(Rectangle())
-              }
-              .buttonStyle(.plain)
-              .accessibilityIdentifier("native-workspace-users")
-              CinematicFormDivider()
-              Button {
-                accountPath.append(.pluginMarket)
-              } label: {
-                CinematicFormRow(symbol: "bag.fill") {
-                  Text("插件市场")
-                  Spacer()
-                  Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.45))
-                }
-                .contentShape(Rectangle())
-              }
-              .buttonStyle(.plain)
-              .accessibilityIdentifier("native-workspace-plugin-market")
-            }
-          }
-          accountContent
-        }
-        .scrollContentBackground(.hidden)
-        .scrollIndicators(.hidden)
-        .frame(maxWidth: 680)
-        .frame(maxWidth: .infinity)
-      }
-      .navigationTitle("")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
-      .navigationDestination(for: NativeWorkspaceDestination.self) { destination in
-        switch destination {
-        case .explore(let source):
-          NativeExplorePage(session: session, initialSource: source)
-        case .music:
-          NativeMusicPage(session: session)
-        case .subscriptions:
-          NativeSubscriptionsPage(session: session)
-        case .subscribeCommunity:
-          NativeSubscribeCommunityPage(session: session)
-        case .downloads:
-          NativeDownloadsPage(session: session)
-        case .calendar:
-          NativeCalendarPage(session: session)
-        case .resources:
-          NativeResourceSearchPage(session: session, target: .lastResults)
-        case .history:
-          NativeTransferHistoryPage(session: session)
-        case .sites:
-          NativeSitesPage(session: session)
-        case .messages:
-          NativeMessagesPage(session: session)
-        case .agent:
-          NativeAgentChatPage(session: session)
-        case .files:
-          NativeFileManagerPage(session: session)
-        case .workflows:
-          NativeWorkflowsPage(session: session)
-        case .settings:
-          NativeSystemSettingsPage(session: session)
-        case .users:
-          NativeUsersPage(session: session)
-        case .pluginMarket:
-          NativePluginMarketPage(session: session)
-        }
-      }
-      .navigationDestination(isPresented: $showsPlugins) {
-        pluginDestination()
-      }
-    }
   }
 
   /// 从 MoviePilot 发现、推荐与媒体服务器端点读取真实海报与进度，失败不注入演示数据。
@@ -752,7 +642,9 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
       async let libraryTask = try? requestMediaServerLibraries(server: server)
       let (playingRows, latestRows, libraryRows) = await (playingTask, latestTask, libraryTask)
       guard !Task.isCancelled, discoveryGeneration == generation else { return }
-      continueWatching = (playingRows ?? []).compactMap(projectContinueWatching)
+      continueWatching = (playingRows ?? []).compactMap {
+        projectContinueWatching($0, server: server)
+      }
       latestItems = (latestRows ?? []).compactMap(projectLatestItem)
       providers = (libraryRows ?? []).compactMap(projectLibraryProvider)
     }
@@ -845,7 +737,8 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
         subtitle: subtitle,
         synopsis: item.overview ?? "",
         rating: item.voteAverage.flatMap { $0 > 0 ? String(format: "%.1f", $0) : nil },
-        backdropReference: item.backdropPath ?? item.posterPath
+        backdropReference: item.backdropPath ?? item.posterPath,
+        logoReference: item.logoPath
       )
     }
     discovery = NativeDiscoverContent(
@@ -854,6 +747,78 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
       moduleOrder: resolvedModules.filter(\.enabled).map(\.id),
       loadFailed: movies == nil || television == nil)
     mediaIdentities = identities
+
+    // 异步补拉主视觉透明标题 Logo 与风格摘要，不阻塞发现首屏呈现。
+    Task {
+      await enrichFeaturedLogos(
+        generation: generation, items: featuredItems, identities: identities)
+    }
+  }
+
+  /// 为缺少 `logo_path` 的主视觉条目异步补拉 `GET /api/v1/media/{id}` 透明标题 Logo。
+  private func enrichFeaturedLogos(
+    generation: UUID, items: [NativeDiscoverFeature], identities: [String: NativeMediaIdentity]
+  ) async {
+    var updated = items
+    var changed = false
+    for index in updated.indices.prefix(5) {
+      guard !Task.isCancelled, discoveryGeneration == generation else { return }
+      guard updated[index].logoReference == nil, let identity = identities[updated[index].id] else {
+        continue
+      }
+      do {
+        let endpoint = try APIEndpoint(
+          path: ["media", identity.mediaID],
+          query: [
+            URLQueryItem(name: "media_source", value: identity.source),
+            URLQueryItem(name: "type_name", value: identity.type),
+          ])
+        let detail = try await session.request(
+          endpoint, as: NativeDiscoverAPIItem.self, requiring: .init(category: .discovery)
+        ).value
+        if let logo = detail.logoPath, !logo.isEmpty {
+          let current = updated[index]
+          let genreText = detail.genreNames.prefix(3).joined(separator: " ")
+          let dateText = detail.releaseDate?.isEmpty == false ? detail.releaseDate : detail.year
+          let richSubtitle = [genreText, dateText].compactMap { $0 }.filter { !$0.isEmpty }
+            .joined(separator: " · ")
+          updated[index] = NativeDiscoverFeature(
+            id: current.id,
+            title: current.title,
+            subtitle: richSubtitle.isEmpty ? current.subtitle : richSubtitle,
+            synopsis: current.synopsis.isEmpty ? (detail.overview ?? "") : current.synopsis,
+            rating: current.rating,
+            backdropReference: current.backdropReference ?? detail.backdropPath,
+            logoReference: logo
+          )
+          changed = true
+          // 首个或任一主视觉拿到 Logo 后立即刷新，不等其余精选条目全部串行返回。
+          discovery = NativeDiscoverContent(
+            featuredItems: updated,
+            rails: discovery.rails,
+            continueWatching: discovery.continueWatching,
+            providers: discovery.providers,
+            categories: discovery.categories,
+            moduleOrder: discovery.moduleOrder,
+            isLoading: discovery.isLoading,
+            loadFailed: discovery.loadFailed
+          )
+        }
+      } catch {
+        continue
+      }
+    }
+    guard changed, !Task.isCancelled, discoveryGeneration == generation else { return }
+    discovery = NativeDiscoverContent(
+      featuredItems: updated,
+      rails: discovery.rails,
+      continueWatching: discovery.continueWatching,
+      providers: discovery.providers,
+      categories: discovery.categories,
+      moduleOrder: discovery.moduleOrder,
+      isLoading: discovery.isLoading,
+      loadFailed: discovery.loadFailed
+    )
   }
 
   /// 读取当前用户持久化的发现模块显隐与顺序配置。
@@ -992,8 +957,9 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
     return (projectPage(rows, fallbackType: fallbackType, identities: &identities), !rows.isEmpty)
   }
 
-  /// 媒体服务器继续观看条目保留后端标题、集数副标和实际播放进度百分比。
-  private func projectContinueWatching(_ item: NativeMediaServerPlayItem) -> NativeDiscoverProgress?
+  /// 媒体服务器继续观看条目保留后端标题、集数副标、服务器名、条目 ID 和实际播放进度百分比。
+  private func projectContinueWatching(_ item: NativeMediaServerPlayItem, server: String)
+    -> NativeDiscoverProgress?
   {
     guard let title = item.title, !title.isEmpty else { return nil }
     let identifier = item.itemID?.value ?? item.id?.value ?? title
@@ -1009,7 +975,9 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
       detail: item.subtitle,
       posterReference: item.image
     )
-    return NativeDiscoverProgress(media: media, progress: normalized, progressLabel: label)
+    return NativeDiscoverProgress(
+      media: media, progress: normalized, progressLabel: label,
+      itemID: item.itemID?.value ?? item.id?.value, server: server)
   }
 
   /// 媒体服务器最新入库条目展示真实海报和年份/副标，不虚构外部 TMDB 详情身份。
@@ -1086,8 +1054,8 @@ struct NativeMediaIdentity: Identifiable, Hashable {
   var id: String { [source, mediaID, type].joined(separator: "|") }
 }
 
-/// 账号页媒体工作台可推入的受控业务路由。
-private enum NativeWorkspaceDestination: Hashable {
+/// 跨标签与全局溢出菜单可推入的受控业务路由。
+enum NativeWorkspaceDestination: Hashable {
   case explore(NativeExploreSourceKind)
   case music
   case subscriptions
@@ -1102,6 +1070,7 @@ private enum NativeWorkspaceDestination: Hashable {
   case files
   case workflows
   case settings
+  case systemModule(NativeSystemModulesPage.Domain)
   case users
   case pluginMarket
 }
@@ -1111,21 +1080,7 @@ private enum NativeMediaDestination: Identifiable, Hashable {
   case rail(NativeDiscoverRail)
   case media(NativeMediaIdentity)
   case explore(NativeExploreSourceKind)
-  case music
-  case subscriptions
-  case subscribeCommunity
-  case downloads
-  case calendar
-  case resources
-  case history
-  case sites
-  case messages
-  case agent
-  case files
-  case workflows
-  case settings
-  case users
-  case pluginMarket
+  case workspace(NativeWorkspaceDestination)
 
   /// 区分分区网格、详情与工作台页面路由。
   var id: String {
@@ -1133,21 +1088,7 @@ private enum NativeMediaDestination: Identifiable, Hashable {
     case .rail(let rail): "rail:" + rail.id
     case .media(let identity): "media:" + identity.id
     case .explore(let source): "explore:" + source.rawValue
-    case .music: "music"
-    case .subscriptions: "subscriptions"
-    case .subscribeCommunity: "subscribeCommunity"
-    case .downloads: "downloads"
-    case .calendar: "calendar"
-    case .resources: "resources"
-    case .history: "history"
-    case .sites: "sites"
-    case .messages: "messages"
-    case .agent: "agent"
-    case .files: "files"
-    case .workflows: "workflows"
-    case .settings: "settings"
-    case .users: "users"
-    case .pluginMarket: "pluginMarket"
+    case .workspace(let dest): "workspace:\(dest.hashValue)"
     }
   }
 }
@@ -1260,6 +1201,7 @@ struct NativeMediaArtwork: View {
     case .poster: "film"
     case .provider: "play.rectangle.on.rectangle"
     case .continueWatching: "play.rectangle"
+    case .logo: "textformat"
     }
   }
 }
@@ -1297,6 +1239,7 @@ private struct NativeDiscoverAPIItem: Decodable, Sendable {
   let releaseDate: String?
   let posterPath: String?
   let backdropPath: String?
+  let logoPath: String?
   let overview: String?
   let voteAverage: Double?
   let genres: [Genre]?
@@ -1315,6 +1258,7 @@ private struct NativeDiscoverAPIItem: Decodable, Sendable {
     case releaseDate = "release_date"
     case posterPath = "poster_path"
     case backdropPath = "backdrop_path"
+    case logoPath = "logo_path"
     case voteAverage = "vote_average"
   }
 }

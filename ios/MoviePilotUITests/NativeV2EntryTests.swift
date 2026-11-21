@@ -57,6 +57,7 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(more.waitForExistence(timeout: 40))
     // 等待实际后端图片代理完成首屏解码，不用合成海报代替线上媒体素材。
     try await Task.sleep(nanoseconds: 4_000_000_000)
+    try await Task.sleep(nanoseconds: 2_500_000_000)
     captureDiscoverScrollPhases(app, prefix: "native-v2-live-discover")
     let manageModulesBtn = app.buttons["native-discover-manage-modules"]
     let discoverScroll = app.scrollViews["native-discover-page"]
@@ -114,165 +115,201 @@ final class NativeV2EntryTests: XCTestCase {
         capture("native-v2-live-person")
       }
     }
-    tap(tabButton("我的", app: app), app: app)
-    let exploreEntry = app.buttons["native-workspace-explore"]
-    if exploreEntry.waitForExistence(timeout: 10) {
-      tap(exploreEntry, app: app)
-      XCTAssertTrue(app.scrollViews["native-explore-scroll"].waitForExistence(timeout: 15))
+    tap(tabButton("探索", app: app), app: app)
+    XCTAssertTrue(app.scrollViews["native-explore-scroll"].waitForExistence(timeout: 15))
+    try await Task.sleep(nanoseconds: 2_500_000_000)
+    capture("native-v2-live-explore")
+    let doubanTab = app.buttons["native-explore-source-douban_movies"]
+    if doubanTab.exists {
+      tap(doubanTab, app: app)
       try await Task.sleep(nanoseconds: 2_500_000_000)
-      capture("native-v2-live-explore")
-      let doubanTab = app.buttons["native-explore-source-douban_movies"]
-      if doubanTab.exists {
-        tap(doubanTab, app: app)
+      capture("native-v2-live-explore-douban")
+    }
+    // 二次点击当前「探索」底栏图标弹出全部功能悬浮菜单，验证非底栏菜单分组入口
+    tap(tabButton("探索", app: app), app: app)
+    if app.scrollViews["native-overflow-menu-scroll"].waitForExistence(timeout: 6) {
+      try await Task.sleep(nanoseconds: 600_000_000)
+      capture("native-v2-live-overflow-menu")
+      tap(tabButton("探索", app: app), app: app)
+      try await Task.sleep(nanoseconds: 400_000_000)
+    }
+
+    // 从「探索」右上角更多菜单进入「音乐发现」
+    let exploreMore = app.buttons["native-explore-more"]
+    if exploreMore.waitForExistence(timeout: 8) {
+      exploreMore.tap()
+      let musicMenuItem = app.buttons["音乐发现"]
+      if musicMenuItem.waitForExistence(timeout: 6) {
+        musicMenuItem.tap()
+        XCTAssertTrue(app.scrollViews["native-music-scroll"].waitForExistence(timeout: 15))
         try await Task.sleep(nanoseconds: 2_500_000_000)
-        capture("native-v2-live-explore-douban")
-      }
-      app.navigationBars.buttons.firstMatch.tap()
-    }
-    let musicEntry = app.buttons["native-workspace-music"]
-    if musicEntry.waitForExistence(timeout: 8) {
-      tap(musicEntry, app: app)
-      XCTAssertTrue(app.scrollViews["native-music-scroll"].waitForExistence(timeout: 15))
-      try await Task.sleep(nanoseconds: 2_500_000_000)
-      capture("native-v2-live-music")
-      let firstAlbum = app.buttons.matching(
-        NSPredicate(format: "identifier BEGINSWITH 'native-music-card-'")
-      ).firstMatch
-      if firstAlbum.waitForExistence(timeout: 6) {
-        tap(firstAlbum, app: app)
-        if app.scrollViews["native-music-album-scroll"].waitForExistence(timeout: 12) {
-          try await Task.sleep(nanoseconds: 2_000_000_000)
-          capture("native-v2-live-music-album")
-          app.navigationBars.buttons.firstMatch.tap()
-        }
-      }
-      app.navigationBars.buttons.firstMatch.tap()
-    }
-    let subsEntry = app.buttons["native-workspace-subscriptions"]
-    if subsEntry.waitForExistence(timeout: 10) {
-      tap(subsEntry, app: app)
-      XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 15))
-      try await Task.sleep(nanoseconds: 2_500_000_000)
-      capture("native-v2-live-subscriptions")
-      let firstEdit = app.buttons.matching(
-        NSPredicate(format: "identifier BEGINSWITH 'native-subscribe-edit-'")
-      ).firstMatch
-      if firstEdit.waitForExistence(timeout: 5) {
-        tap(firstEdit, app: app)
-        if app.scrollViews["native-subscribe-editor-scroll"].waitForExistence(timeout: 10) {
-          try await Task.sleep(nanoseconds: 1_000_000_000)
-          capture("native-v2-live-subscribe-editor")
-          app.buttons["native-subscribe-editor-cancel"].tap()
-        }
-      }
-      let communityBtn = app.buttons["native-subscriptions-community"]
-      if communityBtn.waitForExistence(timeout: 5) {
-        tap(communityBtn, app: app)
-        if app.scrollViews["native-community-scroll"].waitForExistence(timeout: 12) {
-          try await Task.sleep(nanoseconds: 2_500_000_000)
-          capture("native-v2-live-community-popular")
-          let sharesTab = app.buttons["native-community-tab-社区分享"]
-          if sharesTab.exists {
-            tap(sharesTab, app: app)
+        capture("native-v2-live-music")
+        let firstAlbum = app.buttons.matching(
+          NSPredicate(format: "identifier BEGINSWITH 'native-music-card-'")
+        ).firstMatch
+        if firstAlbum.waitForExistence(timeout: 6) {
+          tap(firstAlbum, app: app)
+          if app.scrollViews["native-music-album-scroll"].waitForExistence(timeout: 12) {
             try await Task.sleep(nanoseconds: 2_000_000_000)
-            capture("native-v2-live-community-shares")
+            capture("native-v2-live-music-album")
+            app.navigationBars.buttons.firstMatch.tap()
           }
-          app.navigationBars.buttons.firstMatch.tap()
         }
-      }
-      app.navigationBars.buttons.firstMatch.tap()
-    }
-    let resEntry = app.buttons["native-workspace-resources"]
-    if resEntry.waitForExistence(timeout: 8) {
-      tap(resEntry, app: app)
-      XCTAssertTrue(
-        app.scrollViews["native-resource-search-scroll"].waitForExistence(timeout: 15))
-      try await Task.sleep(nanoseconds: 2_000_000_000)
-      capture("native-v2-live-resources")
-      app.navigationBars.buttons.firstMatch.tap()
-    }
-    let dlEntry = app.buttons["native-workspace-downloads"]
-    if dlEntry.waitForExistence(timeout: 8) {
-      tap(dlEntry, app: app)
-      XCTAssertTrue(app.scrollViews["native-downloads-scroll"].waitForExistence(timeout: 15))
-      try await Task.sleep(nanoseconds: 2_000_000_000)
-      capture("native-v2-live-downloads")
-      app.navigationBars.buttons.firstMatch.tap()
-    }
-    let calEntry = app.buttons["native-workspace-calendar"]
-    if calEntry.waitForExistence(timeout: 8) {
-      tap(calEntry, app: app)
-      XCTAssertTrue(app.scrollViews["native-calendar-scroll"].waitForExistence(timeout: 15))
-      try await Task.sleep(nanoseconds: 2_000_000_000)
-      capture("native-v2-live-calendar")
-      app.navigationBars.buttons.firstMatch.tap()
-    }
-    let historyEntry = app.buttons["native-workspace-history"]
-    if historyEntry.waitForExistence(timeout: 8) {
-      tap(historyEntry, app: app)
-      XCTAssertTrue(app.scrollViews["native-history-scroll"].waitForExistence(timeout: 15))
-      try await Task.sleep(nanoseconds: 2_000_000_000)
-      capture("native-v2-live-history")
-      app.navigationBars.buttons.firstMatch.tap()
-    }
-    let sitesEntry = app.buttons["native-workspace-sites"]
-    if sitesEntry.waitForExistence(timeout: 8) {
-      tap(sitesEntry, app: app)
-      XCTAssertTrue(app.scrollViews["native-sites-scroll"].waitForExistence(timeout: 15))
-      try await Task.sleep(nanoseconds: 1_500_000_000)
-      capture("native-v2-live-sites")
-      app.navigationBars.buttons.firstMatch.tap()
-    }
-    let filesEntry = app.buttons["native-workspace-files"]
-    if filesEntry.waitForExistence(timeout: 8) {
-      tap(filesEntry, app: app)
-      XCTAssertTrue(app.scrollViews["native-files-scroll"].waitForExistence(timeout: 15))
-      try await Task.sleep(nanoseconds: 1_500_000_000)
-      capture("native-v2-live-files")
-      app.navigationBars.buttons.firstMatch.tap()
-    }
-    let wfEntry = app.buttons["native-workspace-workflows"]
-    if wfEntry.waitForExistence(timeout: 8) {
-      tap(wfEntry, app: app)
-      XCTAssertTrue(app.scrollViews["native-workflows-scroll"].waitForExistence(timeout: 15))
-      try await Task.sleep(nanoseconds: 1_500_000_000)
-      capture("native-v2-live-workflows")
-      let firstCanvas = app.buttons.matching(
-        NSPredicate(format: "identifier BEGINSWITH 'native-workflow-canvas-'")
-      ).firstMatch
-      if firstCanvas.waitForExistence(timeout: 5) {
-        tap(firstCanvas, app: app)
-        XCTAssertTrue(
-          app.descendants(matching: .any)["native-workflow-canvas-area"].firstMatch
-            .waitForExistence(timeout: 15))
-        try await Task.sleep(nanoseconds: 1_500_000_000)
-        capture("native-v2-live-workflow-canvas")
         app.navigationBars.buttons.firstMatch.tap()
-        try await Task.sleep(nanoseconds: 500_000_000)
       }
-      let sharesTab = app.buttons["native-workflow-mode-社区分享"]
-      if sharesTab.exists {
-        tap(sharesTab, app: app)
-        try await Task.sleep(nanoseconds: 2_000_000_000)
-        capture("native-v2-live-workflow-shares")
-      }
-      app.navigationBars.buttons.firstMatch.tap()
     }
-    let msgEntry = app.buttons["native-workspace-messages"]
-    if msgEntry.waitForExistence(timeout: 8) {
-      tap(msgEntry, app: app)
+
+    openOverflowItem("native-workspace-subscriptions", viaTab: "探索", app: app)
+    XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 15))
+    try await Task.sleep(nanoseconds: 2_500_000_000)
+    capture("native-v2-live-subscriptions")
+    let firstEdit = app.buttons.matching(
+      NSPredicate(format: "identifier BEGINSWITH 'native-subscribe-edit-'")
+    ).firstMatch
+    if firstEdit.waitForExistence(timeout: 5) {
+      tap(firstEdit, app: app)
+      if app.scrollViews["native-subscribe-editor-scroll"].waitForExistence(timeout: 10) {
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        capture("native-v2-live-subscribe-editor")
+        app.buttons["native-subscribe-editor-cancel"].tap()
+      }
+    }
+    let communityBtn = app.buttons["native-subscriptions-community"]
+    if communityBtn.waitForExistence(timeout: 5) {
+      tap(communityBtn, app: app)
+      if app.scrollViews["native-community-scroll"].waitForExistence(timeout: 12) {
+        try await Task.sleep(nanoseconds: 2_500_000_000)
+        capture("native-v2-live-community-popular")
+        let sharesTab = app.buttons["native-community-tab-社区分享"]
+        if sharesTab.exists {
+          tap(sharesTab, app: app)
+          try await Task.sleep(nanoseconds: 2_000_000_000)
+          capture("native-v2-live-community-shares")
+        }
+        app.navigationBars.buttons.firstMatch.tap()
+      }
+    }
+    app.navigationBars.buttons.firstMatch.tap()
+
+    openOverflowItem("native-workspace-resources", viaTab: "探索", app: app)
+    XCTAssertTrue(app.scrollViews["native-resource-search-scroll"].waitForExistence(timeout: 15))
+    try await Task.sleep(nanoseconds: 2_000_000_000)
+    capture("native-v2-live-resources")
+    app.navigationBars.buttons.firstMatch.tap()
+
+    openOverflowItem("native-workspace-downloads", viaTab: "探索", app: app)
+    XCTAssertTrue(app.scrollViews["native-downloads-scroll"].waitForExistence(timeout: 15))
+    try await Task.sleep(nanoseconds: 2_000_000_000)
+    capture("native-v2-live-downloads")
+    app.navigationBars.buttons.firstMatch.tap()
+
+    openOverflowItem("native-workspace-calendar", viaTab: "探索", app: app)
+    XCTAssertTrue(app.scrollViews["native-calendar-scroll"].waitForExistence(timeout: 15))
+    try await Task.sleep(nanoseconds: 2_000_000_000)
+    capture("native-v2-live-calendar")
+    app.navigationBars.buttons.firstMatch.tap()
+
+    openOverflowItem("native-workspace-history", viaTab: "探索", app: app)
+    XCTAssertTrue(app.scrollViews["native-history-scroll"].waitForExistence(timeout: 15))
+    try await Task.sleep(nanoseconds: 2_000_000_000)
+    capture("native-v2-live-history")
+    let queueBtn = app.buttons["native-history-queue"]
+    if queueBtn.waitForExistence(timeout: 6) {
+      queueBtn.tap()
+      if app.scrollViews["native-transfer-queue-scroll"].waitForExistence(timeout: 10) {
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        capture("native-v2-live-transfer-queue")
+        app.buttons["native-transfer-queue-close"].tap()
+      }
+    }
+    app.navigationBars.buttons.firstMatch.tap()
+
+    openOverflowItem("native-workspace-files", viaTab: "探索", app: app)
+    XCTAssertTrue(app.scrollViews["native-files-scroll"].waitForExistence(timeout: 15))
+    try await Task.sleep(nanoseconds: 1_500_000_000)
+    capture("native-v2-live-files")
+    app.navigationBars.buttons.firstMatch.tap()
+
+    openOverflowItem("native-workspace-workflows", viaTab: "探索", app: app)
+    XCTAssertTrue(app.scrollViews["native-workflows-scroll"].waitForExistence(timeout: 15))
+    try await Task.sleep(nanoseconds: 1_500_000_000)
+    capture("native-v2-live-workflows")
+    let firstCanvas = app.buttons.matching(
+      NSPredicate(format: "identifier BEGINSWITH 'native-workflow-canvas-'")
+    ).firstMatch
+    if firstCanvas.waitForExistence(timeout: 5) {
+      tap(firstCanvas, app: app)
+      XCTAssertTrue(
+        app.descendants(matching: .any)["native-workflow-canvas-area"].firstMatch
+          .waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 1_500_000_000)
+      capture("native-v2-live-workflow-canvas")
+      app.navigationBars.buttons.firstMatch.tap()
+      try await Task.sleep(nanoseconds: 500_000_000)
+    }
+    let sharesTab = app.buttons["native-workflow-mode-社区分享"]
+    if sharesTab.exists {
+      tap(sharesTab, app: app)
+      try await Task.sleep(nanoseconds: 2_000_000_000)
+      capture("native-v2-live-workflow-shares")
+    }
+    app.navigationBars.buttons.firstMatch.tap()
+
+    // 「我的」对应仪表盘（含插件扩展图表），右上角承载消息中心与智能助手
+    tap(tabButton("我的", app: app), app: app)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-dashboard-storage"].firstMatch.waitForExistence(
+        timeout: 15))
+    try await Task.sleep(nanoseconds: 1_000_000_000)
+    capture("native-v2-live-dashboard")
+    let pluginDash = app.descendants(matching: .any)["native-dashboard-plugins"].firstMatch
+    if pluginDash.waitForExistence(timeout: 8) {
+      reveal(pluginDash, app: app)
+      try await Task.sleep(nanoseconds: 800_000_000)
+      capture("native-v2-live-dashboard-plugins")
+    }
+
+    let messagesBtn = app.buttons["native-workspace-messages"]
+    if messagesBtn.waitForExistence(timeout: 8) {
+      messagesBtn.tap()
       XCTAssertTrue(app.scrollViews["native-messages-scroll"].waitForExistence(timeout: 15))
       try await Task.sleep(nanoseconds: 2_000_000_000)
       capture("native-v2-live-messages")
       app.navigationBars.buttons.firstMatch.tap()
     }
-    let agentEntry = app.buttons["native-workspace-agent"]
-    reveal(agentEntry, app: app)
-    if agentEntry.waitForExistence(timeout: 8) {
-      tap(agentEntry, app: app)
-      XCTAssertTrue(app.scrollViews["native-agent-scroll"].waitForExistence(timeout: 15))
+    let dashMore = app.buttons["native-dashboard-refresh"]
+    if dashMore.waitForExistence(timeout: 8) {
+      dashMore.tap()
+      let agentItem = app.buttons["智能助手"]
+      if agentItem.waitForExistence(timeout: 6) {
+        agentItem.tap()
+        XCTAssertTrue(app.scrollViews["native-agent-scroll"].waitForExistence(timeout: 15))
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        capture("native-v2-live-agent")
+        app.navigationBars.buttons.firstMatch.tap()
+      }
+    }
+
+    // 「设置」对应多样化设置中心（站点管理/用户管理双卡 + 核心系统横幅 + 4 列瓷砖 + 原生列表）
+    tap(tabButton("设置", app: app), app: app)
+    XCTAssertTrue(app.buttons["native-workspace-sites"].waitForExistence(timeout: 12))
+    try await Task.sleep(nanoseconds: 1_500_000_000)
+    capture("native-v2-live-settings-hub")
+
+    let sitesCard = app.buttons["native-workspace-sites"]
+    if sitesCard.waitForExistence(timeout: 6) {
+      tap(sitesCard, app: app)
+      XCTAssertTrue(app.scrollViews["native-sites-scroll"].waitForExistence(timeout: 15))
       try await Task.sleep(nanoseconds: 1_500_000_000)
-      capture("native-v2-live-agent")
+      capture("native-v2-live-sites")
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+    let usersEntry = app.buttons["native-workspace-users"]
+    if usersEntry.waitForExistence(timeout: 8) {
+      tap(usersEntry, app: app)
+      XCTAssertTrue(app.scrollViews["native-users-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 1_500_000_000)
+      capture("native-v2-live-users")
       app.navigationBars.buttons.firstMatch.tap()
     }
     let settingsEntry = app.buttons["native-workspace-settings"]
@@ -284,13 +321,28 @@ final class NativeV2EntryTests: XCTestCase {
       capture("native-v2-live-settings")
       app.navigationBars.buttons.firstMatch.tap()
     }
-    let usersEntry = app.buttons["native-workspace-users"]
-    reveal(usersEntry, app: app)
-    if usersEntry.waitForExistence(timeout: 8) {
-      tap(usersEntry, app: app)
-      XCTAssertTrue(app.scrollViews["native-users-scroll"].waitForExistence(timeout: 15))
+    let siteScopeTile = app.buttons["native-settings-hub-site-scope"]
+    reveal(siteScopeTile, app: app)
+    if siteScopeTile.waitForExistence(timeout: 6) {
+      tap(siteScopeTile, app: app)
+      XCTAssertTrue(app.scrollViews["native-sysmod-scroll"].waitForExistence(timeout: 15))
       try await Task.sleep(nanoseconds: 1_500_000_000)
-      capture("native-v2-live-users")
+      capture("native-v2-live-sysmod-site-scope")
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+    let dirsTile = app.buttons["native-settings-hub-directories"]
+    reveal(dirsTile, app: app)
+    if dirsTile.waitForExistence(timeout: 6) {
+      tap(dirsTile, app: app)
+      XCTAssertTrue(app.scrollViews["native-sysmod-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 1_500_000_000)
+      capture("native-v2-live-sysmod-directories")
+      let servicesTab = app.buttons["native-sysmod-tab-下载与媒体服务"]
+      if servicesTab.exists {
+        tap(servicesTab, app: app)
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        capture("native-v2-live-sysmod-services")
+      }
       app.navigationBars.buttons.firstMatch.tap()
     }
     let marketEntry = app.buttons["native-workspace-plugin-market"]
@@ -329,18 +381,6 @@ final class NativeV2EntryTests: XCTestCase {
         }
       }
       app.navigationBars.buttons.firstMatch.tap()
-    }
-    tap(tabButton("仪表盘", app: app), app: app)
-    XCTAssertTrue(
-      app.descendants(matching: .any)["native-dashboard-storage"].firstMatch.waitForExistence(
-        timeout: 15))
-    try await Task.sleep(nanoseconds: 1_000_000_000)
-    capture("native-v2-live-dashboard")
-    let pluginDash = app.descendants(matching: .any)["native-dashboard-plugins"].firstMatch
-    if pluginDash.waitForExistence(timeout: 8) {
-      reveal(pluginDash, app: app)
-      try await Task.sleep(nanoseconds: 800_000_000)
-      capture("native-v2-live-dashboard-plugins")
     }
     tap(tabButton("搜索", app: app), app: app)
     let query = app.textFields["native-media-search-query"]
@@ -460,11 +500,8 @@ final class NativeV2EntryTests: XCTestCase {
   func testNativeDownloadsSubscriptionsAndCalendarFlows() async throws {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
-    tap(tabButton("我的", app: app), app: app)
 
-    let subsEntry = app.buttons["native-workspace-subscriptions"]
-    XCTAssertTrue(subsEntry.waitForExistence(timeout: 10))
-    tap(subsEntry, app: app)
+    openOverflowItem("native-workspace-subscriptions", viaTab: "发现", app: app)
     XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 10))
     let subToggle = app.buttons["native-subscribe-toggle-702"]
     XCTAssertTrue(subToggle.waitForExistence(timeout: 10))
@@ -480,9 +517,7 @@ final class NativeV2EntryTests: XCTestCase {
     confirmSubDelete.tap()
     app.navigationBars.buttons.firstMatch.tap()
 
-    let dlEntry = app.buttons["native-workspace-downloads"]
-    XCTAssertTrue(dlEntry.waitForExistence(timeout: 10))
-    tap(dlEntry, app: app)
+    openOverflowItem("native-workspace-downloads", viaTab: "发现", app: app)
     XCTAssertTrue(app.scrollViews["native-downloads-scroll"].waitForExistence(timeout: 10))
     let dlToggle = app.buttons["native-download-toggle-abc123def456"]
     XCTAssertTrue(dlToggle.waitForExistence(timeout: 10))
@@ -501,9 +536,7 @@ final class NativeV2EntryTests: XCTestCase {
         .waitForExistence(timeout: 10))
     app.navigationBars.buttons.firstMatch.tap()
 
-    let calEntry = app.buttons["native-workspace-calendar"]
-    XCTAssertTrue(calEntry.waitForExistence(timeout: 10))
-    tap(calEntry, app: app)
+    openOverflowItem("native-workspace-calendar", viaTab: "发现", app: app)
     XCTAssertTrue(app.scrollViews["native-calendar-scroll"].waitForExistence(timeout: 10))
     let nextWeek = app.buttons["native-calendar-next-week"]
     XCTAssertTrue(nextWeek.waitForExistence(timeout: 8))
@@ -563,18 +596,23 @@ final class NativeV2EntryTests: XCTestCase {
   func testNativeHistorySitesAndMessagesFlows() async throws {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
-    tap(tabButton("我的", app: app), app: app)
 
-    let historyEntry = app.buttons["native-workspace-history"]
-    XCTAssertTrue(historyEntry.waitForExistence(timeout: 10))
-    tap(historyEntry, app: app)
+    openOverflowItem("native-workspace-history", viaTab: "发现", app: app)
     XCTAssertTrue(app.scrollViews["native-history-scroll"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.textFields["native-history-search-field"].waitForExistence(timeout: 8))
+    let queueBtn = app.buttons["native-history-queue"]
+    XCTAssertTrue(queueBtn.waitForExistence(timeout: 8))
+    queueBtn.tap()
+    XCTAssertTrue(app.scrollViews["native-transfer-queue-scroll"].waitForExistence(timeout: 10))
+    app.buttons["native-transfer-queue-close"].tap()
     let expandBtn = app.buttons["native-history-expand-801"]
     XCTAssertTrue(expandBtn.waitForExistence(timeout: 10))
     tap(expandBtn, app: app)
-    let deleteBtn = app.buttons["native-history-delete-801"]
-    XCTAssertTrue(deleteBtn.waitForExistence(timeout: 8))
-    tap(deleteBtn, app: app)
+    XCTAssertFalse(app.buttons["native-history-delete-801"].exists)
+    expandBtn.press(forDuration: 1.0)
+    let deleteMenu = app.buttons["删除整理记录"]
+    XCTAssertTrue(deleteMenu.waitForExistence(timeout: 8))
+    deleteMenu.tap()
     let confirmDelete = app.alerts["删除整理记录"].buttons["仅删除记录"]
     XCTAssertTrue(confirmDelete.waitForExistence(timeout: 8))
     confirmDelete.tap()
@@ -583,6 +621,8 @@ final class NativeV2EntryTests: XCTestCase {
         .waitForExistence(timeout: 8))
     app.navigationBars.buttons.firstMatch.tap()
 
+    // 站点管理位于「设置」中心
+    tap(tabButton("设置", app: app), app: app)
     let sitesEntry = app.buttons["native-workspace-sites"]
     XCTAssertTrue(sitesEntry.waitForExistence(timeout: 10))
     tap(sitesEntry, app: app)
@@ -595,9 +635,11 @@ final class NativeV2EntryTests: XCTestCase {
         .waitForExistence(timeout: 10))
     app.navigationBars.buttons.firstMatch.tap()
 
+    // 消息中心位于「我的」仪表盘右上角
+    tap(tabButton("我的", app: app), app: app)
     let msgEntry = app.buttons["native-workspace-messages"]
     XCTAssertTrue(msgEntry.waitForExistence(timeout: 10))
-    tap(msgEntry, app: app)
+    msgEntry.tap()
     XCTAssertTrue(app.scrollViews["native-messages-scroll"].waitForExistence(timeout: 10))
     let subFilter = app.buttons["native-messages-filter-订阅"]
     XCTAssertTrue(subFilter.waitForExistence(timeout: 10))
@@ -615,12 +657,8 @@ final class NativeV2EntryTests: XCTestCase {
   func testNativeFileManagerAndWorkflowFlows() async throws {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
-    tap(tabButton("我的", app: app), app: app)
 
-    let filesEntry = app.buttons["native-workspace-files"]
-    reveal(filesEntry, app: app)
-    XCTAssertTrue(filesEntry.waitForExistence(timeout: 10))
-    tap(filesEntry, app: app)
+    openOverflowItem("native-workspace-files", viaTab: "发现", app: app)
     XCTAssertTrue(app.scrollViews["native-files-scroll"].waitForExistence(timeout: 10))
     let mediaFolder = app.buttons["native-file-open-media"]
     XCTAssertTrue(mediaFolder.waitForExistence(timeout: 10))
@@ -628,9 +666,13 @@ final class NativeV2EntryTests: XCTestCase {
     let upBtn = app.buttons["native-files-up"]
     XCTAssertTrue(upBtn.waitForExistence(timeout: 10))
     tap(upBtn, app: app)
-    let delFile = app.buttons["native-file-delete-samplemkv"]
-    XCTAssertTrue(delFile.waitForExistence(timeout: 10))
-    tap(delFile, app: app)
+    let sampleFile = app.buttons["native-file-open-samplemkv"]
+    XCTAssertTrue(sampleFile.waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["native-file-delete-samplemkv"].exists)
+    sampleFile.press(forDuration: 1.0)
+    let delMenu = app.buttons["删除"]
+    XCTAssertTrue(delMenu.waitForExistence(timeout: 8))
+    delMenu.tap()
     let confirmDel = app.alerts["删除项目"].buttons["确认删除"]
     XCTAssertTrue(confirmDel.waitForExistence(timeout: 8))
     confirmDel.tap()
@@ -639,10 +681,7 @@ final class NativeV2EntryTests: XCTestCase {
         .waitForExistence(timeout: 8))
     app.navigationBars.buttons.firstMatch.tap()
 
-    let wfEntry = app.buttons["native-workspace-workflows"]
-    reveal(wfEntry, app: app)
-    XCTAssertTrue(wfEntry.waitForExistence(timeout: 10))
-    tap(wfEntry, app: app)
+    openOverflowItem("native-workspace-workflows", viaTab: "发现", app: app)
     XCTAssertTrue(app.scrollViews["native-workflows-scroll"].waitForExistence(timeout: 10))
     let runBtn = app.buttons["native-workflow-run-31"]
     XCTAssertTrue(runBtn.waitForExistence(timeout: 10))
@@ -667,7 +706,7 @@ final class NativeV2EntryTests: XCTestCase {
   func testNativeSystemSettingsAndUsersFlows() async throws {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
-    tap(tabButton("我的", app: app), app: app)
+    tap(tabButton("设置", app: app), app: app)
 
     let settingsEntry = app.buttons["native-workspace-settings"]
     reveal(settingsEntry, app: app)
@@ -721,11 +760,7 @@ final class NativeV2EntryTests: XCTestCase {
     tap(app.buttons["native-modules-save"], app: app)
     XCTAssertTrue(app.buttons["native-discover-more-豆瓣热映"].waitForExistence(timeout: 12))
 
-    tap(tabButton("我的", app: app), app: app)
-    let exploreEntry = app.buttons["native-workspace-explore"]
-    reveal(exploreEntry, app: app)
-    XCTAssertTrue(exploreEntry.waitForExistence(timeout: 10))
-    tap(exploreEntry, app: app)
+    tap(tabButton("探索", app: app), app: app)
     XCTAssertTrue(app.scrollViews["native-explore-scroll"].waitForExistence(timeout: 10))
     let doubanBtn = app.buttons["native-explore-source-douban_movies"]
     XCTAssertTrue(doubanBtn.waitForExistence(timeout: 10))
@@ -755,12 +790,8 @@ final class NativeV2EntryTests: XCTestCase {
   func testNativeSubscribeEditorAndCommunityForkFlows() async throws {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
-    tap(tabButton("我的", app: app), app: app)
 
-    let subsEntry = app.buttons["native-workspace-subscriptions"]
-    reveal(subsEntry, app: app)
-    XCTAssertTrue(subsEntry.waitForExistence(timeout: 10))
-    tap(subsEntry, app: app)
+    openOverflowItem("native-workspace-subscriptions", viaTab: "发现", app: app)
     XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 10))
 
     let editBtn = app.buttons["native-subscribe-edit-702"]
@@ -809,12 +840,14 @@ final class NativeV2EntryTests: XCTestCase {
   func testNativeMusicDiscoveryAlbumArtistAndSubscribe() async throws {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
-    tap(tabButton("我的", app: app), app: app)
 
-    let musicEntry = app.buttons["native-workspace-music"]
-    reveal(musicEntry, app: app)
-    XCTAssertTrue(musicEntry.waitForExistence(timeout: 10))
-    tap(musicEntry, app: app)
+    tap(tabButton("探索", app: app), app: app)
+    let exploreMore = app.buttons["native-explore-more"]
+    XCTAssertTrue(exploreMore.waitForExistence(timeout: 10))
+    exploreMore.tap()
+    let musicMenu = app.buttons["音乐发现"]
+    XCTAssertTrue(musicMenu.waitForExistence(timeout: 8))
+    musicMenu.tap()
     XCTAssertTrue(app.scrollViews["native-music-scroll"].waitForExistence(timeout: 10))
 
     let chartTab = app.buttons["native-music-feed-热门专辑"]
@@ -854,7 +887,7 @@ final class NativeV2EntryTests: XCTestCase {
   func testNativePluginMarketInstallResetAndUninstall() async throws {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
-    tap(tabButton("我的", app: app), app: app)
+    tap(tabButton("设置", app: app), app: app)
 
     let marketEntry = app.buttons["native-workspace-plugin-market"]
     reveal(marketEntry, app: app)
@@ -903,12 +936,14 @@ final class NativeV2EntryTests: XCTestCase {
   func testNativeAgentChatStreamAndSessionHistory() async throws {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
-    tap(tabButton("我的", app: app), app: app)
 
-    let agentEntry = app.buttons["native-workspace-agent"]
-    reveal(agentEntry, app: app)
-    XCTAssertTrue(agentEntry.waitForExistence(timeout: 10))
-    tap(agentEntry, app: app)
+    tap(tabButton("我的", app: app), app: app)
+    let dashMore = app.buttons["native-dashboard-refresh"]
+    XCTAssertTrue(dashMore.waitForExistence(timeout: 10))
+    dashMore.tap()
+    let agentMenu = app.buttons["智能助手"]
+    XCTAssertTrue(agentMenu.waitForExistence(timeout: 8))
+    agentMenu.tap()
     XCTAssertTrue(app.scrollViews["native-agent-scroll"].waitForExistence(timeout: 10))
 
     let input = app.textFields["native-agent-input"]
@@ -940,13 +975,13 @@ final class NativeV2EntryTests: XCTestCase {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
 
-    tap(tabButton("仪表盘", app: app), app: app)
+    tap(tabButton("我的", app: app), app: app)
     let pluginDash = app.descendants(matching: .any)["native-dashboard-plugin-DemoPlugin"]
       .firstMatch
     XCTAssertTrue(pluginDash.waitForExistence(timeout: 12))
     XCTAssertEqual(app.webViews.count, 0)
 
-    tap(tabButton("我的", app: app), app: app)
+    tap(tabButton("设置", app: app), app: app)
     let marketEntry = app.buttons["native-workspace-plugin-market"]
     reveal(marketEntry, app: app)
     tap(marketEntry, app: app)
@@ -984,11 +1019,8 @@ final class NativeV2EntryTests: XCTestCase {
   func testNativeWorkflowCanvasEditSaveAndCommunityFork() async throws {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
-    tap(tabButton("我的", app: app), app: app)
 
-    let wfEntry = app.buttons["native-workspace-workflows"]
-    reveal(wfEntry, app: app)
-    tap(wfEntry, app: app)
+    openOverflowItem("native-workspace-workflows", viaTab: "发现", app: app)
     XCTAssertTrue(app.scrollViews["native-workflows-scroll"].waitForExistence(timeout: 10))
 
     let canvasBtn = app.buttons["native-workflow-canvas-31"]
@@ -1042,6 +1074,119 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["a"]?["PUT api/v1/workflow/31"], 1)
     XCTAssertEqual(counts["a"]?["GET api/v1/workflow/shares"], 1)
     XCTAssertEqual(counts["a"]?["POST api/v1/workflow/fork"], 1)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// P6.2b / P6.3b + 4+1 导航：验证 4+1 底栏、任意图标二次点击溢出菜单、动态 +1 按钮回退全局搜索、卡片式设置中心专项配置与用户编辑，零 WebView。
+  func testNativeFourPlusOneNavOverflowDynamicActionAndSettingsHub() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+
+    // 验证 4+1 底栏：发现 / 探索 / 我的 / 设置 + 全局搜索
+    XCTAssertTrue(tabButton("发现", app: app).waitForExistence(timeout: 10))
+    XCTAssertTrue(tabButton("探索", app: app).exists)
+    XCTAssertTrue(tabButton("我的", app: app).exists)
+    XCTAssertTrue(tabButton("设置", app: app).exists)
+    XCTAssertTrue(tabButton("搜索", app: app).exists)
+
+    // 切到「探索」再二次点击「探索」，验证重复点击弹出菜单仅含 8 项核心入口且不含站点/用户管理
+    tap(tabButton("探索", app: app), app: app)
+    XCTAssertTrue(app.scrollViews["native-explore-scroll"].waitForExistence(timeout: 10))
+    tap(tabButton("探索", app: app), app: app)
+    XCTAssertTrue(app.scrollViews["native-overflow-menu-scroll"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.buttons["native-workspace-subscriptions"].exists)
+    XCTAssertTrue(app.buttons["native-workspace-calendar"].exists)
+    XCTAssertTrue(app.buttons["native-workspace-resources"].exists)
+    XCTAssertTrue(app.buttons["native-workspace-downloads"].exists)
+    XCTAssertTrue(app.buttons["native-workspace-files"].exists)
+    XCTAssertTrue(app.buttons["native-workspace-history"].exists)
+    XCTAssertTrue(app.buttons["native-workspace-workflows"].exists)
+    XCTAssertTrue(app.buttons["native-overflow-plugin-market"].exists)
+    XCTAssertFalse(app.buttons["native-workspace-sites"].exists)
+    XCTAssertFalse(app.buttons["native-overflow-users"].exists)
+    tap(tabButton("探索", app: app), app: app)
+
+    // 切到多样化「设置」中心，验证站点/用户双卡、站点范围、横幅与原生列表目录/刮削保存/网络诊断
+    tap(tabButton("设置", app: app), app: app)
+    XCTAssertTrue(app.buttons["native-workspace-sites"].waitForExistence(timeout: 10))
+    let usersEntry = app.buttons["native-workspace-users"]
+    XCTAssertTrue(usersEntry.exists)
+
+    // 先进入顶部的「用户管理」验证动态 +1 按钮切换为「新增用户」且可编辑用户权限
+    tap(usersEntry, app: app)
+    XCTAssertTrue(app.scrollViews["native-users-scroll"].waitForExistence(timeout: 10))
+    XCTAssertTrue(tabButton("新增用户", app: app).waitForExistence(timeout: 8))
+    let editBtn = app.buttons["native-user-edit-20"]
+    reveal(editBtn, app: app)
+    tap(editBtn, app: app)
+    let userSave = app.buttons["native-user-editor-save"]
+    XCTAssertTrue(userSave.waitForExistence(timeout: 10))
+    userSave.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-users-feedback"].firstMatch.waitForExistence(
+        timeout: 10))
+    app.navigationBars.buttons.firstMatch.tap()
+
+    // 进入「常用配置 -> 站点范围」验证订阅与搜索站点范围可视化切换及保存
+    let siteScopeTile = app.buttons["native-settings-hub-site-scope"]
+    reveal(siteScopeTile, app: app)
+    XCTAssertTrue(siteScopeTile.waitForExistence(timeout: 10))
+    tap(siteScopeTile, app: app)
+    XCTAssertTrue(app.scrollViews["native-sysmod-scroll"].waitForExistence(timeout: 10))
+    let clearScope = app.buttons["native-sysmod-sitescope-clear"]
+    XCTAssertTrue(clearScope.waitForExistence(timeout: 8))
+    clearScope.tap()
+    let scopeSave = app.buttons["native-sysmod-sitescope-save"]
+    XCTAssertTrue(scopeSave.waitForExistence(timeout: 8))
+    scopeSave.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-sysmod-feedback"].firstMatch.waitForExistence(
+        timeout: 10))
+    app.navigationBars.buttons.firstMatch.tap()
+
+    // 再滚动进入原生分组列表中的「目录与存储映射」验证目录/刮削保存/网络诊断
+    let dirsTile = app.buttons["native-settings-hub-directories"]
+    reveal(dirsTile, app: app)
+    XCTAssertTrue(dirsTile.waitForExistence(timeout: 10))
+    tap(dirsTile, app: app)
+    XCTAssertTrue(app.scrollViews["native-sysmod-scroll"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["默认电影目录"].waitForExistence(timeout: 10))
+
+    let scrapingTab = app.buttons["native-sysmod-tab-刮削开关"]
+    let sysBar = app.scrollViews["native-sysmod-bar"]
+    if sysBar.exists && scrapingTab.frame.maxX > app.windows.firstMatch.frame.maxX - 8 {
+      sysBar.swipeLeft()
+    }
+    scrapingTab.tap()
+    toggle("native-sysmod-scrape-movie_nfo", to: false, app: app)
+    let scrapeSave = app.buttons["native-sysmod-scraping-save"]
+    XCTAssertTrue(scrapeSave.waitForExistence(timeout: 8))
+    scrapeSave.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-sysmod-feedback"].firstMatch.waitForExistence(
+        timeout: 10))
+
+    let netTab = app.buttons["native-sysmod-tab-网络诊断"]
+    if sysBar.exists && netTab.frame.maxX > app.windows.firstMatch.frame.maxX - 8 {
+      sysBar.swipeLeft()
+    }
+    netTab.tap()
+    let tmdbTest = app.buttons["native-sysmod-nettest-tmdb"]
+    XCTAssertTrue(tmdbTest.waitForExistence(timeout: 10))
+    tap(tmdbTest, app: app)
+    XCTAssertTrue(app.staticTexts["连通正常 · 42 ms"].waitForExistence(timeout: 10))
+    app.navigationBars.buttons.firstMatch.tap()
+
+    // 切回「发现」确认右侧 +1 按钮自动回退为「搜索」
+    tap(tabButton("发现", app: app), app: app)
+    XCTAssertTrue(tabButton("搜索", app: app).waitForExistence(timeout: 8))
+    XCTAssertEqual(app.webViews.count, 0)
+
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["GET api/v1/system/setting/Directories"], 1)
+    XCTAssertEqual(counts["a"]?["POST api/v1/system/setting/ScrapingSwitchs"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/system/nettest"], 1)
+    XCTAssertEqual(counts["a"]?["PUT api/v1/user/"], 1)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -1109,7 +1254,7 @@ final class NativeV2EntryTests: XCTestCase {
   func testNativeDashboardRetainsStatisticsDuringPartialFailure() async throws {
     let app = try await signInToNativeBusiness(mode: "storage-failed")
     defer { app.terminate() }
-    tap(tabButton("仪表盘", app: app), app: app)
+    tap(tabButton("我的", app: app), app: app)
     let episodes = app.descendants(matching: .any)["native-dashboard-metric-episodes"].firstMatch
     let retry = app.buttons["native-dashboard-retry"]
     XCTAssertTrue(episodes.waitForExistence(timeout: 10))
@@ -1120,7 +1265,9 @@ final class NativeV2EntryTests: XCTestCase {
     let storage = app.descendants(matching: .any)["native-dashboard-storage"].firstMatch
     XCTAssertTrue(storage.waitForExistence(timeout: 10))
     capture("native-v2-dashboard")
-    XCTAssertTrue(app.staticTexts["合成媒体库扫描"].exists)
+    let scheduleLabel = app.staticTexts["合成媒体库扫描"]
+    reveal(scheduleLabel, app: app)
+    XCTAssertTrue(scheduleLabel.waitForExistence(timeout: 8))
     XCTAssertFalse(retry.exists)
     XCTAssertEqual(app.webViews.count, 0)
     let counts = try await stats()
@@ -1137,8 +1284,8 @@ final class NativeV2EntryTests: XCTestCase {
     assertAccount("b", app: app)
     capture("native-v2-account")
     XCTAssertFalse(tabButton("发现", app: app).exists)
+    XCTAssertFalse(tabButton("探索", app: app).exists)
     XCTAssertFalse(tabButton("搜索", app: app).exists)
-    XCTAssertFalse(tabButton("仪表盘", app: app).exists)
     let counts = try await stats()
     XCTAssertTrue(
       counts["b"]?.keys.allSatisfy {
@@ -1158,6 +1305,26 @@ final class NativeV2EntryTests: XCTestCase {
     tap(app.buttons["native-v2-login"], app: app)
     XCTAssertTrue(tabButton("我的", app: app).waitForExistence(timeout: 15))
     return app
+  }
+
+  /// 通过二次点击指定底栏主图标弹出全局溢出菜单，并点选指定功能入口。
+  private func openOverflowItem(
+    _ identifier: String, viaTab tab: String = "发现", app: XCUIApplication
+  ) {
+    let menuScroll = app.scrollViews["native-overflow-menu-scroll"]
+    if !menuScroll.exists {
+      let tabBtn = tabButton(tab, app: app)
+      XCTAssertTrue(tabBtn.waitForExistence(timeout: 10))
+      tap(tabBtn, app: app)
+      if !menuScroll.waitForExistence(timeout: 1.5) {
+        tap(tabBtn, app: app)
+      }
+    }
+    XCTAssertTrue(menuScroll.waitForExistence(timeout: 8))
+    let item = app.buttons[identifier]
+    reveal(item, app: app)
+    XCTAssertTrue(item.waitForExistence(timeout: 8))
+    tap(item, app: app)
   }
 
   /// iPhone 底栏与 iPad 顶部浮动标签栏结构不同，统一解析当前平台的原生标签按钮。
@@ -2280,6 +2447,7 @@ final class NativeV2EntryTests: XCTestCase {
     let personScroll = app.scrollViews.matching(identifier: "native-person-detail-scroll")
       .allElementsBoundByIndex.last(where: { $0.isHittable })
     let workspaceScroll = [
+      "native-overflow-menu-scroll", "native-sysmod-scroll",
       "native-plugin-page-scroll", "native-dashboard-scroll",
       "native-agent-scroll", "native-plugin-market-scroll", "native-music-artist-scroll",
       "native-music-album-scroll", "native-music-scroll", "native-subscribe-editor-scroll",
@@ -2385,6 +2553,7 @@ final class NativeV2EntryTests: XCTestCase {
       "native-agent-sessions-close",
       "native-workflow-node-editor-apply", "native-workflow-node-editor-cancel",
       "native-workflow-catalog-close",
+      "native-user-editor-save", "native-user-editor-cancel",
     ].contains(element.identifier) {
       // iPad 原生 sheet 的工具栏 AX 框可能仍用局部坐标；这是导航动作，不属于滚动内容。
       return app.windows.firstMatch.frame.contains(
@@ -2397,7 +2566,9 @@ final class NativeV2EntryTests: XCTestCase {
           && element.isHittable
       }
     }
-    if ["发现", "我的", "仪表盘", "搜索"].contains(element.label),
+    if [
+      "发现", "探索", "我的", "设置", "搜索", "保存", "添加节点", "新建目录", "新增用户", "新建对话",
+    ].contains(element.label),
       app.windows.firstMatch.frame.contains(CGPoint(x: element.frame.midX, y: element.frame.midY)),
       element.isHittable
     {
@@ -2424,11 +2595,11 @@ final class NativeV2EntryTests: XCTestCase {
 
   /// 已认证账号标签必须属于本次服务，同时检查运行中的可访问性树没有 WebView。
   private func assertAccount(_ name: String, app: XCUIApplication) {
-    let accountTab = tabButton("我的", app: app)
+    let settingsTab = tabButton("设置", app: app)
     if !app.descendants(matching: .any)["native-v2-account"].firstMatch.exists,
-      accountTab.exists
+      settingsTab.exists
     {
-      tap(accountTab, app: app)
+      tap(settingsTab, app: app)
     }
     let account = app.descendants(matching: .any)["native-v2-account"].firstMatch
     reveal(account, app: app)

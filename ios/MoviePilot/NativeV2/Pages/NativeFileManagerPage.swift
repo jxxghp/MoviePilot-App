@@ -23,6 +23,7 @@ struct NativeFileManagerPage: View {
   @State private var showingNewFolder = false
   @State private var newFolderName = ""
   @State private var pendingDelete: NativeFileItem?
+  @State private var playingFilePath: String?
   @State private var feedback: NativeFileFeedback?
 
   /// 连续深色紫玫瑰渐变背景、存储切换胶囊、当前路径面包屑与目录/文件玻璃列表。
@@ -68,31 +69,40 @@ struct NativeFileManagerPage: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
-      if canManage {
-        ToolbarItem(placement: .topBarTrailing) {
-          Button {
-            newFolderName = ""
-            showingNewFolder = true
-          } label: {
-            Image(systemName: "folder.badge.plus")
-          }
-          .accessibilityLabel("新建文件夹")
-          .accessibilityIdentifier("native-files-mkdir")
-        }
-      }
       ToolbarItem(placement: .topBarTrailing) {
-        Button {
-          attempt += 1
+        Menu {
+          if canManage {
+            Button {
+              newFolderName = ""
+              showingNewFolder = true
+            } label: {
+              Label("新建文件夹", systemImage: "folder.badge.plus")
+            }
+          }
+          Button {
+            attempt += 1
+          } label: {
+            Label("刷新当前目录", systemImage: "arrow.clockwise")
+          }
         } label: {
-          Image(systemName: "arrow.clockwise")
+          Image(systemName: "ellipsis")
         }
-        .accessibilityLabel("刷新目录")
+        .accessibilityLabel("更多文件操作")
         .accessibilityIdentifier("native-files-refresh")
       }
     }
     .task { await loadStorages() }
     .task(id: "\(activeStorage)|\(currentDirectory.path)|\(attempt)") {
       await loadCurrentDirectory()
+    }
+    .nativeDynamicAction(
+      id: "files-mkdir",
+      isActive: canManage,
+      title: "新建目录",
+      symbol: "folder.badge.plus"
+    ) {
+      newFolderName = ""
+      showingNewFolder = true
     }
     .alert("新建文件夹", isPresented: $showingNewFolder) {
       TextField("文件夹名称", text: $newFolderName)
@@ -203,13 +213,19 @@ struct NativeFileManagerPage: View {
     }
   }
 
-  /// 单个目录或文件玻璃行。
+  /// 单个目录或文件玻璃行；可播放音视频支持一键拉起原生本地播放器及长按菜单。
   private func fileRow(_ item: NativeFileItem) -> some View {
-    CinematicPanel(padding: 12) {
+    let playable =
+      !item.isDirectory
+      && NativeMediaPlaybackLauncher.isPlayableMediaExtension(item.fileExtension)
+    let isOpeningPlay = playingFilePath == item.path
+    return CinematicPanel(padding: 12) {
       HStack(spacing: 12) {
         Button {
           if item.isDirectory {
             pathStack.append(item)
+          } else if playable {
+            Task { await playLocalFile(item) }
           }
         } label: {
           HStack(spacing: 12) {
@@ -219,9 +235,13 @@ struct NativeFileManagerPage: View {
                   item.isDirectory
                     ? Color(red: 0.48, green: 0.36, blue: 0.72).opacity(0.50)
                     : .white.opacity(0.10))
-              Image(systemName: item.symbolName)
-                .font(.body.weight(.medium))
-                .foregroundStyle(.white.opacity(0.92))
+              if isOpeningPlay {
+                ProgressView().controlSize(.mini).tint(.white)
+              } else {
+                Image(systemName: item.symbolName)
+                  .font(.body.weight(.medium))
+                  .foregroundStyle(.white.opacity(0.92))
+              }
             }
             .frame(width: 40, height: 40)
             VStack(alignment: .leading, spacing: 3) {
@@ -241,27 +261,55 @@ struct NativeFileManagerPage: View {
               Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.white.opacity(0.45))
+            } else if playable {
+              Image(systemName: "play.circle.fill")
+                .font(.title3)
+                .foregroundStyle(Color(red: 0.80, green: 0.68, blue: 1.0))
             }
           }
           .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("native-file-open-\(item.safeIdentifier)")
-
-        if canManage {
-          Button(role: .destructive) {
-            pendingDelete = item
-          } label: {
-            Image(systemName: "trash")
-              .font(.caption.weight(.semibold))
-              .foregroundStyle(Color(red: 1.0, green: 0.56, blue: 0.58))
-              .frame(minWidth: 34, minHeight: 34)
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel("删除 \(item.displayName)")
-          .accessibilityIdentifier("native-file-delete-\(item.safeIdentifier)")
+      }
+    }
+    .contextMenu {
+      if playable {
+        Button {
+          Task { await playLocalFile(item) }
+        } label: {
+          Label("本地播放", systemImage: "play.fill")
         }
       }
+      if item.isDirectory {
+        Button {
+          pathStack.append(item)
+        } label: {
+          Label("打开目录", systemImage: "folder")
+        }
+      }
+      if canManage {
+        Button(role: .destructive) {
+          pendingDelete = item
+        } label: {
+          Label("删除", systemImage: "trash")
+        }
+      }
+    }
+  }
+
+  /// 通过当前实例存储流接口下载并拉起原生本地播放器播放该文件。
+  private func playLocalFile(_ item: NativeFileItem) async {
+    guard playingFilePath == nil else { return }
+    playingFilePath = item.path
+    defer { playingFilePath = nil }
+    let error = await NativeMediaPlaybackLauncher.shared.playStorageFile(
+      session: session,
+      storage: item.storage ?? activeStorage,
+      path: item.path,
+      fileName: item.displayName)
+    if let error {
+      feedback = NativeFileFeedback(isError: true, message: error)
     }
   }
 
