@@ -1247,6 +1247,9 @@ final class NativeVueSheetBridge: ObservableObject {
     self.title = defaultTitle
   }
 
+  /// 非 Sheet（AppPage 全页）容器使用的占位状态，永不发布变化。
+  static let detached = NativeVueSheetBridge(defaultTitle: "")
+
   /// 原生栏按钮只回传前端声明的按钮标识，由前端复核后点击当前弹窗内的真实按钮。
   func invokeAction(id: String) {
     host?.invokeSheetAction(id)
@@ -1387,8 +1390,28 @@ struct NativeVuePluginWebContainer: View {
   let pluginID: String
   let pluginName: String
   let surface: Surface
-  var sheetBridge: NativeVueSheetBridge? = nil
-  var pluginHasPage: Bool = true
+  let sheetBridge: NativeVueSheetBridge?
+  let pluginHasPage: Bool
+  /// 必须订阅 Sheet 协议状态：前端确认接管（`isReady`）或失败后才会重新计算加载层，
+  /// 只持有普通引用时 SwiftUI 不会刷新本视图，WebView 会一直停在透明加载态。
+  @ObservedObject private var observedBridge: NativeVueSheetBridge
+
+  init(
+    session: NativeSession,
+    pluginID: String,
+    pluginName: String,
+    surface: Surface,
+    sheetBridge: NativeVueSheetBridge? = nil,
+    pluginHasPage: Bool = true
+  ) {
+    self.session = session
+    self.pluginID = pluginID
+    self.pluginName = pluginName
+    self.surface = surface
+    self.sheetBridge = sheetBridge
+    self.pluginHasPage = pluginHasPage
+    _observedBridge = ObservedObject(wrappedValue: sheetBridge ?? NativeVueSheetBridge.detached)
+  }
 
   @Environment(\.colorScheme) private var colorScheme
   @ObservedObject private var appearance = NativeAppearanceStore.shared
@@ -1482,7 +1505,12 @@ struct NativeVuePluginWebContainer: View {
     do {
       let auth = try session.playbackAuthorization()
       let resourceCookie = try? await session.resolveResourceCookie()
-      guard let targetURL = buildTargetURL(baseURL: auth.address.url) else {
+      guard let frontend = await resolveFrontendAddress(api: auth.address) else {
+        loadError = "当前服务器地址没有提供 MoviePilot 网页前端，无法显示该插件界面。请确认前端端口（默认 3000）可以访问。"
+        return
+      }
+      try Task.checkCancellation()
+      guard let targetURL = buildTargetURL(frontend: frontend) else {
         loadError = "无法构造受控插件页面地址。"
         return
       }
@@ -1532,7 +1560,7 @@ struct NativeVuePluginWebContainer: View {
       }
       launchConfig = VuePluginLaunchConfig(
         url: targetURL,
-        origin: auth.address,
+        origin: frontend,
         authJSON: authJSON,
         userJSON: userJSON,
         resourceCookie: resourceCookie,
@@ -1542,9 +1570,65 @@ struct NativeVuePluginWebContainer: View {
         surface: surface,
         switchesToConfig: surface == .config && pluginHasPage,
         containingFolder: containingFolder)
+    } catch is CancellationError {
+      return
     } catch {
       loadError = "当前登录会话不可用，无法打开插件页面。"
     }
+  }
+
+  /// 已确认的前端入口缓存（按实例地址），避免每次打开插件都重新探测。
+  private static var frontendCache: [String: ServerAddress] = [:]
+
+  /// 找到真正提供前端页面的入口：实例地址本身是前端时直接使用；
+  /// 若连接的是后端 API 端口，再按系统配置中的前端端口与访问域名依次探测。
+  private func resolveFrontendAddress(api: ServerAddress) async -> ServerAddress? {
+    let key = api.url.absoluteString
+    if let cached = Self.frontendCache[key] { return cached }
+    if await Self.probeFrontend(api) {
+      Self.frontendCache[key] = api
+      return api
+    }
+    var frontendPort: Int?
+    var appDomain: String?
+    if let endpoint = try? APIEndpoint(path: ["system", "env"], responseContract: .payload),
+      let data = try? await session.requestPayload(
+        endpoint, requiring: PermissionRequirement(category: .admin)
+      ).value,
+      let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    {
+      let env = (object["data"] as? [String: Any]) ?? object
+      frontendPort =
+        (env["NGINX_PORT"] as? NSNumber)?.intValue
+        ?? (env["NGINX_PORT"] as? String).flatMap { Int($0) }
+      appDomain = env["APP_DOMAIN"] as? String
+    }
+    // 读取不到系统配置（非管理员或旧后端）时按官方默认前端端口探测。
+    let candidates = PluginWebFrontend.candidates(
+      api: api, frontendPort: frontendPort ?? 3000, appDomain: appDomain)
+    for candidate in candidates.dropFirst() where await Self.probeFrontend(candidate) {
+      Self.frontendCache[key] = candidate
+      return candidate
+    }
+    return nil
+  }
+
+  /// 无凭据 GET 候选入口，只确认其返回 MoviePilot 前端 `index.html`。
+  private static func probeFrontend(_ address: ServerAddress) async -> Bool {
+    var request = URLRequest(url: address.url, timeoutInterval: 6)
+    request.setValue("text/html", forHTTPHeaderField: "Accept")
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.httpCookieAcceptPolicy = .never
+    configuration.httpShouldSetCookies = false
+    let urlSession = URLSession(configuration: configuration)
+    defer { urlSession.finishTasksAndInvalidate() }
+    guard let (data, response) = try? await urlSession.data(for: request),
+      let http = response as? HTTPURLResponse
+    else { return false }
+    return PluginWebFrontend.isFrontendDocument(
+      statusCode: http.statusCode,
+      contentType: http.value(forHTTPHeaderField: "Content-Type"),
+      body: data)
   }
 
   /// 查询插件是否归属于某个 Web 插件文件夹；若在文件夹内，前端主列表默认隐藏其卡片，需自动展开对应文件夹后触发弹窗。
@@ -1570,8 +1654,8 @@ struct NativeVuePluginWebContainer: View {
   }
 
   /// 基于 Vue Hash Router 构造同源插件入口：AppPage 直达 `/#/plugin-app/{id}/{navKey}`，数据/配置页直达 `/#/plugins?id={id}`。
-  private func buildTargetURL(baseURL: URL) -> URL? {
-    var baseString = baseURL.absoluteString
+  private func buildTargetURL(frontend: ServerAddress) -> URL? {
+    var baseString = frontend.url.absoluteString
     if !baseString.hasSuffix("/") { baseString += "/" }
     let encodedID =
       pluginID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? pluginID
@@ -1586,9 +1670,7 @@ struct NativeVuePluginWebContainer: View {
         pluginID.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? pluginID
       hashPath = "#/plugins?id=\(encodedQueryID)&tab=installed"
     }
-    guard let url = URL(string: baseString + hashPath),
-      session.instance.address.contains(url)
-    else { return nil }
+    guard let url = URL(string: baseString + hashPath), frontend.contains(url) else { return nil }
     return url
   }
 }
@@ -1712,7 +1794,8 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
     var props: [HTTPCookiePropertyKey: Any] = [
       .name: info.name,
       .value: info.value,
-      .domain: info.domain.isEmpty ? (targetURL.host ?? "") : info.domain,
+      // 前端入口可能与 API 地址不同主机（访问域名），Cookie 始终写给实际加载的前端主机。
+      .domain: targetURL.host ?? info.domain,
       .path: info.path.isEmpty ? "/" : info.path,
     ]
     if info.isSecure || targetURL.scheme?.lowercased() == "https" {
@@ -1849,35 +1932,100 @@ final class NativeVuePluginChromeHost: NSObject, WKNavigationDelegate, WKScriptM
         return '';
       }
 
-      // 联邦 Vue 插件自身的标题栏常使用纯图标按钮或未声明 data-native-dialog-close 的关闭按钮，
-      // 补齐无障碍语义属性后交给前端 NativeSheetAdapter 统一采集标题、动作与关闭能力。
+      function isCloseLike(btn, icon, rawText, aria) {
+        return btn.classList.contains('v-dialog-close-btn')
+          || icon === 'mdi-close' || icon === 'mdi-close-circle' || icon === 'mdi-close-circle-outline'
+          || rawText === '关闭' || rawText === 'Close' || aria === '关闭' || aria === 'Close';
+      }
+
+      function buttonFacts(btn) {
+        return {
+          icon: extractMdi(btn),
+          text: (btn.textContent || '').replace(/mdi-[a-z0-9-]+/gi, '').trim(),
+          aria: (btn.getAttribute('aria-label') || '').trim()
+        };
+      }
+
+      // 联邦插件常用自定义 <header>/「*-header」作为弹窗标题栏：只认弹窗内容顶部、带关闭按钮且不含输入控件的那一个，
+      // 避免把正文里的卡片标题误当成标题栏隐藏。
+      function findCustomHeader(root) {
+        var content = root.querySelector(':scope > .v-overlay__content') || root;
+        var top = content.getBoundingClientRect().top;
+        var candidates = content.querySelectorAll('header, [class*="header"], [class*="toolbar"]');
+        for (var i = 0; i < candidates.length && i < 40; i++) {
+          var el = candidates[i];
+          if (el.closest('[data-native-dialog-content]')) continue;
+          if (el.querySelector('input, select, textarea, [role="tablist"]')) continue;
+          if (el.getBoundingClientRect().top - top > 160) continue;
+          var buttons = el.querySelectorAll('button');
+          for (var b = 0; b < buttons.length; b++) {
+            var f = buttonFacts(buttons[b]);
+            if (isCloseLike(buttons[b], f.icon, f.text, f.aria)) return el;
+          }
+        }
+        return null;
+      }
+
+      function findDialogHeader(root) {
+        return root.querySelector('[data-native-dialog-header]')
+          || root.querySelector(
+            ':scope > .v-overlay__content > .v-card > .v-card-item, :scope > .v-overlay__content > .v-card > .v-toolbar, :scope > .v-overlay__content > .v-card > .v-card-title'
+          )
+          || findCustomHeader(root)
+          || root.querySelector('.v-card-item, .v-toolbar');
+      }
+
+      // 联邦 Vue 插件自身的标题栏常使用纯图标按钮、自定义 header 或未声明 data-native-dialog-close 的关闭按钮，
+      // 补齐语义属性后交给前端 NativeSheetAdapter 统一采集标题、动作与关闭能力；原生 Sheet 接管后标题栏由原生导航栏替代。
       function normalizeVueDialogHeaders() {
         var dialogs = document.querySelectorAll('.v-overlay--active.v-dialog');
         for (var d = 0; d < dialogs.length; d++) {
           var root = dialogs[d];
-          var header = root.querySelector(
-            '[data-native-dialog-header], .v-card-item, .v-toolbar, :scope > .v-overlay__content > .v-card > .v-card-title'
-          );
+          var header = findDialogHeader(root);
           if (!header || header.closest('[data-native-dialog-content]')) continue;
+          if (!header.hasAttribute('data-native-dialog-header')
+            && !header.matches('.v-card-item, .v-toolbar, .v-card-title')) {
+            header.setAttribute('data-native-dialog-header', '');
+          }
+          if (!root.querySelector('[data-native-dialog-title]')) {
+            var heading = header.querySelector('.v-card-title, .v-toolbar-title, h1, h2, h3');
+            if (heading && !heading.querySelector('button')) heading.setAttribute('data-native-dialog-title', '');
+          }
           var hasClose = Boolean(root.querySelector('[data-native-dialog-close]'));
           var buttons = header.querySelectorAll('button');
           for (var i = 0; i < buttons.length; i++) {
             var btn = buttons[i];
-            var icon = extractMdi(btn);
-            var rawText = (btn.textContent || '').replace(/mdi-[a-z0-9-]+/gi, '').trim();
-            var aria = (btn.getAttribute('aria-label') || '').trim();
-            if (!hasClose && (btn.classList.contains('v-dialog-close-btn')
-              || icon === 'mdi-close' || icon === 'mdi-close-circle' || icon === 'mdi-close-circle-outline'
-              || rawText === '关闭' || rawText === 'Close' || aria === '关闭' || aria === 'Close')) {
-              btn.setAttribute('data-native-dialog-close', '');
-              hasClose = true;
+            // 当前布局下不显示的按钮（插件桌面端专用、移动端另有底部操作）不投影为原生按钮。
+            var rendered = btn.getClientRects().length > 0;
+            if (!rendered) {
+              if (!btn.hasAttribute('aria-hidden')) {
+                btn.setAttribute('aria-hidden', 'true');
+                btn.setAttribute('data-mp-native-hidden', '');
+              }
               continue;
             }
-            if (icon && !btn.hasAttribute('data-native-sheet-action') && !header.hasAttribute('data-native-sheet-actions')) {
-              btn.setAttribute('data-native-sheet-action', icon);
+            if (btn.hasAttribute('data-mp-native-hidden')) {
+              btn.removeAttribute('aria-hidden');
+              btn.removeAttribute('data-mp-native-hidden');
             }
-            if (!aria && !btn.getAttribute('title') && !rawText) {
-              var fallback = labelForIcon(icon);
+            if (btn.hasAttribute('data-native-dialog-close') || btn.hasAttribute('data-mp-native-duplicate-close')) continue;
+            var f = buttonFacts(btn);
+            if (isCloseLike(btn, f.icon, f.text, f.aria)) {
+              if (!hasClose) {
+                btn.setAttribute('data-native-dialog-close', '');
+                hasClose = true;
+              } else {
+                // 重复的关闭入口由原生关闭按钮统一承担。
+                btn.setAttribute('aria-hidden', 'true');
+                btn.setAttribute('data-mp-native-duplicate-close', '');
+              }
+              continue;
+            }
+            if (f.icon && !btn.hasAttribute('data-native-sheet-action') && !header.hasAttribute('data-native-sheet-actions')) {
+              btn.setAttribute('data-native-sheet-action', f.icon);
+            }
+            if (!f.aria && !btn.getAttribute('title') && !f.text) {
+              var fallback = labelForIcon(f.icon);
               if (fallback) btn.setAttribute('aria-label', fallback);
             }
           }

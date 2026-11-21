@@ -500,9 +500,10 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(app.buttons["native-plugin-cron-edit-cron"].exists)
     XCTAssertTrue(
       app.descendants(matching: .any)["native-plugin-field-sign_sites"].exists)
-    XCTAssertTrue(
-      app.descendants(matching: .any)["native-plugin-field-login_sites"].exists
-    )
+    // 登录站点字段位于表单下方，需先滚动到可见区域再断言。
+    let loginSites = app.descendants(matching: .any)["native-plugin-field-login_sites"]
+    reveal(loginSites, app: app)
+    XCTAssertTrue(loginSites.exists)
     XCTAssertTrue(app.buttons["native-plugin-form-save"].isEnabled)
     XCTAssertEqual(app.webViews.count, 0)
     app.navigationBars.buttons.firstMatch.tap()
@@ -536,7 +537,8 @@ final class NativeV2EntryTests: XCTestCase {
         timeout: 25),
       "前端必须确认只接管插件弹窗内容后，原生 Sheet 才能结束加载。")
     XCTAssertTrue(app.buttons["native-vue-plugin-sheet-close"].exists)
-    XCTAssertEqual(app.webViews.count, 1)
+    // WKWebView 会向辅助功能树暴露多个网页区域，只确认兼容宿主仍在当前 Sheet 中。
+    XCTAssertTrue(app.webViews.firstMatch.exists)
     app.buttons["native-vue-plugin-sheet-close"].tap()
     XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 12))
   }
