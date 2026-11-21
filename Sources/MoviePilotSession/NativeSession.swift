@@ -51,6 +51,11 @@ public final class NativeSession {
     return (instance.address, accessToken)
   }
 
+  /// 运行时同步最新界面语言至底层网络客户端，使后续 API 与 SSE 请求立即生效。
+  public func updateLanguage(_ value: AppLanguage) {
+    api.updateLanguage(value)
+  }
+
   /// 本地检查 JWT 访问令牌是否已超过 `exp` 声明时间；非标准 JWT（如测试占位符）不误判。
   public func isTokenExpired(now: Date = Date()) -> Bool {
     let parts = accessToken.split(separator: ".", omittingEmptySubsequences: false)

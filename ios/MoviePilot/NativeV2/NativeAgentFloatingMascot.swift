@@ -34,6 +34,7 @@ struct NativeAgentFloatingMascot: View {
       robotGlyph
         .frame(width: mascotWidth, height: mascotHeight)
         .drawingGroup()
+        .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
         .scaleEffect(isDragging ? 1.06 : 1.0)
         .animation(.easeOut(duration: 0.14), value: isDragging)
         .contentShape(Rectangle())
@@ -216,7 +217,6 @@ struct NativeAgentFloatingMascot: View {
       .rotationEffect(.degrees(-3))
       .offset(y: -7)
     }
-    .shadow(color: Color(red: 0.48, green: 0.32, blue: 0.90).opacity(0.42), radius: 10, y: 6)
   }
 
   /// 弧形高亮机器人眼睛。

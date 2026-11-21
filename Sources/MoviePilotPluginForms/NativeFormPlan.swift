@@ -9,6 +9,7 @@ public enum NativeFormControl: Sendable {
   case input(NativeFormField, NativeFormInputKind)
   case codeEditor(NativeFormField, language: String)
   case cron(NativeFormField)
+  case colorPicker(NativeFormField)
   case select(NativeFormField, options: [NativeFormOption], multiple: Bool, clearable: Bool)
   case combobox(NativeFormField, NativeComboboxDraft)
   case slider(NativeFormField, min: Double, max: Double, step: Double)
@@ -155,20 +156,23 @@ private struct NativeFormPlanBuilder {
   /// 可忽略的无交互视觉占位组件。
   private static let ignoredVisuals: Set<String> = [
     "VSpacer", "VDialogCloseBtn", "VIcon", "v-icon", "VImg", "img", "VAvatar", "br", "style",
+    "VScrollToTopBtn",
   ]
   private static let toggles: Set<String> = ["VSwitch", "VCheckbox", "VCheckboxBtn"]
   private static let inputs: Set<String> = ["VTextField", "VTextarea", "VPathField"]
+  private static let crons: Set<String> = ["VCronField", "VCronVuetify"]
   private static let selects: Set<String> = ["VSelect", "VAutocomplete"]
   private static let textNodes: Set<String> = [
     "span", "p", "VLabel", "VCardTitle", "VCardSubtitle", "VListItemTitle", "VListItemSubtitle",
-    "VListSubheader", "u", "b", "strong", "em", "i", "small", "code", "pre",
+    "VListSubheader", "VPageContentTitle", "u", "b", "strong", "em", "i", "small", "code", "pre",
     "h1", "h2", "h3", "h4", "h5", "h6",
   ]
 
   // 桌面排版/装饰属性交给统一原生布局/材质，行为属性必须在下面明确实现。
   private static let presentation: Set<String> = [
     "cols", "sm", "md", "lg", "xl", "xxl", "offset", "offset-sm", "offset-md", "offset-lg",
-    "dense", "density", "variant", "color", "base-color", "bg-color", "border", "border-color",
+    "dense", "density", "variant", "color", "base-color", "baseColor", "bg-color", "bgColor",
+    "border", "border-color", "borderColor",
     "rounded", "elevation", "persistent-hint", "persistentHint", "hide-details", "hideDetails",
     "chips", "closable-chips", "closableChips", "small-chips", "smallChips", "deletable-chips",
     "deletableChips", "auto-grow", "autoGrow", "rows", "max-rows", "maxRows", "no-resize",
@@ -188,6 +192,14 @@ private struct NativeFormPlanBuilder {
     "strict", "title", "subtitle", "text", "src", "alt", "cover", "aspect-ratio", "multiple",
     "indeterminate", "true-value", "false-value", "value", "hover", "fixed-header",
     "items-per-page", "no-data-text",
+    "active", "active-color", "activeColor", "fixed-tabs", "fixedTabs", "grow", "divided",
+    "align-tabs", "alignTabs", "slider-color", "sliderColor",
+    "persistent-placeholder", "persistentPlaceholder", "start", "end",
+    "storage", "root", "change", "clear-icon", "clearIcon",
+    "hide-no-data", "hideNoData", "menu-props", "menuProps",
+    "mode", "modes", "swatches", "hide-canvas", "hideCanvas", "hide-inputs", "hideInputs",
+    "show-swatches", "showSwatches", "hide-sliders", "hideSliders", "hide-mode-switch",
+    "hideModeSwitch", "canvas-height", "canvasHeight", "focused", "location", "position",
   ]
 
   /// 遍历状态仅绑定本次完整草稿。
@@ -248,10 +260,12 @@ private struct NativeFormPlanBuilder {
     let isEditableComponent =
       Self.toggles.contains(component) || Self.inputs.contains(component)
       || Self.selects.contains(component) || component == "VCombobox"
-      || component == "VCronField" || component == "VAceEditor" || component == "VSlider"
+      || Self.crons.contains(component) || component == "VAceEditor" || component == "VSlider"
       || component == "VRangeSlider" || component == "VChipGroup" || component == "VRadioGroup"
+      || component == "VBtnToggle" || component == "VColorPicker"
     let layout = Self.layouts.contains(component)
-    if layout || !isEditableComponent {
+    let allowsLayoutTabBinding = component == "VTabs" || component == "VWindow"
+    if (layout && !allowsLayoutTabBinding) || (!layout && !isEditableComponent) {
       for binding in node.bindings where binding.kind != .implicitRead {
         issue(.unsupported, binding.pointer)
       }
@@ -294,7 +308,7 @@ private struct NativeFormPlanBuilder {
       for child in node.children {
         try visit(child, visible: visible && rawText == nil, disabled: disabled)
       }
-    } else if component == "VChipGroup" || component == "VRadioGroup" {
+    } else if component == "VChipGroup" || component == "VRadioGroup" || component == "VBtnToggle" {
       let ctrl = try groupChoiceControl(
         node, component: component, props: props, visible: visible, disabled: disabled)
       if visible { current.append(.init(id: node.pointer, control: ctrl)) }
@@ -489,16 +503,20 @@ private struct NativeFormPlanBuilder {
     if component == "VAceEditor" {
       return ["label", "hint", "placeholder", "disabled", "readonly", "required", "lang", "theme"]
     }
-    if component == "VCronField" {
+    if Self.crons.contains(component) {
       return [
         "label", "hint", "placeholder", "disabled", "readonly", "required", "clearable", "type",
         "maxlength", "suffix",
       ]
     }
+    if component == "VColorPicker" {
+      return ["label", "hint", "disabled", "readonly", "required"]
+    }
     if Self.selects.contains(component) {
       return [
         "label", "hint", "placeholder", "disabled", "readonly", "required", "items", "multiple",
-        "clearable", "item-title", "item-value", "itemTitle", "itemValue",
+        "clearable", "item-title", "item-value", "itemTitle", "itemValue", "return-object",
+        "returnObject",
       ]
     }
     if component == "VCombobox" {
@@ -511,7 +529,7 @@ private struct NativeFormPlanBuilder {
     if component == "VSlider" || component == "VRangeSlider" {
       return ["label", "hint", "disabled", "readonly", "required", "min", "max", "step"]
     }
-    if component == "VChipGroup" || component == "VRadioGroup" {
+    if component == "VChipGroup" || component == "VRadioGroup" || component == "VBtnToggle" {
       return ["label", "hint", "disabled", "readonly", "required", "multiple", "inline"]
     }
     if component == "VAlert" {
@@ -589,10 +607,10 @@ private struct NativeFormPlanBuilder {
       suffix: NativeFormExpression.text(props["suffix"]) ?? "",
       value: PluginJSONValue.object(model)[exactKey: binding.field], disabled: disabled,
       clearable: props["clearable"].map { NativeFormExpression.truth($0) }
-        ?? (node.component == "VCronField"))
+        ?? Self.crons.contains(node.component ?? ""))
   }
 
-  /// 处理 `VChipGroup` 和 `VRadioGroup` 的选项提取与模型绑定。
+  /// 处理 `VChipGroup`、`VBtnToggle` 和 `VRadioGroup` 的选项提取与模型绑定。
   private mutating func groupChoiceControl(
     _ node: PluginUINode, component: String, props: [String: PluginJSONValue], visible: Bool,
     disabled: Bool
@@ -610,14 +628,16 @@ private struct NativeFormPlanBuilder {
     var opts: [NativeFormOption] = []
     for (idx, child) in node.children.enumerated() {
       let childLabel =
-        child.properties["label"]?.string ?? Self.combinedPlainText(from: child)
+        child.properties["label"]?.string
+        ?? child.properties["text"]?.string
+        ?? Self.combinedPlainText(from: child)
       let childVal =
         child.properties["value"] ?? (childLabel.isEmpty ? nil : .string(childLabel))
       guard let childVal else { continue }
       let title = childLabel.isEmpty ? (NativeFormExpression.text(childVal) ?? "") : childLabel
       opts.append(.init(id: idx, title: title, value: childVal))
     }
-    if component == "VChipGroup" {
+    if component == "VChipGroup" || component == "VBtnToggle" {
       let multiple = NativeFormExpression.truth(props["multiple"])
       return .chipGroup(field, options: opts, multiple: multiple)
     }
@@ -692,11 +712,12 @@ private struct NativeFormPlanBuilder {
     let editable =
       Self.toggles.contains(component) || Self.inputs.contains(component)
       || Self.selects.contains(component) || component == "VCombobox"
-      || component == "VCronField" || component == "VAceEditor" || component == "VSlider"
-      || component == "VRangeSlider"
+      || Self.crons.contains(component) || component == "VAceEditor" || component == "VSlider"
+      || component == "VRangeSlider" || component == "VColorPicker"
     if editable {
       let allowFallback =
         component == "VAceEditor" || component == "VSlider" || component == "VRangeSlider"
+        || component == "VColorPicker"
       guard
         let field = field(
           node, props: props, disabled: disabled, allowFallbackLabel: allowFallback)
@@ -705,6 +726,9 @@ private struct NativeFormPlanBuilder {
         && Self.empty(field.value)
       {
         issue(.requiredValue, node.pointer)
+      }
+      if component == "VColorPicker" {
+        return .colorPicker(field)
       }
       if component == "VAceEditor" {
         let lang = props["lang"]?.string ?? props["language"]?.string ?? "text"
@@ -718,7 +742,7 @@ private struct NativeFormPlanBuilder {
           ? .rangeSlider(field, min: minVal, max: maxVal, step: stepVal)
           : .slider(field, min: minVal, max: maxVal, step: stepVal)
       }
-      if component == "VCronField" {
+      if Self.crons.contains(component) {
         if let rawType = node.properties["type"], rawType != .null, props["type"] != .string("text")
         {
           issue(.unsupported, node.pointer + "/props/type")
@@ -761,7 +785,9 @@ private struct NativeFormPlanBuilder {
       if Self.selects.contains(component) {
         let multiple = NativeFormExpression.truth(props["multiple"])
         let options = options(props, pointer: node.pointer)
-        if visible, multiple, let value = field.value, value != .null, value.array == nil {
+        if visible, multiple, let value = field.value, value != .null, value != .string(""),
+          value.array == nil
+        {
           issue(.invalidValue, node.pointer)
         }
         return .select(
@@ -843,7 +869,7 @@ private struct NativeFormPlanBuilder {
       if case .object = value {
         title = NativeFormExpression.text(value[exactKey: titleKey])
         payload = value[exactKey: valueKey] ?? .null
-        if value[exactKey: valueKey] == nil || value[exactKey: "props"] != nil {
+        if value[exactKey: valueKey] == nil {
           issue(.unsupported, pointer + "/props/items/" + String(index))
         }
       } else {

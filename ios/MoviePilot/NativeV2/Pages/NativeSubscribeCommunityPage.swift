@@ -160,7 +160,7 @@ struct NativeSubscribeCommunityPage: View {
   /// 单张热门订阅海报卡。
   private func popularPosterCard(_ item: NativePopularSubscribeItem) -> some View {
     VStack(alignment: .center, spacing: 6) {
-      ZStack(alignment: .topTrailing) {
+      ZStack(alignment: .bottomLeading) {
         NativeMediaArtwork(
           session: session, reference: item.posterReference, role: .poster, maximumWidth: 420
         )
@@ -170,6 +170,16 @@ struct NativeSubscribeCommunityPage: View {
           RoundedRectangle(cornerRadius: 13, style: .continuous)
             .strokeBorder(.primary.opacity(0.10), lineWidth: 0.5)
         }
+        .nativeMediaExistsOverlay(
+          session: session,
+          source: item.identity?.source,
+          mediaID: item.identity?.mediaID,
+          title: item.title,
+          year: item.year,
+          type: item.identity?.type,
+          badgeSize: 18,
+          inset: 5
+        )
         if let hotText = item.hotLabel {
           HStack(spacing: 3) {
             Image(systemName: "flame.fill").font(.system(size: 9))

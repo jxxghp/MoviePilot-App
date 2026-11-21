@@ -45,6 +45,7 @@ struct NativePluginMarketPage: View {
   @State private var showsMarketPage = false
   @State private var formSelection: FormSelection?
   @State private var dataPageSelection: NativeMarketPluginRecord?
+  @State private var vueSheetTarget: VueSheetTarget?
   @State private var detailTarget: NativeMarketPluginRecord?
   @State private var cloneTarget: NativeMarketPluginRecord?
   @State private var logTarget: NativeMarketPluginRecord?
@@ -60,6 +61,12 @@ struct NativePluginMarketPage: View {
   private struct FormSelection {
     let plugin: NativeInstalledPlugin
     let form: NativePluginForm
+  }
+
+  private struct VueSheetTarget: Identifiable {
+    let plugin: NativeMarketPluginRecord
+    let surface: NativeVuePluginWebContainer.Surface
+    var id: String { "\(plugin.id)|\(surface == .config ? "config" : "data")" }
   }
 
   var body: some View {
@@ -143,6 +150,14 @@ struct NativePluginMarketPage: View {
           NativePluginDataPageView(
             session: session, pluginID: plugin.id, pluginName: plugin.displayName)
         }
+      }
+      .sheet(item: $vueSheetTarget) { target in
+        NativeVuePluginSheet(
+          session: session,
+          pluginID: target.plugin.id,
+          pluginName: target.plugin.displayName,
+          surface: target.surface
+        )
       }
       .task(id: reloadToken) {
         await loadInstalled(forceRefresh: reloadToken > 0)
@@ -334,7 +349,10 @@ struct NativePluginMarketPage: View {
     )
     .onTapGesture {
       guard mutatingID == nil else { return }
-      if plugin.hasPage {
+      if plugin.isVuePlugin {
+        vueSheetTarget = VueSheetTarget(
+          plugin: plugin, surface: plugin.hasPage ? .dataPage : .config)
+      } else if plugin.hasPage {
         dataPageSelection = plugin
       } else {
         openForm(for: plugin)
@@ -343,13 +361,21 @@ struct NativePluginMarketPage: View {
     .contextMenu {
       if plugin.hasPage {
         Button {
-          dataPageSelection = plugin
+          if plugin.isVuePlugin {
+            vueSheetTarget = VueSheetTarget(plugin: plugin, surface: .dataPage)
+          } else {
+            dataPageSelection = plugin
+          }
         } label: {
           Label("查看数据", systemImage: "doc.text.magnifyingglass")
         }
       }
       Button {
-        openForm(for: plugin)
+        if plugin.isVuePlugin {
+          vueSheetTarget = VueSheetTarget(plugin: plugin, surface: .config)
+        } else {
+          openForm(for: plugin)
+        }
       } label: {
         Label("设置", systemImage: "slider.horizontal.3")
       }
@@ -562,8 +588,20 @@ struct NativePluginMarketPage: View {
 
   private func openForm(for record: NativeMarketPluginRecord) {
     do {
-      let payload = try JSONEncoder().encode(record)
-      let installed = try JSONDecoder().decode(NativeInstalledPlugin.self, from: payload)
+      let normalizedSource =
+        (record.sourcePluginID?.isEmpty == true) ? nil : record.sourcePluginID
+      let target = try PluginFormTarget(physicalID: record.id, sourceID: normalizedSource)
+      let installed = NativeInstalledPlugin(
+        target: target,
+        name: record.displayName,
+        summary: record.summary,
+        version: record.version,
+        icon: record.pluginIcon,
+        author: record.pluginAuthor,
+        authorURL: record.authorURL,
+        state: record.state,
+        hasPage: record.hasPage
+      )
       let form = try NativePluginForm(
         session: session, target: installed.target, validator: NativeFormValidator())
       formSelection = FormSelection(plugin: installed, form: form)
@@ -2520,12 +2558,15 @@ private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
   var installed: Bool
   var hasUpdate: Bool
   let hasPage: Bool
+  let renderMode: String?
   let state: Bool?
   let repoURL: String?
   let installCount: Int
   let averageRating: Double
   let ratingCount: Int
   let history: [String: String]?
+
+  var isVuePlugin: Bool { renderMode?.lowercased() == "vue" }
 
   var displayName: String {
     if let pluginName, !pluginName.isEmpty { return pluginName }
@@ -2580,6 +2621,7 @@ private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
     installed = (try? container.decodeIfPresent(Bool.self, forKey: .installed)) ?? false
     hasUpdate = (try? container.decodeIfPresent(Bool.self, forKey: .hasUpdate)) ?? false
     hasPage = (try? container.decodeIfPresent(Bool.self, forKey: .hasPage)) ?? false
+    renderMode = try? container.decodeIfPresent(String.self, forKey: .renderMode)
     state = try? container.decodeIfPresent(Bool.self, forKey: .state)
     repoURL = try? container.decodeIfPresent(String.self, forKey: .repoURL)
     installCount = (try? container.decodeIfPresent(Int.self, forKey: .installCount)) ?? 0
@@ -2604,6 +2646,7 @@ private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
     case installed
     case hasUpdate = "has_update"
     case hasPage = "has_page"
+    case renderMode = "render_mode"
     case state
     case repoURL = "repo_url"
     case installCount = "install_count"

@@ -4,7 +4,7 @@ import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
 
-/// 登录后的原生「我的」仪表盘：右上角提供消息中心（左）与捷径（右），底部提供编辑仪表盘组件，完整呈现媒体库、存储、最近入库、媒体库最新、下载器、CPU/内存/网络实时监控、7 天整理趋势、后台服务、系统信息与插件 JSON 动态卡片。
+/// 登录后的原生「我的」仪表盘：右上角提供消息中心（左）与捷径（右），底部提供编辑仪表盘组件，完整呈现媒体库、存储、最近入库、下载器、CPU/内存/网络实时监控、7 天整理趋势、后台服务、系统信息与插件 JSON 动态卡片。
 @MainActor
 struct NativeDashboardPage: View {
   let session: NativeSession
@@ -18,7 +18,6 @@ struct NativeDashboardPage: View {
   @State private var statistics: NativeDashboardStatistics?
   @State private var storage: NativeDashboardStorage?
   @State private var recentImports: [NativeDashboardRecentImport] = []
-  @State private var latestLibrary: [NativeDashboardLatestMedia] = []
   @State private var downloader: NativeDashboardDownloaderInfo?
   @State private var activeDownloads: [NativeDashboardDownloadTask] = []
   @State private var cpuSamples: [Double] = []
@@ -45,12 +44,11 @@ struct NativeDashboardPage: View {
     self.onOpenMessages = onOpenMessages
     self.onOpenShortcuts = onOpenShortcuts
     if let cached: NativeDashboardCacheSnapshot = NativePageDataCache.shared.get(
-      "dashboard|overview.v2", session: session)
+      "dashboard|overview.v3", session: session)
     {
       _statistics = State(initialValue: cached.statistics)
       _storage = State(initialValue: cached.storage)
       _recentImports = State(initialValue: cached.recentImports)
-      _latestLibrary = State(initialValue: cached.latestLibrary)
       _downloader = State(initialValue: cached.downloader)
       _activeDownloads = State(initialValue: cached.activeDownloads)
       _cpuSamples = State(initialValue: cached.cpuSamples)
@@ -165,8 +163,6 @@ struct NativeDashboardPage: View {
       if let storage { storageSummary(storage) }
     case "recentImports":
       recentImportsSummary
-    case "latestLibrary":
-      if !latestLibrary.isEmpty { latestLibrarySummary }
     case "downloader":
       if downloader != nil || !activeDownloads.isEmpty { downloaderSummary }
     case "cpu":
@@ -389,41 +385,7 @@ struct NativeDashboardPage: View {
     .accessibilityIdentifier("native-dashboard-recent-imports")
   }
 
-  // MARK: - 4. 媒体库最新
-
-  private var latestLibrarySummary: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      sectionTitle("媒体库最新", detail: "\(latestLibrary.count) 部")
-      ScrollView(.horizontal, showsIndicators: false) {
-        LazyHStack(alignment: .top, spacing: 11) {
-          ForEach(latestLibrary) { item in
-            VStack(alignment: .leading, spacing: 5) {
-              NativeMediaArtwork(
-                session: session, reference: item.image, role: .poster, maximumWidth: 280
-              )
-              .frame(width: 96, height: 140)
-              .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-              Text(item.title)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-              if let sub = item.subtitle, !sub.isEmpty {
-                Text(sub)
-                  .font(.caption2)
-                  .foregroundStyle(.secondary)
-                  .lineLimit(1)
-              }
-            }
-            .frame(width: 96, alignment: .leading)
-          }
-        }
-        .padding(.vertical, 2)
-      }
-    }
-    .accessibilityIdentifier("native-dashboard-latest-library")
-  }
-
-  // MARK: - 5. 下载器速率与活跃任务
+  // MARK: - 4. 下载器速率与活跃任务
 
   private var downloaderSummary: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -900,7 +862,7 @@ struct NativeDashboardPage: View {
 
   private func load(forceRefresh: Bool = false) async {
     guard !loading, !Task.isCancelled, session.user.isSuperuser else { return }
-    let cacheKey = "dashboard|overview.v2"
+    let cacheKey = "dashboard|overview.v3"
     if !forceRefresh,
       let cached: NativeDashboardCacheSnapshot = NativePageDataCache.shared.get(
         cacheKey, session: session)
@@ -908,7 +870,6 @@ struct NativeDashboardPage: View {
       statistics = cached.statistics
       storage = cached.storage
       recentImports = cached.recentImports
-      latestLibrary = cached.latestLibrary
       downloader = cached.downloader
       activeDownloads = cached.activeDownloads
       cpuSamples = cached.cpuSamples
@@ -929,7 +890,6 @@ struct NativeDashboardPage: View {
     async let statsTask = readDashboard("statistic", as: NativeDashboardStatistics.self)
     async let storageTask = readDashboard("storage", as: NativeDashboardStorage.self)
     async let recentTask = loadRecentImports()
-    async let latestTask = loadLatestLibrary()
     async let downloaderTask = readDashboard("downloader", as: NativeDashboardDownloaderInfo.self)
     async let downloadsTask = loadActiveDownloads()
     async let cpuTask = readDashboard("cpu", as: Double.self)
@@ -941,10 +901,10 @@ struct NativeDashboardPage: View {
     async let widgetsTask = loadPluginWidgets()
 
     let (
-      newStats, newStorage, newRecent, newLatest, newDownloader, newDownloads,
+      newStats, newStorage, newRecent, newDownloader, newDownloads,
       newCPU, newMem, newNet, newTrend, newSchedules, newSys, newWidgets
     ) = await (
-      statsTask, storageTask, recentTask, latestTask, downloaderTask, downloadsTask,
+      statsTask, storageTask, recentTask, downloaderTask, downloadsTask,
       cpuTask, memTask, netTask, trendTask, jobsTask, sysTask, widgetsTask
     )
 
@@ -955,7 +915,6 @@ struct NativeDashboardPage: View {
     if let newStats { statistics = newStats } else { failedSections.append("媒体库统计") }
     if let newStorage { storage = newStorage } else { failedSections.append("存储空间") }
     if let newRecent { recentImports = newRecent }
-    if let newLatest { latestLibrary = newLatest }
     if let newDownloader { downloader = newDownloader }
     if let newDownloads { activeDownloads = newDownloads }
     if let newCPU { appendCPUSample(newCPU) }
@@ -1010,7 +969,7 @@ struct NativeDashboardPage: View {
     NativePageDataCache.shared.set(
       NativeDashboardCacheSnapshot(
         statistics: statistics, storage: storage, recentImports: recentImports,
-        latestLibrary: latestLibrary, downloader: downloader, activeDownloads: activeDownloads,
+        downloader: downloader, activeDownloads: activeDownloads,
         cpuSamples: cpuSamples, memory: memory, networkSamples: networkSamples,
         transferTrend: transferTrend, schedules: schedules, systemInfo: systemInfo,
         pluginWidgets: pluginWidgets),
@@ -1057,28 +1016,6 @@ struct NativeDashboardPage: View {
         ep, as: NativeDashboardRecentImportsResponse.self, requiring: .init(category: .admin)
       ).value
       return wrapper.list ?? []
-    } catch {
-      return nil
-    }
-  }
-
-  private func loadLatestLibrary() async -> [NativeDashboardLatestMedia]? {
-    guard !Task.isCancelled else { return nil }
-    do {
-      let clientsEp = try APIEndpoint(path: ["mediaserver", "clients"])
-      let clients = try await session.request(
-        clientsEp, as: [NativeDashboardMediaClient].self, requiring: .init(category: .discovery)
-      ).value
-      guard let server = clients.first?.name, !server.isEmpty else { return [] }
-      let latestEp = try APIEndpoint(
-        path: ["mediaserver", "latest"],
-        query: [
-          URLQueryItem(name: "server", value: server),
-          URLQueryItem(name: "count", value: "10"),
-        ])
-      return try await session.request(
-        latestEp, as: [NativeDashboardLatestMedia].self, requiring: .init(category: .discovery)
-      ).value
     } catch {
       return nil
     }
@@ -1452,42 +1389,6 @@ private struct NativeDashboardRecentImport: Decodable, Sendable, Identifiable {
   }
 }
 
-private struct NativeDashboardMediaClient: Decodable, Sendable {
-  let name: String?
-}
-
-private struct NativeDashboardLatestMedia: Decodable, Sendable, Identifiable {
-  let rawID: String
-  let title: String
-  let subtitle: String?
-  let image: String?
-
-  var id: String { rawID }
-
-  private enum CodingKeys: String, CodingKey {
-    case id, title, subtitle, image, year
-    case itemID = "item_id"
-  }
-
-  init(from decoder: Decoder) throws {
-    let c = try decoder.container(keyedBy: CodingKeys.self)
-    title = (try? c.decode(String.self, forKey: .title)) ?? "未命名"
-    image = try? c.decode(String.self, forKey: .image)
-    let sub = try? c.decode(String.self, forKey: .subtitle)
-    let yr =
-      (try? c.decode(String.self, forKey: .year))
-      ?? (try? String(c.decode(Int.self, forKey: .year)))
-    subtitle = (sub?.isEmpty == false) ? sub : yr
-    let itemIdStr =
-      (try? c.decode(String.self, forKey: .itemID))
-      ?? (try? String(c.decode(Int64.self, forKey: .itemID)))
-    let idStr =
-      (try? c.decode(String.self, forKey: .id))
-      ?? (try? String(c.decode(Int64.self, forKey: .id)))
-    rawID = itemIdStr ?? idStr ?? "\(title)|\(image ?? "")"
-  }
-}
-
 private struct NativeDashboardDownloaderInfo: Decodable, Sendable {
   let downloadSpeedValue: Double?
   let uploadSpeedValue: Double?
@@ -1697,8 +1598,6 @@ private struct NativeDashboardWidgetConfig: Identifiable, Codable, Equatable, Se
     NativeDashboardWidgetConfig(
       id: "recentImports", title: "最近入库", symbol: "tray.and.arrow.down", enabled: true),
     NativeDashboardWidgetConfig(
-      id: "latestLibrary", title: "媒体库最新", symbol: "sparkles.tv", enabled: true),
-    NativeDashboardWidgetConfig(
       id: "cpu", title: "CPU 占用", symbol: "cpu", enabled: true),
     NativeDashboardWidgetConfig(
       id: "memory", title: "内存占用", symbol: "memorychip", enabled: true),
@@ -1826,7 +1725,6 @@ private struct NativeDashboardCacheSnapshot {
   let statistics: NativeDashboardStatistics?
   let storage: NativeDashboardStorage?
   let recentImports: [NativeDashboardRecentImport]
-  let latestLibrary: [NativeDashboardLatestMedia]
   let downloader: NativeDashboardDownloaderInfo?
   let activeDownloads: [NativeDashboardDownloadTask]
   let cpuSamples: [Double]

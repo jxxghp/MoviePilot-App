@@ -13,6 +13,7 @@ struct NativeExplorePage: View {
 
   @State private var selectedSource: NativeExploreSourceKind
   @State private var extraSources: [NativeExtraDiscoverSource] = []
+  @State private var enabledBuiltInSources: Set<NativeExploreSourceKind>?
   @State private var selectedExtraID: String?
   @AppStorage("nativeV2.exploreSources.v1") private var storedSourcesJSON = ""
   @State private var sourceConfigs: [NativeExploreSourceConfig] =
@@ -112,7 +113,10 @@ struct NativeExplorePage: View {
     .navigationTitle("探索")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
-    .onAppear { syncSourceConfigs() }
+    .onAppear {
+      syncSourceConfigs()
+      Task { await loadExtraSources() }
+    }
     .navigationDestination(
       isPresented: Binding(
         get: { contextDetailIdentity != nil },
@@ -282,7 +286,7 @@ struct NativeExplorePage: View {
     .accessibilityIdentifier(id)
   }
 
-  /// 同步本地已保存的探索来源顺序与开关，并与插件扩展来源合并。
+  /// 同步本地已保存的探索来源顺序与开关，并与后端已启用媒体模块及插件扩展来源合并。
   private func syncSourceConfigs() {
     var saved: [NativeExploreSourceConfig] = []
     if let data = storedSourcesJSON.data(using: .utf8),
@@ -290,7 +294,8 @@ struct NativeExplorePage: View {
     {
       saved = decoded
     }
-    sourceConfigs = NativeExploreSourceConfig.merged(saved: saved, extras: extraSources)
+    sourceConfigs = NativeExploreSourceConfig.merged(
+      saved: saved, extras: extraSources, allowedBuiltIns: enabledBuiltInSources)
     ensureActiveSourceEnabled()
   }
 
@@ -425,50 +430,15 @@ struct NativeExplorePage: View {
     .accessibilityIdentifier(id)
   }
 
-  /// 海报网格，滑至底部倒数第六项自动加载下一页，点击直达原生详情页。
+  /// 海报网格，滑至底部倒数第六项自动加载下一页，点击直达原生详情页；本地媒体库已存在时展示绿色对勾。
   private var posterGrid: some View {
     LazyVGrid(columns: columns, spacing: 16) {
       ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
         NavigationLink {
           NativeMediaDetailPage(session: session, identity: item.identity)
         } label: {
-          VStack(alignment: .center, spacing: 6) {
-            ZStack(alignment: .topTrailing) {
-              NativeMediaArtwork(
-                session: session, reference: item.posterReference, role: .poster, maximumWidth: 420
-              )
-              .aspectRatio(2.0 / 3.0, contentMode: .fill)
-              .clipShape(.rect(cornerRadius: 13))
-              .overlay {
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                  .strokeBorder(.primary.opacity(0.10), lineWidth: 0.5)
-              }
-              if let rating = item.ratingText {
-                Text(rating)
-                  .font(.caption2.weight(.bold).monospacedDigit())
-                  .foregroundStyle(.primary)
-                  .padding(.horizontal, 6)
-                  .padding(.vertical, 2.5)
-                  .background {
-                    Capsule().fill(.black.opacity(0.62))
-                  }
-                  .padding(6)
-              }
-            }
-            Text(item.title)
-              .font(.footnote.weight(.medium))
-              .foregroundStyle(.primary.opacity(0.95))
-              .lineLimit(1)
-              .frame(maxWidth: .infinity, alignment: .center)
-            if let subtitle = item.subtitle, !subtitle.isEmpty {
-              Text(subtitle)
-                .font(.caption)
-                .foregroundStyle(.primary.opacity(0.54))
-                .lineLimit(1)
-            }
-          }
-          .multilineTextAlignment(.center)
-          .contentShape(Rectangle())
+          NativeExplorePosterTile(session: session, item: item)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -524,20 +494,51 @@ struct NativeExplorePage: View {
     .padding(.horizontal, CinematicStyle.margin)
   }
 
-  /// 拉取插件扩展发现源，失败不阻塞内置 TMDB/豆瓣/Bangumi 探索。
+  /// 并行拉取后端已启用媒体模块目录（`GET /api/v1/media/source`）与插件扩展发现源（`GET /api/v1/discover/source`），
+  /// 自动隐藏后台高级设置中已关闭的内置探索来源（如 Bangumi / 豆瓣 / 音乐）。
   private func loadExtraSources() async {
-    do {
-      let endpoint = try APIEndpoint(path: ["discover", "source"])
-      let loaded = try await session.request(endpoint, as: [NativeExtraDiscoverSource].self).value
-      try Task.checkCancellation()
+    async let mediaSourcesTask: [NativeExploreMediaSourceInfo]? = {
+      guard
+        let endpoint = try? APIEndpoint(path: ["media", "source"], responseContract: .payload)
+      else { return nil }
+      return try? await session.request(endpoint, as: [NativeExploreMediaSourceInfo].self).value
+    }()
+    async let extrasTask: [NativeExtraDiscoverSource]? = {
+      guard
+        let endpoint = try? APIEndpoint(path: ["discover", "source"], responseContract: .payload)
+      else { return nil }
+      return try? await session.request(endpoint, as: [NativeExtraDiscoverSource].self).value
+    }()
+    let (loadedMediaSources, loadedExtras) = await (mediaSourcesTask, extrasTask)
+    guard !Task.isCancelled else { return }
+
+    if let loadedMediaSources {
+      let sourceIDs = Set(loadedMediaSources.map { $0.mediaSource.lowercased() })
+      let hasMusic = loadedMediaSources.contains(where: \.isMusicSource)
+      var allowed: Set<NativeExploreSourceKind> = []
+      if sourceIDs.contains("themoviedb") {
+        allowed.insert(.tmdbMovies)
+        allowed.insert(.tmdbTVs)
+      }
+      if sourceIDs.contains("douban") {
+        allowed.insert(.doubanMovies)
+        allowed.insert(.doubanTVs)
+      }
+      if sourceIDs.contains("bangumi") {
+        allowed.insert(.bangumi)
+      }
+      if hasMusic {
+        allowed.insert(.music)
+      }
+      enabledBuiltInSources = allowed
+    }
+    if let loadedExtras {
       let builtInPrefixes: Set<String> = ["tmdb", "douban", "bangumi", "anilist", "music"]
-      extraSources = loaded.filter { source in
+      extraSources = loadedExtras.filter { source in
         !source.apiPath.isEmpty && !builtInPrefixes.contains(source.prefix.lowercased())
       }
-      syncSourceConfigs()
-    } catch {
-      return
     }
+    syncSourceConfigs()
   }
 
   /// 重置分页并加载首页探索结果；命中页面缓存时静默复用，下拉刷新强制重拉。
@@ -628,7 +629,9 @@ struct NativeExplorePage: View {
       let segments = extra.apiPath.split(separator: "/").map(String.init)
       guard !segments.isEmpty else { return [] }
       endpoint = try APIEndpoint(
-        path: segments, query: [URLQueryItem(name: "page", value: String(page))])
+        path: segments,
+        query: [URLQueryItem(name: "page", value: String(page))],
+        responseContract: .payload)
       fallbackType = "电影"
     } else {
       var query = [URLQueryItem(name: "page", value: String(page))]
@@ -663,6 +666,7 @@ struct NativeExplorePage: View {
       case .bangumi:
         path = ["discover", "bangumi"]
         query.append(URLQueryItem(name: "type", value: "2"))
+        query.append(URLQueryItem(name: "count", value: "30"))
         query.append(URLQueryItem(name: "sort", value: bangumiSort))
         if !bangumiCategory.isEmpty {
           query.append(URLQueryItem(name: "cat", value: bangumiCategory))
@@ -672,10 +676,10 @@ struct NativeExplorePage: View {
       case .music:
         return []
       }
-      endpoint = try APIEndpoint(path: path, query: query)
+      endpoint = try APIEndpoint(path: path, query: query, responseContract: .payload)
     }
-    let rows = try await session.request(endpoint, as: [NativeExploreAPIItem].self).value
-    return rows.compactMap { $0.project(fallbackType: fallbackType) }
+    let rows = try await session.request(endpoint, as: [NativeLossyExploreAPIItem].self).value
+    return rows.compactMap { $0.value?.project(fallbackType: fallbackType) }
   }
 
   /// 同页去重保持顺序稳定。
@@ -727,13 +731,18 @@ struct NativeExplorePage: View {
   ]
 
   private static let bangumiCategories: [(String, String)] = [
-    ("", "全部分类"), ("1", "TV"), ("3", "剧场版"), ("2", "OVA"), ("5", "WEB"),
+    ("", "全部分类"), ("1", "TV"), ("3", "剧场版"), ("2", "OVA"), ("5", "WEB"), ("0", "其他"),
   ]
 
-  private static let bangumiYears: [(String, String)] = [
-    ("", "全部年份"), ("2026", "2026"), ("2025", "2025"), ("2024", "2024"), ("2023", "2023"),
-    ("2022", "2022"),
-  ]
+  private static var bangumiYears: [(String, String)] {
+    let current = Calendar.current.component(.year, from: Date())
+    var list: [(String, String)] = [("", "全部年份")]
+    for y in (max(current - 9, 2010)...current).reversed() {
+      let s = String(y)
+      list.append((s, s))
+    }
+    return list
+  }
 }
 
 /// 内置多来源探索枚举。
@@ -841,18 +850,168 @@ private struct NativeExploreItem: Identifiable, Hashable {
   var id: String { identity.id }
 }
 
-/// 探索接口 `MediaInfo` 精简解码结构体。
+/// `GET /api/v1/media/source` 后端已启用媒体源条目。
+private struct NativeExploreMediaSourceInfo: Decodable, Sendable {
+  let name: String
+  let mediaSource: String
+  let mediaTypes: [String]?
+
+  var isMusicSource: Bool {
+    let lower = mediaSource.lowercased()
+    if ["musicbrainz", "theaudiodb", "douban_music"].contains(lower) { return true }
+    return (mediaTypes ?? []).contains {
+      let t = $0.lowercased()
+      return t == "音乐" || t == "music"
+    }
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case name
+    case mediaSource = "media_source"
+    case mediaTypes = "media_types"
+  }
+}
+
+/// 探索页单张海报网格瓦片：本地媒体库已存在时在右上角展示绿色对勾（与 Web `MediaCard.vue` 一致）。
+@MainActor
+private struct NativeExplorePosterTile: View {
+  let session: NativeSession
+  let item: NativeExploreItem
+
+  @State private var existsInLibrary = false
+
+  var body: some View {
+    let resolvedExists =
+      existsInLibrary
+      || (NativeMediaLibraryStatusStore.shared.cachedExists(
+        session: session,
+        source: item.identity.source,
+        mediaID: item.identity.mediaID,
+        title: item.title,
+        year: item.subtitle,
+        type: item.identity.type
+      ) == true)
+    return VStack(alignment: .center, spacing: 6) {
+      ZStack(alignment: .topTrailing) {
+        NativeMediaArtwork(
+          session: session, reference: item.posterReference, role: .poster, maximumWidth: 420
+        )
+        .aspectRatio(2.0 / 3.0, contentMode: .fill)
+        .clipShape(.rect(cornerRadius: 13))
+        .overlay {
+          RoundedRectangle(cornerRadius: 13, style: .continuous)
+            .strokeBorder(.primary.opacity(0.10), lineWidth: 0.5)
+        }
+        if resolvedExists {
+          NativeMediaExistsBadge(size: 20)
+            .padding(6)
+        } else if let rating = item.ratingText {
+          Text(rating)
+            .font(.caption2.weight(.bold).monospacedDigit())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2.5)
+            .background {
+              Capsule().fill(.black.opacity(0.62))
+            }
+            .padding(6)
+        }
+      }
+      Text(item.title)
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.primary.opacity(0.95))
+        .lineLimit(1)
+        .frame(maxWidth: .infinity, alignment: .center)
+      if let subtitle = item.subtitle, !subtitle.isEmpty {
+        Text(subtitle)
+          .font(.caption)
+          .foregroundStyle(.primary.opacity(0.54))
+          .lineLimit(1)
+      }
+    }
+    .multilineTextAlignment(.center)
+    .task(id: item.id) {
+      if let cached = NativeMediaLibraryStatusStore.shared.cachedExists(
+        session: session,
+        source: item.identity.source,
+        mediaID: item.identity.mediaID,
+        title: item.title,
+        year: item.subtitle,
+        type: item.identity.type
+      ) {
+        existsInLibrary = cached
+        return
+      }
+      let result = await NativeMediaLibraryStatusStore.shared.checkExists(
+        session: session,
+        source: item.identity.source,
+        mediaID: item.identity.mediaID,
+        title: item.title,
+        year: item.subtitle,
+        type: item.identity.type
+      )
+      if !Task.isCancelled {
+        existsInLibrary = result
+      }
+    }
+  }
+}
+
+/// 探索结果单条宽容包装，避免单条数据字段异构导致整页解码失败。
+private struct NativeLossyExploreAPIItem: Decodable, Sendable {
+  let value: NativeExploreAPIItem?
+  init(from decoder: Decoder) throws {
+    value = try? NativeExploreAPIItem(from: decoder)
+  }
+}
+
+/// 探索接口 `MediaInfo` 宽容解码结构体（兼容 TMDB / 豆瓣 / Bangumi 整数字段与字符串字段差异）。
 private struct NativeExploreAPIItem: Decodable, Sendable {
   let mediaSource: String?
   let mediaID: String?
-  let tmdbID: Int?
+  let tmdbID: String?
   let doubanID: String?
-  let bangumiID: Int?
+  let bangumiID: String?
   let type: String?
   let title: String?
   let year: String?
   let posterPath: String?
   let voteAverage: Double?
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    mediaSource = try? c.decodeIfPresent(String.self, forKey: .mediaSource)
+    mediaID = Self.decodeScalar(c, forKey: .mediaID)
+    tmdbID = Self.decodeScalar(c, forKey: .tmdbID)
+    doubanID = Self.decodeScalar(c, forKey: .doubanID)
+    bangumiID = Self.decodeScalar(c, forKey: .bangumiID)
+    type = try? c.decodeIfPresent(String.self, forKey: .type)
+    title = try? c.decodeIfPresent(String.self, forKey: .title)
+    year = Self.decodeScalar(c, forKey: .year)
+    posterPath =
+      (try? c.decodeIfPresent(String.self, forKey: .posterPath))
+      ?? (try? c.decodeIfPresent(String.self, forKey: .image))
+    if let d = try? c.decodeIfPresent(Double.self, forKey: .voteAverage) {
+      voteAverage = d
+    } else if let s = try? c.decodeIfPresent(String.self, forKey: .voteAverage), let d = Double(s) {
+      voteAverage = d
+    } else {
+      voteAverage = nil
+    }
+  }
+
+  private static func decodeScalar(
+    _ container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys
+  ) -> String? {
+    if let s = try? container.decodeIfPresent(String.self, forKey: key) {
+      let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+      return trimmed.isEmpty ? nil : trimmed
+    }
+    if let n = try? container.decodeIfPresent(Int64.self, forKey: key) {
+      return n == 0 ? nil : String(n)
+    }
+    return nil
+  }
 
   /// 投影为带受控身份的网格卡片模型。
   func project(fallbackType: String) -> NativeExploreItem? {
@@ -863,15 +1022,15 @@ private struct NativeExploreAPIItem: Decodable, Sendable {
     {
       source = explicitSource
       resolvedID = explicitID
-    } else if let tmdbID {
+    } else if let tmdbID, !tmdbID.isEmpty {
       source = "themoviedb"
-      resolvedID = String(tmdbID)
+      resolvedID = tmdbID
     } else if let doubanID, !doubanID.isEmpty {
       source = "douban"
       resolvedID = doubanID
-    } else if let bangumiID {
+    } else if let bangumiID, !bangumiID.isEmpty {
       source = "bangumi"
-      resolvedID = String(bangumiID)
+      resolvedID = bangumiID
     } else {
       return nil
     }
@@ -889,7 +1048,7 @@ private struct NativeExploreAPIItem: Decodable, Sendable {
   }
 
   private enum CodingKeys: String, CodingKey {
-    case type, title, year
+    case type, title, year, image
     case mediaSource = "media_source"
     case mediaID = "media_id"
     case tmdbID = "tmdb_id"
@@ -923,12 +1082,23 @@ private struct NativeExploreSourceConfig: Identifiable, Codable, Equatable, Send
     }
   }
 
-  /// 合并已保存顺序/显隐与最新可用内置源及插件扩展源。
+  /// 合并已保存顺序/显隐与后端已启用内置源及插件扩展源。
   static func merged(
-    saved: [NativeExploreSourceConfig], extras: [NativeExtraDiscoverSource]
+    saved: [NativeExploreSourceConfig],
+    extras: [NativeExtraDiscoverSource],
+    allowedBuiltIns: Set<NativeExploreSourceKind>? = nil
   ) -> [NativeExploreSourceConfig] {
+    let activeDefaults: [NativeExploreSourceConfig]
+    if let allowedBuiltIns {
+      activeDefaults = defaults.filter { item in
+        guard let kind = NativeExploreSourceKind(rawValue: item.id) else { return true }
+        return allowedBuiltIns.contains(kind)
+      }
+    } else {
+      activeDefaults = defaults
+    }
     var available: [String: NativeExploreSourceConfig] = Dictionary(
-      uniqueKeysWithValues: defaults.map { ($0.id, $0) })
+      uniqueKeysWithValues: activeDefaults.map { ($0.id, $0) })
     for extra in extras {
       let key = "extra:\(extra.id)"
       available[key] = NativeExploreSourceConfig(
@@ -942,7 +1112,7 @@ private struct NativeExploreSourceConfig: Identifiable, Codable, Equatable, Send
         result.append(latest)
       }
     }
-    for base in defaults where seen.insert(base.id).inserted {
+    for base in activeDefaults where seen.insert(base.id).inserted {
       result.append(base)
     }
     for extra in extras {

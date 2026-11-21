@@ -701,7 +701,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       bottomScrimView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       bottomScrimView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       bottomScrimView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-      bottomScrimView.heightAnchor.constraint(equalToConstant: 196),
+      bottomScrimView.heightAnchor.constraint(equalToConstant: 124),
     ])
   }
 
@@ -763,6 +763,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     topBar.translatesAutoresizingMaskIntoConstraints = false
 
     topBar.addArrangedSubview(fixedSquareControl(closeButton, diameter: isAudioPlayback ? 40 : 42))
+    titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
     topBar.addArrangedSubview(titleLabel)
 
     if isAudioPlayback {
@@ -775,14 +777,55 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       moreButton.menu = makeMusicMenu()
       topBar.addArrangedSubview(fixedSquareControl(moreButton, diameter: 40))
     } else {
-      // 视频模式右上角极简：仅保留画中画（小窗播放）单按钮
+      // 视频模式右上角一排统一收纳全部功能按钮：字幕、音轨、画面比例、倍速、小窗画中画
+      let topButtonDiameter: CGFloat = 38
+      let topButtonPointSize: CGFloat = 15
+
       configureGlassButton(
-        pipTopButton, symbol: "pip.enter", accessibility: L10n.text("小窗播放"), diameter: 42,
-        pointSize: 16)
+        subtitleButton, symbol: "captions.bubble", accessibility: L10n.text("选择字幕"),
+        diameter: topButtonDiameter, pointSize: topButtonPointSize)
+      subtitleButton.addAction(
+        UIAction { [weak self] _ in self?.showSubtitleMenu() }, for: .touchUpInside)
+
+      configureGlassButton(
+        audioButton, symbol: "waveform", accessibility: L10n.text("选择音轨"),
+        diameter: topButtonDiameter, pointSize: topButtonPointSize)
+      audioButton.addAction(
+        UIAction { [weak self] _ in self?.showAudioMenu() }, for: .touchUpInside)
+
+      configureGlassButton(
+        aspectButton,
+        symbol: isAspectFill
+          ? "arrow.down.right.and.arrow.up.left"
+          : "arrow.up.left.and.arrow.down.right",
+        accessibility: L10n.text("切换画面比例"),
+        diameter: topButtonDiameter, pointSize: topButtonPointSize)
+      aspectButton.addAction(
+        UIAction { [weak self] _ in self?.toggleAspectMode() }, for: .touchUpInside)
+
+      configureGlassButton(
+        speedButton, symbol: "gauge.with.dots.needle.67percent",
+        accessibility: L10n.text("播放速度"),
+        diameter: topButtonDiameter, pointSize: topButtonPointSize)
+      speedButton.addAction(
+        UIAction { [weak self] _ in self?.showSpeedMenu() }, for: .touchUpInside)
+
+      configureGlassButton(
+        pipTopButton, symbol: "pip.enter", accessibility: L10n.text("小窗播放"),
+        diameter: topButtonDiameter, pointSize: topButtonPointSize)
       pipTopButton.isHidden = !pictureInPictureAvailable
       pipTopButton.addAction(
         UIAction { [weak self] _ in self?.minimizePlayback() }, for: .touchUpInside)
-      topBar.addArrangedSubview(fixedSquareControl(pipTopButton, diameter: 42))
+
+      let topActionsStack = UIStackView(arrangedSubviews: [
+        subtitleButton, audioButton, aspectButton, speedButton, pipTopButton,
+      ])
+      topActionsStack.axis = .horizontal
+      topActionsStack.alignment = .center
+      topActionsStack.spacing = 8
+      topActionsStack.setContentHuggingPriority(.required, for: .horizontal)
+      topActionsStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+      topBar.addArrangedSubview(topActionsStack)
     }
 
     view.addSubview(topBar)
@@ -1150,58 +1193,25 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     progressRow.axis = .horizontal
     progressRow.alignment = .center
     progressRow.spacing = 10
+    progressRow.translatesAutoresizingMaskIntoConstraints = false
 
-    // 进度条下方极简纯图标栏：左侧字幕与音轨，右侧画面填充与播放速度（无任何文字）
-    configureVideoIconDockButton(
-      subtitleButton, symbol: "captions.bubble", accessibility: L10n.text("选择字幕"))
-    subtitleButton.addAction(
-      UIAction { [weak self] _ in self?.showSubtitleMenu() }, for: .touchUpInside)
-
-    configureVideoIconDockButton(
-      audioButton, symbol: "waveform", accessibility: L10n.text("选择音轨"))
-    audioButton.addAction(UIAction { [weak self] _ in self?.showAudioMenu() }, for: .touchUpInside)
-
-    configureVideoIconDockButton(
-      aspectButton, symbol: "arrow.up.left.and.arrow.down.right",
-      accessibility: L10n.text("切换画面比例"))
-    aspectButton.addAction(
-      UIAction { [weak self] _ in self?.toggleAspectMode() }, for: .touchUpInside)
-
-    configureVideoIconDockButton(
-      speedButton, symbol: "gauge.with.dots.needle.67percent",
-      accessibility: L10n.text("播放速度"))
-    speedButton.addAction(UIAction { [weak self] _ in self?.showSpeedMenu() }, for: .touchUpInside)
-
-    let dockSpacer = UIView()
-    dockSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-    let actionRow = UIStackView(arrangedSubviews: [
-      subtitleButton, audioButton, dockSpacer, aspectButton, speedButton,
-    ])
-    actionRow.axis = .horizontal
-    actionRow.alignment = .center
-    actionRow.spacing = 10
-
-    let dockStack = UIStackView(arrangedSubviews: [progressRow, actionRow])
-    dockStack.axis = .vertical
-    dockStack.spacing = 8
-    dockStack.translatesAutoresizingMaskIntoConstraints = false
-
+    // 底部极简：仅保留单行玻璃进度条，功能按钮全部收纳在右上角一排
     progressPanel.layer.cornerRadius = 22
     progressPanel.layer.cornerCurve = .continuous
     progressPanel.layer.borderWidth = 0.7
     progressPanel.layer.borderColor = UIColor.white.withAlphaComponent(0.18).cgColor
     progressPanel.clipsToBounds = true
     progressPanel.translatesAutoresizingMaskIntoConstraints = false
-    progressPanel.contentView.addSubview(dockStack)
+    progressPanel.contentView.addSubview(progressRow)
     controls.addSubview(progressPanel)
 
     NSLayoutConstraint.activate([
-      dockStack.leadingAnchor.constraint(
+      progressRow.leadingAnchor.constraint(
         equalTo: progressPanel.contentView.leadingAnchor, constant: 14),
-      dockStack.trailingAnchor.constraint(
+      progressRow.trailingAnchor.constraint(
         equalTo: progressPanel.contentView.trailingAnchor, constant: -14),
-      dockStack.topAnchor.constraint(equalTo: progressPanel.contentView.topAnchor, constant: 10),
-      dockStack.bottomAnchor.constraint(
+      progressRow.topAnchor.constraint(equalTo: progressPanel.contentView.topAnchor, constant: 10),
+      progressRow.bottomAnchor.constraint(
         equalTo: progressPanel.contentView.bottomAnchor, constant: -10),
       progressPanel.leadingAnchor.constraint(equalTo: controls.leadingAnchor),
       progressPanel.trailingAnchor.constraint(equalTo: controls.trailingAnchor),
@@ -2068,9 +2078,16 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       config.image = UIImage(
         systemName: isAspectFill
           ? "arrow.down.right.and.arrow.up.left"
-          : "arrow.up.left.and.arrow.down.right",
-        withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .medium))
+          : "arrow.up.left.and.arrow.down.right")
       aspectButton.configuration = config
+    } else {
+      aspectButton.setImage(
+        UIImage(
+          systemName: isAspectFill
+            ? "arrow.down.right.and.arrow.up.left"
+            : "arrow.up.left.and.arrow.down.right",
+          withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)),
+        for: .normal)
     }
     presentSeekHud(isAspectFill ? L10n.text("画面已填充") : L10n.text("画面已适应"))
   }

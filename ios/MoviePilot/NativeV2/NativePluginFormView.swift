@@ -15,6 +15,8 @@ struct NativePluginFormView: View {
   @State private var selected: NativeFormElement?
   @State private var localFailure = false
   @State private var showsDiscard = false
+  @State private var showsVueSheet = false
+  @State private var dismissAfterVueSheet = false
   @State private var saveTask: Task<Void, Never>?
   @State private var actionFeedback: String?
   @Environment(\.dismiss) private var dismiss
@@ -31,13 +33,15 @@ struct NativePluginFormView: View {
     return ZStack {
       CinematicBackground()
       if isVuePlugin {
-        NativeVuePluginWebContainer(
-          session: form.activeSession,
-          pluginID: plugin.id,
-          pluginName: plugin.name,
-          surface: .config
-        )
-        .ignoresSafeArea(edges: .bottom)
+        VStack(spacing: 14) {
+          ProgressView("正在打开插件配置弹窗…")
+            .tint(.primary)
+          Button("打开插件配置") {
+            showsVueSheet = true
+          }
+          .buttonStyle(.borderedProminent)
+          .tint(NativeTheme.brand)
+        }
       } else {
         Form {
           if busy {
@@ -66,20 +70,43 @@ struct NativePluginFormView: View {
               }
               if form.document == nil {
                 CinematicFormDivider()
-                CinematicFormRow { Button(L10n.text("重试")) { loadAgain() }.frame(minHeight: 44) }
+                CinematicFormRow {
+                  HStack(spacing: 16) {
+                    Button(L10n.text("重试")) { loadAgain() }.frame(minHeight: 44)
+                    Spacer()
+                    Button("兼容弹窗配置") {
+                      dismissAfterVueSheet = false
+                      showsVueSheet = true
+                    }
+                    .frame(minHeight: 44)
+                  }
+                }
               }
             }
           }
           if let plan {
             if !plan.issues.isEmpty {
+              let hasUnsupported = plan.issues.contains(where: { $0.code == .unsupported })
               CinematicFormSection {
                 CinematicFormRow(symbol: "info.circle") {
                   Text(
                     L10n.text(
-                      plan.issues.contains(where: { $0.code == .unsupported })
-                        ? "部分配置暂不支持原生编辑，保存已停用。" : "请检查标记的配置项。")
+                      hasUnsupported
+                        ? "部分配置含自定义组件，可使用兼容弹窗完整编辑保存。" : "请检查标记的配置项。")
                   )
                   .accessibilityIdentifier("native-plugin-form-blocked")
+                }
+                if hasUnsupported {
+                  CinematicFormDivider()
+                  CinematicFormRow(symbol: "rectangle.portrait.and.arrow.right") {
+                    Button("打开兼容配置弹窗") {
+                      dismissAfterVueSheet = false
+                      showsVueSheet = true
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(NativeTheme.brand)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                  }
                 }
               }
             }
@@ -162,6 +189,29 @@ struct NativePluginFormView: View {
     .alert(L10n.text("放弃未保存的修改？"), isPresented: $showsDiscard) {
       Button(L10n.text("放弃修改"), role: .destructive) { dismiss() }
       Button(L10n.text("取消"), role: .cancel) {}
+    }
+    .sheet(
+      isPresented: $showsVueSheet,
+      onDismiss: {
+        if dismissAfterVueSheet {
+          dismiss()
+        } else {
+          loadAgain()
+        }
+      }
+    ) {
+      NativeVuePluginSheet(
+        session: form.activeSession,
+        pluginID: plugin.id,
+        pluginName: plugin.name,
+        surface: .config
+      )
+    }
+    .onChange(of: form.document?.renderMode) { mode in
+      if mode == .vue {
+        dismissAfterVueSheet = true
+        showsVueSheet = true
+      }
     }
     .task { do { try await form.load() } catch {} }
     .onDisappear {
@@ -295,6 +345,9 @@ private struct NativePluginControlView: View {
 
     case .cron(let field):
       NativePluginCronField(field: field, read: read, update: update) { select(element) }
+
+    case .colorPicker(let field):
+      NativePluginColorPickerView(field: field, read: read, update: update)
 
     case .select(let field, let options, let multiple, _):
       Button {
@@ -506,6 +559,77 @@ private struct NativePluginControlView: View {
     return values.map { value in
       options.first(where: { $0.matches(value) })?.title ?? L10n.text("当前值（不在选项中）")
     }.joined(separator: "、")
+  }
+}
+
+/// 原生颜色选择控件（对应 `VColorPicker`），支持系统取色器与 Hex 色值双向编辑。
+@MainActor
+private struct NativePluginColorPickerView: View {
+  let field: NativeFormField
+  let read: (String) -> PluginJSONValue?
+  let update: (PluginJSONValue, String) -> Void
+
+  var body: some View {
+    let hexText = NativeFormField.text(from: read(field.key))
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 12) {
+        ColorPicker(
+          field.label,
+          selection: Binding(
+            get: { Self.color(fromHex: hexText) ?? NativeTheme.brand },
+            set: { newColor in
+              if let hex = Self.hexString(from: newColor) {
+                update(.string(hex), field.key)
+              }
+            }
+          ),
+          supportsOpacity: false
+        )
+        .disabled(field.disabled)
+      }
+      TextField(
+        "#FFFFFF",
+        text: Binding(
+          get: { NativeFormField.text(from: read(field.key)) },
+          set: { update(.string($0), field.key) }
+        )
+      )
+      .font(.caption.monospaced())
+      .textInputAutocapitalization(.never)
+      .autocorrectionDisabled()
+      .disabled(field.disabled)
+      if !field.hint.isEmpty {
+        Text(field.hint).font(.caption).foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  private static func color(fromHex raw: String) -> Color? {
+    let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+      .trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+    guard cleaned.count == 6 || cleaned.count == 8, let value = UInt64(cleaned, radix: 16) else {
+      return nil
+    }
+    let shift = cleaned.count == 8 ? 8 : 0
+    let r = Double((value >> (16 + shift)) & 0xFF) / 255.0
+    let g = Double((value >> (8 + shift)) & 0xFF) / 255.0
+    let b = Double((value >> shift) & 0xFF) / 255.0
+    return Color(red: r, green: g, blue: b)
+  }
+
+  private static func hexString(from color: Color) -> String? {
+    let uiColor = UIColor(color)
+    var r: CGFloat = 0
+    var g: CGFloat = 0
+    var b: CGFloat = 0
+    var a: CGFloat = 0
+    guard uiColor.getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
+    return String(
+      format: "#%02X%02X%02X",
+      Int(max(0, min(255, round(r * 255)))),
+      Int(max(0, min(255, round(g * 255)))),
+      Int(max(0, min(255, round(b * 255))))
+    )
   }
 }
 

@@ -487,6 +487,7 @@ struct NativeMediaSearchPage: View {
     .onAppear {
       consumeExternalSearchIfNeeded()
       beginInitialSearchIfNeeded()
+      if !isLoadingSources { sourceLoadAttempt = UUID() }
     }
     .onChange(of: externalSearchQuery) { _ in
       consumeExternalSearchIfNeeded()
@@ -596,7 +597,7 @@ struct NativeMediaSearchPage: View {
 
       ScrollView(.horizontal) {
         HStack(spacing: 8) {
-          ForEach(NativeMediaSearchType.allCases) { option in
+          ForEach(availableKinds) { option in
             let selected = kind == option
             Button {
               guard kind != option else { return }
@@ -746,6 +747,15 @@ struct NativeMediaSearchPage: View {
     .tint(.primary)
     .disabled(isLoadingSources)
     .accessibilityIdentifier("native-media-search-sources")
+  }
+
+  /// 按后端已启用媒体模块过滤可用的搜索分类；模块列表尚未返回时先展示全部避免闪烁。
+  private var availableKinds: [NativeMediaSearchType] {
+    guard !sources.isEmpty else { return NativeMediaSearchType.allCases }
+    return NativeMediaSearchType.allCases.filter { candidate in
+      if candidate == .library { return true }
+      return sources.contains { $0.supports(candidate) }
+    }
   }
 
   /// 每个分类独立保留来源，避免切换分类后把内置音乐来源发送给影视搜索。
@@ -1300,7 +1310,7 @@ struct NativeMediaSearchPage: View {
     startRequest(for: committedQuery, page: loadedPage + 1)
   }
 
-  /// 获取真实来源目录；目录失败不阻止未筛选的核心搜索。
+  /// 获取真实来源目录并自动剪除后台高级设置中已关闭的模块；目录失败不阻止未筛选的核心搜索。
   private func loadSources() async {
     let attempt = sourceLoadAttempt
     isLoadingSources = true
@@ -1308,13 +1318,24 @@ struct NativeMediaSearchPage: View {
       if sourceLoadAttempt == attempt { isLoadingSources = false }
     }
     do {
-      let endpoint = try APIEndpoint(path: ["media", "source"])
+      let endpoint = try APIEndpoint(path: ["media", "source"], responseContract: .payload)
       let response = try await session.request(
         endpoint, as: [NativeMediaSourceOption].self, requiring: discoveryPermission)
       try session.checkActive(requiring: discoveryPermission)
       guard sourceLoadAttempt == attempt else { return }
-      sources = response.value.sorted {
+      let loaded = response.value.sorted {
         $0.name.localizedStandardCompare($1.name) == .orderedAscending
+      }
+      sources = loaded
+      // 剔除后台已停用的模块来源，防止残留无效筛选条件
+      for searchKind in NativeMediaSearchType.allCases {
+        let validIDs = Set(loaded.filter { $0.supports(searchKind) }.map(\.id))
+        if let existing = selections[searchKind] {
+          selections[searchKind] = existing.intersection(validIDs)
+        }
+      }
+      if !availableKinds.contains(kind), let fallback = availableKinds.first {
+        kind = fallback
       }
       sourceFailure = false
     } catch is CancellationError {
@@ -1436,11 +1457,33 @@ private struct NativeMediaSearchRow: View {
       .frame(width: artworkSize.width, height: artworkSize.height)
       .clipShape(shape)
       .overlay { shape.strokeBorder(.primary.opacity(0.12), lineWidth: 0.5) }
+      .nativeMediaExistsOverlay(
+        session: session,
+        source: item.detailIdentity?.source ?? item.mediaSource,
+        mediaID: item.detailIdentity?.id ?? item.mediaID,
+        title: item.displayTitle,
+        year: item.displayYear,
+        type: item.type?.value,
+        enabled: item.resultKind == .media,
+        badgeSize: 18,
+        inset: 4
+      )
     } else {
       artworkPlaceholder(symbol: symbol)
         .frame(width: artworkSize.width, height: artworkSize.height)
         .clipShape(shape)
         .overlay { shape.strokeBorder(.primary.opacity(0.12), lineWidth: 0.5) }
+        .nativeMediaExistsOverlay(
+          session: session,
+          source: item.detailIdentity?.source ?? item.mediaSource,
+          mediaID: item.detailIdentity?.id ?? item.mediaID,
+          title: item.displayTitle,
+          year: item.displayYear,
+          type: item.type?.value,
+          enabled: item.resultKind == .media,
+          badgeSize: 18,
+          inset: 4
+        )
         .accessibilityHidden(true)
     }
   }

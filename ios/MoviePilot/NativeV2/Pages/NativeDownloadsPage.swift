@@ -114,7 +114,12 @@ struct NativeDownloadsPage: View {
       }
     }
     .task(id: "\(attempt)|\(selectedClient ?? "")") {
-      await load(forceRefresh: attempt > 0)
+      await load(forceRefresh: true)
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(4))
+        guard !Task.isCancelled else { break }
+        await load(forceRefresh: true, silent: true)
+      }
     }
     .alert(
       "删除下载任务",
@@ -396,10 +401,10 @@ struct NativeDownloadsPage: View {
     }
   }
 
-  /// 并行拉取已启用下载器清单与活跃任务列表；命中页面缓存时静默复用，下拉刷新强制重拉。
-  private func load(forceRefresh: Bool = false) async {
+  /// 并行拉取已启用下载器清单与活跃任务列表；先展示缓存快照消除闪烁，同时始终拉取最新实时下载队列。
+  private func load(forceRefresh: Bool = false, silent: Bool = false) async {
     let cacheKey = "downloads|\(selectedClient ?? "all")"
-    if !forceRefresh,
+    if tasks.isEmpty,
       let cached: (clients: [NativeDownloaderClient], tasks: [NativeDownloadTask]) =
         NativePageDataCache.shared.get(cacheKey, session: session)
     {
@@ -407,30 +412,33 @@ struct NativeDownloadsPage: View {
       tasks = cached.tasks
       isLoading = false
       loadFailed = false
-      return
     }
-    if tasks.isEmpty { isLoading = true }
-    loadFailed = false
-    defer { isLoading = false }
+    if tasks.isEmpty && !silent { isLoading = true }
+    if !silent { loadFailed = false }
+    defer { if !silent { isLoading = false } }
     do {
-      let clientsEndpoint = try APIEndpoint(path: ["download", "clients"])
+      let clientsEndpoint = try APIEndpoint(
+        path: ["download", "clients"], responseContract: .payload)
       let query = selectedClient.map { [URLQueryItem(name: "name", value: $0)] } ?? []
-      let tasksEndpoint = try APIEndpoint(path: ["download"], query: query, trailingSlash: true)
+      let tasksEndpoint = try APIEndpoint(
+        path: ["download"], query: query, responseContract: .payload, trailingSlash: true)
       async let loadedClients = try? session.request(
         clientsEndpoint, as: [NativeDownloaderClient].self
       ).value
-      let loadedTasks = try await session.request(tasksEndpoint, as: [NativeDownloadTask].self)
-        .value
+      let loadedTasks = try await session.request(
+        tasksEndpoint, as: [NativeLossyDownloadTask].self
+      ).value.compactMap(\.value)
       let resolvedClients = await loadedClients
       try Task.checkCancellation()
       if let resolvedClients { clients = resolvedClients }
       tasks = loadedTasks
+      loadFailed = false
       NativePageDataCache.shared.set(
         (clients: clients, tasks: loadedTasks), for: cacheKey, session: session)
     } catch is CancellationError {
       return
     } catch {
-      if tasks.isEmpty { loadFailed = true }
+      if tasks.isEmpty && !silent { loadFailed = true }
     }
   }
 
@@ -491,7 +499,15 @@ private struct NativeDownloaderClient: Decodable, Sendable, Identifiable {
   var id: String { name }
 }
 
-/// `GET /api/v1/download/` 单条任务投影。
+/// 宽容列表元素包装，避免单条任务字段异构导致整个下载列表解码失败。
+private struct NativeLossyDownloadTask: Decodable, Sendable {
+  let value: NativeDownloadTask?
+  init(from decoder: Decoder) throws {
+    value = try? NativeDownloadTask(from: decoder)
+  }
+}
+
+/// `GET /api/v1/download/` 单条任务投影（宽容解码后端 `int | list[int] | str` 混合季集与数值字段）。
 private struct NativeDownloadTask: Decodable, Sendable, Identifiable {
   /// 任务绑定的媒体摘要信息。
   struct Media: Decodable, Sendable {
@@ -517,6 +533,53 @@ private struct NativeDownloadTask: Decodable, Sendable, Identifiable {
       case mediaSource = "media_source"
       case mediaID = "media_id"
     }
+
+    init(from decoder: Decoder) throws {
+      let c = try decoder.container(keyedBy: CodingKeys.self)
+      type = try? c.decodeIfPresent(String.self, forKey: .type)
+      title = try? c.decodeIfPresent(String.self, forKey: .title)
+      season = Self.decodeSeasonEpisode(c, forKey: .season, prefix: "S")
+      episode = Self.decodeSeasonEpisode(c, forKey: .episode, prefix: "E")
+      image = try? c.decodeIfPresent(String.self, forKey: .image)
+      poster = try? c.decodeIfPresent(String.self, forKey: .poster)
+      backdrop = try? c.decodeIfPresent(String.self, forKey: .backdrop)
+      mediaSource = try? c.decodeIfPresent(String.self, forKey: .mediaSource)
+      if let s = try? c.decodeIfPresent(String.self, forKey: .mediaID) {
+        mediaID = s
+      } else if let n = try? c.decodeIfPresent(Int64.self, forKey: .mediaID) {
+        mediaID = String(n)
+      } else {
+        mediaID = nil
+      }
+    }
+
+    private static func decodeSeasonEpisode(
+      _ container: KeyedDecodingContainer<CodingKeys>,
+      forKey key: CodingKeys,
+      prefix: String
+    ) -> String? {
+      if let text = try? container.decodeIfPresent(String.self, forKey: key) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+      }
+      if let num = try? container.decodeIfPresent(Int.self, forKey: key) {
+        return String(format: "%@%02d", prefix, num)
+      }
+      if let list = try? container.decodeIfPresent([Int].self, forKey: key), !list.isEmpty {
+        let sorted = list.sorted()
+        if sorted.count == 1 {
+          return String(format: "%@%02d", prefix, sorted[0])
+        }
+        return String(format: "%@%02d-%@%02d", prefix, sorted.first!, prefix, sorted.last!)
+      }
+      if let strList = try? container.decodeIfPresent([String].self, forKey: key) {
+        let joined = strList.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+          .filter { !$0.isEmpty }
+          .joined(separator: ",")
+        return joined.isEmpty ? nil : joined
+      }
+      return nil
+    }
   }
 
   let downloader: String?
@@ -533,6 +596,63 @@ private struct NativeDownloadTask: Decodable, Sendable, Identifiable {
   let dlspeed: String?
   let leftTime: String?
   let media: Media?
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    downloader = try? c.decodeIfPresent(String.self, forKey: .downloader)
+    title = try? c.decodeIfPresent(String.self, forKey: .title)
+    name = try? c.decodeIfPresent(String.self, forKey: .name)
+    let rawHash = (try? c.decodeIfPresent(String.self, forKey: .hash))?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    if let rawHash, !rawHash.isEmpty {
+      hash = rawHash
+    } else {
+      hash = "\(downloader ?? "")|\(title ?? name ?? UUID().uuidString)"
+    }
+    if let y = try? c.decodeIfPresent(String.self, forKey: .year) {
+      year = y
+    } else if let yInt = try? c.decodeIfPresent(Int.self, forKey: .year) {
+      year = String(yInt)
+    } else {
+      year = nil
+    }
+    seasonEpisode = try? c.decodeIfPresent(String.self, forKey: .seasonEpisode)
+    siteName = try? c.decodeIfPresent(String.self, forKey: .siteName)
+    if let s = try? c.decodeIfPresent(Double.self, forKey: .size) {
+      size = s
+    } else if let sStr = try? c.decodeIfPresent(String.self, forKey: .size), let s = Double(sStr) {
+      size = s
+    } else {
+      size = nil
+    }
+    if let p = try? c.decodeIfPresent(Double.self, forKey: .progress) {
+      progress = p
+    } else if let pStr = try? c.decodeIfPresent(String.self, forKey: .progress),
+      let p = Double(pStr)
+    {
+      progress = p
+    } else {
+      progress = nil
+    }
+    state = try? c.decodeIfPresent(String.self, forKey: .state)
+    upspeed = Self.decodeSpeedString(c, forKey: .upspeed)
+    dlspeed = Self.decodeSpeedString(c, forKey: .dlspeed)
+    leftTime = try? c.decodeIfPresent(String.self, forKey: .leftTime)
+    media = try? c.decodeIfPresent(Media.self, forKey: .media)
+  }
+
+  private static func decodeSpeedString(
+    _ container: KeyedDecodingContainer<CodingKeys>,
+    forKey key: CodingKeys
+  ) -> String? {
+    if let text = try? container.decodeIfPresent(String.self, forKey: key) {
+      return text
+    }
+    if let bytesPerSec = try? container.decodeIfPresent(Double.self, forKey: key) {
+      return bytesPerSec <= 0 ? "0B" : Self.formatBytes(bytesPerSec)
+    }
+    return nil
+  }
 
   /// 种子哈希作为唯一行标识。
   var id: String { hash }

@@ -23,55 +23,81 @@ struct NativeMediaDetailPage: View {
   @State private var isLaunchingPlayback = false
   @State private var pendingCancelSeason: NativeSeasonCancelTarget?
   @State private var actionFeedback: NativeDetailActionFeedback?
+  @State private var scrollOffset: CGFloat = 0
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   @ObservedObject private var appearance = NativeAppearanceStore.shared
 
-  /// 按当前认证会话直接加载单部影视详情、入库/订阅状态、演职员与推荐；不借 WebView。
+  /// 按当前认证会话直接加载单部影视详情、入库/订阅状态、演职员与推荐；头图采用与发现页一致的沉浸式固定背景、下拉延展、轻视差、渐进柔焦与六段无痕溶解。
   var body: some View {
-    ZStack {
-      CinematicBackground()
-      ScrollView {
-        VStack(alignment: .leading, spacing: 0) {
-          if let detail {
-            heroSection(detail)
-            VStack(alignment: .leading, spacing: 24) {
-              if let actionFeedback {
-                feedbackBanner(actionFeedback)
-              }
-              actionBar(detail)
-              synopsisSection(detail)
-              if isTelevision(detail), !resolvedSeasons(detail).isEmpty {
-                seasonsSection(detail, seasons: resolvedSeasons(detail))
-              }
-              if !displayCast(detail).isEmpty {
-                castSection(displayCast(detail))
-              }
-              if !recommendations.isEmpty {
-                recommendationsSection
-              }
-              metadataPanel(detail)
-            }
-            .padding(.horizontal, CinematicStyle.margin)
-            .padding(.top, 8)
-            .padding(.bottom, 36)
-          } else if failed {
-            failureState
-              .padding(.horizontal, CinematicStyle.margin)
-              .padding(.top, 110)
-          } else {
-            ProgressView("正在载入作品详情…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 280)
-              .padding(.top, 110)
-          }
+    GeometryReader { viewport in
+      let heroHeight = resolvedHeroHeight(viewportHeight: viewport.size.height)
+      let progress = transitionProgress(height: heroHeight)
+      let eased = smoothstep(progress)
+      ZStack(alignment: .top) {
+        ambientSurface(progress: eased).ignoresSafeArea()
+        if let detail {
+          heroBackdrop(
+            detail,
+            width: viewport.size.width,
+            height: heroHeight,
+            progress: progress,
+            eased: eased
+          )
+          .ignoresSafeArea(edges: .top)
         }
+        ScrollView {
+          VStack(alignment: .leading, spacing: 0) {
+            if let detail {
+              heroHeaderOverlay(detail, height: heroHeight)
+              VStack(alignment: .leading, spacing: 24) {
+                if let actionFeedback {
+                  feedbackBanner(actionFeedback)
+                }
+                actionBar(detail)
+                synopsisSection(detail)
+                if isTelevision(detail), !resolvedSeasons(detail).isEmpty {
+                  seasonsSection(detail, seasons: resolvedSeasons(detail))
+                }
+                if !displayCast(detail).isEmpty {
+                  castSection(displayCast(detail))
+                }
+                if !recommendations.isEmpty {
+                  recommendationsSection
+                }
+                metadataPanel(detail)
+              }
+              .padding(.horizontal, CinematicStyle.margin)
+              .padding(.top, 8)
+              .padding(.bottom, 36)
+            } else if failed {
+              failureState
+                .padding(.horizontal, CinematicStyle.margin)
+                .padding(.top, 110)
+            } else {
+              ProgressView("正在载入作品详情…")
+                .tint(.primary)
+                .frame(maxWidth: .infinity, minHeight: 280)
+                .padding(.top, 110)
+            }
+          }
+          .frame(maxWidth: .infinity)
+          .modifier(NativeDetailLegacyScrollProbe())
+        }
+        .coordinateSpace(name: "native-media-detail-scroll")
+        .scrollIndicators(.hidden)
+        .refreshable { await loadAll(forceRefresh: true) }
+        .modifier(NativeDetailScrollClipping())
+        .modifier(NativeSoftTopScrollEdge())
+        .ignoresSafeArea(edges: .top)
+        .modifier(NativeDetailScrollObservation(offset: $scrollOffset))
+        .accessibilityIdentifier("native-media-detail-scroll")
+
+        topSafeAreaVeil(progress: eased, height: max(viewport.safeAreaInsets.top, 48) + 42)
       }
-      .scrollIndicators(.hidden)
-      .refreshable { await loadAll(forceRefresh: true) }
-      .ignoresSafeArea(edges: .top)
-      .modifier(NativeSoftTopScrollEdge())
-      .accessibilityIdentifier("native-media-detail-scroll")
+      .navigationTitle(progress > 0.72 ? (detail?.title ?? "") : "")
     }
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
@@ -103,122 +129,200 @@ struct NativeMediaDetailPage: View {
     session.user.allows(.init(category: .search))
   }
 
-  /// 全宽剧照延伸至顶部安全区，经多段柔边融入当前深/浅色底色并浮置片名与核心元数据。
-  private func heroSection(_ detail: NativeMediaDetailPayload) -> some View {
-    let heroHeight: CGFloat = dynamicTypeSize.isAccessibilitySize ? 470 : 410
+  private func resolvedHeroHeight(viewportHeight: CGFloat) -> CGFloat {
+    if dynamicTypeSize.isAccessibilitySize {
+      return max(500, viewportHeight * 0.64)
+    }
+    return min(max(viewportHeight * 0.56, 410), 530)
+  }
+
+  private func smoothstep(_ t: CGFloat) -> CGFloat {
+    let clamped = min(max(t, 0), 1)
+    return clamped * clamped * (3 - 2 * clamped)
+  }
+
+  private func transitionProgress(height: CGFloat) -> CGFloat {
+    min(max(-scrollOffset / max(height * 0.62, 1), 0), 1)
+  }
+
+  @ViewBuilder
+  private func ambientSurface(progress: CGFloat) -> some View {
+    ZStack {
+      CinematicBackground()
+      if colorScheme == .dark {
+        Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
+          .opacity(max(0, 1 - Double(progress) * 1.15) * 0.55)
+      }
+    }
+  }
+
+  /// 详情页沉浸式固定剧照背景：复用发现页同款下拉弹性延展、轻视差、渐进柔焦与六段平滑软边溶解，完全无拼缝。
+  private func heroBackdrop(
+    _ detail: NativeMediaDetailPayload, width: CGFloat, height: CGFloat,
+    progress: CGFloat, eased: CGFloat
+  ) -> some View {
     let backdrop = Self.resolveArtwork(
       detail.backdropPath ?? detail.posterPath, source: detail.mediaSource ?? identity.source)
+    let scrollUp = max(-scrollOffset, 0)
+    let pullDown = max(scrollOffset, 0)
+    let backdropHeight = height * 1.08 + pullDown
+    let parallax = reduceMotion ? 0 : -min(scrollUp, height) * 0.07
+    let blurRadius: CGFloat = (reduceMotion || reduceTransparency) ? 0 : eased * 18
+    let visibility = max(0, 1 - Double(eased) * 0.94)
     let isLight = colorScheme == .light
     let fadeBase =
       isLight
       ? NativeTheme.topVeilColor(for: .light, appearance: appearance)
-      : Color(red: 22 / 255, green: 19 / 255, blue: 32 / 255)
-    return ZStack(alignment: .bottomLeading) {
+      : Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
+    return ZStack(alignment: .bottom) {
       NativeMediaArtwork(
         session: session, reference: backdrop, role: .backdrop, maximumWidth: 1280
       )
-      .frame(maxWidth: .infinity)
-      .frame(height: heroHeight)
+      .frame(width: width, height: backdropHeight)
       .clipped()
-      .overlay(alignment: .top) {
-        LinearGradient(
-          colors: [isLight ? fadeBase.opacity(0.68) : .black.opacity(0.42), .clear],
-          startPoint: .top, endPoint: .bottom
-        )
-        .frame(height: 110)
+      .blur(radius: blurRadius, opaque: false)
+      // 浅色模式顶部轻微柔化，确保状态栏和返回按钮在深色剧照上依然清晰。
+      if isLight {
+        VStack {
+          LinearGradient(
+            colors: [fadeBase.opacity(0.62), fadeBase.opacity(0.22), .clear],
+            startPoint: .top, endPoint: .bottom
+          )
+          .frame(height: 112)
+          Spacer(minLength: 0)
+        }
+        .frame(width: width, height: backdropHeight)
       }
-      .overlay {
-        LinearGradient(
-          stops: isLight
-            ? [
-              .init(color: .clear, location: 0.28),
-              .init(color: fadeBase.opacity(0.66), location: 0.64),
-              .init(color: fadeBase.opacity(0.96), location: 0.90),
-              .init(color: fadeBase, location: 1.0),
-            ]
-            : [
-              .init(color: .clear, location: 0.30),
-              .init(color: fadeBase.opacity(0.58), location: 0.68),
-              .init(
-                color: Color(red: 28 / 255, green: 24 / 255, blue: 38 / 255).opacity(0.95),
-                location: 0.94),
-              .init(color: .clear, location: 1.0),
-            ], startPoint: .top, endPoint: .bottom)
+      // 底部多段平滑融底：深色下压暗托起白字，浅色下柔化融底托起深色文字。
+      LinearGradient(
+        stops: isLight
+          ? [
+            .init(color: .clear, location: 0.34),
+            .init(color: fadeBase.opacity(0.56), location: 0.62),
+            .init(color: fadeBase.opacity(0.92), location: 0.82),
+            .init(color: fadeBase, location: 1),
+          ]
+          : [
+            .init(color: .clear, location: 0.36),
+            .init(color: fadeBase.opacity(0.45), location: 0.64),
+            .init(color: fadeBase.opacity(0.86), location: 0.86),
+            .init(color: fadeBase, location: 1),
+          ], startPoint: .top, endPoint: .bottom
+      )
+      .frame(width: width, height: backdropHeight)
+      .opacity(max(0, 1 - Double(eased) * (isLight ? 0.25 : 0.6)))
+    }
+    .offset(y: parallax)
+    .overlay(
+      isLight ? fadeBase.opacity(Double(eased) * 0.32) : .black.opacity(Double(eased) * 0.22)
+    )
+    .mask(alignment: .top) {
+      LinearGradient(
+        stops: [
+          .init(color: .white, location: 0),
+          .init(color: .white, location: 0.44),
+          .init(color: .white.opacity(0.86), location: 0.60),
+          .init(color: .white.opacity(0.42), location: 0.78),
+          .init(color: .white.opacity(0.10), location: 0.90),
+          .init(color: .clear, location: 1),
+        ], startPoint: .top, endPoint: .bottom
+      )
+      .frame(height: backdropHeight)
+      .offset(y: min(scrollOffset, 0) * 0.88)
+    }
+    .opacity(progress >= 0.99 ? 0 : visibility)
+    .allowsHitTesting(false)
+    .accessibilityHidden(true)
+  }
+
+  /// 滚动离顶后在状态栏和导航栏安全区呈现渐进柔化底色，与发现页保持一致。
+  private func topSafeAreaVeil(progress: CGFloat, height: CGFloat) -> some View {
+    let opacity = Double(progress)
+    let surface = NativeTheme.topVeilColor(for: colorScheme, appearance: appearance)
+    return LinearGradient(
+      stops: [
+        .init(color: surface.opacity(opacity), location: 0),
+        .init(color: surface.opacity(0.94 * opacity), location: 0.44),
+        .init(color: surface.opacity(0.62 * opacity), location: 0.72),
+        .init(color: .clear, location: 1),
+      ], startPoint: .top, endPoint: .bottom
+    )
+    .frame(height: height)
+    .ignoresSafeArea(edges: .top)
+    .allowsHitTesting(false)
+    .accessibilityHidden(true)
+  }
+
+  /// 前景标题与核心元数据浮置在固定背景头图底部区域，随正文自然上滚。
+  private func heroHeaderOverlay(_ detail: NativeMediaDetailPayload, height: CGFloat) -> some View {
+    let isLight = colorScheme == .light
+    return VStack(alignment: .leading, spacing: 10) {
+      Spacer(minLength: 0)
+      Text(detail.title ?? "未命名作品")
+        .font(.system(.largeTitle, design: .serif).weight(.bold))
+        .foregroundStyle(isLight ? Color.primary : Color.white)
+        .shadow(color: isLight ? .clear : .black.opacity(0.45), radius: 10, y: 3)
+        .accessibilityIdentifier("native-media-detail-title")
+      if let tagline = detail.tagline?.trimmingCharacters(in: .whitespacesAndNewlines),
+        !tagline.isEmpty
+      {
+        Text(tagline)
+          .font(.subheadline.italic())
+          .foregroundStyle(isLight ? Color.secondary : Color.white.opacity(0.76))
+          .lineLimit(2)
       }
-      .mask(
-        LinearGradient(
-          stops: [
-            .init(color: .white, location: 0),
-            .init(color: .white, location: 0.66),
-            .init(color: .white.opacity(0.55), location: 0.88),
-            .init(color: .clear, location: 1),
-          ], startPoint: .top, endPoint: .bottom))
-      VStack(alignment: .leading, spacing: 10) {
-        Text(detail.title ?? "未命名作品")
-          .font(.system(.largeTitle, design: .serif).weight(.bold))
-          .foregroundStyle(isLight ? Color.primary : Color.white)
-          .shadow(color: isLight ? .clear : .black.opacity(0.45), radius: 10, y: 3)
-          .accessibilityIdentifier("native-media-detail-title")
-        if let tagline = detail.tagline?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !tagline.isEmpty
-        {
-          Text(tagline)
-            .font(.subheadline.italic())
-            .foregroundStyle(isLight ? Color.secondary : Color.white.opacity(0.76))
-            .lineLimit(2)
+      let summaryParts = metadataLineParts(detail)
+      if !summaryParts.isEmpty {
+        Text(summaryParts.joined(separator: "  ·  "))
+          .font(.subheadline.weight(.medium))
+          .foregroundStyle(isLight ? Color.primary.opacity(0.80) : Color.white.opacity(0.84))
+      }
+      HStack(spacing: 10) {
+        if let rating = detail.voteAverage, rating > 0 {
+          Label(String(format: "%.1f", rating), systemImage: "star.fill")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(NativeTheme.warning)
         }
-        let summaryParts = metadataLineParts(detail)
-        if !summaryParts.isEmpty {
-          Text(summaryParts.joined(separator: "  ·  "))
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(isLight ? Color.primary.opacity(0.80) : Color.white.opacity(0.84))
+        if let server = status.server, !server.isEmpty, status.itemID != nil {
+          Label("已在 \(server) 入库", systemImage: "checkmark.seal.fill")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(NativeTheme.success)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background {
+              Capsule()
+                .fill(Color(red: 0.16, green: 0.36, blue: 0.28).opacity(0.55))
+                .overlay {
+                  Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.6)
+                }
+            }
+            .accessibilityIdentifier("native-media-detail-library-badge")
         }
-        HStack(spacing: 10) {
-          if let rating = detail.voteAverage, rating > 0 {
-            Label(String(format: "%.1f", rating), systemImage: "star.fill")
-              .font(.subheadline.weight(.semibold))
-              .foregroundStyle(NativeTheme.warning)
-          }
-          if let server = status.server, !server.isEmpty, status.itemID != nil {
-            Label("已在 \(server) 入库", systemImage: "checkmark.seal.fill")
-              .font(.caption.weight(.semibold))
-              .foregroundStyle(NativeTheme.success)
-              .padding(.horizontal, 10)
-              .padding(.vertical, 5)
-              .background {
-                Capsule()
-                  .fill(Color(red: 0.16, green: 0.36, blue: 0.28).opacity(0.55))
-                  .overlay {
-                    Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.6)
-                  }
-              }
-              .accessibilityIdentifier("native-media-detail-library-badge")
-          }
-        }
-        let genres = detail.genreNames.prefix(4)
-        if !genres.isEmpty {
-          ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-              ForEach(Array(genres), id: \.self) { genre in
-                Text(genre)
-                  .font(.caption.weight(.medium))
-                  .foregroundStyle(NativeTheme.chipText)
-                  .padding(.horizontal, 10)
-                  .padding(.vertical, 5)
-                  .background {
-                    Capsule()
-                      .fill(NativeTheme.chipFill)
-                      .overlay { Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 0.5) }
-                  }
-              }
+      }
+      let genres = detail.genreNames.prefix(4)
+      if !genres.isEmpty {
+        ScrollView(.horizontal) {
+          HStack(spacing: 8) {
+            ForEach(Array(genres), id: \.self) { genre in
+              Text(genre)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(NativeTheme.chipText)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background {
+                  Capsule()
+                    .fill(NativeTheme.chipFill)
+                    .overlay { Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.6) }
+                }
             }
           }
-          .scrollIndicators(.hidden)
         }
+        .scrollIndicators(.hidden)
       }
-      .padding(.horizontal, CinematicStyle.margin)
-      .padding(.bottom, 16)
     }
+    .padding(.horizontal, CinematicStyle.margin)
+    .padding(.bottom, 16)
+    .frame(maxWidth: .infinity, minHeight: height, alignment: .bottomLeading)
   }
 
   /// 主操作区遵循 Liquid Glass 分组规范：按权限展示订阅开关、资源搜索与入库状态，不伪造未接入动作。
@@ -657,6 +761,14 @@ struct NativeMediaDetailPage: View {
           RoundedRectangle(cornerRadius: 13, style: .continuous)
             .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
         }
+        .nativeMediaExistsOverlay(
+          session: session,
+          source: item.identity?.source,
+          mediaID: item.identity?.mediaID,
+          title: item.title,
+          year: item.year,
+          type: item.identity?.type ?? item.type
+        )
       Text(item.title ?? "未命名作品")
         .font(.footnote.weight(.medium))
         .foregroundStyle(.primary)
@@ -1509,5 +1621,62 @@ private struct NativeMediaSummaryItem: Decodable, Sendable, Identifiable {
     case title
     case year
     case posterPath = "poster_path"
+  }
+}
+
+private struct NativeDetailScrollOffsetKey: PreferenceKey {
+  static let defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+private struct NativeDetailScrollClipping: ViewModifier {
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if #available(iOS 17, *) {
+      content.scrollClipDisabled()
+    } else {
+      content
+    }
+  }
+}
+
+private struct NativeDetailScrollObservation: ViewModifier {
+  @Binding var offset: CGFloat
+
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if #available(iOS 18, *) {
+      content.onScrollGeometryChange(for: CGFloat.self) { geometry in
+        let raw = -(geometry.contentOffset.y + geometry.contentInsets.top)
+        let clamped = max(min(raw, 240), -720)
+        return (clamped * 2).rounded() / 2
+      } action: { _, value in
+        if abs(offset - value) >= 0.5 { offset = value }
+      }
+    } else {
+      content.onPreferenceChange(NativeDetailScrollOffsetKey.self) { raw in
+        let clamped = max(min(raw, 240), -720)
+        if abs(offset - clamped) >= 0.5 { offset = clamped }
+      }
+    }
+  }
+}
+
+private struct NativeDetailLegacyScrollProbe: ViewModifier {
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if #available(iOS 18, *) {
+      content
+    } else {
+      content.background(alignment: .top) {
+        GeometryReader { proxy in
+          Color.clear.preference(
+            key: NativeDetailScrollOffsetKey.self,
+            value: proxy.frame(in: .named("native-media-detail-scroll")).minY
+          )
+        }
+        .frame(height: 0)
+      }
+    }
   }
 }

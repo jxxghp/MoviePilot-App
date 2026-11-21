@@ -6,12 +6,13 @@ public enum PluginComponentCatalog {
     case "VForm", "VRow", "VCol", "VContainer", "VCard", "VCardText", "VCardTitle",
       "VCardSubtitle", "VCardItem", "VCardActions", "VSheet", "VSpacer", "VDivider", "div":
       return .layout
-    case "VSwitch", "VCheckbox", "VCheckboxBtn", "VTextField", "VTextarea", "VSelect",
-      "VCombobox", "VAutocomplete", "VRadio", "VRadioGroup", "VSlider", "VRangeSlider",
-      "VCronField", "VChipGroup":
+    case "VSwitch", "VCheckbox", "VCheckboxBtn", "VTextField", "VTextarea", "VPathField",
+      "VSelect", "VCombobox", "VAutocomplete", "VRadio", "VRadioGroup", "VSlider", "VRangeSlider",
+      "VCronField", "VCronVuetify", "VChipGroup", "VBtnToggle", "VColorPicker":
       return .input
     case "VAlert", "VChip", "VLabel", "VList", "VListItem", "VListItemTitle",
       "VListItemSubtitle", "VProgressLinear", "VProgressCircular", "VSkeletonLoader",
+      "VScrollToTopBtn", "VPageContentTitle",
       "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "em", "i", "u",
       "small", "br", "code", "pre":
       return .display
