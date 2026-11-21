@@ -221,11 +221,17 @@ struct NativeMediaDetailPage: View {
             ) {
               Task {
                 isLaunchingPlayback = true
+                let posterRaw = Self.resolveArtwork(
+                  detail.posterPath ?? detail.backdropPath,
+                  source: detail.mediaSource ?? identity.source)
+                let artworkURL = NativeMediaPlaybackLauncher.proxiedArtworkURL(
+                  session: session, raw: posterRaw)
                 let err = await NativeMediaPlaybackLauncher.shared.playMediaServerItem(
                   session: session,
                   itemID: itemID,
                   server: status.server,
-                  title: detail.title ?? "播放")
+                  title: detail.title ?? "播放",
+                  artworkURL: artworkURL)
                 isLaunchingPlayback = false
                 if let err {
                   actionFeedback = NativeDetailActionFeedback(isError: true, message: err)

@@ -3,12 +3,13 @@ import MoviePilotCore
 import MoviePilotSession
 import UIKit
 
-/// 原生媒体播放调度器：脱离 WebCoordinator 直接拉起 `MediaPlaybackViewController`（VLCKit/AVKit/PiP），支持媒体服务器流与存储本地文件播放。
+/// 原生媒体播放调度器：脱离 WebCoordinator 直接拉起 `MediaPlaybackViewController`（VLCKit/AVKit/PiP），支持媒体服务器流、音乐队列与存储本地文件播放。
 @MainActor
 final class NativeMediaPlaybackLauncher {
   static let shared = NativeMediaPlaybackLauncher()
 
   private var activePlayer: MediaPlaybackViewController?
+  private var minimizedPlayer: MediaPlaybackViewController?
 
   private init() {}
 
@@ -24,6 +25,23 @@ final class NativeMediaPlaybackLauncher {
     guard let ext = rawExt?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
     else { return false }
     return audioExtensions.contains(ext)
+  }
+
+  /// 将封面原始地址转换为当前实例受信任的图片代理地址，供原生播放器加载封面与锁屏海报。
+  static func proxiedArtworkURL(session: NativeSession, raw: String?) -> URL? {
+    guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty,
+      let source = URL(string: trimmed),
+      let scheme = source.scheme?.lowercased(), ["http", "https"].contains(scheme),
+      source.host != nil
+    else { return nil }
+    var components = URLComponents(
+      url: session.instance.address.url.appending(path: "api/v1/system/img/0"),
+      resolvingAgainstBaseURL: false)
+    components?.queryItems = [
+      URLQueryItem(name: "imgurl", value: trimmed),
+      URLQueryItem(name: "cache", value: "true"),
+    ]
+    return components?.url
   }
 
   /// 播放媒体服务器已入库条目（Emby / Jellyfin / Plex），直连 `GET /api/v1/mediaserver/stream-info`。
@@ -49,13 +67,15 @@ final class NativeMediaPlaybackLauncher {
     }
   }
 
-  /// 播放音乐单曲，直连 `POST /api/v1/mediaserver/stream-info/music`。
+  /// 播放音乐单曲，直连 `POST /api/v1/mediaserver/stream-info/music`，可选携带专辑队列支持切歌。
   func playMusicTrack(
     session: NativeSession,
     title: String,
     artist: String?,
     album: String?,
-    artworkURL: URL? = nil
+    artworkURL: URL? = nil,
+    queue: [MediaPlaybackQueueItem] = [],
+    queueIndex: Int = 0
   ) async -> String? {
     do {
       let auth = try session.playbackAuthorization()
@@ -65,7 +85,7 @@ final class NativeMediaPlaybackLauncher {
       return present(
         manifest: manifest, client: client, instanceID: session.instance.id,
         itemID: manifest.itemId, title: title, artworkURL: artworkURL,
-        queue: [], queueIndex: 0)
+        queue: queue, queueIndex: queueIndex)
     } catch {
       return "当前曲目未在媒体服务器中匹配到可播放音频文件。"
     }
@@ -93,11 +113,23 @@ final class NativeMediaPlaybackLauncher {
     }
   }
 
-  /// 强制关闭当前活跃播放器（实例切换或退出登录时调用）。
-  func dismissActivePlayer() {
+  /// 强制关闭当前活跃或画中画最小化的播放器（实例切换、退出登录或新起播替换时调用）。
+  func dismissActivePlayer(animated: Bool = true) {
     if let player = activePlayer {
       activePlayer = nil
-      player.dismiss(animated: true)
+      let wasPresented = player.presentingViewController != nil && !player.isBeingDismissed
+      if !animated, wasPresented {
+        player.dismiss(animated: false)
+      }
+      player.closeFromShell()
+    }
+    if let mini = minimizedPlayer {
+      minimizedPlayer = nil
+      let wasPresented = mini.presentingViewController != nil && !mini.isBeingDismissed
+      if !animated, wasPresented {
+        mini.dismiss(animated: false)
+      }
+      mini.closeFromShell()
     }
   }
 
@@ -112,10 +144,10 @@ final class NativeMediaPlaybackLauncher {
     queue: [MediaPlaybackQueueItem],
     queueIndex: Int
   ) -> String? {
+    dismissActivePlayer(animated: false)
     guard let presenter = Self.topViewController() else {
       return "当前界面暂不支持拉起播放器。"
     }
-    dismissActivePlayer()
     let player = MediaPlaybackViewController(
       manifest: manifest,
       client: client,
@@ -126,12 +158,27 @@ final class NativeMediaPlaybackLauncher {
       queue: queue,
       queueIndex: queueIndex,
       onMinimize: { [weak self] vc in
-        vc.dismiss(animated: true)
-        if self?.activePlayer === vc { self?.activePlayer = nil }
+        guard let self else { return }
+        self.minimizedPlayer = vc
+        if self.activePlayer === vc { self.activePlayer = nil }
+        if vc.presentingViewController != nil {
+          vc.dismiss(animated: true)
+        }
       },
-      onExpand: { _ in },
+      onExpand: { [weak self] vc in
+        guard let self else { return }
+        self.minimizedPlayer = nil
+        self.activePlayer = vc
+        if vc.presentingViewController == nil, let top = Self.topViewController(), top !== vc {
+          top.present(vc, animated: true)
+        }
+      },
       onClosePlayback: { [weak self] vc in
         if self?.activePlayer === vc { self?.activePlayer = nil }
+        if self?.minimizedPlayer === vc { self?.minimizedPlayer = nil }
+        if vc.presentingViewController != nil, !vc.isBeingDismissed {
+          vc.dismiss(animated: true)
+        }
       }
     )
     player.modalPresentationStyle = .fullScreen
@@ -147,6 +194,7 @@ final class NativeMediaPlaybackLauncher {
       ?? scenes.flatMap(\.windows).first
     var current = keyWindow?.rootViewController
     while let presented = current?.presentedViewController {
+      if presented.isBeingDismissed { break }
       current = presented
     }
     return current
