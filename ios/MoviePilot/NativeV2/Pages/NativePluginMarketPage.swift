@@ -5,73 +5,204 @@ import MoviePilotPluginForms
 import MoviePilotSession
 import SwiftUI
 
-/// 原生插件市场与生命周期管理页：支持市场检索/筛选/安装/更新与已安装插件的配置、重置和卸载，仅超级管理员可见。
+/// 原生插件管理主页面（对标十.7、十一.3、十一.4）：
+/// 默认展示已安装插件，页面内不再展示市场/已安装切换栏和状态筛选条；
+/// 右上角固定展示「插件市场」图标与「筛选/排序」图标，长按卡片提供完整运维与分身菜单。
 @MainActor
 struct NativePluginMarketPage: View {
-  /// 顶部两大视图模式。
-  enum Mode: String, CaseIterable, Identifiable {
-    case market = "插件市场"
-    case installed = "已安装管理"
-
-    /// 稳定模式标识。
+  /// 已安装插件状态过滤（收纳于右上角菜单）。
+  enum InstalledFilter: String, CaseIterable, Identifiable {
+    case all = "全部"
+    case running = "运行中"
+    case stopped = "未启用"
+    case updatable = "有更新"
     var id: String { rawValue }
   }
 
-  /// 市场子筛选。
-  enum MarketFilter: String, CaseIterable, Identifiable {
-    case all = "全部"
-    case updatable = "可更新"
-    case notInstalled = "未安装"
-
-    /// 稳定筛选标识。
+  /// 插件列表排序方式。
+  enum SortMode: String, CaseIterable, Identifiable {
+    case defaultOrder = "默认顺序"
+    case nameAsc = "名称排序"
+    case installsDesc = "安装量最高"
+    case ratingDesc = "评分最高"
     var id: String { rawValue }
   }
 
   let session: NativeSession
 
-  @State private var mode: Mode = .market
-  @State private var marketFilter: MarketFilter = .all
+  @Environment(\.openURL) private var openURL
+  @State private var installedFilter: InstalledFilter = .all
   @State private var sortMode: SortMode = .defaultOrder
-  @State private var marketPlugins: [NativeMarketPluginRecord] = []
   @State private var installedPlugins: [NativeMarketPluginRecord] = []
   @State private var installStats: [String: Int] = [:]
   @State private var ratings: [String: NativePluginRatingSummary] = [:]
-  @State private var marketPage = 1
-  @State private var marketHasMore = true
-  @State private var isLoadingMore = false
   @State private var searchText = ""
   @State private var isLoading = true
   @State private var loadFailed = false
   @State private var reloadToken = 0
   @State private var mutatingID: String?
+
+  @State private var showsMarketPage = false
+  @State private var formSelection: FormSelection?
+  @State private var dataPageSelection: NativeMarketPluginRecord?
+  @State private var detailTarget: NativeMarketPluginRecord?
+  @State private var cloneTarget: NativeMarketPluginRecord?
+  @State private var logTarget: NativeMarketPluginRecord?
+  @State private var capabilitiesTarget: NativeMarketPluginRecord?
+  @State private var dataSummaryTarget: NativeMarketPluginRecord?
+  @State private var instanceManageTarget: NativeMarketPluginRecord?
+
   @State private var pendingInstall: NativeMarketPluginRecord?
   @State private var pendingReset: NativeMarketPluginRecord?
   @State private var pendingUninstall: NativeMarketPluginRecord?
   @State private var feedback: NativePluginMarketFeedback?
-  @State private var formSelection: FormSelection?
-  @State private var dataPageSelection: NativeMarketPluginRecord?
 
-  /// 复用既有 `NativePluginFormView` 打开已安装插件配置。
   private struct FormSelection {
     let plugin: NativeInstalledPlugin
     let form: NativePluginForm
   }
 
-  /// 连续紫玫瑰深色渐变、模式切换胶囊、筛选条与插件玻璃卡片列表。
   var body: some View {
+    contentWithAlerts
+  }
+
+  private var scrollContent: some View {
+    ZStack {
+      CinematicBackground()
+      ScrollView {
+        VStack(alignment: .leading, spacing: 14) {
+          if let feedback {
+            feedbackBanner(feedback)
+          }
+          if isLoading && installedPlugins.isEmpty {
+            ProgressView("正在载入已安装插件…")
+              .tint(.primary)
+              .frame(maxWidth: .infinity, minHeight: 220)
+          } else if loadFailed && installedPlugins.isEmpty {
+            failureCard
+          } else if filteredItems.isEmpty {
+            emptyCard
+          } else {
+            LazyVStack(spacing: 12) {
+              ForEach(filteredItems) { plugin in
+                installedPluginCard(plugin)
+              }
+            }
+          }
+        }
+        .frame(maxWidth: 820)
+        .padding(.horizontal, CinematicStyle.margin)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity)
+      }
+      .scrollIndicators(.hidden)
+      .refreshable { await loadInstalled(forceRefresh: true) }
+      .modifier(NativeSoftTopScrollEdge())
+      .accessibilityIdentifier("native-plugin-market-scroll")
+    }
+  }
+
+  private var contentWithNavigation: some View {
+    scrollContent
+      .navigationTitle("插件")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .searchable(text: $searchText, prompt: "搜索已安装插件、作者或标签")
+      .toolbar {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button {
+            showsMarketPage = true
+          } label: {
+            Image(systemName: "storefront")
+          }
+          .accessibilityLabel("插件市场")
+          .accessibilityIdentifier("native-plugin-open-store")
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+          filterToolbarMenu
+        }
+      }
+      .navigationDestination(isPresented: $showsMarketPage) {
+        NativePluginStorePage(session: session) {
+          reloadToken += 1
+        }
+      }
+      .navigationDestination(
+        isPresented: Binding(
+          get: { formSelection != nil }, set: { if !$0 { formSelection = nil } })
+      ) {
+        if let formSelection {
+          NativePluginFormView(plugin: formSelection.plugin, form: formSelection.form)
+        }
+      }
+      .navigationDestination(
+        isPresented: Binding(
+          get: { dataPageSelection != nil }, set: { if !$0 { dataPageSelection = nil } })
+      ) {
+        if let plugin = dataPageSelection {
+          NativePluginDataPageView(
+            session: session, pluginID: plugin.id, pluginName: plugin.displayName)
+        }
+      }
+      .task(id: reloadToken) {
+        await loadInstalled(forceRefresh: reloadToken > 0)
+      }
+  }
+
+  private var contentWithSheets: some View {
     contentWithNavigation
+      .sheet(item: $detailTarget) { plugin in
+        NativePluginMarketDetailSheet(
+          session: session,
+          plugin: plugin,
+          downloads: resolvedDownloads(for: plugin),
+          ratingSummary: resolvedRating(for: plugin)
+        ) { message in
+          feedback = NativePluginMarketFeedback(isError: false, message: message)
+          reloadToken += 1
+        }
+      }
+      .sheet(item: $cloneTarget) { plugin in
+        NativePluginCloneSheet(session: session, plugin: plugin) { message in
+          feedback = NativePluginMarketFeedback(isError: false, message: message)
+          reloadToken += 1
+        }
+      }
+      .sheet(item: $logTarget) { plugin in
+        NativePluginLogSheet(session: session, plugin: plugin)
+      }
+      .sheet(item: $capabilitiesTarget) { plugin in
+        NativePluginCapabilitiesSheet(session: session, plugin: plugin)
+      }
+      .sheet(item: $dataSummaryTarget) { plugin in
+        NativePluginDataSummarySheet(session: session, plugin: plugin)
+      }
+      .sheet(item: $instanceManageTarget) { plugin in
+        NativePluginInstanceManageSheet(
+          session: session,
+          plugin: plugin,
+          allInstalled: installedPlugins
+        ) { message in
+          feedback = NativePluginMarketFeedback(isError: false, message: message)
+          reloadToken += 1
+        }
+      }
+  }
+
+  private var contentWithAlerts: some View {
+    contentWithSheets
       .alert(
-        pendingInstall?.hasUpdate == true ? "更新插件" : "安装插件",
+        "更新插件",
         isPresented: Binding(
           get: { pendingInstall != nil }, set: { if !$0 { pendingInstall = nil } }),
         presenting: pendingInstall
       ) { plugin in
-        Button(plugin.hasUpdate ? "确认更新" : "确认安装") {
-          Task { await installPlugin(plugin) }
+        Button("确认更新") {
+          Task { await updatePlugin(plugin) }
         }
         Button("取消", role: .cancel) {}
       } message: { plugin in
-        Text("确认从插件仓库安装「\(plugin.displayName)」v\(plugin.version) 吗？")
+        Text("确认更新「\(plugin.displayName)」至最新版本吗？")
       }
       .alert(
         "重置插件",
@@ -100,52 +231,22 @@ struct NativePluginMarketPage: View {
       }
   }
 
-  /// 主体与导航栏、工具栏、搜索和表单路由修饰。
-  private var contentWithNavigation: some View {
-    mainContent
-      .navigationTitle(mode == .market ? "插件市场" : "插件管理")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
-      .searchable(text: $searchText, prompt: "搜索插件名称、作者或标签")
-      .toolbar {
-        ToolbarItem(placement: .topBarTrailing) {
-          moreToolbarMenu
-        }
-      }
-      .navigationDestination(
-        isPresented: Binding(
-          get: { formSelection != nil }, set: { if !$0 { formSelection = nil } })
-      ) {
-        if let formSelection {
-          NativePluginFormView(plugin: formSelection.plugin, form: formSelection.form)
-        }
-      }
-      .navigationDestination(
-        isPresented: Binding(
-          get: { dataPageSelection != nil }, set: { if !$0 { dataPageSelection = nil } })
-      ) {
-        if let plugin = dataPageSelection {
-          NativePluginDataPageView(
-            session: session, pluginID: plugin.id, pluginName: plugin.displayName)
-        }
-      }
-      .task(id: "\(mode.rawValue)|\(reloadToken)") {
-        await load(forceMarket: false, forceRefresh: reloadToken > 0)
-      }
-  }
-
-  /// 插件列表排序方式。
-  private enum SortMode: String, CaseIterable, Identifiable {
-    case defaultOrder = "默认顺序"
-    case installsDesc = "安装量最高"
-    case ratingDesc = "评分最高"
-    case nameAsc = "名称排序"
-    var id: String { rawValue }
-  }
-
-  /// 右上角筛选与排序操作菜单。
-  private var moreToolbarMenu: some View {
+  /// 右上角过滤与排序菜单（收纳状态过滤、排序与刷新）。
+  private var filterToolbarMenu: some View {
     Menu {
+      Section("状态过滤") {
+        ForEach(InstalledFilter.allCases) { option in
+          Button {
+            installedFilter = option
+          } label: {
+            if installedFilter == option {
+              Label(option.rawValue, systemImage: "checkmark")
+            } else {
+              Text(option.rawValue)
+            }
+          }
+        }
+      }
       Section("排序方式") {
         ForEach(SortMode.allCases) { option in
           Button {
@@ -159,109 +260,33 @@ struct NativePluginMarketPage: View {
           }
         }
       }
-      if mode == .market {
-        Section("市场筛选") {
-          ForEach(MarketFilter.allCases) { option in
-            Button {
-              marketFilter = option
-            } label: {
-              if marketFilter == option {
-                Label(option.rawValue, systemImage: "checkmark")
-              } else {
-                Text(option.rawValue)
-              }
-            }
-          }
-        }
-      }
       Divider()
       Button {
-        Task { await load(forceMarket: true) }
+        reloadToken += 1
       } label: {
-        Label("同步最新市场数据", systemImage: "arrow.triangle.2.circlepath")
+        Label("刷新列表", systemImage: "arrow.triangle.2.circlepath")
       }
     } label: {
-      Image(systemName: "line.3.horizontal.decrease.circle")
+      Image(
+        systemName: installedFilter == .all
+          ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
     }
     .accessibilityLabel("筛选与排序")
     .accessibilityIdentifier("native-plugin-market-filter-menu")
   }
 
-  /// 主滚动内容区。
-  private var mainContent: some View {
-    ZStack {
-      CinematicBackground()
-      ScrollView {
-        VStack(alignment: .leading, spacing: 14) {
-          modeBar
-          if mode == .market {
-            marketFilterBar
-          }
-          if let feedback {
-            feedbackBanner(feedback)
-          }
-          listSection
-        }
-        .frame(maxWidth: 820)
-        .padding(.horizontal, CinematicStyle.margin)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity)
-      }
-      .scrollIndicators(.hidden)
-      .refreshable { await load(forceMarket: mode == .market, forceRefresh: true) }
-      .modifier(NativeSoftTopScrollEdge())
-      .accessibilityIdentifier("native-plugin-market-scroll")
-    }
-  }
-
-  /// 加载态、失败态、空态或插件卡片列表。
-  @ViewBuilder
-  private var listSection: some View {
-    if isLoading && activeItems.isEmpty {
-      ProgressView(mode == .market ? "正在载入插件市场…" : "正在载入已安装插件…")
-        .tint(.primary)
-        .frame(maxWidth: .infinity, minHeight: 220)
-    } else if loadFailed && activeItems.isEmpty {
-      failureCard
-    } else if filteredItems.isEmpty {
-      emptyCard
-    } else {
-      LazyVStack(spacing: 12) {
-        ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, plugin in
-          pluginCard(plugin)
-            .onAppear {
-              if mode == .market && marketHasMore && !isLoadingMore
-                && index >= max(0, filteredItems.count - 8)
-              {
-                Task { await loadMoreMarket() }
-              }
-            }
-        }
-        if mode == .market && isLoadingMore {
-          ProgressView().tint(.primary).padding(.vertical, 10)
-        }
-      }
-    }
-  }
-
-  /// 当前视图对应的全量插件数组。
-  private var activeItems: [NativeMarketPluginRecord] {
-    mode == .market ? marketPlugins : installedPlugins
-  }
-
-  /// 按筛选、关键词与排序方式整理后的插件列表。
   private var filteredItems: [NativeMarketPluginRecord] {
     let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    let matched = activeItems.filter { plugin in
-      if mode == .market {
-        switch marketFilter {
-        case .all: break
-        case .updatable: guard plugin.hasUpdate else { return false }
-        case .notInstalled: guard !plugin.installed else { return false }
-        }
+    let matched = installedPlugins.filter { plugin in
+      switch installedFilter {
+      case .all: break
+      case .running: guard plugin.isRunning else { return false }
+      case .stopped: guard !plugin.isRunning else { return false }
+      case .updatable: guard plugin.hasUpdate else { return false }
       }
       guard !trimmed.isEmpty else { return true }
       return plugin.displayName.lowercased().contains(trimmed)
+        || plugin.id.lowercased().contains(trimmed)
         || plugin.summary.lowercased().contains(trimmed)
         || plugin.author.lowercased().contains(trimmed)
         || plugin.labels.contains(where: { $0.lowercased().contains(trimmed) })
@@ -269,353 +294,157 @@ struct NativePluginMarketPage: View {
     switch sortMode {
     case .defaultOrder:
       return matched
-    case .installsDesc:
-      return matched.sorted { lhs, rhs in
-        let l = max(
-          lhs.installCount, installStats[lhs.id] ?? installStats[lhs.id.lowercased()] ?? 0)
-        let r = max(
-          rhs.installCount, installStats[rhs.id] ?? installStats[rhs.id.lowercased()] ?? 0)
-        return l > r
-      }
-    case .ratingDesc:
-      return matched.sorted { lhs, rhs in
-        let l = (ratings[lhs.id] ?? ratings[lhs.id.lowercased()])?.averageRating ?? 0
-        let r = (ratings[rhs.id] ?? ratings[rhs.id.lowercased()])?.averageRating ?? 0
-        return l > r
-      }
     case .nameAsc:
       return matched.sorted {
         $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
       }
-    }
-  }
-
-  /// 顶部模式切换胶囊。
-  private var modeBar: some View {
-    HStack(spacing: 8) {
-      ForEach(Mode.allCases) { option in
-        let active = mode == option
-        Button {
-          mode = option
-        } label: {
-          Text(option.rawValue)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(active ? .white : .primary.opacity(0.75))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background {
-              Capsule()
-                .fill(
-                  active
-                    ? NativeAppearanceStore.shared.accentColor
-                    : .primary.opacity(0.08)
-                )
-                .overlay {
-                  Capsule().strokeBorder(.primary.opacity(active ? 0.32 : 0.14), lineWidth: 0.7)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("native-plugin-mode-\(option.rawValue)")
+    case .installsDesc:
+      return matched.sorted { resolvedDownloads(for: $0) > resolvedDownloads(for: $1) }
+    case .ratingDesc:
+      return matched.sorted {
+        (resolvedRating(for: $0)?.averageRating ?? $0.averageRating)
+          > (resolvedRating(for: $1)?.averageRating ?? $1.averageRating)
       }
-      Spacer(minLength: 0)
     }
   }
 
-  /// 插件市场状态过滤胶囊。
-  private var marketFilterBar: some View {
-    HStack(spacing: 8) {
-      ForEach(MarketFilter.allCases) { option in
-        let active = marketFilter == option
-        Button {
-          marketFilter = option
-        } label: {
-          NativeAdaptivePill(option.rawValue, isSelected: active)
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("native-plugin-market-filter-\(option.rawValue)")
-      }
-      Spacer(minLength: 0)
-    }
+  private func resolvedDownloads(for plugin: NativeMarketPluginRecord) -> Int {
+    let key = plugin.sourcePluginID ?? plugin.id
+    return max(plugin.installCount, installStats[key] ?? installStats[key.lowercased()] ?? 0)
   }
 
-  /// 单张插件玻璃卡片：还原网页版 `PluginCard`/`PluginAppCard` 上下双段布局（顶部标题+简介+右侧真实图标，底部创作者头像/署名/下载量/星级铭牌栏），管理动作统一收纳进点按与长按菜单。
-  private func pluginCard(_ plugin: NativeMarketPluginRecord) -> some View {
+  private func resolvedRating(for plugin: NativeMarketPluginRecord) -> NativePluginRatingSummary? {
+    let key = plugin.sourcePluginID ?? plugin.id
+    return ratings[key] ?? ratings[key.lowercased()]
+  }
+
+  /// 已安装插件卡片 + 完整长按运维菜单（含分身、关于与源绑定、日志、重载、运行能力、数据摘要、实例管理）。
+  private func installedPluginCard(_ plugin: NativeMarketPluginRecord) -> some View {
     let isMutating = mutatingID == plugin.id
-    let isInactive = mode == .installed && !plugin.isRunning
-    let lowerID = plugin.id.lowercased()
-    let downloads = max(
-      plugin.installCount, installStats[plugin.id] ?? installStats[lowerID] ?? 0)
-    let fetchedRating = ratings[plugin.id] ?? ratings[lowerID]
+    let downloads = resolvedDownloads(for: plugin)
+    let fetchedRating = resolvedRating(for: plugin)
     let effectiveRating = fetchedRating?.averageRating ?? plugin.averageRating
-    let accent = Self.pluginAccentColor(from: plugin.pluginColor)
-
-    return CinematicPanel(padding: 0) {
-      VStack(alignment: .leading, spacing: 0) {
-        // 上段横幅：状态点 + 标题 + 版本 + 状态胶囊 / 左侧简介与标签 + 右侧 44×44 真实插件图标
-        VStack(alignment: .leading, spacing: 8) {
-          HStack(alignment: .center, spacing: 6) {
-            if mode == .installed {
-              Circle()
-                .fill(
-                  plugin.isRunning
-                    ? Color(red: 0.42, green: 0.90, blue: 0.62)
-                    : .white.opacity(0.32)
-                )
-                .frame(width: 7, height: 7)
-            }
-            Text(plugin.displayName)
-              .font(.headline.weight(.semibold))
-              .foregroundStyle(.primary.opacity(isInactive ? 0.80 : 0.98))
-              .lineLimit(1)
-            if !plugin.version.isEmpty {
-              Text("v\(plugin.version)")
-                .font(.caption.monospacedDigit().weight(.medium))
-                .foregroundStyle(.primary.opacity(0.56))
-                .lineLimit(1)
-            }
-            Spacer(minLength: 4)
-            if isMutating {
-              ProgressView().controlSize(.mini).tint(.primary)
-            } else {
-              statusBadge(plugin)
-            }
-          }
-
-          HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-              if !plugin.summary.isEmpty {
-                Text(plugin.summary)
-                  .font(.caption)
-                  .foregroundStyle(.primary.opacity(0.76))
-                  .lineLimit(3)
-                  .fixedSize(horizontal: false, vertical: true)
-              }
-              if mode == .market && !plugin.labels.isEmpty {
-                HStack(spacing: 5) {
-                  ForEach(plugin.labels.prefix(3), id: \.self) { label in
-                    Text(label)
-                      .font(.caption2.weight(.medium))
-                      .foregroundStyle(NativeTheme.brand)
-                      .padding(.horizontal, 6.5)
-                      .padding(.vertical, 2)
-                      .background {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                          .fill(Color(red: 0.54, green: 0.44, blue: 0.92).opacity(0.16))
-                          .overlay {
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                              .strokeBorder(
-                                NativeTheme.brand.opacity(0.13),
-                                lineWidth: 0.5)
-                          }
-                      }
-                      .lineLimit(1)
-                  }
-                }
-              }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            NativePluginIconView(
-              session: session,
-              iconReference: plugin.pluginIcon,
-              size: 46,
-              cornerRadius: 12,
-              inactive: isInactive
-            )
-          }
-        }
-        .padding(.horizontal, 14)
-        .padding(.top, 13)
-        .padding(.bottom, 11)
-        .background(
-          LinearGradient(
-            colors: [accent.opacity(isInactive ? 0.04 : 0.14), .clear],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing)
-        )
-
-        Divider().overlay(.primary.opacity(0.08))
-
-        // 下段创作者生态铭牌栏：左作者头像+署名，右下载量+星级评分
-        HStack(spacing: 8) {
-          HStack(spacing: 6) {
-            NativePluginAuthorAvatarView(
-              authorURL: plugin.authorURL,
-              authorName: plugin.author,
-              size: 20
-            )
-            Text(plugin.author.isEmpty ? "MoviePilot" : plugin.author)
-              .font(.caption.weight(.medium))
-              .foregroundStyle(.primary.opacity(0.72))
-              .lineLimit(1)
-          }
-          Spacer(minLength: 8)
-          if downloads > 0 {
-            HStack(spacing: 3) {
-              Image(systemName: "arrow.down.circle")
-                .font(.system(size: 11, weight: .medium))
-              Text(Self.formatInstallCount(downloads))
-                .font(.caption2.monospacedDigit().weight(.medium))
-            }
-            .foregroundStyle(.primary.opacity(0.70))
-          }
-          if effectiveRating > 0 {
-            HStack(spacing: 2.5) {
-              Image(systemName: "star.fill")
-                .font(.system(size: 10))
-                .foregroundStyle(Color(red: 0.98, green: 0.80, blue: 0.34))
-              Text(String(format: "%.1f", effectiveRating))
-                .font(.caption2.monospacedDigit().weight(.semibold))
-                .foregroundStyle(Color(red: 0.98, green: 0.84, blue: 0.48))
-            }
-          }
-        }
-        .padding(.horizontal, 14)
-        .frame(minHeight: 38)
-        .background(.white.opacity(0.035))
-      }
-    }
-    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    return NativePluginCardSurface(
+      session: session,
+      plugin: plugin,
+      isInstalledContext: true,
+      isMutating: isMutating,
+      downloads: downloads,
+      effectiveRating: effectiveRating
+    )
     .onTapGesture {
       guard mutatingID == nil else { return }
-      if mode == .market {
-        if !plugin.installed || plugin.hasUpdate {
-          pendingInstall = plugin
-        } else {
-          openForm(for: plugin)
-        }
+      if plugin.hasPage {
+        dataPageSelection = plugin
       } else {
-        if plugin.hasPage {
-          dataPageSelection = plugin
-        } else {
-          openForm(for: plugin)
-        }
+        openForm(for: plugin)
       }
     }
     .contextMenu {
-      if mode == .market {
-        if !plugin.installed || plugin.hasUpdate {
-          Button {
-            pendingInstall = plugin
-          } label: {
-            Label(
-              plugin.hasUpdate ? "更新插件" : "安装插件",
-              systemImage: plugin.hasUpdate
-                ? "arrow.triangle.2.circlepath" : "arrow.down.to.line")
-          }
-        } else {
-          Button {
-            openForm(for: plugin)
-          } label: {
-            Label("打开插件配置", systemImage: "slider.horizontal.3")
-          }
+      if plugin.hasPage {
+        Button {
+          dataPageSelection = plugin
+        } label: {
+          Label("查看数据", systemImage: "doc.text.magnifyingglass")
+        }
+      }
+      Button {
+        openForm(for: plugin)
+      } label: {
+        Label("设置", systemImage: "slider.horizontal.3")
+      }
+      Button {
+        detailTarget = plugin
+      } label: {
+        Label("关于与源管理", systemImage: "info.circle")
+      }
+      if !plugin.isInstance {
+        Button {
+          cloneTarget = plugin
+        } label: {
+          Label("创建分身", systemImage: "plus.square.on.square")
+        }
+      }
+      if plugin.hasUpdate {
+        Button {
+          pendingInstall = plugin
+        } label: {
+          Label("更新插件", systemImage: "arrow.triangle.2.circlepath")
         }
       } else {
-        if plugin.hasPage {
-          Button {
-            dataPageSelection = plugin
-          } label: {
-            Label("查看数据页", systemImage: "doc.text.magnifyingglass")
-          }
-        }
         Button {
-          openForm(for: plugin)
+          detailTarget = plugin
         } label: {
-          Label("插件配置", systemImage: "slider.horizontal.3")
-        }
-        if plugin.hasUpdate {
-          Button {
-            pendingInstall = plugin
-          } label: {
-            Label("更新插件", systemImage: "arrow.triangle.2.circlepath")
-          }
-        }
-        Button {
-          pendingReset = plugin
-        } label: {
-          Label("重置插件", systemImage: "arrow.counterclockwise")
-        }
-        Button(role: .destructive) {
-          pendingUninstall = plugin
-        } label: {
-          Label("卸载插件", systemImage: "trash")
+          Label("版本历史", systemImage: "clock.arrow.circlepath")
         }
       }
-    }
-    .accessibilityElement(children: .combine)
-    .accessibilityIdentifier(
-      mode == .market ? "native-market-card-\(plugin.id)" : "native-installed-card-\(plugin.id)")
-  }
-
-  /// 解析插件主题色十六进制字符串为温和卡片高光色。
-  private static func pluginAccentColor(from hex: String?) -> Color {
-    guard let hex else { return Color(red: 0.56, green: 0.44, blue: 0.92) }
-    let cleaned = hex.trimmingCharacters(
-      in: CharacterSet(charactersIn: "# ").union(.whitespacesAndNewlines))
-    guard cleaned.count == 6, let value = UInt64(cleaned, radix: 16) else {
-      return Color(red: 0.56, green: 0.44, blue: 0.92)
-    }
-    let r = Double((value >> 16) & 0xFF) / 255.0
-    let g = Double((value >> 8) & 0xFF) / 255.0
-    let b = Double(value & 0xFF) / 255.0
-    return Color(red: r, green: g, blue: b)
-  }
-
-  /// 紧凑格式化插件累计安装/下载次数。
-  private static func formatInstallCount(_ count: Int) -> String {
-    if count >= 10_000 {
-      return String(format: "%.1fw", Double(count) / 10_000.0)
-    }
-    if count >= 1_000 {
-      return String(format: "%.1fk", Double(count) / 1_000.0)
-    }
-    return "\(count)"
-  }
-
-  /// 插件安装/更新/运行状态徽标。
-  @ViewBuilder
-  private func statusBadge(_ plugin: NativeMarketPluginRecord) -> some View {
-    if plugin.hasUpdate {
-      badgePill("有更新", tint: Color(red: 0.98, green: 0.78, blue: 0.44))
-    } else if mode == .market && plugin.installed {
-      badgePill("已安装", tint: NativeTheme.success)
-    } else if mode == .installed {
-      badgePill(
-        plugin.isRunning ? "运行中" : "未启用",
-        tint: plugin.isRunning ? NativeTheme.success : NativeTheme.badgeMutedText)
-    }
-  }
-
-  /// 紧凑胶囊徽标。
-  private func badgePill(_ text: String, tint: Color) -> some View {
-    Text(text)
-      .font(.caption2.weight(.semibold))
-      .foregroundStyle(tint)
-      .padding(.horizontal, 7)
-      .padding(.vertical, 3)
-      .background {
-        Capsule()
-          .fill(.primary.opacity(0.10))
-          .overlay { Capsule().strokeBorder(tint.opacity(0.32), lineWidth: 0.6) }
+      Button {
+        logTarget = plugin
+      } label: {
+        Label("查看日志", systemImage: "doc.plaintext")
       }
+      if let homeURL = plugin.projectHomeURL {
+        Button {
+          openURL(homeURL)
+        } label: {
+          Label("项目主页", systemImage: "safari")
+        }
+      }
+
+      Menu {
+        Button {
+          Task { await reloadPlugin(plugin) }
+        } label: {
+          Label("重新加载插件", systemImage: "arrow.clockwise")
+        }
+        Button {
+          capabilitiesTarget = plugin
+        } label: {
+          Label("运行能力", systemImage: "cpu")
+        }
+        Button {
+          dataSummaryTarget = plugin
+        } label: {
+          Label("数据摘要", systemImage: "cylinder.split.1x2")
+        }
+        Button {
+          instanceManageTarget = plugin
+        } label: {
+          Label("实例管理", systemImage: "square.stack.3d.up")
+        }
+      } label: {
+        Label("高级运维", systemImage: "wrench.and.screwdriver")
+      }
+
+      Divider()
+      Button {
+        pendingReset = plugin
+      } label: {
+        Label("重置插件", systemImage: "arrow.counterclockwise")
+      }
+      Button(role: .destructive) {
+        pendingUninstall = plugin
+      } label: {
+        Label("卸载插件", systemImage: "trash")
+      }
+    }
+    .accessibilityIdentifier("native-installed-card-\(plugin.id)")
   }
 
-  /// 操作反馈横幅。
   private func feedbackBanner(_ feedback: NativePluginMarketFeedback) -> some View {
     CinematicPanel(padding: 11) {
       HStack(spacing: 10) {
         Image(
           systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
         )
-        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
-        Text(feedback.message).font(.subheadline).foregroundStyle(.primary.opacity(0.92))
+        .foregroundStyle(feedback.isError ? NativeTheme.warning : NativeTheme.success)
+        Text(feedback.message).font(.subheadline).foregroundStyle(.primary)
         Spacer(minLength: 0)
         Button {
           self.feedback = nil
         } label: {
           Image(systemName: "xmark").font(.caption.weight(.semibold))
-            .foregroundStyle(.primary.opacity(0.65)).frame(minWidth: 32, minHeight: 32)
+            .foregroundStyle(.secondary).frame(minWidth: 32, minHeight: 32)
         }
         .buttonStyle(.plain)
       }
@@ -623,20 +452,30 @@ struct NativePluginMarketPage: View {
     .accessibilityIdentifier("native-plugin-market-feedback")
   }
 
-  /// 空态卡片。
   private var emptyCard: some View {
     CinematicPanel {
-      VStack(spacing: 10) {
+      VStack(spacing: 12) {
         Image(systemName: "puzzlepiece.extension")
           .font(.largeTitle)
-          .foregroundStyle(.primary.opacity(0.55))
-        Text("暂无匹配的插件").font(.headline)
+          .foregroundStyle(.secondary)
+        Text(installedPlugins.isEmpty ? "尚未安装任何插件" : "暂无匹配的已安装插件")
+          .font(.headline)
+        Button {
+          showsMarketPage = true
+        } label: {
+          Label("前往插件市场探索", systemImage: "storefront")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 9)
+            .background { Capsule().fill(NativeTheme.brand) }
+        }
+        .buttonStyle(.plain)
       }
-      .frame(maxWidth: .infinity, minHeight: 150)
+      .frame(maxWidth: .infinity, minHeight: 170)
     }
   }
 
-  /// 失败重试卡片。
   private var failureCard: some View {
     CinematicPanel {
       VStack(alignment: .leading, spacing: 10) {
@@ -649,39 +488,24 @@ struct NativePluginMarketPage: View {
     }
   }
 
-  /// 按模式读取 `GET /api/v1/plugin/?state=market|installed`；命中页面缓存时静默复用，下拉刷新强制重拉。
-  private func load(forceMarket: Bool, forceRefresh: Bool = false) async {
-    let stateValue = mode == .market ? "market" : "installed"
-    let cacheKey = "plugins|\(stateValue)"
-    if !forceRefresh && !forceMarket,
+  private func loadInstalled(forceRefresh: Bool = false) async {
+    let cacheKey = "plugins|installed"
+    if !forceRefresh,
       let cached: [NativeMarketPluginRecord] = NativePageDataCache.shared.get(
         cacheKey, session: session)
     {
-      if mode == .market {
-        marketPlugins = cached
-        marketHasMore = cached.count >= 60
-      } else {
-        installedPlugins = cached
-      }
+      installedPlugins = cached
       isLoading = false
       loadFailed = false
       return
     }
-    if activeItems.isEmpty { isLoading = true }
+    if installedPlugins.isEmpty { isLoading = true }
     loadFailed = false
     defer { isLoading = false }
-    var query = [URLQueryItem(name: "state", value: stateValue)]
-    if mode == .market {
-      marketPage = 1
-      marketHasMore = true
-      query.append(URLQueryItem(name: "page", value: "1"))
-      query.append(URLQueryItem(name: "count", value: "60"))
-      if forceMarket { query.append(URLQueryItem(name: "force", value: "true")) }
-    }
     do {
       let endpoint = try APIEndpoint(
         path: ["plugin"],
-        query: query,
+        query: [URLQueryItem(name: "state", value: "installed")],
         maximumResponseBytes: 8 * 1024 * 1024,
         trailingSlash: true)
       let loaded = try await session.request(
@@ -690,22 +514,16 @@ struct NativePluginMarketPage: View {
       ).value
       try Task.checkCancellation()
       let valid = loaded.filter { !$0.id.isEmpty }
-      if mode == .market {
-        marketPlugins = valid
-        marketHasMore = valid.count >= 60
-      } else {
-        installedPlugins = valid
-      }
+      installedPlugins = valid
       NativePageDataCache.shared.set(valid, for: cacheKey, session: session)
-      Task { await loadPluginStatsAndRatings(pluginIDs: valid.map(\.id)) }
+      Task { await loadPluginStatsAndRatings(pluginIDs: valid.map { $0.sourcePluginID ?? $0.id }) }
     } catch is CancellationError {
       return
     } catch {
-      if activeItems.isEmpty { loadFailed = true }
+      if installedPlugins.isEmpty { loadFailed = true }
     }
   }
 
-  /// 后台静默补齐插件安装量统计与评分映射（`GET /api/v1/plugin/statistic` + `GET /api/v1/plugin/rating`），兼容大小写插件 ID。
   private func loadPluginStatsAndRatings(pluginIDs: [String]) async {
     async let statsTask: [String: Int]? = {
       guard let ep = try? APIEndpoint(path: ["plugin", "statistic"]) else { return nil }
@@ -713,7 +531,7 @@ struct NativePluginMarketPage: View {
         ep, as: [String: Int].self, requiring: PermissionRequirement(category: .admin)
       ).value
     }()
-    let idsParam = pluginIDs.prefix(80).joined(separator: ",")
+    let idsParam = Array(Set(pluginIDs)).prefix(80).joined(separator: ",")
     async let ratingsTask: [String: NativePluginRatingSummary]? = {
       let query = idsParam.isEmpty ? [] : [URLQueryItem(name: "plugin_ids", value: idsParam)]
       guard let ep = try? APIEndpoint(path: ["plugin", "rating"], query: query) else { return nil }
@@ -742,17 +560,350 @@ struct NativePluginMarketPage: View {
     }
   }
 
-  /// 滚动至市场底部时自动加载下一页插件。
-  private func loadMoreMarket() async {
-    guard mode == .market, marketHasMore, !isLoadingMore, !isLoading else { return }
-    isLoadingMore = true
-    defer { isLoadingMore = false }
-    let nextPage = marketPage + 1
-    let query = [
+  private func openForm(for record: NativeMarketPluginRecord) {
+    do {
+      let payload = try JSONEncoder().encode(record)
+      let installed = try JSONDecoder().decode(NativeInstalledPlugin.self, from: payload)
+      let form = try NativePluginForm(
+        session: session, target: installed.target, validator: NativeFormValidator())
+      formSelection = FormSelection(plugin: installed, form: form)
+    } catch {
+      feedback = NativePluginMarketFeedback(isError: true, message: "无法打开该插件的配置表单。")
+    }
+  }
+
+  private func updatePlugin(_ plugin: NativeMarketPluginRecord) async {
+    mutatingID = plugin.id
+    defer { mutatingID = nil }
+    var query = [URLQueryItem(name: "force", value: "true")]
+    if let repo = plugin.repoURL, !repo.isEmpty {
+      query.append(URLQueryItem(name: "repo_url", value: repo))
+    }
+    do {
+      let endpoint = try APIEndpoint(
+        path: ["plugin", "install", plugin.id], query: query, responseContract: .payload,
+        timeout: 90)
+      let resp = try await session.request(
+        endpoint, as: NativePluginSimpleResponse.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
+      if resp.success == false {
+        feedback = NativePluginMarketFeedback(
+          isError: true, message: resp.message ?? "更新插件失败。")
+        return
+      }
+      feedback = NativePluginMarketFeedback(
+        isError: false,
+        message: resp.message?.isEmpty == false ? resp.message! : "「\(plugin.displayName)」更新已完成。")
+      reloadToken += 1
+    } catch {
+      feedback = NativePluginMarketFeedback(isError: true, message: "更新插件失败，请检查仓库连通性后重试。")
+    }
+  }
+
+  private func reloadPlugin(_ plugin: NativeMarketPluginRecord) async {
+    mutatingID = plugin.id
+    defer { mutatingID = nil }
+    do {
+      let endpoint = try APIEndpoint(
+        path: ["plugin", "reload", plugin.id], method: .post, responseContract: .payload,
+        timeout: 45)
+      let resp = try await session.request(
+        endpoint, as: NativePluginSimpleResponse.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
+      if resp.success == false {
+        feedback = NativePluginMarketFeedback(
+          isError: true, message: resp.message ?? "重载插件失败，请查看插件日志。")
+      } else {
+        feedback = NativePluginMarketFeedback(
+          isError: false, message: "已重新加载「\(plugin.displayName)」。")
+        reloadToken += 1
+      }
+    } catch {
+      feedback = NativePluginMarketFeedback(isError: true, message: "重载插件失败，请稍后重试。")
+    }
+  }
+
+  private func resetPlugin(_ plugin: NativeMarketPluginRecord) async {
+    mutatingID = plugin.id
+    defer { mutatingID = nil }
+    do {
+      let endpoint = try APIEndpoint(path: ["plugin", "reset", plugin.id])
+      try await session.perform(endpoint, requiring: PermissionRequirement(category: .admin))
+      feedback = NativePluginMarketFeedback(isError: false, message: "已重置「\(plugin.displayName)」。")
+    } catch {
+      feedback = NativePluginMarketFeedback(isError: true, message: "重置插件失败，请稍后重试。")
+    }
+  }
+
+  private func uninstallPlugin(_ plugin: NativeMarketPluginRecord) async {
+    mutatingID = plugin.id
+    defer { mutatingID = nil }
+    do {
+      let endpoint = try APIEndpoint(
+        path: ["plugin", plugin.id], method: .delete, responseContract: .payload)
+      let resp = try await session.request(
+        endpoint, as: NativePluginSimpleResponse.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
+      if resp.success == false {
+        feedback = NativePluginMarketFeedback(
+          isError: true, message: resp.message ?? "卸载失败，请先卸载关联分身。")
+        return
+      }
+      installedPlugins.removeAll { $0.id == plugin.id }
+      NativePageDataCache.shared.set(installedPlugins, for: "plugins|installed", session: session)
+      feedback = NativePluginMarketFeedback(isError: false, message: "已卸载「\(plugin.displayName)」。")
+    } catch {
+      feedback = NativePluginMarketFeedback(isError: true, message: "卸载插件失败，请稍后重试。")
+    }
+  }
+}
+
+/// 独立插件市场二级页（由插件页右上角「插件市场」图标进入）：
+/// 点按任意插件卡片进入详情弹窗（含源绑定、版本列表安装、评分、文档），右上角提供过滤与同步菜单。
+@MainActor
+private struct NativePluginStorePage: View {
+  enum MarketFilter: String, CaseIterable, Identifiable {
+    case all = "全部"
+    case updatable = "可更新"
+    case notInstalled = "未安装"
+    var id: String { rawValue }
+  }
+
+  let session: NativeSession
+  let onMutated: () -> Void
+
+  @State private var marketFilter: MarketFilter = .all
+  @State private var sortMode: NativePluginMarketPage.SortMode = .defaultOrder
+  @State private var marketPlugins: [NativeMarketPluginRecord] = []
+  @State private var installStats: [String: Int] = [:]
+  @State private var ratings: [String: NativePluginRatingSummary] = [:]
+  @State private var marketPage = 1
+  @State private var marketHasMore = true
+  @State private var isLoadingMore = false
+  @State private var searchText = ""
+  @State private var isLoading = true
+  @State private var loadFailed = false
+  @State private var reloadToken = 0
+  @State private var detailTarget: NativeMarketPluginRecord?
+  @State private var feedback: NativePluginMarketFeedback?
+
+  var body: some View {
+    ZStack {
+      CinematicBackground()
+      ScrollView {
+        VStack(alignment: .leading, spacing: 14) {
+          if let feedback {
+            CinematicPanel(padding: 11) {
+              HStack(spacing: 10) {
+                Image(
+                  systemName: feedback.isError
+                    ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+                )
+                .foregroundStyle(feedback.isError ? NativeTheme.warning : NativeTheme.success)
+                Text(feedback.message).font(.subheadline).foregroundStyle(.primary)
+                Spacer(minLength: 0)
+                Button {
+                  self.feedback = nil
+                } label: {
+                  Image(systemName: "xmark").font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+              }
+            }
+          }
+          if isLoading && marketPlugins.isEmpty {
+            ProgressView("正在载入插件市场…")
+              .tint(.primary)
+              .frame(maxWidth: .infinity, minHeight: 220)
+          } else if loadFailed && marketPlugins.isEmpty {
+            CinematicPanel {
+              VStack(alignment: .leading, spacing: 10) {
+                Label("暂时无法载入插件市场", systemImage: "exclamationmark.triangle").font(.headline)
+                Button("重试") { reloadToken += 1 }.frame(minHeight: 44)
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+            }
+          } else if filteredItems.isEmpty {
+            CinematicPanel {
+              VStack(spacing: 10) {
+                Image(systemName: "storefront")
+                  .font(.largeTitle)
+                  .foregroundStyle(.secondary)
+                Text("暂无匹配的市场插件").font(.headline)
+              }
+              .frame(maxWidth: .infinity, minHeight: 160)
+            }
+          } else {
+            LazyVStack(spacing: 12) {
+              ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, plugin in
+                let downloads = resolvedDownloads(for: plugin)
+                let rating = resolvedRating(for: plugin)
+                NativePluginCardSurface(
+                  session: session,
+                  plugin: plugin,
+                  isInstalledContext: false,
+                  isMutating: false,
+                  downloads: downloads,
+                  effectiveRating: rating?.averageRating ?? plugin.averageRating
+                )
+                .onTapGesture {
+                  detailTarget = plugin
+                }
+                .onAppear {
+                  if marketHasMore && !isLoadingMore && index >= max(0, filteredItems.count - 8) {
+                    Task { await loadMore() }
+                  }
+                }
+                .accessibilityIdentifier("native-market-card-\(plugin.id)")
+              }
+              if isLoadingMore {
+                ProgressView().tint(.primary).padding(.vertical, 10)
+              }
+            }
+          }
+        }
+        .frame(maxWidth: 820)
+        .padding(.horizontal, CinematicStyle.margin)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity)
+      }
+      .scrollIndicators(.hidden)
+      .refreshable { await load(forceMarket: true, forceRefresh: true) }
+      .modifier(NativeSoftTopScrollEdge())
+    }
+    .navigationTitle("插件市场")
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbarBackground(.hidden, for: .navigationBar)
+    .searchable(text: $searchText, prompt: "搜索插件名称、作者或标签")
+    .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        Menu {
+          Section("市场筛选") {
+            ForEach(MarketFilter.allCases) { option in
+              Button {
+                marketFilter = option
+              } label: {
+                if marketFilter == option {
+                  Label(option.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(option.rawValue)
+                }
+              }
+            }
+          }
+          Section("排序方式") {
+            ForEach(NativePluginMarketPage.SortMode.allCases) { option in
+              Button {
+                sortMode = option
+              } label: {
+                if sortMode == option {
+                  Label(option.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(option.rawValue)
+                }
+              }
+            }
+          }
+          Divider()
+          Button {
+            Task { await load(forceMarket: true, forceRefresh: true) }
+          } label: {
+            Label("同步最新市场索引", systemImage: "arrow.triangle.2.circlepath")
+          }
+        } label: {
+          Image(
+            systemName: marketFilter == .all
+              ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+        }
+        .accessibilityLabel("市场筛选与排序")
+      }
+    }
+    .sheet(item: $detailTarget) { plugin in
+      NativePluginMarketDetailSheet(
+        session: session,
+        plugin: plugin,
+        downloads: resolvedDownloads(for: plugin),
+        ratingSummary: resolvedRating(for: plugin)
+      ) { message in
+        feedback = NativePluginMarketFeedback(isError: false, message: message)
+        if let idx = marketPlugins.firstIndex(where: { $0.id == plugin.id }) {
+          marketPlugins[idx].installed = true
+          marketPlugins[idx].hasUpdate = false
+        }
+        onMutated()
+      }
+    }
+    .task(id: reloadToken) {
+      await load(forceMarket: false, forceRefresh: reloadToken > 0)
+    }
+  }
+
+  private var filteredItems: [NativeMarketPluginRecord] {
+    let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let matched = marketPlugins.filter { plugin in
+      switch marketFilter {
+      case .all: break
+      case .updatable: guard plugin.hasUpdate else { return false }
+      case .notInstalled: guard !plugin.installed else { return false }
+      }
+      guard !trimmed.isEmpty else { return true }
+      return plugin.displayName.lowercased().contains(trimmed)
+        || plugin.id.lowercased().contains(trimmed)
+        || plugin.summary.lowercased().contains(trimmed)
+        || plugin.author.lowercased().contains(trimmed)
+        || plugin.labels.contains(where: { $0.lowercased().contains(trimmed) })
+    }
+    switch sortMode {
+    case .defaultOrder: return matched
+    case .nameAsc:
+      return matched.sorted {
+        $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
+      }
+    case .installsDesc:
+      return matched.sorted { resolvedDownloads(for: $0) > resolvedDownloads(for: $1) }
+    case .ratingDesc:
+      return matched.sorted {
+        (resolvedRating(for: $0)?.averageRating ?? $0.averageRating)
+          > (resolvedRating(for: $1)?.averageRating ?? $1.averageRating)
+      }
+    }
+  }
+
+  private func resolvedDownloads(for plugin: NativeMarketPluginRecord) -> Int {
+    max(plugin.installCount, installStats[plugin.id] ?? installStats[plugin.id.lowercased()] ?? 0)
+  }
+
+  private func resolvedRating(for plugin: NativeMarketPluginRecord) -> NativePluginRatingSummary? {
+    ratings[plugin.id] ?? ratings[plugin.id.lowercased()]
+  }
+
+  private func load(forceMarket: Bool, forceRefresh: Bool) async {
+    let cacheKey = "plugins|market"
+    if !forceRefresh && !forceMarket,
+      let cached: [NativeMarketPluginRecord] = NativePageDataCache.shared.get(
+        cacheKey, session: session)
+    {
+      marketPlugins = cached
+      marketHasMore = cached.count >= 60
+      isLoading = false
+      loadFailed = false
+      return
+    }
+    if marketPlugins.isEmpty { isLoading = true }
+    loadFailed = false
+    defer { isLoading = false }
+    marketPage = 1
+    marketHasMore = true
+    var query = [
       URLQueryItem(name: "state", value: "market"),
-      URLQueryItem(name: "page", value: String(nextPage)),
+      URLQueryItem(name: "page", value: "1"),
       URLQueryItem(name: "count", value: "60"),
     ]
+    if forceMarket { query.append(URLQueryItem(name: "force", value: "true")) }
     do {
       let endpoint = try APIEndpoint(
         path: ["plugin"], query: query, maximumResponseBytes: 8 * 1024 * 1024, trailingSlash: true)
@@ -760,7 +911,35 @@ struct NativePluginMarketPage: View {
         endpoint, as: [NativeMarketPluginRecord].self,
         requiring: PermissionRequirement(category: .admin)
       ).value
-      try Task.checkCancellation()
+      let valid = loaded.filter { !$0.id.isEmpty }
+      marketPlugins = valid
+      marketHasMore = valid.count >= 60
+      NativePageDataCache.shared.set(valid, for: cacheKey, session: session)
+      Task { await loadStatsAndRatings(ids: valid.map(\.id)) }
+    } catch {
+      if marketPlugins.isEmpty { loadFailed = true }
+    }
+  }
+
+  private func loadMore() async {
+    guard marketHasMore, !isLoadingMore, !isLoading else { return }
+    isLoadingMore = true
+    defer { isLoadingMore = false }
+    let nextPage = marketPage + 1
+    do {
+      let endpoint = try APIEndpoint(
+        path: ["plugin"],
+        query: [
+          URLQueryItem(name: "state", value: "market"),
+          URLQueryItem(name: "page", value: String(nextPage)),
+          URLQueryItem(name: "count", value: "60"),
+        ],
+        maximumResponseBytes: 8 * 1024 * 1024,
+        trailingSlash: true)
+      let loaded = try await session.request(
+        endpoint, as: [NativeMarketPluginRecord].self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
       let valid = loaded.filter { !$0.id.isEmpty }
       if valid.isEmpty {
         marketHasMore = false
@@ -776,104 +955,1560 @@ struct NativePluginMarketPage: View {
     }
   }
 
-  /// 打开现有原生 JSON 插件配置表单。
-  private func openForm(for record: NativeMarketPluginRecord) {
-    do {
-      let payload = try JSONEncoder().encode(record)
-      let installed = try JSONDecoder().decode(NativeInstalledPlugin.self, from: payload)
-      let form = try NativePluginForm(
-        session: session, target: installed.target, validator: NativeFormValidator())
-      formSelection = FormSelection(plugin: installed, form: form)
-    } catch {
-      feedback = NativePluginMarketFeedback(isError: true, message: "无法打开该插件的原生配置。")
-    }
-  }
-
-  /// 单次请求安装或更新插件（`GET /api/v1/plugin/install/{id}`）。
-  private func installPlugin(_ plugin: NativeMarketPluginRecord) async {
-    mutatingID = plugin.id
-    defer { mutatingID = nil }
-    var query = [URLQueryItem(name: "force", value: "true")]
-    if let repo = plugin.repoURL, !repo.isEmpty {
-      query.append(URLQueryItem(name: "repo_url", value: repo))
-    }
-    do {
-      let endpoint = try APIEndpoint(path: ["plugin", "install", plugin.id], query: query)
-      try await session.perform(endpoint, requiring: PermissionRequirement(category: .admin))
-      try Task.checkCancellation()
-      if let idx = marketPlugins.firstIndex(where: { $0.id == plugin.id }) {
-        marketPlugins[idx].installed = true
-        marketPlugins[idx].hasUpdate = false
+  private func loadStatsAndRatings(ids: [String]) async {
+    async let statsTask: [String: Int]? = {
+      guard let ep = try? APIEndpoint(path: ["plugin", "statistic"]) else { return nil }
+      return try? await session.request(
+        ep, as: [String: Int].self, requiring: PermissionRequirement(category: .admin)
+      ).value
+    }()
+    let idsParam = ids.prefix(80).joined(separator: ",")
+    async let ratingsTask: [String: NativePluginRatingSummary]? = {
+      let query = idsParam.isEmpty ? [] : [URLQueryItem(name: "plugin_ids", value: idsParam)]
+      guard let ep = try? APIEndpoint(path: ["plugin", "rating"], query: query) else { return nil }
+      return try? await session.request(
+        ep, as: [String: NativePluginRatingSummary].self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
+    }()
+    let (s, r) = await (statsTask, ratingsTask)
+    if let s {
+      var merged = installStats
+      for (k, v) in s {
+        merged[k] = v
+        merged[k.lowercased()] = v
       }
-      feedback = NativePluginMarketFeedback(
-        isError: false, message: "「\(plugin.displayName)」安装/更新已完成。")
-    } catch is CancellationError {
-      return
-    } catch {
-      feedback = NativePluginMarketFeedback(isError: true, message: "安装插件失败，请检查仓库连通性后重试。")
+      installStats = merged
     }
-  }
-
-  /// 确认后单次重置插件配置及数据（`GET /api/v1/plugin/reset/{id}`）。
-  private func resetPlugin(_ plugin: NativeMarketPluginRecord) async {
-    mutatingID = plugin.id
-    defer { mutatingID = nil }
-    do {
-      let endpoint = try APIEndpoint(path: ["plugin", "reset", plugin.id])
-      try await session.perform(endpoint, requiring: PermissionRequirement(category: .admin))
-      try Task.checkCancellation()
-      feedback = NativePluginMarketFeedback(isError: false, message: "已重置「\(plugin.displayName)」。")
-    } catch is CancellationError {
-      return
-    } catch {
-      feedback = NativePluginMarketFeedback(isError: true, message: "重置插件失败，请稍后重试。")
-    }
-  }
-
-  /// 确认后单次卸载插件（`DELETE /api/v1/plugin/{id}`）。
-  private func uninstallPlugin(_ plugin: NativeMarketPluginRecord) async {
-    mutatingID = plugin.id
-    defer { mutatingID = nil }
-    do {
-      let endpoint = try APIEndpoint(path: ["plugin", plugin.id], method: .delete)
-      try await session.perform(endpoint, requiring: PermissionRequirement(category: .admin))
-      try Task.checkCancellation()
-      installedPlugins.removeAll { $0.id == plugin.id }
-      feedback = NativePluginMarketFeedback(isError: false, message: "已卸载「\(plugin.displayName)」。")
-    } catch is CancellationError {
-      return
-    } catch {
-      feedback = NativePluginMarketFeedback(isError: true, message: "卸载插件失败，请先移除关联分身或稍后重试。")
+    if let r {
+      var merged = ratings
+      for (k, v) in r {
+        merged[k] = v
+        merged[k.lowercased()] = v
+      }
+      ratings = merged
     }
   }
 }
 
-/// 插件市场操作提示载体。
+/// 共用插件卡片渲染面（兼容浅/深色自适应主题，清晰展示分身标记、状态点、版本、简介、标签与底部作者/下载量/评分铭牌栏）。
+@MainActor
+private struct NativePluginCardSurface: View {
+  let session: NativeSession
+  let plugin: NativeMarketPluginRecord
+  let isInstalledContext: Bool
+  let isMutating: Bool
+  let downloads: Int
+  let effectiveRating: Double
+
+  var body: some View {
+    let isInactive = isInstalledContext && !plugin.isRunning
+    let accent = Self.pluginAccentColor(from: plugin.pluginColor)
+
+    return CinematicPanel(padding: 0) {
+      VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 8) {
+          HStack(alignment: .center, spacing: 6) {
+            if isInstalledContext {
+              Circle()
+                .fill(plugin.isRunning ? NativeTheme.success : Color.secondary.opacity(0.4))
+                .frame(width: 7, height: 7)
+            }
+            Text(plugin.displayName)
+              .font(.headline.weight(.semibold))
+              .foregroundStyle(isInactive ? Color.secondary : Color.primary)
+              .lineLimit(1)
+            if plugin.isInstance {
+              Text("分身")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(NativeTheme.info)
+                .padding(.horizontal, 5.5)
+                .padding(.vertical, 1.5)
+                .background { Capsule().fill(NativeTheme.info.opacity(0.14)) }
+            }
+            if !plugin.version.isEmpty {
+              Text("v\(plugin.version)")
+                .font(.caption.monospacedDigit().weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if isMutating {
+              ProgressView().controlSize(.mini).tint(.primary)
+            } else {
+              statusBadge
+            }
+          }
+
+          HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+              if !plugin.summary.isEmpty {
+                Text(plugin.summary)
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+                  .lineLimit(3)
+                  .fixedSize(horizontal: false, vertical: true)
+              }
+              if !isInstalledContext && !plugin.labels.isEmpty {
+                HStack(spacing: 5) {
+                  ForEach(plugin.labels.prefix(3), id: \.self) { label in
+                    Text(label)
+                      .font(.caption2.weight(.medium))
+                      .foregroundStyle(NativeTheme.brand)
+                      .padding(.horizontal, 6.5)
+                      .padding(.vertical, 2)
+                      .background {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                          .fill(NativeTheme.brand.opacity(0.12))
+                      }
+                      .lineLimit(1)
+                  }
+                }
+              }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            NativePluginIconView(
+              session: session,
+              iconReference: plugin.pluginIcon,
+              size: 46,
+              cornerRadius: 12,
+              inactive: isInactive)
+          }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 13)
+        .padding(.bottom, 11)
+        .background(
+          LinearGradient(
+            colors: [accent.opacity(isInactive ? 0.04 : 0.13), .clear],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing)
+        )
+
+        Divider().overlay(NativeTheme.divider)
+
+        HStack(spacing: 8) {
+          HStack(spacing: 6) {
+            NativePluginAuthorAvatarView(
+              authorURL: plugin.authorURL,
+              authorName: plugin.author,
+              size: 20)
+            Text(plugin.author.isEmpty ? "MoviePilot" : plugin.author)
+              .font(.caption.weight(.medium))
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+          }
+          Spacer(minLength: 8)
+          if downloads > 0 {
+            HStack(spacing: 3) {
+              Image(systemName: "arrow.down.circle")
+                .font(.system(size: 11, weight: .medium))
+              Text(Self.formatInstallCount(downloads))
+                .font(.caption2.monospacedDigit().weight(.medium))
+            }
+            .foregroundStyle(.secondary)
+          }
+          if effectiveRating > 0 {
+            HStack(spacing: 2.5) {
+              Image(systemName: "star.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(NativeTheme.warning)
+              Text(String(format: "%.1f", effectiveRating))
+                .font(.caption2.monospacedDigit().weight(.semibold))
+                .foregroundStyle(NativeTheme.warning)
+            }
+          }
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 38)
+        .background(NativeTheme.chipFill.opacity(0.4))
+      }
+    }
+    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+  }
+
+  @ViewBuilder
+  private var statusBadge: some View {
+    if plugin.hasUpdate {
+      badgePill("有更新", tint: NativeTheme.warning)
+    } else if !isInstalledContext && plugin.installed {
+      badgePill("已安装", tint: NativeTheme.success)
+    } else if isInstalledContext {
+      badgePill(
+        plugin.isRunning ? "运行中" : "未启用",
+        tint: plugin.isRunning ? NativeTheme.success : NativeTheme.badgeMutedText)
+    }
+  }
+
+  private func badgePill(_ text: String, tint: Color) -> some View {
+    Text(text)
+      .font(.caption2.weight(.semibold))
+      .foregroundStyle(tint)
+      .padding(.horizontal, 7)
+      .padding(.vertical, 3)
+      .background {
+        Capsule()
+          .fill(tint.opacity(0.14))
+          .overlay { Capsule().strokeBorder(tint.opacity(0.32), lineWidth: 0.6) }
+      }
+  }
+
+  private static func pluginAccentColor(from hex: String?) -> Color {
+    guard let hex else { return NativeTheme.brand }
+    let cleaned = hex.trimmingCharacters(
+      in: CharacterSet(charactersIn: "# ").union(.whitespacesAndNewlines))
+    guard cleaned.count == 6, let value = UInt64(cleaned, radix: 16) else {
+      return NativeTheme.brand
+    }
+    let r = Double((value >> 16) & 0xFF) / 255.0
+    let g = Double((value >> 8) & 0xFF) / 255.0
+    let b = Double(value & 0xFF) / 255.0
+    return Color(red: r, green: g, blue: b)
+  }
+
+  static func formatInstallCount(_ count: Int) -> String {
+    if count >= 10_000 { return String(format: "%.1fw", Double(count) / 10_000.0) }
+    if count >= 1_000 { return String(format: "%.1fk", Double(count) / 1_000.0) }
+    return "\(count)"
+  }
+}
+
+/// 插件详情、来源绑定/切换、版本历史安装与评分弹窗（对标 Web `PluginMarketDetailDialog.vue`，十一.3）。
+@MainActor
+private struct NativePluginMarketDetailSheet: View {
+  let session: NativeSession
+  let plugin: NativeMarketPluginRecord
+  let downloads: Int
+  let ratingSummary: NativePluginRatingSummary?
+  let onCompleted: (String) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @Environment(\.openURL) private var openURL
+
+  @State private var sourceOptions: NativePluginSourceOptions?
+  @State private var selectedSourceRepo: String = ""
+  @State private var releases: NativePluginReleaseData?
+  @State private var historyEntries: [(version: String, desc: String)] = []
+  @State private var docURL: URL?
+  @State private var liveRating: NativePluginRatingSummary?
+  @State private var userStars = 0
+
+  @State private var isLoading = true
+  @State private var isInstalling = false
+  @State private var isRatingSubmitting = false
+  @State private var bannerMessage: String?
+  @State private var bannerIsError = false
+
+  private var sourcePluginID: String {
+    plugin.sourcePluginID?.isEmpty == false ? plugin.sourcePluginID! : plugin.id
+  }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 14) {
+            heroSection
+            if let bannerMessage {
+              CinematicPanel(padding: 11) {
+                HStack(spacing: 8) {
+                  Image(
+                    systemName: bannerIsError
+                      ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+                  )
+                  .foregroundStyle(bannerIsError ? NativeTheme.warning : NativeTheme.success)
+                  Text(bannerMessage).font(.caption).foregroundStyle(.primary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+              }
+            }
+            sourceBindingSection
+            ratingSection
+            releasesSection
+            linksSection
+          }
+          .frame(maxWidth: 760)
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
+          .frame(maxWidth: .infinity)
+        }
+        .scrollIndicators(.hidden)
+      }
+      .navigationTitle("插件详情")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("关闭") { dismiss() }
+        }
+      }
+      .task { await bootstrap() }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  private var heroSection: some View {
+    CinematicPanel(padding: 15) {
+      VStack(alignment: .leading, spacing: 12) {
+        HStack(alignment: .top, spacing: 13) {
+          NativePluginIconView(
+            session: session, iconReference: plugin.pluginIcon, size: 58, cornerRadius: 14,
+            inactive: false)
+          VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+              Text(plugin.displayName)
+                .font(.headline)
+                .foregroundStyle(.primary)
+              if !plugin.version.isEmpty {
+                Text("v\(plugin.version)")
+                  .font(.caption.monospacedDigit().weight(.semibold))
+                  .foregroundStyle(NativeTheme.brand)
+              }
+            }
+            Text("作者：\(plugin.author.isEmpty ? "MoviePilot" : plugin.author)")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+              if downloads > 0 {
+                Label(
+                  NativePluginCardSurface.formatInstallCount(downloads),
+                  systemImage: "arrow.down.circle"
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+              }
+              let avg =
+                liveRating?.averageRating ?? ratingSummary?.averageRating ?? plugin.averageRating
+              let cnt = liveRating?.ratingCount ?? ratingSummary?.ratingCount ?? plugin.ratingCount
+              if avg > 0 {
+                Label(String(format: "%.1f (%d)", avg, cnt), systemImage: "star.fill")
+                  .font(.caption2.weight(.semibold))
+                  .foregroundStyle(NativeTheme.warning)
+              }
+            }
+          }
+          Spacer(minLength: 0)
+        }
+        if !plugin.summary.isEmpty {
+          Text(plugin.summary)
+            .font(.subheadline)
+            .foregroundStyle(.primary)
+        }
+        if !plugin.labels.isEmpty {
+          ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+              ForEach(plugin.labels, id: \.self) { label in
+                NativeAdaptiveBadge(label, tint: NativeTheme.brand)
+              }
+            }
+          }
+        }
+        Button {
+          Task { await installOrUpdate(releaseVersion: nil) }
+        } label: {
+          HStack(spacing: 6) {
+            if isInstalling {
+              ProgressView().controlSize(.small).tint(.white)
+            } else {
+              Image(
+                systemName: plugin.installed
+                  ? (plugin.hasUpdate ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
+                  : "arrow.down.to.line")
+            }
+            Text(
+              isInstalling
+                ? "正在处理…"
+                : (plugin.installed
+                  ? (plugin.hasUpdate ? "更新插件" : "重新安装") : "安装插件"))
+          }
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(.white)
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 11)
+          .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(NativeTheme.brand)
+          }
+        }
+        .buttonStyle(.plain)
+        .disabled(isInstalling)
+      }
+    }
+  }
+
+  /// 插件源识别、绑定与显式换源区域（`GET /plugin/source/{id}/options`, `POST /plugin/source/{id}`）。
+  private var sourceBindingSection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("插件源与仓库绑定")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
+      CinematicPanel(padding: 13) {
+        VStack(alignment: .leading, spacing: 10) {
+          if isLoading && sourceOptions == nil {
+            HStack(spacing: 8) {
+              ProgressView().controlSize(.small)
+              Text("正在查询可用插件源…").font(.caption).foregroundStyle(.secondary)
+            }
+          } else if let opts = sourceOptions {
+            if let identity = opts.identity {
+              HStack {
+                Text("当前绑定源").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Text(Self.cleanSourceKey(identity.trustedSourceKey ?? identity.trustedSourceType))
+                  .font(.caption.monospaced().weight(.semibold))
+                  .foregroundStyle(NativeTheme.brand)
+              }
+            }
+            if !opts.selectionReason.isEmpty {
+              Text(opts.selectionReason)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+            let candidates = opts.sortedCandidates
+            if !candidates.isEmpty {
+              Divider().overlay(NativeTheme.divider)
+              ForEach(Array(candidates.enumerated()), id: \.offset) { _, candidate in
+                let repo = candidate.repoURL ?? ""
+                let isSelected = !repo.isEmpty && selectedSourceRepo == repo
+                let isBound =
+                  opts.identity?.trustedSourceKey != nil
+                  && candidate.sourceKey == opts.identity?.trustedSourceKey
+                Button {
+                  selectedSourceRepo = repo
+                } label: {
+                  HStack(spacing: 10) {
+                    Image(
+                      systemName: isSelected ? "largecircle.fill.circle" : "circle"
+                    )
+                    .foregroundStyle(isSelected ? NativeTheme.brand : Color.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                      HStack(spacing: 6) {
+                        Text(candidate.displayLabel)
+                          .font(.caption.weight(.semibold))
+                          .foregroundStyle(.primary)
+                          .lineLimit(1)
+                        NativeAdaptiveBadge(
+                          candidate.sourceTypeLabel,
+                          tint: candidate.sourceType == "official"
+                            ? NativeTheme.success : NativeTheme.info)
+                        if isBound {
+                          NativeAdaptiveBadge("已绑定", tint: NativeTheme.brand)
+                        }
+                      }
+                      HStack(spacing: 6) {
+                        Text(candidate.packageGeneration.uppercased())
+                          .font(.caption2.monospaced())
+                          .foregroundStyle(.secondary)
+                        if let ver = candidate.pluginVersion, !ver.isEmpty {
+                          Text("v\(ver)")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                        }
+                      }
+                    }
+                    Spacer(minLength: 0)
+                  }
+                  .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+              }
+
+              if plugin.installed, !selectedSourceRepo.isEmpty,
+                !selectedSourceRepo.hasPrefix("local://")
+              {
+                let needsChange = opts.identity != nil
+                Button {
+                  Task { await applySourceSelection(isSourceChange: needsChange) }
+                } label: {
+                  Text(needsChange ? "切换到所选在线源" : "绑定并从所选在线源安装")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(NativeTheme.brand)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
+                    .background {
+                      RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(NativeTheme.brand.opacity(0.14))
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(isInstalling)
+              }
+            }
+          } else {
+            Text("当前未检测到多源配置，将使用默认市场源安装。")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        }
+      }
+    }
+  }
+
+  /// 评分查看与提交区（已安装插件可交互打分）。
+  private var ratingSection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("社区评分")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
+      CinematicPanel(padding: 13) {
+        HStack {
+          VStack(alignment: .leading, spacing: 2) {
+            Text(plugin.installed ? "为该插件打分" : "安装后可参与社区评分")
+              .font(.subheadline.weight(.medium))
+            if let cnt = liveRating?.ratingCount ?? ratingSummary?.ratingCount, cnt > 0 {
+              Text("共 \(cnt) 次评分")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+          }
+          Spacer()
+          HStack(spacing: 6) {
+            ForEach(1...5, id: \.self) { star in
+              Button {
+                guard plugin.installed, !isRatingSubmitting else { return }
+                Task { await submitRating(star) }
+              } label: {
+                Image(systemName: star <= userStars ? "star.fill" : "star")
+                  .font(.body)
+                  .foregroundStyle(star <= userStars ? NativeTheme.warning : Color.secondary)
+              }
+              .buttonStyle(.plain)
+              .disabled(!plugin.installed || isRatingSubmitting)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /// Release 历史版本安装与更新日志。
+  private var releasesSection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("版本历史与指定版本安装")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
+      CinematicPanel(padding: 13) {
+        VStack(alignment: .leading, spacing: 10) {
+          if let items = releases?.items, !items.isEmpty {
+            ForEach(Array(items.prefix(8).enumerated()), id: \.offset) { idx, item in
+              if idx > 0 { Divider().overlay(NativeTheme.divider) }
+              HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(item.version ?? item.tagName ?? "未知版本")
+                    .font(.subheadline.monospaced().weight(.semibold))
+                  if let desc = item.description ?? item.body, !desc.isEmpty {
+                    Text(desc)
+                      .font(.caption2)
+                      .foregroundStyle(.secondary)
+                      .lineLimit(2)
+                  }
+                }
+                Spacer(minLength: 6)
+                if let ver = item.version ?? item.tagName, !ver.isEmpty {
+                  Button("安装") {
+                    Task { await installOrUpdate(releaseVersion: ver) }
+                  }
+                  .font(.caption.weight(.semibold))
+                  .foregroundStyle(NativeTheme.brand)
+                  .padding(.horizontal, 10)
+                  .padding(.vertical, 5)
+                  .background { Capsule().fill(NativeTheme.brand.opacity(0.14)) }
+                  .buttonStyle(.plain)
+                  .disabled(isInstalling)
+                }
+              }
+            }
+          } else if !historyEntries.isEmpty {
+            ForEach(Array(historyEntries.prefix(10).enumerated()), id: \.offset) { idx, entry in
+              if idx > 0 { Divider().overlay(NativeTheme.divider) }
+              VStack(alignment: .leading, spacing: 3) {
+                Text(entry.version)
+                  .font(.caption.monospaced().weight(.semibold))
+                  .foregroundStyle(NativeTheme.brand)
+                Text(entry.desc)
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+            }
+          } else {
+            Text(isLoading ? "正在读取版本记录…" : "暂无可切换的历史版本记录。")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        }
+      }
+    }
+  }
+
+  /// 文档与仓库链接。
+  @ViewBuilder
+  private var linksSection: some View {
+    let homeURL = plugin.projectHomeURL
+    if docURL != nil || homeURL != nil {
+      VStack(alignment: .leading, spacing: 8) {
+        Text("文档与源码")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 4)
+        CinematicPanel(padding: 0) {
+          VStack(spacing: 0) {
+            if let docURL {
+              Button {
+                openURL(docURL)
+              } label: {
+                HStack {
+                  Label("使用说明与 README", systemImage: "book")
+                  Spacer()
+                  Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(.secondary)
+                }
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+              }
+              .buttonStyle(.plain)
+            }
+            if docURL != nil && homeURL != nil {
+              Divider().overlay(NativeTheme.divider)
+            }
+            if let homeURL {
+              Button {
+                openURL(homeURL)
+              } label: {
+                HStack {
+                  Label("打开项目主页", systemImage: "safari")
+                  Spacer()
+                  Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(.secondary)
+                }
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+              }
+              .buttonStyle(.plain)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private func bootstrap() async {
+    isLoading = true
+    defer { isLoading = false }
+    selectedSourceRepo = plugin.repoURL ?? ""
+    if let dict = plugin.history {
+      historyEntries = dict.keys.sorted(by: >).map { ($0, dict[$0] ?? "") }
+    }
+    async let sourcesTask: Void = loadSourceOptions()
+    async let releasesTask: Void = loadReleases()
+    async let ratingTask: Void = loadRating()
+    async let docTask: Void = loadDocumentation()
+    async let historyTask: Void = loadHistory()
+    _ = await (sourcesTask, releasesTask, ratingTask, docTask, historyTask)
+  }
+
+  private func loadSourceOptions() async {
+    guard
+      let ep = try? APIEndpoint(
+        path: ["plugin", "source", sourcePluginID, "options"], responseContract: .payload),
+      let resp = try? await session.request(
+        ep, as: NativePluginEnvelope<NativePluginSourceOptions>.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value,
+      let data = resp.data
+    else { return }
+    sourceOptions = data
+    if selectedSourceRepo.isEmpty, let first = data.sortedCandidates.first?.repoURL {
+      selectedSourceRepo = first
+    }
+  }
+
+  private func loadReleases() async {
+    var query: [URLQueryItem] = []
+    if let repo = plugin.repoURL, !repo.isEmpty {
+      query.append(URLQueryItem(name: "repo_url", value: repo))
+    }
+    guard let ep = try? APIEndpoint(path: ["plugin", "releases", sourcePluginID], query: query),
+      let loaded = try? await session.request(
+        ep, as: NativePluginReleaseData.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
+    else { return }
+    releases = loaded
+  }
+
+  private func loadHistory() async {
+    guard historyEntries.isEmpty,
+      let ep = try? APIEndpoint(
+        path: ["plugin", "history", sourcePluginID],
+        query: [URLQueryItem(name: "force", value: "false")]),
+      let loaded = try? await session.request(
+        ep, as: NativeMarketPluginRecord.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value,
+      let dict = loaded.history
+    else { return }
+    historyEntries = dict.keys.sorted(by: >).map { ($0, dict[$0] ?? "") }
+  }
+
+  private func loadRating() async {
+    guard let ep = try? APIEndpoint(path: ["plugin", "rating", sourcePluginID]),
+      let loaded = try? await session.request(
+        ep, as: NativePluginRatingSummary.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
+    else { return }
+    liveRating = loaded
+    userStars = loaded.userRating ?? 0
+  }
+
+  private func loadDocumentation() async {
+    guard let repo = plugin.repoURL, !repo.isEmpty,
+      let ep = try? APIEndpoint(
+        path: ["plugin", "readme", sourcePluginID],
+        query: [URLQueryItem(name: "repo_url", value: repo)]),
+      let doc = try? await session.request(
+        ep, as: NativePluginDocumentation.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value,
+      let raw = doc.url ?? doc.readmeURL,
+      let url = URL(string: raw),
+      let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https"
+    else { return }
+    docURL = url
+  }
+
+  private func installOrUpdate(releaseVersion: String?) async {
+    isInstalling = true
+    bannerMessage = nil
+    defer { isInstalling = false }
+    let chosenRepo = selectedSourceRepo.isEmpty ? (plugin.repoURL ?? "") : selectedSourceRepo
+    do {
+      if !plugin.installed, !chosenRepo.isEmpty, !chosenRepo.hasPrefix("local://"),
+        (sourceOptions?.candidates.count ?? 0) > 1
+      {
+        let payload = NativePluginSourceInstallPayload(
+          repoURL: chosenRepo, releaseVersion: releaseVersion, force: true)
+        let body = try JSONEncoder().encode(payload)
+        let ep = try APIEndpoint(
+          path: ["plugin", "source", sourcePluginID, "install"],
+          method: .post, body: body, responseContract: .payload, timeout: 90)
+        let resp = try await session.request(
+          ep, as: NativePluginSimpleResponse.self,
+          requiring: PermissionRequirement(category: .admin)
+        ).value
+        if resp.success == false {
+          bannerIsError = true
+          bannerMessage = resp.message ?? "安装插件失败。"
+          return
+        }
+      } else {
+        var query = [URLQueryItem(name: "force", value: "true")]
+        if !chosenRepo.isEmpty { query.append(URLQueryItem(name: "repo_url", value: chosenRepo)) }
+        if let releaseVersion, !releaseVersion.isEmpty {
+          query.append(URLQueryItem(name: "release_version", value: releaseVersion))
+        }
+        let ep = try APIEndpoint(
+          path: ["plugin", "install", sourcePluginID], query: query,
+          responseContract: .payload, timeout: 90)
+        let resp = try await session.request(
+          ep, as: NativePluginSimpleResponse.self,
+          requiring: PermissionRequirement(category: .admin)
+        ).value
+        if resp.success == false {
+          bannerIsError = true
+          bannerMessage = resp.message ?? "安装插件失败。"
+          return
+        }
+      }
+      let verSuffix = releaseVersion.map { " (\($0))" } ?? ""
+      onCompleted("「\(plugin.displayName)」\(verSuffix) 安装/更新已完成。")
+      dismiss()
+    } catch {
+      bannerIsError = true
+      bannerMessage = "安装/更新失败：\(error.localizedDescription)"
+    }
+  }
+
+  private func applySourceSelection(isSourceChange: Bool) async {
+    guard !selectedSourceRepo.isEmpty, !selectedSourceRepo.hasPrefix("local://") else { return }
+    isInstalling = true
+    bannerMessage = nil
+    defer { isInstalling = false }
+    do {
+      if isSourceChange, let revision = sourceOptions?.identity?.revision {
+        let payload = NativePluginSourceChangePayload(
+          repoURL: selectedSourceRepo, expectedRevision: revision, releaseVersion: nil)
+        let body = try JSONEncoder().encode(payload)
+        let ep = try APIEndpoint(
+          path: ["plugin", "source", sourcePluginID],
+          method: .post, body: body, responseContract: .payload, timeout: 90)
+        let resp = try await session.request(
+          ep, as: NativePluginSimpleResponse.self,
+          requiring: PermissionRequirement(category: .admin)
+        ).value
+        if resp.success == false {
+          bannerIsError = true
+          bannerMessage = resp.message ?? "切换插件源失败。"
+          return
+        }
+        onCompleted("已切换「\(plugin.displayName)」的插件源。")
+        dismiss()
+      } else {
+        let payload = NativePluginSourceInstallPayload(
+          repoURL: selectedSourceRepo, releaseVersion: nil, force: true)
+        let body = try JSONEncoder().encode(payload)
+        let ep = try APIEndpoint(
+          path: ["plugin", "source", sourcePluginID, "install"],
+          method: .post, body: body, responseContract: .payload, timeout: 90)
+        let resp = try await session.request(
+          ep, as: NativePluginSimpleResponse.self,
+          requiring: PermissionRequirement(category: .admin)
+        ).value
+        if resp.success == false {
+          bannerIsError = true
+          bannerMessage = resp.message ?? "绑定插件源失败。"
+          return
+        }
+        onCompleted("已为「\(plugin.displayName)」绑定在线插件源。")
+        dismiss()
+      }
+    } catch {
+      bannerIsError = true
+      bannerMessage = "来源操作失败：\(error.localizedDescription)"
+    }
+  }
+
+  private func submitRating(_ stars: Int) async {
+    isRatingSubmitting = true
+    defer { isRatingSubmitting = false }
+    do {
+      let body = try JSONEncoder().encode(["rating": stars])
+      let ep = try APIEndpoint(
+        path: ["plugin", "rating", sourcePluginID], method: .post, body: body,
+        responseContract: .payload)
+      let resp = try await session.request(
+        ep, as: NativePluginEnvelope<NativePluginRatingSummary>.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
+      if resp.success == false {
+        bannerIsError = true
+        bannerMessage = resp.message ?? "评分提交失败。"
+        return
+      }
+      userStars = stars
+      if let updated = resp.data { liveRating = updated }
+      bannerIsError = false
+      bannerMessage = "已提交 \(stars) 星评分。"
+    } catch {
+      bannerIsError = true
+      bannerMessage = "评分提交失败：\(error.localizedDescription)"
+    }
+  }
+
+  private static func cleanSourceKey(_ raw: String) -> String {
+    raw.hasPrefix("github:") ? String(raw.dropFirst("github:".count)) : raw
+  }
+}
+
+/// 创建/恢复插件分身弹窗（对标 Web `PluginCloneDialog.vue`，十一.4）：
+/// 自动查询 `GET /api/v1/plugin/clone/{id}/restorable` 并提交 `POST /api/v1/plugin/clone/{id}`。
+@MainActor
+private struct NativePluginCloneSheet: View {
+  let session: NativeSession
+  let plugin: NativeMarketPluginRecord
+  let onCloned: (String) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var suffix = ""
+  @State private var name: String
+  @State private var descriptionText: String
+  @State private var iconText: String
+  @State private var restorePrevious = true
+  @State private var restorable: [NativeRestorableClone] = []
+  @State private var isSubmitting = false
+  @State private var errorMessage: String?
+
+  init(
+    session: NativeSession,
+    plugin: NativeMarketPluginRecord,
+    onCloned: @escaping (String) -> Void
+  ) {
+    self.session = session
+    self.plugin = plugin
+    self.onCloned = onCloned
+    _name = State(initialValue: "\(plugin.displayName) 分身")
+    _descriptionText = State(initialValue: plugin.summary)
+    _iconText = State(initialValue: plugin.pluginIcon ?? "")
+  }
+
+  private var suffixValidationError: String? {
+    let trimmed = suffix.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    if trimmed.count > 20 { return "后缀最长 20 个字符" }
+    let valid = trimmed.unicodeScalars.allSatisfy {
+      ($0.value >= 48 && $0.value <= 57) || ($0.value >= 65 && $0.value <= 90)
+        || ($0.value >= 97 && $0.value <= 122)
+    }
+    return valid ? nil : "后缀仅允许英文字母或数字（A-Z, a-z, 0-9）"
+  }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 14) {
+            if !restorable.isEmpty {
+              VStack(alignment: .leading, spacing: 8) {
+                Text("可恢复的已停用分身（点选快速填入后缀）")
+                  .font(.caption.weight(.semibold))
+                  .foregroundStyle(.secondary)
+                  .padding(.horizontal, 4)
+                CinematicPanel(padding: 12) {
+                  ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                      ForEach(restorable) { item in
+                        Button {
+                          suffix = item.suffix
+                          if let oldName = item.name, !oldName.isEmpty { name = oldName }
+                        } label: {
+                          NativeAdaptivePill(
+                            "\(item.suffix) (\(item.instanceID))",
+                            isSelected: suffix.lowercased() == item.suffix.lowercased())
+                        }
+                        .buttonStyle(.plain)
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
+            CinematicPanel(padding: 14) {
+              VStack(alignment: .leading, spacing: 12) {
+                fieldRow(title: "分身后缀（留空自动分配）", placeholder: "仅英文字母或数字，如 2 或 alt", text: $suffix)
+                if let suffixValidationError {
+                  Text(suffixValidationError).font(.caption2).foregroundStyle(NativeTheme.danger)
+                }
+                Divider().overlay(NativeTheme.divider)
+                fieldRow(title: "分身名称", placeholder: "输入分身展示名", text: $name)
+                Divider().overlay(NativeTheme.divider)
+                fieldRow(title: "分身描述", placeholder: "可选", text: $descriptionText)
+                Divider().overlay(NativeTheme.divider)
+                fieldRow(title: "自定义图标", placeholder: "可选图标名或链接", text: $iconText)
+                Divider().overlay(NativeTheme.divider)
+                Toggle("若该后缀留有历史配置则自动恢复", isOn: $restorePrevious)
+                  .font(.subheadline)
+                  .tint(NativeTheme.brand)
+              }
+            }
+
+            if let errorMessage {
+              CinematicPanel(padding: 11) {
+                HStack(spacing: 8) {
+                  Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(NativeTheme.warning)
+                  Text(errorMessage).font(.caption).foregroundStyle(.primary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+              }
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
+        }
+      }
+      .navigationTitle("创建插件分身")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("取消") { dismiss() }
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button {
+            Task { await submitClone() }
+          } label: {
+            if isSubmitting {
+              ProgressView().controlSize(.small)
+            } else {
+              Text("创建").fontWeight(.semibold)
+            }
+          }
+          .disabled(isSubmitting || suffixValidationError != nil)
+        }
+      }
+      .task { await loadRestorable() }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  private func fieldRow(title: String, placeholder: String, text: Binding<String>) -> some View {
+    VStack(alignment: .leading, spacing: 5) {
+      Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+      TextField(placeholder, text: text)
+        .textFieldStyle(.plain)
+        .font(.subheadline)
+        .autocorrectionDisabled()
+        .textInputAutocapitalization(.never)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background {
+          RoundedRectangle(cornerRadius: 10, style: .continuous).fill(NativeTheme.fieldFill)
+        }
+    }
+  }
+
+  private func loadRestorable() async {
+    guard let ep = try? APIEndpoint(path: ["plugin", "clone", plugin.id, "restorable"]),
+      let loaded = try? await session.request(
+        ep, as: [NativeRestorableClone].self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
+    else { return }
+    restorable = loaded
+  }
+
+  private func submitClone() async {
+    isSubmitting = true
+    errorMessage = nil
+    defer { isSubmitting = false }
+    let trimmedSuffix = suffix.trimmingCharacters(in: .whitespacesAndNewlines)
+    let payload = NativePluginClonePayload(
+      suffix: trimmedSuffix.isEmpty ? nil : trimmedSuffix,
+      name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+      description: descriptionText.trimmingCharacters(in: .whitespacesAndNewlines),
+      icon: iconText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        ? nil : iconText.trimmingCharacters(in: .whitespacesAndNewlines),
+      restorePrevious: restorePrevious)
+    do {
+      let body = try JSONEncoder().encode(payload)
+      let ep = try APIEndpoint(
+        path: ["plugin", "clone", plugin.id], method: .post, body: body,
+        responseContract: .payload, timeout: 45)
+      let resp = try await session.request(
+        ep, as: NativePluginEnvelope<NativePluginCloneOutcome>.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
+      if resp.success == false {
+        errorMessage = resp.message ?? "创建插件分身失败。"
+        return
+      }
+      let newID = resp.data?.instanceID ?? ""
+      onCloned(newID.isEmpty ? "已成功创建「\(plugin.displayName)」的分身。" : "已创建分身：\(newID)。")
+      dismiss()
+    } catch {
+      errorMessage = "创建插件分身失败：\(error.localizedDescription)"
+    }
+  }
+}
+
+/// 插件专属实时日志查看弹窗（`GET /api/v1/system/logging?length=200&logfile=plugins/{id}.log`）。
+@MainActor
+private struct NativePluginLogSheet: View {
+  let session: NativeSession
+  let plugin: NativeMarketPluginRecord
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var lines: [String] = []
+  @State private var isLoading = true
+  @State private var errorMessage: String?
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        if isLoading && lines.isEmpty {
+          ProgressView("正在读取插件日志…").tint(.primary)
+        } else if let errorMessage {
+          CinematicPanel {
+            VStack(spacing: 10) {
+              Text(errorMessage).font(.subheadline).foregroundStyle(.secondary)
+              Button("重试") { Task { await loadLogs() } }
+            }
+            .frame(maxWidth: .infinity)
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+        } else if lines.isEmpty {
+          Text("暂无插件日志输出").font(.subheadline).foregroundStyle(.secondary)
+        } else {
+          ScrollView {
+            LazyVStack(alignment: .leading, spacing: 6) {
+              ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                Text(line)
+                  .font(.caption2.monospaced())
+                  .foregroundStyle(colorForLogLine(line))
+                  .textSelection(.enabled)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+              }
+            }
+            .padding(.horizontal, CinematicStyle.margin)
+            .padding(.vertical, 12)
+          }
+          .refreshable { await loadLogs() }
+        }
+      }
+      .navigationTitle("\(plugin.displayName) 日志")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("关闭") { dismiss() }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+          Button {
+            Task { await loadLogs() }
+          } label: {
+            Image(systemName: "arrow.clockwise")
+          }
+        }
+      }
+      .task { await loadLogs() }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  private func loadLogs() async {
+    isLoading = true
+    errorMessage = nil
+    defer { isLoading = false }
+    do {
+      let ep = try APIEndpoint(
+        path: ["system", "logging"],
+        query: [
+          URLQueryItem(name: "length", value: "200"),
+          URLQueryItem(name: "logfile", value: "plugins/\(plugin.id.lowercased()).log"),
+        ],
+        responseContract: .payload,
+        timeout: 20)
+      let data = try await session.requestResourcePayload(ep).value
+      let rawText = String(data: data, encoding: .utf8) ?? ""
+      lines = rawText.components(separatedBy: .newlines).filter {
+        !$0.trimmingCharacters(in: .whitespaces).isEmpty
+      }
+    } catch {
+      errorMessage = "读取插件日志失败：\(error.localizedDescription)"
+    }
+  }
+
+  private func colorForLogLine(_ line: String) -> Color {
+    let upper = line.uppercased()
+    if upper.contains("ERROR") || upper.contains("CRITICAL") { return NativeTheme.danger }
+    if upper.contains("WARNING") || upper.contains("WARN") { return NativeTheme.warning }
+    if upper.contains("DEBUG") { return .secondary }
+    return .primary
+  }
+}
+
+/// 插件运行能力只读诊断弹窗（`GET /api/v1/plugin/runtime/capabilities?plugin_id={id}`）。
+@MainActor
+private struct NativePluginCapabilitiesSheet: View {
+  let session: NativeSession
+  let plugin: NativeMarketPluginRecord
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var capabilities: NativePluginCapabilitiesData?
+  @State private var isLoading = true
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 14) {
+            if isLoading {
+              ProgressView("正在读取插件能力…").frame(maxWidth: .infinity, minHeight: 160)
+            } else if let cap = capabilities {
+              capabilityCard(
+                title: "注册命令 (\(cap.commands.count))",
+                rows: cap.commands.map { ($0.cmd, $0.desc ?? "") })
+              capabilityCard(
+                title: "定时服务 (\(cap.services.count))",
+                rows: cap.services.map { ($0.name ?? $0.id, $0.trigger ?? "") })
+              let flatActions = cap.actions.flatMap(\.actions)
+              capabilityCard(
+                title: "工作流动作 (\(flatActions.count))",
+                rows: flatActions.map { ($0.name ?? $0.id, $0.id) })
+            } else {
+              Text("暂未读取到插件运行能力").font(.subheadline).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 140)
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
+        }
+      }
+      .navigationTitle("运行能力")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
+      }
+      .task { await load() }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  private func capabilityCard(title: String, rows: [(String, String)]) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(
+        .horizontal, 4)
+      CinematicPanel(padding: 13) {
+        if rows.isEmpty {
+          Text("无").font(.caption).foregroundStyle(.secondary).frame(
+            maxWidth: .infinity, alignment: .leading)
+        } else {
+          VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { idx, row in
+              if idx > 0 { Divider().overlay(NativeTheme.divider) }
+              HStack {
+                Text(row.0).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                if !row.1.isEmpty {
+                  Text(row.1).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private func load() async {
+    defer { isLoading = false }
+    guard
+      let ep = try? APIEndpoint(
+        path: ["plugin", "runtime", "capabilities"],
+        query: [URLQueryItem(name: "plugin_id", value: plugin.id)],
+        responseContract: .payload),
+      let resp = try? await session.request(
+        ep, as: NativePluginEnvelope<NativePluginCapabilitiesData>.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
+    else { return }
+    capabilities = resp.data
+  }
+}
+
+/// 插件持久化数据键摘要弹窗（`GET /api/v1/plugin/runtime/{id}/data/summary`，不含敏感原值）。
+@MainActor
+private struct NativePluginDataSummarySheet: View {
+  let session: NativeSession
+  let plugin: NativeMarketPluginRecord
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var summary: NativePluginDataSummaryData?
+  @State private var isLoading = true
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 14) {
+            if isLoading {
+              ProgressView("正在读取数据摘要…").frame(maxWidth: .infinity, minHeight: 160)
+            } else if let s = summary {
+              CinematicPanel(padding: 13) {
+                HStack {
+                  VStack(alignment: .leading, spacing: 3) {
+                    Text("持久化键总数").font(.caption).foregroundStyle(.secondary)
+                    Text("\(s.count)").font(.title3.monospacedDigit().bold())
+                  }
+                  Spacer()
+                  VStack(alignment: .trailing, spacing: 3) {
+                    Text("总字符估算").font(.caption).foregroundStyle(.secondary)
+                    Text("\(s.totalChars)").font(.title3.monospacedDigit().bold())
+                  }
+                }
+              }
+              if !s.keys.isEmpty {
+                CinematicPanel(padding: 13) {
+                  VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(s.keys.enumerated()), id: \.offset) { idx, item in
+                      if idx > 0 { Divider().overlay(NativeTheme.divider) }
+                      HStack {
+                        Text(item.key).font(.caption.monospaced().weight(.medium))
+                        Spacer()
+                        NativeAdaptiveBadge(item.valueType, tint: NativeTheme.info)
+                      }
+                    }
+                  }
+                }
+              }
+            } else {
+              Text("暂未读取到插件数据摘要").font(.subheadline).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 140)
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
+        }
+      }
+      .navigationTitle("数据摘要")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
+      }
+      .task { await load() }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  private func load() async {
+    defer { isLoading = false }
+    guard
+      let ep = try? APIEndpoint(
+        path: ["plugin", "runtime", plugin.id, "data", "summary"], responseContract: .payload),
+      let resp = try? await session.request(
+        ep, as: NativePluginEnvelope<NativePluginDataSummaryData>.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value
+    else { return }
+    summary = resp.data
+  }
+}
+
+/// 插件实例管理弹窗（对标 Web `PluginInstanceManageDialog.vue`）：
+/// 管理本体与各分身的启停、默认调用目标及独立日志等级覆盖。
+@MainActor
+private struct NativePluginInstanceManageSheet: View {
+  let session: NativeSession
+  let plugin: NativeMarketPluginRecord
+  let allInstalled: [NativeMarketPluginRecord]
+  let onUpdated: (String) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var logLevels: [String: NativePluginLogLevelItem] = [:]
+  @State private var busyID: String?
+  @State private var statusMessage: String?
+
+  private var sourceID: String {
+    plugin.isInstance ? (plugin.sourcePluginID ?? plugin.id) : plugin.id
+  }
+
+  private var relatedInstances: [NativeMarketPluginRecord] {
+    allInstalled.filter { item in
+      let sid = item.isInstance ? (item.sourcePluginID ?? item.id) : item.id
+      return sid.lowercased() == sourceID.lowercased()
+    }
+  }
+
+  private let levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 12) {
+            if let statusMessage {
+              CinematicPanel(padding: 11) {
+                Text(statusMessage).font(.caption).foregroundStyle(.primary)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+              }
+            }
+            ForEach(relatedInstances) { inst in
+              let levelInfo = logLevels[inst.id] ?? logLevels[inst.id.lowercased()]
+              CinematicPanel(padding: 13) {
+                VStack(alignment: .leading, spacing: 10) {
+                  HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                      HStack(spacing: 6) {
+                        Text(inst.displayName).font(.subheadline.weight(.semibold))
+                        if !inst.isInstance {
+                          NativeAdaptiveBadge("本体", tint: NativeTheme.brand)
+                        } else {
+                          NativeAdaptiveBadge("分身", tint: NativeTheme.info)
+                        }
+                        if inst.isDefaultTarget {
+                          NativeAdaptiveBadge("默认目标", tint: NativeTheme.success)
+                        }
+                      }
+                      Text(inst.id).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if busyID == inst.id {
+                      ProgressView().controlSize(.small)
+                    }
+                  }
+
+                  Divider().overlay(NativeTheme.divider)
+
+                  HStack(spacing: 10) {
+                    Menu {
+                      ForEach(levels, id: \.self) { level in
+                        Button(level) {
+                          Task { await setLogLevel(instanceID: inst.id, level: level) }
+                        }
+                      }
+                      Divider()
+                      Button("恢复全局日志等级") {
+                        Task { await clearLogLevel(instanceID: inst.id) }
+                      }
+                    } label: {
+                      Label(
+                        "日志：\(levelInfo?.effectiveLevel ?? "默认")",
+                        systemImage: "slider.horizontal.3"
+                      )
+                      .font(.caption.weight(.medium))
+                      .foregroundStyle(NativeTheme.brand)
+                      .padding(.horizontal, 10)
+                      .padding(.vertical, 6)
+                      .background { Capsule().fill(NativeTheme.brand.opacity(0.14)) }
+                    }
+
+                    if relatedInstances.count > 1 {
+                      Button {
+                        Task {
+                          await toggleDefaultTarget(
+                            instanceID: inst.id, currentlyDefault: inst.isDefaultTarget)
+                        }
+                      } label: {
+                        Text(inst.isDefaultTarget ? "取消默认目标" : "设为默认目标")
+                          .font(.caption.weight(.medium))
+                          .foregroundStyle(.primary)
+                          .padding(.horizontal, 10)
+                          .padding(.vertical, 6)
+                          .background { Capsule().fill(NativeTheme.chipFill) }
+                      }
+                      .buttonStyle(.plain)
+                    }
+
+                    Spacer(minLength: 0)
+                  }
+                }
+              }
+            }
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 14)
+        }
+      }
+      .navigationTitle("实例管理")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
+      }
+      .task { await loadLogLevels() }
+    }
+    .nativeAppearanceRoot()
+  }
+
+  private func loadLogLevels() async {
+    guard
+      let ep = try? APIEndpoint(
+        path: ["plugin", "loglevel", sourceID], responseContract: .payload),
+      let resp = try? await session.request(
+        ep, as: NativePluginEnvelope<NativePluginLogLevelOverview>.self,
+        requiring: PermissionRequirement(category: .admin)
+      ).value,
+      let items = resp.data?.instances
+    else { return }
+    var map: [String: NativePluginLogLevelItem] = [:]
+    for item in items {
+      map[item.instanceID] = item
+      map[item.instanceID.lowercased()] = item
+    }
+    logLevels = map
+  }
+
+  private func setLogLevel(instanceID: String, level: String) async {
+    busyID = instanceID
+    defer { busyID = nil }
+    do {
+      let body = try JSONEncoder().encode(["level": level])
+      let ep = try APIEndpoint(
+        path: ["plugin", "loglevel", sourceID, instanceID], method: .put, body: body)
+      try await session.perform(ep, requiring: PermissionRequirement(category: .admin))
+      statusMessage = "已将 \(instanceID) 日志等级设为 \(level)。"
+      await loadLogLevels()
+    } catch {
+      statusMessage = "设置日志等级失败：\(error.localizedDescription)"
+    }
+  }
+
+  private func clearLogLevel(instanceID: String) async {
+    busyID = instanceID
+    defer { busyID = nil }
+    do {
+      let ep = try APIEndpoint(
+        path: ["plugin", "loglevel", sourceID, instanceID], method: .delete)
+      try await session.perform(ep, requiring: PermissionRequirement(category: .admin))
+      statusMessage = "已清除 \(instanceID) 的独立日志等级覆盖。"
+      await loadLogLevels()
+    } catch {
+      statusMessage = "清除日志等级失败：\(error.localizedDescription)"
+    }
+  }
+
+  private func toggleDefaultTarget(instanceID: String, currentlyDefault: Bool) async {
+    busyID = instanceID
+    defer { busyID = nil }
+    do {
+      let ep = try APIEndpoint(
+        path: ["plugin", "instances", sourceID, instanceID, "default_target"],
+        method: currentlyDefault ? .delete : .put)
+      try await session.perform(ep, requiring: PermissionRequirement(category: .admin))
+      onUpdated(currentlyDefault ? "已取消 \(instanceID) 的默认调用目标。" : "已将 \(instanceID) 设为默认调用目标。")
+      dismiss()
+    } catch {
+      statusMessage = "更新默认调用目标失败：\(error.localizedDescription)"
+    }
+  }
+}
+
+// MARK: - Models
+
 private struct NativePluginMarketFeedback {
   let isError: Bool
   let message: String
 }
 
-/// `GET /api/v1/plugin/rating` 单插件平均分与评分人数投影。
+private struct NativePluginSimpleResponse: Decodable, Sendable {
+  let success: Bool?
+  let message: String?
+}
+
+private struct NativePluginEnvelope<T: Decodable & Sendable>: Decodable, Sendable {
+  let success: Bool?
+  let message: String?
+  let data: T?
+}
+
 private struct NativePluginRatingSummary: Decodable, Sendable {
   let averageRating: Double
   let ratingCount: Int
+  let userRating: Int?
 
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     averageRating = (try? c.decodeIfPresent(Double.self, forKey: .averageRating)) ?? 0
     ratingCount = (try? c.decodeIfPresent(Int.self, forKey: .ratingCount)) ?? 0
+    userRating = try? c.decodeIfPresent(Int.self, forKey: .userRating)
   }
 
   private enum CodingKeys: String, CodingKey {
     case averageRating = "average_rating"
     case ratingCount = "rating_count"
+    case userRating = "user_rating"
   }
 }
 
-/// 插件市场与已安装插件统一编解码模型。
 private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
   let id: String
+  let sourcePluginID: String?
+  let isInstance: Bool
+  let isDefaultTarget: Bool
   let pluginName: String?
   let pluginDesc: String?
   let pluginIcon: String?
@@ -890,26 +2525,18 @@ private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
   let installCount: Int
   let averageRating: Double
   let ratingCount: Int
+  let history: [String: String]?
 
-  /// 显示名称回退至插件 ID。
   var displayName: String {
     if let pluginName, !pluginName.isEmpty { return pluginName }
     return id
   }
 
-  /// 插件简介。
   var summary: String { pluginDesc ?? "" }
-
-  /// 插件版本。
   var version: String { pluginVersion ?? "" }
-
-  /// 作者名。
   var author: String { pluginAuthor ?? "" }
-
-  /// 运行状态。
   var isRunning: Bool { state ?? false }
 
-  /// 拆分逗号分隔标签。
   var labels: [String] {
     (pluginLabel ?? "")
       .split(whereSeparator: { $0 == "," || $0 == "，" })
@@ -917,10 +2544,31 @@ private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
       .filter { !$0.isEmpty }
   }
 
-  /// 解码后端 `_SchemaPlugin` 非敏感元数据。
+  /// 优先解析 GitHub 项目主页，回退至作者主页。
+  var projectHomeURL: URL? {
+    let candidate: String?
+    if let repo = repoURL, !repo.isEmpty, !repo.hasPrefix("local://") {
+      if repo.contains("raw.githubusercontent.com"), let rawURL = URL(string: repo) {
+        let comps = rawURL.pathComponents.filter { $0 != "/" }
+        candidate = comps.count >= 2 ? "https://github.com/\(comps[0])/\(comps[1])" : repo
+      } else {
+        candidate = repo
+      }
+    } else {
+      candidate = authorURL
+    }
+    guard let candidate, let url = URL(string: candidate),
+      let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https"
+    else { return nil }
+    return url
+  }
+
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     id = (try? container.decodeIfPresent(String.self, forKey: .id)) ?? ""
+    sourcePluginID = try? container.decodeIfPresent(String.self, forKey: .sourcePluginID)
+    isInstance = (try? container.decodeIfPresent(Bool.self, forKey: .isInstance)) ?? false
+    isDefaultTarget = (try? container.decodeIfPresent(Bool.self, forKey: .isDefaultTarget)) ?? false
     pluginName = try? container.decodeIfPresent(String.self, forKey: .pluginName)
     pluginDesc = try? container.decodeIfPresent(String.self, forKey: .pluginDesc)
     pluginIcon = try? container.decodeIfPresent(String.self, forKey: .pluginIcon)
@@ -937,10 +2585,14 @@ private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
     installCount = (try? container.decodeIfPresent(Int.self, forKey: .installCount)) ?? 0
     averageRating = (try? container.decodeIfPresent(Double.self, forKey: .averageRating)) ?? 0
     ratingCount = (try? container.decodeIfPresent(Int.self, forKey: .ratingCount)) ?? 0
+    history = try? container.decodeIfPresent([String: String].self, forKey: .history)
   }
 
   private enum CodingKeys: String, CodingKey {
     case id
+    case sourcePluginID = "source_plugin_id"
+    case isInstance = "is_instance"
+    case isDefaultTarget = "is_default_target"
     case pluginName = "plugin_name"
     case pluginDesc = "plugin_desc"
     case pluginIcon = "plugin_icon"
@@ -957,5 +2609,226 @@ private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
     case installCount = "install_count"
     case averageRating = "average_rating"
     case ratingCount = "rating_count"
+    case history
   }
+}
+
+private struct NativePluginSourceIdentity: Decodable, Sendable {
+  let pluginID: String
+  let trustedSourceType: String
+  let trustedSourceKey: String?
+  let revision: Int
+
+  private enum CodingKeys: String, CodingKey {
+    case pluginID = "plugin_id"
+    case trustedSourceType = "trusted_source_type"
+    case trustedSourceKey = "trusted_source_key"
+    case revision
+  }
+}
+
+private struct NativePluginSourceCandidate: Decodable, Sendable {
+  let sourceType: String
+  let sourceKey: String?
+  let repoURL: String?
+  let packageGeneration: String
+  let pluginVersion: String?
+
+  var sourceTypeLabel: String {
+    switch sourceType {
+    case "official": "官方源"
+    case "local": "本地"
+    default: "第三方源"
+    }
+  }
+
+  var displayLabel: String {
+    if let key = sourceKey, !key.isEmpty {
+      return key.hasPrefix("github:") ? String(key.dropFirst("github:".count)) : key
+    }
+    return repoURL ?? sourceTypeLabel
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case sourceType = "source_type"
+    case sourceKey = "source_key"
+    case repoURL = "repo_url"
+    case packageGeneration = "package_generation"
+    case pluginVersion = "plugin_version"
+  }
+}
+
+private struct NativePluginSourceOptions: Decodable, Sendable {
+  let pluginID: String
+  let selectionStatus: String
+  let selectionReason: String
+  let identity: NativePluginSourceIdentity?
+  let candidates: [NativePluginSourceCandidate]
+
+  var sortedCandidates: [NativePluginSourceCandidate] {
+    candidates.sorted { lhs, rhs in
+      if lhs.sourceType == "official" && rhs.sourceType != "official" { return true }
+      if rhs.sourceType == "official" && lhs.sourceType != "official" { return false }
+      return lhs.displayLabel < rhs.displayLabel
+    }
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case pluginID = "plugin_id"
+    case selectionStatus = "selection_status"
+    case selectionReason = "selection_reason"
+    case identity, candidates
+  }
+}
+
+private struct NativePluginSourceInstallPayload: Encodable, Sendable {
+  let repoURL: String
+  let releaseVersion: String?
+  let force: Bool
+
+  private enum CodingKeys: String, CodingKey {
+    case repoURL = "repo_url"
+    case releaseVersion = "release_version"
+    case force
+  }
+}
+
+private struct NativePluginSourceChangePayload: Encodable, Sendable {
+  let repoURL: String
+  let expectedRevision: Int
+  let releaseVersion: String?
+
+  private enum CodingKeys: String, CodingKey {
+    case repoURL = "repo_url"
+    case expectedRevision = "expected_revision"
+    case releaseVersion = "release_version"
+  }
+}
+
+private struct NativePluginReleaseItem: Decodable, Sendable {
+  let version: String?
+  let tagName: String?
+  let description: String?
+  let body: String?
+
+  private enum CodingKeys: String, CodingKey {
+    case version
+    case tagName = "tag_name"
+    case description, body
+  }
+}
+
+private struct NativePluginReleaseData: Decodable, Sendable {
+  let releaseSupported: Bool?
+  let latestVersion: String?
+  let currentVersion: String?
+  let items: [NativePluginReleaseItem]?
+
+  private enum CodingKeys: String, CodingKey {
+    case releaseSupported = "release_supported"
+    case latestVersion = "latest_version"
+    case currentVersion = "current_version"
+    case items
+  }
+}
+
+private struct NativePluginDocumentation: Decodable, Sendable {
+  let url: String?
+  let readmeURL: String?
+
+  private enum CodingKeys: String, CodingKey {
+    case url
+    case readmeURL = "readme_url"
+  }
+}
+
+private struct NativeRestorableClone: Decodable, Sendable, Identifiable {
+  let instanceID: String
+  let suffix: String
+  let name: String?
+
+  var id: String { instanceID }
+
+  private enum CodingKeys: String, CodingKey {
+    case instanceID = "instance_id"
+    case suffix, name
+  }
+}
+
+private struct NativePluginClonePayload: Encodable, Sendable {
+  let suffix: String?
+  let name: String
+  let description: String
+  let icon: String?
+  let restorePrevious: Bool
+
+  private enum CodingKeys: String, CodingKey {
+    case suffix, name, description, icon
+    case restorePrevious = "restore_previous"
+  }
+}
+
+private struct NativePluginCloneOutcome: Decodable, Sendable {
+  let instanceID: String?
+  private enum CodingKeys: String, CodingKey {
+    case instanceID = "instance_id"
+  }
+}
+
+private struct NativePluginCapabilitiesData: Decodable, Sendable {
+  struct CommandItem: Decodable, Sendable {
+    let cmd: String
+    let desc: String?
+  }
+  struct ActionItem: Decodable, Sendable {
+    let id: String
+    let name: String?
+  }
+  struct ActionGroup: Decodable, Sendable {
+    let actions: [ActionItem]
+  }
+  struct ServiceItem: Decodable, Sendable {
+    let id: String
+    let name: String?
+    let trigger: String?
+  }
+  let commands: [CommandItem]
+  let actions: [ActionGroup]
+  let services: [ServiceItem]
+}
+
+private struct NativePluginDataSummaryData: Decodable, Sendable {
+  struct KeyItem: Decodable, Sendable {
+    let key: String
+    let valueType: String
+    private enum CodingKeys: String, CodingKey {
+      case key
+      case valueType = "value_type"
+    }
+  }
+  let count: Int
+  let totalChars: Int
+  let keys: [KeyItem]
+
+  private enum CodingKeys: String, CodingKey {
+    case count
+    case totalChars = "total_chars"
+    case keys
+  }
+}
+
+private struct NativePluginLogLevelItem: Decodable, Sendable {
+  let instanceID: String
+  let configuredLevel: String?
+  let effectiveLevel: String?
+
+  private enum CodingKeys: String, CodingKey {
+    case instanceID = "instance_id"
+    case configuredLevel = "configured_level"
+    case effectiveLevel = "effective_level"
+  }
+}
+
+private struct NativePluginLogLevelOverview: Decodable, Sendable {
+  let instances: [NativePluginLogLevelItem]?
 }

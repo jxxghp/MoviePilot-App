@@ -54,8 +54,8 @@
 - [x] **十.6 工作流精简与完整菜单**：默认显示我的工作流，右上角提供新增工作流与社区分享，移除页面内过滤栏；长按支持编辑、删除、继续/重新运行与分享。
 
 ### Milestone 7 — 插件生态全面打通
-- [ ] **十.7 插件页导航精简**：默认显示已安装插件，移除页内市场/已安装一级切换与状态过滤栏，右上角提供插件市场图标与过滤菜单。
-- [ ] **十一.1 JSON 插件渲染全面测试与补全**：对照 `MoviePilot-Plugins/plugins.v3` 63 类组件，补齐 `NativeFormPlan`/`NativePluginFormView`/`NativePluginDataPageView` 缺失组件与展示属性、修复 `VBtn` 写请求与参数，支持 `VExpansionPanels`、`VDataTable`、`VTabs`、`VAceEditor`、`VDialog`、`VSlider`、`VChipGroup`、`VCarousel`、超链接与 HTML。
-- [ ] **十一.2 Vue 插件免登原生容器**：注入 Pinia `auth`/`user` + `MoviePilot` 资源 Cookie + `MoviePilotNative` 隐藏 Web 壳，WKWebView 直接呈现纯插件页面，无需登录。
-- [ ] **十一.3 插件市场详情与源绑定**：卡片点击进入详情弹窗，支持插件源查询/绑定/切换、版本列表安装、评分提交、文档链接与源配置。
-- [ ] **十一.4 已安装插件长按完整菜单（含分身）**：关于与源管理、数据、设置、创建/恢复分身（Clone）、更新/历史、重置、卸载、日志、重载、运行能力、数据摘要与实例管理。
+- [x] **十.7 插件页导航精简**：默认显示已安装插件，移除页内市场/已安装一级切换与状态过滤栏，右上角提供插件市场图标与过滤菜单。
+- [x] **十一.1 JSON 插件渲染全面测试与补全**：对照 `MoviePilot-Plugins/plugins.v3` 全部插件组件，补齐 `NativeFormPlan`/`NativePluginFormView`/`NativePluginDataPageView` 缺失组件与展示属性、修复 `VBtn` 写请求与参数，支持 `VExpansionPanels`、`VCheckbox` 数组多值、`VDataTable`、`VTabs`、`VAceEditor`、`VDialog`、`VSlider`/`VRangeSlider`、`VChipGroup`、`VAutocomplete`、`VCarousel`、超链接与 HTML。
+- [x] **十一.2 Vue 插件免登原生容器**：注入 Pinia `auth`/`user` + `MoviePilot` 资源 Cookie + `MoviePilotNative` 隐藏 Web 壳，WKWebView 直接呈现纯插件页面，无需登录。
+- [x] **十一.3 插件市场详情与源绑定**：卡片点击进入详情弹窗，支持插件源查询/绑定/切换、版本列表安装、评分提交、文档链接与源配置。
+- [x] **十一.4 已安装插件长按完整菜单（含分身）**：关于与源管理、数据、设置、创建/恢复分身（Clone）、更新/历史、重置、卸载、日志、重载、运行能力、数据摘要与实例管理。

@@ -9,6 +9,7 @@ import MoviePilotSession
 public final class NativePluginForm: ObservableObject {
   public let target: PluginFormTarget
   public let scope: NativeSessionScope
+  public var activeSession: NativeSession { session }
   @Published public private(set) var phase: PluginFormPhase = .idle
   @Published public private(set) var document: PluginUIDocument?
   @Published public private(set) var draft: PluginFormDraft?
