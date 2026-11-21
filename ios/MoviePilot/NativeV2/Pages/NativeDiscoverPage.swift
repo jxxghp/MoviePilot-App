@@ -69,8 +69,8 @@ struct NativeDiscoverFeature: Identifiable, Hashable {
 
 /// 横向分区保存真实的标题、版式与媒体引用，不在页面中复制搜索/发现 API。
 struct NativeDiscoverRail: Identifiable, Hashable {
-  /// 区分标准 2:3 竖版海报栏与 16:9 宽幅横图趋势栏。
-  enum Style: Hashable { case poster, backdrop }
+  /// 区分标准 2:3 竖版海报栏、16:9 宽幅横图趋势栏与 1:1 音乐专辑方卡栏。
+  enum Style: Hashable { case poster, backdrop, square }
 
   let id: String
   let title: String
@@ -278,6 +278,8 @@ struct NativeDiscoverPage: View {
   let isPreview: Bool
   let artwork: (String?, NativeDiscoverArtworkRole) -> AnyView
   let onOpenSearch: (() -> Void)?
+  let onSearchMedia: ((NativeDiscoverMedia) -> Void)?
+  let onSubscribeMedia: ((NativeDiscoverMedia) -> Void)?
   let onOpenMedia: (String) -> Void
   let onOpenRail: ((String) -> Void)?
   let onOpenProvider: ((String) -> Void)?
@@ -303,6 +305,8 @@ struct NativeDiscoverPage: View {
       reference, role in AnyView(NativeDiscoverArtworkPlaceholder(reference: reference, role: role))
     },
     onOpenSearch: (() -> Void)? = nil,
+    onSearchMedia: ((NativeDiscoverMedia) -> Void)? = nil,
+    onSubscribeMedia: ((NativeDiscoverMedia) -> Void)? = nil,
     onOpenMedia: @escaping (String) -> Void = { _ in },
     onOpenRail: ((String) -> Void)? = nil,
     onOpenProvider: ((String) -> Void)? = nil,
@@ -319,6 +323,8 @@ struct NativeDiscoverPage: View {
     self.isPreview = isPreview
     self.artwork = artwork
     self.onOpenSearch = onOpenSearch
+    self.onSearchMedia = onSearchMedia
+    self.onSubscribeMedia = onSubscribeMedia
     self.onOpenMedia = onOpenMedia
     self.onOpenRail = onOpenRail
     self.onOpenProvider = onOpenProvider
@@ -426,6 +432,7 @@ struct NativeDiscoverPage: View {
       case .movies: railsByID["movies"] != nil
       case .television: railsByID["television"] != nil
       case .trending: railsByID["trending"] != nil
+      case .doubanMusic: railsByID["doubanMusic"] != nil
       case .doubanShowing: railsByID["doubanShowing"] != nil
       case .doubanTop250: railsByID["doubanTop250"] != nil
       case .latest: railsByID["latest"] != nil
@@ -442,6 +449,8 @@ struct NativeDiscoverPage: View {
         if let rail = railsByID["television"] { posterRail(rail) }
       case .trending:
         if let rail = railsByID["trending"] { posterRail(rail) }
+      case .doubanMusic:
+        if let rail = railsByID["doubanMusic"] { posterRail(rail) }
       case .doubanShowing:
         if let rail = railsByID["doubanShowing"] { posterRail(rail) }
       case .doubanTop250:
@@ -453,7 +462,7 @@ struct NativeDiscoverPage: View {
       }
     }
     let knownRailIDs: Set<String> = [
-      "movies", "television", "trending", "doubanShowing", "doubanTop250", "latest",
+      "movies", "television", "trending", "doubanMusic", "doubanShowing", "doubanTop250", "latest",
     ]
     let extraRails = populatedRails.filter { !knownRailIDs.contains($0.id) }
     if !extraRails.isEmpty {
@@ -795,11 +804,24 @@ struct NativeDiscoverPage: View {
                   } label: {
                     Label("查看详情", systemImage: "info.circle")
                   }
-                  if let onOpenSearch {
+                  if let onSubscribeMedia, item.identity != nil {
+                    Button {
+                      onSubscribeMedia(item)
+                    } label: {
+                      Label("订阅", systemImage: "bookmark.fill")
+                    }
+                  }
+                  if let onSearchMedia {
+                    Button {
+                      onSearchMedia(item)
+                    } label: {
+                      Label("搜索", systemImage: "magnifyingglass")
+                    }
+                  } else if let onOpenSearch {
                     Button {
                       onOpenSearch()
                     } label: {
-                      Label("全局搜索", systemImage: "magnifyingglass")
+                      Label("搜索", systemImage: "magnifyingglass")
                     }
                   }
                 }
@@ -838,7 +860,37 @@ struct NativeDiscoverPage: View {
       poster(item)
     case .backdrop:
       backdropCard(item)
+    case .square:
+      squareCard(item)
     }
+  }
+
+  /// 1:1 音乐专辑方卡：方形封面居中展示，下方呈现专辑名与艺人/年份副标。
+  private func squareCard(_ item: NativeDiscoverMedia) -> some View {
+    let side = max(posterWidth + 14, 122)
+    return VStack(alignment: .leading, spacing: 6) {
+      artwork(item.posterReference, .poster)
+        .frame(width: side, height: side).clipped()
+        .clipShape(.rect(cornerRadius: 14))
+        .overlay {
+          RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .strokeBorder(.primary.opacity(0.10), lineWidth: 0.5)
+        }
+      Text(item.title)
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.primary.opacity(0.95))
+        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+      let caption = [item.detail, item.year].compactMap { $0 }.filter { !$0.isEmpty }
+        .joined(separator: " · ")
+      if !caption.isEmpty {
+        Text(caption)
+          .font(.caption)
+          .foregroundStyle(.primary.opacity(0.58))
+          .lineLimit(1)
+      }
+    }
+    .frame(width: side, alignment: .leading)
+    .contentShape(Rectangle())
   }
 
   /// 16:9 宽幅趋势横卡：背景剧照为主视觉，下方左对齐标题与年份/类型摘要。
@@ -1171,7 +1223,7 @@ struct NativeDiscoverRailGrid<Destination: View>: View {
   /// 作品缺少规范详情身份时仍保留可浏览的海报和居中元数据。
   private func tile(_ item: NativeDiscoverMedia) -> some View {
     VStack(spacing: 6) {
-      Color.clear.aspectRatio(2.0 / 3.0, contentMode: .fit)
+      Color.clear.aspectRatio(rail.style == .square ? 1.0 : 2.0 / 3.0, contentMode: .fit)
         .overlay {
           NativeMediaArtwork(
             session: session, reference: item.posterReference, role: .poster, maximumWidth: 420)
@@ -1179,7 +1231,7 @@ struct NativeDiscoverRailGrid<Destination: View>: View {
         .clipShape(.rect(cornerRadius: 13))
         .overlay {
           RoundedRectangle(cornerRadius: 13, style: .continuous)
-            .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
+            .strokeBorder(.primary.opacity(0.10), lineWidth: 0.5)
         }
       Text(item.title).font(.footnote.weight(.medium)).lineLimit(2)
       if let year = item.year { Text(year).font(.caption).foregroundStyle(.secondary) }

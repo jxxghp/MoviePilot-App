@@ -37,6 +37,8 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @State private var discoveryGeneration = UUID()
   @State private var discoveryAttempt = 0
   @State private var mediaIdentities: [String: NativeMediaIdentity] = [:]
+  @State private var musicSeeds: [String: NativeMusicCardItem] = [:]
+  @State private var pendingSearchQuery: String?
   @State private var discoverPath: [NativeMediaDestination] = []
   @State private var explorePath: [NativeWorkspaceDestination] = []
   @State private var minePath: [NativeWorkspaceDestination] = []
@@ -528,6 +530,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     NavigationStack(path: $searchPath) {
       NativeMediaSearchPage(
         session: session,
+        externalSearchQuery: $pendingSearchQuery,
         onSelect: { source, id, type in
           guard let id, let type else { return }
           searchPath.append(NativeMediaIdentity(source: source, mediaID: id, type: type))
@@ -553,8 +556,18 @@ struct NativeV2MainShell<PluginDestination: View>: View {
                 ? 1280 : (role == .continueWatching || role == .provider ? 720 : 420)))
         },
         onOpenSearch: { selectedTab = .search },
+        onSearchMedia: { media in
+          pendingSearchQuery = media.title
+          searchPath = []
+          selectedTab = .search
+        },
+        onSubscribeMedia: { media in
+          Task { await quickSubscribeFromDiscover(media) }
+        },
         onOpenMedia: { id in
-          if let identity = mediaIdentities[id] {
+          if let seed = musicSeeds[id] {
+            discoverPath.append(.music(seed))
+          } else if let identity = mediaIdentities[id] {
             discoverPath.append(.media(identity))
           }
         },
@@ -592,11 +605,19 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         switch destination {
         case .media(let identity):
           NativeMediaDetailPage(session: session, identity: identity)
+        case .music(let seed):
+          NativeMusicAlbumDetailPage(session: session, seed: seed)
         case .rail(let rail):
           NativeDiscoverRailGrid(session: session, rail: rail) { page in
             try await loadRailPage(rail.id, page: page)
           } destination: { identity in
-            NativeMediaDetailPage(session: session, identity: identity)
+            if identity.type == "音乐",
+              let seed = musicSeeds["\(identity.source)|\(identity.mediaID)"]
+            {
+              NativeMusicAlbumDetailPage(session: session, seed: seed)
+            } else {
+              NativeMediaDetailPage(session: session, identity: identity)
+            }
           }
         case .workspace(let dest):
           workspaceDestinationView(dest)
@@ -833,15 +854,15 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           if canSubscribe || canSearchResources || canManageDownloads {
             if canSubscribe {
               overflowMenuRow(
-                title: "订阅", symbol: "bookmark.fill", id: "native-workspace-subscriptions"
+                title: "我的订阅", symbol: "bookmark.fill", id: "native-workspace-subscriptions"
               ) { openFromOverflow(.subscriptions) }
               overflowMenuRow(
-                title: "日历", symbol: "calendar", id: "native-workspace-calendar"
+                title: "订阅日历", symbol: "calendar", id: "native-workspace-calendar"
               ) { openFromOverflow(.calendar) }
             }
             if canSearchResources {
               overflowMenuRow(
-                title: "资源", symbol: "magnifyingglass.circle.fill",
+                title: "站点资源", symbol: "magnifyingglass.circle.fill",
                 id: "native-workspace-resources"
               ) { openFromOverflow(.resources) }
             }
@@ -856,10 +877,10 @@ struct NativeV2MainShell<PluginDestination: View>: View {
             Divider().overlay(.primary.opacity(0.10)).padding(.vertical, 4)
             if canManageDownloads {
               overflowMenuRow(
-                title: "文件", symbol: "folder.fill", id: "native-workspace-files"
+                title: "文件管理", symbol: "folder.fill", id: "native-workspace-files"
               ) { openFromOverflow(.files) }
               overflowMenuRow(
-                title: "历史", symbol: "clock.arrow.circlepath", id: "native-workspace-history"
+                title: "整理历史", symbol: "clock.arrow.circlepath", id: "native-workspace-history"
               ) { openFromOverflow(.history) }
               overflowMenuRow(
                 title: "工作流", symbol: "flowchart", id: "native-workspace-workflows"
@@ -872,11 +893,6 @@ struct NativeV2MainShell<PluginDestination: View>: View {
               ) { openFromOverflow(.pluginMarket) }
             }
           }
-
-          Divider().overlay(.primary.opacity(0.10)).padding(.vertical, 4)
-          overflowMenuRow(
-            title: "通知", symbol: "bell.fill", id: "native-overflow-messages"
-          ) { openFromOverflow(.messages) }
         }
         .padding(.vertical, 8)
       }
@@ -946,6 +962,9 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     discoverModules = resolvedModules
     let enabledSet = Set(resolvedModules.filter(\.enabled).map(\.id))
 
+    async let doubanMusicTask: [NativeDiscoverMusicItem]? =
+      enabledSet.contains(.doubanMusic)
+      ? (try? requestRecommendMusic("music_douban", page: 1)) : nil
     async let doubanShowingTask: [NativeDiscoverAPIItem]? =
       enabledSet.contains(.doubanShowing)
       ? (try? requestRecommendMedia("douban_showing", page: 1)) : nil
@@ -972,11 +991,14 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       latestServerName = nil
     }
 
-    let (doubanShowing, doubanTop) = await (doubanShowingTask, doubanTopTask)
+    let (doubanMusic, doubanShowing, doubanTop) = await (
+      doubanMusicTask, doubanShowingTask, doubanTopTask
+    )
     guard !Task.isCancelled, discoveryGeneration == generation else { return }
 
     var rails: [NativeDiscoverRail] = []
     var identities: [String: NativeMediaIdentity] = [:]
+    var nextMusicSeeds: [String: NativeMusicCardItem] = [:]
     let projectedMovies = movies.map {
       projectPage($0, fallbackType: "电影", identities: &identities)
     }
@@ -1004,6 +1026,17 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           items: projectPage(trending, fallbackType: "电影", identities: &identities),
           hasMore: true, style: .backdrop))
     }
+    if let doubanMusic, !doubanMusic.isEmpty {
+      let projectedMusic = projectMusicPage(
+        doubanMusic, identities: &identities, seeds: &nextMusicSeeds)
+      if !projectedMusic.isEmpty {
+        rails.append(
+          NativeDiscoverRail(
+            id: "doubanMusic", title: "热门音乐",
+            items: projectedMusic,
+            hasMore: true, style: .square))
+      }
+    }
     if let doubanShowing, !doubanShowing.isEmpty {
       rails.append(
         NativeDiscoverRail(
@@ -1023,6 +1056,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         NativeDiscoverRail(
           id: "latest", title: "最新入库", items: latestItems, hasMore: latestItems.count >= 20))
     }
+    musicSeeds = nextMusicSeeds
     railNextPage = [:]
     loadingRailIDs = []
 
@@ -1305,6 +1339,78 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
   }
 
+  /// 从发现卡片右键快捷订阅媒体（自动兼容影视与音乐类型）。
+  private func quickSubscribeFromDiscover(_ media: NativeDiscoverMedia) async {
+    guard canSubscribe else {
+      routeHub.postBanner("当前账号无订阅权限。")
+      return
+    }
+    guard let identity = media.identity else { return }
+    var payload: [String: Any] = [
+      "name": media.title,
+      "type": identity.type,
+      "media_source": identity.source,
+      "media_id": identity.mediaID,
+    ]
+    if let year = media.year, !year.isEmpty {
+      payload["year"] = year
+    }
+    if identity.source == "themoviedb", let tmdbID = Int(identity.mediaID) {
+      payload["tmdbid"] = tmdbID
+    } else if identity.source == "douban" || identity.source == "doubanmusic" {
+      payload["doubanid"] = identity.mediaID
+    }
+    if identity.type == "电视剧" {
+      payload["season"] = 1
+    }
+    do {
+      let body = try JSONSerialization.data(withJSONObject: payload)
+      let endpoint = try APIEndpoint(
+        path: ["subscribe"], method: .post, body: body, trailingSlash: true)
+      try await session.perform(endpoint, requiring: .init(category: .subscribe))
+      NativePageDataCache.shared.remove("subscriptions|list", session: session)
+      routeHub.postBanner("已添加订阅「\(media.title)」。")
+    } catch {
+      routeHub.postBanner("添加订阅「\(media.title)」失败，请稍后重试。")
+    }
+  }
+
+  /// 拉取豆瓣等推荐音乐榜单（`GET /api/v1/recommend/{source}?page={page}`）。
+  private func requestRecommendMusic(
+    _ source: String, page: Int
+  ) async throws -> [NativeDiscoverMusicItem] {
+    let endpoint = try APIEndpoint(
+      path: ["recommend", source], query: [URLQueryItem(name: "page", value: String(page))])
+    return try await session.request(
+      endpoint, as: [NativeDiscoverMusicItem].self, requiring: .init(category: .discovery)
+    ).value
+  }
+
+  /// 将豆瓣音乐条目投影为 1:1 发现方卡并同步注册详情种子。
+  private func projectMusicPage(
+    _ items: [NativeDiscoverMusicItem],
+    identities: inout [String: NativeMediaIdentity],
+    seeds: inout [String: NativeMusicCardItem]
+  ) -> [NativeDiscoverMedia] {
+    var seen: Set<String> = []
+    return items.compactMap { row in
+      guard let card = row.toMusicCardItem(), seen.insert(card.id).inserted else { return nil }
+      let identity = NativeMediaIdentity(
+        source: card.mediaSource, mediaID: card.mediaID, type: "音乐")
+      identities[card.id] = identity
+      seeds[card.id] = card
+      return NativeDiscoverMedia(
+        id: card.id,
+        title: card.title,
+        year: card.yearText,
+        detail: card.artist,
+        posterReference: card.coverReference,
+        backdropReference: nil,
+        identity: identity
+      )
+    }
+  }
+
   /// 分区只允许映射到已声明的后端接口，未呈现的接口不能从界面任意构造。
   private func loadRailPage(_ railID: String, page: Int) async throws
     -> (items: [NativeDiscoverMedia], hasMore: Bool)
@@ -1314,6 +1420,15 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       let rows = try await requestMediaServerLatest(server: server, count: 20, page: page)
       let projected = rows.compactMap(projectLatestItem)
       return (projected, rows.count >= 20)
+    }
+    if railID == "doubanMusic" {
+      let rows = try await requestRecommendMusic("music_douban", page: page)
+      var identities: [String: NativeMediaIdentity] = [:]
+      var seeds: [String: NativeMusicCardItem] = [:]
+      let projected = projectMusicPage(rows, identities: &identities, seeds: &seeds)
+      for (k, v) in identities { mediaIdentities[k] = v }
+      for (k, v) in seeds { musicSeeds[k] = v }
+      return (projected, !rows.isEmpty)
     }
     let rows: [NativeDiscoverAPIItem]
     let fallbackType: String
@@ -1463,6 +1578,7 @@ enum NativeWorkspaceDestination: Hashable {
 private enum NativeMediaDestination: Identifiable, Hashable {
   case rail(NativeDiscoverRail)
   case media(NativeMediaIdentity)
+  case music(NativeMusicCardItem)
   case explore(NativeExploreSourceKind)
   case workspace(NativeWorkspaceDestination)
 
@@ -1471,6 +1587,7 @@ private enum NativeMediaDestination: Identifiable, Hashable {
     switch self {
     case .rail(let rail): "rail:" + rail.id
     case .media(let identity): "media:" + identity.id
+    case .music(let seed): "music:" + seed.id
     case .explore(let source): "explore:" + source.rawValue
     case .workspace(let dest): "workspace:\(dest.hashValue)"
     }
@@ -2054,6 +2171,57 @@ private struct NativeShortcutsSheet: View {
     .presentationDetents([.medium, .large], selection: $detent)
     .presentationDragIndicator(.visible)
     .nativeAppearanceRoot()
+  }
+}
+
+/// 发现页豆瓣热门音乐推荐解码投影。
+private struct NativeDiscoverMusicItem: Decodable, Sendable {
+  let mediaSource: String?
+  let mediaID: String?
+  let albumID: String?
+  let releaseID: String?
+  let title: String?
+  let artist: String?
+  let artists: [String]?
+  let artistIDs: [String]?
+  let year: NativeMediaServerScalar?
+  let coverURL: String?
+  let posterPath: String?
+  let rating: Double?
+  let voteAverage: Double?
+
+  func toMusicCardItem() -> NativeMusicCardItem? {
+    guard let title, !title.isEmpty else { return nil }
+    let source = mediaSource?.isEmpty == false ? mediaSource! : "doubanmusic"
+    let primaryID = mediaID?.isEmpty == false ? mediaID! : (albumID ?? "")
+    let lookupID = albumID?.isEmpty == false ? albumID! : primaryID
+    guard !primaryID.isEmpty else { return nil }
+    let score = (rating ?? 0) > 0 ? rating : voteAverage
+    return NativeMusicCardItem(
+      id: "\(source)|\(primaryID)",
+      mediaSource: source,
+      mediaID: primaryID,
+      albumLookupID: lookupID,
+      releaseID: releaseID,
+      title: title,
+      artist: artist ?? artists?.first,
+      artistID: artistIDs?.first,
+      yearText: year?.value,
+      coverReference: coverURL ?? posterPath,
+      ratingText: score.flatMap { $0 > 0 ? String(format: "%.1f", $0) : nil }
+    )
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case title, artist, artists, year, rating
+    case mediaSource = "media_source"
+    case mediaID = "media_id"
+    case albumID = "album_id"
+    case releaseID = "musicbrainz_release_id"
+    case artistIDs = "artist_ids"
+    case coverURL = "cover_url"
+    case posterPath = "poster_path"
+    case voteAverage = "vote_average"
   }
 }
 

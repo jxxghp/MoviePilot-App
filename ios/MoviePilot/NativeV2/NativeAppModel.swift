@@ -32,6 +32,7 @@ final class NativeAppModel: ObservableObject {
   private let credentials = LoginCredentialStore()
   private var task: Task<Void, Never>?
   private var operationID = UUID()
+  private var lastSessionValidationAt: Date = .distantPast
 
   /// 依赖仍是既有地址簿/Keychain；原生模式不创建独立迁移副本。
   init() {
@@ -194,6 +195,9 @@ final class NativeAppModel: ObservableObject {
       return
     }
     if case .loginRequired(_, .expired) = state, let selected {
+      NativePageDataCache.shared.clearAll()
+      NativeMediaArtworkCache.shared.clearMemory()
+      Self.dismissPresentedModals()
       WidgetService.shared.endSession(instanceId: selected.id, clear: true)
       WidgetService.shared.cancelOpen()
       NativeSystemRouteHub.shared.clearPending()
@@ -209,12 +213,38 @@ final class NativeAppModel: ObservableObject {
     }
   }
 
-  /// 回到前台或快捷项触发时，对已认证会话恢复未消费的通知、小组件与快捷项路由。
+  /// 回到前台或快捷项触发时，先校验令牌有效性（超时自动退出登录），再恢复未消费的系统集成。
   func resumeSystemIntegrations() {
     guard let session = manager.currentSession else { return }
+    if session.isTokenExpired() {
+      Task { _ = try? await session.refreshUser() }
+      return
+    }
+    let now = Date()
+    if now.timeIntervalSince(lastSessionValidationAt) > 30 {
+      lastSessionValidationAt = now
+      Task { [weak self] in
+        guard let self, let active = self.manager.currentSession,
+          active.scope == session.scope
+        else { return }
+        _ = try? await active.refreshUser()
+      }
+    }
     NotificationService.shared.resumePending()
     WidgetService.shared.resumePending(native: session)
     NativeSystemRouteHub.shared.resolveShortcut(for: session.instance.id.uuidString)
+  }
+
+  /// 会话过期自动退出时收起可能仍盖在顶层的原生播放器或 UIKit 弹窗，保证登录页立刻可见。
+  private static func dismissPresentedModals() {
+    for scene in UIApplication.shared.connectedScenes {
+      guard let windowScene = scene as? UIWindowScene else { continue }
+      for window in windowScene.windows where window.isKeyWindow {
+        if window.rootViewController?.presentedViewController != nil {
+          window.rootViewController?.dismiss(animated: false)
+        }
+      }
+    }
   }
 
   /// 解析桌面小组件深链：从本机共享仓查找资料并定位到对应已保存实例，绝不跨账号自动登录。

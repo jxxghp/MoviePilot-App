@@ -51,9 +51,27 @@ public final class NativeSession {
     return (instance.address, accessToken)
   }
 
-  /// 弹窗确认后及异步回写前都可显式调用；旧实例句柄不能继续操作新会话。
+  /// 本地检查 JWT 访问令牌是否已超过 `exp` 声明时间；非标准 JWT（如测试占位符）不误判。
+  public func isTokenExpired(now: Date = Date()) -> Bool {
+    let parts = accessToken.split(separator: ".", omittingEmptySubsequences: false)
+    guard parts.count == 3 else { return false }
+    var payload = parts[1].replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+    payload += String(repeating: "=", count: (4 - payload.utf8.count % 4) % 4)
+    guard let data = Data(base64Encoded: payload),
+      let claims = try? JSONDecoder().decode(JWTAccessClaims.self, from: data),
+      claims.exp.isFinite
+    else { return false }
+    return Date(timeIntervalSince1970: claims.exp) <= now
+  }
+
+  /// 弹窗确认后及异步回写前都可显式调用；旧实例句柄或已过期令牌不能继续操作新会话。
   public func checkActive(requiring permission: PermissionRequirement? = nil) throws {
     guard active else { throw NativeSessionFailure.invalidated }
+    if isTokenExpired() {
+      onInvalidated(scope, .api(.unauthorized))
+      throw NativeSessionFailure.invalidated
+    }
     try Task.checkCancellation()
     if let permission, !user.allows(permission) { throw NativeSessionFailure.permissionDenied }
   }
@@ -177,4 +195,9 @@ public final class NativeSession {
     }
     throw error
   }
+}
+
+/// 仅提取 JWT 访问令牌的 `exp` 过期时间戳用于本地前置过期检查。
+private struct JWTAccessClaims: Decodable {
+  let exp: Double
 }

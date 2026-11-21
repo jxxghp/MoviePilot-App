@@ -7,6 +7,7 @@ enum NativeDiscoverModuleID: String, CaseIterable, Codable, Identifiable, Sendab
   case movies
   case television
   case trending
+  case doubanMusic
   case doubanShowing
   case doubanTop250
   case latest
@@ -22,6 +23,7 @@ enum NativeDiscoverModuleID: String, CaseIterable, Codable, Identifiable, Sendab
     case .movies: "热门电影"
     case .television: "热门剧集"
     case .trending: "本周趋势"
+    case .doubanMusic: "热门音乐"
     case .doubanShowing: "豆瓣热映"
     case .doubanTop250: "豆瓣 Top250"
     case .latest: "最新入库"
@@ -36,6 +38,7 @@ enum NativeDiscoverModuleID: String, CaseIterable, Codable, Identifiable, Sendab
     case .movies: "film"
     case .television: "tv"
     case .trending: "flame"
+    case .doubanMusic: "music.note.list"
     case .doubanShowing: "sparkles"
     case .doubanTop250: "star.circle"
     case .latest: "clock.arrow.circlepath"
