@@ -356,34 +356,39 @@ struct NativeAgentChatPage: View {
                 in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
 
-            if !message.tools.isEmpty {
-              VStack(alignment: .leading, spacing: 5) {
-                ForEach(message.tools) { tool in
-                  HStack(spacing: 7) {
-                    if tool.status == "running" {
-                      ProgressView().controlSize(.mini).tint(appearance.accentColor)
-                    } else {
-                      Image(
-                        systemName: tool.status == "error"
-                          ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
-                      )
-                      .font(.caption2)
-                      .foregroundStyle(
-                        tool.status == "error" ? NativeTheme.danger : NativeTheme.success)
+            let segments = Self.renderableSegments(for: message)
+            if !segments.isEmpty {
+              VStack(alignment: .leading, spacing: 8) {
+                ForEach(segments) { segment in
+                  switch segment {
+                  case .text(_, let content):
+                    NativeAgentMarkdownView(markdown: content)
+                  case .tool(_, let tool):
+                    HStack(spacing: 7) {
+                      if tool.status == "running" {
+                        ProgressView().controlSize(.mini).tint(appearance.accentColor)
+                      } else {
+                        Image(
+                          systemName: tool.status == "error"
+                            ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+                        )
+                        .font(.caption2)
+                        .foregroundStyle(
+                          tool.status == "error" ? NativeTheme.danger : NativeTheme.success)
+                      }
+                      Text(tool.displayText)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     }
-                    Text(tool.displayText)
-                      .font(.caption.weight(.medium))
-                      .foregroundStyle(.secondary)
-                      .lineLimit(2)
+                    .padding(.horizontal, 9).padding(.vertical, 5)
+                    .background(
+                      NativeTheme.chipFill,
+                      in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                   }
-                  .padding(.horizontal, 9).padding(.vertical, 5)
-                  .background(
-                    NativeTheme.chipFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
               }
-            }
-
-            if !message.content.isEmpty {
+            } else if !message.content.isEmpty {
               NativeAgentMarkdownView(markdown: message.content)
             }
 
@@ -925,6 +930,8 @@ struct NativeAgentChatPage: View {
         isUser: true,
         content: userDisplay,
         tools: [],
+        segments: userDisplay.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          ? [] : [.text(userDisplay)],
         attachments: userAttachments,
         choices: [],
         isProtected: false
@@ -973,6 +980,7 @@ struct NativeAgentChatPage: View {
         isUser: false,
         content: "",
         tools: [],
+        segments: [],
         attachments: [],
         choices: [],
         isProtected: false
@@ -1025,11 +1033,14 @@ struct NativeAgentChatPage: View {
       }
 
       if let idx = messages.firstIndex(where: { $0.id == assistantID }) {
+        for ti in messages[idx].tools.indices where messages[idx].tools[ti].status == "running" {
+          messages[idx].tools[ti].status = messages[idx].tools[ti].structured ? "error" : "done"
+        }
         let msg = messages[idx]
         if msg.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
           && msg.attachments.isEmpty && msg.choices.isEmpty
         {
-          messages[idx].content = "已完成处理。"
+          Self.appendTextSegment(to: &messages[idx], delta: "已完成处理。")
         }
       }
       await loadSessions()
@@ -1067,30 +1078,77 @@ struct NativeAgentChatPage: View {
       // 思考状态已由底部精简的「思考中」胶囊统一展示，不额外堆积大段思考提示。
       break
     case "tool":
-      let tid = (obj?["id"] as? String) ?? (obj?["tool_name"] as? String) ?? UUID().uuidString
-      let toolName = obj?["tool_name"] as? String
-      let msg = (obj?["message"] as? String) ?? toolName ?? "调用工具"
-      let status = (obj?["status"] as? String) ?? "done"
-      if let ti = messages[idx].tools.firstIndex(where: { $0.id == tid }) {
-        messages[idx].tools[ti].message = msg
-        messages[idx].tools[ti].status = status
+      let rawToolID =
+        Self.nonEmptyString(obj?["tool_id"])
+        ?? Self.nonEmptyString(obj?["tool_call_id"])
+        ?? Self.nonEmptyString(obj?["id"])
+      let toolName = Self.nonEmptyString(obj?["tool_name"])
+      let rawStatus = (obj?["status"] as? String ?? "").lowercased()
+      let normalizedMessage = Self.normalizeToolMessage(
+        Self.nonEmptyString(obj?["message"]) ?? toolName ?? "")
+
+      if let toolID = rawToolID {
+        let targetIdx =
+          messages.firstIndex(where: { $0.tools.contains(where: { $0.id == toolID }) }) ?? idx
+        let status = rawStatus == "error" ? "error" : (rawStatus == "done" ? "done" : "running")
+        if let ti = messages[targetIdx].tools.firstIndex(where: { $0.id == toolID }) {
+          if status == "running" {
+            if messages[targetIdx].tools[ti].message.isEmpty && !normalizedMessage.isEmpty {
+              messages[targetIdx].tools[ti].message = normalizedMessage
+            }
+          } else {
+            messages[targetIdx].tools[ti].status = status
+          }
+        } else if status == "running" {
+          let entry = NativeAgentToolEntry(
+            id: toolID,
+            toolName: toolName,
+            message: normalizedMessage.isEmpty ? "调用工具" : normalizedMessage,
+            structured: true,
+            status: "running"
+          )
+          messages[targetIdx].tools.append(entry)
+          messages[targetIdx].segments.append(.tool(messages[targetIdx].tools.count - 1))
+        }
       } else {
-        messages[idx].tools.append(
-          NativeAgentToolEntry(id: tid, toolName: toolName, message: msg, status: status))
+        if rawStatus == "done" || rawStatus == "error" { break }
+        for ti in messages[idx].tools.indices where messages[idx].tools[ti].status == "running" {
+          messages[idx].tools[ti].status = "done"
+        }
+        guard !normalizedMessage.isEmpty else { break }
+        let entry = NativeAgentToolEntry(
+          id: "tool-\(UUID().uuidString)",
+          toolName: toolName,
+          message: normalizedMessage,
+          structured: false,
+          status: "running"
+        )
+        messages[idx].tools.append(entry)
+        messages[idx].segments.append(.tool(messages[idx].tools.count - 1))
       }
     case "delta":
-      // 收到正文增量时把正在思考的占位标记置为完成
-      for ti in messages[idx].tools.indices where messages[idx].tools[ti].status == "running" {
+      // 收到正文增量时把正在运行的非结构化工具标记置为完成，并保留工具/正文交替顺序
+      for ti in messages[idx].tools.indices
+      where messages[idx].tools[ti].status == "running" && !messages[idx].tools[ti].structured {
         messages[idx].tools[ti].status = "done"
       }
       if let delta = (obj?["content"] as? String) ?? (obj?["delta"] as? String)
-        ?? (obj?["text"] as? String)
+        ?? (obj?["text"] as? String),
+        !delta.isEmpty
       {
-        messages[idx].content += delta
+        Self.appendTextSegment(to: &messages[idx], delta: delta)
       }
     case "message_update":
-      if let full = (obj?["content"] as? String) ?? (obj?["message"] as? String) {
+      let targetObj = (obj?["target_message"] as? [String: Any]) ?? obj
+      if let full = (targetObj?["content"] as? String) ?? (targetObj?["message"] as? String) {
         messages[idx].content = full
+        messages[idx].segments = messages[idx].segments.filter {
+          if case .tool = $0 { return true }
+          return false
+        }
+        if !full.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          messages[idx].segments.append(.text(full))
+        }
       }
     case "attachment":
       let rawAtt = (obj?["attachment"] as? [String: Any]) ?? obj
@@ -1122,8 +1180,8 @@ struct NativeAgentChatPage: View {
       messages[idx].isProtected = true
       if let secret = (obj?["content"] as? String) ?? (obj?["message"] as? String), !secret.isEmpty
       {
-        if !messages[idx].content.isEmpty { messages[idx].content += "\n\n" }
-        messages[idx].content += secret
+        let prefix = messages[idx].content.isEmpty ? "" : "\n\n"
+        Self.appendTextSegment(to: &messages[idx], delta: prefix + secret)
       }
     case "steering":
       feedback = NativeAgentFeedback(isError: false, message: "智能助手已接收你的实时补充指令。")
@@ -1135,18 +1193,135 @@ struct NativeAgentChatPage: View {
       }
     case "done":
       for ti in messages[idx].tools.indices where messages[idx].tools[ti].status == "running" {
-        messages[idx].tools[ti].status = "done"
+        messages[idx].tools[ti].status = messages[idx].tools[ti].structured ? "error" : "done"
       }
       if let finalMsg = (obj?["message"] as? String) ?? (obj?["content"] as? String),
         !finalMsg.isEmpty, messages[idx].content.isEmpty
       {
-        messages[idx].content = finalMsg
+        Self.appendTextSegment(to: &messages[idx], delta: finalMsg)
       }
     default:
       if let content = obj?["content"] as? String, !content.isEmpty {
-        messages[idx].content += content
+        Self.appendTextSegment(to: &messages[idx], delta: content)
       }
     }
+  }
+
+  /// 对标 Web `AgentAssistantPanel.vue`：提取非空字符串。
+  private static func nonEmptyString(_ raw: Any?) -> String? {
+    guard let s = raw as? String else { return nil }
+    let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
+  /// 清理后端工具提示前缀 `=> `。
+  nonisolated fileprivate static func normalizeToolMessage(_ raw: String) -> String {
+    raw.replacingOccurrences(of: #"^=>\s*"#, with: "", options: .regularExpression)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  /// 追加文本增量到消息正文及有序片段，保留与工具调用之间的时间线边界。
+  private static func appendTextSegment(to message: inout NativeAgentMessage, delta: String) {
+    guard !delta.isEmpty else { return }
+    message.content += delta
+    if case .text(let existing) = message.segments.last {
+      message.segments[message.segments.count - 1] = .text(existing + delta)
+    } else if !delta.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      message.segments.append(.text(delta))
+    }
+  }
+
+  /// 解析非啰嗦模式的工具汇总，例如 `（查询媒体 1 次，搜索站点 2 次）`。
+  private static func parseToolSummary(
+    _ message: String
+  ) -> [(prefix: String, count: Int, suffix: String)]? {
+    let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+    let inner: String
+    if trimmed.hasPrefix("（") && trimmed.hasSuffix("）") {
+      inner = String(trimmed.dropFirst().dropLast())
+    } else if trimmed.hasPrefix("(") && trimmed.hasSuffix(")") {
+      inner = String(trimmed.dropFirst().dropLast())
+    } else {
+      return nil
+    }
+    guard !inner.isEmpty else { return nil }
+    guard let countRegex = try? NSRegularExpression(pattern: #"^(.*?\D)(\d+)(\D.*)$"#) else {
+      return nil
+    }
+    let rawParts = inner.split(whereSeparator: { $0 == "，" || $0 == "," }).map {
+      String($0).trimmingCharacters(in: .whitespaces)
+    }
+    guard !rawParts.isEmpty else { return nil }
+    var parsed: [(prefix: String, count: Int, suffix: String)] = []
+    for part in rawParts {
+      let ns = part as NSString
+      let range = NSRange(location: 0, length: ns.length)
+      guard let match = countRegex.firstMatch(in: part, range: range), match.numberOfRanges == 4,
+        let count = Int(ns.substring(with: match.range(at: 2)))
+      else { return nil }
+      parsed.append(
+        (
+          prefix: ns.substring(with: match.range(at: 1)),
+          count: count,
+          suffix: ns.substring(with: match.range(at: 3))
+        ))
+    }
+    return parsed
+  }
+
+  /// 合并相邻非啰嗦工具汇总（对标 Web `mergeToolSummaries`）。
+  private static func mergeToolSummaries(_ currentMessage: String, _ nextMessage: String) -> String?
+  {
+    guard let currentParts = parseToolSummary(currentMessage),
+      let nextParts = parseToolSummary(nextMessage)
+    else { return nil }
+    var merged = currentParts
+    var indexes: [String: Int] = [:]
+    for (idx, part) in merged.enumerated() {
+      indexes["\(part.prefix)\u{0}\(part.suffix)"] = idx
+    }
+    for part in nextParts {
+      let key = "\(part.prefix)\u{0}\(part.suffix)"
+      if let existingIdx = indexes[key] {
+        merged[existingIdx].count += part.count
+      } else {
+        indexes[key] = merged.count
+        merged.append(part)
+      }
+    }
+    let joined = merged.map { "\($0.prefix)\($0.count)\($0.suffix)" }.joined(separator: "，")
+    return "（\(joined)）"
+  }
+
+  /// 按事件顺序生成可渲染片段，自动合并相邻的非啰嗦工具汇总条目（对标 Web `getRenderableMessageSegments`）。
+  private static func renderableSegments(
+    for message: NativeAgentMessage
+  ) -> [NativeAgentRenderableSegment] {
+    var result: [NativeAgentRenderableSegment] = []
+    for (index, segment) in message.segments.enumerated() {
+      switch segment {
+      case .text(let content):
+        if !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          result.append(.text(key: "text-\(index)", content: content))
+        }
+      case .tool(let toolIndex):
+        guard toolIndex >= 0, toolIndex < message.tools.count else { continue }
+        let tool = message.tools[toolIndex]
+        if case .tool(let prevKey, var prevTool) = result.last,
+          let mergedText = mergeToolSummaries(prevTool.message, tool.message)
+        {
+          prevTool.message = mergedText
+          prevTool.status =
+            (prevTool.status == "running" || tool.status == "running")
+            ? "running"
+            : ((prevTool.status == "error" || tool.status == "error") ? "error" : "done")
+          result[result.count - 1] = .tool(key: prevKey, entry: prevTool)
+        } else {
+          result.append(.tool(key: "tool-\(tool.id)-\(index)", entry: tool))
+        }
+      }
+    }
+    return result
   }
 
   /// 点击交互选择卡片按钮 -> `POST /api/v1/message/agent/callback` -> 自动续发对话流。
@@ -1704,13 +1879,30 @@ private struct NativeAgentToolEntry: Identifiable, Sendable {
   let id: String
   let toolName: String?
   var message: String
+  var structured: Bool
   var status: String
 
   var displayText: String {
-    if let toolName, !toolName.isEmpty, !message.contains(toolName) {
-      return "\(toolName) · \(message)"
+    let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmed.isEmpty { return trimmed }
+    return toolName ?? "调用工具"
+  }
+}
+
+private enum NativeAgentMessageSegment: Sendable {
+  case text(String)
+  case tool(Int)
+}
+
+private enum NativeAgentRenderableSegment: Identifiable {
+  case text(key: String, content: String)
+  case tool(key: String, entry: NativeAgentToolEntry)
+
+  var id: String {
+    switch self {
+    case .text(let key, _): key
+    case .tool(let key, _): key
     }
-    return message
   }
 }
 
@@ -1793,6 +1985,7 @@ private struct NativeAgentMessage: Identifiable {
   let isUser: Bool
   var content: String
   var tools: [NativeAgentToolEntry]
+  var segments: [NativeAgentMessageSegment]
   var attachments: [NativeAgentAttachmentItem]
   var choices: [NativeAgentChoiceCard]
   var isProtected: Bool
@@ -1901,16 +2094,28 @@ private struct NativeAgentSessionDetailRaw: Decodable, Sendable {
     let id: String?
     let toolName: String?
     let message: String?
+    let structured: Bool?
     let status: String?
     private enum CodingKeys: String, CodingKey {
-      case id, message, status
+      case id, message, text, status, structured
+      case toolID = "tool_id"
+      case toolCallID = "tool_call_id"
       case toolName = "tool_name"
+      case toolNameCamel = "toolName"
     }
     init(from decoder: Decoder) throws {
       let c = try decoder.container(keyedBy: CodingKeys.self)
-      id = try? c.decodeIfPresent(String.self, forKey: .id)
-      toolName = try? c.decodeIfPresent(String.self, forKey: .toolName)
-      message = try? c.decodeIfPresent(String.self, forKey: .message)
+      id =
+        (try? c.decodeIfPresent(String.self, forKey: .id))
+        ?? (try? c.decodeIfPresent(String.self, forKey: .toolID))
+        ?? (try? c.decodeIfPresent(String.self, forKey: .toolCallID))
+      toolName =
+        (try? c.decodeIfPresent(String.self, forKey: .toolName))
+        ?? (try? c.decodeIfPresent(String.self, forKey: .toolNameCamel))
+      message =
+        (try? c.decodeIfPresent(String.self, forKey: .message))
+        ?? (try? c.decodeIfPresent(String.self, forKey: .text))
+      structured = try? c.decodeIfPresent(Bool.self, forKey: .structured)
       status = try? c.decodeIfPresent(String.self, forKey: .status)
     }
   }
@@ -1939,6 +2144,19 @@ private struct NativeAgentSessionDetailRaw: Decodable, Sendable {
   struct RawSegment: Decodable, Sendable {
     let type: String?
     let content: String?
+    let toolIndex: Int?
+    private enum CodingKeys: String, CodingKey {
+      case type, content, toolIndex
+      case toolIndexSnake = "tool_index"
+    }
+    init(from decoder: Decoder) throws {
+      let c = try decoder.container(keyedBy: CodingKeys.self)
+      type = try? c.decodeIfPresent(String.self, forKey: .type)
+      content = try? c.decodeIfPresent(String.self, forKey: .content)
+      toolIndex =
+        (try? c.decodeIfPresent(Int.self, forKey: .toolIndex))
+        ?? (try? c.decodeIfPresent(Int.self, forKey: .toolIndexSnake))
+    }
   }
   struct RawMessage: Decodable, Sendable {
     let id: String?
@@ -1965,6 +2183,18 @@ private struct NativeAgentSessionDetailRaw: Decodable, Sendable {
     }
 
     func toDisplayMessage() -> NativeAgentMessage {
+      let normalizedTools: [NativeAgentToolEntry] = tools.enumerated().compactMap { index, t in
+        let rawMsg = NativeAgentChatPage.normalizeToolMessage(t.message ?? t.toolName ?? "")
+        guard !rawMsg.isEmpty else { return nil }
+        let rawStatus = (t.status ?? "").lowercased()
+        let status = rawStatus == "error" ? "error" : (rawStatus == "running" ? "running" : "done")
+        return NativeAgentToolEntry(
+          id: t.id ?? "tool-\(index)",
+          toolName: t.toolName,
+          message: rawMsg,
+          structured: t.structured == true || (t.toolName?.isEmpty == false),
+          status: status)
+      }
       let primaryContent = content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       let resolvedContent: String
       if !primaryContent.isEmpty {
@@ -1976,16 +2206,31 @@ private struct NativeAgentSessionDetailRaw: Decodable, Sendable {
           .compactMap(\.content)
           .joined()
       }
+      var resolvedSegments: [NativeAgentMessageSegment] = []
+      for seg in segments {
+        let kind = (seg.type ?? "").lowercased()
+        if kind == "text", let text = seg.content,
+          !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+          resolvedSegments.append(.text(text))
+        } else if kind == "tool", let idx = seg.toolIndex, idx >= 0, idx < normalizedTools.count {
+          resolvedSegments.append(.tool(idx))
+        }
+      }
+      if resolvedSegments.isEmpty {
+        for idx in normalizedTools.indices {
+          resolvedSegments.append(.tool(idx))
+        }
+        if !resolvedContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          resolvedSegments.append(.text(resolvedContent))
+        }
+      }
       return NativeAgentMessage(
         id: id ?? UUID().uuidString,
         isUser: (role ?? "").lowercased() == "user",
         content: resolvedContent,
-        tools: tools.compactMap { t in
-          guard let msg = t.message, !msg.isEmpty else { return nil }
-          return NativeAgentToolEntry(
-            id: t.id ?? UUID().uuidString, toolName: t.toolName, message: msg,
-            status: t.status ?? "done")
-        },
+        tools: normalizedTools,
+        segments: resolvedSegments,
         attachments: attachments.compactMap { a in
           guard let url = a.url, !url.isEmpty else { return nil }
           return NativeAgentAttachmentItem(

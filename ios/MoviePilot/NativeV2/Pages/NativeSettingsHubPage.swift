@@ -261,18 +261,23 @@ struct NativeSettingsHubPage: View {
     .accessibilityIdentifier("native-workspace-channel-auth")
   }
 
-  // MARK: - 2. 分组一：核心业务
+  // MARK: - 2. 分组一：基础
 
   private var coreWorkflowSection: some View {
     let unit = t("个")
     let countFmt: (Int) -> String = { count in
       unit.isEmpty ? "\(count)" : "\(count) \(unit)"
     }
-    return settingsGroup(t("核心业务"), footer: t("底层代理、并发与高级系统参数请在 Web 管理台配置。")) {
+    return settingsGroup(t("基础"), footer: t("底层代理、并发与高级系统参数请在 Web 管理台配置。")) {
       navRow(
         title: t("订阅与搜索"), subtitle: t("站点范围 · 规则组"), symbol: "magnifyingglass.circle.fill",
         tint: NativeTheme.info, id: "native-settings-subscribe-search"
       ) { onNavigate(.subscribeSearchSettings) }
+      settingsRowDivider
+      navRow(
+        title: t("媒体数据源"), subtitle: t("搜索与元数据来源"), symbol: "globe.asia.australia.fill",
+        tint: NativeTheme.cyan, id: "native-settings-media-sources"
+      ) { onNavigate(.mediaSourceSettings) }
       settingsRowDivider
       navRow(
         title: t("下载器"), subtitle: downloaderCount.map(countFmt) ?? t("新增与管理"),
@@ -1199,7 +1204,7 @@ private struct NativeChannelAuthEditSheet: View {
   }
 }
 
-// MARK: - 2. 订阅与搜索设置页（站点范围 + 规则组 + 搜索来源 + 订阅模式）
+// MARK: - 2. 订阅与搜索设置页（站点范围 + 规则组 + 订阅模式）
 
 @MainActor
 struct NativeSubscribeSearchSettingsPage: View {
@@ -1214,28 +1219,9 @@ struct NativeSubscribeSearchSettingsPage: View {
   @State private var bestVersionRuleGroups: Set<String> = []
   @State private var searchRuleGroups: Set<String> = []
   @State private var subscribeMode = "auto"
-  @State private var searchSources: Set<String> = ["themoviedb", "douban"]
-  @State private var enabledBackendSources: Set<String>?
   @State private var isLoading = true
   @State private var isSaving = false
   @State private var feedback: (isError: Bool, text: String)?
-
-  private struct BackendMediaSourceRecord: Decodable, Sendable {
-    let mediaSource: String
-    private enum CodingKeys: String, CodingKey { case mediaSource = "media_source" }
-  }
-
-  private static let mediaSourceChoices: [NativeBrandChoiceItem] = [
-    NativeBrandChoiceItem(id: "themoviedb", title: "TMDB", subtitle: "全球影视元数据"),
-    NativeBrandChoiceItem(id: "douban", title: "豆瓣", subtitle: "中文影评与榜单"),
-    NativeBrandChoiceItem(id: "bangumi", title: "Bangumi", subtitle: "番剧与动画索引"),
-    NativeBrandChoiceItem(id: "musicbrainz", title: "MusicBrainz", subtitle: "音乐专辑与曲目"),
-  ]
-
-  private var visibleMediaSourceChoices: [NativeBrandChoiceItem] {
-    guard let enabledBackendSources else { return Self.mediaSourceChoices }
-    return Self.mediaSourceChoices.filter { enabledBackendSources.contains($0.id) }
-  }
 
   var body: some View {
     ZStack {
@@ -1269,7 +1255,7 @@ struct NativeSubscribeSearchSettingsPage: View {
                 VStack(spacing: 0) {
                   NavigationLink {
                     NativeSiteScopePickerView(
-                      title: "订阅站点范围", sites: allSites, selection: $rssSites)
+                      session: session, title: "订阅站点范围", sites: allSites, selection: $rssSites)
                   } label: {
                     pickerRow(
                       "订阅站点", value: rssSites.isEmpty ? "全部启用站点" : "已选 \(rssSites.count) 站")
@@ -1278,7 +1264,8 @@ struct NativeSubscribeSearchSettingsPage: View {
                   CinematicFormDivider()
                   NavigationLink {
                     NativeSiteScopePickerView(
-                      title: "搜索站点范围", sites: allSites, selection: $indexerSites)
+                      session: session, title: "搜索站点范围", sites: allSites,
+                      selection: $indexerSites)
                   } label: {
                     pickerRow(
                       "搜索站点",
@@ -1349,24 +1336,6 @@ struct NativeSubscribeSearchSettingsPage: View {
                 .frame(minHeight: 54)
               }
             }
-
-            // 媒体数据源（带品牌 Logo 的可视多选卡片）
-            VStack(alignment: .leading, spacing: 10) {
-              HStack {
-                Text("媒体搜索数据源").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
-                Spacer()
-                Text(searchSources.isEmpty ? "未选择" : "已选 \(searchSources.count) 个")
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
-              }
-              .padding(.horizontal, 8)
-              NativeBrandMultiOptionGrid(
-                kind: .mediaSource,
-                items: visibleMediaSourceChoices,
-                selection: $searchSources,
-                columns: 2
-              )
-            }
           }
         }
         .frame(maxWidth: 740, alignment: .leading)
@@ -1434,23 +1403,15 @@ struct NativeSubscribeSearchSettingsPage: View {
     async let subGrpTask: [String]? = readSetting("SubscribeFilterRuleGroups", as: [String].self)
     async let bestGrpTask: [String]? = readSetting("BestVersionFilterRuleGroups", as: [String].self)
     async let schGrpTask: [String]? = readSetting("SearchFilterRuleGroups", as: [String].self)
-    async let srcTask: String? = readSetting("SEARCH_SOURCE", as: String.self)
     async let envTask: [String: JSONValue]? = {
       guard let ep = try? APIEndpoint(path: ["system", "env"]) else { return nil }
       return try? await session.request(
         ep, as: [String: JSONValue].self, requiring: .init(category: .admin)
       ).value
     }()
-    async let enabledSourcesTask: [BackendMediaSourceRecord]? = {
-      guard let ep = try? APIEndpoint(path: ["media", "source"], responseContract: .payload) else {
-        return nil
-      }
-      return try? await session.request(ep, as: [BackendMediaSourceRecord].self).value
-    }()
 
-    let (sites, groups, rss, idx, sg, bg, scg, src, env, activeSources) = await (
-      sitesTask, groupsTask, rssTask, idxTask, subGrpTask, bestGrpTask, schGrpTask, srcTask,
-      envTask, enabledSourcesTask
+    let (sites, groups, rss, idx, sg, bg, scg, env) = await (
+      sitesTask, groupsTask, rssTask, idxTask, subGrpTask, bestGrpTask, schGrpTask, envTask
     )
     if let sites { allSites = sites.filter(\.isActive) }
     if let groups { allRuleGroups = groups }
@@ -1459,14 +1420,6 @@ struct NativeSubscribeSearchSettingsPage: View {
     if let sg { subscribeRuleGroups = Set(sg) }
     if let bg { bestVersionRuleGroups = Set(bg) }
     if let scg { searchRuleGroups = Set(scg) }
-    if let src, !src.isEmpty {
-      searchSources = Set(src.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
-    }
-    if let activeSources {
-      let enabledSet = Set(activeSources.map { $0.mediaSource.lowercased() })
-      enabledBackendSources = enabledSet
-      searchSources = searchSources.intersection(enabledSet)
-    }
     if let env, case .string(let mode) = env["SUBSCRIBE_MODE"], !mode.isEmpty {
       subscribeMode = mode
     }
@@ -1489,8 +1442,6 @@ struct NativeSubscribeSearchSettingsPage: View {
       try await postSetting(
         "BestVersionFilterRuleGroups", value: Array(bestVersionRuleGroups).sorted())
       try await postSetting("SearchFilterRuleGroups", value: Array(searchRuleGroups).sorted())
-      try await postSetting(
-        "SEARCH_SOURCE", value: Array(searchSources).sorted().joined(separator: ","))
       let envBody = try JSONEncoder().encode(["SUBSCRIBE_MODE": subscribeMode])
       let envEp = try APIEndpoint(path: ["system", "env"], method: .post, body: envBody)
       try await session.perform(envEp, requiring: .init(category: .admin))
@@ -1507,8 +1458,264 @@ struct NativeSubscribeSearchSettingsPage: View {
   }
 }
 
+// MARK: - 2.5 独立媒体数据源设置页（动态读取后端已启用数据源 + 优先级排序）
+
+@MainActor
+struct NativeMediaSourceSettingsPage: View {
+  let session: NativeSession
+
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @State private var availableChoices: [NativeBrandChoiceItem] = Self.defaultChoices
+  @State private var orderedSelection: [String] = []
+  @State private var isLoading = true
+  @State private var isSaving = false
+  @State private var feedback: (isError: Bool, text: String)?
+
+  private struct BackendMediaSourceRecord: Decodable, Sendable {
+    let name: String?
+    let mediaSource: String
+    let mediaTypes: [String]?
+    private enum CodingKeys: String, CodingKey {
+      case name
+      case mediaSource = "media_source"
+      case mediaTypes = "media_types"
+    }
+  }
+
+  private static let defaultChoices: [NativeBrandChoiceItem] = [
+    NativeBrandChoiceItem(id: "themoviedb", title: "TMDB", subtitle: "全球影视元数据"),
+    NativeBrandChoiceItem(id: "douban", title: "豆瓣", subtitle: "中文影评与榜单"),
+    NativeBrandChoiceItem(id: "bangumi", title: "Bangumi", subtitle: "番剧与动画索引"),
+    NativeBrandChoiceItem(id: "musicbrainz", title: "MusicBrainz", subtitle: "音乐专辑与曲目"),
+  ]
+
+  private var selectionSetBinding: Binding<Set<String>> {
+    Binding(
+      get: { Set(orderedSelection) },
+      set: { nextSet in
+        var updated = orderedSelection.filter { nextSet.contains($0) }
+        for choice in availableChoices
+        where nextSet.contains(choice.id) && !updated.contains(choice.id) {
+          updated.append(choice.id)
+        }
+        orderedSelection = updated
+      }
+    )
+  }
+
+  var body: some View {
+    ZStack {
+      CinematicBackground()
+      ScrollView {
+        VStack(alignment: .leading, spacing: 20) {
+          if let feedback {
+            CinematicPanel(padding: 12) {
+              HStack(spacing: 8) {
+                Image(
+                  systemName: feedback.isError
+                    ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+                )
+                .foregroundStyle(feedback.isError ? NativeTheme.warning : NativeTheme.success)
+                Text(feedback.text).font(.subheadline.weight(.medium))
+                Spacer()
+              }
+            }
+          }
+
+          if isLoading {
+            ProgressView("正在读取媒体数据源…")
+              .tint(.primary)
+              .frame(maxWidth: .infinity, minHeight: 200)
+          } else {
+            VStack(alignment: .leading, spacing: 10) {
+              HStack {
+                Text("媒体搜索数据源")
+                  .font(.subheadline.weight(.medium))
+                  .foregroundStyle(.secondary)
+                Spacer()
+                Text(orderedSelection.isEmpty ? "未选择" : "已选 \(orderedSelection.count) 个")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+              .padding(.horizontal, 8)
+
+              NativeBrandMultiOptionGrid(
+                kind: .mediaSource,
+                items: availableChoices,
+                selection: selectionSetBinding,
+                columns: 2
+              )
+
+              Text("仅展示后端已启用的媒体数据源模块；关闭或启用内置模块请在 Web 高级设置中调整。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+            }
+
+            if orderedSelection.count > 1 {
+              VStack(alignment: .leading, spacing: 10) {
+                Text("搜索优先级顺序")
+                  .font(.subheadline.weight(.medium))
+                  .foregroundStyle(.secondary)
+                  .padding(.horizontal, 8)
+                CinematicPanel(padding: 0) {
+                  VStack(spacing: 0) {
+                    ForEach(Array(orderedSelection.enumerated()), id: \.element) { idx, sourceID in
+                      if idx > 0 { CinematicFormDivider() }
+                      let title =
+                        availableChoices.first(where: { $0.id == sourceID })?.title ?? sourceID
+                      HStack(spacing: 12) {
+                        Text("\(idx + 1)")
+                          .font(.caption.monospacedDigit().weight(.bold))
+                          .foregroundStyle(appearance.accentColor)
+                          .frame(width: 22, height: 22)
+                          .background(appearance.accentColor.opacity(0.14), in: Circle())
+                        NativeBrandIcon(
+                          kind: .mediaSource, type: sourceID, size: 28, cornerRadius: 8)
+                        Text(title)
+                          .font(.subheadline.weight(.medium))
+                          .foregroundStyle(.primary)
+                        Spacer()
+                        HStack(spacing: 4) {
+                          Button {
+                            guard idx > 0 else { return }
+                            orderedSelection.swapAt(idx, idx - 1)
+                          } label: {
+                            Image(systemName: "chevron.up")
+                              .font(.caption.weight(.semibold))
+                              .frame(width: 30, height: 30)
+                              .contentShape(Rectangle())
+                          }
+                          .buttonStyle(.plain)
+                          .foregroundStyle(idx > 0 ? Color.primary : Color.secondary.opacity(0.3))
+                          .disabled(idx == 0)
+
+                          Button {
+                            guard idx < orderedSelection.count - 1 else { return }
+                            orderedSelection.swapAt(idx, idx + 1)
+                          } label: {
+                            Image(systemName: "chevron.down")
+                              .font(.caption.weight(.semibold))
+                              .frame(width: 30, height: 30)
+                              .contentShape(Rectangle())
+                          }
+                          .buttonStyle(.plain)
+                          .foregroundStyle(
+                            idx < orderedSelection.count - 1
+                              ? Color.primary : Color.secondary.opacity(0.3)
+                          )
+                          .disabled(idx >= orderedSelection.count - 1)
+                        }
+                      }
+                      .padding(.horizontal, 14)
+                      .padding(.vertical, 10)
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        .frame(maxWidth: 740, alignment: .leading)
+        .padding(.horizontal, CinematicStyle.margin)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity)
+      }
+      .scrollIndicators(.hidden)
+      .modifier(NativeSoftTopScrollEdge())
+    }
+    .navigationTitle("媒体数据源")
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbarBackground(.hidden, for: .navigationBar)
+    .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        Button {
+          Task { await save() }
+        } label: {
+          if isSaving {
+            ProgressView().controlSize(.small)
+          } else {
+            Text("保存").fontWeight(.semibold)
+          }
+        }
+        .disabled(isSaving || isLoading)
+      }
+    }
+    .task { await load() }
+  }
+
+  private func load() async {
+    isLoading = true
+    defer { isLoading = false }
+    async let activeTask: [BackendMediaSourceRecord]? = {
+      guard let ep = try? APIEndpoint(path: ["media", "source"]) else { return nil }
+      return try? await session.request(ep, as: [BackendMediaSourceRecord].self).value
+    }()
+    async let settingTask: String? = {
+      guard let ep = try? APIEndpoint(path: ["system", "setting", "SEARCH_SOURCE"]) else {
+        return nil
+      }
+      return try? await session.request(
+        ep, as: NativeSettingBox<String>.self, requiring: .init(category: .admin)
+      ).value.value
+    }()
+
+    let (activeSources, rawSetting) = await (activeTask, settingTask)
+    if let activeSources, !activeSources.isEmpty {
+      let defaultMap = Dictionary(
+        uniqueKeysWithValues: Self.defaultChoices.map { ($0.id, $0) })
+      var seen: Set<String> = []
+      var resolved: [NativeBrandChoiceItem] = []
+      for record in activeSources {
+        let id = record.mediaSource.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !id.isEmpty, seen.insert(id).inserted else { continue }
+        if let preset = defaultMap[id] {
+          resolved.append(preset)
+        } else {
+          let title = (record.name?.isEmpty == false ? record.name! : id)
+          let types = (record.mediaTypes ?? []).filter { !$0.isEmpty }.joined(separator: " · ")
+          resolved.append(
+            NativeBrandChoiceItem(
+              id: id, title: title, subtitle: types.isEmpty ? "扩展数据源" : types))
+        }
+      }
+      if !resolved.isEmpty {
+        availableChoices = resolved
+      }
+    }
+
+    let validIDs = Set(availableChoices.map(\.id))
+    let parsed = (rawSetting ?? "")
+      .split(separator: ",")
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+      .filter { !$0.isEmpty && validIDs.contains($0) }
+    var unique: [String] = []
+    for item in parsed where !unique.contains(item) {
+      unique.append(item)
+    }
+    orderedSelection = unique
+  }
+
+  private func save() async {
+    isSaving = true
+    defer { isSaving = false }
+    do {
+      let value = orderedSelection.joined(separator: ",")
+      let body = try JSONEncoder().encode(value)
+      let ep = try APIEndpoint(
+        path: ["system", "setting", "SEARCH_SOURCE"], method: .post, body: body)
+      try await session.perform(ep, requiring: .init(category: .admin))
+      NativePageDataCache.shared.clearAll()
+      feedback = (false, "已保存媒体数据源设置。")
+    } catch {
+      feedback = (true, "保存媒体数据源失败，请稍后重试。")
+    }
+  }
+}
+
 @MainActor
 private struct NativeSiteScopePickerView: View {
+  let session: NativeSession
   let title: String
   let sites: [NativeSimpleSiteOption]
   @Binding var selection: Set<Int>
@@ -1530,7 +1737,8 @@ private struct NativeSiteScopePickerView: View {
                     selection.insert(site.id)
                   }
                 } label: {
-                  HStack {
+                  HStack(spacing: 12) {
+                    NativeSiteIconView(session: session, siteID: site.id, size: 28, active: true)
                     Text(site.name).font(.subheadline).foregroundStyle(.primary)
                     Spacer()
                     if selection.contains(site.id) {
@@ -1539,7 +1747,7 @@ private struct NativeSiteScopePickerView: View {
                         .foregroundStyle(appearance.accentColor)
                     }
                   }
-                  .padding(.horizontal, 15).padding(.vertical, 12)
+                  .padding(.horizontal, 15).padding(.vertical, 11)
                   .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -2542,6 +2750,16 @@ private struct NativeRuleGroupNamesBox: Decodable, Sendable {
 private struct NativeChannelAuthListData: Decodable, Sendable {
   let members: [NativeChannelMember]
   let channels: [NativeAuthChannel]
+
+  private enum CodingKeys: String, CodingKey {
+    case members, channels
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    members = (try? c.decodeIfPresent([NativeChannelMember].self, forKey: .members)) ?? []
+    channels = (try? c.decodeIfPresent([NativeAuthChannel].self, forKey: .channels)) ?? []
+  }
 }
 
 private struct NativeChannelMember: Decodable, Sendable, Identifiable {
@@ -2563,12 +2781,44 @@ private struct NativeChannelMember: Decodable, Sendable, Identifiable {
     case displayName = "display_name"
     case linkedUsername = "linked_username"
   }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = (try? c.decode(String.self, forKey: .id)) ?? UUID().uuidString
+    notificationID = (try? c.decodeIfPresent(String.self, forKey: .notificationID)) ?? ""
+    channel = (try? c.decodeIfPresent(String.self, forKey: .channel)) ?? ""
+    source = (try? c.decodeIfPresent(String.self, forKey: .source)) ?? channel
+    senderID = (try? c.decodeIfPresent(String.self, forKey: .senderID)) ?? ""
+    displayName = (try? c.decodeIfPresent(String.self, forKey: .displayName)) ?? ""
+    status = (try? c.decodeIfPresent(String.self, forKey: .status)) ?? "pending"
+    role = (try? c.decodeIfPresent(String.self, forKey: .role)) ?? "member"
+    scopes = (try? c.decodeIfPresent([String].self, forKey: .scopes)) ?? []
+    linkedUsername = try? c.decodeIfPresent(String.self, forKey: .linkedUsername)
+  }
 }
 
 private struct NativeAuthChannel: Decodable, Sendable, Identifiable {
   let id: String
   let name: String
-  let type: String
+  let channel: String
+  let enabled: Bool
+
+  var type: String { channel }
+
+  private enum CodingKeys: String, CodingKey {
+    case id, name, channel, type, enabled
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = (try? c.decode(String.self, forKey: .id)) ?? UUID().uuidString
+    name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+    channel =
+      (try? c.decodeIfPresent(String.self, forKey: .channel))
+      ?? (try? c.decodeIfPresent(String.self, forKey: .type))
+      ?? ""
+    enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? true
+  }
 }
 
 private struct NativeBindingCodeData: Decodable, Sendable {

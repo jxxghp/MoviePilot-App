@@ -26,10 +26,6 @@ final class NativeV2SceneDelegate: UIResponder, UIWindowSceneDelegate {
       .sink { [weak window] mode in
         window?.overrideUserInterfaceStyle = mode.uiInterfaceStyle
       }
-    window.rootViewController = UIHostingController(rootView: NativeV2RootView(model: model))
-    NotificationService.shared.attachNative(nil)
-    window.makeKeyAndVisible()
-
     if let item = connectionOptions.shortcutItem {
       _ = receiveHomeShortcut(item)
     }
@@ -43,6 +39,9 @@ final class NativeV2SceneDelegate: UIResponder, UIWindowSceneDelegate {
     if !handledWidgetLaunch {
       model.start()
     }
+    window.rootViewController = UIHostingController(rootView: NativeV2RootView(model: model))
+    NotificationService.shared.attachNative(nil)
+    window.makeKeyAndVisible()
   }
 
   /// 热启动接收通知自定义深链或桌面小组件深链。

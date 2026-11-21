@@ -17,6 +17,7 @@ struct NativeWorkflowsPage: View {
   @State private var mutatingID: Int?
   @State private var showsCreateSheet = false
   @State private var editingWorkflow: NativeWorkflowItem?
+  @State private var canvasWorkflow: NativeWorkflowItem?
   @State private var pendingReset: NativeWorkflowItem?
   @State private var pendingDelete: NativeWorkflowItem?
   @State private var feedback: NativeWorkflowFeedback?
@@ -82,6 +83,16 @@ struct NativeWorkflowsPage: View {
       }
     }
     .task(id: attempt) { await load(forceRefresh: attempt > 0) }
+    .navigationDestination(
+      isPresented: Binding(
+        get: { canvasWorkflow != nil },
+        set: { if !$0 { canvasWorkflow = nil } })
+    ) {
+      if let target = canvasWorkflow {
+        NativeWorkflowCanvasPage(
+          session: session, workflowID: target.id, workflowTitle: target.name)
+      }
+    }
     .sheet(isPresented: $showsCreateSheet) {
       NativeWorkflowEditorSheet(session: session, existing: nil) { msg in
         feedback = NativeWorkflowFeedback(isError: false, message: msg)
@@ -147,14 +158,23 @@ struct NativeWorkflowsPage: View {
             }
           }
           Spacer(minLength: 4)
-          stateBadge(workflow)
+          HStack(spacing: 6) {
+            stateBadge(workflow)
+            Image(systemName: "chevron.right")
+              .font(.caption2.weight(.semibold))
+              .foregroundStyle(.secondary.opacity(0.6))
+          }
         }
         HStack(spacing: 12) {
-          if let timer = workflow.timer, !timer.isEmpty {
-            Label(timer, systemImage: "clock")
+          if let trigger = workflow.triggerDisplayText {
+            Label(trigger, systemImage: workflow.triggerSymbol)
               .font(.caption.monospaced())
               .foregroundStyle(.secondary)
+              .lineLimit(1)
           }
+          Label("\(workflow.actionCount) 个动作", systemImage: "square.grid.2x2")
+            .font(.caption)
+            .foregroundStyle(.secondary)
           Label("已运行 \(workflow.runCount ?? 0) 次", systemImage: "bolt.horizontal")
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -168,23 +188,6 @@ struct NativeWorkflowsPage: View {
             .lineLimit(2)
         }
         HStack(spacing: 8) {
-          NavigationLink {
-            NativeWorkflowCanvasPage(
-              session: session, workflowID: workflow.id, workflowTitle: workflow.name)
-          } label: {
-            HStack(spacing: 4) {
-              Image(systemName: "flowchart").font(.caption2.weight(.semibold))
-              Text("画布").font(.caption.weight(.semibold))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(appearance.accentColor, in: Capsule())
-            .frame(minHeight: 34)
-          }
-          .buttonStyle(.plain)
-          .accessibilityIdentifier("native-workflow-canvas-\(workflow.id)")
-
           Button {
             Task { await performRun(workflow, fromBegin: true) }
           } label: {
@@ -231,7 +234,17 @@ struct NativeWorkflowsPage: View {
         }
       }
     }
+    .contentShape(RoundedRectangle(cornerRadius: CinematicStyle.radius, style: .continuous))
+    .onTapGesture {
+      canvasWorkflow = workflow
+    }
+    .accessibilityIdentifier("native-workflow-card-\(workflow.id)")
     .contextMenu {
+      Button {
+        canvasWorkflow = workflow
+      } label: {
+        Label("进入画布", systemImage: "flowchart")
+      }
       Button {
         editingWorkflow = workflow
       } label: {
@@ -586,39 +599,64 @@ private struct NativeWorkflowCommunityPage: View {
             }
           } else {
             ForEach(shares) { share in
-              CinematicPanel(padding: 14) {
-                VStack(alignment: .leading, spacing: 8) {
-                  HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                      Text(share.displayTitle).font(.headline).foregroundStyle(.primary)
-                      if let comment = share.displaySummary {
-                        Text(comment).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+              Button {
+                pendingFork = share
+              } label: {
+                CinematicPanel(padding: 14) {
+                  VStack(alignment: .leading, spacing: 9) {
+                    HStack(alignment: .top, spacing: 8) {
+                      VStack(alignment: .leading, spacing: 4) {
+                        Text(share.displayTitle)
+                          .font(.headline)
+                          .foregroundStyle(.primary)
+                          .multilineTextAlignment(.leading)
+                        if let comment = share.displaySummary {
+                          Text(comment)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                            .multilineTextAlignment(.leading)
+                        }
+                      }
+                      Spacer(minLength: 6)
+                      if share.count > 0 {
+                        NativeAdaptiveBadge("\(share.count) 复用", tint: NativeTheme.brand)
                       }
                     }
-                    Spacer()
-                    if share.count > 0 {
-                      NativeAdaptiveBadge("\(share.count) 复用", tint: NativeTheme.brand)
+
+                    HStack(spacing: 12) {
+                      if let trigger = share.triggerDisplayText {
+                        Label(trigger, systemImage: share.triggerSymbol)
+                          .font(.caption.monospaced())
+                          .foregroundStyle(.secondary)
+                          .lineLimit(1)
+                      }
+                      if share.actionCount > 0 {
+                        Label("\(share.actionCount) 个动作", systemImage: "square.grid.2x2")
+                          .font(.caption)
+                          .foregroundStyle(.secondary)
+                      }
+                    }
+
+                    HStack(spacing: 10) {
+                      if let user = share.shareUser, !user.isEmpty {
+                        Label(user, systemImage: "person.circle")
+                          .font(.caption2)
+                          .foregroundStyle(.secondary)
+                      }
+                      Spacer()
+                      if let date = share.date, !date.isEmpty {
+                        Text(date)
+                          .font(.caption2.monospacedDigit())
+                          .foregroundStyle(.secondary)
+                      }
                     }
                   }
-                  HStack {
-                    if let user = share.shareUser, !user.isEmpty {
-                      Label(user, systemImage: "person.circle").font(.caption2).foregroundStyle(
-                        .secondary)
-                    }
-                    Spacer()
-                    Button {
-                      pendingFork = share
-                    } label: {
-                      Label("复用", systemImage: "square.and.arrow.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(appearance.accentColor, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                  }
+                  .frame(maxWidth: .infinity, alignment: .leading)
                 }
               }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("native-workflow-share-\(share.id)")
             }
           }
         }
@@ -697,6 +735,32 @@ private struct NativeWorkflowItem: Decodable, Sendable, Identifiable {
 
   var isPaused: Bool { (state ?? "").uppercased() == "P" }
 
+  var actionCount: Int {
+    if case .array(let list) = actions { return list.count }
+    return 0
+  }
+
+  var triggerSymbol: String {
+    switch (triggerType ?? "").lowercased() {
+    case "event": "bolt.circle"
+    case "manual": "hand.tap"
+    default: "clock"
+    }
+  }
+
+  var triggerDisplayText: String? {
+    switch (triggerType ?? "").lowercased() {
+    case "event":
+      if let eventType, !eventType.isEmpty { return eventType }
+      return "事件触发"
+    case "manual":
+      return "手动触发"
+    default:
+      if let timer, !timer.isEmpty { return timer }
+      return (triggerType ?? "").lowercased() == "timer" ? "定时任务" : nil
+    }
+  }
+
   private enum CodingKeys: String, CodingKey {
     case id, name, description, timer, state, result, actions, flows
     case triggerType = "trigger_type"
@@ -714,6 +778,8 @@ private struct NativeWorkflowShareItem: Codable, Sendable, Identifiable {
   let description: String?
   let timer: String?
   let triggerType: String?
+  let eventType: String?
+  let date: String?
   let actions: JSONValue?
   let flows: JSONValue?
   let context: JSONValue?
@@ -731,12 +797,39 @@ private struct NativeWorkflowShareItem: Codable, Sendable, Identifiable {
     return nil
   }
 
+  var actionCount: Int {
+    if case .array(let list) = actions { return list.count }
+    return 0
+  }
+
+  var triggerSymbol: String {
+    switch (triggerType ?? "").lowercased() {
+    case "event": "bolt.circle"
+    case "manual": "hand.tap"
+    default: "clock"
+    }
+  }
+
+  var triggerDisplayText: String? {
+    switch (triggerType ?? "").lowercased() {
+    case "event":
+      if let eventType, !eventType.isEmpty { return eventType }
+      return "事件触发"
+    case "manual":
+      return "手动触发"
+    default:
+      if let timer, !timer.isEmpty { return timer }
+      return (triggerType ?? "").lowercased() == "timer" ? "定时任务" : nil
+    }
+  }
+
   private enum CodingKeys: String, CodingKey {
-    case id, name, description, timer, actions, flows, context, count
+    case id, name, description, timer, date, actions, flows, context, count
     case shareTitle = "share_title"
     case shareComment = "share_comment"
     case shareUser = "share_user"
     case triggerType = "trigger_type"
+    case eventType = "event_type"
   }
 
   init(from decoder: Decoder) throws {
@@ -749,6 +842,8 @@ private struct NativeWorkflowShareItem: Codable, Sendable, Identifiable {
     description = try? c.decodeIfPresent(String.self, forKey: .description)
     timer = try? c.decodeIfPresent(String.self, forKey: .timer)
     triggerType = try? c.decodeIfPresent(String.self, forKey: .triggerType)
+    eventType = try? c.decodeIfPresent(String.self, forKey: .eventType)
+    date = try? c.decodeIfPresent(String.self, forKey: .date)
     actions = try? c.decodeIfPresent(JSONValue.self, forKey: .actions)
     flows = try? c.decodeIfPresent(JSONValue.self, forKey: .flows)
     context = try? c.decodeIfPresent(JSONValue.self, forKey: .context)

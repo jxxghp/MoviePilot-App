@@ -160,7 +160,7 @@ struct NativeSubscribeEditorSheet: View {
   private var scopeAndRuleSection: some View {
     groupedSection("站点与优先级规则") {
       NavigationLink {
-        NativeSubSiteSelectorView(sites: sites, selection: $draft.sites)
+        NativeSubSiteSelectorView(session: session, sites: sites, selection: $draft.sites)
       } label: {
         disclosureRow("订阅站点", value: draft.sites.isEmpty ? "跟随系统设置" : "已选 \(draft.sites.count) 站")
       }
@@ -549,6 +549,7 @@ struct NativeSubscribeEditorSheet: View {
 
 @MainActor
 private struct NativeSubSiteSelectorView: View {
+  let session: NativeSession
   let sites: [NativeSubSiteOption]
   @Binding var selection: Set<Int>
   @ObservedObject private var appearance = NativeAppearanceStore.shared
@@ -568,7 +569,8 @@ private struct NativeSubSiteSelectorView: View {
                   selection.insert(site.id)
                 }
               } label: {
-                HStack {
+                HStack(spacing: 12) {
+                  NativeSiteIconView(session: session, siteID: site.id, size: 28, active: true)
                   Text(site.name).font(.subheadline).foregroundStyle(.primary)
                   Spacer()
                   if selection.contains(site.id) {
@@ -576,7 +578,7 @@ private struct NativeSubSiteSelectorView: View {
                       .foregroundStyle(appearance.accentColor)
                   }
                 }
-                .padding(.horizontal, 15).padding(.vertical, 12)
+                .padding(.horizontal, 15).padding(.vertical, 11)
                 .contentShape(Rectangle())
               }
               .buttonStyle(.plain)

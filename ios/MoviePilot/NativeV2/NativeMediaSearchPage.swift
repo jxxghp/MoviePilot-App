@@ -558,7 +558,7 @@ struct NativeMediaSearchPage: View {
             if isSearching, loadedPage == 0, committedQuery?.term == trimmedQuery {
               ProgressView().controlSize(.small).tint(.white)
             } else {
-              Image(systemName: "arrow.up")
+              Image(systemName: "arrow.right")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.white)
             }
@@ -1318,7 +1318,7 @@ struct NativeMediaSearchPage: View {
       if sourceLoadAttempt == attempt { isLoadingSources = false }
     }
     do {
-      let endpoint = try APIEndpoint(path: ["media", "source"], responseContract: .payload)
+      let endpoint = try APIEndpoint(path: ["media", "source"])
       let response = try await session.request(
         endpoint, as: [NativeMediaSourceOption].self, requiring: discoveryPermission)
       try session.checkActive(requiring: discoveryPermission)
