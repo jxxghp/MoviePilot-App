@@ -435,7 +435,19 @@ struct NativeMusicAlbumDetailPage: View {
 
   /// 专辑曲目清单卡片。
   private func tracksSection(_ tracks: [NativeMusicInfoRaw]) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
+    let artworkProxy = NativeMediaPlaybackLauncher.proxiedArtworkURL(
+      session: session, raw: resolvedCover)
+    let musicQueue: [MediaPlaybackQueueItem] = tracks.map { item in
+      MediaPlaybackQueueItem(
+        itemId: "",
+        title: item.title ?? "未命名曲目",
+        server: nil,
+        artworkURL: artworkProxy?.absoluteString,
+        artist: item.artist ?? resolvedArtist,
+        album: resolvedTitle
+      )
+    }
+    return VStack(alignment: .leading, spacing: 10) {
       Text("曲目列表").font(.headline).accessibilityAddTraits(.isHeader)
       CinematicPanel(padding: 0) {
         VStack(spacing: 0) {
@@ -446,7 +458,10 @@ struct NativeMusicAlbumDetailPage: View {
                   session: session,
                   title: track.title ?? "未命名曲目",
                   artist: track.artist ?? resolvedArtist,
-                  album: resolvedTitle)
+                  album: resolvedTitle,
+                  artworkURL: artworkProxy,
+                  queue: musicQueue,
+                  queueIndex: index)
                 if let err {
                   feedback = NativeMusicFeedback(isError: true, message: err)
                 }
@@ -491,7 +506,10 @@ struct NativeMusicAlbumDetailPage: View {
                     session: session,
                     title: track.title ?? "未命名曲目",
                     artist: track.artist ?? resolvedArtist,
-                    album: resolvedTitle)
+                    album: resolvedTitle,
+                    artworkURL: artworkProxy,
+                    queue: musicQueue,
+                    queueIndex: index)
                   if let err {
                     feedback = NativeMusicFeedback(isError: true, message: err)
                   }
