@@ -19,60 +19,77 @@ struct NativeMusicPage: View {
   }
 
   let session: NativeSession
-
-  @State private var selectedFeed: Feed = .douban
-  @State private var items: [NativeMusicCardItem] = []
   @State private var searchText = ""
-  @State private var isLoading = true
-  @State private var loadFailed = false
   @State private var reloadToken = 0
 
-  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-
-  /// 深色紫玫瑰渐变背景、来源切换胶囊与 1:1 方形专辑封面网格。
+  /// 深色紫玫瑰渐变背景与可复用音乐探索内容视图。
   var body: some View {
     ZStack {
       CinematicBackground()
       ScrollView {
-        VStack(alignment: .leading, spacing: 16) {
-          feedBar
-          if isLoading && items.isEmpty {
-            ProgressView("正在载入音乐榜单…")
-              .tint(.primary)
-              .frame(maxWidth: .infinity, minHeight: 240)
-          } else if loadFailed && items.isEmpty {
-            failureCard
-          } else if filteredItems.isEmpty {
-            emptyCard
-          } else {
-            LazyVGrid(columns: columns, spacing: 14) {
-              ForEach(filteredItems) { item in
-                NavigationLink {
-                  NativeMusicAlbumDetailPage(session: session, seed: item)
-                } label: {
-                  albumCard(item)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("native-music-card-\(item.id)")
-              }
-            }
-          }
-        }
+        NativeMusicExploreSection(
+          session: session,
+          searchText: searchText,
+          reloadToken: reloadToken
+        )
         .frame(maxWidth: 880)
         .padding(.horizontal, CinematicStyle.margin)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
-      .refreshable { await load() }
+      .refreshable { reloadToken += 1 }
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-music-scroll")
     }
-    .navigationTitle("音乐发现")
+    .navigationTitle("音乐探索")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
     .searchable(text: $searchText, prompt: "筛选专辑或艺人名称")
-    .task(id: "\(selectedFeed.rawValue)|\(reloadToken)") { await load() }
+  }
+}
+
+/// 可嵌入「探索」页或独立「音乐探索」页的音乐榜单与专辑网格组件。
+@MainActor
+struct NativeMusicExploreSection: View {
+  let session: NativeSession
+  var searchText: String = ""
+  var reloadToken: Int = 0
+
+  @State private var selectedFeed: NativeMusicPage.Feed = .douban
+  @State private var items: [NativeMusicCardItem] = []
+  @State private var isLoading = true
+  @State private var loadFailed = false
+  @State private var localReloadToken = 0
+
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      feedBar
+      if isLoading && items.isEmpty {
+        ProgressView("正在载入音乐榜单…")
+          .tint(.primary)
+          .frame(maxWidth: .infinity, minHeight: 240)
+      } else if loadFailed && items.isEmpty {
+        failureCard
+      } else if filteredItems.isEmpty {
+        emptyCard
+      } else {
+        LazyVGrid(columns: columns, spacing: 14) {
+          ForEach(filteredItems) { item in
+            NavigationLink {
+              NativeMusicAlbumDetailPage(session: session, seed: item)
+            } label: {
+              albumCard(item)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-music-card-\(item.id)")
+          }
+        }
+      }
+    }
+    .task(id: "\(selectedFeed.rawValue)|\(reloadToken)|\(localReloadToken)") { await load() }
   }
 
   /// 两列方形封面网格（iPad 宽屏四列）。
@@ -95,25 +112,25 @@ struct NativeMusicPage: View {
   private var feedBar: some View {
     ScrollView(.horizontal) {
       HStack(spacing: 8) {
-        ForEach(Feed.allCases) { feed in
+        ForEach(NativeMusicPage.Feed.allCases) { feed in
           let active = selectedFeed == feed
           Button {
             selectedFeed = feed
           } label: {
             Text(feed.rawValue)
-              .font(.subheadline.weight(.semibold))
-              .foregroundStyle(active ? .white : .white.opacity(0.75))
-              .padding(.horizontal, 14)
-              .padding(.vertical, 8)
+              .font(.caption.weight(active ? .semibold : .medium))
+              .foregroundStyle(active ? .white : .primary.opacity(0.75))
+              .padding(.horizontal, 12)
+              .padding(.vertical, 6.5)
               .background {
                 Capsule()
                   .fill(
                     active
-                      ? Color(red: 0.58, green: 0.42, blue: 0.88).opacity(0.78)
-                      : .white.opacity(0.08)
+                      ? Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.72)
+                      : .primary.opacity(0.08)
                   )
                   .overlay {
-                    Capsule().strokeBorder(.primary.opacity(active ? 0.32 : 0.14), lineWidth: 0.7)
+                    Capsule().strokeBorder(.primary.opacity(active ? 0.28 : 0.12), lineWidth: 0.6)
                   }
               }
           }
@@ -190,7 +207,7 @@ struct NativeMusicPage: View {
     CinematicPanel {
       VStack(alignment: .leading, spacing: 10) {
         Label("暂时无法载入音乐榜单", systemImage: "exclamationmark.triangle").font(.headline)
-        Button("重试") { reloadToken += 1 }
+        Button("重试") { localReloadToken += 1 }
           .frame(minHeight: 44)
           .accessibilityIdentifier("native-music-retry")
       }

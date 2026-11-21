@@ -92,11 +92,18 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
         NativeAgentChatPage(session: session)
           .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-              Button("关闭") { showsAgentSheet = false }
-                .accessibilityIdentifier("native-agent-sheet-close")
+              Button {
+                showsAgentSheet = false
+              } label: {
+                Image(systemName: "xmark")
+              }
+              .accessibilityLabel("关闭")
+              .accessibilityIdentifier("native-agent-sheet-close")
             }
           }
       }
+      .presentationDetents([.large])
+      .presentationDragIndicator(.visible)
       .nativeAppearanceRoot()
     }
     .sheet(
@@ -155,11 +162,21 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
           return
         }
         if next == selectedTab && next != .search {
-          withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
-            showsOverflowMenu.toggle()
+          let opening = !showsOverflowMenu
+          UIImpactFeedbackGenerator(style: .light).impactOccurred()
+          withAnimation(
+            opening
+              ? .spring(response: 0.36, dampingFraction: 0.68, blendDuration: 0.12)
+              : .spring(response: 0.24, dampingFraction: 0.88)
+          ) {
+            showsOverflowMenu = opening
           }
         } else {
-          showsOverflowMenu = false
+          if showsOverflowMenu {
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+              showsOverflowMenu = false
+            }
+          }
           dynamicActionCenter.reset()
           selectedTab = next
         }
@@ -174,6 +191,16 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
   /// 右侧 +1 圆形按钮图标：当前页声明动态动作时显示页面图标，否则回退放大镜。
   private var trailingButtonSymbol: String {
     dynamicActionCenter.current?.symbol ?? "magnifyingglass"
+  }
+
+  /// 右侧独立圆形按钮角色：iOS 27+ 使用 `.prominent` 确保始终与主导航胶囊分离成独立圆形玻璃键，iOS 18-26 沿用 `.search`。
+  @available(iOS 18, *)
+  private var trailingTabRole: TabRole {
+    if #available(iOS 27.0, *) {
+      return .prominent
+    } else {
+      return .search
+    }
   }
 
   /// 原生 4+1 TabView：前 4 项为发现、探索、我的（仪表盘）、设置，第 +1 项为右侧动态主按钮/全局搜索。
@@ -216,7 +243,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
             trailingButtonTitle,
             systemImage: trailingButtonSymbol,
             value: Page.search,
-            role: .search
+            role: trailingTabRole
           ) {
             searchTab
           }
@@ -269,13 +296,12 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
     }
   }
 
-  /// 探索标签：承载原生多来源探索片库，并支持从全局溢出菜单推入任意业务页。
+  /// 探索标签：承载原生多来源影视与音乐探索片库，并支持从全局溢出菜单推入任意业务页。
   private var exploreTab: some View {
     NavigationStack(path: $explorePath) {
       NativeExplorePage(
         session: session,
-        initialSource: .tmdbMovies,
-        onOpenMusic: canDiscover ? { explorePath.append(.music) } : nil
+        initialSource: .tmdbMovies
       )
       .navigationDestination(for: NativeWorkspaceDestination.self) { destination in
         workspaceDestinationView(destination)
@@ -290,8 +316,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
         if snapshot.user.isSuperuser {
           NativeDashboardPage(
             session: session,
-            onOpenMessages: { minePath.append(.messages) },
-            onOpenAgent: { minePath.append(.agent) }
+            onOpenMessages: { minePath.append(.messages) }
           )
         } else {
           memberDashboardView
@@ -591,8 +616,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
     case .plugins:
       if snapshot.user.isSuperuser { openFromOverflow(.pluginMarket) }
     case .agent:
-      selectedTab = .mine
-      minePath.append(.agent)
+      showsAgentSheet = true
     }
   }
 
@@ -627,15 +651,18 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
     .accessibilityIdentifier("native-system-route-banner")
   }
 
-  /// 极简深色透色悬浮菜单：顶部展示当前用户头像与信息，下方集中承载订阅、日历、资源、下载、文件、历史、工作流、插件与通知中心入口。
+  /// 高透液态玻璃悬浮菜单：顶部展示当前用户头像与信息，下方集中承载订阅、日历、资源、下载、文件、历史、工作流、插件与通知中心入口，带弹性水动弹出过渡。
   private var overflowMenuOverlay: some View {
     ZStack(alignment: .bottomLeading) {
-      Color.black.opacity(0.32)
+      Color.black.opacity(colorScheme == .light ? 0.10 : 0.16)
         .ignoresSafeArea()
         .contentShape(Rectangle())
         .onTapGesture {
-          withAnimation(.easeOut(duration: 0.2)) { showsOverflowMenu = false }
+          withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+            showsOverflowMenu = false
+          }
         }
+        .transition(.opacity)
         .accessibilityIdentifier("native-overflow-menu-backdrop")
       VStack(alignment: .leading, spacing: 0) {
         HStack(spacing: 11) {
@@ -668,7 +695,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("native-overflow-user-header")
 
-        Divider().overlay(.primary.opacity(0.10))
+        Divider().overlay(.primary.opacity(0.12))
 
         ScrollView {
           VStack(alignment: .leading, spacing: 2) {
@@ -695,7 +722,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
             }
 
             if canManageDownloads || snapshot.user.isSuperuser {
-              Divider().overlay(.primary.opacity(0.08)).padding(.vertical, 4)
+              Divider().overlay(.primary.opacity(0.10)).padding(.vertical, 4)
               if canManageDownloads {
                 overflowMenuRow(
                   title: "文件", symbol: "folder.fill", id: "native-workspace-files"
@@ -715,7 +742,7 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
               }
             }
 
-            Divider().overlay(.primary.opacity(0.08)).padding(.vertical, 4)
+            Divider().overlay(.primary.opacity(0.10)).padding(.vertical, 4)
             overflowMenuRow(
               title: "通知", symbol: "bell.fill", id: "native-overflow-messages"
             ) { openFromOverflow(.messages) }
@@ -726,32 +753,22 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
         .frame(maxHeight: 440)
         .accessibilityIdentifier("native-overflow-menu-scroll")
       }
-      .frame(width: 236)
-      .background {
-        RoundedRectangle(cornerRadius: 24, style: .continuous)
-          .fill(.ultraThinMaterial)
-          .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-              .fill(
-                colorScheme == .light
-                  ? Color.white.opacity(0.76)
-                  : Color(red: 28 / 255, green: 24 / 255, blue: 38 / 255).opacity(0.76))
-          }
-          .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-              .strokeBorder(
-                colorScheme == .light ? Color.black.opacity(0.10) : Color.white.opacity(0.18),
-                lineWidth: 0.7)
-          }
-      }
-      .shadow(
-        color: colorScheme == .light ? .black.opacity(0.14) : .black.opacity(0.45),
-        radius: 24, y: 12
-      )
+      .frame(width: 238)
+      .modifier(NativeLiquidGlassPopoverSurface(cornerRadius: 26))
       .padding(.leading, 16)
       .padding(.bottom, 92)
-      .transition(.move(edge: .bottom).combined(with: .opacity))
+      .transition(
+        .asymmetric(
+          insertion: .scale(scale: 0.72, anchor: .bottomLeading)
+            .combined(with: .offset(y: 26))
+            .combined(with: .opacity),
+          removal: .scale(scale: 0.86, anchor: .bottomLeading)
+            .combined(with: .offset(y: 14))
+            .combined(with: .opacity)
+        )
+      )
     }
+    .zIndex(50)
   }
 
   /// 悬浮快捷菜单中的单个原生入口行。
@@ -878,10 +895,10 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
 
     let exploreCategories: [NativeDiscoverCategory] = [
       NativeDiscoverCategory(
-        id: NativeExploreSourceKind.tmdbMovies.rawValue, title: "TMDB 电影",
+        id: NativeExploreSourceKind.tmdbMovies.rawValue, title: "TheMovieDB 电影",
         posterReference: projectedMovies?.first?.posterReference),
       NativeDiscoverCategory(
-        id: NativeExploreSourceKind.tmdbTVs.rawValue, title: "TMDB 剧集",
+        id: NativeExploreSourceKind.tmdbTVs.rawValue, title: "TheMovieDB 剧集",
         posterReference: projectedTVs?.first?.posterReference),
       NativeDiscoverCategory(
         id: NativeExploreSourceKind.doubanMovies.rawValue, title: "豆瓣片库",
@@ -889,6 +906,9 @@ struct NativeV2MainShell<AccountContent: View, PluginDestination: View>: View {
       NativeDiscoverCategory(
         id: NativeExploreSourceKind.bangumi.rawValue, title: "Bangumi 番剧",
         posterReference: projectedTVs?.dropFirst().first?.posterReference),
+      NativeDiscoverCategory(
+        id: NativeExploreSourceKind.music.rawValue, title: "音乐探索",
+        posterReference: projectedMovies?.dropFirst(2).first?.posterReference),
     ]
 
     let heroPool: [(NativeDiscoverAPIItem, String)] =
@@ -1359,17 +1379,23 @@ struct NativeMediaArtwork: View {
     ].joined(separator: "|")
   }
 
-  /// 占位只表示图像暂缺，不伪造作品或来源平台图标。
+  /// 轻盈通透的毛玻璃占位层，海报加载前不出现厚重暗块。
   private var placeholder: some View {
     ZStack {
+      Rectangle()
+        .fill(.ultraThinMaterial)
       LinearGradient(
         colors: [
-          Color(red: 0.34, green: 0.27, blue: 0.43),
-          Color(red: 0.28, green: 0.22, blue: 0.36),
-          Color(red: 0.19, green: 0.19, blue: 0.29),
-        ], startPoint: .topLeading, endPoint: .bottomTrailing)
-      Image(systemName: symbol).font(.system(size: role == .backdrop ? 42 : 24, weight: .light))
-        .foregroundStyle(.primary.opacity(0.48))
+          Color.white.opacity(0.14),
+          Color.white.opacity(0.05),
+          Color.clear,
+        ],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+      )
+      Image(systemName: symbol)
+        .font(.system(size: role == .backdrop ? 38 : 22, weight: .ultraLight))
+        .foregroundStyle(.primary.opacity(0.32))
     }
   }
 

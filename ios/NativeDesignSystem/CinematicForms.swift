@@ -68,9 +68,18 @@ struct CinematicFormSection<Content: View>: View {
       }
       .listRowInsets(EdgeInsets()).listRowBackground(Color.clear).listRowSeparator(.hidden)
     } header: {
-      if let title { Text(title).textCase(nil) }
+      if let title {
+        Text(title)
+          .font(.footnote.weight(.medium))
+          .foregroundStyle(.secondary)
+          .textCase(nil)
+      }
     } footer: {
-      if let footer { Text(footer) }
+      if let footer {
+        Text(footer)
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      }
     }
   }
 }

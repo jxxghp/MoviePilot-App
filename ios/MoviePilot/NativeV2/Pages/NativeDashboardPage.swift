@@ -4,30 +4,31 @@ import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
 
-/// 登录后的原生仪表盘概览；媒体数量、存储和后台服务全部来自所选会话的管理员 API。
+/// 登录后的原生仪表盘概览；媒体数量、存储和后台服务全部来自所选会话的管理员 API，支持右上角自由开关与编排组件顺序。
 @MainActor
 struct NativeDashboardPage: View {
   let session: NativeSession
   let onOpenMessages: (() -> Void)?
-  let onOpenAgent: (() -> Void)?
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @AppStorage("nativeV2.dashboardWidgets.v1") private var storedWidgetsJSON = ""
   @State private var reloadID = UUID()
   @State private var statistics: NativeDashboardStatistics?
   @State private var storage: NativeDashboardStorage?
   @State private var schedules: [NativeDashboardSchedule]?
   @State private var pluginWidgets: [NativeDashboardPluginWidget] = []
+  @State private var widgetItems: [NativeDashboardWidgetConfig] =
+    NativeDashboardWidgetConfig.defaults
+  @State private var showsWidgetEditor = false
   @State private var loading = false
   @State private var failedSections: [String] = []
 
   /// 只注入当前会话，不接触全局 token、实例 ID 或共享网络客户端。
   init(
     session: NativeSession,
-    onOpenMessages: (() -> Void)? = nil,
-    onOpenAgent: (() -> Void)? = nil
+    onOpenMessages: (() -> Void)? = nil
   ) {
     self.session = session
     self.onOpenMessages = onOpenMessages
-    self.onOpenAgent = onOpenAgent
   }
 
   /// 页面自带 Cinematic 全局紫玫瑰渐变背景，保证透色玻璃卡片与顶部原生工具栏层级清晰。
@@ -38,10 +39,9 @@ struct NativeDashboardPage: View {
         VStack(alignment: .leading, spacing: 22) {
           if loading { loadingIndicator }
           if !failedSections.isEmpty { errorPanel }
-          if let statistics { librarySummary(statistics) }
-          if let storage { storageSummary(storage) }
-          if !pluginWidgets.isEmpty { pluginDashboardSummary(pluginWidgets) }
-          if let schedules { serviceSummary(schedules) }
+          ForEach(widgetItems.filter(\.enabled)) { item in
+            dashboardWidgetView(for: item)
+          }
         }
         .frame(maxWidth: 820, alignment: .leading)
         .padding(.horizontal, CinematicStyle.margin)
@@ -57,41 +57,71 @@ struct NativeDashboardPage: View {
     .navigationTitle("")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
+    .onAppear { syncWidgetsFromStorage() }
     .task(id: reloadID) { await load() }
-    .toolbar {
-      if let onOpenMessages {
-        ToolbarItem(placement: .navigationBarTrailing) {
-          Button(action: onOpenMessages) {
-            Image(systemName: "bell")
-          }
-          .accessibilityLabel("消息中心")
-          .accessibilityIdentifier("native-workspace-messages")
-        }
+    .sheet(isPresented: $showsWidgetEditor) {
+      NativeDashboardWidgetsSheet(initialItems: widgetItems) { updated in
+        widgetItems = updated
+        saveWidgetsToStorage(updated)
       }
-      ToolbarItem(placement: .navigationBarTrailing) { refreshButton }
+    }
+    .toolbar {
+      ToolbarItem(placement: .navigationBarTrailing) {
+        Button {
+          showsWidgetEditor = true
+        } label: {
+          Image(systemName: "square.grid.2x2")
+        }
+        .accessibilityLabel("编辑仪表盘组件")
+        .accessibilityIdentifier("native-dashboard-edit-widgets")
+      }
+      ToolbarItem(placement: .navigationBarTrailing) {
+        Button {
+          refresh()
+        } label: {
+          Image(systemName: "arrow.clockwise")
+        }
+        .disabled(loading)
+        .accessibilityLabel("刷新仪表盘数据")
+        .accessibilityIdentifier("native-dashboard-refresh")
+      }
     }
   }
 
-  /// 系统工具栏更多菜单聚合智能助手与刷新动作，避免孤立刷新按钮，同时保留下拉刷新。
-  private var refreshButton: some View {
-    Menu {
-      if let onOpenAgent {
-        Button(action: onOpenAgent) {
-          Label("智能助手", systemImage: "sparkles")
-        }
-        .accessibilityIdentifier("native-workspace-agent")
+  /// 按当前已启用的组件配置顺序渲染对应仪表盘卡片。
+  @ViewBuilder
+  private func dashboardWidgetView(for item: NativeDashboardWidgetConfig) -> some View {
+    switch item.id {
+    case "statistics":
+      if let statistics { librarySummary(statistics) }
+    case "storage":
+      if let storage { storageSummary(storage) }
+    case "schedules":
+      if let schedules { serviceSummary(schedules) }
+    default:
+      if let widget = pluginWidgets.first(where: { "plugin:\($0.id)" == item.id }) {
+        pluginDashboardCard(widget)
       }
-      Button {
-        refresh()
-      } label: {
-        Label("刷新仪表盘数据", systemImage: "arrow.clockwise")
-      }
-      .disabled(loading)
-    } label: {
-      Image(systemName: "ellipsis")
     }
-    .accessibilityLabel("更多操作")
-    .accessibilityIdentifier("native-dashboard-refresh")
+  }
+
+  /// 从本地配置恢复组件顺序与显隐，并与最新加载的插件仪表板组件合并。
+  private func syncWidgetsFromStorage() {
+    var decoded: [NativeDashboardWidgetConfig] = []
+    if let data = storedWidgetsJSON.data(using: .utf8),
+      let list = try? JSONDecoder().decode([NativeDashboardWidgetConfig].self, from: data)
+    {
+      decoded = list
+    }
+    widgetItems = NativeDashboardWidgetConfig.merged(saved: decoded, plugins: pluginWidgets)
+  }
+
+  /// 持久化仪表盘组件显隐与排序。
+  private func saveWidgetsToStorage(_ items: [NativeDashboardWidgetConfig]) {
+    guard let data = try? JSONEncoder().encode(items),
+      let raw = String(data: data, encoding: .utf8)
+    else { return }
+    storedWidgetsJSON = raw
   }
 
   /// 只列出拉取失败的分区；已有的成功值继续可读。
@@ -246,11 +276,12 @@ struct NativeDashboardPage: View {
     }
   }
 
-  /// 同前端一样优先展示运行中的服务，其余按后端提供的次序展开。
+  /// 同前端一样优先展示运行中的服务；条目较多时限制卡片高度并支持内部滚动，避免仪表盘无限拉长。
   private func serviceSummary(_ values: [NativeDashboardSchedule]) -> some View {
     let ordered = values.filter(\.isRunning) + values.filter { !$0.isRunning }
     return VStack(alignment: .leading, spacing: 12) {
-      sectionTitle("后台服务", detail: "\(values.count) 项")
+      sectionTitle(
+        "后台服务", detail: ordered.count > 4 ? "\(values.count) 项 · 可滚动" : "\(values.count) 项")
       if values.isEmpty {
         CinematicPanel {
           Label("暂时没有后台服务", systemImage: "checkmark.circle")
@@ -259,10 +290,23 @@ struct NativeDashboardPage: View {
         }
       } else {
         CinematicPanel(padding: 0) {
-          LazyVStack(spacing: 0) {
-            ForEach(Array(ordered.enumerated()), id: \.offset) { index, service in
-              if index > 0 { CinematicFormDivider() }
-              serviceRow(service)
+          if ordered.count > 4 {
+            ScrollView(.vertical) {
+              LazyVStack(spacing: 0) {
+                ForEach(Array(ordered.enumerated()), id: \.offset) { index, service in
+                  if index > 0 { CinematicFormDivider() }
+                  serviceRow(service)
+                }
+              }
+            }
+            .scrollIndicators(.visible)
+            .frame(height: 280)
+          } else {
+            LazyVStack(spacing: 0) {
+              ForEach(Array(ordered.enumerated()), id: \.offset) { index, service in
+                if index > 0 { CinematicFormDivider() }
+                serviceRow(service)
+              }
             }
           }
         }
@@ -292,28 +336,22 @@ struct NativeDashboardPage: View {
     .accessibilityElement(children: .combine)
   }
 
-  /// 插件仪表板动态卡片区：直接将插件原生图表与卡片无缝融入仪表盘卡片流，不额外显示“插件扩展面板”标题。
-  private func pluginDashboardSummary(_ widgets: [NativeDashboardPluginWidget]) -> some View {
-    VStack(alignment: .leading, spacing: 14) {
-      ForEach(widgets) { widget in
-        Group {
-          if widget.isVueRemote {
-            CinematicPanel(padding: 12) {
-              Label("「\(widget.title)」为远程组件卡片，请从插件管理打开兼容页查看", systemImage: "puzzlepiece.extension")
-                .font(.caption)
-                .foregroundStyle(.primary.opacity(0.75))
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-          } else {
-            NativePluginJSONRenderer(session: session, nodes: widget.nodes)
-          }
+  /// 单张插件仪表板动态卡片：无缝融入仪表盘流，并支持在组件编辑中单独控制显隐与排序。
+  private func pluginDashboardCard(_ widget: NativeDashboardPluginWidget) -> some View {
+    Group {
+      if widget.isVueRemote {
+        CinematicPanel(padding: 12) {
+          Label("「\(widget.title)」为远程组件卡片，请从插件管理打开兼容页查看", systemImage: "puzzlepiece.extension")
+            .font(.caption)
+            .foregroundStyle(.primary.opacity(0.75))
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("native-dashboard-plugin-\(widget.pluginID)")
+      } else {
+        NativePluginJSONRenderer(session: session, nodes: widget.nodes)
       }
     }
     .accessibilityElement(children: .contain)
-    .accessibilityIdentifier("native-dashboard-plugins")
+    .accessibilityIdentifier("native-dashboard-plugin-\(widget.pluginID)")
   }
 
   /// 大字允许标题和数量纵向排列，分区标题可通过 VoiceOver 快速导航。
@@ -365,6 +403,7 @@ struct NativeDashboardPage: View {
     if let newStorage { storage = newStorage } else { failedSections.append("存储空间") }
     if let newSchedules { schedules = newSchedules } else { failedSections.append("后台服务") }
     if let newWidgets { pluginWidgets = newWidgets }
+    syncWidgetsFromStorage()
   }
 
   /// 读取插件仪表板元信息并逐项有界解析 JSON 节点，失败时静默降级以免阻塞核心仪表盘分区。
@@ -597,4 +636,131 @@ private struct NativeDashboardPluginWidget: Identifiable, Sendable {
   let title: String
   let isVueRemote: Bool
   let nodes: [NativePluginJSONNode]
+}
+
+/// 单条可编排的仪表盘组件配置（覆盖内置统计/存储/后台服务及已安装的插件仪表板组件）。
+private struct NativeDashboardWidgetConfig: Identifiable, Codable, Equatable, Sendable {
+  let id: String
+  var title: String
+  var symbol: String
+  var enabled: Bool
+
+  static let defaults: [NativeDashboardWidgetConfig] = [
+    NativeDashboardWidgetConfig(
+      id: "statistics", title: "媒体库统计", symbol: "film.stack", enabled: true),
+    NativeDashboardWidgetConfig(
+      id: "storage", title: "存储空间", symbol: "externaldrive", enabled: true),
+    NativeDashboardWidgetConfig(
+      id: "schedules", title: "后台服务", symbol: "clock.arrow.2.circlepath", enabled: true),
+  ]
+
+  /// 合并已保存组件排序/显隐与最新内置及插件组件列表。
+  static func merged(
+    saved: [NativeDashboardWidgetConfig], plugins: [NativeDashboardPluginWidget]
+  ) -> [NativeDashboardWidgetConfig] {
+    var available: [String: NativeDashboardWidgetConfig] = Dictionary(
+      uniqueKeysWithValues: defaults.map { ($0.id, $0) })
+    for plugin in plugins {
+      let key = "plugin:\(plugin.id)"
+      available[key] = NativeDashboardWidgetConfig(
+        id: key, title: plugin.title, symbol: "puzzlepiece.extension", enabled: true)
+    }
+    var seen: Set<String> = []
+    var result: [NativeDashboardWidgetConfig] = []
+    for item in saved {
+      if var latest = available[item.id], seen.insert(item.id).inserted {
+        latest.enabled = item.enabled
+        result.append(latest)
+      }
+    }
+    for base in defaults where seen.insert(base.id).inserted {
+      result.append(base)
+    }
+    for plugin in plugins {
+      let key = "plugin:\(plugin.id)"
+      if let item = available[key], seen.insert(key).inserted {
+        result.append(item)
+      }
+    }
+    return result
+  }
+}
+
+/// 仪表盘组件编排弹层：支持开关显隐、长按拖拽排序与恢复默认顺序。
+@MainActor
+private struct NativeDashboardWidgetsSheet: View {
+  let initialItems: [NativeDashboardWidgetConfig]
+  let onSave: ([NativeDashboardWidgetConfig]) -> Void
+
+  @State private var items: [NativeDashboardWidgetConfig]
+  @State private var editMode: EditMode = .active
+  @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+
+  init(
+    initialItems: [NativeDashboardWidgetConfig],
+    onSave: @escaping ([NativeDashboardWidgetConfig]) -> Void
+  ) {
+    self.initialItems = initialItems
+    self.onSave = onSave
+    _items = State(initialValue: initialItems)
+  }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        List {
+          Section {
+            ForEach($items) { $item in
+              HStack(spacing: 12) {
+                Image(systemName: item.symbol)
+                  .font(.body.weight(.medium))
+                  .foregroundStyle(appearance.accentColor)
+                  .frame(width: 24)
+                Text(item.title)
+                  .font(.subheadline.weight(.medium))
+                  .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Toggle("", isOn: $item.enabled)
+                  .labelsHidden()
+                  .tint(appearance.accentColor)
+              }
+              .listRowBackground(Color.clear)
+            }
+            .onMove { source, destination in
+              items.move(fromOffsets: source, toOffset: destination)
+            }
+          } header: {
+            Text("开启或拖动调整组件顺序")
+              .font(.footnote)
+              .foregroundStyle(.secondary)
+          } footer: {
+            Text("隐藏的组件不会在「我的」仪表盘中显示，可随时重新开启。")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        }
+        .scrollContentBackground(.hidden)
+        .environment(\.editMode, $editMode)
+      }
+      .navigationTitle("编辑仪表盘组件")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("取消") { dismiss() }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+          Button("保存") {
+            onSave(items)
+            dismiss()
+          }
+          .fontWeight(.semibold)
+          .accessibilityIdentifier("native-dashboard-widgets-save")
+        }
+      }
+    }
+    .nativeAppearanceRoot()
+  }
 }

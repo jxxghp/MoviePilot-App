@@ -24,6 +24,7 @@ struct NativeMediaDetailPage: View {
   @State private var pendingCancelSeason: NativeSeasonCancelTarget?
   @State private var actionFeedback: NativeDetailActionFeedback?
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @Environment(\.colorScheme) private var colorScheme
 
   /// 按当前认证会话直接加载单部影视详情、入库/订阅状态、演职员与推荐；不借 WebView。
   var body: some View {
@@ -207,115 +208,176 @@ struct NativeMediaDetailPage: View {
   }
 
   /// 主操作区遵循 Liquid Glass 分组规范：按权限展示订阅开关、资源搜索与入库状态，不伪造未接入动作。
+  /// 统一等高、比例均衡的详情操作栏：已入库时主播放按钮全宽独占第一行，订阅与搜索资源并排等宽居第二行；未入库时订阅与搜索资源等宽并排，避免三四枚按钮挤压变形。
   @ViewBuilder
   private func actionBar(_ detail: NativeMediaDetailPayload) -> some View {
     let tv = isTelevision(detail)
     let subscribedCount = status.seasons.count
-    if canSubscribe || canSearchResources || status.itemID != nil {
-      CinematicGlassGroup {
-        HStack(spacing: 12) {
-          if let itemID = status.itemID, !itemID.isEmpty {
-            CinematicPrimaryAction(
-              title: isLaunchingPlayback ? "准备播放…" : "立即播放",
-              symbol: "play.fill"
-            ) {
-              Task {
-                isLaunchingPlayback = true
-                let posterRaw = Self.resolveArtwork(
-                  detail.posterPath ?? detail.backdropPath,
-                  source: detail.mediaSource ?? identity.source)
-                let artworkURL = NativeMediaPlaybackLauncher.proxiedArtworkURL(
-                  session: session, raw: posterRaw)
-                let err = await NativeMediaPlaybackLauncher.shared.playMediaServerItem(
-                  session: session,
-                  itemID: itemID,
-                  server: status.server,
-                  title: detail.title ?? "播放",
-                  artworkURL: artworkURL)
-                isLaunchingPlayback = false
-                if let err {
-                  actionFeedback = NativeDetailActionFeedback(isError: true, message: err)
-                }
+    let hasPlay = (status.itemID?.isEmpty == false)
+    if canSubscribe || canSearchResources || hasPlay {
+      VStack(spacing: 10) {
+        if let itemID = status.itemID, !itemID.isEmpty {
+          let serverSuffix =
+            (status.server?.isEmpty == false) ? " · \(status.server!)" : ""
+          Button {
+            Task {
+              isLaunchingPlayback = true
+              let posterRaw = Self.resolveArtwork(
+                detail.posterPath ?? detail.backdropPath,
+                source: detail.mediaSource ?? identity.source)
+              let artworkURL = NativeMediaPlaybackLauncher.proxiedArtworkURL(
+                session: session, raw: posterRaw)
+              let err = await NativeMediaPlaybackLauncher.shared.playMediaServerItem(
+                session: session,
+                itemID: itemID,
+                server: status.server,
+                title: detail.title ?? "播放",
+                artworkURL: artworkURL)
+              isLaunchingPlayback = false
+              if let err {
+                actionFeedback = NativeDetailActionFeedback(isError: true, message: err)
               }
             }
-            .disabled(isLaunchingPlayback)
-            .accessibilityIdentifier("native-media-detail-play")
+          } label: {
+            detailCapsuleLabel(
+              title: isLaunchingPlayback ? "准备播放…" : "立即播放\(serverSuffix)",
+              symbol: "play.fill",
+              prominent: true,
+              accentFilled: false
+            )
           }
-          if canSubscribe {
-            if tv {
-              let seasons = resolvedSeasons(detail)
-              let primarySeason = seasons.first(where: { $0.seasonNumber > 0 })?.seasonNumber ?? 1
-              let anySubscribed = subscribedCount > 0
-              CinematicPrimaryAction(
-                title: anySubscribed ? "已订阅 \(subscribedCount) 季" : "订阅第 \(primarySeason) 季",
-                symbol: anySubscribed ? "bookmark.fill" : "bookmark"
-              ) {
-                if !anySubscribed {
-                  Task { await performSubscribe(season: primarySeason) }
-                } else {
-                  pendingCancelSeason = NativeSeasonCancelTarget(
-                    season: status.seasons.keys.sorted().first,
-                    message:
-                      "确认取消《\(detail.title ?? "该剧集")》第 \(status.seasons.keys.sorted().first ?? primarySeason) 季的订阅吗？"
+          .buttonStyle(.plain)
+          .disabled(isLaunchingPlayback)
+          .accessibilityIdentifier("native-media-detail-play")
+        }
+
+        if canSubscribe || canSearchResources {
+          HStack(spacing: 10) {
+            if canSubscribe {
+              if tv {
+                let seasons = resolvedSeasons(detail)
+                let primarySeason =
+                  seasons.first(where: { $0.seasonNumber > 0 })?.seasonNumber ?? 1
+                let anySubscribed = subscribedCount > 0
+                Button {
+                  if !anySubscribed {
+                    Task { await performSubscribe(season: primarySeason) }
+                  } else {
+                    pendingCancelSeason = NativeSeasonCancelTarget(
+                      season: status.seasons.keys.sorted().first,
+                      message:
+                        "确认取消《\(detail.title ?? "该剧集")》第 \(status.seasons.keys.sorted().first ?? primarySeason) 季的订阅吗？"
+                    )
+                  }
+                } label: {
+                  detailCapsuleLabel(
+                    title: anySubscribed ? "已订阅 \(subscribedCount) 季" : "订阅第 \(primarySeason) 季",
+                    symbol: anySubscribed ? "bookmark.fill" : "bookmark",
+                    prominent: !hasPlay && !anySubscribed,
+                    accentFilled: anySubscribed
                   )
                 }
-              }
-              .disabled(mutatingSeason != nil)
-              .accessibilityIdentifier("native-media-detail-subscribe")
-            } else {
-              CinematicPrimaryAction(
-                title: isMutatingMovie
-                  ? "正在提交…" : (status.subscribed ? "已订阅 · 取消" : "添加订阅"),
-                symbol: status.subscribed ? "bookmark.fill" : "bookmark"
-              ) {
-                if status.subscribed {
-                  pendingCancelSeason = NativeSeasonCancelTarget(
-                    season: nil,
-                    message: "确认取消《\(detail.title ?? "该作品")》的订阅吗？")
-                } else {
-                  Task { await performSubscribe(season: nil) }
+                .buttonStyle(.plain)
+                .disabled(mutatingSeason != nil)
+                .accessibilityIdentifier("native-media-detail-subscribe")
+              } else {
+                Button {
+                  if status.subscribed {
+                    pendingCancelSeason = NativeSeasonCancelTarget(
+                      season: nil,
+                      message: "确认取消《\(detail.title ?? "该作品")》的订阅吗？")
+                  } else {
+                    Task { await performSubscribe(season: nil) }
+                  }
+                } label: {
+                  detailCapsuleLabel(
+                    title: isMutatingMovie
+                      ? "提交中…" : (status.subscribed ? "已订阅" : "添加订阅"),
+                    symbol: status.subscribed ? "bookmark.fill" : "bookmark",
+                    prominent: !hasPlay && !status.subscribed,
+                    accentFilled: status.subscribed
+                  )
                 }
-              }
-              .disabled(isMutatingMovie)
-              .accessibilityIdentifier("native-media-detail-subscribe")
-            }
-          }
-          if canSearchResources {
-            NavigationLink {
-              NativeResourceSearchPage(
-                session: session,
-                target: .media(
-                  identity: identity, title: detail.title ?? "作品资源", season: nil))
-            } label: {
-              HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                  .font(.subheadline.weight(.semibold))
-                Text("搜索资源")
-                  .font(.subheadline.weight(.semibold))
-              }
-              .foregroundStyle(.white)
-              .padding(.horizontal, 16)
-              .frame(height: 50)
-              .background {
-                Capsule()
-                  .fill(.white.opacity(0.14))
-                  .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.7) }
+                .buttonStyle(.plain)
+                .disabled(isMutatingMovie)
+                .accessibilityIdentifier("native-media-detail-subscribe")
               }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("搜索站点资源")
-            .accessibilityIdentifier("native-media-detail-search-resources")
-          }
-          if let server = status.server, !server.isEmpty, status.itemID != nil {
-            CinematicCircleButton(title: "已入库 · \(server)", symbol: "play.tv.fill") {
-              actionFeedback = NativeDetailActionFeedback(
-                isError: false, message: "该作品已收录于 \(server) 媒体库。")
+
+            if canSearchResources {
+              NavigationLink {
+                NativeResourceSearchPage(
+                  session: session,
+                  target: .media(
+                    identity: identity, title: detail.title ?? "作品资源", season: nil))
+              } label: {
+                detailCapsuleLabel(
+                  title: "搜索资源",
+                  symbol: "magnifyingglass",
+                  prominent: !hasPlay && !canSubscribe,
+                  accentFilled: false
+                )
+              }
+              .buttonStyle(.plain)
+              .accessibilityLabel("搜索站点资源")
+              .accessibilityIdentifier("native-media-detail-search-resources")
             }
-            .accessibilityIdentifier("native-media-detail-library-action")
           }
         }
       }
     }
+  }
+
+  /// 详情操作栏统一 48pt 等高胶囊按钮样式（主强调 / 已订阅状态 / 次级玻璃三种清晰视觉层级）。
+  private func detailCapsuleLabel(
+    title: String,
+    symbol: String,
+    prominent: Bool,
+    accentFilled: Bool
+  ) -> some View {
+    let accent = NativeAppearanceStore.shared.accentColor
+    let fg: Color =
+      if prominent {
+        colorScheme == .light ? .white : Color(red: 0.08, green: 0.08, blue: 0.12)
+      } else if accentFilled {
+        Color(red: 0.44, green: 0.90, blue: 0.66)
+      } else {
+        .primary
+      }
+    let fill: Color =
+      if prominent {
+        colorScheme == .light ? accent : .white
+      } else if accentFilled {
+        Color(red: 0.24, green: 0.66, blue: 0.46).opacity(colorScheme == .light ? 0.18 : 0.26)
+      } else {
+        .primary.opacity(colorScheme == .light ? 0.08 : 0.13)
+      }
+    let stroke: Color =
+      if prominent {
+        .clear
+      } else if accentFilled {
+        Color(red: 0.44, green: 0.90, blue: 0.66).opacity(0.36)
+      } else {
+        .primary.opacity(0.20)
+      }
+    return HStack(spacing: 7) {
+      Image(systemName: symbol)
+        .font(.subheadline.weight(.semibold))
+      Text(title)
+        .font(.subheadline.weight(.semibold))
+        .lineLimit(1)
+        .minimumScaleFactor(0.84)
+    }
+    .foregroundStyle(fg)
+    .padding(.horizontal, 14)
+    .frame(maxWidth: .infinity)
+    .frame(height: 48)
+    .background {
+      Capsule()
+        .fill(fill)
+        .overlay { Capsule().strokeBorder(stroke, lineWidth: 0.7) }
+    }
+    .contentShape(Capsule())
   }
 
   /// 操作反馈只显示安全摘要文本，支持点击关闭，不泄漏后端内部错误细节。

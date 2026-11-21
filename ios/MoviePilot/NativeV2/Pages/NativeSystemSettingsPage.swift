@@ -82,7 +82,7 @@ struct NativeSystemSettingsPage: View {
     ) {
       overviewTile(
         title: "主识别源",
-        value: draft.recognizeSource == "douban" ? "豆瓣" : "TheMovieDb",
+        value: draft.recognizeSource == "douban" ? "豆瓣" : "TheMovieDB",
         symbol: "film.stack",
         active: true)
       overviewTile(
@@ -104,24 +104,24 @@ struct NativeSystemSettingsPage: View {
     }
   }
 
-  /// 单张 2x2 状态概览玻璃小卡。
+  /// 单张 2x2 状态概览玻璃小卡（弱化标题与副标字重，降低视觉压迫感）。
   private func overviewTile(title: String, value: String, symbol: String, active: Bool) -> some View
   {
     CinematicPanel(padding: 13) {
-      VStack(alignment: .leading, spacing: 10) {
+      VStack(alignment: .leading, spacing: 8) {
         Image(systemName: symbol)
-          .font(.title3.weight(.semibold))
-          .foregroundStyle(Color(red: 0.78, green: 0.66, blue: 1.0))
+          .font(.body.weight(.medium))
+          .foregroundStyle(NativeAppearanceStore.shared.accentColor.opacity(0.85))
         Text(title)
-          .font(.subheadline.weight(.semibold))
-          .foregroundStyle(.primary)
-        HStack(spacing: 6) {
+          .font(.caption.weight(.medium))
+          .foregroundStyle(.primary.opacity(0.76))
+        HStack(spacing: 5) {
           Circle()
-            .fill(active ? Color(red: 0.56, green: 0.92, blue: 0.72) : .white.opacity(0.40))
-            .frame(width: 6, height: 6)
+            .fill(active ? Color(red: 0.50, green: 0.86, blue: 0.66) : .primary.opacity(0.28))
+            .frame(width: 5.5, height: 5.5)
           Text(value)
-            .font(.caption)
-            .foregroundStyle(.primary.opacity(0.76))
+            .font(.caption2)
+            .foregroundStyle(.secondary)
             .lineLimit(1)
         }
       }
@@ -129,10 +129,19 @@ struct NativeSystemSettingsPage: View {
     }
   }
 
-  /// 八类专项设置与网络诊断直达入口分组。
+  /// 弱化后的统一设置分区标题。
+  private func mutedSectionHeader(_ title: String) -> some View {
+    Text(title)
+      .font(.footnote.weight(.medium))
+      .foregroundStyle(.secondary)
+      .padding(.horizontal, 4)
+      .accessibilityAddTraits(.isHeader)
+  }
+
+  /// 专项设置与网络诊断直达入口分组。
   private var modulesSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Text("专项配置与诊断").font(.headline).accessibilityAddTraits(.isHeader)
+    VStack(alignment: .leading, spacing: 8) {
+      mutedSectionHeader("专项配置与诊断")
       CinematicPanel(padding: 0) {
         VStack(spacing: 0) {
           ForEach(Array(NativeSystemModulesPage.Domain.allCases.enumerated()), id: \.element.id) {
@@ -144,12 +153,12 @@ struct NativeSystemSettingsPage: View {
               CinematicFormRow(symbol: domain.symbol) {
                 HStack {
                   Text(domain.rawValue)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary.opacity(0.86))
                   Spacer()
                   Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.primary.opacity(0.45))
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary.opacity(0.70))
                 }
               }
             }
@@ -163,35 +172,36 @@ struct NativeSystemSettingsPage: View {
 
   /// 媒体识别与搜索配置分组。
   private var recognitionSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Text("媒体识别与搜索").font(.headline).accessibilityAddTraits(.isHeader)
+    VStack(alignment: .leading, spacing: 8) {
+      mutedSectionHeader("媒体识别与搜索")
       CinematicPanel {
         VStack(spacing: 14) {
           HStack {
-            Text("主识别来源").font(.subheadline)
+            Text("主识别来源").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
             Spacer()
             Picker("主识别来源", selection: $draft.recognizeSource) {
-              Text("TheMovieDb").tag("themoviedb")
+              Text("TheMovieDB").tag("themoviedb")
               Text("豆瓣").tag("douban")
             }
-            .tint(.primary)
+            .tint(.secondary)
             .accessibilityIdentifier("native-settings-recognize-source")
           }
           Divider().overlay(.primary.opacity(0.08))
           HStack {
-            Text("搜索数据源").font(.subheadline)
+            Text("搜索数据源").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
             Spacer()
             Picker("搜索数据源", selection: $draft.searchSource) {
-              Text("TheMovieDb").tag("themoviedb")
+              Text("TheMovieDB").tag("themoviedb")
               Text("豆瓣").tag("douban")
             }
-            .tint(.primary)
+            .tint(.secondary)
             .accessibilityIdentifier("native-settings-search-source")
           }
           Divider().overlay(.primary.opacity(0.08))
-          Toggle("刮削跟随 TMDB 语言", isOn: $draft.scrapFollowTmdb)
+          Toggle("刮削跟随 TheMovieDB 语言", isOn: $draft.scrapFollowTmdb)
             .font(.subheadline)
-            .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
+            .foregroundStyle(.primary.opacity(0.84))
+            .tint(NativeAppearanceStore.shared.accentColor)
             .accessibilityIdentifier("native-settings-scrap-follow-tmdb")
         }
       }
@@ -200,18 +210,18 @@ struct NativeSystemSettingsPage: View {
 
   /// 订阅与下载核心配置分组。
   private var subscribeSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Text("订阅与下载").font(.headline).accessibilityAddTraits(.isHeader)
+    VStack(alignment: .leading, spacing: 8) {
+      mutedSectionHeader("订阅与下载")
       CinematicPanel {
         VStack(spacing: 14) {
           HStack {
-            Text("订阅模式").font(.subheadline)
+            Text("订阅模式").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
             Spacer()
             Picker("订阅模式", selection: $draft.subscribeMode) {
               Text("站点爬虫").tag("spider")
               Text("RSS 订阅").tag("rss")
             }
-            .tint(.primary)
+            .tint(.secondary)
             .accessibilityIdentifier("native-settings-subscribe-mode")
           }
           Divider().overlay(.primary.opacity(0.08))
@@ -219,27 +229,30 @@ struct NativeSystemSettingsPage: View {
             value: $draft.subscribeRssInterval, in: 5...720, step: 5
           ) {
             HStack {
-              Text("刷新周期").font(.subheadline)
+              Text("刷新周期").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
               Spacer()
               Text("\(draft.subscribeRssInterval) 分钟")
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.primary.opacity(0.78))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
             }
           }
           Divider().overlay(.primary.opacity(0.08))
           Toggle("新增订阅立即搜索", isOn: $draft.subscribeSearch)
             .font(.subheadline)
-            .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
+            .foregroundStyle(.primary.opacity(0.84))
+            .tint(NativeAppearanceStore.shared.accentColor)
             .accessibilityIdentifier("native-settings-subscribe-search")
           Divider().overlay(.primary.opacity(0.08))
           HStack {
-            Text("种子标签").font(.subheadline)
+            Text("种子标签").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
             Spacer()
             TextField(
               "MOVIEPILOT",
               text: $draft.torrentTag,
-              prompt: Text("MOVIEPILOT").foregroundColor(.white.opacity(0.45))
+              prompt: Text("MOVIEPILOT").foregroundColor(.secondary)
             )
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
             .multilineTextAlignment(.trailing)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
@@ -249,11 +262,11 @@ struct NativeSystemSettingsPage: View {
           Divider().overlay(.primary.opacity(0.08))
           Stepper(value: $draft.mediaServerSyncInterval, in: 1...48) {
             HStack {
-              Text("媒体库同步").font(.subheadline)
+              Text("媒体库同步").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
               Spacer()
               Text("每 \(draft.mediaServerSyncInterval) 小时")
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.primary.opacity(0.78))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
             }
           }
         }
@@ -263,47 +276,49 @@ struct NativeSystemSettingsPage: View {
 
   /// 系统运行与缓存配置分组。
   private var runtimeSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Text("系统与缓存").font(.headline).accessibilityAddTraits(.isHeader)
+    VStack(alignment: .leading, spacing: 8) {
+      mutedSectionHeader("系统与缓存")
       CinematicPanel {
         VStack(spacing: 14) {
           Toggle("全局图片缓存", isOn: $draft.globalImageCache)
             .font(.subheadline)
-            .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
+            .foregroundStyle(.primary.opacity(0.84))
+            .tint(NativeAppearanceStore.shared.accentColor)
             .accessibilityIdentifier("native-settings-image-cache")
           Divider().overlay(.primary.opacity(0.08))
           Toggle("调试模式", isOn: $draft.debug)
             .font(.subheadline)
-            .tint(Color(red: 0.60, green: 0.44, blue: 0.92))
+            .foregroundStyle(.primary.opacity(0.84))
+            .tint(NativeAppearanceStore.shared.accentColor)
             .accessibilityIdentifier("native-settings-debug")
           Divider().overlay(.primary.opacity(0.08))
           HStack {
-            Text("日志级别").font(.subheadline)
+            Text("日志级别").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
             Spacer()
             Picker("日志级别", selection: $draft.logLevel) {
               ForEach(["DEBUG", "INFO", "WARNING", "ERROR"], id: \.self) { level in
                 Text(level).tag(level)
               }
             }
-            .tint(.primary)
+            .tint(.secondary)
             .accessibilityIdentifier("native-settings-log-level")
           }
           if !draft.timezone.isEmpty {
             Divider().overlay(.primary.opacity(0.08))
             HStack {
-              Text("服务端时区").font(.subheadline)
+              Text("服务端时区").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
               Spacer()
-              Text(draft.timezone).font(.subheadline).foregroundStyle(.primary.opacity(0.68))
+              Text(draft.timezone).font(.caption).foregroundStyle(.secondary)
             }
           }
           if !draft.appVersion.isEmpty {
             Divider().overlay(.primary.opacity(0.08))
             HStack {
-              Text("后端版本").font(.subheadline)
+              Text("后端版本").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
               Spacer()
               Text(draft.appVersion)
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.primary.opacity(0.68))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
             }
           }
         }

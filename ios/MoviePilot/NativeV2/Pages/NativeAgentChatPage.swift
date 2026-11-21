@@ -21,7 +21,7 @@ struct NativeAgentChatPage: View {
   @State private var feedback: NativeAgentFeedback?
   @State private var pendingDeleteSession: NativeAgentSessionSummary?
 
-  /// 连续深色紫玫瑰渐变、对话消息流、快捷指令与底部透色玻璃输入栏。
+  /// 连续深色紫玫瑰渐变、对话消息流、快捷指令与底部悬浮毛玻璃输入框。
   var body: some View {
     ZStack {
       CinematicBackground()
@@ -59,10 +59,12 @@ struct NativeAgentChatPage: View {
             }
             .frame(maxWidth: 820)
             .padding(.horizontal, CinematicStyle.margin)
-            .padding(.vertical, 14)
+            .padding(.top, 14)
+            .padding(.bottom, 20)
             .frame(maxWidth: .infinity)
           }
           .scrollIndicators(.hidden)
+          .scrollDismissesKeyboard(.interactively)
           .modifier(NativeSoftTopScrollEdge())
           .accessibilityIdentifier("native-agent-scroll")
           .onChange(of: messages.count) { _ in
@@ -73,8 +75,13 @@ struct NativeAgentChatPage: View {
             }
           }
         }
-        composerBar
       }
+    }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      composerBar
+        .padding(.horizontal, CinematicStyle.margin)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
     }
     .navigationTitle("智能助手")
     .navigationBarTitleDisplayMode(.inline)
@@ -264,13 +271,13 @@ struct NativeAgentChatPage: View {
     }
   }
 
-  /// 底部透色玻璃消息输入栏，支持发送与中断停止。
+  /// 悬浮液态玻璃胶囊输入栏，浮于对话流底部并随键盘平滑升起，支持发送与中断停止。
   private var composerBar: some View {
     HStack(spacing: 10) {
       TextField(
         "向智能助手提问或输入 / 命令…",
         text: $draftText,
-        prompt: Text("向智能助手提问或输入 / 命令…").foregroundColor(.white.opacity(0.45))
+        prompt: Text("向智能助手提问或输入 / 命令…").foregroundColor(.secondary)
       )
       .font(.subheadline)
       .foregroundStyle(.primary)
@@ -278,13 +285,8 @@ struct NativeAgentChatPage: View {
       .onSubmit {
         if !isSending { sendMessage(draftText) }
       }
-      .padding(.horizontal, 14)
-      .padding(.vertical, 10)
-      .background {
-        Capsule()
-          .fill(.primary.opacity(0.10))
-          .overlay { Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 0.6) }
-      }
+      .padding(.leading, 12)
+      .padding(.vertical, 8)
       .accessibilityIdentifier("native-agent-input")
 
       if isSending {
@@ -307,8 +309,8 @@ struct NativeAgentChatPage: View {
             .font(.system(size: 32))
             .foregroundStyle(
               canSend
-                ? Color(red: 0.72, green: 0.56, blue: 0.98)
-                : .white.opacity(0.32))
+                ? NativeAppearanceStore.shared.accentColor
+                : .primary.opacity(0.26))
         }
         .buttonStyle(.plain)
         .disabled(!canSend)
@@ -316,14 +318,10 @@ struct NativeAgentChatPage: View {
         .accessibilityIdentifier("native-agent-send")
       }
     }
-    .padding(.horizontal, CinematicStyle.margin)
-    .padding(.vertical, 10)
-    .background {
-      Rectangle()
-        .fill(.ultraThinMaterial)
-        .overlay(alignment: .top) { Divider().overlay(.primary.opacity(0.12)) }
-        .ignoresSafeArea(edges: .bottom)
-    }
+    .padding(.horizontal, 8)
+    .padding(.vertical, 6)
+    .modifier(NativeLiquidGlassPopoverSurface(cornerRadius: 28))
+    .frame(maxWidth: 760)
   }
 
   /// 历史会话管理弹层。
