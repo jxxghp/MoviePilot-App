@@ -96,12 +96,12 @@ struct NativeAgentFloatingMascot: View {
     .ignoresSafeArea()
     .task {
       while !Task.isCancelled {
-        try? await Task.sleep(for: .seconds(4.2))
+        try? await Task.sleep(for: .seconds(7.2))
         guard !Task.isCancelled else { break }
         guard !isDragging else { continue }
-        withAnimation(.easeInOut(duration: 0.09)) { isBlinking = true }
-        try? await Task.sleep(for: .milliseconds(130))
-        withAnimation(.easeInOut(duration: 0.12)) { isBlinking = false }
+        withAnimation(.easeInOut(duration: 0.11)) { isBlinking = true }
+        try? await Task.sleep(for: .milliseconds(160))
+        withAnimation(.easeInOut(duration: 0.18)) { isBlinking = false }
       }
     }
   }
@@ -207,23 +207,55 @@ struct NativeAgentFloatingMascot: View {
           .frame(width: 33, height: 19)
           .offset(x: -1.5, y: 0.5)
 
-        // 灵动微笑双眼（周期眨眼）
-        HStack(spacing: 8) {
+        // 半眯困倦弯月双眼（还原 Web `CssRobotRenderer` 经典睡眼与慢速眨眼）
+        HStack(spacing: 7.5) {
           robotEye(color: eyeColor)
           robotEye(color: eyeColor)
+            .offset(y: 0.5)
         }
-        .offset(x: -1.5, y: 0.5)
+        .offset(x: -1.5, y: 0.4)
       }
       .rotationEffect(.degrees(-3))
       .offset(y: -7)
     }
   }
 
-  /// 弧形高亮机器人眼睛。
+  /// 还原 Web 版的半眯下弧眼睛：仅描绘下弧轮廓，呈现困倦放松的眯眼状态。
   private func robotEye(color: Color) -> some View {
-    Capsule()
+    SleepyRobotEyeShape()
       .fill(color)
-      .frame(width: 6.5, height: isBlinking ? 1.4 : 4.2)
-      .shadow(color: color.opacity(0.65), radius: 2)
+      .frame(width: 7.2, height: 5.2)
+      .scaleEffect(y: isBlinking ? 0.15 : 1.0, anchor: UnitPoint(x: 0.5, y: 0.78))
+      .shadow(color: color.opacity(0.35), radius: 1)
+  }
+}
+
+/// 还原 Web `CssRobotRenderer` 的半眯困倦下弧眼形（`border-radius: 0 0 999px 999px; border-bottom`）。
+private struct SleepyRobotEyeShape: Shape {
+  func path(in rect: CGRect) -> Path {
+    let cx = rect.midX
+    let rx = rect.width * 0.5
+    let outerRy = rect.height
+    let innerRy = max(rect.height * 0.54, 0)
+    let steps = 20
+    var path = Path()
+    for i in 0...steps {
+      let theta = Double(i) / Double(steps) * .pi
+      let x = cx - rx * CGFloat(cos(theta))
+      let y = rect.minY + outerRy * CGFloat(sin(theta))
+      if i == 0 {
+        path.move(to: CGPoint(x: x, y: y))
+      } else {
+        path.addLine(to: CGPoint(x: x, y: y))
+      }
+    }
+    for i in stride(from: steps, through: 0, by: -1) {
+      let theta = Double(i) / Double(steps) * .pi
+      let x = cx - rx * CGFloat(cos(theta))
+      let y = rect.minY + innerRy * CGFloat(sin(theta))
+      path.addLine(to: CGPoint(x: x, y: y))
+    }
+    path.closeSubpath()
+    return path
   }
 }

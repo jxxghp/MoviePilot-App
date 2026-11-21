@@ -4,6 +4,7 @@ import ast
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -15,7 +16,18 @@ SOURCE = Path(__file__).resolve().parents[1] / "native-v2-plugin-fixtures.py"
 SPEC = importlib.util.spec_from_file_location("native_plugin_fixtures", SOURCE)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
-TEMP_ROOT = Path("/Volumes/DISK/TmpBuild/moviepilot-ios-v2/plugin-fixture-tests")
+
+
+def _resolve_temp_root() -> Path:
+    """本地存在外置构建卷时沿用 /Volumes/DISK/TmpBuild，在 GitHub Actions 等无外置卷环境回退到系统临时目录。"""
+    external_volume = Path("/Volumes/DISK")
+    if external_volume.is_dir() and os.access(external_volume, os.W_OK):
+        return external_volume / "TmpBuild/moviepilot-ios-v2/plugin-fixture-tests"
+    base = Path(os.environ.get("RUNNER_TEMP") or tempfile.gettempdir())
+    return base / "moviepilot-ios-v2/plugin-fixture-tests"
+
+
+TEMP_ROOT = _resolve_temp_root()
 
 
 class PluginFixtureTests(unittest.TestCase):
