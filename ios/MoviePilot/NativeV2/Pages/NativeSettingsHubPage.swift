@@ -49,11 +49,6 @@ struct NativeSettingsHubPage: View {
             .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 10, trailing: 0))
             .listRowSeparator(.hidden)
 
-          appPreferenceTiles
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 8, trailing: 0))
-            .listRowSeparator(.hidden)
-
           quickConfigPillsGrid
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
@@ -265,43 +260,7 @@ struct NativeSettingsHubPage: View {
     }
   }
 
-  /// 第四层：4 列紧凑玻璃图标瓷砖（高频捷径与诊断：系统检查、网络测试、识别规则、实时日志）。
-  private var appPreferenceTiles: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text("捷径与诊断")
-        .font(.footnote.weight(.medium))
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 4)
-      HStack(spacing: 10) {
-        compactTile(
-          title: "系统检查", symbol: "checkmark.shield",
-          id: "native-settings-hub-health"
-        ) {
-          onNavigate(.diagnostics(.health))
-        }
-        compactTile(
-          title: "网络测试", symbol: "network",
-          id: "native-settings-hub-nettest"
-        ) {
-          onNavigate(.diagnostics(.nettest))
-        }
-        compactTile(
-          title: "识别规则", symbol: "text.magnifyingglass",
-          id: "native-settings-hub-ruletest"
-        ) {
-          onNavigate(.diagnostics(.ruleTest))
-        }
-        compactTile(
-          title: "实时日志", symbol: "terminal",
-          id: "native-settings-hub-livelog"
-        ) {
-          onNavigate(.diagnostics(.liveLog))
-        }
-      }
-    }
-  }
-
-  /// 第五层：2×2 横向紧凑玻璃胶囊卡（常用配置与快捷服务：站点范围、定时服务、下载媒体、通知渠道）。
+  /// 第四层：2×2 横向紧凑玻璃胶囊卡（常用配置与快捷服务：站点范围、定时服务、下载媒体、通知渠道）。
   private var quickConfigPillsGrid: some View {
     VStack(alignment: .leading, spacing: 8) {
       Text("常用配置")
@@ -534,30 +493,6 @@ struct NativeSettingsHubPage: View {
           }
         }
         .frame(maxWidth: .infinity, minHeight: 102, alignment: .leading)
-      }
-    }
-    .buttonStyle(.plain)
-    .accessibilityIdentifier(id)
-  }
-
-  /// 4 列紧凑正方形图标瓷砖。
-  private func compactTile(
-    title: String, symbol: String, id: String, action: @escaping () -> Void
-  ) -> some View {
-    Button(action: action) {
-      CinematicPanel(padding: 10) {
-        VStack(spacing: 7) {
-          Image(systemName: symbol)
-            .font(.body.weight(.medium))
-            .foregroundStyle(.primary.opacity(0.82))
-            .frame(height: 24)
-          Text(title)
-            .font(.caption2.weight(.medium))
-            .foregroundStyle(.primary.opacity(0.78))
-            .lineLimit(1)
-            .minimumScaleFactor(0.82)
-        }
-        .frame(maxWidth: .infinity, minHeight: 64)
       }
     }
     .buttonStyle(.plain)

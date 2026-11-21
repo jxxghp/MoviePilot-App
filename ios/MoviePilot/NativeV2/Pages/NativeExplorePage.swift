@@ -66,7 +66,6 @@ struct NativeExplorePage: View {
       CinematicBackground()
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
-          sourceBar
           if isMusicSelected {
             NativeMusicExploreSection(session: session, reloadToken: reloadToken)
               .padding(.horizontal, CinematicStyle.margin)
@@ -106,10 +105,13 @@ struct NativeExplorePage: View {
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-explore-scroll")
     }
-    .navigationTitle("探索")
+    .navigationTitle(activeSourceTitle)
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
+      ToolbarItem(placement: .topBarLeading) {
+        sourceSwitcherMenu
+      }
       ToolbarItem(placement: .topBarTrailing) {
         Button {
           showsSourceConfigSheet = true
@@ -174,34 +176,53 @@ struct NativeExplorePage: View {
     return Array(repeating: GridItem(.flexible(), spacing: 11), count: count)
   }
 
-  /// 顶部多来源切换胶囊栏（按用户配置的顺序与开关渲染内置来源及插件扩展源）。
-  private var sourceBar: some View {
+  /// 当前选中的一级探索来源标题，显示于顶部导航栏居中位置。
+  private var activeSourceTitle: String {
+    if let extraID = selectedExtraID,
+      let extra = extraSources.first(where: { $0.id == extraID })
+    {
+      return extra.name
+    }
+    return selectedSource.title
+  }
+
+  /// 左上角一级探索来源切换菜单（按用户配置的顺序与开关列出所有内置来源及插件扩展源）。
+  private var sourceSwitcherMenu: some View {
     let enabledConfigs = sourceConfigs.filter(\.enabled)
-    return ScrollView(.horizontal) {
-      HStack(spacing: 8) {
-        ForEach(enabledConfigs) { config in
-          if let builtIn = NativeExploreSourceKind(rawValue: config.id) {
-            let active = selectedExtraID == nil && selectedSource == builtIn
-            filterPill(
-              title: builtIn.title, active: active, id: "native-explore-source-\(builtIn.rawValue)"
-            ) {
-              selectedExtraID = nil
-              selectedSource = builtIn
-            }
-          } else if let extra = extraSources.first(where: { "extra:\($0.id)" == config.id }) {
-            let active = selectedExtraID == extra.id
-            filterPill(
-              title: extra.name, active: active, id: "native-explore-extra-\(extra.id)"
-            ) {
-              selectedExtraID = extra.id
+    return Menu {
+      ForEach(enabledConfigs) { config in
+        if let builtIn = NativeExploreSourceKind(rawValue: config.id) {
+          let active = selectedExtraID == nil && selectedSource == builtIn
+          Button {
+            selectedExtraID = nil
+            selectedSource = builtIn
+          } label: {
+            if active {
+              Label(builtIn.title, systemImage: "checkmark")
+            } else {
+              Label(builtIn.title, systemImage: builtIn.symbol)
             }
           }
+          .accessibilityIdentifier("native-explore-source-\(builtIn.rawValue)")
+        } else if let extra = extraSources.first(where: { "extra:\($0.id)" == config.id }) {
+          let active = selectedExtraID == extra.id
+          Button {
+            selectedExtraID = extra.id
+          } label: {
+            if active {
+              Label(extra.name, systemImage: "checkmark")
+            } else {
+              Label(extra.name, systemImage: "puzzlepiece.extension")
+            }
+          }
+          .accessibilityIdentifier("native-explore-extra-\(extra.id)")
         }
       }
-      .padding(.horizontal, CinematicStyle.margin)
+    } label: {
+      Image(systemName: "square.stack.3d.up")
     }
-    .scrollIndicators(.hidden)
-    .accessibilityIdentifier("native-explore-source-bar")
+    .accessibilityLabel("切换探索来源，当前：\(activeSourceTitle)")
+    .accessibilityIdentifier("native-explore-source-switcher")
   }
 
   /// 同步本地已保存的探索来源顺序与开关，并与插件扩展来源合并。
@@ -679,6 +700,18 @@ enum NativeExploreSourceKind: String, CaseIterable, Identifiable, Hashable {
     case .doubanTVs: "豆瓣剧集"
     case .bangumi: "Bangumi"
     case .music: "音乐"
+    }
+  }
+
+  /// 来源菜单对应的 SF Symbol 图标。
+  var symbol: String {
+    switch self {
+    case .tmdbMovies: "film"
+    case .tmdbTVs: "tv"
+    case .doubanMovies: "sparkles.tv"
+    case .doubanTVs: "play.tv"
+    case .bangumi: "sparkles"
+    case .music: "music.note"
     }
   }
 }
