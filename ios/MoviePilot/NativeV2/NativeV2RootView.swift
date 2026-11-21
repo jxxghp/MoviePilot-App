@@ -134,10 +134,19 @@ struct NativeV2RootView: View {
     }
     .onChange(of: model.selected?.id) { _ in concealSecrets() }
     .onChange(of: model.form) { _ in concealSecrets() }
-    .onChange(of: scenePhase) { if $0 != .active { concealSecrets() } }
+    .onChange(of: scenePhase) { phase in
+      if phase == .active {
+        model.resumeSystemIntegrations()
+      } else {
+        concealSecrets()
+      }
+    }
     // UIKit 承载的 UIHostingController 不保证发布 SwiftUI scenePhase，直接观察系统场景通知。
     .onReceive(NotificationCenter.default.publisher(for: UIScene.willDeactivateNotification)) { _ in
       concealSecrets()
+    }
+    .onReceive(NotificationCenter.default.publisher(for: UIScene.didActivateNotification)) { _ in
+      model.resumeSystemIntegrations()
     }
   }
 

@@ -3,6 +3,7 @@ import MoviePilotAPI
 import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
+import UIKit
 
 /// 原生多来源探索片库：支持 TheMovieDB / 豆瓣 / Bangumi / 音乐与扩展插件发现源的分类、排序、地区与年份筛选及自动翻页。
 @MainActor
@@ -16,7 +17,6 @@ struct NativeExplorePage: View {
   @AppStorage("nativeV2.exploreSources.v1") private var storedSourcesJSON = ""
   @State private var sourceConfigs: [NativeExploreSourceConfig] =
     NativeExploreSourceConfig.defaults
-  @State private var showsSourceConfigSheet = false
 
   // TheMovieDB 筛选状态
   @State private var tmdbSort = "popularity.desc"
@@ -66,11 +66,15 @@ struct NativeExplorePage: View {
       CinematicBackground()
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
+          sourceCardBar
           if isMusicSelected {
             NativeMusicExploreSection(session: session, reloadToken: reloadToken)
               .padding(.horizontal, CinematicStyle.margin)
           } else {
             if selectedExtraID == nil {
+              Divider()
+                .overlay(.primary.opacity(0.08))
+                .padding(.horizontal, CinematicStyle.margin)
               filterControls
             }
             if isLoading && items.isEmpty {
@@ -105,30 +109,9 @@ struct NativeExplorePage: View {
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-explore-scroll")
     }
-    .navigationTitle(activeSourceTitle)
+    .navigationTitle("探索")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
-    .toolbar {
-      ToolbarItem(placement: .topBarLeading) {
-        sourceSwitcherMenu
-      }
-      ToolbarItem(placement: .topBarTrailing) {
-        Button {
-          showsSourceConfigSheet = true
-        } label: {
-          Image(systemName: "slider.horizontal.3")
-        }
-        .accessibilityLabel("配置探索来源")
-        .accessibilityIdentifier("native-explore-more")
-      }
-    }
-    .sheet(isPresented: $showsSourceConfigSheet) {
-      NativeExploreSourcesSheet(initialItems: sourceConfigs) { updated in
-        sourceConfigs = updated
-        saveSourceConfigs(updated)
-        ensureActiveSourceEnabled()
-      }
-    }
     .onAppear { syncSourceConfigs() }
     .navigationDestination(
       isPresented: Binding(
@@ -176,53 +159,127 @@ struct NativeExplorePage: View {
     return Array(repeating: GridItem(.flexible(), spacing: 11), count: count)
   }
 
-  /// 当前选中的一级探索来源标题，显示于顶部导航栏居中位置。
-  private var activeSourceTitle: String {
-    if let extraID = selectedExtraID,
-      let extra = extraSources.first(where: { $0.id == extraID })
-    {
-      return extra.name
-    }
-    return selectedSource.title
-  }
-
-  /// 左上角一级探索来源切换菜单（按用户配置的顺序与开关列出所有内置来源及插件扩展源）。
-  private var sourceSwitcherMenu: some View {
+  /// 横向带品牌 Logo 的一级来源小卡片导航：卡片形态、图标徽标与主题高亮边界，与下方紧凑筛选胶囊形成鲜明视觉层次区分。
+  private var sourceCardBar: some View {
     let enabledConfigs = sourceConfigs.filter(\.enabled)
-    return Menu {
-      ForEach(enabledConfigs) { config in
-        if let builtIn = NativeExploreSourceKind(rawValue: config.id) {
-          let active = selectedExtraID == nil && selectedSource == builtIn
-          Button {
-            selectedExtraID = nil
-            selectedSource = builtIn
-          } label: {
-            if active {
-              Label(builtIn.title, systemImage: "checkmark")
-            } else {
-              Label(builtIn.title, systemImage: builtIn.symbol)
+    let accent = NativeAppearanceStore.shared.accentColor
+    return ScrollView(.horizontal) {
+      HStack(spacing: 10) {
+        ForEach(enabledConfigs) { config in
+          if let builtIn = NativeExploreSourceKind(rawValue: config.id) {
+            let active = selectedExtraID == nil && selectedSource == builtIn
+            sourceBrandCard(
+              brand: builtIn.brandName,
+              category: builtIn.categoryBadge,
+              logoAsset: builtIn.logoAssetName,
+              fallbackSymbol: builtIn.symbol,
+              brandTint: builtIn.brandTint,
+              active: active,
+              accent: accent,
+              id: "native-explore-source-\(builtIn.rawValue)"
+            ) {
+              withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                selectedExtraID = nil
+                selectedSource = builtIn
+              }
+            }
+          } else if let extra = extraSources.first(where: { "extra:\($0.id)" == config.id }) {
+            let active = selectedExtraID == extra.id
+            sourceBrandCard(
+              brand: extra.name,
+              category: "插件源",
+              logoAsset: "logo-plugin",
+              fallbackSymbol: "puzzlepiece.extension",
+              brandTint: accent,
+              active: active,
+              accent: accent,
+              id: "native-explore-extra-\(extra.id)"
+            ) {
+              withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                selectedExtraID = extra.id
+              }
             }
           }
-          .accessibilityIdentifier("native-explore-source-\(builtIn.rawValue)")
-        } else if let extra = extraSources.first(where: { "extra:\($0.id)" == config.id }) {
-          let active = selectedExtraID == extra.id
-          Button {
-            selectedExtraID = extra.id
-          } label: {
-            if active {
-              Label(extra.name, systemImage: "checkmark")
-            } else {
-              Label(extra.name, systemImage: "puzzlepiece.extension")
-            }
-          }
-          .accessibilityIdentifier("native-explore-extra-\(extra.id)")
         }
       }
-    } label: {
-      Image(systemName: "square.stack.3d.up")
+      .padding(.horizontal, CinematicStyle.margin)
+      .padding(.vertical, 2)
     }
-    .accessibilityLabel("切换探索来源，当前：\(activeSourceTitle)")
-    .accessibilityIdentifier("native-explore-source-switcher")
+    .scrollIndicators(.hidden)
+    .accessibilityIdentifier("native-explore-source-bar")
+  }
+
+  /// 单个带来源 Logo 的玻璃小卡片。
+  private func sourceBrandCard(
+    brand: String,
+    category: String,
+    logoAsset: String,
+    fallbackSymbol: String,
+    brandTint: Color,
+    active: Bool,
+    accent: Color,
+    id: String,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      HStack(spacing: 9) {
+        ZStack {
+          RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .fill(active ? brandTint.opacity(0.24) : Color.primary.opacity(0.08))
+          if let uiImage = UIImage(named: logoAsset) {
+            Image(uiImage: uiImage)
+              .resizable()
+              .scaledToFit()
+              .padding(5)
+          } else {
+            Image(systemName: fallbackSymbol)
+              .font(.system(size: 14, weight: .semibold))
+              .foregroundStyle(active ? brandTint : .secondary)
+          }
+        }
+        .frame(width: 30, height: 30)
+
+        VStack(alignment: .leading, spacing: 1.5) {
+          Text(brand)
+            .font(.caption.weight(active ? .bold : .semibold))
+            .foregroundStyle(.primary.opacity(active ? 1.0 : 0.80))
+            .lineLimit(1)
+          Text(category)
+            .font(.system(size: 10, weight: active ? .semibold : .regular))
+            .foregroundStyle(active ? accent : .secondary)
+            .lineLimit(1)
+        }
+      }
+      .padding(.leading, 8)
+      .padding(.trailing, 12)
+      .padding(.vertical, 8)
+      .background {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .fill(
+            active
+              ? LinearGradient(
+                colors: [accent.opacity(0.22), brandTint.opacity(0.14)],
+                startPoint: .topLeading, endPoint: .bottomTrailing)
+              : LinearGradient(
+                colors: [Color.primary.opacity(0.07), Color.primary.opacity(0.04)],
+                startPoint: .topLeading, endPoint: .bottomTrailing)
+          )
+          .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+              .strokeBorder(
+                active ? accent.opacity(0.65) : Color.primary.opacity(0.12),
+                lineWidth: active ? 1.1 : 0.6)
+          }
+      }
+      .shadow(
+        color: active ? accent.opacity(0.22) : .clear,
+        radius: active ? 8 : 0, y: active ? 3 : 0
+      )
+      .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+    .buttonStyle(.plain)
+    .accessibilityAddTraits(active ? .isSelected : [])
+    .accessibilityIdentifier(id)
   }
 
   /// 同步本地已保存的探索来源顺序与开关，并与插件扩展来源合并。
@@ -712,6 +769,46 @@ enum NativeExploreSourceKind: String, CaseIterable, Identifiable, Hashable {
     case .doubanTVs: "play.tv"
     case .bangumi: "sparkles"
     case .music: "music.note"
+    }
+  }
+
+  /// 品牌主标题（配合子分类徽标呈现双行小卡片）。
+  var brandName: String {
+    switch self {
+    case .tmdbMovies, .tmdbTVs: "TheMovieDB"
+    case .doubanMovies, .doubanTVs: "豆瓣"
+    case .bangumi: "Bangumi"
+    case .music: "音乐"
+    }
+  }
+
+  /// 卡片子分类标签。
+  var categoryBadge: String {
+    switch self {
+    case .tmdbMovies, .doubanMovies: "电影"
+    case .tmdbTVs, .doubanTVs: "剧集"
+    case .bangumi: "番剧"
+    case .music: "榜单与专辑"
+    }
+  }
+
+  /// Assets.xcassets 中的来源品牌 Logo 资源名。
+  var logoAssetName: String {
+    switch self {
+    case .tmdbMovies, .tmdbTVs: "logo-tmdb"
+    case .doubanMovies, .doubanTVs: "logo-douban"
+    case .bangumi: "logo-bangumi"
+    case .music: "logo-musicbrainz"
+    }
+  }
+
+  /// 品牌特征强调色。
+  var brandTint: Color {
+    switch self {
+    case .tmdbMovies, .tmdbTVs: Color(red: 0.05, green: 0.71, blue: 0.88)
+    case .doubanMovies, .doubanTVs: Color(red: 0.18, green: 0.75, blue: 0.36)
+    case .bangumi: Color(red: 0.94, green: 0.56, blue: 0.62)
+    case .music: Color(red: 0.74, green: 0.48, blue: 0.98)
     }
   }
 }
