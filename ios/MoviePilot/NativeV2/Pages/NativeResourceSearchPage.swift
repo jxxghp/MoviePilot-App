@@ -22,9 +22,16 @@ struct NativeResourceSearchPage: View {
     var id: String { rawValue }
   }
 
+  /// 站点资源检索的站点范围选择：区分「默认（跟随系统设置）」、「全部站点（覆盖系统设置）」与「手工指定站点」。
+  private enum SiteScopeSelection: Equatable {
+    case systemDefault
+    case allSites
+    case custom(Set<Int>)
+  }
+
   private enum QueryMode: Equatable {
     case lastResults
-    case keyword(String)
+    case keyword(String, scope: SiteScopeSelection)
     case siteResource(siteID: Int, siteName: String, keyword: String?)
 
     var isSiteResource: Bool {
@@ -46,7 +53,7 @@ struct NativeResourceSearchPage: View {
   @ObservedObject private var appearance = NativeAppearanceStore.shared
   @State private var keyword: String
   @State private var sites: [NativeSearchSite] = []
-  @State private var querySiteIDs: Set<Int> = []
+  @State private var siteScope: SiteScopeSelection = .systemDefault
   @State private var results: [NativeResourceContext] = []
 
   // 9 维级联多选筛选状态（对齐 Web TorrentCardListView.vue）
@@ -79,7 +86,7 @@ struct NativeResourceSearchPage: View {
     _keyword = State(initialValue: trimmed)
     if case .lastResults = target {
       if !trimmed.isEmpty {
-        _queryMode = State(initialValue: .keyword(trimmed))
+        _queryMode = State(initialValue: .keyword(trimmed, scope: .systemDefault))
       } else {
         _queryMode = State(initialValue: .lastResults)
       }
@@ -238,7 +245,7 @@ struct NativeResourceSearchPage: View {
       switch queryMode {
       case .lastResults:
         "正在载入上次搜索结果…"
-      case .keyword(let term):
+      case .keyword(let term, _):
         "正在搜索「\(term)」…"
       case .siteResource(_, let siteName, let term):
         if let term, !term.isEmpty {
@@ -302,15 +309,46 @@ struct NativeResourceSearchPage: View {
     }
   }
 
-  /// 仅当选择了单个站点时允许留空执行站点资源浏览（全站或多站均禁用浏览）。
+  /// 手工选中单个站点时返回该站点 ID；「默认」「全站」或多站均返回 nil。
+  private var selectedSingleSiteID: Int? {
+    if case .custom(let ids) = siteScope, ids.count == 1 {
+      return ids.first
+    }
+    return nil
+  }
+
+  /// 仅当手工选择了单个站点时允许留空执行站点资源浏览（默认、全站或多站均禁用浏览）。
   private var canBrowseSingleSite: Bool {
-    querySiteIDs.count == 1
+    selectedSingleSiteID != nil
+  }
+
+  private func isCustomSiteSelected(_ siteID: Int) -> Bool {
+    if case .custom(let ids) = siteScope {
+      return ids.contains(siteID)
+    }
+    return false
+  }
+
+  private func toggleCustomSite(_ siteID: Int) {
+    switch siteScope {
+    case .systemDefault, .allSites:
+      siteScope = .custom([siteID])
+    case .custom(var ids):
+      if ids.contains(siteID) {
+        ids.remove(siteID)
+        siteScope = ids.isEmpty ? .systemDefault : .custom(ids)
+      } else {
+        ids.insert(siteID)
+        siteScope = .custom(ids)
+      }
+    }
   }
 
   /// 关键词检索输入卡：有关键词时执行站点搜索，留空时仅在单选站点时允许浏览站点资源。
   private var searchInputCard: some View {
     let hasKeyword = !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     let canSubmit = hasKeyword || canBrowseSingleSite
+    let isDefaultScope = siteScope == .systemDefault
     return CinematicPanel(padding: 10) {
       HStack(spacing: 8) {
         Image(systemName: "magnifyingglass")
@@ -341,9 +379,18 @@ struct NativeResourceSearchPage: View {
         if !sites.isEmpty {
           Menu {
             Button {
-              querySiteIDs.removeAll()
+              siteScope = .systemDefault
             } label: {
-              if querySiteIDs.isEmpty {
+              if siteScope == .systemDefault {
+                Label("默认（系统设置）", systemImage: "checkmark")
+              } else {
+                Text("默认（系统设置）")
+              }
+            }
+            Button {
+              siteScope = .allSites
+            } label: {
+              if siteScope == .allSites {
                 Label("全部站点", systemImage: "checkmark")
               } else {
                 Text("全部站点")
@@ -352,13 +399,9 @@ struct NativeResourceSearchPage: View {
             Divider()
             ForEach(sites) { site in
               Button {
-                if querySiteIDs.contains(site.id) {
-                  querySiteIDs.remove(site.id)
-                } else {
-                  querySiteIDs.insert(site.id)
-                }
+                toggleCustomSite(site.id)
               } label: {
-                if querySiteIDs.contains(site.id) {
+                if isCustomSiteSelected(site.id) {
                   Label(site.name, systemImage: "checkmark")
                 } else {
                   Text(site.name)
@@ -367,17 +410,17 @@ struct NativeResourceSearchPage: View {
             }
           } label: {
             HStack(spacing: 3) {
-              Text(selectedSiteScopeLabel)
+              Text(scopeLabel(for: siteScope))
                 .font(.caption2.weight(.semibold))
                 .lineLimit(1)
               Image(systemName: "chevron.down")
                 .font(.system(size: 8, weight: .bold))
             }
-            .foregroundStyle(querySiteIDs.isEmpty ? NativeTheme.chipText : .white)
+            .foregroundStyle(isDefaultScope ? NativeTheme.chipText : .white)
             .padding(.horizontal, 9)
             .frame(minHeight: 32)
             .background(
-              querySiteIDs.isEmpty ? NativeTheme.chipFill : appearance.accentColor, in: Capsule()
+              isDefaultScope ? NativeTheme.chipFill : appearance.accentColor, in: Capsule()
             )
             .contentShape(Capsule())
           }
@@ -457,18 +500,38 @@ struct NativeResourceSearchPage: View {
     }
   }
 
-  private var selectedSiteScopeLabel: String {
-    if querySiteIDs.isEmpty { return "全站" }
-    if querySiteIDs.count == 1, let id = querySiteIDs.first,
-      let match = sites.first(where: { $0.id == id })
-    {
-      return String(match.name.prefix(6))
+  private func scopeLabel(for scope: SiteScopeSelection) -> String {
+    switch scope {
+    case .systemDefault:
+      return "默认"
+    case .allSites:
+      return "全站"
+    case .custom(let ids):
+      if ids.isEmpty { return "默认" }
+      if ids.count == 1, let id = ids.first,
+        let match = sites.first(where: { $0.id == id })
+      {
+        return String(match.name.prefix(6))
+      }
+      return "\(ids.count)站"
     }
-    return "\(querySiteIDs.count)站"
+  }
+
+  /// 将站点范围选项映射为后端 `sites` 查询参数：默认省略（使用系统设置范围），全站传递全部已启用站点 ID，指定站点传递所选站点 ID。
+  private func resolvedSitesQueryValue(for scope: SiteScopeSelection) -> String? {
+    switch scope {
+    case .systemDefault:
+      return nil
+    case .allSites:
+      let allIDs = sites.map(\.id).sorted()
+      return allIDs.isEmpty ? nil : allIDs.map(String.init).joined(separator: ",")
+    case .custom(let ids):
+      let sorted = ids.sorted()
+      return sorted.isEmpty ? nil : sorted.map(String.init).joined(separator: ",")
+    }
   }
 
   private var queryContextTitle: String {
-    let scope = selectedSiteScopeLabel
     switch queryMode {
     case .lastResults:
       return "上次搜索结果"
@@ -477,8 +540,8 @@ struct NativeResourceSearchPage: View {
         return "单站搜索「\(term)」· \(siteName)"
       }
       return "站点资源 · \(siteName)"
-    case .keyword(let term):
-      return "搜索「\(term)」· \(scope)"
+    case .keyword(let term, let scope):
+      return "搜索「\(term)」· \(scopeLabel(for: scope))"
     }
   }
 
@@ -776,21 +839,21 @@ struct NativeResourceSearchPage: View {
     return nil
   }
 
-  /// 提交搜索或单站浏览：单选站点且具备管理权限时直连 `/api/v1/site/resource/{site_id}`（支持留空浏览与直搜，不受全局过滤规则裁空）；全站或多站按关键词走 `/api/v1/search/title`。
+  /// 提交搜索或单站浏览：单选站点且具备管理权限时直连 `/api/v1/site/resource/{site_id}`；选择「默认」时遵循系统设置站点范围，选择「全站」或多站时显式传站点列表覆盖系统设置。
   private func submitSearch() {
     let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
     let nextMode: QueryMode
     if trimmed.isEmpty {
-      guard querySiteIDs.count == 1, let siteID = querySiteIDs.first else { return }
+      guard let siteID = selectedSingleSiteID else { return }
       let siteName = sites.first(where: { $0.id == siteID })?.name ?? "#\(siteID)"
       nextMode = .siteResource(siteID: siteID, siteName: siteName, keyword: nil)
-    } else if querySiteIDs.count == 1, let siteID = querySiteIDs.first,
+    } else if let siteID = selectedSingleSiteID,
       session.user.allows(.init(category: .manage))
     {
       let siteName = sites.first(where: { $0.id == siteID })?.name ?? "#\(siteID)"
       nextMode = .siteResource(siteID: siteID, siteName: siteName, keyword: trimmed)
     } else {
-      nextMode = .keyword(trimmed)
+      nextMode = .keyword(trimmed, scope: siteScope)
     }
     searchFocused = false
     queryMode = nextMode
@@ -828,8 +891,6 @@ struct NativeResourceSearchPage: View {
   }
 
   private func buildSearchEndpoint(page: Int) throws -> APIEndpoint {
-    let siteQueryValue =
-      querySiteIDs.isEmpty ? nil : querySiteIDs.sorted().map(String.init).joined(separator: ",")
     switch target {
     case .lastResults:
       switch queryMode {
@@ -839,12 +900,14 @@ struct NativeResourceSearchPage: View {
           responseContract: .payload,
           maximumResponseBytes: 12 * 1024 * 1024,
           timeout: 30)
-      case .keyword(let term):
+      case .keyword(let term, let scope):
         var query = [
           URLQueryItem(name: "keyword", value: term),
           URLQueryItem(name: "page", value: String(page)),
         ]
-        if let siteQueryValue { query.append(URLQueryItem(name: "sites", value: siteQueryValue)) }
+        if let siteQueryValue = resolvedSitesQueryValue(for: scope) {
+          query.append(URLQueryItem(name: "sites", value: siteQueryValue))
+        }
         return try APIEndpoint(
           path: ["search", "title"],
           query: query,
@@ -864,6 +927,7 @@ struct NativeResourceSearchPage: View {
           timeout: 90)
       }
     case .media(let identity, let title, let season):
+      let siteQueryValue = resolvedSitesQueryValue(for: siteScope)
       if !Self.isValidMediaIdentity(identity) {
         var query = [
           URLQueryItem(
