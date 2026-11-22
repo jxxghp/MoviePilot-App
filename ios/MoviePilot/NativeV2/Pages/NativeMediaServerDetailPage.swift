@@ -166,8 +166,9 @@ struct NativeMediaServerDetailPage: View {
               Label("在外部媒体服务器打开", systemImage: "arrow.up.right.square")
             }
           } label: {
-            Image(systemName: "ellipsis.circle")
+            Image(systemName: "ellipsis")
           }
+          .tint(.primary)
           .accessibilityLabel("更多选项")
           .accessibilityIdentifier("native-mediaserver-detail-menu")
         }

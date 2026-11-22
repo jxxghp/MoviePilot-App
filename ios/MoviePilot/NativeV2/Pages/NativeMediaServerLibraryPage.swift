@@ -187,8 +187,9 @@ struct NativeMediaServerLibraryPage: View {
             }
           }
         } label: {
-          Image(systemName: "ellipsis.circle")
+          Image(systemName: "ellipsis")
         }
+        .tint(.primary)
         .accessibilityLabel("媒体库菜单")
         .accessibilityIdentifier("native-mediaserver-library-menu")
       }

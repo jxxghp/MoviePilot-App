@@ -166,7 +166,7 @@ struct NativePluginDataPageView: View {
               Label("刷新", systemImage: "arrow.clockwise")
             }
           } label: {
-            Image(systemName: "ellipsis.circle")
+            Image(systemName: "ellipsis")
           }
           .tint(.primary)
           .accessibilityLabel("更多操作")
