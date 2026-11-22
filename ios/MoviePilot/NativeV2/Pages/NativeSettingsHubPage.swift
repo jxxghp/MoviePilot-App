@@ -1246,6 +1246,7 @@ struct NativeSubscribeSearchSettingsPage: View {
   @State private var searchRuleGroups: Set<String> = []
   @State private var subscribeMode = "auto"
   @State private var isLoading = true
+  @State private var hasLoaded = false
   @State private var isSaving = false
   @State private var feedback: (isError: Bool, text: String)?
 
@@ -1369,6 +1370,7 @@ struct NativeSubscribeSearchSettingsPage: View {
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
+      .refreshable { await loadAll(force: true) }
       .modifier(NativeSoftTopScrollEdge())
     }
     .navigationTitle("订阅与搜索")
@@ -1389,7 +1391,7 @@ struct NativeSubscribeSearchSettingsPage: View {
         .disabled(isSaving || isLoading)
       }
     }
-    .task { await loadAll() }
+    .task { await loadAll(force: false) }
   }
 
   private func pickerRow(_ title: String, value: String) -> some View {
@@ -1406,7 +1408,10 @@ struct NativeSubscribeSearchSettingsPage: View {
     .contentShape(Rectangle())
   }
 
-  private func loadAll() async {
+  /// 仅在首次进入或用户显式下拉刷新时拉取后端配置，防止从子选择页返回时 `.task` 重跑覆盖尚未保存的新选择。
+  private func loadAll(force: Bool) async {
+    guard force || !hasLoaded else { return }
+    hasLoaded = true
     isLoading = true
     defer { isLoading = false }
     async let sitesTask: [NativeSimpleSiteOption]? = {
