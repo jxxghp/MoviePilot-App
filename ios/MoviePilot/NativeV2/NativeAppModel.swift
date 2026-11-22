@@ -31,6 +31,9 @@ final class NativeAppModel: ObservableObject {
   private let instances: InstanceStore
   private let credentials = LoginCredentialStore()
   private var task: Task<Void, Never>?
+  private var usageReportTask: Task<Void, Never>?
+  private var reportedUsageScope: NativeSessionScope?
+  private var lastUsageLookupAt: Date = .distantPast
   private var operationID = UUID()
   private var lastSessionValidationAt: Date = .distantPast
 
@@ -96,6 +99,10 @@ final class NativeAppModel: ObservableObject {
     operationID = UUID()
     task?.cancel()
     task = nil
+    usageReportTask?.cancel()
+    usageReportTask = nil
+    reportedUsageScope = nil
+    lastUsageLookupAt = .distantPast
     busy = false
     if let selected { WidgetService.shared.endSession(instanceId: selected.id, clear: false) }
     if clearSystemIntents {
@@ -179,6 +186,10 @@ final class NativeAppModel: ObservableObject {
     guard let selected else { return }
     do {
       try manager.logout()
+      usageReportTask?.cancel()
+      usageReportTask = nil
+      reportedUsageScope = nil
+      lastUsageLookupAt = .distantPast
       NativeMediaPlaybackLauncher.shared.dismissSessionBoundPlayer(animated: false)
       WidgetService.shared.endSession(instanceId: selected.id, clear: true)
       WidgetService.shared.cancelOpen()
@@ -201,9 +212,14 @@ final class NativeAppModel: ObservableObject {
       NotificationService.shared.attachNative(session)
       WidgetService.shared.reconcile(native: session)
       NativeSystemRouteHub.shared.resolvePending(for: session.instance.id.uuidString)
+      reportUsageIfEnabled(for: session)
       return
     }
     if case .loginRequired(_, .expired) = state, let selected {
+      usageReportTask?.cancel()
+      usageReportTask = nil
+      reportedUsageScope = nil
+      lastUsageLookupAt = .distantPast
       NativeMediaPlaybackLauncher.shared.dismissSessionBoundPlayer(animated: false)
       NativePageDataCache.shared.clearAll()
       NativeMediaArtworkCache.shared.clearMemory()
@@ -243,6 +259,70 @@ final class NativeAppModel: ObservableObject {
     NotificationService.shared.resumePending()
     WidgetService.shared.resumePending(native: session)
     NativeSystemRouteHub.shared.resolvePending(for: session.instance.id.uuidString)
+    reportUsageIfEnabled(for: session)
+  }
+
+  /// 对齐 V1 匿名安装版本统计：仅在当前管理员实例明确开启 `USAGE_STATISTIC_SHARE` 时，向 `MP_SERVER_HOST` 上报最小匿名载荷（按服务+版本 24 小时节流，升级立即重报）。
+  private func reportUsageIfEnabled(for session: NativeSession) {
+    guard session.user.isSuperuser else { return }
+    let now = Date()
+    if reportedUsageScope == session.scope, now.timeIntervalSince(lastUsageLookupAt) < 86_400 {
+      return
+    }
+    guard
+      let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
+        as? String,
+      !version.isEmpty
+    else { return }
+    reportedUsageScope = session.scope
+    lastUsageLookupAt = now
+    usageReportTask?.cancel()
+    let expectedScope = session.scope
+    usageReportTask = Task { [weak self] in
+      struct UsageEnvPayload: Decodable, Sendable {
+        let usageStatisticShare: Bool?
+        let mpServerHost: String?
+
+        private enum CodingKeys: String, CodingKey {
+          case usageStatisticShare = "USAGE_STATISTIC_SHARE"
+          case mpServerHost = "MP_SERVER_HOST"
+        }
+      }
+      struct UsageEnvEnvelope: Decodable, Sendable {
+        let payload: UsageEnvPayload?
+
+        private enum CodingKeys: String, CodingKey { case data }
+
+        init(from decoder: Decoder) throws {
+          let container = try decoder.container(keyedBy: CodingKeys.self)
+          if container.contains(.data) {
+            payload = try container.decodeIfPresent(UsageEnvPayload.self, forKey: .data)
+          } else {
+            payload = try UsageEnvPayload(from: decoder)
+          }
+        }
+      }
+      guard let endpoint = try? APIEndpoint(path: ["system", "env"]) else { return }
+      guard
+        let envelope = try? await session.request(
+          endpoint, as: UsageEnvEnvelope.self
+        ).value,
+        let payload = envelope.payload
+      else {
+        if !Task.isCancelled, let self, self.reportedUsageScope == expectedScope {
+          self.reportedUsageScope = nil
+        }
+        return
+      }
+      guard !Task.isCancelled,
+        let self,
+        self.manager.currentSession?.scope == expectedScope,
+        payload.usageStatisticShare == true
+      else { return }
+      let rawHost = payload.mpServerHost?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      let host = rawHost.isEmpty ? "https://movie-pilot.org" : rawHost
+      await UsageReporting.shared.report(enabled: true, host: host, version: version)
+    }
   }
 
   /// 会话过期自动退出时收起可能仍盖在顶层的会话关联播放器或 UIKit 弹窗，保留独立本地/外部媒体播放。

@@ -1121,7 +1121,7 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(app.webViews.count, 0)
 
     let counts = try await stats()
-    XCTAssertEqual(counts["a"]?["GET api/v1/system/env"], 1)
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/system/env"] ?? 0, 1)
     XCTAssertEqual(counts["a"]?["POST api/v1/system/env"], 1)
     XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/user"] ?? 0, 1)
     XCTAssertEqual(counts["unexpected"], [:])
