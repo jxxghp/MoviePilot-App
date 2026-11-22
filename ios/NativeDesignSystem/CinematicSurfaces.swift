@@ -172,7 +172,49 @@ extension EnvironmentValues {
   }
 }
 
-/// 原生透明玻璃弹窗修饰器：移除二次渐变叠加，统一以系统毛玻璃底面透出主页面背景层次。
+/// 弹窗原生通透玻璃底面：iOS 26+ 使用系统 Liquid Glass（`.glassEffect(.regular)` + 同心圆角）避免旧版 `.ultraThinMaterial` 偏灰，
+/// iOS 16.4–25 回退轻透毛玻璃叠柔和背景光泽，保持通透玻璃层次与文字可读性。
+@MainActor
+private struct NativeSheetGlassBackdrop: View {
+  @Environment(\.colorScheme) private var colorScheme
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+
+  var body: some View {
+    let isLight = colorScheme == .light
+    Group {
+      if #available(iOS 26, *) {
+        Color.clear
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .glassEffect(.regular, in: ConcentricRectangle())
+          .ignoresSafeArea()
+      } else {
+        let stops = appearance.backgroundStops(for: colorScheme)
+        ZStack {
+          Rectangle()
+            .fill(.ultraThinMaterial)
+            .opacity(isLight ? 0.56 : 0.36)
+          LinearGradient(
+            stops: stops,
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+          )
+          .opacity(isLight ? 0.20 : 0.24)
+          LinearGradient(
+            colors: isLight
+              ? [Color.white.opacity(0.24), Color.white.opacity(0.08)]
+              : [Color.white.opacity(0.06), Color.clear],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+          )
+        }
+        .ignoresSafeArea()
+      }
+    }
+    .preferredColorScheme(appearance.preferredColorScheme)
+  }
+}
+
+/// 原生透明玻璃弹窗修饰器：移除二次渐变叠加，统一以原生液态玻璃底面透出主页面背景层次。
 @MainActor
 struct NativeGlassSheetModifier: ViewModifier {
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -186,7 +228,9 @@ struct NativeGlassSheetModifier: ViewModifier {
     if reduceTransparency {
       themed
     } else if #available(iOS 16.4, *) {
-      themed.presentationBackground(.ultraThinMaterial)
+      themed.presentationBackground {
+        NativeSheetGlassBackdrop()
+      }
     } else {
       themed
     }

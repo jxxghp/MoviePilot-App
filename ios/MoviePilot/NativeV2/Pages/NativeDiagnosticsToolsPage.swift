@@ -106,6 +106,8 @@ struct NativeDiagnosticsToolsPage: View {
 
   // 4. 词表
   @State private var wordsTab: WordsTab = .identifiers
+  @State private var showIdentifiersGuide = true
+  @State private var showEpisodeRulesGuide = true
   @State private var identifiersText = ""
   @State private var originalIdentifiers: [String] = []
   @State private var releaseGroupsText = ""
@@ -584,19 +586,25 @@ struct NativeDiagnosticsToolsPage: View {
             }
 
             DisclosureGroup("临时自定义识别词（仅本次测试生效）", isExpanded: $showCustomWordsField) {
-              TextEditor(text: $testCustomWords)
-                .font(.system(.caption, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .frame(minHeight: 74)
-                .padding(8)
-                .background(
-                  NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                )
-                .overlay {
-                  RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.6)
-                }
-                .padding(.top, 6)
+              VStack(alignment: .leading, spacing: 6) {
+                TextEditor(text: $testCustomWords)
+                  .font(.system(.caption, design: .monospaced))
+                  .scrollContentBackground(.hidden)
+                  .frame(minHeight: 74)
+                  .padding(8)
+                  .background(
+                    NativeTheme.fieldFill,
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                  )
+                  .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                      .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.6)
+                  }
+                Text("支持正则表达式，特殊字符需要 \\ 转义，一行为一组（如：屏蔽词、被替换词 => 替换词、前定位词 <> 后定位词 >> 集偏移量）。")
+                  .font(.caption2)
+                  .foregroundStyle(.secondary)
+              }
+              .padding(.top, 6)
             }
             .font(.caption.weight(.medium))
             .foregroundStyle(.secondary)
@@ -872,29 +880,46 @@ struct NativeDiagnosticsToolsPage: View {
         case .identifiers:
           wordsTextEditorCard(
             title: "自定义识别词",
-            hint: "每行一条规则，支持屏蔽词、替换词（原词 => 替换词）与剧集偏移语法，保存后立即生效。",
-            placeholder: "例如：\n屏蔽词\n原名称 => 目标名称",
+            description: "添加规则对种子名或者文件名进行预处理以校正识别",
+            inlineHint: "支持正则表达式，特殊字符需要 \\ 转义，一行为一组",
+            placeholder: "每行输入一组识别规则",
             text: $identifiersText
+          )
+          wordsGuidePanel(
+            title: "支持的配置格式（注意空格）：",
+            isExpanded: $showIdentifiersGuide,
+            codeLines: [
+              "屏蔽词",
+              "被替换词 => 替换词",
+              "前定位词 <> 后定位词 >> 集偏移量（EP）",
+              "被替换词 => 替换词 && 前定位词 <> 后定位词 >> 集偏移量（EP）",
+            ],
+            notes: [
+              "其中替换词支持格式：{[tmdbid/doubanid/bangumiid/anilistid=xxx;type=movie/tv;g=xxx;s=xxx;e=xxx]} 直接指定媒体数据源 ID 识别，其中 g 为剧集组编号，s、e 为季数和集数（均可选）。"
+            ]
           )
         case .releaseGroups:
           wordsTextEditorCard(
             title: "自定义制作组 / 字幕组",
-            hint: "每行一个制作组名称，用于增强种子标题中制作组与字幕组的提取识别。",
-            placeholder: "例如：\nCMCT\nFRDS\nCHD",
+            description: "添加无法识别的制作组/字幕组。",
+            inlineHint: "支持正则表达式，特殊字符需要 \\ 转义，一行代表一个制作组/字幕组",
+            placeholder: "每行输入一个制作组/字幕组",
             text: $releaseGroupsText
           )
         case .customization:
           wordsTextEditorCard(
-            title: "自定义占位符（Customization）",
-            hint: "每行一个关键词，命中后可作为自定义占位符参与媒体重命名。",
-            placeholder: "例如：\n国粤双语\n特效字幕",
+            title: "自定义占位符",
+            description: "添加自定义占位符识别正则，重命名格式中添加 {customization} 使用。",
+            inlineHint: "支持正则表达式，特殊字符需要 \\ 转义，多个匹配对象请换行分隔",
+            placeholder: "每行输入一个占位符识别正则",
             text: $customizationText
           )
         case .excludeWords:
           wordsTextEditorCard(
-            title: "整理屏蔽词",
-            hint: "每行一个正则或关键字，文件名或目录命中后将被整理任务自动跳过。",
-            placeholder: "例如：\nSample\nTrailer\n花絮",
+            title: "文件整理屏蔽词",
+            description: "目录名或文件名中包含屏蔽词时不进行整理。",
+            inlineHint: "支持正则表达式，特殊字符需要 \\ 转义，一行代表一个屏蔽词",
+            placeholder: "每行输入一个屏蔽词",
             text: $excludeWordsText
           )
         case .episodeRules:
@@ -905,7 +930,11 @@ struct NativeDiagnosticsToolsPage: View {
   }
 
   private func wordsTextEditorCard(
-    title: String, hint: String, placeholder: String, text: Binding<String>
+    title: String,
+    description: String,
+    inlineHint: String,
+    placeholder: String,
+    text: Binding<String>
   ) -> some View {
     let lineCount = text.wrappedValue
       .split(whereSeparator: \.isNewline)
@@ -920,7 +949,7 @@ struct NativeDiagnosticsToolsPage: View {
           Spacer()
           NativeAdaptiveBadge("\(lineCount) 条", tint: NativeTheme.info)
         }
-        Text(hint)
+        Text(description)
           .font(.caption)
           .foregroundStyle(.secondary)
         ZStack(alignment: .topLeading) {
@@ -934,7 +963,7 @@ struct NativeDiagnosticsToolsPage: View {
           TextEditor(text: text)
             .font(.system(.caption, design: .monospaced))
             .scrollContentBackground(.hidden)
-            .frame(minHeight: 240)
+            .frame(minHeight: 220)
             .padding(6)
         }
         .background(
@@ -944,30 +973,109 @@ struct NativeDiagnosticsToolsPage: View {
           RoundedRectangle(cornerRadius: 12, style: .continuous)
             .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.7)
         }
+        HStack(alignment: .top, spacing: 6) {
+          Image(systemName: "info.circle")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.top, 1)
+          Text(inlineHint)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
       }
     }
   }
 
+  /// 对标 Web `WordsView.vue` 的可折叠格式/规则提示面板，完整保留语法示例与注意事项。
+  private func wordsGuidePanel(
+    title: String,
+    isExpanded: Binding<Bool>,
+    codeLines: [String],
+    notes: [String]
+  ) -> some View {
+    CinematicPanel(padding: 14) {
+      DisclosureGroup(isExpanded: isExpanded) {
+        VStack(alignment: .leading, spacing: 8) {
+          if !codeLines.isEmpty {
+            VStack(alignment: .leading, spacing: 5) {
+              ForEach(codeLines, id: \.self) { line in
+                Text(line)
+                  .font(.system(.caption, design: .monospaced))
+                  .foregroundStyle(.primary.opacity(0.92))
+                  .textSelection(.enabled)
+                  .fixedSize(horizontal: false, vertical: true)
+              }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(
+              NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+          }
+          ForEach(notes, id: \.self) { note in
+            Text(note)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .textSelection(.enabled)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+        }
+        .padding(.top, 8)
+      } label: {
+        HStack(spacing: 7) {
+          Image(systemName: "info.circle")
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.primary)
+          Text(title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+        }
+      }
+      .tint(.primary)
+    }
+  }
+
+  private static let episodeRuleGuideNotes: [String] = [
+    "从上到下依次匹配，第一个匹配的则使用该规则。",
+    "按文件名实际结构编写匹配规则：",
+    "• 固定文本直接匹配，集数必须使用命名分组 (?<ep>...) 标记；",
+    "• 其余不固定但需要保留位置的内容，可使用 (?<a>...)、(?<b>...) 等命名分组承接。",
+    "• 如需按字面量匹配 [](). 等特殊字符，请进行转义；",
+    "• 建议使用 ^ 和 $ 完整约束整条文件名，其中 $ 尤其重要，可避免只匹配前半段就被误判为命中。",
+  ]
+
   private var episodeRulesSection: some View {
     VStack(alignment: .leading, spacing: 10) {
-      HStack {
-        Text("剧集识别正则规则（\(episodeRules.count) 条）")
-          .font(.subheadline.weight(.semibold))
-          .foregroundStyle(.primary)
-        Spacer()
-        Button {
-          showsAddEpisodeRule = true
-        } label: {
-          Label("新增规则", systemImage: "plus.circle.fill")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(appearance.accentColor)
+      CinematicPanel(padding: 14) {
+        VStack(alignment: .leading, spacing: 6) {
+          HStack {
+            Text("手动整理集数定位规则")
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(.primary)
+            Spacer()
+            NativeAdaptiveBadge("\(episodeRules.count) 条", tint: NativeTheme.info)
+          }
+          Text("用于匹配媒体文件名，命中后自动生成对应的集数定位正则。")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          HStack {
+            Spacer()
+            Button {
+              showsAddEpisodeRule = true
+            } label: {
+              Label("新增规则", systemImage: "plus.circle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(appearance.accentColor)
+            }
+            .buttonStyle(.plain)
+          }
+          .padding(.top, 2)
         }
-        .buttonStyle(.plain)
       }
-      .padding(.horizontal, 2)
 
       if episodeRules.isEmpty {
-        emptyCard("暂无自定义剧集识别规则，可点击右上角新增后保存。")
+        emptyCard("暂无集数定位规则，可点击上方「新增规则」创建后保存。")
       } else {
         ForEach($episodeRules) { $rule in
           CinematicPanel(padding: 13) {
@@ -1004,6 +1112,13 @@ struct NativeDiagnosticsToolsPage: View {
           }
         }
       }
+
+      wordsGuidePanel(
+        title: "规则编写提示",
+        isExpanded: $showEpisodeRulesGuide,
+        codeLines: [],
+        notes: Self.episodeRuleGuideNotes
+      )
     }
   }
 
@@ -1690,19 +1805,58 @@ private struct NativeEpisodeRuleEditorSheet: View {
           VStack(alignment: .leading, spacing: 14) {
             CinematicPanel(padding: 15) {
               VStack(alignment: .leading, spacing: 12) {
-                field("规则名称", placeholder: "例如：番剧集数提取", text: $rule.name)
-                field("正则表达式", placeholder: "例如：\\[(\\d{2,3})\\]", text: $rule.pattern)
+                field(
+                  "规则名称",
+                  placeholder: "输入规则的名称",
+                  hint: nil,
+                  text: $rule.name
+                )
+                field(
+                  "正则表达式",
+                  placeholder: "例如：^.*\\[(?<ep>\\d{2,3})\\].*$",
+                  hint: "必须包含 (?<ep>...) 命名组",
+                  text: $rule.pattern,
+                  monospaced: true
+                )
                 Stepper("排序优先级：\(rule.order)", value: $rule.order, in: 1...999)
                   .font(.subheadline)
-                Stepper(
-                  "最小文件体积：\(rule.minFileSizeMB) MB", value: $rule.minFileSizeMB, in: 0...10000,
-                  step: 10
-                )
-                .font(.subheadline)
+                VStack(alignment: .leading, spacing: 4) {
+                  Stepper(
+                    "最小大小：\(rule.minFileSizeMB) MB", value: $rule.minFileSizeMB, in: 0...10000,
+                    step: 10
+                  )
+                  .font(.subheadline)
+                  Text("小于此大小的文件将不参与匹配")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
                 Toggle("启用此规则", isOn: $rule.enabled)
                   .font(.subheadline)
                   .tint(appearance.accentColor)
               }
+            }
+
+            CinematicPanel(padding: 14) {
+              VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                  Image(systemName: "info.circle")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                  Text("规则编写提示")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                }
+                Text("从上到下依次匹配，第一个匹配的则使用该规则。")
+                  .font(.caption2)
+                  .foregroundStyle(.secondary)
+                Text("固定文本直接匹配，集数必须使用命名分组 (?<ep>...) 标记；其余不固定但需保留位置的内容可用 (?<a>...)、(?<b>...) 承接。")
+                  .font(.caption2)
+                  .foregroundStyle(.secondary)
+                Text("如需按字面量匹配 [](). 等特殊字符，请进行转义；建议使用 ^ 和 $ 完整约束整条文件名，其中 $ 尤其重要，可避免只匹配前半段就被误判为命中。")
+                  .font(.caption2)
+                  .foregroundStyle(.secondary)
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
             }
           }
           .padding(.horizontal, CinematicStyle.margin)
@@ -1733,12 +1887,20 @@ private struct NativeEpisodeRuleEditorSheet: View {
     .nativeGlassSheet()
   }
 
-  private func field(_ label: String, placeholder: String, text: Binding<String>) -> some View {
+  private func field(
+    _ label: String,
+    placeholder: String,
+    hint: String? = nil,
+    text: Binding<String>,
+    monospaced: Bool = false
+  ) -> some View {
     VStack(alignment: .leading, spacing: 4) {
       Text(label).font(.caption.weight(.medium)).foregroundStyle(.secondary)
       TextField(placeholder, text: text)
         .textFieldStyle(.plain)
-        .font(.subheadline)
+        .font(monospaced ? .system(.subheadline, design: .monospaced) : .subheadline)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled(monospaced)
         .padding(10)
         .background(
           NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -1747,6 +1909,11 @@ private struct NativeEpisodeRuleEditorSheet: View {
           RoundedRectangle(cornerRadius: 10, style: .continuous)
             .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.6)
         }
+      if let hint {
+        Text(hint)
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      }
     }
   }
 }
