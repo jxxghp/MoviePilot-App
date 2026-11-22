@@ -138,14 +138,43 @@ public final class NativeSession {
     }
   }
 
-  /// 真流式 SSE 订阅（如智能助手对话），在发起前验证活跃会话与权限。
+  /// 真流式 SSE 订阅（如智能助手对话），在发起前验证活跃会话与权限，收到 401 时立即触发会话失效。
   public func streamEvents(
     _ endpoint: APIEndpoint,
     extraHeaders: [String: String] = [:],
     requiring permission: PermissionRequirement? = nil
   ) throws -> AsyncThrowingStream<APISSEEvent, Error> {
     try checkActive(requiring: permission)
-    return api.streamEvents(endpoint, extraHeaders: extraHeaders)
+    let upstream = api.streamEvents(endpoint, extraHeaders: extraHeaders)
+    return AsyncThrowingStream { continuation in
+      let forwarding = Task {
+        do {
+          for try await event in upstream {
+            try Task.checkCancellation()
+            continuation.yield(event)
+          }
+          continuation.finish()
+        } catch is CancellationError {
+          continuation.finish()
+        } catch {
+          if (error as? APIError) == .unauthorized {
+            await MainActor.run { [weak self] in
+              self?.handleExternalUnauthorized()
+            }
+          }
+          continuation.finish(throwing: error)
+        }
+      }
+      continuation.onTermination = { _ in
+        forwarding.cancel()
+      }
+    }
+  }
+
+  /// 供外部同源会话客户端（如媒体播放清单接口）在收到 401/令牌校验失败时立即通知当前会话过期。
+  public func handleExternalUnauthorized() {
+    guard active else { return }
+    onInvalidated(scope, .api(.unauthorized))
   }
 
   /// 标准 multipart 文件上传（用于智能助手图片/语音/文档附件），受同一会话活跃检查约束。
@@ -174,7 +203,13 @@ public final class NativeSession {
   /// 导出当前同源短效资源 Cookie（供 Vue 远程插件容器加载受保护 ESM 脚本）。
   public func resolveResourceCookie() async throws -> APIExportedResourceCookie? {
     try checkActive()
-    return try await api.resolveResourceCookie()
+    do {
+      let cookie = try await api.resolveResourceCookie()
+      try checkActive()
+      return cookie
+    } catch {
+      try fail(error)
+    }
   }
 
   /// 写入只发一次；返回只说明端点接受动作，不能自动重试或推断后台任务已结束。

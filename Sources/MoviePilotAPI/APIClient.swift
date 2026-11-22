@@ -157,7 +157,7 @@ public final class APIClient: Sendable {
           guard let http = raw as? HTTPURLResponse, http.url == url else {
             throw APIError.invalidResponse
           }
-          try Self.checkStatus(http)
+          try await Self.checkStatus(http, bytes: bytes)
           let controlHeader = http.value(forHTTPHeaderField: "X-MoviePilot-Agent-Control")
           if token != nil, let cookie = APIResourceCookie(response: http) {
             resourceCookies.capture(cookie)
@@ -282,7 +282,7 @@ public final class APIClient: Sendable {
       guard let http = raw as? HTTPURLResponse, http.url == url else {
         throw APIError.invalidResponse
       }
-      try Self.checkStatus(http)
+      try Self.checkStatus(http, body: data)
       let collection = try APICollectionMetadata(response: http)
       let value: Value
       switch endpoint.responseContract {
@@ -474,7 +474,7 @@ public final class APIClient: Sendable {
       guard let http = raw as? HTTPURLResponse, http.url == url else {
         throw APIError.invalidResponse
       }
-      try Self.checkStatus(http)
+      try await Self.checkStatus(http, bytes: bytes)
       let hasBody = http.statusCode != 204 && endpoint.method != .head
       if hasBody {
         guard let mime = http.mimeType?.lowercased() else { throw APIError.invalidResponse }
@@ -542,7 +542,7 @@ public final class APIClient: Sendable {
       guard let http = raw as? HTTPURLResponse, http.url == url else {
         throw APIError.invalidResponse
       }
-      try Self.checkStatus(http)
+      try await Self.checkStatus(http, bytes: bytes)
       guard http.expectedContentLength <= endpoint.maximumResponseBytes else {
         throw APIError.responseTooLarge
       }
@@ -588,7 +588,7 @@ public final class APIClient: Sendable {
       guard let http = raw as? HTTPURLResponse, http.url == url else {
         throw APIError.invalidResponse
       }
-      try Self.checkStatus(http)
+      try await Self.checkStatus(http, bytes: bytes)
       guard let mimeType = http.mimeType?.lowercased(),
         ["image/jpeg", "image/png", "image/webp"].contains(mimeType)
       else { throw APIError.invalidResponse }
@@ -626,19 +626,77 @@ public final class APIClient: Sendable {
     return true
   }
 
-  /// 只投影状态码，不保留可能含有敏感数据的错误正文或 Location。
-  private static func checkStatus(_ response: HTTPURLResponse) throws {
+  /// 判断 HTTP 403 错误体是否属于 MoviePilot 旧版/重启后返回的 JWT 令牌校验失败；绝不向上层暴露原始正文。
+  public static func isTokenInvalidForbiddenBody(_ data: Data) -> Bool {
+    guard !data.isEmpty, data.count <= 8_192,
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return false }
+    let candidates = [object["detail"] as? String, object["message"] as? String].compactMap { $0 }
+    guard !candidates.isEmpty else { return false }
+    let markers = [
+      "token校验不通过",
+      "token not found",
+      "could not validate credentials",
+      "invalid token",
+      "token expired",
+      "signature verification failed",
+      "not authenticated",
+      "令牌无效",
+      "无效令牌",
+      "令牌已过期",
+    ]
+    return candidates.contains { raw in
+      let lowered = raw.lowercased()
+      return markers.contains { lowered.contains($0) }
+    }
+  }
+
+  /// 读取 HTTP 403 响应前 4 KiB 用于区分「令牌校验失败」与「业务权限不足」。
+  private static func readForbiddenPrefix(_ bytes: URLSession.AsyncBytes) async -> Data {
+    var data = Data()
+    data.reserveCapacity(512)
+    do {
+      for try await byte in bytes {
+        if data.count >= 4_096 { break }
+        data.append(byte)
+      }
+    } catch {
+      return data
+    }
+    return data
+  }
+
+  /// 只投影状态码，不保留可能含有敏感数据的错误正文或 Location；兼容识别 403 令牌失效载荷。
+  private static func checkStatus(_ response: HTTPURLResponse, body: Data? = nil) throws {
     switch response.statusCode {
     case 200..<300: break
     case 300..<400: throw APIError.redirectRefused
     case 401: throw APIError.unauthorized
-    case 403: throw APIError.forbidden
+    case 403:
+      if let body, isTokenInvalidForbiddenBody(body) {
+        throw APIError.unauthorized
+      }
+      throw APIError.forbidden
     case 404: throw APIError.notFound
     case 429:
       throw APIError.rateLimited(
         retryAfter: retryAfter(response.value(forHTTPHeaderField: "Retry-After")))
     default: throw APIError.httpStatus(response.statusCode)
     }
+  }
+
+  /// 流式响应在收到 403 时仅读取受限前缀以辨识令牌失效，其它状态沿用零正文读取策略。
+  private static func checkStatus(
+    _ response: HTTPURLResponse, bytes: URLSession.AsyncBytes
+  ) async throws {
+    if response.statusCode == 403 {
+      let prefix = await readForbiddenPrefix(bytes)
+      if isTokenInvalidForbiddenBody(prefix) {
+        throw APIError.unauthorized
+      }
+      throw APIError.forbidden
+    }
+    try checkStatus(response)
   }
 
   /// 接受标准秒数或 HTTP 日期；只供 UI 展示等待提示，客户端从不据此自动重发。

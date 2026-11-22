@@ -109,6 +109,9 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
         manifest: manifest, client: client, instanceID: session.instance.id,
         itemID: itemID, title: title.isEmpty ? manifest.title : title, artworkURL: artworkURL,
         queue: queue, queueIndex: queueIndex, initialTrackSelection: trackSelection)
+    } catch MediaPlaybackError.unauthorized {
+      session.handleExternalUnauthorized()
+      return "登录已过期，请重新登录。"
     } catch {
       return "无法读取媒体服务器播放流，请确认影片仍在媒体库中并检查后台连接。"
     }
@@ -133,6 +136,9 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
         manifest: manifest, client: client, instanceID: session.instance.id,
         itemID: manifest.itemId, title: title, artworkURL: artworkURL,
         queue: queue, queueIndex: queueIndex)
+    } catch MediaPlaybackError.unauthorized {
+      session.handleExternalUnauthorized()
+      return "登录已过期，请重新登录。"
     } catch {
       return "当前曲目未在媒体服务器中匹配到可播放音频文件。"
     }
@@ -155,6 +161,9 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
         manifest: manifest, client: client, instanceID: session.instance.id,
         itemID: manifest.itemId, title: fileName, artworkURL: nil,
         queue: [], queueIndex: 0)
+    } catch MediaPlaybackError.unauthorized {
+      session.handleExternalUnauthorized()
+      return "登录已过期，请重新登录。"
     } catch {
       return "无法读取该存储文件的媒体内容，请检查存储挂载状态与权限。"
     }

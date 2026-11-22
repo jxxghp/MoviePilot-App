@@ -59,6 +59,7 @@ struct NativeSettingsHubPage: View {
           notificationAndAssistantSection
           appearanceAndDeviceSection
           accountAndServerSection
+          appVersionFooter
         }
         .frame(maxWidth: NativeDeviceLayout.isIPad ? 840 : 740, alignment: .leading)
         .padding(.horizontal, NativeDeviceLayout.isIPad ? 24 : CinematicStyle.margin)
@@ -432,6 +433,29 @@ struct NativeSettingsHubPage: View {
       .buttonStyle(.plain)
       .accessibilityIdentifier("native-v2-logout")
     }
+  }
+
+  /// 设置页底部展示当前原生 App 版本号（兼容 iPhone / iPad / iPhone Duo 三端居中留白）。
+  private var appVersionFooter: some View {
+    let shortVersion =
+      (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let buildNumber =
+      (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String)?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let versionText: String = {
+      guard !shortVersion.isEmpty else { return "MoviePilot" }
+      if !buildNumber.isEmpty && buildNumber != shortVersion {
+        return "MoviePilot v\(shortVersion) (\(buildNumber))"
+      }
+      return "MoviePilot v\(shortVersion)"
+    }()
+    return Text(versionText)
+      .font(.footnote.monospacedDigit())
+      .foregroundStyle(.secondary)
+      .frame(maxWidth: .infinity, alignment: .center)
+      .padding(.top, 4)
+      .accessibilityIdentifier("native-settings-app-version")
   }
 
   // MARK: - 原生舒朗分组列表基础组件

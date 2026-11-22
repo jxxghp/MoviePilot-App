@@ -3,6 +3,7 @@ import AVKit
 import CryptoKit
 import ImageIO
 import MediaPlayer
+import MoviePilotAPI
 import MoviePilotCore
 import UIKit
 import VLCKit
@@ -137,7 +138,15 @@ final class MediaPlaybackClient {
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     let (data, response) = try await session.data(for: request)
-    guard let response = response as? HTTPURLResponse, response.statusCode == 200,
+    guard let response = response as? HTTPURLResponse else {
+      throw MediaPlaybackError.unavailable
+    }
+    if response.statusCode == 401
+      || (response.statusCode == 403 && APIClient.isTokenInvalidForbiddenBody(data))
+    {
+      throw MediaPlaybackError.unauthorized
+    }
+    guard response.statusCode == 200,
       let cookieHeader = response.value(forHTTPHeaderField: "Set-Cookie"),
       let cookie = HTTPCookie.cookies(
         withResponseHeaderFields: ["Set-Cookie": cookieHeader], for: url
@@ -290,7 +299,15 @@ final class MediaPlaybackClient {
     request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
     request.httpBody = try JSONEncoder().encode(payload)
     let (data, response) = try await session.data(for: request)
-    guard let response = response as? HTTPURLResponse, response.statusCode == 200,
+    guard let response = response as? HTTPURLResponse else {
+      throw MediaPlaybackError.unavailable
+    }
+    if response.statusCode == 401
+      || (response.statusCode == 403 && APIClient.isTokenInvalidForbiddenBody(data))
+    {
+      throw MediaPlaybackError.unauthorized
+    }
+    guard response.statusCode == 200,
       let cookieHeader = response.value(forHTTPHeaderField: "Set-Cookie"),
       let cookie = HTTPCookie.cookies(
         withResponseHeaderFields: ["Set-Cookie": cookieHeader], for: url
@@ -329,7 +346,23 @@ final class MediaPlaybackClient {
     request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
     request.httpBody = try JSONEncoder().encode(payload)
     let (tempURL, response) = try await session.download(for: request)
-    guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
+    guard let response = response as? HTTPURLResponse else {
+      throw MediaPlaybackError.unavailable
+    }
+    if response.statusCode == 401 {
+      try? FileManager.default.removeItem(at: tempURL)
+      throw MediaPlaybackError.unauthorized
+    }
+    if response.statusCode == 403 {
+      let sample = (try? Data(contentsOf: tempURL, options: .mappedIfSafe).prefix(4_096)) ?? Data()
+      try? FileManager.default.removeItem(at: tempURL)
+      if APIClient.isTokenInvalidForbiddenBody(Data(sample)) {
+        throw MediaPlaybackError.unauthorized
+      }
+      throw MediaPlaybackError.unavailable
+    }
+    guard response.statusCode == 200 else {
+      try? FileManager.default.removeItem(at: tempURL)
       throw MediaPlaybackError.unavailable
     }
     let destination = FileManager.default.temporaryDirectory
@@ -433,8 +466,9 @@ final class MediaPlaybackClient {
 }
 
 /// 网络错误使用固定文案，不回显 URL、令牌、云盘地址或服务器响应正文。
-private enum MediaPlaybackError: LocalizedError {
+enum MediaPlaybackError: LocalizedError {
   case unavailable
+  case unauthorized
   case subtitleUnavailable
   case lyricsUnavailable
   case artworkUnavailable
@@ -443,6 +477,7 @@ private enum MediaPlaybackError: LocalizedError {
   var errorDescription: String? {
     switch self {
     case .unavailable: L10n.text("无法读取播放信息，请确认影片仍在媒体库中并检查后台连接。")
+    case .unauthorized: L10n.text("登录已过期，请重新登录。")
     case .subtitleUnavailable: L10n.text("字幕读取失败，请选择其他字幕或检查后台连接。")
     case .lyricsUnavailable: L10n.text("无法读取本地歌词。")
     case .artworkUnavailable: L10n.text("无法读取专辑封面。")
@@ -563,11 +598,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
   // Video toolbar & utility buttons
   private let pipTopButton = UIButton(type: .system)
+  private let videoMoreButton = UIButton(type: .system)
   private let lockTopButton = UIButton(type: .system)
-  private let speedButton = UIButton(type: .system)
-  private let aspectButton = UIButton(type: .system)
-  private let subtitleButton = UIButton(type: .system)
-  private let audioButton = UIButton(type: .system)
   private let episodeListButton = UIButton(type: .system)
   private let prevEpisodeButton = UIButton(type: .system)
   private let nextEpisodeButton = UIButton(type: .system)
@@ -947,53 +979,36 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       configureMusicCircleButton(
         moreButton, symbol: "ellipsis", accessibility: L10n.text("更多播放选项"), diameter: 40,
         pointSize: 16, primary: false)
+      moreButton.accessibilityIdentifier = "music-playback-more"
       moreButton.showsMenuAsPrimaryAction = true
       playbackMenuButton = moreButton
       moreButton.menu = makeMusicMenu()
       topBar.addArrangedSubview(fixedSquareControl(moreButton, diameter: 40))
     } else {
-      // 视频模式右上角一排统一收纳辅助功能按钮：字幕、音轨、画面比例、倍速、小窗画中画
-      let topButtonDiameter: CGFloat = 38
-      let topButtonPointSize: CGFloat = 15
+      // 视频模式右上角精简为两个玻璃按钮：小屏播放（画中画）与更多菜单（折叠字幕、音轨、画面比例、倍速等所有剩余项）。
+      let topButtonDiameter: CGFloat = 40
+      let topButtonPointSize: CGFloat = 16
 
       configureGlassButton(
-        subtitleButton, symbol: "captions.bubble", accessibility: L10n.text("选择字幕"),
+        pipTopButton, symbol: "pip.enter", accessibility: L10n.text("小屏播放"),
         diameter: topButtonDiameter, pointSize: topButtonPointSize)
-      subtitleButton.addAction(
-        UIAction { [weak self] _ in self?.showSubtitleMenu() }, for: .touchUpInside)
-
-      configureGlassButton(
-        audioButton, symbol: "waveform", accessibility: L10n.text("选择音轨"),
-        diameter: topButtonDiameter, pointSize: topButtonPointSize)
-      audioButton.addAction(
-        UIAction { [weak self] _ in self?.showAudioMenu() }, for: .touchUpInside)
-
-      configureGlassButton(
-        aspectButton,
-        symbol: isAspectFill
-          ? "arrow.down.right.and.arrow.up.left"
-          : "arrow.up.left.and.arrow.down.right",
-        accessibility: L10n.text("切换画面比例"),
-        diameter: topButtonDiameter, pointSize: topButtonPointSize)
-      aspectButton.addAction(
-        UIAction { [weak self] _ in self?.toggleAspectMode() }, for: .touchUpInside)
-
-      configureGlassButton(
-        speedButton, symbol: "gauge.with.dots.needle.67percent",
-        accessibility: L10n.text("播放速度"),
-        diameter: topButtonDiameter, pointSize: topButtonPointSize)
-      speedButton.addAction(
-        UIAction { [weak self] _ in self?.showSpeedMenu() }, for: .touchUpInside)
-
-      configureGlassButton(
-        pipTopButton, symbol: "pip.enter", accessibility: L10n.text("小窗播放"),
-        diameter: topButtonDiameter, pointSize: topButtonPointSize)
-      pipTopButton.isHidden = !pictureInPictureAvailable
+      pipTopButton.accessibilityIdentifier = "video-playback-pip"
+      pipTopButton.isEnabled = pictureInPictureAvailable
+      pipTopButton.alpha = pictureInPictureAvailable ? 1.0 : 0.45
       pipTopButton.addAction(
         UIAction { [weak self] _ in self?.minimizePlayback() }, for: .touchUpInside)
 
+      configureGlassButton(
+        videoMoreButton, symbol: "ellipsis", accessibility: L10n.text("更多播放选项"),
+        diameter: topButtonDiameter, pointSize: topButtonPointSize)
+      videoMoreButton.accessibilityIdentifier = "video-playback-more"
+      videoMoreButton.showsMenuAsPrimaryAction = true
+      playbackMenuButton = videoMoreButton
+      videoMoreButton.menu = makePlaybackMenu()
+
       let topActionsStack = UIStackView(arrangedSubviews: [
-        subtitleButton, audioButton, aspectButton, speedButton, pipTopButton,
+        fixedSquareControl(pipTopButton, diameter: topButtonDiameter),
+        fixedSquareControl(videoMoreButton, diameter: topButtonDiameter),
       ])
       topActionsStack.axis = .horizontal
       topActionsStack.alignment = .center
@@ -1074,62 +1089,180 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     view.addGestureRecognizer(singleTap)
   }
 
-  /// 将小窗、字幕、音轨、画面比例和倍速操作集中放在视频右上角菜单。
+  /// 将除小屏播放外的所有剩余控制项（字幕、音轨、画面比例、倍速）折叠至右上角「…」实时下拉菜单，适配 iPhone / iPad / iPhone Duo。
   private func makePlaybackMenu() -> UIMenu {
-    let pipAction = UIAction(
-      title: L10n.text("小窗播放"), image: UIImage(systemName: "pip.enter"),
-      attributes: pictureInPictureAvailable ? [] : .disabled
-    ) { [weak self] _ in
-      self?.minimizePlayback()
+    let dynamicElement = UIDeferredMenuElement.uncached { [weak self] completion in
+      guard let self else {
+        completion([])
+        return
+      }
+      completion(self.buildVideoMoreMenuElements())
     }
+    return UIMenu(children: [dynamicElement])
+  }
+
+  /// 按当前解码器实时轨道、画面比例与倍速构造视频「…」下拉菜单项。
+  private func buildVideoMoreMenuElements() -> [UIMenuElement] {
+    let textTracks = player.textTracks
+    let audioTracks = player.audioTracks
+
+    let subtitleElement: UIMenuElement
+    if manifest.subtitles.isEmpty && textTracks.isEmpty {
+      subtitleElement = UIAction(
+        title: L10n.text("字幕"),
+        subtitle: L10n.text("无可用字幕"),
+        image: UIImage(systemName: "captions.bubble"),
+        attributes: .disabled
+      ) { _ in }
+    } else {
+      let anySelected = textTracks.contains(where: \.isSelected) || activeExternalSubtitleID != nil
+      var subtitleItems: [UIMenuElement] = [
+        UIAction(
+          title: L10n.text("关闭字幕"),
+          state: anySelected ? .off : .on
+        ) { [weak self] _ in
+          guard let self else { return }
+          self.activeExternalSubtitleID = nil
+          self.player.deselectAllTextTracks()
+          self.showControls()
+        }
+      ]
+      for track in textTracks {
+        let name =
+          track.trackName.isEmpty ? (track.trackDescription ?? L10n.text("字幕")) : track.trackName
+        let selected = track.isSelected && activeExternalSubtitleID == nil
+        subtitleItems.append(
+          UIAction(
+            title: L10n.format("内嵌 · %@", name),
+            state: selected ? .on : .off
+          ) { [weak self] _ in
+            guard let self else { return }
+            self.activeExternalSubtitleID = nil
+            track.isSelectedExclusively = true
+            self.showControls()
+          })
+      }
+      for subtitle in manifest.subtitles {
+        let selected = activeExternalSubtitleID == subtitle.subtitleId
+        subtitleItems.append(
+          UIAction(
+            title: "\(subtitle.language ?? L10n.text("外挂")) · \(subtitle.title)",
+            state: selected ? .on : .off
+          ) { [weak self] _ in
+            self?.loadSubtitle(subtitle)
+          })
+      }
+      subtitleElement = UIMenu(
+        title: L10n.text("字幕"),
+        image: UIImage(systemName: "captions.bubble"),
+        children: subtitleItems)
+    }
+
+    let audioElement: UIMenuElement
+    if audioTracks.count <= 1 {
+      let currentName =
+        audioTracks.first.map {
+          $0.trackName.isEmpty ? ($0.trackDescription ?? L10n.text("默认音轨")) : $0.trackName
+        } ?? L10n.text("默认音轨")
+      audioElement = UIAction(
+        title: L10n.text("音轨"),
+        subtitle: currentName,
+        image: UIImage(systemName: "waveform"),
+        attributes: .disabled
+      ) { _ in }
+    } else {
+      let audioItems = audioTracks.map { track in
+        let name =
+          track.trackName.isEmpty ? (track.trackDescription ?? L10n.text("音轨")) : track.trackName
+        return UIAction(title: name, state: track.isSelected ? .on : .off) { [weak self] _ in
+          track.isSelectedExclusively = true
+          self?.showControls()
+        }
+      }
+      audioElement = UIMenu(
+        title: L10n.text("音轨"),
+        image: UIImage(systemName: "waveform"),
+        children: audioItems)
+    }
+
     let aspectAction = UIAction(
       title: isAspectFill ? L10n.text("画面适应") : L10n.text("画面填充"),
+      subtitle: isAspectFill ? L10n.text("当前：画面填充") : L10n.text("当前：画面适应"),
       image: UIImage(
         systemName: isAspectFill
           ? "arrow.down.right.and.arrow.up.left"
           : "arrow.up.left.and.arrow.down.right")
-    ) { [weak self] _ in self?.toggleAspectMode() }
-    let subtitlesAction = UIAction(
-      title: L10n.text("选择字幕"), image: UIImage(systemName: "captions.bubble")
-    ) { [weak self] _ in self?.showSubtitleMenu() }
-    let audioAction = UIAction(
-      title: L10n.text("选择音轨"), image: UIImage(systemName: "waveform")
-    ) { [weak self] _ in self?.showAudioMenu() }
-    let speedAction = UIAction(
-      title: L10n.text("播放速度"), image: UIImage(systemName: "speedometer")
-    ) { [weak self] _ in self?.showSpeedMenu() }
-    return UIMenu(children: [pipAction, aspectAction, subtitlesAction, audioAction, speedAction])
-  }
-
-  /// 音乐右上角菜单：倍速播放与切换剩余时间展示。
-  private func makeMusicMenu() -> UIMenu {
-    let speedAction = UIAction(
-      title: L10n.text("播放速度"), image: UIImage(systemName: "speedometer")
-    ) { [weak self] _ in self?.showSpeedMenu() }
-    let lyricsAction = UIAction(
-      title: showsFullLyrics ? L10n.text("返回封面视图") : L10n.text("全屏歌词视图"),
-      image: UIImage(systemName: showsFullLyrics ? "photo" : "quote.bubble")
-    ) { [weak self] _ in self?.toggleLyricsMode() }
-    let stopAction = UIAction(
-      title: L10n.text("停止并关闭"), image: UIImage(systemName: "stop.circle"),
-      attributes: .destructive
-    ) { [weak self] _ in self?.dismissPlayback() }
-    var children: [UIMenuElement] = [lyricsAction, speedAction, stopAction]
-    if queue.count > 1 {
-      let queueAction = UIAction(
-        title: L10n.text("播放队列"), image: UIImage(systemName: "list.bullet")
-      ) { [weak self] _ in self?.showQueueMenu() }
-      children.insert(queueAction, at: 0)
+    ) { [weak self] _ in
+      self?.toggleAspectMode()
     }
-    return UIMenu(children: children)
+
+    let speedMenu = makeSpeedSubmenu()
+    return [subtitleElement, audioElement, aspectAction, speedMenu]
   }
 
-  /// 画中画准备好后启用菜单及顶栏快捷按钮。
+  /// 统一构造视频与音频共享的播放速度二级下拉菜单。
+  private func makeSpeedSubmenu() -> UIMenu {
+    let rates: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+    let items = rates.map { rate in
+      let label = rate == 1.0 ? L10n.text("正常速度 (1.0x)") : "\(rate.formatted())x"
+      return UIAction(
+        title: label,
+        state: abs(rate - currentPlaybackRate) < 0.01 ? .on : .off
+      ) { [weak self] _ in
+        self?.applyPlaybackRate(rate)
+      }
+    }
+    return UIMenu(
+      title: L10n.text("播放速度"),
+      subtitle: "\(currentPlaybackRate.formatted())x",
+      image: UIImage(systemName: "gauge.with.dots.needle.67percent"),
+      children: items)
+  }
+
+  /// 应用选定的播放倍速并更新提示反馈。
+  private func applyPlaybackRate(_ rate: Float) {
+    currentPlaybackRate = rate
+    player.rate = rate
+    playButton.accessibilityValue = L10n.format("%@ 倍", rate.formatted())
+    if !isAudioPlayback {
+      presentSeekHud("\(rate.formatted())x")
+      showControls()
+    }
+  }
+
+  /// 音乐右上角菜单：播放队列、全屏歌词、倍速播放与停止关闭。
+  private func makeMusicMenu() -> UIMenu {
+    let dynamicElement = UIDeferredMenuElement.uncached { [weak self] completion in
+      guard let self else {
+        completion([])
+        return
+      }
+      let lyricsAction = UIAction(
+        title: self.showsFullLyrics ? L10n.text("返回封面视图") : L10n.text("全屏歌词视图"),
+        image: UIImage(systemName: self.showsFullLyrics ? "photo" : "quote.bubble")
+      ) { [weak self] _ in self?.toggleLyricsMode() }
+      let stopAction = UIAction(
+        title: L10n.text("停止并关闭"), image: UIImage(systemName: "stop.circle"),
+        attributes: .destructive
+      ) { [weak self] _ in self?.dismissPlayback() }
+      var children: [UIMenuElement] = [lyricsAction, self.makeSpeedSubmenu(), stopAction]
+      if self.queue.count > 1 {
+        let queueAction = UIAction(
+          title: L10n.text("播放队列"), image: UIImage(systemName: "list.bullet")
+        ) { [weak self] _ in self?.showQueueMenu() }
+        children.insert(queueAction, at: 0)
+      }
+      completion(children)
+    }
+    return UIMenu(children: [dynamicElement])
+  }
+
+  /// 画中画准备好后启用顶栏小屏播放按钮。
   private func updatePictureInPictureAvailability(_ available: Bool) {
     guard pictureInPictureAvailable != available else { return }
     pictureInPictureAvailable = available
-    pipTopButton.isHidden = !available
-    playbackMenuButton?.menu = isAudioPlayback ? makeMusicMenu() : makePlaybackMenu()
+    pipTopButton.isEnabled = available
+    pipTopButton.alpha = available ? 1.0 : 0.45
   }
 
   /// 将播放控制固定在正方形触控槽内，阻止玻璃按钮在水平布局里被拉宽。
@@ -2461,10 +2594,6 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
 
     if !isAudioPlayback {
-      let subtitleTracks = player.textTracks
-      let audioTracks = player.audioTracks
-      subtitleButton.isHidden = manifest.subtitles.isEmpty && subtitleTracks.isEmpty
-      audioButton.isHidden = audioTracks.count <= 1
       let hasQueue = queue.count > 1
       prevEpisodeButton.isHidden = !hasQueue
       nextEpisodeButton.isHidden = !hasQueue
@@ -2628,26 +2757,12 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     minimizeAudioPlayback()
   }
 
-  /// 切换视频画面「适应」与「填充」模式（纯图标更新，无文字）。
+  /// 切换视频画面「适应」与「填充」模式。
   private func toggleAspectMode() {
     isAspectFill.toggle()
     applyAspectMode()
-    if var config = aspectButton.configuration {
-      config.image = UIImage(
-        systemName: isAspectFill
-          ? "arrow.down.right.and.arrow.up.left"
-          : "arrow.up.left.and.arrow.down.right")
-      aspectButton.configuration = config
-    } else {
-      aspectButton.setImage(
-        UIImage(
-          systemName: isAspectFill
-            ? "arrow.down.right.and.arrow.up.left"
-            : "arrow.up.left.and.arrow.down.right",
-          withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)),
-        for: .normal)
-    }
     presentSeekHud(isAspectFill ? L10n.text("画面已填充") : L10n.text("画面已适应"))
+    showControls()
   }
 
   /// 应用当前比例设置至 VLC 视频适配模式（适应 / 满屏填充）。
@@ -3150,7 +3265,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         })
     }
     alert.addAction(UIAlertAction(title: L10n.text("取消"), style: .cancel))
-    presentActionSheet(alert, from: subtitleButton.isHidden ? topBar : subtitleButton)
+    presentActionSheet(alert, from: playbackMenuButton ?? topBar)
   }
 
   /// 通过当前授权下载用户所选外挂字幕并挂载到当前解码会话（避免重复加载同一外挂字幕）。
@@ -3193,10 +3308,10 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         })
     }
     alert.addAction(UIAlertAction(title: L10n.text("取消"), style: .cancel))
-    presentActionSheet(alert, from: audioButton.isHidden ? topBar : audioButton)
+    presentActionSheet(alert, from: playbackMenuButton ?? topBar)
   }
 
-  /// 显示常用播放速度并实时更新底坞倍速徽标。
+  /// 显示常用播放速度并实时更新倍速状态。
   private func showSpeedMenu() {
     let alert = UIAlertController(
       title: L10n.text("播放速度"), message: nil, preferredStyle: .actionSheet)
@@ -3205,24 +3320,11 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       let prefix = abs(rate - currentPlaybackRate) < 0.01 ? "✓ " : ""
       alert.addAction(
         UIAlertAction(title: "\(prefix)\(label)", style: .default) { [weak self] _ in
-          guard let self else { return }
-          self.currentPlaybackRate = rate
-          self.player.rate = rate
-          self.playButton.accessibilityValue = L10n.format("%@ 倍", rate.formatted())
-          if var config = self.speedButton.configuration {
-            config.baseForegroundColor =
-              abs(rate - 1.0) < 0.01
-              ? UIColor.white.withAlphaComponent(0.90)
-              : UIColor(red: 0.84, green: 0.72, blue: 1.0, alpha: 1.0)
-            self.speedButton.configuration = config
-          }
-          if !self.isAudioPlayback {
-            self.presentSeekHud("\(rate.formatted())x")
-          }
+          self?.applyPlaybackRate(rate)
         })
     }
     alert.addAction(UIAlertAction(title: L10n.text("取消"), style: .cancel))
-    presentActionSheet(alert, from: isAudioPlayback ? topBar : speedButton)
+    presentActionSheet(alert, from: playbackMenuButton ?? topBar)
   }
 
   /// 为 iPad 弹出菜单设置安全锚点，iPhone 仍显示系统操作面板。

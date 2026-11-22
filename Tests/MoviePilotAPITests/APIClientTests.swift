@@ -414,6 +414,23 @@ struct APIClientTests {
     #expect(APIURLProtocol.state.requests().count == 1)
   }
 
+  /// 后端重启后若旧版服务端以 HTTP 403 返回令牌校验失败，投影为 `.unauthorized` 以立即退出登录；常规权限 403 仍保持 `.forbidden`。
+  @Test func classifiesTokenRejectedForbiddenAsUnauthorizedWithoutAffectingRBAC() async throws {
+    APIURLProtocol.state.prepare(
+      status: 403, body: Data(#"{"detail":"token校验不通过"}"#.utf8),
+      headers: ["Content-Type": "application/json"])
+    await #expect(throws: APIError.unauthorized) {
+      try await Self.client().perform(APIEndpoint(path: ["system", "runscheduler"]))
+    }
+
+    APIURLProtocol.state.prepare(
+      status: 403, body: Data(#"{"detail":"用户权限不足"}"#.utf8),
+      headers: ["Content-Type": "application/json"])
+    await #expect(throws: APIError.forbidden) {
+      try await Self.client().perform(APIEndpoint(path: ["system", "runscheduler"]))
+    }
+  }
+
   /// 同源和跨源跳转均停在第一跳；合成协议刻意保留认证，检验的是客户端拒绝策略。
   @Test(arguments: ["https://other.test/collect", "https://example.test/other"])
   func refusesAllCredentialRedirects(_ location: String) async throws {

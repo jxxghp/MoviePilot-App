@@ -25,7 +25,12 @@ struct NativeResourceSearchPage: View {
   private enum QueryMode: Equatable {
     case lastResults
     case keyword(String)
-    case browseHome
+    case browseHome(siteID: Int, siteName: String)
+
+    var isBrowseHome: Bool {
+      if case .browseHome = self { return true }
+      return false
+    }
   }
 
   let session: NativeSession
@@ -68,14 +73,13 @@ struct NativeResourceSearchPage: View {
     if case .lastResults = target {
       if !trimmed.isEmpty {
         _queryMode = State(initialValue: .keyword(trimmed))
-      } else if browseHome {
-        _queryMode = State(initialValue: .browseHome)
       } else {
         _queryMode = State(initialValue: .lastResults)
       }
     } else {
       _queryMode = State(initialValue: .lastResults)
     }
+    _ = browseHome
   }
 
   var body: some View {
@@ -121,8 +125,8 @@ struct NativeResourceSearchPage: View {
             }
           }
         }
-        .frame(maxWidth: 860)
-        .padding(.horizontal, CinematicStyle.margin)
+        .frame(maxWidth: NativeDeviceLayout.isIPad ? 1040 : 860)
+        .padding(.horizontal, NativeDeviceLayout.isIPad ? 24 : CinematicStyle.margin)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
       }
@@ -287,21 +291,30 @@ struct NativeResourceSearchPage: View {
     }
   }
 
-  /// 关键词检索输入卡：有关键词时执行站点搜索，留空时支持一键浏览所选站点首页资源。
+  /// 仅当选择了单个站点时允许留空执行站点资源浏览（全站或多站均禁用浏览）。
+  private var canBrowseSingleSite: Bool {
+    querySiteIDs.count == 1
+  }
+
+  /// 关键词检索输入卡：有关键词时执行站点搜索，留空时仅在单选站点时允许浏览站点资源。
   private var searchInputCard: some View {
     let hasKeyword = !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let canSubmit = hasKeyword || canBrowseSingleSite
     return CinematicPanel(padding: 10) {
       HStack(spacing: 8) {
         Image(systemName: "magnifyingglass")
           .font(.subheadline)
           .foregroundStyle(.secondary)
-        TextField("输入关键词，留空可浏览站点首页", text: $keyword)
-          .textInputAutocapitalization(.never)
-          .autocorrectionDisabled()
-          .submitLabel(.search)
-          .focused($searchFocused)
-          .accessibilityIdentifier("native-resource-search-query")
-          .onSubmit { submitSearch() }
+        TextField(
+          canBrowseSingleSite ? "输入关键词，留空可浏览所选站点" : "输入关键词搜索（单选站点可浏览）",
+          text: $keyword
+        )
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .submitLabel(.search)
+        .focused($searchFocused)
+        .accessibilityIdentifier("native-resource-search-query")
+        .onSubmit { submitSearch() }
         if !keyword.isEmpty {
           Button {
             keyword = ""
@@ -372,23 +385,34 @@ struct NativeResourceSearchPage: View {
                 .font(.caption.weight(.semibold))
             }
           }
-          .foregroundStyle(hasKeyword ? .white : .primary)
+          .foregroundStyle(
+            hasKeyword
+              ? Color.white
+              : (canBrowseSingleSite ? Color.primary : Color.secondary.opacity(0.65))
+          )
           .padding(.horizontal, 12)
           .frame(minWidth: 50, minHeight: 32)
           .background {
             Capsule()
-              .fill(hasKeyword ? appearance.accentColor : NativeTheme.chipFill)
+              .fill(
+                hasKeyword
+                  ? appearance.accentColor
+                  : NativeTheme.chipFill.opacity(canBrowseSingleSite ? 1.0 : 0.45)
+              )
               .overlay {
                 if !hasKeyword {
-                  Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.6)
+                  Capsule().strokeBorder(
+                    NativeTheme.chipBorder.opacity(canBrowseSingleSite ? 1.0 : 0.45),
+                    lineWidth: 0.6)
                 }
               }
           }
           .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .disabled(isLoading)
-        .accessibilityLabel(hasKeyword ? "搜索资源" : "浏览站点首页")
+        .disabled(isLoading || !canSubmit)
+        .opacity(canSubmit || isLoading ? 1.0 : 0.65)
+        .accessibilityLabel(hasKeyword ? "搜索资源" : "浏览站点资源")
         .accessibilityIdentifier("native-resource-search-submit")
       }
     }
@@ -400,7 +424,7 @@ struct NativeResourceSearchPage: View {
     if queryMode != .lastResults {
       HStack(spacing: 8) {
         Image(
-          systemName: queryMode == .browseHome ? "globe" : "magnifyingglass"
+          systemName: queryMode.isBrowseHome ? "globe" : "magnifyingglass"
         )
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -437,8 +461,8 @@ struct NativeResourceSearchPage: View {
     switch queryMode {
     case .lastResults:
       return "上次搜索结果"
-    case .browseHome:
-      return "站点首页 · \(scope)"
+    case .browseHome(_, let siteName):
+      return "站点资源 · \(siteName)"
     case .keyword(let term):
       return "搜索「\(term)」· \(scope)"
     }
@@ -586,7 +610,7 @@ struct NativeResourceSearchPage: View {
           }
           ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-              if let siteName = item.torrent.siteName, !siteName.isEmpty {
+              if let siteName = resolvedSiteName(for: item) {
                 NativeAdaptiveBadge(siteName, tint: appearance.accentColor, filled: true)
               }
               if let promo = item.promoBadge {
@@ -684,16 +708,25 @@ struct NativeResourceSearchPage: View {
         if !results.isEmpty && filter.activeCount > 0 {
           Button("清空筛选条件") { filter.clearAll() }.frame(minHeight: 40)
         } else if results.isEmpty, case .lastResults = target, queryMode == .lastResults {
-          Button("浏览站点首页") {
+          Button("浏览站点资源") {
             keyword = ""
             submitSearch()
           }
           .font(.subheadline.weight(.medium))
-          .foregroundStyle(.primary)
+          .foregroundStyle(canBrowseSingleSite ? Color.primary : Color.secondary)
           .padding(.horizontal, 14)
           .frame(minHeight: 38)
-          .background(NativeTheme.chipFill, in: Capsule())
+          .background(
+            NativeTheme.chipFill.opacity(canBrowseSingleSite ? 1.0 : 0.45), in: Capsule()
+          )
           .buttonStyle(.plain)
+          .disabled(!canBrowseSingleSite)
+          .opacity(canBrowseSingleSite ? 1.0 : 0.65)
+          if !canBrowseSingleSite {
+            Text("请选择单个站点后即可浏览站点资源")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
         }
       }
       .frame(maxWidth: .infinity, minHeight: 150)
@@ -711,11 +744,37 @@ struct NativeResourceSearchPage: View {
     }
   }
 
-  /// 提交搜索或浏览站点首页：有关键词时按词检索，留空时浏览站点首页资源；立即清空旧结果并展示骨架屏。
+  /// 优先展示种子自带站点名，单站浏览缺少 `site_name` 时回退到已加载站点列表名称。
+  private func resolvedSiteName(for item: NativeResourceContext) -> String? {
+    if let name = item.torrent.siteName?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !name.isEmpty
+    {
+      return name
+    }
+    if let siteID = item.torrent.site,
+      let match = sites.first(where: { $0.id == siteID })
+    {
+      return match.name
+    }
+    if case .browseHome(_, let siteName) = queryMode, !siteName.isEmpty {
+      return siteName
+    }
+    return nil
+  }
+
+  /// 提交搜索或单站浏览：有关键词时按词检索，留空时仅在单选站点下浏览站点资源；立即清空旧结果并展示骨架屏。
   private func submitSearch() {
     let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+    let nextMode: QueryMode
+    if trimmed.isEmpty {
+      guard querySiteIDs.count == 1, let siteID = querySiteIDs.first else { return }
+      let siteName = sites.first(where: { $0.id == siteID })?.name ?? "#\(siteID)"
+      nextMode = .browseHome(siteID: siteID, siteName: siteName)
+    } else {
+      nextMode = .keyword(trimmed)
+    }
     searchFocused = false
-    queryMode = trimmed.isEmpty ? .browseHome : .keyword(trimmed)
+    queryMode = nextMode
     results = []
     feedback = nil
     loadFailed = false
@@ -773,14 +832,10 @@ struct NativeResourceSearchPage: View {
           responseContract: .payload,
           maximumResponseBytes: 12 * 1024 * 1024,
           timeout: 90)
-      case .browseHome:
-        var query = [
-          URLQueryItem(name: "keyword", value: ""),
-          URLQueryItem(name: "page", value: String(page)),
-        ]
-        if let siteQueryValue { query.append(URLQueryItem(name: "sites", value: siteQueryValue)) }
+      case .browseHome(let siteID, _):
+        let query = [URLQueryItem(name: "page", value: String(page))]
         return try APIEndpoint(
-          path: ["search", "title"],
+          path: ["site", "resource", String(siteID)],
           query: query,
           responseContract: .payload,
           maximumResponseBytes: 12 * 1024 * 1024,
@@ -823,8 +878,10 @@ struct NativeResourceSearchPage: View {
     defer { isLoading = false }
     do {
       let endpoint = try buildSearchEndpoint(page: 0)
+      let requirement: PermissionRequirement =
+        queryMode.isBrowseHome ? .init(category: .manage) : .init(category: .search)
       let envelope = try await session.request(
-        endpoint, as: NativeResourceSearchEnvelope.self, requiring: .init(category: .search)
+        endpoint, as: NativeResourceSearchEnvelope.self, requiring: requirement
       ).value
       try Task.checkCancellation()
       results = envelope.items
@@ -851,8 +908,10 @@ struct NativeResourceSearchPage: View {
     let nextPage = currentPage + 1
     do {
       let endpoint = try buildSearchEndpoint(page: nextPage)
+      let requirement: PermissionRequirement =
+        queryMode.isBrowseHome ? .init(category: .manage) : .init(category: .search)
       let envelope = try await session.request(
-        endpoint, as: NativeResourceSearchEnvelope.self, requiring: .init(category: .search)
+        endpoint, as: NativeResourceSearchEnvelope.self, requiring: requirement
       ).value
       try Task.checkCancellation()
       var existing = Set(results.map(\.id))
@@ -1574,13 +1633,29 @@ private struct NativeResourceContext: Decodable, Sendable, Identifiable {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     if let t = try c.decodeIfPresent(NativeTorrentPayload.self, forKey: .torrent) {
       torrent = t
+      meta =
+        (try? c.decodeIfPresent(Meta.self, forKey: .meta))
+        ?? (try? c.decodeIfPresent(Meta.self, forKey: .metaLegacy))
+      mediaInfo = try? c.decodeIfPresent(MediaBrief.self, forKey: .mediaInfo)
+    } else if let t = try c.decodeIfPresent(NativeTorrentPayload.self, forKey: .torrentLegacy) {
+      torrent = t
+      meta =
+        (try? c.decodeIfPresent(Meta.self, forKey: .meta))
+        ?? (try? c.decodeIfPresent(Meta.self, forKey: .metaLegacy))
+      mediaInfo = try? c.decodeIfPresent(MediaBrief.self, forKey: .mediaInfo)
     } else {
-      torrent = try c.decode(NativeTorrentPayload.self, forKey: .torrentLegacy)
+      let flat = try NativeTorrentPayload(from: decoder)
+      guard
+        flat.title != nil || flat.enclosure != nil || flat.pageURL != nil || flat.site != nil
+      else {
+        throw DecodingError.dataCorrupted(
+          DecodingError.Context(
+            codingPath: decoder.codingPath, debugDescription: "Missing torrent payload"))
+      }
+      torrent = flat
+      meta = nil
+      mediaInfo = nil
     }
-    meta =
-      (try? c.decodeIfPresent(Meta.self, forKey: .meta))
-      ?? (try? c.decodeIfPresent(Meta.self, forKey: .metaLegacy))
-    mediaInfo = try? c.decodeIfPresent(MediaBrief.self, forKey: .mediaInfo)
   }
 
   var recognizedMediaTitle: String? {
@@ -1633,11 +1708,17 @@ private struct NativeResourceContext: Decodable, Sendable, Identifiable {
   }
 
   var promoBadge: String? {
-    let dl = torrent.downloadVolumeFactor ?? 1.0
-    let ul = torrent.uploadVolumeFactor ?? 1.0
-    if dl == 0 && ul >= 2 { return "2X免费" }
-    if dl == 0 { return "免费" }
-    if dl > 0 && dl < 1 { return "\(Int((dl * 100).rounded()))%" }
+    if let dl = torrent.downloadVolumeFactor {
+      let ul = torrent.uploadVolumeFactor ?? 1.0
+      if dl == 0 && ul >= 2 { return "2X免费" }
+      if dl == 0 { return "免费" }
+      if dl > 0 && dl < 1 { return "\(Int((dl * 100).rounded()))%" }
+    }
+    if let vf = torrent.volumeFactor?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !vf.isEmpty, vf != "普通"
+    {
+      return vf
+    }
     return nil
   }
 
@@ -1687,6 +1768,7 @@ private struct NativeTorrentPayload: Codable, Sendable {
   let siteUA: String?
   let siteProxy: Bool?
   let siteOrder: Int?
+  let siteDownloader: String?
   let title: String?
   let description: String?
   let imdbid: String?
@@ -1699,30 +1781,109 @@ private struct NativeTorrentPayload: Codable, Sendable {
   let pubdate: String?
   let dateElapsed: String?
   let freedate: String?
+  let freedateDiff: String?
   let uploadVolumeFactor: Double?
   let downloadVolumeFactor: Double?
   let hitAndRun: Bool?
   let labels: [String]?
   let priOrder: Int?
+  let category: String?
+  let volumeFactor: String?
   let mediaSource: String?
   let mediaID: String?
 
   private enum CodingKeys: String, CodingKey {
     case site, title, description, imdbid, enclosure, size, seeders, peers, grabs, pubdate,
-      freedate,
-      labels
+      freedate, labels, category
     case siteName = "site_name"
     case siteCookie = "site_cookie"
     case siteUA = "site_ua"
     case siteProxy = "site_proxy"
     case siteOrder = "site_order"
+    case siteDownloader = "site_downloader"
     case pageURL = "page_url"
     case dateElapsed = "date_elapsed"
+    case freedateDiff = "freedate_diff"
     case uploadVolumeFactor = "uploadvolumefactor"
     case downloadVolumeFactor = "downloadvolumefactor"
     case hitAndRun = "hit_and_run"
     case priOrder = "pri_order"
+    case volumeFactor = "volume_factor"
     case mediaSource = "media_source"
     case mediaID = "media_id"
+  }
+
+  /// 兼容 `/api/v1/search/*` 与 `/api/v1/site/resource/{site_id}` 返回的不同站点字段类型（数字/字符串/布尔混排）。
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    func lossyInt(_ key: CodingKeys) -> Int? {
+      if let v = try? c.decodeIfPresent(Int.self, forKey: key) { return v }
+      if let v = try? c.decodeIfPresent(Double.self, forKey: key) { return Int(v) }
+      if let s = try? c.decodeIfPresent(String.self, forKey: key) {
+        return Int(s.trimmingCharacters(in: .whitespacesAndNewlines))
+      }
+      return nil
+    }
+    func lossyDouble(_ key: CodingKeys) -> Double? {
+      if let v = try? c.decodeIfPresent(Double.self, forKey: key) { return v }
+      if let v = try? c.decodeIfPresent(Int.self, forKey: key) { return Double(v) }
+      if let s = try? c.decodeIfPresent(String.self, forKey: key) {
+        return Double(s.trimmingCharacters(in: .whitespacesAndNewlines))
+      }
+      return nil
+    }
+    func lossyBool(_ key: CodingKeys) -> Bool? {
+      if let v = try? c.decodeIfPresent(Bool.self, forKey: key) { return v }
+      if let v = try? c.decodeIfPresent(Int.self, forKey: key) { return v != 0 }
+      if let s = try? c.decodeIfPresent(String.self, forKey: key) {
+        switch s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "true", "1", "yes": return true
+        case "false", "0", "no": return false
+        default: return nil
+        }
+      }
+      return nil
+    }
+    func lossyString(_ key: CodingKeys) -> String? {
+      if let v = try? c.decodeIfPresent(String.self, forKey: key) { return v }
+      if let v = try? c.decodeIfPresent(Int64.self, forKey: key) { return String(v) }
+      return nil
+    }
+
+    site = lossyInt(.site)
+    siteName = lossyString(.siteName)
+    siteCookie = lossyString(.siteCookie)
+    siteUA = lossyString(.siteUA)
+    siteProxy = lossyBool(.siteProxy)
+    siteOrder = lossyInt(.siteOrder)
+    siteDownloader = lossyString(.siteDownloader)
+    title = lossyString(.title)
+    description = lossyString(.description)
+    imdbid = lossyString(.imdbid)
+    enclosure = lossyString(.enclosure)
+    pageURL = lossyString(.pageURL)
+    size = lossyDouble(.size)
+    seeders = lossyInt(.seeders)
+    peers = lossyInt(.peers)
+    grabs = lossyInt(.grabs)
+    pubdate = lossyString(.pubdate)
+    dateElapsed = lossyString(.dateElapsed)
+    freedate = lossyString(.freedate)
+    freedateDiff = lossyString(.freedateDiff)
+    uploadVolumeFactor = lossyDouble(.uploadVolumeFactor)
+    downloadVolumeFactor = lossyDouble(.downloadVolumeFactor)
+    hitAndRun = lossyBool(.hitAndRun)
+    if let list = try? c.decodeIfPresent([String].self, forKey: .labels) {
+      labels = list
+    } else if let raw = try? c.decodeIfPresent(String.self, forKey: .labels), !raw.isEmpty {
+      labels = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+    } else {
+      labels = nil
+    }
+    priOrder = lossyInt(.priOrder)
+    category = lossyString(.category)
+    volumeFactor = lossyString(.volumeFactor)
+    mediaSource = lossyString(.mediaSource)
+    mediaID = lossyString(.mediaID)
   }
 }

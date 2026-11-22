@@ -533,4 +533,31 @@ struct NativeSessionLifecycleTests {
     }
     #expect(manager.currentSession == nil && store.savedIDs.isEmpty && store.removedIDs.isEmpty)
   }
+
+  /// SSE 流和外部播放客户端收到 401 或令牌失效 403 时，也必须立刻使当前会话过期并回到登录态。
+  @Test func expiresSessionWhenStreamEventsOrExternalClientGetsUnauthorized() async throws {
+    let instance = try SessionLifecycleTestData.instance()
+    let store = SessionTestTokenStore()
+    store.values[instance.id] = "synthetic.stream-saved"
+    let auth = try ControlledAuthentication(instance: instance)
+    let manager = SessionLifecycleTestData.manager(tokens: store, clients: [auth])
+    let session = try #require(try await manager.connect(instance))
+
+    LifecycleHTTPProtocol.state.prepare(status: 401)
+    let stream = try session.streamEvents(
+      APIEndpoint(path: ["agent", "chat", "stream"], responseContract: .eventStream))
+    await #expect(throws: APIError.unauthorized) {
+      for try await _ in stream {}
+    }
+    #expect(manager.currentSession == nil && store.values[instance.id] == nil)
+    #expect(manager.state == .loginRequired(instance, reason: .expired))
+
+    store.values[instance.id] = "synthetic.external-saved"
+    let auth2 = try ControlledAuthentication(instance: instance)
+    let manager2 = SessionLifecycleTestData.manager(tokens: store, clients: [auth2])
+    let session2 = try #require(try await manager2.connect(instance))
+    session2.handleExternalUnauthorized()
+    #expect(manager2.currentSession == nil && store.values[instance.id] == nil)
+    #expect(manager2.state == .loginRequired(instance, reason: .expired))
+  }
 }

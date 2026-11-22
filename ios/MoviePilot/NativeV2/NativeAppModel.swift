@@ -36,14 +36,22 @@ final class NativeAppModel: ObservableObject {
   private var lastUsageLookupAt: Date = .distantPast
   private var operationID = UUID()
   private var lastSessionValidationAt: Date = .distantPast
+  private var stateCancellable: AnyCancellable?
 
-  /// 依赖仍是既有地址簿/Keychain；原生模式不创建独立迁移副本。
+  /// 依赖仍是既有地址簿/Keychain；原生模式不创建独立迁移副本；直接观察会话状态变迁避免全屏弹窗遮挡时漏接过期事件。
   init() {
     let instances = InstanceStore()
     self.instances = instances
     selected = instances.selected
     saved = instances.instances
-    manager = NativeSessionManager(tokens: TokenStore())
+    let sessionManager = NativeSessionManager(tokens: TokenStore())
+    manager = sessionManager
+    stateCancellable = sessionManager.$state
+      .dropFirst()
+      .removeDuplicates()
+      .sink { [weak self] state in
+        self?.received(state)
+      }
   }
 
   /// 冷启动只尝试恢复上次实例令牌，绝不自动提交可选的已保存密码，同时保留冷启动携带的系统深链与快捷项意图。
@@ -208,32 +216,36 @@ final class NativeAppModel: ObservableObject {
     execute { [self] _ in _ = try await manager.requireSession().refreshUser() }
   }
 
-  /// 观察状态变迁：已认证时挂载原生系统集成；过期时立即清理本实例集成资料。
+  /// 观察状态变迁：已认证时挂载原生系统集成；过期时立即清理本实例集成资料并回到登录页。
   func received(_ state: NativeSessionState) {
     if case .authenticated = state, let session = manager.currentSession {
+      lastSessionValidationAt = Date()
       NotificationService.shared.attachNative(session)
       WidgetService.shared.reconcile(native: session)
       NativeSystemRouteHub.shared.resolvePending(for: session.instance.id.uuidString)
       reportUsageIfEnabled(for: session)
       return
     }
-    if case .loginRequired(_, .expired) = state, let selected {
+    if case .loginRequired(let instance, .expired) = state {
+      let target = selected ?? saved.first(where: { $0.id == instance.id })
+      if let target { selected = target }
       NativeAgentChatStore.resetAll()
       usageReportTask?.cancel()
       usageReportTask = nil
       reportedUsageScope = nil
       lastUsageLookupAt = .distantPast
+      lastSessionValidationAt = .distantPast
       NativeMediaPlaybackLauncher.shared.dismissSessionBoundPlayer(animated: false)
       NativePageDataCache.shared.clearAll()
       NativeMediaArtworkCache.shared.clearMemory()
       Self.dismissPresentedModals()
-      WidgetService.shared.endSession(instanceId: selected.id, clear: true)
+      WidgetService.shared.endSession(instanceId: instance.id, clear: true)
       WidgetService.shared.cancelOpen()
       NativeSystemRouteHub.shared.clearPending()
       NotificationService.shared.attachNative(nil)
       clearSecrets()
       form = .login
-      loadCredentials(selected)
+      if let target { loadCredentials(target) }
       messageKey = "登录已过期，请重新登录。"
     }
     if case .verificationRequired(_, let methods) = state {
@@ -242,7 +254,7 @@ final class NativeAppModel: ObservableObject {
     }
   }
 
-  /// 回到前台或深链/快捷项触发时，先校验令牌有效性（超时自动退出登录），再恢复未消费的系统集成。
+  /// 回到前台或深链/快捷项触发时，先校验令牌有效性（后台重启或超时自动退出登录），再恢复未消费的系统集成。
   func resumeSystemIntegrations() {
     guard let session = manager.currentSession else { return }
     if session.isTokenExpired() {
@@ -250,7 +262,7 @@ final class NativeAppModel: ObservableObject {
       return
     }
     let now = Date()
-    if now.timeIntervalSince(lastSessionValidationAt) > 30 {
+    if now.timeIntervalSince(lastSessionValidationAt) > 2 {
       lastSessionValidationAt = now
       Task { [weak self] in
         guard let self, let active = self.manager.currentSession,
@@ -328,11 +340,11 @@ final class NativeAppModel: ObservableObject {
     }
   }
 
-  /// 会话过期自动退出时收起可能仍盖在顶层的会话关联播放器或 UIKit 弹窗，保留独立本地/外部媒体播放。
+  /// 会话过期自动退出时收起所有场景窗口可能仍盖在顶层的会话关联播放器或 UIKit/SwiftUI 弹窗，保留独立本地/外部媒体播放。
   private static func dismissPresentedModals() {
     for scene in UIApplication.shared.connectedScenes {
       guard let windowScene = scene as? UIWindowScene else { continue }
-      for window in windowScene.windows where window.isKeyWindow {
+      for window in windowScene.windows {
         if let presented = window.rootViewController?.presentedViewController {
           if let player = presented as? MediaPlaybackViewController, !player.isSessionBound {
             continue

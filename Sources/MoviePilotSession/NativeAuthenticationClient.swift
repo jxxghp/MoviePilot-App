@@ -201,7 +201,19 @@ public final class NativeAuthenticationClient: NativeAuthenticating {
       case 401:
         if endpoint == .login { throw NativeAuthenticationError.credentials }
         throw APIError.unauthorized
-      case 403: throw APIError.forbidden
+      case 403:
+        var prefix = Data()
+        prefix.reserveCapacity(512)
+        do {
+          for try await byte in bytes {
+            if prefix.count >= 4_096 { break }
+            prefix.append(byte)
+          }
+        } catch {}
+        if APIClient.isTokenInvalidForbiddenBody(prefix) {
+          throw APIError.unauthorized
+        }
+        throw APIError.forbidden
       case let status where endpoint == .initialize && [400, 422].contains(status):
         throw NativeAuthenticationError.invalidInput
       case 404 where endpoint == .initialization: return (Data(), response)

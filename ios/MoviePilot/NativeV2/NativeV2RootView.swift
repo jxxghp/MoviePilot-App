@@ -169,7 +169,6 @@ struct NativeV2RootView: View {
     .environment(\.locale, Locale(identifier: model.language.rawValue))
     .nativeAppearanceRoot()
     .onChange(of: manager.state) { state in
-      model.received(state)
       if case .authenticated(let snapshot) = state, snapshot.user.isSuperuser {
         return
       }
