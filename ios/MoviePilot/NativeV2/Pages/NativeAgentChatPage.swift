@@ -8,26 +8,644 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+/// 按当前认证会话作用域常驻的智能助手对话状态存储：关闭弹窗时保持 SSE 流与消息队列存活，再次打开或切回历史会话时无缝恢复；登出/切服自动重置。
+@MainActor
+final class NativeAgentChatStore: ObservableObject {
+  private static var current: NativeAgentChatStore?
+
+  static func shared(for session: NativeSession) -> NativeAgentChatStore {
+    if let existing = current, existing.session.scope == session.scope {
+      return existing
+    }
+    current?.cancelTasks()
+    let created = NativeAgentChatStore(session: session)
+    current = created
+    return created
+  }
+
+  static func resetAll() {
+    current?.cancelTasks()
+    current = nil
+  }
+
+  let session: NativeSession
+
+  @Published fileprivate var activeSessionID = "ios-\(UUID().uuidString.prefix(12).lowercased())"
+  @Published fileprivate var messages: [NativeAgentMessage] = []
+  @Published fileprivate var sessions: [NativeAgentSessionSummary] = []
+  @Published fileprivate var commands: [NativeAgentCommandItem] = []
+  @Published fileprivate var isSending = false
+  @Published fileprivate var isLoadingInitialSession = true
+  @Published fileprivate var isLoadingSessions = false
+  @Published fileprivate var feedback: NativeAgentFeedback?
+
+  private var sendTask: Task<Void, Never>?
+  private var processingPollTask: Task<Void, Never>?
+  private var hasBootstrapped = false
+
+  private init(session: NativeSession) {
+    self.session = session
+  }
+
+  private var lastSessionStorageKey: String {
+    "nativeV2.agent.lastSession|\(session.scope.instanceID.uuidString)|\(session.scope.userID)"
+  }
+
+  func cancelTasks() {
+    sendTask?.cancel()
+    sendTask = nil
+    processingPollTask?.cancel()
+    processingPollTask = nil
+    isSending = false
+  }
+
+  func loadBootstrap() async {
+    if hasBootstrapped && (!messages.isEmpty || isSending) {
+      isLoadingInitialSession = false
+      async let cmds: () = loadCommands()
+      async let sess: () = loadSessions()
+      _ = await (cmds, sess)
+      return
+    }
+    hasBootstrapped = true
+    defer { isLoadingInitialSession = false }
+    async let cmds: () = loadCommands()
+    async let sess: () = loadSessions()
+    _ = await (cmds, sess)
+    guard messages.isEmpty && !isSending else { return }
+    let savedID = UserDefaults.standard.string(forKey: lastSessionStorageKey)
+    let targetID: String? =
+      if let savedID, !savedID.isEmpty, sessions.contains(where: { $0.sessionID == savedID }) {
+        savedID
+      } else {
+        sessions.first?.sessionID
+      }
+    if let targetID {
+      await openSession(targetID, silentOnFailure: true)
+    }
+  }
+
+  func loadCommands() async {
+    do {
+      let endpoint = try APIEndpoint(path: ["message", "agent", "commands"])
+      commands = try await session.request(endpoint, as: [NativeAgentCommandItem].self).value
+    } catch {
+      return
+    }
+  }
+
+  func loadSessions() async {
+    isLoadingSessions = true
+    defer { isLoadingSessions = false }
+    do {
+      let endpoint = try APIEndpoint(
+        path: ["message", "agent", "sessions"],
+        query: [URLQueryItem(name: "page", value: "1"), URLQueryItem(name: "count", value: "30")])
+      sessions = try await session.request(endpoint, as: [NativeAgentSessionSummary].self).value
+    } catch {
+      return
+    }
+  }
+
+  func openSession(_ sessionID: String, silentOnFailure: Bool = false) async {
+    let isSameActiveSession = sessionID == activeSessionID
+    if isSameActiveSession && isSending && sendTask != nil && !messages.isEmpty {
+      feedback = nil
+      return
+    }
+    do {
+      let endpoint = try APIEndpoint(path: ["message", "agent", "sessions", sessionID])
+      let detail = try await session.request(endpoint, as: NativeAgentSessionDetailRaw.self).value
+      let resolvedID = detail.sessionID ?? sessionID
+      let sameSession = resolvedID == activeSessionID || sessionID == activeSessionID
+      let fetched = detail.messages.map { $0.toDisplayMessage() }.filter {
+        $0.isUser || $0.hasVisibleContent
+      }
+
+      if !sameSession {
+        sendTask?.cancel()
+        sendTask = nil
+        processingPollTask?.cancel()
+        processingPollTask = nil
+        isSending = false
+      }
+
+      activeSessionID = resolvedID
+      UserDefaults.standard.set(activeSessionID, forKey: lastSessionStorageKey)
+
+      if !fetched.isEmpty || !sameSession || (!isSending && !detail.isProcessing) {
+        messages = fetched
+      }
+      feedback = nil
+
+      if detail.isProcessing {
+        isSending = true
+        if sendTask == nil {
+          startProcessingPoll(for: resolvedID)
+        }
+      } else if sendTask == nil {
+        processingPollTask?.cancel()
+        processingPollTask = nil
+        isSending = false
+      }
+    } catch {
+      if !silentOnFailure {
+        feedback = NativeAgentFeedback(isError: true, message: "读取会话记录失败。")
+      }
+    }
+  }
+
+  private func startProcessingPoll(for sessionID: String) {
+    processingPollTask?.cancel()
+    processingPollTask = Task { [weak self] in
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(2))
+        guard !Task.isCancelled, let self, self.activeSessionID == sessionID else { break }
+        guard self.sendTask == nil else { break }
+        guard
+          let endpoint = try? APIEndpoint(path: ["message", "agent", "sessions", sessionID]),
+          let detail = try? await self.session.request(
+            endpoint, as: NativeAgentSessionDetailRaw.self
+          ).value
+        else { continue }
+        guard !Task.isCancelled, self.activeSessionID == sessionID else { break }
+        let fetched = detail.messages.map { $0.toDisplayMessage() }.filter {
+          $0.isUser || $0.hasVisibleContent
+        }
+        if !fetched.isEmpty {
+          self.messages = fetched
+        }
+        if !detail.isProcessing {
+          self.isSending = false
+          self.processingPollTask = nil
+          await self.loadSessions()
+          break
+        }
+      }
+    }
+  }
+
+  fileprivate func deleteSession(_ item: NativeAgentSessionSummary) async {
+    do {
+      let endpoint = try APIEndpoint(
+        path: ["message", "agent", "sessions", item.sessionID], method: .delete)
+      try await session.perform(endpoint)
+      sessions.removeAll { $0.sessionID == item.sessionID }
+      if activeSessionID == item.sessionID { startNewSession() }
+      feedback = NativeAgentFeedback(isError: false, message: "已删除会话。")
+    } catch {
+      feedback = NativeAgentFeedback(isError: true, message: "删除会话失败。")
+    }
+  }
+
+  func startNewSession() {
+    sendTask?.cancel()
+    sendTask = nil
+    processingPollTask?.cancel()
+    processingPollTask = nil
+    isSending = false
+    activeSessionID = "ios-\(UUID().uuidString.prefix(12).lowercased())"
+    UserDefaults.standard.removeObject(forKey: lastSessionStorageKey)
+    messages = []
+    feedback = nil
+  }
+
+  func stopCurrentTask() async {
+    sendTask?.cancel()
+    sendTask = nil
+    processingPollTask?.cancel()
+    processingPollTask = nil
+    isSending = false
+    do {
+      let endpoint = try APIEndpoint(
+        path: ["message", "agent", "sessions", activeSessionID, "stop"], method: .post)
+      try await session.perform(endpoint)
+      feedback = NativeAgentFeedback(isError: false, message: "已停止当前助手任务。")
+    } catch {
+      return
+    }
+  }
+
+  fileprivate func sendMessage(
+    _ rawText: String,
+    uploads: [NativeAgentUploadedAttachment],
+    displayText: String? = nil,
+    choiceSelection: JSONValue? = nil,
+    originalMessageID: String? = nil
+  ) {
+    let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty || !uploads.isEmpty else { return }
+
+    let isSteeringFollowUp = isSending
+    feedback = nil
+
+    let userAttachments = uploads.map {
+      NativeAgentAttachmentItem(
+        kind: $0.kind, url: $0.url, downloadURL: $0.downloadURL, name: $0.name,
+        mimeType: $0.mimeType, size: $0.size)
+    }
+    let userDisplay = displayText ?? (text.isEmpty ? "（已发送附件）" : text)
+    messages.append(
+      NativeAgentMessage(
+        id: UUID().uuidString,
+        isUser: true,
+        content: userDisplay,
+        tools: [],
+        segments: userDisplay.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          ? [] : [.text(userDisplay)],
+        attachments: userAttachments,
+        choices: [],
+        isProtected: false
+      ))
+
+    var payload: [String: JSONValue] = [
+      "text": .string(text),
+      "display_text": .string(userDisplay),
+      "session_id": .string(activeSessionID),
+      "echo_user": .bool(true),
+    ]
+    let imageRefs = uploads.filter { $0.kind == "image" }.map(\.ref)
+    if !imageRefs.isEmpty {
+      payload["images"] = .array(imageRefs.map(JSONValue.string))
+    }
+    let audioRefs = uploads.filter { $0.kind == "audio" }.map(\.ref)
+    if !audioRefs.isEmpty {
+      payload["audio_refs"] = .array(audioRefs.map(JSONValue.string))
+    }
+    let fileObjs: [JSONValue] = uploads.filter { $0.kind != "image" && $0.kind != "audio" }.map {
+      u in
+      var obj: [String: JSONValue] = ["ref": .string(u.ref)]
+      if let n = u.name { obj["name"] = .string(n) }
+      if let m = u.mimeType { obj["mime_type"] = .string(m) }
+      if let s = u.size { obj["size"] = .number(Double(s)) }
+      if let lp = u.localPath { obj["local_path"] = .string(lp) }
+      obj["status"] = .string("ready")
+      return .object(obj)
+    }
+    if !fileObjs.isEmpty { payload["files"] = .array(fileObjs) }
+    if let choiceSelection { payload["choice_selection"] = choiceSelection }
+    if let originalMessageID { payload["original_message_id"] = .string(originalMessageID) }
+
+    if isSteeringFollowUp {
+      Task { [weak self] in
+        await self?.sendSteeringRequest(payload: payload)
+      }
+      return
+    }
+
+    let assistantID = UUID().uuidString
+    messages.append(
+      NativeAgentMessage(
+        id: assistantID,
+        isUser: false,
+        content: "",
+        tools: [],
+        segments: [],
+        attachments: [],
+        choices: [],
+        isProtected: false
+      ))
+    isSending = true
+    processingPollTask?.cancel()
+    processingPollTask = nil
+
+    sendTask?.cancel()
+    sendTask = Task { [weak self] in
+      await self?.consumeAgentStream(payload: payload, assistantID: assistantID)
+    }
+  }
+
+  private func sendSteeringRequest(payload: [String: JSONValue]) async {
+    do {
+      let body = try JSONEncoder().encode(payload)
+      let ep = try APIEndpoint(
+        path: ["message", "agent", "stream"], method: .post, body: body,
+        responseContract: .eventStream, timeout: 60)
+      let stream = try session.streamEvents(
+        ep, extraHeaders: ["X-MoviePilot-Agent-Interaction": "1"])
+      for try await evt in stream {
+        if evt.event == "steering" || evt.controlHeader == "steering" {
+          feedback = NativeAgentFeedback(isError: false, message: "已将追问补充传达给正在执行的智能助手。")
+          break
+        }
+      }
+    } catch {
+      feedback = NativeAgentFeedback(isError: true, message: "发送追问补充失败。")
+    }
+  }
+
+  private func consumeAgentStream(payload: [String: JSONValue], assistantID: String) async {
+    defer {
+      isSending = false
+      sendTask = nil
+    }
+    do {
+      let body = try JSONEncoder().encode(payload)
+      let endpoint = try APIEndpoint(
+        path: ["message", "agent", "stream"],
+        method: .post,
+        body: body,
+        responseContract: .eventStream,
+        maximumResponseBytes: 8 * 1024 * 1024,
+        timeout: 120)
+      let stream = try session.streamEvents(
+        endpoint,
+        extraHeaders: ["X-MoviePilot-Agent-Interaction": "1"])
+
+      for try await sse in stream {
+        guard !Task.isCancelled else { break }
+        applySSEEvent(sse, assistantID: assistantID)
+      }
+
+      if let idx = messages.firstIndex(where: { $0.id == assistantID }) {
+        for ti in messages[idx].tools.indices where messages[idx].tools[ti].status == "running" {
+          messages[idx].tools[ti].status = messages[idx].tools[ti].structured ? "error" : "done"
+        }
+        let msg = messages[idx]
+        if msg.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          && msg.attachments.isEmpty && msg.choices.isEmpty
+        {
+          NativeAgentChatPage.appendTextSegment(to: &messages[idx], delta: "已完成处理。")
+        }
+      }
+      await saveDisplaySnapshotToServer()
+      await loadSessions()
+    } catch is CancellationError {
+      return
+    } catch let apiError as APIError {
+      handleStreamError(apiError.userVisibleDescription, assistantID: assistantID)
+    } catch {
+      handleStreamError("智能助手连接中断，请检查服务状态或大模型配置。", assistantID: assistantID)
+    }
+  }
+
+  /// 对齐 Web `AgentAssistantPanel.vue`：将当前会话的展示消息同步到服务端，确保冷重启或切回历史会话时消息列表完整。
+  private func saveDisplaySnapshotToServer() async {
+    let visibleMessages = messages.filter { ($0.isUser || $0.hasVisibleContent) && !$0.isProtected }
+    guard !activeSessionID.isEmpty, !visibleMessages.isEmpty else { return }
+    let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+    let serialized: [JSONValue] = visibleMessages.enumerated().map { index, msg in
+      let toolsJSON: [JSONValue] = msg.tools.map { tool in
+        var obj: [String: JSONValue] = [
+          "id": .string(tool.id),
+          "message": .string(tool.message),
+          "status": .string(tool.status),
+          "structured": .bool(tool.structured),
+        ]
+        if let name = tool.toolName, !name.isEmpty {
+          obj["tool_name"] = .string(name)
+        }
+        return .object(obj)
+      }
+      let segmentsJSON: [JSONValue] = msg.segments.map { seg in
+        switch seg {
+        case .text(let text):
+          return .object(["type": .string("text"), "content": .string(text)])
+        case .tool(let idx):
+          return .object([
+            "type": .string("tool"), "content": .string(""), "toolIndex": .number(Double(idx)),
+          ])
+        }
+      }
+      let attachmentsJSON: [JSONValue] = msg.attachments.map { att in
+        var obj: [String: JSONValue] = [
+          "kind": .string(att.kind),
+          "url": .string(att.url),
+        ]
+        if let d = att.downloadURL { obj["download_url"] = .string(d) }
+        if let n = att.name { obj["name"] = .string(n) }
+        if let m = att.mimeType { obj["mime_type"] = .string(m) }
+        if let s = att.size { obj["size"] = .number(Double(s)) }
+        return .object(obj)
+      }
+      return .object([
+        "id": .string(msg.id),
+        "role": .string(msg.isUser ? "user" : "assistant"),
+        "content": .string(msg.content),
+        "createdAt": .number(Double(nowMs - Int64((visibleMessages.count - index) * 1000))),
+        "status": .string("done"),
+        "tools": .array(toolsJSON),
+        "segments": .array(segmentsJSON),
+        "attachments": .array(attachmentsJSON),
+      ])
+    }
+    let firstUserText =
+      visibleMessages.first(where: {
+        $0.isUser && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      })?
+      .content.trimmingCharacters(in: .whitespacesAndNewlines) ?? "新会话"
+    let title = String(firstUserText.prefix(40))
+    let bodyObj: [String: JSONValue] = [
+      "title": .string(title),
+      "messages": .array(serialized),
+    ]
+    guard let body = try? JSONEncoder().encode(bodyObj),
+      let endpoint = try? APIEndpoint(
+        path: ["message", "agent", "sessions", activeSessionID, "display"],
+        method: .put,
+        body: body)
+    else { return }
+    try? await session.perform(endpoint)
+  }
+
+  private func handleStreamError(_ text: String, assistantID: String) {
+    if let idx = messages.firstIndex(where: { $0.id == assistantID }),
+      messages[idx].content.isEmpty && messages[idx].tools.isEmpty
+    {
+      messages.remove(at: idx)
+    }
+    feedback = NativeAgentFeedback(isError: true, message: text)
+  }
+
+  private func applySSEEvent(_ sse: APISSEEvent, assistantID: String) {
+    guard let idx = messages.firstIndex(where: { $0.id == assistantID }) else { return }
+    let obj = (try? JSONSerialization.jsonObject(with: Data(sse.data.utf8))) as? [String: Any]
+    let eventName = (obj?["type"] as? String ?? sse.event).lowercased()
+
+    switch eventName {
+    case "start":
+      if let sid = obj?["session_id"] as? String, !sid.isEmpty {
+        activeSessionID = sid
+        UserDefaults.standard.set(sid, forKey: lastSessionStorageKey)
+        Task { [weak self] in
+          await self?.saveDisplaySnapshotToServer()
+        }
+      }
+    case "thinking":
+      break
+    case "tool":
+      let rawToolID =
+        NativeAgentChatPage.nonEmptyString(obj?["tool_id"])
+        ?? NativeAgentChatPage.nonEmptyString(obj?["tool_call_id"])
+        ?? NativeAgentChatPage.nonEmptyString(obj?["id"])
+      let toolName = NativeAgentChatPage.nonEmptyString(obj?["tool_name"])
+      let rawStatus = (obj?["status"] as? String ?? "").lowercased()
+      let normalizedMessage = NativeAgentChatPage.normalizeToolMessage(
+        NativeAgentChatPage.nonEmptyString(obj?["message"]) ?? toolName ?? "")
+
+      if let toolID = rawToolID {
+        let targetIdx =
+          messages.firstIndex(where: { $0.tools.contains(where: { $0.id == toolID }) }) ?? idx
+        let status = rawStatus == "error" ? "error" : (rawStatus == "done" ? "done" : "running")
+        if let ti = messages[targetIdx].tools.firstIndex(where: { $0.id == toolID }) {
+          if status == "running" {
+            if messages[targetIdx].tools[ti].message.isEmpty && !normalizedMessage.isEmpty {
+              messages[targetIdx].tools[ti].message = normalizedMessage
+            }
+          } else {
+            messages[targetIdx].tools[ti].status = status
+          }
+        } else if status == "running" {
+          let entry = NativeAgentToolEntry(
+            id: toolID,
+            toolName: toolName,
+            message: normalizedMessage.isEmpty ? "调用工具" : normalizedMessage,
+            structured: true,
+            status: "running"
+          )
+          messages[targetIdx].tools.append(entry)
+          messages[targetIdx].segments.append(.tool(messages[targetIdx].tools.count - 1))
+        }
+      } else {
+        if rawStatus == "done" || rawStatus == "error" { break }
+        for ti in messages[idx].tools.indices where messages[idx].tools[ti].status == "running" {
+          messages[idx].tools[ti].status = "done"
+        }
+        guard !normalizedMessage.isEmpty else { break }
+        let entry = NativeAgentToolEntry(
+          id: "tool-\(UUID().uuidString)",
+          toolName: toolName,
+          message: normalizedMessage,
+          structured: false,
+          status: "running"
+        )
+        messages[idx].tools.append(entry)
+        messages[idx].segments.append(.tool(messages[idx].tools.count - 1))
+      }
+    case "delta":
+      for ti in messages[idx].tools.indices
+      where messages[idx].tools[ti].status == "running" && !messages[idx].tools[ti].structured {
+        messages[idx].tools[ti].status = "done"
+      }
+      if let delta = (obj?["content"] as? String) ?? (obj?["delta"] as? String)
+        ?? (obj?["text"] as? String),
+        !delta.isEmpty
+      {
+        NativeAgentChatPage.appendTextSegment(to: &messages[idx], delta: delta)
+      }
+    case "message_update":
+      let targetObj = (obj?["target_message"] as? [String: Any]) ?? obj
+      if let full = (targetObj?["content"] as? String) ?? (targetObj?["message"] as? String) {
+        messages[idx].content = full
+        messages[idx].segments = messages[idx].segments.filter {
+          if case .tool = $0 { return true }
+          return false
+        }
+        if !full.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          messages[idx].segments.append(.text(full))
+        }
+      }
+    case "attachment":
+      let rawAtt = (obj?["attachment"] as? [String: Any]) ?? obj
+      if let rawAtt, let url = rawAtt["url"] as? String, !url.isEmpty {
+        let item = NativeAgentAttachmentItem(
+          kind: (rawAtt["kind"] as? String) ?? "file",
+          url: url,
+          downloadURL: rawAtt["download_url"] as? String,
+          name: rawAtt["name"] as? String,
+          mimeType: rawAtt["mime_type"] as? String,
+          size: rawAtt["size"] as? Int)
+        if !messages[idx].attachments.contains(where: { $0.url == item.url }) {
+          messages[idx].attachments.append(item)
+        }
+      }
+    case "choice":
+      let rawChoice = (obj?["choice"] as? [String: Any]) ?? obj
+      if let rawChoice,
+        let rawData = try? JSONSerialization.data(withJSONObject: rawChoice),
+        let decoded = try? JSONDecoder().decode(NativeAgentChoiceCard.self, from: rawData)
+      {
+        if let ci = messages[idx].choices.firstIndex(where: { $0.id == decoded.id }) {
+          messages[idx].choices[ci] = decoded
+        } else {
+          messages[idx].choices.append(decoded)
+        }
+      }
+    case "interaction-protected":
+      messages[idx].isProtected = true
+      if let secret = (obj?["content"] as? String) ?? (obj?["message"] as? String), !secret.isEmpty
+      {
+        let prefix = messages[idx].content.isEmpty ? "" : "\n\n"
+        NativeAgentChatPage.appendTextSegment(to: &messages[idx], delta: prefix + secret)
+      }
+    case "steering":
+      feedback = NativeAgentFeedback(isError: false, message: "智能助手已接收你的实时补充指令。")
+    case "error":
+      let msg = (obj?["message"] as? String) ?? (obj?["error"] as? String) ?? "智能助手执行出错"
+      feedback = NativeAgentFeedback(isError: true, message: msg)
+      for ti in messages[idx].tools.indices where messages[idx].tools[ti].status == "running" {
+        messages[idx].tools[ti].status = "error"
+      }
+    case "done":
+      for ti in messages[idx].tools.indices where messages[idx].tools[ti].status == "running" {
+        messages[idx].tools[ti].status = messages[idx].tools[ti].structured ? "error" : "done"
+      }
+      if let finalMsg = (obj?["message"] as? String) ?? (obj?["content"] as? String),
+        !finalMsg.isEmpty, messages[idx].content.isEmpty
+      {
+        NativeAgentChatPage.appendTextSegment(to: &messages[idx], delta: finalMsg)
+      }
+    default:
+      if let content = obj?["content"] as? String, !content.isEmpty {
+        NativeAgentChatPage.appendTextSegment(to: &messages[idx], delta: content)
+      }
+    }
+  }
+
+  fileprivate func triggerChoiceCallback(
+    card: NativeAgentChoiceCard, button: NativeAgentChoiceButton, messageID: String
+  ) async {
+    do {
+      let body = try JSONEncoder().encode([
+        "session_id": activeSessionID,
+        "callback_data": button.callbackData,
+        "original_message_id": messageID,
+      ])
+      let ep = try APIEndpoint(
+        path: ["message", "agent", "callback"], method: .post, body: body)
+      let res = try await session.request(ep, as: NativeAgentCallbackResponse.self).value
+      if let mi = messages.firstIndex(where: { $0.id == messageID }),
+        let ci = messages[mi].choices.firstIndex(where: { $0.id == card.id })
+      {
+        messages[mi].choices[ci].selectedLabel = res.feedback?.selectedLabel ?? button.label
+      }
+      if !res.alreadySelected && !res.message.isEmpty {
+        let display = res.displayMessage.isEmpty ? "选择：\(button.label)" : res.displayMessage
+        sendMessage(
+          res.message,
+          uploads: [],
+          displayText: display,
+          choiceSelection: res.choiceSelection,
+          originalMessageID: messageID)
+      }
+    } catch {
+      feedback = NativeAgentFeedback(isError: true, message: "提交选择项失败，请稍后重试。")
+    }
+  }
+}
+
 /// 原生 AI Agent 对话页（八.1 全量对标 Web）：修复 `/api/v1/message/agent/*` 路由，支持真流式 SSE、工具调用进度、思考计时、Markdown/代码块渲染、交互选择卡、敏感保护交付、图片/文件上传与下载及原生语音录制与播放。
 @MainActor
 struct NativeAgentChatPage: View {
   let session: NativeSession
 
   @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @ObservedObject private var store: NativeAgentChatStore
   @StateObject private var audioBridge = NativeAgentAudioController()
-  @State private var activeSessionID = "ios-\(UUID().uuidString.prefix(12).lowercased())"
-  @State private var messages: [NativeAgentMessage] = []
-  @State private var sessions: [NativeAgentSessionSummary] = []
-  @State private var commands: [NativeAgentCommandItem] = []
   @State private var draftText: String
   @State private var pendingUploads: [NativeAgentUploadedAttachment] = []
   @State private var isUploadingAttachment = false
-  @State private var isSending = false
-  @State private var isLoadingInitialSession = true
-  @State private var sendTask: Task<Void, Never>?
   @State private var showsSessionsSheet = false
-  @State private var isLoadingSessions = false
-  @State private var feedback: NativeAgentFeedback?
   @State private var pendingDeleteSession: NativeAgentSessionSummary?
 
   // 多模态输入与附件预览
@@ -38,9 +656,19 @@ struct NativeAgentChatPage: View {
   @State private var shareFileItem: NativeAgentShareFileItem?
   @State private var downloadingAttachmentURL: String?
 
+  private var activeSessionID: String { store.activeSessionID }
+  private var messages: [NativeAgentMessage] { store.messages }
+  private var sessions: [NativeAgentSessionSummary] { store.sessions }
+  private var commands: [NativeAgentCommandItem] { store.commands }
+  private var isSending: Bool { store.isSending }
+  private var isLoadingInitialSession: Bool { store.isLoadingInitialSession }
+  private var isLoadingSessions: Bool { store.isLoadingSessions }
+  private var feedback: NativeAgentFeedback? { store.feedback }
+
   /// 初始化智能助手对话页；外部链接仅可预填输入草稿，绝不自动替用户发送消息。
   init(session: NativeSession, initialPrompt: String = "") {
     self.session = session
+    _store = ObservedObject(wrappedValue: NativeAgentChatStore.shared(for: session))
     _draftText = State(initialValue: initialPrompt)
   }
 
@@ -56,10 +684,10 @@ struct NativeAgentChatPage: View {
         ScrollViewReader { proxy in
           ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-              if isLoadingInitialSession && messages.isEmpty {
+              if isLoadingInitialSession && messages.isEmpty && !isSending {
                 NativeCardListSkeletonView(style: .chatBubbles)
                   .transition(.opacity)
-              } else if messages.isEmpty {
+              } else if messages.isEmpty && !isSending {
                 welcomeSection
               } else {
                 ForEach(messages) { message in
@@ -174,10 +802,9 @@ struct NativeAgentChatPage: View {
       NativeAgentActivityShareView(activityItems: [item.url])
     }
     .task {
-      await loadBootstrap()
+      await store.loadBootstrap()
     }
     .onDisappear {
-      sendTask?.cancel()
       audioBridge.stopAll()
     }
   }
@@ -349,7 +976,7 @@ struct NativeAgentChatPage: View {
                 Spacer()
                 Button {
                   UIPasteboard.general.string = message.content
-                  feedback = NativeAgentFeedback(isError: false, message: "已复制受保护内容。")
+                  store.feedback = NativeAgentFeedback(isError: false, message: "已复制受保护内容。")
                 } label: {
                   Label("复制", systemImage: "doc.on.doc")
                     .font(.caption2.weight(.semibold))
@@ -800,7 +1427,7 @@ struct NativeAgentChatPage: View {
         Text(feedback.message).font(.caption).foregroundStyle(.primary)
         Spacer(minLength: 0)
         Button {
-          self.feedback = nil
+          store.feedback = nil
         } label: {
           Image(systemName: "xmark").font(.caption2.weight(.semibold))
             .foregroundStyle(.secondary).frame(minWidth: 28, minHeight: 28)
@@ -811,107 +1438,30 @@ struct NativeAgentChatPage: View {
     .accessibilityIdentifier("native-agent-feedback")
   }
 
-  // MARK: - 网络与多模态流式逻辑（全部修复为 `/api/v1/message/agent/*`）
-
-  private var lastSessionStorageKey: String {
-    "nativeV2.agent.lastSession|\(session.scope.instanceID.uuidString)|\(session.scope.userID)"
-  }
-
-  private func loadBootstrap() async {
-    defer { isLoadingInitialSession = false }
-    async let cmds: () = loadCommands()
-    async let sess: () = loadSessions()
-    _ = await (cmds, sess)
-    guard messages.isEmpty && !isSending else { return }
-    let savedID = UserDefaults.standard.string(forKey: lastSessionStorageKey)
-    let targetID: String? =
-      if let savedID, !savedID.isEmpty, sessions.contains(where: { $0.sessionID == savedID }) {
-        savedID
-      } else {
-        sessions.first?.sessionID
-      }
-    if let targetID {
-      await openSession(targetID, silentOnFailure: true)
-    }
-  }
-
-  private func loadCommands() async {
-    do {
-      let endpoint = try APIEndpoint(path: ["message", "agent", "commands"])
-      commands = try await session.request(endpoint, as: [NativeAgentCommandItem].self).value
-    } catch {
-      return
-    }
-  }
+  // MARK: - 代理至会话常驻 Store（关闭弹窗不中断正在运行的 SSE 流与历史消息状态）
 
   private func loadSessions() async {
-    isLoadingSessions = true
-    defer { isLoadingSessions = false }
-    do {
-      let endpoint = try APIEndpoint(
-        path: ["message", "agent", "sessions"],
-        query: [URLQueryItem(name: "page", value: "1"), URLQueryItem(name: "count", value: "30")])
-      sessions = try await session.request(endpoint, as: [NativeAgentSessionSummary].self).value
-    } catch {
-      return
-    }
+    await store.loadSessions()
   }
 
   private func openSession(_ sessionID: String, silentOnFailure: Bool = false) async {
-    do {
-      let endpoint = try APIEndpoint(path: ["message", "agent", "sessions", sessionID])
-      let detail = try await session.request(endpoint, as: NativeAgentSessionDetailRaw.self).value
-      activeSessionID = detail.sessionID ?? sessionID
-      UserDefaults.standard.set(activeSessionID, forKey: lastSessionStorageKey)
-      messages = detail.messages.map { $0.toDisplayMessage() }.filter {
-        $0.isUser || $0.hasVisibleContent
-      }
-      feedback = nil
-    } catch {
-      if !silentOnFailure {
-        feedback = NativeAgentFeedback(isError: true, message: "读取会话记录失败。")
-      }
-    }
+    await store.openSession(sessionID, silentOnFailure: silentOnFailure)
   }
 
   private func deleteSession(_ item: NativeAgentSessionSummary) async {
-    do {
-      let endpoint = try APIEndpoint(
-        path: ["message", "agent", "sessions", item.sessionID], method: .delete)
-      try await session.perform(endpoint)
-      sessions.removeAll { $0.sessionID == item.sessionID }
-      if activeSessionID == item.sessionID { startNewSession() }
-      feedback = NativeAgentFeedback(isError: false, message: "已删除会话。")
-    } catch {
-      feedback = NativeAgentFeedback(isError: true, message: "删除会话失败。")
-    }
+    await store.deleteSession(item)
   }
 
   private func startNewSession() {
-    sendTask?.cancel()
-    isSending = false
-    activeSessionID = "ios-\(UUID().uuidString.prefix(12).lowercased())"
-    UserDefaults.standard.removeObject(forKey: lastSessionStorageKey)
-    messages = []
+    store.startNewSession()
     pendingUploads = []
     draftText = ""
-    feedback = nil
   }
 
   private func stopCurrentTask() async {
-    sendTask?.cancel()
-    isSending = false
-    do {
-      let endpoint = try APIEndpoint(
-        path: ["message", "agent", "sessions", activeSessionID, "stop"], method: .post)
-      try await session.perform(endpoint)
-      feedback = NativeAgentFeedback(isError: false, message: "已停止当前助手任务。")
-    } catch {
-      return
-    }
+    await store.stopCurrentTask()
   }
 
-  /// 发起真流式 SSE 对话（支持图片、语音、文件附件及运行中实时追问 steering）。
   private func sendMessage(
     _ rawText: String,
     displayText: String? = nil,
@@ -921,303 +1471,19 @@ struct NativeAgentChatPage: View {
     let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
     let uploads = pendingUploads
     guard !text.isEmpty || !uploads.isEmpty else { return }
-
-    let isSteeringFollowUp = isSending
     draftText = ""
     pendingUploads = []
-    feedback = nil
-
-    let userAttachments = uploads.map {
-      NativeAgentAttachmentItem(
-        kind: $0.kind, url: $0.url, downloadURL: $0.downloadURL, name: $0.name,
-        mimeType: $0.mimeType, size: $0.size)
-    }
-    let userDisplay = displayText ?? (text.isEmpty ? "（已发送附件）" : text)
-    messages.append(
-      NativeAgentMessage(
-        id: UUID().uuidString,
-        isUser: true,
-        content: userDisplay,
-        tools: [],
-        segments: userDisplay.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-          ? [] : [.text(userDisplay)],
-        attachments: userAttachments,
-        choices: [],
-        isProtected: false
-      ))
-
-    var payload: [String: JSONValue] = [
-      "text": .string(text),
-      "display_text": .string(userDisplay),
-      "session_id": .string(activeSessionID),
-      "echo_user": .bool(true),
-    ]
-    let imageRefs = uploads.filter { $0.kind == "image" }.map(\.ref)
-    if !imageRefs.isEmpty {
-      payload["images"] = .array(imageRefs.map(JSONValue.string))
-    }
-    let audioRefs = uploads.filter { $0.kind == "audio" }.map(\.ref)
-    if !audioRefs.isEmpty {
-      payload["audio_refs"] = .array(audioRefs.map(JSONValue.string))
-    }
-    let fileObjs: [JSONValue] = uploads.filter { $0.kind != "image" && $0.kind != "audio" }.map {
-      u in
-      var obj: [String: JSONValue] = ["ref": .string(u.ref)]
-      if let n = u.name { obj["name"] = .string(n) }
-      if let m = u.mimeType { obj["mime_type"] = .string(m) }
-      if let s = u.size { obj["size"] = .number(Double(s)) }
-      if let lp = u.localPath { obj["local_path"] = .string(lp) }
-      obj["status"] = .string("ready")
-      return .object(obj)
-    }
-    if !fileObjs.isEmpty { payload["files"] = .array(fileObjs) }
-    if let choiceSelection { payload["choice_selection"] = choiceSelection }
-    if let originalMessageID { payload["original_message_id"] = .string(originalMessageID) }
-
-    // 如果当前正在运行，发起并发 steering 请求而不打断主 SSE 流
-    if isSteeringFollowUp {
-      Task {
-        await sendSteeringRequest(payload: payload)
-      }
-      return
-    }
-
-    let assistantID = UUID().uuidString
-    messages.append(
-      NativeAgentMessage(
-        id: assistantID,
-        isUser: false,
-        content: "",
-        tools: [],
-        segments: [],
-        attachments: [],
-        choices: [],
-        isProtected: false
-      ))
-    isSending = true
-
-    sendTask?.cancel()
-    sendTask = Task {
-      await consumeAgentStream(payload: payload, assistantID: assistantID)
-    }
-  }
-
-  private func sendSteeringRequest(payload: [String: JSONValue]) async {
-    do {
-      let body = try JSONEncoder().encode(payload)
-      let ep = try APIEndpoint(
-        path: ["message", "agent", "stream"], method: .post, body: body,
-        responseContract: .eventStream, timeout: 60)
-      let stream = try session.streamEvents(
-        ep, extraHeaders: ["X-MoviePilot-Agent-Interaction": "1"])
-      for try await evt in stream {
-        if evt.event == "steering" || evt.controlHeader == "steering" {
-          feedback = NativeAgentFeedback(isError: false, message: "已将追问补充传达给正在执行的智能助手。")
-          break
-        }
-      }
-    } catch {
-      feedback = NativeAgentFeedback(isError: true, message: "发送追问补充失败。")
-    }
-  }
-
-  private func consumeAgentStream(payload: [String: JSONValue], assistantID: String) async {
-    defer { isSending = false }
-    do {
-      let body = try JSONEncoder().encode(payload)
-      let endpoint = try APIEndpoint(
-        path: ["message", "agent", "stream"],
-        method: .post,
-        body: body,
-        responseContract: .eventStream,
-        maximumResponseBytes: 8 * 1024 * 1024,
-        timeout: 120)
-      let stream = try session.streamEvents(
-        endpoint,
-        extraHeaders: ["X-MoviePilot-Agent-Interaction": "1"])
-
-      for try await sse in stream {
-        guard !Task.isCancelled else { break }
-        applySSEEvent(sse, assistantID: assistantID)
-      }
-
-      if let idx = messages.firstIndex(where: { $0.id == assistantID }) {
-        for ti in messages[idx].tools.indices where messages[idx].tools[ti].status == "running" {
-          messages[idx].tools[ti].status = messages[idx].tools[ti].structured ? "error" : "done"
-        }
-        let msg = messages[idx]
-        if msg.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-          && msg.attachments.isEmpty && msg.choices.isEmpty
-        {
-          Self.appendTextSegment(to: &messages[idx], delta: "已完成处理。")
-        }
-      }
-      await loadSessions()
-    } catch is CancellationError {
-      return
-    } catch let apiError as APIError {
-      handleStreamError(apiError.userVisibleDescription, assistantID: assistantID)
-    } catch {
-      handleStreamError("智能助手连接中断，请检查服务状态或大模型配置。", assistantID: assistantID)
-    }
-  }
-
-  private func handleStreamError(_ text: String, assistantID: String) {
-    if let idx = messages.firstIndex(where: { $0.id == assistantID }),
-      messages[idx].content.isEmpty && messages[idx].tools.isEmpty
-    {
-      messages.remove(at: idx)
-    }
-    feedback = NativeAgentFeedback(isError: true, message: text)
-  }
-
-  /// 完整处理后端全部 10+ 种 SSE 事件（start/thinking/tool/delta/message_update/attachment/choice/steering/interaction-protected/error/done）。
-  private func applySSEEvent(_ sse: APISSEEvent, assistantID: String) {
-    guard let idx = messages.firstIndex(where: { $0.id == assistantID }) else { return }
-    let obj = (try? JSONSerialization.jsonObject(with: Data(sse.data.utf8))) as? [String: Any]
-    let eventName = (obj?["type"] as? String ?? sse.event).lowercased()
-
-    switch eventName {
-    case "start":
-      if let sid = obj?["session_id"] as? String, !sid.isEmpty {
-        activeSessionID = sid
-        UserDefaults.standard.set(sid, forKey: lastSessionStorageKey)
-      }
-    case "thinking":
-      // 思考状态已由底部精简的「思考中」胶囊统一展示，不额外堆积大段思考提示。
-      break
-    case "tool":
-      let rawToolID =
-        Self.nonEmptyString(obj?["tool_id"])
-        ?? Self.nonEmptyString(obj?["tool_call_id"])
-        ?? Self.nonEmptyString(obj?["id"])
-      let toolName = Self.nonEmptyString(obj?["tool_name"])
-      let rawStatus = (obj?["status"] as? String ?? "").lowercased()
-      let normalizedMessage = Self.normalizeToolMessage(
-        Self.nonEmptyString(obj?["message"]) ?? toolName ?? "")
-
-      if let toolID = rawToolID {
-        let targetIdx =
-          messages.firstIndex(where: { $0.tools.contains(where: { $0.id == toolID }) }) ?? idx
-        let status = rawStatus == "error" ? "error" : (rawStatus == "done" ? "done" : "running")
-        if let ti = messages[targetIdx].tools.firstIndex(where: { $0.id == toolID }) {
-          if status == "running" {
-            if messages[targetIdx].tools[ti].message.isEmpty && !normalizedMessage.isEmpty {
-              messages[targetIdx].tools[ti].message = normalizedMessage
-            }
-          } else {
-            messages[targetIdx].tools[ti].status = status
-          }
-        } else if status == "running" {
-          let entry = NativeAgentToolEntry(
-            id: toolID,
-            toolName: toolName,
-            message: normalizedMessage.isEmpty ? "调用工具" : normalizedMessage,
-            structured: true,
-            status: "running"
-          )
-          messages[targetIdx].tools.append(entry)
-          messages[targetIdx].segments.append(.tool(messages[targetIdx].tools.count - 1))
-        }
-      } else {
-        if rawStatus == "done" || rawStatus == "error" { break }
-        for ti in messages[idx].tools.indices where messages[idx].tools[ti].status == "running" {
-          messages[idx].tools[ti].status = "done"
-        }
-        guard !normalizedMessage.isEmpty else { break }
-        let entry = NativeAgentToolEntry(
-          id: "tool-\(UUID().uuidString)",
-          toolName: toolName,
-          message: normalizedMessage,
-          structured: false,
-          status: "running"
-        )
-        messages[idx].tools.append(entry)
-        messages[idx].segments.append(.tool(messages[idx].tools.count - 1))
-      }
-    case "delta":
-      // 收到正文增量时把正在运行的非结构化工具标记置为完成，并保留工具/正文交替顺序
-      for ti in messages[idx].tools.indices
-      where messages[idx].tools[ti].status == "running" && !messages[idx].tools[ti].structured {
-        messages[idx].tools[ti].status = "done"
-      }
-      if let delta = (obj?["content"] as? String) ?? (obj?["delta"] as? String)
-        ?? (obj?["text"] as? String),
-        !delta.isEmpty
-      {
-        Self.appendTextSegment(to: &messages[idx], delta: delta)
-      }
-    case "message_update":
-      let targetObj = (obj?["target_message"] as? [String: Any]) ?? obj
-      if let full = (targetObj?["content"] as? String) ?? (targetObj?["message"] as? String) {
-        messages[idx].content = full
-        messages[idx].segments = messages[idx].segments.filter {
-          if case .tool = $0 { return true }
-          return false
-        }
-        if !full.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-          messages[idx].segments.append(.text(full))
-        }
-      }
-    case "attachment":
-      let rawAtt = (obj?["attachment"] as? [String: Any]) ?? obj
-      if let rawAtt, let url = rawAtt["url"] as? String, !url.isEmpty {
-        let item = NativeAgentAttachmentItem(
-          kind: (rawAtt["kind"] as? String) ?? "file",
-          url: url,
-          downloadURL: rawAtt["download_url"] as? String,
-          name: rawAtt["name"] as? String,
-          mimeType: rawAtt["mime_type"] as? String,
-          size: rawAtt["size"] as? Int)
-        if !messages[idx].attachments.contains(where: { $0.url == item.url }) {
-          messages[idx].attachments.append(item)
-        }
-      }
-    case "choice":
-      let rawChoice = (obj?["choice"] as? [String: Any]) ?? obj
-      if let rawChoice,
-        let rawData = try? JSONSerialization.data(withJSONObject: rawChoice),
-        let decoded = try? JSONDecoder().decode(NativeAgentChoiceCard.self, from: rawData)
-      {
-        if let ci = messages[idx].choices.firstIndex(where: { $0.id == decoded.id }) {
-          messages[idx].choices[ci] = decoded
-        } else {
-          messages[idx].choices.append(decoded)
-        }
-      }
-    case "interaction-protected":
-      messages[idx].isProtected = true
-      if let secret = (obj?["content"] as? String) ?? (obj?["message"] as? String), !secret.isEmpty
-      {
-        let prefix = messages[idx].content.isEmpty ? "" : "\n\n"
-        Self.appendTextSegment(to: &messages[idx], delta: prefix + secret)
-      }
-    case "steering":
-      feedback = NativeAgentFeedback(isError: false, message: "智能助手已接收你的实时补充指令。")
-    case "error":
-      let msg = (obj?["message"] as? String) ?? (obj?["error"] as? String) ?? "智能助手执行出错"
-      feedback = NativeAgentFeedback(isError: true, message: msg)
-      for ti in messages[idx].tools.indices where messages[idx].tools[ti].status == "running" {
-        messages[idx].tools[ti].status = "error"
-      }
-    case "done":
-      for ti in messages[idx].tools.indices where messages[idx].tools[ti].status == "running" {
-        messages[idx].tools[ti].status = messages[idx].tools[ti].structured ? "error" : "done"
-      }
-      if let finalMsg = (obj?["message"] as? String) ?? (obj?["content"] as? String),
-        !finalMsg.isEmpty, messages[idx].content.isEmpty
-      {
-        Self.appendTextSegment(to: &messages[idx], delta: finalMsg)
-      }
-    default:
-      if let content = obj?["content"] as? String, !content.isEmpty {
-        Self.appendTextSegment(to: &messages[idx], delta: content)
-      }
-    }
+    store.sendMessage(
+      rawText,
+      uploads: uploads,
+      displayText: displayText,
+      choiceSelection: choiceSelection,
+      originalMessageID: originalMessageID
+    )
   }
 
   /// 对标 Web `AgentAssistantPanel.vue`：提取非空字符串。
-  private static func nonEmptyString(_ raw: Any?) -> String? {
+  fileprivate static func nonEmptyString(_ raw: Any?) -> String? {
     guard let s = raw as? String else { return nil }
     let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
@@ -1230,7 +1496,7 @@ struct NativeAgentChatPage: View {
   }
 
   /// 追加文本增量到消息正文及有序片段，保留与工具调用之间的时间线边界。
-  private static func appendTextSegment(to message: inout NativeAgentMessage, delta: String) {
+  fileprivate static func appendTextSegment(to message: inout NativeAgentMessage, delta: String) {
     guard !delta.isEmpty else { return }
     message.content += delta
     if case .text(let existing) = message.segments.last {
@@ -1337,31 +1603,7 @@ struct NativeAgentChatPage: View {
   private func triggerChoiceCallback(
     card: NativeAgentChoiceCard, button: NativeAgentChoiceButton, messageID: String
   ) async {
-    do {
-      let body = try JSONEncoder().encode([
-        "session_id": activeSessionID,
-        "callback_data": button.callbackData,
-        "original_message_id": messageID,
-      ])
-      let ep = try APIEndpoint(
-        path: ["message", "agent", "callback"], method: .post, body: body)
-      let res = try await session.request(ep, as: NativeAgentCallbackResponse.self).value
-      if let mi = messages.firstIndex(where: { $0.id == messageID }),
-        let ci = messages[mi].choices.firstIndex(where: { $0.id == card.id })
-      {
-        messages[mi].choices[ci].selectedLabel = res.feedback?.selectedLabel ?? button.label
-      }
-      if !res.alreadySelected && !res.message.isEmpty {
-        let display = res.displayMessage.isEmpty ? "选择：\(button.label)" : res.displayMessage
-        sendMessage(
-          res.message,
-          displayText: display,
-          choiceSelection: res.choiceSelection,
-          originalMessageID: messageID)
-      }
-    } catch {
-      feedback = NativeAgentFeedback(isError: true, message: "提交选择项失败，请稍后重试。")
-    }
+    await store.triggerChoiceCallback(card: card, button: button, messageID: messageID)
   }
 
   // MARK: - 图片 / 文件 / 语音上传与下载
@@ -1378,7 +1620,7 @@ struct NativeAgentChatPage: View {
         compressed, fileName: "photo_\(Int(Date().timeIntervalSince1970)).jpg",
         mimeType: "image/jpeg")
     } catch {
-      feedback = NativeAgentFeedback(isError: true, message: "读取相册图片失败。")
+      store.feedback = NativeAgentFeedback(isError: true, message: "读取相册图片失败。")
     }
   }
 
@@ -1394,7 +1636,7 @@ struct NativeAgentChatPage: View {
         ?? "application/octet-stream"
       await uploadAttachmentData(data, fileName: url.lastPathComponent, mimeType: mime)
     } catch {
-      feedback = NativeAgentFeedback(isError: true, message: "读取本地文件失败。")
+      store.feedback = NativeAgentFeedback(isError: true, message: "读取本地文件失败。")
     }
   }
 
@@ -1416,7 +1658,7 @@ struct NativeAgentChatPage: View {
     } else {
       let ok = await audioBridge.startRecording()
       if !ok {
-        feedback = NativeAgentFeedback(isError: true, message: "无法启动麦克风录音，请在系统设置中授权麦克风权限。")
+        store.feedback = NativeAgentFeedback(isError: true, message: "无法启动麦克风录音，请在系统设置中授权麦克风权限。")
       }
     }
   }
@@ -1435,7 +1677,7 @@ struct NativeAgentChatPage: View {
       ).value
       pendingUploads.append(uploaded)
     } catch {
-      feedback = NativeAgentFeedback(isError: true, message: "上传附件「\(fileName)」失败。")
+      store.feedback = NativeAgentFeedback(isError: true, message: "上传附件「\(fileName)」失败。")
     }
   }
 
@@ -1462,7 +1704,7 @@ struct NativeAgentChatPage: View {
       let data = try await fetchAttachmentBytes(att)
       audioBridge.playAudioData(data, urlKey: att.url)
     } catch {
-      feedback = NativeAgentFeedback(isError: true, message: "加载语音附件失败。")
+      store.feedback = NativeAgentFeedback(isError: true, message: "加载语音附件失败。")
     }
   }
 
@@ -1479,7 +1721,7 @@ struct NativeAgentChatPage: View {
       try data.write(to: fileURL, options: .atomic)
       shareFileItem = NativeAgentShareFileItem(url: fileURL)
     } catch {
-      feedback = NativeAgentFeedback(isError: true, message: "下载附件失败。")
+      store.feedback = NativeAgentFeedback(isError: true, message: "下载附件失败。")
     }
   }
 
@@ -2332,16 +2574,19 @@ private struct NativeAgentSessionDetailRaw: Decodable, Sendable {
 
   let sessionID: String?
   let messages: [RawMessage]
+  let isProcessing: Bool
 
   private enum CodingKeys: String, CodingKey {
     case sessionID = "session_id"
     case messages
+    case isProcessing = "is_processing"
   }
 
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     sessionID = try? c.decodeIfPresent(String.self, forKey: .sessionID)
     messages = (try? c.decodeIfPresent([RawMessage].self, forKey: .messages)) ?? []
+    isProcessing = (try? c.decodeIfPresent(Bool.self, forKey: .isProcessing)) ?? false
   }
 }
 

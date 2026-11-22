@@ -429,10 +429,7 @@ struct NativeMediaDetailPage: View {
 
             if canSearchResources {
               NavigationLink {
-                NativeResourceSearchPage(
-                  session: session,
-                  target: .media(
-                    identity: identity, title: detail.title ?? "作品资源", season: nil))
+                resourceSearchDestination(detail)
               } label: {
                 detailCapsuleLabel(
                   title: "搜索资源",
@@ -448,6 +445,43 @@ struct NativeMediaDetailPage: View {
           }
         }
       }
+    }
+  }
+
+  /// 有明确媒体源编号时走 `/api/v1/search/media/{media_id}` 精确搜索，无有效媒体 ID 时回落 `/api/v1/search/title` 按片名搜索。
+  @ViewBuilder
+  private func resourceSearchDestination(_ detail: MediaDetailPayload) -> some View {
+    let resolvedTitle =
+      detail.title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+      ? detail.title! : "作品资源"
+    let resolvedSource =
+      (detail.mediaSource?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+      ? detail.mediaSource! : identity.source)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let resolvedID =
+      (detail.mediaID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+      ? detail.mediaID! : identity.mediaID)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    if !resolvedSource.isEmpty, !resolvedID.isEmpty, resolvedID != "0" {
+      NativeResourceSearchPage(
+        session: session,
+        target: .media(
+          identity: NativeMediaIdentity(
+            source: resolvedSource,
+            mediaID: resolvedID,
+            type: MediaSummaryItem.normalizeMediaType(detail.type) ?? identity.type
+          ),
+          title: resolvedTitle,
+          season: nil
+        )
+      )
+    } else {
+      NativeResourceSearchPage(
+        session: session,
+        target: .lastResults,
+        initialKeyword: detail.title ?? "",
+        browseHome: false
+      )
     }
   }
 

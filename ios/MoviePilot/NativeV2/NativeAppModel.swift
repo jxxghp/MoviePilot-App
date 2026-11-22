@@ -110,6 +110,7 @@ final class NativeAppModel: ObservableObject {
       NativeSystemRouteHub.shared.clearPending()
     }
     manager.disconnect()
+    NativeAgentChatStore.resetAll()
     NativeMediaPlaybackLauncher.shared.dismissSessionBoundPlayer(animated: false)
     NotificationService.shared.attachNative(nil)
     clearSecrets()
@@ -186,6 +187,7 @@ final class NativeAppModel: ObservableObject {
     guard let selected else { return }
     do {
       try manager.logout()
+      NativeAgentChatStore.resetAll()
       usageReportTask?.cancel()
       usageReportTask = nil
       reportedUsageScope = nil
@@ -216,6 +218,7 @@ final class NativeAppModel: ObservableObject {
       return
     }
     if case .loginRequired(_, .expired) = state, let selected {
+      NativeAgentChatStore.resetAll()
       usageReportTask?.cancel()
       usageReportTask = nil
       reportedUsageScope = nil

@@ -66,7 +66,7 @@ public enum MediaServerItemKind: Hashable, Sendable {
     case "episode": self = .episode
     case "musicalbum", "album": self = .musicAlbum
     case "audio", "track", "song", "music", "音乐": self = .audio
-    case "boxset", "collection", "合集": self = .boxSet
+    case "boxset", "boxsets", "collection", "collections", "合集", "系列": self = .boxSet
     case "folder", "directory": self = .folder
     default: self = .other(rawItemType ?? "")
     }
@@ -643,8 +643,9 @@ public struct MediaServerItemDetailDTO: Decodable, Identifiable, Hashable, Senda
     return "\(minutes) 分钟"
   }
 
-  /// 解析用于订阅或跳转 MoviePilot 外部元数据详情页的身份（优先 TMDB / 豆瓣）。
+  /// 解析用于订阅或跳转 MoviePilot 外部元数据详情页的身份（优先 TMDB / 豆瓣）；合集、目录与音频无对应的影视媒体源编号，统一返回 nil。
   public var resolvedExternalIdentity: (source: String, mediaID: String, type: String)? {
+    guard kind == .movie || kind.isTelevisionHierarchy else { return nil }
     let businessType = (mediaType == "电视剧" || kind.isTelevisionHierarchy) ? "电视剧" : "电影"
     if let mediaSource, !mediaSource.isEmpty, let mediaId, !mediaId.isEmpty, mediaId != "0" {
       return (mediaSource.lowercased(), mediaId, businessType)

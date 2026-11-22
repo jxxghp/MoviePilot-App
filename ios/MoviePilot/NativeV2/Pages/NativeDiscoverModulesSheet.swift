@@ -102,6 +102,7 @@ struct NativeDiscoverModulesSheet: View {
   @State private var isSaving = false
   @State private var saveError = false
   @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
 
   /// 以当前已载入的模块顺序初始化可编辑草稿。
   init(
@@ -113,66 +114,64 @@ struct NativeDiscoverModulesSheet: View {
     _modules = State(initialValue: initialModules)
   }
 
-  /// 紫玫瑰深色渐变底色、大圆角透色玻璃列表卡片、开关 + 原生拖拽手柄及底部说明。
+  /// 与「编辑仪表盘组件」完全统一的原生列表编排弹层：主题色图标与开关、无框透明行与充裕右侧留白，避免拖拽手柄溢出。
   var body: some View {
     NavigationStack {
       ZStack {
         CinematicBackground()
-        VStack(alignment: .leading, spacing: 14) {
+        List {
           if saveError {
-            CinematicPanel(padding: 11) {
+            Section {
               HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                Text("保存模块顺序失败，请稍后重试。").font(.subheadline)
+                Image(systemName: "exclamationmark.triangle.fill")
+                  .foregroundStyle(NativeTheme.warning)
+                Text("保存模块顺序失败，请稍后重试。")
+                  .font(.subheadline)
+                  .foregroundStyle(.primary)
                 Spacer(minLength: 0)
               }
+              .listRowBackground(Color.clear)
+              .accessibilityIdentifier("native-modules-error")
             }
-            .padding(.horizontal, CinematicStyle.margin)
-            .accessibilityIdentifier("native-modules-error")
           }
-          CinematicPanel(padding: 0, showsShadow: false) {
-            List {
-              ForEach($modules) { $item in
-                HStack(spacing: 12) {
-                  Image(systemName: item.id.symbol)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.primary.opacity(0.76))
-                    .frame(width: 24)
-                  Toggle(item.id.title, isOn: $item.enabled)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.primary)
-                    .tint(Color(red: 0.24, green: 0.84, blue: 0.48))
-                    .accessibilityIdentifier("native-module-toggle-\(item.id.rawValue)")
-                }
-                .padding(.vertical, 5)
-                .listRowBackground(Color.clear)
-                .listRowSeparatorTint(NativeTheme.divider)
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 14))
-                .deleteDisabled(true)
-              }
-              .onMove { source, destination in
-                modules.move(fromOffsets: source, toOffset: destination)
-              }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .environment(\.editMode, $editMode)
-          }
-          .padding(.horizontal, CinematicStyle.margin)
-          .frame(height: min(CGFloat(modules.count) * 56 + 14, 520))
-          .accessibilityIdentifier("native-modules-list")
 
-          Text("关闭的模块不在「发现」页显示，可拖动右侧手柄调整展示顺序。")
-            .font(.caption)
-            .foregroundStyle(.primary.opacity(0.58))
-            .padding(.horizontal, CinematicStyle.margin + 4)
-          Spacer(minLength: 0)
+          Section {
+            ForEach($modules) { $item in
+              HStack(spacing: 12) {
+                Image(systemName: item.id.symbol)
+                  .font(.body.weight(.medium))
+                  .foregroundStyle(appearance.accentColor)
+                  .frame(width: 24)
+                Text(item.id.title)
+                  .font(.subheadline.weight(.medium))
+                  .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Toggle("", isOn: $item.enabled)
+                  .labelsHidden()
+                  .tint(appearance.accentColor)
+                  .accessibilityIdentifier("native-module-toggle-\(item.id.rawValue)")
+              }
+              .listRowBackground(Color.clear)
+              .deleteDisabled(true)
+            }
+            .onMove { source, destination in
+              modules.move(fromOffsets: source, toOffset: destination)
+            }
+          } header: {
+            Text("开启或拖动调整模块顺序")
+              .font(.footnote)
+              .foregroundStyle(.secondary)
+          } footer: {
+            Text("隐藏的模块不会在「发现」页中显示，可随时重新开启。")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
         }
-        .frame(maxWidth: 680)
-        .frame(maxWidth: .infinity)
-        .padding(.top, 10)
+        .scrollContentBackground(.hidden)
+        .environment(\.editMode, $editMode)
+        .accessibilityIdentifier("native-modules-list")
       }
-      .navigationTitle("管理模块")
+      .navigationTitle("编辑发现模块")
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(.hidden, for: .navigationBar)
       .toolbar {

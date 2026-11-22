@@ -127,7 +127,11 @@ struct NativeResourceSearchPage: View {
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
-      .refreshable { await performSearch() }
+      .refreshable {
+        await Task { @MainActor in
+          await performSearch()
+        }.value
+      }
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-resource-search-scroll")
     }
@@ -233,8 +237,16 @@ struct NativeResourceSearchPage: View {
     }
   }
 
+  private static func isValidMediaIdentity(_ identity: NativeMediaIdentity) -> Bool {
+    let source = identity.source.trimmingCharacters(in: .whitespacesAndNewlines)
+    let mediaID = identity.mediaID.trimmingCharacters(in: .whitespacesAndNewlines)
+    return !source.isEmpty && !mediaID.isEmpty && mediaID != "0"
+  }
+
   private var targetIdentity: NativeMediaIdentity? {
-    if case .media(let identity, _, _) = target { return identity }
+    if case .media(let identity, _, _) = target, Self.isValidMediaIdentity(identity) {
+      return identity
+    }
     return nil
   }
 
@@ -774,7 +786,21 @@ struct NativeResourceSearchPage: View {
           maximumResponseBytes: 12 * 1024 * 1024,
           timeout: 90)
       }
-    case .media(let identity, _, let season):
+    case .media(let identity, let title, let season):
+      if !Self.isValidMediaIdentity(identity) {
+        var query = [
+          URLQueryItem(
+            name: "keyword", value: title.trimmingCharacters(in: .whitespacesAndNewlines)),
+          URLQueryItem(name: "page", value: String(page)),
+        ]
+        if let siteQueryValue { query.append(URLQueryItem(name: "sites", value: siteQueryValue)) }
+        return try APIEndpoint(
+          path: ["search", "title"],
+          query: query,
+          responseContract: .payload,
+          maximumResponseBytes: 12 * 1024 * 1024,
+          timeout: 90)
+      }
       var query = [
         URLQueryItem(name: "media_source", value: identity.source),
         URLQueryItem(name: "mtype", value: identity.type),

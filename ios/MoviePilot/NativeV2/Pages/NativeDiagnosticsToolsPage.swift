@@ -177,7 +177,11 @@ struct NativeDiagnosticsToolsPage: View {
         .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
-      .refreshable { await loadCurrentTool() }
+      .refreshable {
+        await Task { @MainActor in
+          await loadCurrentTool()
+        }.value
+      }
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-diag-scroll")
     }
@@ -1526,6 +1530,10 @@ struct NativeDiagnosticsToolsPage: View {
       if !netTargets.isEmpty, netResults.isEmpty {
         await runAllNetTests()
       }
+    } catch is CancellationError {
+      return
+    } catch let urlError as URLError where urlError.code == .cancelled {
+      return
     } catch {
       feedback = (true, "暂时无法载入网络测试目标。")
     }
@@ -1797,6 +1805,10 @@ struct NativeDiagnosticsToolsPage: View {
       let text = String(decoding: raw, as: UTF8.self)
       let rawLines = text.split(whereSeparator: \.isNewline).map(String.init)
       logEntries = NativeLogParser.parse(Array(rawLines.suffix(400)))
+    } catch is CancellationError {
+      return
+    } catch let urlError as URLError where urlError.code == .cancelled {
+      return
     } catch {
       if !silent { feedback = (true, "无法读取实时日志，请确认管理员权限与日志文件状态。") }
     }
@@ -1810,6 +1822,13 @@ struct NativeDiagnosticsToolsPage: View {
       schedules = try await session.request(
         ep, as: [NativeDiagSchedule].self, requiring: PermissionRequirement(category: .admin)
       ).value
+      if feedback?.isError == true {
+        feedback = nil
+      }
+    } catch is CancellationError {
+      return
+    } catch let urlError as URLError where urlError.code == .cancelled {
+      return
     } catch {
       feedback = (true, "无法读取定时服务清单。")
     }

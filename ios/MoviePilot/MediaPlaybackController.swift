@@ -1030,6 +1030,12 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     configureGlassButton(
       lockTopButton, symbol: "lock.open", accessibility: L10n.text("锁定屏幕"), diameter: 44,
       pointSize: 16)
+    lockTopButton.configurationUpdateHandler = { [weak self] button in
+      guard let self, var config = button.configuration else { return }
+      config.image = UIImage(systemName: self.isLocked ? "lock.fill" : "lock.open")
+      config.baseForegroundColor = .white
+      button.configuration = config
+    }
     lockTopButton.translatesAutoresizingMaskIntoConstraints = false
     lockTopButton.isHidden = true
     lockTopButton.addAction(
@@ -2360,22 +2366,21 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     pointSize: CGFloat
   ) {
     button.translatesAutoresizingMaskIntoConstraints = false
-    button.setImage(
-      UIImage(systemName: symbol)?.withConfiguration(
-        UIImage.SymbolConfiguration(pointSize: pointSize, weight: .medium)), for: .normal)
     button.accessibilityLabel = accessibility
-    styleAsGlassButton(button, diameter: diameter, pointSize: pointSize)
+    styleAsGlassButton(button, symbol: symbol, diameter: diameter, pointSize: pointSize)
   }
 
-  /// 对齐系统画中画的圆形玻璃按钮；新系统使用原生玻璃，旧系统回退到磨砂材质。
-  private func styleAsGlassButton(_ button: UIButton, diameter: CGFloat, pointSize: CGFloat) {
+  /// 对齐系统画中画的圆形玻璃按钮；新系统使用原生玻璃并仅通过 `UIButton.Configuration` 管理图标，避免旧版 `setImage` 残留覆盖动态切换的符号。
+  private func styleAsGlassButton(
+    _ button: UIButton, symbol: String, diameter: CGFloat, pointSize: CGFloat
+  ) {
     button.translatesAutoresizingMaskIntoConstraints = false
     button.tintColor = .white
     if #available(iOS 26.0, *) {
       var configuration = UIButton.Configuration.glass()
       configuration.cornerStyle = .capsule
       configuration.baseForegroundColor = .white
-      configuration.image = button.image(for: .normal)
+      configuration.image = UIImage(systemName: symbol)
       configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
         pointSize: pointSize, weight: .semibold)
       button.configuration = configuration
@@ -2385,6 +2390,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       ])
       return
     }
+    button.setImage(
+      UIImage(systemName: symbol)?.withConfiguration(
+        UIImage.SymbolConfiguration(pointSize: pointSize, weight: .medium)), for: .normal)
     button.backgroundColor = UIColor.black.withAlphaComponent(0.24)
     button.layer.cornerRadius = diameter / 2
     button.layer.cornerCurve = .continuous
@@ -2664,13 +2672,17 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     let symbol = locked ? "lock.fill" : "lock.open"
     let accessibility = locked ? L10n.text("解锁屏幕") : L10n.text("锁定屏幕")
     lockTopButton.accessibilityLabel = accessibility
-    let image = UIImage(
-      systemName: symbol,
-      withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold))
+    lockTopButton.isSelected = locked
     if var config = lockTopButton.configuration {
-      config.image = image
+      config.image = UIImage(systemName: symbol)
+      config.baseForegroundColor = .white
       lockTopButton.configuration = config
+      lockTopButton.setNeedsUpdateConfiguration()
+      lockTopButton.updateConfiguration()
     } else {
+      let image = UIImage(
+        systemName: symbol,
+        withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold))
       lockTopButton.setImage(image, for: .normal)
     }
   }

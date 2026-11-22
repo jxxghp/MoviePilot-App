@@ -1799,6 +1799,7 @@ private struct NativeDashboardWidgetsSheet: View {
                   .tint(appearance.accentColor)
               }
               .listRowBackground(Color.clear)
+              .deleteDisabled(true)
             }
             .onMove { source, destination in
               items.move(fromOffsets: source, toOffset: destination)

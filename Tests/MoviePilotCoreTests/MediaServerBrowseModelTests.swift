@@ -111,5 +111,21 @@ struct MediaServerBrowseModelTests {
     #expect(item.kind == .boxSet)
     #expect(item.childCount == 8)
     #expect(!item.kind.isDirectlyPlayable)
+
+    let detailJSON = """
+      {
+        "item_id": "9001",
+        "server": "Emby",
+        "item_type": "BoxSet",
+        "media_type": "合集",
+        "title": "哈利·波特合集",
+        "tmdb_id": "1241",
+        "child_count": 8
+      }
+      """
+    let boxDetail = try JSONDecoder().decode(
+      MediaServerItemDetailDTO.self, from: Data(detailJSON.utf8))
+    #expect(boxDetail.kind == .boxSet)
+    #expect(boxDetail.resolvedExternalIdentity == nil)
   }
 }
