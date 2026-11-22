@@ -50,4 +50,4 @@ xcodebuild build \
 
 MoviePilot-App 采用 [GNU General Public License v3.0（GPL-3.0-only）](LICENSE)。
 
-特别申明：整体UI设计风格参考了 [Rex iOS App](https://drivemby.com)。
+特别说明：UI设计风格参考了 [Rex iOS App](https://rexnow.tv)。
