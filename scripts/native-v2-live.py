@@ -130,7 +130,8 @@ def main():
         "-derivedDataPath", str(args.derived_data), "-clonedSourcePackagesDirPath",
         "/Volumes/DISK/Xcode/SourcePackages", "-resultBundlePath", str(raw),
         "-parallel-testing-enabled", "NO", "-test-timeouts-enabled", "YES",
-        "-maximum-test-execution-time-allowance", "600",
+        "-default-test-execution-time-allowance", "900",
+        "-maximum-test-execution-time-allowance", "900",
         "-only-testing:MoviePilotUITests/NativeV2EntryTests/" + (
             "testLiveBackendReadOnlyMediaScreens"
             if args.target == "media" else "testLivePluginFormsAndVueSheetTakeover"

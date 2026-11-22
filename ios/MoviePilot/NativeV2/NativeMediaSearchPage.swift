@@ -19,6 +19,8 @@ private struct NativeMediaSearchItem: Decodable, Sendable, Identifiable {
   let overview: String?
   let posterPath: String?
   let profilePath: String?
+  let avatar: MediaImageSet?
+  let images: MediaImageSet?
   let imageURL: String?
   let coverURL: String?
   let releaseTrackID: String?
@@ -44,6 +46,8 @@ private struct NativeMediaSearchItem: Decodable, Sendable, Identifiable {
     case voteAverage = "vote_average"
     case posterPath = "poster_path"
     case profilePath = "profile_path"
+    case avatar
+    case images
     case imageURL = "image_url"
     case coverURL = "cover_url"
     case releaseTrackID = "musicbrainz_release_track_id"
@@ -95,15 +99,25 @@ private struct NativeMediaSearchItem: Decodable, Sendable, Identifiable {
 
   /// 从后端图像字段选择第一个可代理的 HTTPS 地址，跳过空值或无效首选图。
   var artworkReference: String? {
+    let personSource = source ?? mediaSource
     let candidates: [String?]
     switch resultKind {
-    case .person: candidates = [profilePath, imageURL]
+    case .person:
+      candidates = [
+        profilePath,
+        avatar?.preferredURL(forSource: personSource),
+        images?.preferredURL(forSource: personSource),
+        imageURL,
+      ]
     case .music: candidates = [coverURL, posterPath, imageURL]
     case .artist: candidates = [imageURL, posterPath, coverURL, profilePath]
     case .media, .collection: candidates = [posterPath, imageURL]
     }
     for case let candidate? in candidates {
-      if candidate.utf8.count <= 8_192, let components = URLComponents(string: candidate),
+      let resolved =
+        NativeMediaDetailPage.resolveArtwork(
+          candidate, source: personSource ?? "themoviedb") ?? candidate
+      if resolved.utf8.count <= 8_192, let components = URLComponents(string: resolved),
         components.scheme == "https", components.host?.isEmpty == false,
         components.user == nil, components.password == nil, components.fragment == nil,
         components.port == nil || components.port == 443, let url = components.url
@@ -996,11 +1010,12 @@ struct NativeMediaSearchPage: View {
     submitSearch()
   }
 
-  /// 参照 Cinematic 全局搜索的人物圆形头像横栏，支持推入原生人物详情页。
+  /// 参照 Cinematic 全局搜索的人物圆形头像横栏，支持推入 TMDB / 豆瓣 / Bangumi / AniList 原生人物详情页。
   @ViewBuilder
   private func personTile(_ item: NativeMediaSearchItem) -> some View {
+    let personSource = item.source ?? item.mediaSource ?? "themoviedb"
     let resolvedAvatar = NativeMediaDetailPage.resolveArtwork(
-      item.artworkReference, source: item.mediaSource ?? "themoviedb")
+      item.artworkReference, source: personSource)
     let content = VStack(spacing: 6) {
       Group {
         if let reference = resolvedAvatar {
@@ -1026,12 +1041,15 @@ struct NativeMediaSearchPage: View {
     .accessibilityElement(children: .combine)
     .accessibilityIdentifier("native-media-search-result-\(item.id)")
 
-    if let personID = item.mediaID.flatMap(Int.init),
-      (item.mediaSource?.lowercased() ?? "themoviedb") == "themoviedb"
+    if let personID = (item.mediaID ?? item.publicID?.value).flatMap(Int.init),
+      MediaSourceEndpoint.supportsPersonDetail(source: personSource)
     {
       NavigationLink {
         NativePersonDetailPage(
-          session: session, personID: personID, fallbackName: item.displayTitle,
+          session: session,
+          source: personSource,
+          personID: personID,
+          fallbackName: item.displayTitle,
           fallbackAvatar: resolvedAvatar)
       } label: {
         content

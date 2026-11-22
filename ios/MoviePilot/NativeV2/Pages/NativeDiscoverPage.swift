@@ -458,7 +458,8 @@ struct NativeDiscoverPage: View {
       case .doubanShowing: railsByID["doubanShowing"] != nil
       case .doubanTop250: railsByID["doubanTop250"] != nil
       case .latest: railsByID["latest"] != nil
-      case .mediaLibrary: hasLibrary
+      case .mediaLibrary: hasLibrary && !content.providers.isEmpty
+      case .categories: !content.categories.isEmpty
       }
     }
     ForEach(activeModules, id: \.self) { module in
@@ -480,7 +481,9 @@ struct NativeDiscoverPage: View {
       case .latest:
         if let rail = railsByID["latest"] { posterRail(rail) }
       case .mediaLibrary:
-        mediaLibrary
+        mediaLibrarySection
+      case .categories:
+        categoriesSection
       }
     }
     let knownRailIDs: Set<String> = [
@@ -1031,68 +1034,70 @@ struct NativeDiscoverPage: View {
     return nil
   }
 
-  /// 媒体库先显示来源平台玻璃横卡，再显示带真实分类海报的多来源探索入口。
-  private var mediaLibrary: some View {
+  /// 独立「媒体库」模块：展示媒体服务器封面横卡。
+  private var mediaLibrarySection: some View {
     VStack(alignment: .leading, spacing: 14) {
-      if !content.providers.isEmpty {
-        sectionHeader("媒体库")
-        ScrollView(.horizontal) {
-          LazyHStack(spacing: 12) {
-            ForEach(content.providers) { provider in
+      sectionHeader("媒体库")
+      ScrollView(.horizontal) {
+        LazyHStack(spacing: 12) {
+          ForEach(content.providers) { provider in
+            Group {
+              if let onOpenProvider {
+                Button {
+                  onOpenProvider(provider.id)
+                } label: {
+                  providerArtwork(provider)
+                }
+                .buttonStyle(.plain)
+              } else {
+                providerArtwork(provider)
+              }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("native-discover-provider-\(provider.id)")
+          }
+        }
+        .padding(.horizontal, legacyHorizontalPadding)
+      }
+      .modifier(NativeHorizontalEdgeMargins(horizontal: CinematicStyle.margin))
+      .scrollIndicators(.hidden)
+    }
+  }
+
+  /// 独立「分类浏览」模块：展示带真实海报的多来源分类探索入口，可与媒体库独立开关和排序。
+  private var categoriesSection: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      sectionHeader("分类浏览")
+      let perRow = dynamicTypeSize.isAccessibilitySize ? 1 : 2
+      let rows = stride(from: 0, to: content.categories.count, by: perRow).map {
+        Array(content.categories[$0..<min($0 + perRow, content.categories.count)])
+      }
+      VStack(spacing: 12) {
+        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+          HStack(spacing: 12) {
+            ForEach(row) { category in
               Group {
-                if let onOpenProvider {
+                if let onOpenCategory {
                   Button {
-                    onOpenProvider(provider.id)
+                    onOpenCategory(category.id)
                   } label: {
-                    providerArtwork(provider)
+                    categoryArtwork(category)
                   }
                   .buttonStyle(.plain)
                 } else {
-                  providerArtwork(provider)
+                  categoryArtwork(category)
                 }
               }
               .accessibilityElement(children: .combine)
-              .accessibilityIdentifier("native-discover-provider-\(provider.id)")
+              .accessibilityIdentifier("native-discover-category-\(category.id)")
             }
-          }
-          .padding(.horizontal, legacyHorizontalPadding)
-        }
-        .modifier(NativeHorizontalEdgeMargins(horizontal: CinematicStyle.margin))
-        .scrollIndicators(.hidden)
-      }
-      if !content.categories.isEmpty {
-        sectionHeader("分类探索")
-        let perRow = dynamicTypeSize.isAccessibilitySize ? 1 : 2
-        let rows = stride(from: 0, to: content.categories.count, by: perRow).map {
-          Array(content.categories[$0..<min($0 + perRow, content.categories.count)])
-        }
-        VStack(spacing: 12) {
-          ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-            HStack(spacing: 12) {
-              ForEach(row) { category in
-                Group {
-                  if let onOpenCategory {
-                    Button {
-                      onOpenCategory(category.id)
-                    } label: {
-                      categoryArtwork(category)
-                    }
-                    .buttonStyle(.plain)
-                  } else {
-                    categoryArtwork(category)
-                  }
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("native-discover-category-\(category.id)")
-              }
-              if row.count < perRow {
-                Color.clear.frame(maxWidth: .infinity)
-              }
+            if row.count < perRow {
+              Color.clear.frame(maxWidth: .infinity)
             }
           }
         }
-        .padding(.horizontal, CinematicStyle.margin)
       }
+      .padding(.horizontal, CinematicStyle.margin)
     }
   }
 

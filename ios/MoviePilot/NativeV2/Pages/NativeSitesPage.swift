@@ -222,6 +222,7 @@ struct NativeSitesPage: View {
       }
     }
     .contentShape(RoundedRectangle(cornerRadius: CinematicStyle.radius, style: .continuous))
+    .accessibilityIdentifier("native-site-card-\(site.id)")
     .onTapGesture {
       inspectingSite = site
     }
@@ -664,6 +665,7 @@ private struct NativeSiteDataSheet: View {
           .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
         }
         .scrollIndicators(.hidden)
+        .accessibilityIdentifier("native-site-data-scroll")
       }
       .navigationTitle("站点数据")
       .navigationBarTitleDisplayMode(.inline)
@@ -677,6 +679,7 @@ private struct NativeSiteDataSheet: View {
           }
           .tint(.primary)
           .accessibilityLabel("关闭")
+          .accessibilityIdentifier("native-site-data-close")
         }
       }
       .task { await loadUserData() }
@@ -733,7 +736,8 @@ private struct NativeSiteDataSheet: View {
             AreaMark(
               x: .value("日期", pt.index),
               y: .value("上传量", pt.uploadGB),
-              series: .value("类型", "上传量")
+              series: .value("类型", "上传量"),
+              stacking: .unstacked
             )
             .interpolationMethod(.catmullRom)
             .foregroundStyle(
@@ -755,7 +759,8 @@ private struct NativeSiteDataSheet: View {
             AreaMark(
               x: .value("日期", pt.index),
               y: .value("下载量", pt.downloadGB),
-              series: .value("类型", "下载量")
+              series: .value("类型", "下载量"),
+              stacking: .unstacked
             )
             .interpolationMethod(.catmullRom)
             .foregroundStyle(

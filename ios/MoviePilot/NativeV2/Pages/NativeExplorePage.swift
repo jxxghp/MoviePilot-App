@@ -963,13 +963,14 @@ private struct NativeLossyExploreAPIItem: Decodable, Sendable {
   }
 }
 
-/// 探索接口 `MediaInfo` 宽容解码结构体（兼容 TMDB / 豆瓣 / Bangumi 整数字段与字符串字段差异）。
+/// 探索接口 `MediaInfo` 宽容解码结构体（兼容 TMDB / 豆瓣 / Bangumi / AniList 整数字段与字符串字段差异）。
 private struct NativeExploreAPIItem: Decodable, Sendable {
   let mediaSource: String?
   let mediaID: String?
   let tmdbID: String?
   let doubanID: String?
   let bangumiID: String?
+  let anilistID: String?
   let type: String?
   let title: String?
   let year: String?
@@ -983,6 +984,7 @@ private struct NativeExploreAPIItem: Decodable, Sendable {
     tmdbID = Self.decodeScalar(c, forKey: .tmdbID)
     doubanID = Self.decodeScalar(c, forKey: .doubanID)
     bangumiID = Self.decodeScalar(c, forKey: .bangumiID)
+    anilistID = Self.decodeScalar(c, forKey: .anilistID)
     type = try? c.decodeIfPresent(String.self, forKey: .type)
     title = try? c.decodeIfPresent(String.self, forKey: .title)
     year = Self.decodeScalar(c, forKey: .year)
@@ -1016,7 +1018,7 @@ private struct NativeExploreAPIItem: Decodable, Sendable {
     let source: String
     let resolvedID: String?
     if let explicitSource = mediaSource, !explicitSource.isEmpty,
-      let explicitID = mediaID, !explicitID.isEmpty
+      let explicitID = mediaID, !explicitID.isEmpty, explicitID != "0"
     {
       source = explicitSource
       resolvedID = explicitID
@@ -1029,12 +1031,16 @@ private struct NativeExploreAPIItem: Decodable, Sendable {
     } else if let bangumiID, !bangumiID.isEmpty {
       source = "bangumi"
       resolvedID = bangumiID
+    } else if let anilistID, !anilistID.isEmpty {
+      source = "anilist"
+      resolvedID = anilistID
     } else {
       return nil
     }
     guard let idValue = resolvedID else { return nil }
+    let resolvedType = MediaSummaryItem.normalizeMediaType(type) ?? fallbackType
     let identity = NativeMediaIdentity(
-      source: source, mediaID: idValue, type: type ?? fallbackType)
+      source: source, mediaID: idValue, type: resolvedType)
     let ratingText = voteAverage.flatMap { $0 > 0 ? String(format: "%.1f", $0) : nil }
     return NativeExploreItem(
       identity: identity,
@@ -1052,6 +1058,7 @@ private struct NativeExploreAPIItem: Decodable, Sendable {
     case tmdbID = "tmdb_id"
     case doubanID = "douban_id"
     case bangumiID = "bangumi_id"
+    case anilistID = "anilist_id"
     case posterPath = "poster_path"
     case voteAverage = "vote_average"
   }

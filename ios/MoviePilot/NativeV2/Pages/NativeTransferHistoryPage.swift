@@ -31,6 +31,7 @@ struct NativeTransferHistoryPage: View {
   @State private var isLoading = true
   @State private var isLoadingMore = false
   @State private var loadFailed = false
+  @State private var referenceDate = Date()
   @State private var attempt = 0
   @State private var pendingDelete: NativeTransferRecord?
   @State private var pendingReorganize: NativeTransferRecord?
@@ -316,16 +317,17 @@ struct NativeTransferHistoryPage: View {
                   .font(.caption2.monospacedDigit())
                   .foregroundStyle(.secondary)
               }
-              if let date = record.date, !date.isEmpty {
+              if let relativeDate = record.formattedRelativeDate(now: referenceDate) {
                 if record.formattedSize != nil {
                   Text("·")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                 }
-                Text(date)
+                Text(relativeDate)
                   .font(.caption2.monospacedDigit())
                   .foregroundStyle(.secondary)
                   .lineLimit(1)
+                  .accessibilityValue(record.date ?? relativeDate)
               }
             }
           }
@@ -639,6 +641,7 @@ struct NativeTransferHistoryPage: View {
 
   /// 从第一页重新拉取整理历史；命中页面缓存时静默复用，下拉刷新强制重拉。
   private func reload(forceRefresh: Bool = false) async {
+    referenceDate = Date()
     let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     let cacheKey = "history|\(keyword)"
     if !forceRefresh,
@@ -913,6 +916,11 @@ private struct NativeTransferRecord: Decodable, Sendable, Identifiable {
       .filter { !$0.isEmpty }
       .joined(separator: " ")
     return suffix.isEmpty ? base : "\(base) \(suffix)"
+  }
+
+  /// 将整理时间格式化为相对当前时间的中文倒计文本（xx秒/分/时/天/月/年前）。
+  func formattedRelativeDate(now: Date = Date()) -> String? {
+    RelativeTimeFormatter.format(date, now: now)
   }
 
   var formattedSize: String? {

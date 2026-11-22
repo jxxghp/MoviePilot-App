@@ -22,6 +22,12 @@ struct NativeResourceSearchPage: View {
     var id: String { rawValue }
   }
 
+  private enum QueryMode: Equatable {
+    case lastResults
+    case keyword(String)
+    case browseHome
+  }
+
   let session: NativeSession
   let target: NativeResourceSearchTarget
 
@@ -38,9 +44,12 @@ struct NativeResourceSearchPage: View {
   @State private var showsAllFiltersSheet = false
 
   @State private var isLoading = true
+  @State private var isLoadingMore = false
   @State private var loadFailed = false
   @State private var attempt = 0
-  @State private var activeQueryTerm: String?
+  @State private var queryMode: QueryMode = .lastResults
+  @State private var currentPage = 0
+  @State private var canLoadMore = false
   @State private var selectedForDownload: NativeResourceContext?
   @State private var feedback: NativeResourceFeedback?
   @FocusState private var searchFocused: Bool
@@ -52,6 +61,7 @@ struct NativeResourceSearchPage: View {
         VStack(alignment: .leading, spacing: 14) {
           if case .lastResults = target {
             searchInputCard
+            queryContextBar
           }
           if !results.isEmpty || filter.activeCount > 0 {
             cascadingFilterBar
@@ -60,8 +70,18 @@ struct NativeResourceSearchPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && results.isEmpty {
-            NativeCardListSkeletonView(count: 5, style: .posterRow)
-              .transition(.opacity)
+            VStack(spacing: 12) {
+              HStack(spacing: 8) {
+                ProgressView().controlSize(.small).tint(.primary)
+                Text(loadingMessage)
+                  .font(.footnote)
+                  .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+              }
+              .padding(.horizontal, 4)
+              NativeCardListSkeletonView(count: 5, style: .posterRow)
+            }
+            .transition(.opacity)
           } else if loadFailed && results.isEmpty {
             failureCard
           } else if displayedResults.isEmpty {
@@ -70,6 +90,9 @@ struct NativeResourceSearchPage: View {
             LazyVStack(spacing: 11) {
               ForEach(displayedResults) { item in
                 resourceCard(item)
+              }
+              if canLoadMore, case .lastResults = target, queryMode != .lastResults {
+                loadMoreFooter
               }
             }
           }
@@ -138,8 +161,10 @@ struct NativeResourceSearchPage: View {
         }
       }
     }
-    .task(id: attempt) {
+    .task {
       await loadSitesIfNeeded()
+    }
+    .task(id: attempt) {
       await performSearch()
     }
     .sheet(isPresented: $showsAllFiltersSheet) {
@@ -171,7 +196,14 @@ struct NativeResourceSearchPage: View {
   private var loadingMessage: String {
     switch target {
     case .lastResults:
-      activeQueryTerm == nil ? "正在载入最近搜索结果…" : "正在检索站点资源…"
+      switch queryMode {
+      case .lastResults:
+        "正在载入上次搜索结果…"
+      case .keyword(let term):
+        "正在搜索「\(term)」…"
+      case .browseHome:
+        "正在获取站点首页资源…"
+      }
     case .media:
       "正在检索匹配站点资源…"
     }
@@ -219,29 +251,45 @@ struct NativeResourceSearchPage: View {
     }
   }
 
-  /// 关键词检索输入卡，支持指定检索站点范围。
+  /// 关键词检索输入卡：有关键词时执行站点搜索，留空时支持一键浏览所选站点首页资源。
   private var searchInputCard: some View {
-    CinematicPanel(padding: 11) {
-      HStack(spacing: 10) {
+    let hasKeyword = !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    return CinematicPanel(padding: 10) {
+      HStack(spacing: 8) {
         Image(systemName: "magnifyingglass")
+          .font(.subheadline)
           .foregroundStyle(.secondary)
-        TextField("输入片名或关键词检索站点资源", text: $keyword)
+        TextField("输入关键词，留空可浏览站点首页", text: $keyword)
           .textInputAutocapitalization(.never)
           .autocorrectionDisabled()
           .submitLabel(.search)
           .focused($searchFocused)
           .accessibilityIdentifier("native-resource-search-query")
-          .onSubmit { submitKeywordSearch() }
+          .onSubmit { submitSearch() }
         if !keyword.isEmpty {
           Button {
             keyword = ""
           } label: {
-            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+            Image(systemName: "xmark.circle.fill")
+              .foregroundStyle(.secondary)
+              .frame(width: 28, height: 28)
+              .contentShape(Rectangle())
           }
           .buttonStyle(.plain)
+          .accessibilityLabel("清空关键词")
         }
         if !sites.isEmpty {
           Menu {
+            Button {
+              querySiteIDs.removeAll()
+            } label: {
+              if querySiteIDs.isEmpty {
+                Label("全部站点", systemImage: "checkmark")
+              } else {
+                Text("全部站点")
+              }
+            }
+            Divider()
             ForEach(sites) { site in
               Button {
                 if querySiteIDs.contains(site.id) {
@@ -257,33 +305,136 @@ struct NativeResourceSearchPage: View {
                 }
               }
             }
-            if !querySiteIDs.isEmpty {
-              Divider()
-              Button("全部站点") { querySiteIDs.removeAll() }
-            }
           } label: {
-            Text(querySiteIDs.isEmpty ? "全站" : "\(querySiteIDs.count)站")
-              .font(.caption2.weight(.semibold))
-              .foregroundStyle(querySiteIDs.isEmpty ? NativeTheme.chipText : .white)
-              .padding(.horizontal, 8).padding(.vertical, 4)
-              .background(
-                querySiteIDs.isEmpty ? NativeTheme.chipFill : appearance.accentColor, in: Capsule())
+            HStack(spacing: 3) {
+              Text(selectedSiteScopeLabel)
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+              Image(systemName: "chevron.down")
+                .font(.system(size: 8, weight: .bold))
+            }
+            .foregroundStyle(querySiteIDs.isEmpty ? NativeTheme.chipText : .white)
+            .padding(.horizontal, 9)
+            .frame(minHeight: 32)
+            .background(
+              querySiteIDs.isEmpty ? NativeTheme.chipFill : appearance.accentColor, in: Capsule()
+            )
+            .contentShape(Capsule())
           }
+          .accessibilityIdentifier("native-resource-search-sites")
         }
         Button {
-          submitKeywordSearch()
+          submitSearch()
         } label: {
-          Image(systemName: "arrow.right.circle.fill")
-            .font(.title3)
-            .foregroundStyle(
-              keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? .secondary.opacity(0.4) : appearance.accentColor)
+          HStack(spacing: 4) {
+            if isLoading {
+              ProgressView()
+                .controlSize(.mini)
+                .tint(hasKeyword ? .white : .primary)
+            } else {
+              Text(hasKeyword ? "搜索" : "浏览")
+                .font(.caption.weight(.semibold))
+            }
+          }
+          .foregroundStyle(hasKeyword ? .white : .primary)
+          .padding(.horizontal, 12)
+          .frame(minWidth: 50, minHeight: 32)
+          .background {
+            Capsule()
+              .fill(hasKeyword ? appearance.accentColor : NativeTheme.chipFill)
+              .overlay {
+                if !hasKeyword {
+                  Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.6)
+                }
+              }
+          }
+          .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .disabled(keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .disabled(isLoading)
+        .accessibilityLabel(hasKeyword ? "搜索资源" : "浏览站点首页")
         .accessibilityIdentifier("native-resource-search-submit")
       }
     }
+  }
+
+  /// 当前检索/浏览模式状态条：清晰区分上次结果、关键词搜索与站点首页浏览，并支持快速切回上次结果。
+  @ViewBuilder
+  private var queryContextBar: some View {
+    if queryMode != .lastResults {
+      HStack(spacing: 8) {
+        Image(
+          systemName: queryMode == .browseHome ? "globe" : "magnifyingglass"
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        Text(queryContextTitle)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+        Spacer(minLength: 8)
+        Button("上次结果") {
+          loadLastResults()
+        }
+        .font(.caption.weight(.medium))
+        .foregroundStyle(.primary.opacity(0.82))
+        .buttonStyle(.plain)
+        .disabled(isLoading)
+        .accessibilityIdentifier("native-resource-back-last")
+      }
+      .padding(.horizontal, 4)
+    }
+  }
+
+  private var selectedSiteScopeLabel: String {
+    if querySiteIDs.isEmpty { return "全站" }
+    if querySiteIDs.count == 1, let id = querySiteIDs.first,
+      let match = sites.first(where: { $0.id == id })
+    {
+      return String(match.name.prefix(6))
+    }
+    return "\(querySiteIDs.count)站"
+  }
+
+  private var queryContextTitle: String {
+    let scope = selectedSiteScopeLabel
+    switch queryMode {
+    case .lastResults:
+      return "上次搜索结果"
+    case .browseHome:
+      return "站点首页 · \(scope)"
+    case .keyword(let term):
+      return "搜索「\(term)」· \(scope)"
+    }
+  }
+
+  /// 站点首页浏览与关键词搜索分页加载按钮。
+  private var loadMoreFooter: some View {
+    Button {
+      Task { await loadNextPage() }
+    } label: {
+      HStack(spacing: 8) {
+        if isLoadingMore {
+          ProgressView().controlSize(.small).tint(.primary)
+          Text("正在加载下一页…")
+        } else {
+          Image(systemName: "arrow.down.circle")
+          Text("加载下一页")
+        }
+      }
+      .font(.subheadline.weight(.medium))
+      .foregroundStyle(.primary.opacity(0.86))
+      .frame(maxWidth: .infinity, minHeight: 44)
+      .background {
+        Capsule()
+          .fill(NativeTheme.chipFill)
+          .overlay { Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.6) }
+      }
+    }
+    .buttonStyle(.plain)
+    .disabled(isLoadingMore || isLoading)
+    .padding(.top, 4)
+    .accessibilityIdentifier("native-resource-load-more")
   }
 
   /// 对标 Web 9 维级联多选过滤条：全部筛选入口 + 站点/优惠/分辨率/字幕/版本/编码/季集/来源/制作组（排序已置于右上角工具栏）。
@@ -496,6 +647,17 @@ struct NativeResourceSearchPage: View {
         Text(results.isEmpty ? "未找到匹配的站点资源" : "当前筛选条件下没有资源").font(.headline)
         if !results.isEmpty && filter.activeCount > 0 {
           Button("清空筛选条件") { filter.clearAll() }.frame(minHeight: 40)
+        } else if results.isEmpty, case .lastResults = target, queryMode == .lastResults {
+          Button("浏览站点首页") {
+            keyword = ""
+            submitSearch()
+          }
+          .font(.subheadline.weight(.medium))
+          .foregroundStyle(.primary)
+          .padding(.horizontal, 14)
+          .frame(minHeight: 38)
+          .background(NativeTheme.chipFill, in: Capsule())
+          .buttonStyle(.plain)
         }
       }
       .frame(maxWidth: .infinity, minHeight: 150)
@@ -513,12 +675,32 @@ struct NativeResourceSearchPage: View {
     }
   }
 
-  private func submitKeywordSearch() {
+  /// 提交搜索或浏览站点首页：有关键词时按词检索，留空时浏览站点首页资源；立即清空旧结果并展示骨架屏。
+  private func submitSearch() {
     let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return }
     searchFocused = false
-    activeQueryTerm = trimmed
+    queryMode = trimmed.isEmpty ? .browseHome : .keyword(trimmed)
+    results = []
+    feedback = nil
+    loadFailed = false
+    currentPage = 0
+    canLoadMore = false
     filter.clearAll()
+    isLoading = true
+    attempt += 1
+  }
+
+  /// 切回最近一次搜索缓存结果。
+  private func loadLastResults() {
+    searchFocused = false
+    queryMode = .lastResults
+    results = []
+    feedback = nil
+    loadFailed = false
+    currentPage = 0
+    canLoadMore = false
+    filter.clearAll()
+    isLoading = true
     attempt += 1
   }
 
@@ -531,42 +713,72 @@ struct NativeResourceSearchPage: View {
     }
   }
 
+  private func buildSearchEndpoint(page: Int) throws -> APIEndpoint {
+    let siteQueryValue =
+      querySiteIDs.isEmpty ? nil : querySiteIDs.sorted().map(String.init).joined(separator: ",")
+    switch target {
+    case .lastResults:
+      switch queryMode {
+      case .lastResults:
+        return try APIEndpoint(
+          path: ["search", "last"],
+          responseContract: .payload,
+          maximumResponseBytes: 12 * 1024 * 1024,
+          timeout: 30)
+      case .keyword(let term):
+        var query = [
+          URLQueryItem(name: "keyword", value: term),
+          URLQueryItem(name: "page", value: String(page)),
+        ]
+        if let siteQueryValue { query.append(URLQueryItem(name: "sites", value: siteQueryValue)) }
+        return try APIEndpoint(
+          path: ["search", "title"],
+          query: query,
+          responseContract: .payload,
+          maximumResponseBytes: 12 * 1024 * 1024,
+          timeout: 90)
+      case .browseHome:
+        var query = [
+          URLQueryItem(name: "keyword", value: ""),
+          URLQueryItem(name: "page", value: String(page)),
+        ]
+        if let siteQueryValue { query.append(URLQueryItem(name: "sites", value: siteQueryValue)) }
+        return try APIEndpoint(
+          path: ["search", "title"],
+          query: query,
+          responseContract: .payload,
+          maximumResponseBytes: 12 * 1024 * 1024,
+          timeout: 90)
+      }
+    case .media(let identity, _, let season):
+      var query = [
+        URLQueryItem(name: "media_source", value: identity.source),
+        URLQueryItem(name: "mtype", value: identity.type),
+      ]
+      if let season { query.append(URLQueryItem(name: "season", value: String(season))) }
+      if let siteQueryValue { query.append(URLQueryItem(name: "sites", value: siteQueryValue)) }
+      return try APIEndpoint(
+        path: ["search", "media", identity.mediaID],
+        query: query,
+        responseContract: .payload,
+        maximumResponseBytes: 12 * 1024 * 1024,
+        timeout: 90)
+    }
+  }
+
   private func performSearch() async {
     isLoading = true
     loadFailed = false
+    currentPage = 0
     defer { isLoading = false }
-    let siteQueryValue =
-      querySiteIDs.isEmpty ? nil : querySiteIDs.sorted().map(String.init).joined(separator: ",")
     do {
-      let endpoint: APIEndpoint
-      switch target {
-      case .lastResults:
-        if let term = activeQueryTerm, !term.isEmpty {
-          var query = [URLQueryItem(name: "keyword", value: term)]
-          if let siteQueryValue { query.append(URLQueryItem(name: "sites", value: siteQueryValue)) }
-          endpoint = try APIEndpoint(
-            path: ["search", "title"], query: query, maximumResponseBytes: 12 * 1024 * 1024,
-            timeout: 90)
-        } else {
-          endpoint = try APIEndpoint(
-            path: ["search", "last"], maximumResponseBytes: 12 * 1024 * 1024, timeout: 30)
-        }
-      case .media(let identity, _, let season):
-        var query = [
-          URLQueryItem(name: "media_source", value: identity.source),
-          URLQueryItem(name: "mtype", value: identity.type),
-        ]
-        if let season { query.append(URLQueryItem(name: "season", value: String(season))) }
-        if let siteQueryValue { query.append(URLQueryItem(name: "sites", value: siteQueryValue)) }
-        endpoint = try APIEndpoint(
-          path: ["search", "media", identity.mediaID], query: query,
-          maximumResponseBytes: 12 * 1024 * 1024, timeout: 90)
-      }
+      let endpoint = try buildSearchEndpoint(page: 0)
       let envelope = try await session.request(
         endpoint, as: NativeResourceSearchEnvelope.self, requiring: .init(category: .search)
       ).value
       try Task.checkCancellation()
       results = envelope.items
+      canLoadMore = !envelope.items.isEmpty && queryMode != .lastResults
       if envelope.items.isEmpty, let msg = envelope.message, !msg.isEmpty, envelope.success == false
       {
         feedback = NativeResourceFeedback(isError: false, message: msg)
@@ -575,6 +787,36 @@ struct NativeResourceSearchPage: View {
       return
     } catch {
       loadFailed = true
+      if !results.isEmpty {
+        feedback = NativeResourceFeedback(isError: true, message: "检索站点资源失败，请稍后重试。")
+      }
+    }
+  }
+
+  /// 分页加载下一页站点资源并按稳定键去重。
+  private func loadNextPage() async {
+    guard !isLoadingMore, !isLoading, canLoadMore else { return }
+    isLoadingMore = true
+    defer { isLoadingMore = false }
+    let nextPage = currentPage + 1
+    do {
+      let endpoint = try buildSearchEndpoint(page: nextPage)
+      let envelope = try await session.request(
+        endpoint, as: NativeResourceSearchEnvelope.self, requiring: .init(category: .search)
+      ).value
+      try Task.checkCancellation()
+      var existing = Set(results.map(\.id))
+      let additions = envelope.items.filter { existing.insert($0.id).inserted }
+      if additions.isEmpty {
+        canLoadMore = false
+      } else {
+        results.append(contentsOf: additions)
+        currentPage = nextPage
+      }
+    } catch is CancellationError {
+      return
+    } catch {
+      feedback = NativeResourceFeedback(isError: true, message: "加载下一页资源失败，请稍后重试。")
     }
   }
 }

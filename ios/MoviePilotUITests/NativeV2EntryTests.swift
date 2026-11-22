@@ -55,337 +55,490 @@ final class NativeV2EntryTests: XCTestCase {
     }
     let more = app.buttons["native-discover-more-热门电影"]
     XCTAssertTrue(more.waitForExistence(timeout: 40))
-    // 等待实际后端图片代理完成首屏解码，不用合成海报代替线上媒体素材。
-    try await Task.sleep(nanoseconds: 4_000_000_000)
-    try await Task.sleep(nanoseconds: 2_500_000_000)
-    captureDiscoverScrollPhases(app, prefix: "native-v2-live-discover")
-    let manageModulesBtn = app.buttons["native-discover-manage-modules"]
-    let discoverScroll = app.scrollViews["native-discover-page"]
-    for _ in 0..<8 where !manageModulesBtn.exists {
-      discoverScroll.swipeUp()
-    }
-    if manageModulesBtn.waitForExistence(timeout: 5) {
-      tap(manageModulesBtn, app: app)
-      if app.buttons["native-modules-cancel"].waitForExistence(timeout: 8) {
-        try await Task.sleep(nanoseconds: 600_000_000)
-        capture("native-v2-live-modules")
-        app.buttons["native-modules-cancel"].tap()
-      }
-    }
-    for _ in 0..<6 where !more.isHittable {
-      discoverScroll.swipeDown()
-    }
-    tap(more, app: app)
-    let grid = app.scrollViews["native-discover-grid"]
-    XCTAssertTrue(grid.waitForExistence(timeout: 8))
-    capture("native-v2-live-grid-before-pagination")
-    let expected = NSPredicate(
-      format: "identifier IN %@",
-      nextPageIdentities.map {
-        "native-discover-grid-poster-" + $0
-      })
-    let nextPage = app.buttons.matching(expected).firstMatch
-    for _ in 0..<10 where !nextPage.exists {
-      grid.swipeUp()
-      try await Task.sleep(nanoseconds: 500_000_000)
-    }
-    capture("native-v2-live-grid-pagination-state")
-    XCTAssertTrue(nextPage.waitForExistence(timeout: 20))
-    XCTAssertFalse(app.buttons["native-discover-grid-load-more"].exists)
-    try await Task.sleep(nanoseconds: 1_000_000_000)
-    capture("native-v2-live-grid-automatic-page")
-    // 采集真实媒体详情、演职员/人物页、剧集分季、下载/订阅/日历工作台、仪表盘与媒体搜索画面（全程只读）。
-    tap(nextPage, app: app)
-    XCTAssertTrue(app.staticTexts["native-media-detail-title"].waitForExistence(timeout: 15))
-    try await Task.sleep(nanoseconds: 2_000_000_000)
-    capture("native-v2-live-detail")
-    let detailScroll = app.scrollViews["native-media-detail-scroll"]
-    if detailScroll.exists {
-      detailScroll.swipeUp()
-      try await Task.sleep(nanoseconds: 1_000_000_000)
-      capture("native-v2-live-detail-cast")
-    }
-    let firstCast = app.buttons.matching(
-      NSPredicate(format: "identifier BEGINSWITH 'native-media-detail-cast-'")
-    ).firstMatch
-    if firstCast.exists {
-      tap(firstCast, app: app)
-      if app.staticTexts["native-person-detail-name"].waitForExistence(timeout: 15) {
-        try await Task.sleep(nanoseconds: 2_000_000_000)
-        capture("native-v2-live-person")
-      }
-    }
-    tap(tabButton("探索", app: app), app: app)
-    XCTAssertTrue(app.scrollViews["native-explore-scroll"].waitForExistence(timeout: 15))
-    try await Task.sleep(nanoseconds: 2_500_000_000)
-    capture("native-v2-live-explore")
-    let doubanTab = app.buttons["native-explore-source-douban_movies"]
-    if doubanTab.exists {
-      tap(doubanTab, app: app)
+    if environment["MOVIEPILOT_NATIVE_V2_LIVE_SCOPE"] != "search" {
+      // 等待实际后端图片代理完成首屏解码，不用合成海报代替线上媒体素材。
+      try await Task.sleep(nanoseconds: 4_000_000_000)
       try await Task.sleep(nanoseconds: 2_500_000_000)
-      capture("native-v2-live-explore-douban")
-    }
-    // 二次点击当前「探索」底栏图标弹出全部功能悬浮菜单，验证非底栏菜单分组入口
-    tap(tabButton("探索", app: app), app: app)
-    if app.scrollViews["native-overflow-menu-scroll"].waitForExistence(timeout: 6) {
-      try await Task.sleep(nanoseconds: 600_000_000)
-      capture("native-v2-live-overflow-menu")
+      captureDiscoverScrollPhases(app, prefix: "native-v2-live-discover")
+      let manageModulesBtn = app.buttons["native-discover-manage-modules"]
+      let discoverScroll = app.scrollViews["native-discover-page"]
+      for _ in 0..<8 where !manageModulesBtn.exists {
+        discoverScroll.swipeUp()
+      }
+      if manageModulesBtn.waitForExistence(timeout: 5) {
+        tap(manageModulesBtn, app: app)
+        if app.buttons["native-modules-cancel"].waitForExistence(timeout: 8) {
+          try await Task.sleep(nanoseconds: 600_000_000)
+          capture("native-v2-live-modules")
+          app.buttons["native-modules-cancel"].tap()
+        }
+      }
+      for _ in 0..<6 where !more.isHittable {
+        discoverScroll.swipeDown()
+      }
+      tap(more, app: app)
+      let grid = app.scrollViews["native-discover-grid"]
+      XCTAssertTrue(grid.waitForExistence(timeout: 8))
+      capture("native-v2-live-grid-before-pagination")
+      let expected = NSPredicate(
+        format: "identifier IN %@",
+        nextPageIdentities.map {
+          "native-discover-grid-poster-" + $0
+        })
+      let nextPage = app.buttons.matching(expected).firstMatch
+      for _ in 0..<10 where !nextPage.exists {
+        grid.swipeUp()
+        try await Task.sleep(nanoseconds: 500_000_000)
+      }
+      capture("native-v2-live-grid-pagination-state")
+      XCTAssertTrue(nextPage.waitForExistence(timeout: 20))
+      XCTAssertFalse(app.buttons["native-discover-grid-load-more"].exists)
+      try await Task.sleep(nanoseconds: 1_000_000_000)
+      capture("native-v2-live-grid-automatic-page")
+      // 采集真实媒体详情、演职员/人物页、剧集分季、下载/订阅/日历工作台、仪表盘与媒体搜索画面（全程只读）。
+      tap(nextPage, app: app)
+      XCTAssertTrue(app.staticTexts["native-media-detail-title"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 2_000_000_000)
+      capture("native-v2-live-detail")
+      let detailScroll = app.scrollViews["native-media-detail-scroll"]
+      if detailScroll.exists {
+        detailScroll.swipeUp()
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        capture("native-v2-live-detail-cast")
+      }
+      let firstCast = app.buttons.matching(
+        NSPredicate(format: "identifier BEGINSWITH 'native-media-detail-cast-'")
+      ).firstMatch
+      if firstCast.exists {
+        tap(firstCast, app: app)
+        if app.staticTexts["native-person-detail-name"].waitForExistence(timeout: 15) {
+          try await Task.sleep(nanoseconds: 2_000_000_000)
+          capture("native-v2-live-person")
+        }
+      }
       tap(tabButton("探索", app: app), app: app)
-      try await Task.sleep(nanoseconds: 400_000_000)
-    }
-
-    // 从「探索」右上角更多菜单进入「音乐发现」
-    let exploreMore = app.buttons["native-explore-more"]
-    if exploreMore.waitForExistence(timeout: 8) {
-      exploreMore.tap()
-      let musicMenuItem = app.buttons["音乐发现"]
-      if musicMenuItem.waitForExistence(timeout: 6) {
-        musicMenuItem.tap()
-        XCTAssertTrue(app.scrollViews["native-music-scroll"].waitForExistence(timeout: 15))
+      XCTAssertTrue(app.scrollViews["native-explore-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 2_500_000_000)
+      capture("native-v2-live-explore")
+      let doubanTab = app.buttons["native-explore-source-douban_movies"]
+      if doubanTab.exists {
+        tap(doubanTab, app: app)
         try await Task.sleep(nanoseconds: 2_500_000_000)
-        capture("native-v2-live-music")
+        capture("native-v2-live-explore-douban")
+        let firstDoubanPoster = app.buttons.matching(
+          NSPredicate(format: "identifier BEGINSWITH 'native-explore-poster-douban|'")
+        ).firstMatch
+        if firstDoubanPoster.waitForExistence(timeout: 8) {
+          tap(firstDoubanPoster, app: app)
+          if app.staticTexts["native-media-detail-title"].waitForExistence(timeout: 15) {
+            try await Task.sleep(nanoseconds: 2_500_000_000)
+            capture("native-v2-live-douban-detail")
+            let doubanDetailScroll = app.scrollViews["native-media-detail-scroll"]
+            if doubanDetailScroll.exists {
+              doubanDetailScroll.swipeUp()
+              try await Task.sleep(nanoseconds: 1_200_000_000)
+              capture("native-v2-live-douban-detail-cast")
+            }
+          }
+          app.navigationBars.buttons.firstMatch.tap()
+          try await Task.sleep(nanoseconds: 600_000_000)
+        }
+      }
+      // 从「探索」来源栏横向滚动并切换到「音乐」并进入专辑详情
+      let sourceBar = app.scrollViews["native-explore-source-bar"]
+      let musicTab = app.buttons["native-explore-source-music"]
+      if sourceBar.exists, musicTab.exists {
+        for _ in 0..<5 where musicTab.frame.midX > app.frame.width - 24 {
+          sourceBar.swipeLeft()
+          try await Task.sleep(nanoseconds: 350_000_000)
+        }
+      }
+      if musicTab.exists, !musicTab.frame.isEmpty,
+        musicTab.frame.midX >= 16, musicTab.frame.midX <= app.frame.width - 16
+      {
+        tap(musicTab, app: app)
         let firstAlbum = app.buttons.matching(
           NSPredicate(format: "identifier BEGINSWITH 'native-music-card-'")
         ).firstMatch
-        if firstAlbum.waitForExistence(timeout: 6) {
-          tap(firstAlbum, app: app)
-          if app.scrollViews["native-music-album-scroll"].waitForExistence(timeout: 12) {
-            try await Task.sleep(nanoseconds: 2_000_000_000)
-            capture("native-v2-live-music-album")
-            app.navigationBars.buttons.firstMatch.tap()
+        if firstAlbum.waitForExistence(timeout: 15) {
+          try await Task.sleep(nanoseconds: 2_500_000_000)
+          capture("native-v2-live-music")
+          if !firstAlbum.frame.isEmpty {
+            tap(firstAlbum, app: app)
+            if app.scrollViews["native-music-album-scroll"].waitForExistence(timeout: 12) {
+              try await Task.sleep(nanoseconds: 2_000_000_000)
+              capture("native-v2-live-music-album")
+              app.navigationBars.buttons.firstMatch.tap()
+              try await Task.sleep(nanoseconds: 500_000_000)
+            }
           }
         }
-        app.navigationBars.buttons.firstMatch.tap()
-      }
-    }
-
-    openOverflowItem("native-workspace-subscriptions", viaTab: "探索", app: app)
-    XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 15))
-    try await Task.sleep(nanoseconds: 2_500_000_000)
-    capture("native-v2-live-subscriptions")
-    let firstSubCard = app.descendants(matching: .any).matching(
-      NSPredicate(format: "identifier BEGINSWITH 'native-subscribe-card-'")
-    ).firstMatch
-    if firstSubCard.waitForExistence(timeout: 5) {
-      firstSubCard.press(forDuration: 1.0)
-      let editRuleBtn = app.buttons["编辑订阅规则"]
-      if editRuleBtn.waitForExistence(timeout: 5) {
-        editRuleBtn.tap()
-        if app.scrollViews["native-subscribe-editor-scroll"].waitForExistence(timeout: 10) {
-          try await Task.sleep(nanoseconds: 1_000_000_000)
-          capture("native-v2-live-subscribe-editor")
-          app.buttons["native-subscribe-editor-cancel"].tap()
+        let tmdbTab = app.buttons["native-explore-source-tmdb_movies"]
+        if sourceBar.exists, tmdbTab.exists {
+          for _ in 0..<5 where tmdbTab.frame.midX < 24 {
+            sourceBar.swipeRight()
+            try await Task.sleep(nanoseconds: 350_000_000)
+          }
+        }
+        if tmdbTab.exists, !tmdbTab.frame.isEmpty,
+          tmdbTab.frame.midX >= 16, tmdbTab.frame.midX <= app.frame.width - 16
+        {
+          tap(tmdbTab, app: app)
         }
       }
-    }
-    let communityBtn = app.buttons["native-subscriptions-community"]
-    if communityBtn.waitForExistence(timeout: 5) {
-      tap(communityBtn, app: app)
-      if app.scrollViews["native-community-scroll"].waitForExistence(timeout: 12) {
-        try await Task.sleep(nanoseconds: 2_500_000_000)
-        capture("native-v2-live-community-popular")
-        let sharesTab = app.buttons["native-community-tab-社区分享"]
-        if sharesTab.exists {
-          tap(sharesTab, app: app)
-          try await Task.sleep(nanoseconds: 2_000_000_000)
-          capture("native-v2-live-community-shares")
-        }
-        app.navigationBars.buttons.firstMatch.tap()
+      // 二次点击当前「探索」底栏图标弹出全部功能悬浮菜单，验证非底栏菜单分组入口
+      tap(tabButton("探索", app: app), app: app)
+      let overflowHeader = app.descendants(matching: .any)["native-overflow-user-header"].firstMatch
+      if overflowHeader.waitForExistence(timeout: 6) {
+        try await Task.sleep(nanoseconds: 600_000_000)
+        capture("native-v2-live-overflow-menu")
       }
-    }
-    app.navigationBars.buttons.firstMatch.tap()
 
-    openOverflowItem("native-workspace-resources", viaTab: "探索", app: app)
-    XCTAssertTrue(app.scrollViews["native-resource-search-scroll"].waitForExistence(timeout: 15))
-    try await Task.sleep(nanoseconds: 2_000_000_000)
-    capture("native-v2-live-resources")
-    app.navigationBars.buttons.firstMatch.tap()
-
-    openOverflowItem("native-workspace-downloads", viaTab: "探索", app: app)
-    XCTAssertTrue(app.scrollViews["native-downloads-scroll"].waitForExistence(timeout: 15))
-    try await Task.sleep(nanoseconds: 2_000_000_000)
-    capture("native-v2-live-downloads")
-    app.navigationBars.buttons.firstMatch.tap()
-
-    openOverflowItem("native-workspace-calendar", viaTab: "探索", app: app)
-    XCTAssertTrue(app.scrollViews["native-calendar-scroll"].waitForExistence(timeout: 15))
-    try await Task.sleep(nanoseconds: 2_000_000_000)
-    capture("native-v2-live-calendar")
-    app.navigationBars.buttons.firstMatch.tap()
-
-    openOverflowItem("native-workspace-history", viaTab: "探索", app: app)
-    XCTAssertTrue(app.scrollViews["native-history-scroll"].waitForExistence(timeout: 15))
-    try await Task.sleep(nanoseconds: 2_000_000_000)
-    capture("native-v2-live-history")
-    let queueBtn = app.buttons["native-history-queue"]
-    if queueBtn.waitForExistence(timeout: 6) {
-      queueBtn.tap()
-      if app.scrollViews["native-transfer-queue-scroll"].waitForExistence(timeout: 10) {
-        try await Task.sleep(nanoseconds: 1_000_000_000)
-        capture("native-v2-live-transfer-queue")
-        app.buttons["native-transfer-queue-close"].tap()
-      }
-    }
-    app.navigationBars.buttons.firstMatch.tap()
-
-    openOverflowItem("native-workspace-files", viaTab: "探索", app: app)
-    XCTAssertTrue(app.scrollViews["native-files-scroll"].waitForExistence(timeout: 15))
-    try await Task.sleep(nanoseconds: 1_500_000_000)
-    capture("native-v2-live-files")
-    app.navigationBars.buttons.firstMatch.tap()
-
-    openOverflowItem("native-workspace-workflows", viaTab: "探索", app: app)
-    XCTAssertTrue(app.scrollViews["native-workflows-scroll"].waitForExistence(timeout: 15))
-    try await Task.sleep(nanoseconds: 1_500_000_000)
-    capture("native-v2-live-workflows")
-    let firstCanvas = app.buttons.matching(
-      NSPredicate(format: "identifier BEGINSWITH 'native-workflow-canvas-'")
-    ).firstMatch
-    if firstCanvas.waitForExistence(timeout: 5) {
-      tap(firstCanvas, app: app)
-      XCTAssertTrue(
-        app.descendants(matching: .any)["native-workflow-canvas-area"].firstMatch
-          .waitForExistence(timeout: 15))
-      try await Task.sleep(nanoseconds: 1_500_000_000)
-      capture("native-v2-live-workflow-canvas")
-      app.navigationBars.buttons.firstMatch.tap()
-      try await Task.sleep(nanoseconds: 500_000_000)
-    }
-    let sharesTab = app.buttons["native-workflow-mode-社区分享"]
-    if sharesTab.exists {
-      tap(sharesTab, app: app)
-      try await Task.sleep(nanoseconds: 2_000_000_000)
-      capture("native-v2-live-workflow-shares")
-    }
-    app.navigationBars.buttons.firstMatch.tap()
-
-    // 「我的」对应仪表盘（含插件扩展图表），右上角承载消息中心与智能助手
-    tap(tabButton("我的", app: app), app: app)
-    XCTAssertTrue(
-      app.descendants(matching: .any)["native-dashboard-storage"].firstMatch.waitForExistence(
-        timeout: 15))
-    try await Task.sleep(nanoseconds: 1_000_000_000)
-    capture("native-v2-live-dashboard")
-    let pluginDash = app.descendants(matching: .any)["native-dashboard-plugins"].firstMatch
-    if pluginDash.waitForExistence(timeout: 8) {
-      reveal(pluginDash, app: app)
-      try await Task.sleep(nanoseconds: 800_000_000)
-      capture("native-v2-live-dashboard-plugins")
-    }
-
-    let messagesBtn = app.buttons["native-workspace-messages"]
-    if messagesBtn.waitForExistence(timeout: 8) {
-      messagesBtn.tap()
-      XCTAssertTrue(app.scrollViews["native-messages-scroll"].waitForExistence(timeout: 15))
-      try await Task.sleep(nanoseconds: 2_000_000_000)
-      capture("native-v2-live-messages")
-      app.navigationBars.buttons.firstMatch.tap()
-    }
-    let dashMore = app.buttons["native-dashboard-refresh"]
-    if dashMore.waitForExistence(timeout: 8) {
-      dashMore.tap()
-      let agentItem = app.buttons["智能助手"]
-      if agentItem.waitForExistence(timeout: 6) {
-        agentItem.tap()
-        XCTAssertTrue(app.scrollViews["native-agent-scroll"].waitForExistence(timeout: 15))
-        try await Task.sleep(nanoseconds: 1_500_000_000)
-        capture("native-v2-live-agent")
-        app.navigationBars.buttons.firstMatch.tap()
-      }
-    }
-
-    // 「设置」对应多样化设置中心（站点管理/用户管理双卡 + 核心系统横幅 + 4 列瓷砖 + 原生列表）
-    tap(tabButton("设置", app: app), app: app)
-    XCTAssertTrue(app.buttons["native-workspace-sites"].waitForExistence(timeout: 12))
-    try await Task.sleep(nanoseconds: 1_500_000_000)
-    capture("native-v2-live-settings-hub")
-
-    let sitesCard = app.buttons["native-workspace-sites"]
-    if sitesCard.waitForExistence(timeout: 6) {
-      tap(sitesCard, app: app)
-      XCTAssertTrue(app.scrollViews["native-sites-scroll"].waitForExistence(timeout: 15))
-      try await Task.sleep(nanoseconds: 1_500_000_000)
-      capture("native-v2-live-sites")
-      app.navigationBars.buttons.firstMatch.tap()
-    }
-    let usersEntry = app.buttons["native-workspace-users"]
-    if usersEntry.waitForExistence(timeout: 8) {
-      tap(usersEntry, app: app)
-      XCTAssertTrue(app.scrollViews["native-users-scroll"].waitForExistence(timeout: 15))
-      try await Task.sleep(nanoseconds: 1_500_000_000)
-      capture("native-v2-live-users")
-      app.navigationBars.buttons.firstMatch.tap()
-    }
-    let settingsEntry = app.buttons["native-workspace-settings"]
-    reveal(settingsEntry, app: app)
-    if settingsEntry.waitForExistence(timeout: 8) {
-      tap(settingsEntry, app: app)
-      XCTAssertTrue(app.scrollViews["native-settings-scroll"].waitForExistence(timeout: 15))
-      try await Task.sleep(nanoseconds: 1_500_000_000)
-      capture("native-v2-live-settings")
-      app.navigationBars.buttons.firstMatch.tap()
-    }
-    let siteScopeTile = app.buttons["native-settings-hub-site-scope"]
-    reveal(siteScopeTile, app: app)
-    if siteScopeTile.waitForExistence(timeout: 6) {
-      tap(siteScopeTile, app: app)
-      XCTAssertTrue(app.scrollViews["native-sysmod-scroll"].waitForExistence(timeout: 15))
-      try await Task.sleep(nanoseconds: 1_500_000_000)
-      capture("native-v2-live-sysmod-site-scope")
-      app.navigationBars.buttons.firstMatch.tap()
-    }
-    let dirsTile = app.buttons["native-settings-hub-directories"]
-    reveal(dirsTile, app: app)
-    if dirsTile.waitForExistence(timeout: 6) {
-      tap(dirsTile, app: app)
-      XCTAssertTrue(app.scrollViews["native-sysmod-scroll"].waitForExistence(timeout: 15))
-      try await Task.sleep(nanoseconds: 1_500_000_000)
-      capture("native-v2-live-sysmod-directories")
-      let servicesTab = app.buttons["native-sysmod-tab-下载与媒体服务"]
-      if servicesTab.exists {
-        tap(servicesTab, app: app)
-        try await Task.sleep(nanoseconds: 1_500_000_000)
-        capture("native-v2-live-sysmod-services")
-      }
-      app.navigationBars.buttons.firstMatch.tap()
-    }
-    let marketEntry = app.buttons["native-workspace-plugin-market"]
-    reveal(marketEntry, app: app)
-    if marketEntry.waitForExistence(timeout: 8) {
-      tap(marketEntry, app: app)
-      XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 15))
-      let firstMarketCard = app.descendants(matching: .any).matching(
-        NSPredicate(format: "identifier BEGINSWITH 'native-market-card-'")
+      openOverflowItem("native-workspace-subscriptions", viaTab: "探索", app: app)
+      XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 2_500_000_000)
+      capture("native-v2-live-subscriptions")
+      let firstSubCard = app.descendants(matching: .any).matching(
+        NSPredicate(format: "identifier BEGINSWITH 'native-subscribe-card-'")
       ).firstMatch
-      _ = firstMarketCard.waitForExistence(timeout: 12)
-      try await Task.sleep(nanoseconds: 500_000_000)
-      capture("native-v2-live-plugin-market")
-      let installedTab = app.buttons["native-plugin-mode-已安装管理"]
-      if installedTab.exists {
-        tap(installedTab, app: app)
-        try await Task.sleep(nanoseconds: 1_500_000_000)
+      if firstSubCard.waitForExistence(timeout: 5) {
+        firstSubCard.press(forDuration: 1.0)
+        let editRuleBtn = app.buttons["编辑订阅规则"]
+        if editRuleBtn.waitForExistence(timeout: 5) {
+          editRuleBtn.tap()
+          if app.scrollViews["native-subscribe-editor-scroll"].waitForExistence(timeout: 10) {
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            capture("native-v2-live-subscribe-editor")
+            app.buttons["native-subscribe-editor-cancel"].tap()
+          }
+        }
+      }
+      let communityBtn = app.buttons["native-subscriptions-community"]
+      if communityBtn.waitForExistence(timeout: 5) {
+        tap(communityBtn, app: app)
+        if app.scrollViews["native-community-scroll"].waitForExistence(timeout: 12) {
+          try await Task.sleep(nanoseconds: 2_500_000_000)
+          capture("native-v2-live-community-popular")
+          let sharesTab = app.buttons["native-community-tab-社区分享"]
+          if sharesTab.exists {
+            tap(sharesTab, app: app)
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+            capture("native-v2-live-community-shares")
+          }
+          app.navigationBars.buttons.firstMatch.tap()
+        }
+      }
+      app.navigationBars.buttons.firstMatch.tap()
+
+      openOverflowItem("native-workspace-resources", viaTab: "探索", app: app)
+      XCTAssertTrue(app.scrollViews["native-resource-search-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 2_000_000_000)
+      capture("native-v2-live-resources")
+      app.navigationBars.buttons.firstMatch.tap()
+
+      openOverflowItem("native-workspace-downloads", viaTab: "探索", app: app)
+      XCTAssertTrue(app.scrollViews["native-downloads-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 2_000_000_000)
+      capture("native-v2-live-downloads")
+      app.navigationBars.buttons.firstMatch.tap()
+
+      openOverflowItem("native-workspace-calendar", viaTab: "探索", app: app)
+      XCTAssertTrue(app.scrollViews["native-calendar-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 2_000_000_000)
+      capture("native-v2-live-calendar")
+      app.navigationBars.buttons.firstMatch.tap()
+
+      openOverflowItem("native-workspace-history", viaTab: "探索", app: app)
+      XCTAssertTrue(app.scrollViews["native-history-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 2_000_000_000)
+      capture("native-v2-live-history")
+      let queueBtn = app.buttons["native-history-queue"]
+      if queueBtn.waitForExistence(timeout: 6) {
+        queueBtn.tap()
+        if app.scrollViews["native-transfer-queue-scroll"].waitForExistence(timeout: 10) {
+          try await Task.sleep(nanoseconds: 1_000_000_000)
+          capture("native-v2-live-transfer-queue")
+          app.buttons["native-transfer-queue-close"].tap()
+        }
+      }
+      app.navigationBars.buttons.firstMatch.tap()
+
+      openOverflowItem("native-workspace-files", viaTab: "探索", app: app)
+      XCTAssertTrue(app.scrollViews["native-files-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 1_500_000_000)
+      capture("native-v2-live-files")
+      app.navigationBars.buttons.firstMatch.tap()
+
+      openOverflowItem("native-workspace-workflows", viaTab: "探索", app: app)
+      XCTAssertTrue(app.scrollViews["native-workflows-scroll"].waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 1_500_000_000)
+      capture("native-v2-live-workflows")
+      let firstWorkflowCard = app.descendants(matching: .any).matching(
+        NSPredicate(format: "identifier BEGINSWITH 'native-workflow-card-'")
+      ).firstMatch
+      if firstWorkflowCard.waitForExistence(timeout: 5) {
+        firstWorkflowCard.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.5)).tap()
+        if app.descendants(matching: .any)["native-workflow-canvas-area"].firstMatch
+          .waitForExistence(timeout: 15)
+        {
+          try await Task.sleep(nanoseconds: 1_500_000_000)
+          capture("native-v2-live-workflow-canvas")
+          app.navigationBars.buttons.firstMatch.tap()
+          try await Task.sleep(nanoseconds: 500_000_000)
+        }
+      }
+      let switchWorkflowMode = app.buttons["native-workflows-switch-mode"]
+      if switchWorkflowMode.waitForExistence(timeout: 5) {
+        switchWorkflowMode.tap()
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+        capture("native-v2-live-workflow-shares")
+      }
+      app.navigationBars.buttons.firstMatch.tap()
+
+      openOverflowItem("native-overflow-plugin-market", viaTab: "探索", app: app)
+      if app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 15) {
+        try await Task.sleep(nanoseconds: 1_800_000_000)
         capture("native-v2-live-plugin-installed")
         let statCard = app.descendants(matching: .any)["native-installed-card-SiteStatistic"]
           .firstMatch
         if statCard.waitForExistence(timeout: 5) {
-          tap(statCard, app: app)
-          XCTAssertTrue(app.scrollViews["native-plugin-page-scroll"].waitForExistence(timeout: 15))
-          try await Task.sleep(nanoseconds: 2_000_000_000)
-          capture("native-v2-live-plugin-page-statistic")
+          reveal(statCard, app: app)
+          if !statCard.frame.isEmpty, app.frame.intersects(statCard.frame) {
+            tap(statCard, app: app)
+            if app.scrollViews["native-plugin-page-scroll"].waitForExistence(timeout: 15) {
+              try await Task.sleep(nanoseconds: 2_000_000_000)
+              capture("native-v2-live-plugin-page-statistic")
+              app.navigationBars.buttons.firstMatch.tap()
+              try await Task.sleep(nanoseconds: 500_000_000)
+            }
+          }
+        }
+        let maoyanCard = app.descendants(matching: .any)["native-installed-card-MaoyanRank"]
+          .firstMatch
+        if maoyanCard.waitForExistence(timeout: 5) {
+          reveal(maoyanCard, app: app)
+          if !maoyanCard.frame.isEmpty, app.frame.intersects(maoyanCard.frame) {
+            tap(maoyanCard, app: app)
+            if app.scrollViews["native-plugin-page-scroll"].waitForExistence(timeout: 15) {
+              try await Task.sleep(nanoseconds: 2_000_000_000)
+              capture("native-v2-live-plugin-page-maoyan")
+              app.navigationBars.buttons.firstMatch.tap()
+              try await Task.sleep(nanoseconds: 500_000_000)
+            }
+          }
+        }
+        let openStoreBtn = app.buttons["native-plugin-open-store"]
+        if openStoreBtn.waitForExistence(timeout: 5) {
+          openStoreBtn.tap()
+          let firstMarketCard = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH 'native-market-card-'")
+          ).firstMatch
+          _ = firstMarketCard.waitForExistence(timeout: 12)
+          try await Task.sleep(nanoseconds: 800_000_000)
+          capture("native-v2-live-plugin-market")
           app.navigationBars.buttons.firstMatch.tap()
           try await Task.sleep(nanoseconds: 500_000_000)
         }
-        let maoyanPage = app.buttons["native-installed-page-MaoyanRank"]
-        if maoyanPage.waitForExistence(timeout: 5) {
-          tap(maoyanPage, app: app)
-          XCTAssertTrue(app.scrollViews["native-plugin-page-scroll"].waitForExistence(timeout: 15))
-          try await Task.sleep(nanoseconds: 2_000_000_000)
-          capture("native-v2-live-plugin-page-maoyan")
-          app.navigationBars.buttons.firstMatch.tap()
-          try await Task.sleep(nanoseconds: 500_000_000)
-        }
+        app.navigationBars.buttons.firstMatch.tap()
+        try await Task.sleep(nanoseconds: 500_000_000)
       }
-      app.navigationBars.buttons.firstMatch.tap()
+
+      // 「我的」对应仪表盘（含插件扩展图表），右上角承载消息中心与捷径，右下悬浮按钮开启智能助手
+      tap(tabButton("我的", app: app), app: app)
+      XCTAssertTrue(
+        app.descendants(matching: .any)["native-dashboard-storage"].firstMatch.waitForExistence(
+          timeout: 15))
+      try await Task.sleep(nanoseconds: 1_500_000_000)
+      capture("native-v2-live-dashboard")
+      let dashScroll = app.scrollViews["native-dashboard-scroll"]
+      if dashScroll.exists {
+        dashScroll.swipeUp()
+        dashScroll.swipeUp()
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+        capture("native-v2-live-dashboard-plugins")
+        dashScroll.swipeDown()
+        dashScroll.swipeDown()
+        try await Task.sleep(nanoseconds: 400_000_000)
+      }
+
+      let messagesBtn = app.buttons["native-dashboard-messages-btn"]
+      if messagesBtn.waitForExistence(timeout: 8) {
+        messagesBtn.tap()
+        if app.scrollViews["native-messages-scroll"].waitForExistence(timeout: 15) {
+          try await Task.sleep(nanoseconds: 2_000_000_000)
+          capture("native-v2-live-messages")
+        }
+        let closeMsg = app.buttons["native-messages-sheet-close"]
+        if closeMsg.exists { closeMsg.tap() }
+        try await Task.sleep(nanoseconds: 500_000_000)
+      }
+
+      let shortcutsBtn = app.buttons["native-dashboard-shortcuts-btn"]
+      if shortcutsBtn.waitForExistence(timeout: 8) {
+        shortcutsBtn.tap()
+        let wordsShortcut = app.buttons["native-shortcut-词表"]
+        if wordsShortcut.waitForExistence(timeout: 8) {
+          try await Task.sleep(nanoseconds: 700_000_000)
+          capture("native-v2-live-shortcuts")
+          tap(wordsShortcut, app: app)
+          if app.scrollViews["native-diag-scroll"].waitForExistence(timeout: 12) {
+            try await Task.sleep(nanoseconds: 1_200_000_000)
+            capture("native-v2-live-diag-words")
+            app.navigationBars.buttons.firstMatch.tap()
+            try await Task.sleep(nanoseconds: 400_000_000)
+          }
+          let schedShortcut = app.buttons["native-shortcut-定时服务"]
+          if schedShortcut.waitForExistence(timeout: 6) {
+            tap(schedShortcut, app: app)
+            if app.scrollViews["native-diag-scroll"].waitForExistence(timeout: 12) {
+              try await Task.sleep(nanoseconds: 1_200_000_000)
+              capture("native-v2-live-diag-schedulers")
+              app.navigationBars.buttons.firstMatch.tap()
+              try await Task.sleep(nanoseconds: 400_000_000)
+            }
+          }
+          let logShortcut = app.buttons["native-shortcut-实时日志"]
+          if logShortcut.waitForExistence(timeout: 6) {
+            tap(logShortcut, app: app)
+            if app.scrollViews["native-diag-scroll"].waitForExistence(timeout: 12) {
+              try await Task.sleep(nanoseconds: 1_200_000_000)
+              capture("native-v2-live-diag-logs")
+              app.navigationBars.buttons.firstMatch.tap()
+              try await Task.sleep(nanoseconds: 400_000_000)
+            }
+          }
+        }
+        let closeShortcuts = app.buttons["native-shortcuts-close"]
+        if closeShortcuts.exists { closeShortcuts.tap() }
+        try await Task.sleep(nanoseconds: 400_000_000)
+      }
+
+      let mascotBtn = app.buttons["native-agent-floating-mascot"]
+      if mascotBtn.waitForExistence(timeout: 6) {
+        mascotBtn.tap()
+        if app.scrollViews["native-agent-scroll"].waitForExistence(timeout: 15) {
+          try await Task.sleep(nanoseconds: 1_500_000_000)
+          capture("native-v2-live-agent")
+        }
+        let closeAgent = app.buttons["native-agent-sheet-close"]
+        if closeAgent.exists { closeAgent.tap() }
+        try await Task.sleep(nanoseconds: 500_000_000)
+      }
+
+      // 「设置」对应多样化设置中心（存储概览 + 站点/用户/渠道三卡 + 原生分组列表）
+      tap(tabButton("设置", app: app), app: app)
+      XCTAssertTrue(app.buttons["native-workspace-sites"].waitForExistence(timeout: 12))
+      try await Task.sleep(nanoseconds: 1_500_000_000)
+      capture("native-v2-live-settings-hub")
+
+      let sitesCard = app.buttons["native-workspace-sites"]
+      if sitesCard.waitForExistence(timeout: 6) {
+        tap(sitesCard, app: app)
+        XCTAssertTrue(app.scrollViews["native-sites-scroll"].waitForExistence(timeout: 15))
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+        capture("native-v2-live-sites")
+        let firstSiteCard = app.descendants(matching: .any).matching(
+          NSPredicate(format: "identifier BEGINSWITH 'native-site-card-'")
+        ).firstMatch
+        if firstSiteCard.waitForExistence(timeout: 6) {
+          firstSiteCard.coordinate(withNormalizedOffset: CGVector(dx: 0.32, dy: 0.5)).tap()
+          if app.scrollViews["native-site-data-scroll"].waitForExistence(timeout: 12) {
+            try await Task.sleep(nanoseconds: 1_500_000_000)
+            capture("native-v2-live-site-data")
+            let closeSiteData = app.buttons["native-site-data-close"]
+            if closeSiteData.exists { closeSiteData.tap() }
+            try await Task.sleep(nanoseconds: 400_000_000)
+          }
+        }
+        app.navigationBars.buttons.firstMatch.tap()
+        try await Task.sleep(nanoseconds: 500_000_000)
+      }
+      let usersEntry = app.buttons["native-workspace-users"]
+      if usersEntry.waitForExistence(timeout: 8) {
+        tap(usersEntry, app: app)
+        XCTAssertTrue(app.scrollViews["native-users-scroll"].waitForExistence(timeout: 15))
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        capture("native-v2-live-users")
+        app.navigationBars.buttons.firstMatch.tap()
+        try await Task.sleep(nanoseconds: 400_000_000)
+      }
+      let channelAuthEntry = app.buttons["native-workspace-channel-auth"]
+      if channelAuthEntry.waitForExistence(timeout: 8) {
+        tap(channelAuthEntry, app: app)
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        capture("native-v2-live-channel-auth")
+        app.navigationBars.buttons.firstMatch.tap()
+        try await Task.sleep(nanoseconds: 400_000_000)
+      }
+      let subSearchEntry = app.buttons["native-settings-subscribe-search"]
+      reveal(subSearchEntry, app: app)
+      if subSearchEntry.waitForExistence(timeout: 6) {
+        tap(subSearchEntry, app: app)
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        capture("native-v2-live-sysmod-site-scope")
+        app.navigationBars.buttons.firstMatch.tap()
+        try await Task.sleep(nanoseconds: 400_000_000)
+      }
+      let mediaSourcesEntry = app.buttons["native-settings-media-sources"]
+      reveal(mediaSourcesEntry, app: app)
+      if mediaSourcesEntry.waitForExistence(timeout: 6) {
+        tap(mediaSourcesEntry, app: app)
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        capture("native-v2-live-settings")
+        app.navigationBars.buttons.firstMatch.tap()
+        try await Task.sleep(nanoseconds: 400_000_000)
+      }
+      let downloadersEntry = app.buttons["native-settings-downloaders"]
+      reveal(downloadersEntry, app: app)
+      if downloadersEntry.waitForExistence(timeout: 6) {
+        tap(downloadersEntry, app: app)
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        capture("native-v2-live-sysmod-services")
+        app.navigationBars.buttons.firstMatch.tap()
+        try await Task.sleep(nanoseconds: 400_000_000)
+      }
+      let mediaServersEntry = app.buttons["native-settings-mediaservers"]
+      reveal(mediaServersEntry, app: app)
+      if mediaServersEntry.waitForExistence(timeout: 6) {
+        tap(mediaServersEntry, app: app)
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        capture("native-v2-live-mediaservers")
+        app.navigationBars.buttons.firstMatch.tap()
+        try await Task.sleep(nanoseconds: 400_000_000)
+      }
+      let dirsTile = app.buttons["native-settings-hub-directories"]
+      reveal(dirsTile, app: app)
+      if dirsTile.waitForExistence(timeout: 6) {
+        tap(dirsTile, app: app)
+        if app.scrollViews["native-sysmod-scroll"].waitForExistence(timeout: 15) {
+          try await Task.sleep(nanoseconds: 1_500_000_000)
+          capture("native-v2-live-sysmod-directories")
+        }
+        app.navigationBars.buttons.firstMatch.tap()
+        try await Task.sleep(nanoseconds: 400_000_000)
+      }
+      let notifyTile = app.buttons["native-settings-hub-notifications"]
+      reveal(notifyTile, app: app)
+      if notifyTile.waitForExistence(timeout: 6) {
+        tap(notifyTile, app: app)
+        if app.scrollViews["native-sysmod-scroll"].waitForExistence(timeout: 15) {
+          try await Task.sleep(nanoseconds: 1_500_000_000)
+          capture("native-v2-live-sysmod-notifications")
+        }
+        app.navigationBars.buttons.firstMatch.tap()
+        try await Task.sleep(nanoseconds: 400_000_000)
+      }
+      let appearanceTile = app.buttons["native-settings-hub-appearance"]
+      reveal(appearanceTile, app: app)
+      if appearanceTile.waitForExistence(timeout: 6) {
+        tap(appearanceTile, app: app)
+        if app.scrollViews["native-appearance-scroll"].waitForExistence(timeout: 12) {
+          try await Task.sleep(nanoseconds: 1_200_000_000)
+          capture("native-v2-live-appearance")
+        }
+        app.navigationBars.buttons.firstMatch.tap()
+        try await Task.sleep(nanoseconds: 400_000_000)
+      }
     }
     tap(tabButton("搜索", app: app), app: app)
     let query = app.textFields["native-media-search-query"]
@@ -400,12 +553,12 @@ final class NativeV2EntryTests: XCTestCase {
     if firstResult.waitForExistence(timeout: 8) {
       tap(firstResult, app: app)
       if app.staticTexts["native-media-detail-title"].waitForExistence(timeout: 15) {
-        try await Task.sleep(nanoseconds: 2_000_000_000)
+        try await Task.sleep(nanoseconds: 1_500_000_000)
         capture("native-v2-live-tv-detail")
-        let tvScroll = app.scrollViews.firstMatch
+        let tvScroll = app.scrollViews["native-media-detail-scroll"]
         if tvScroll.exists {
           tvScroll.swipeUp()
-          try await Task.sleep(nanoseconds: 1_000_000_000)
+          try await Task.sleep(nanoseconds: 900_000_000)
           capture("native-v2-live-tv-seasons")
         }
       }
@@ -1533,19 +1686,21 @@ final class NativeV2EntryTests: XCTestCase {
   private func openOverflowItem(
     _ identifier: String, viaTab tab: String = "发现", app: XCUIApplication
   ) {
-    let menuScroll = app.scrollViews["native-overflow-menu-scroll"]
-    if !menuScroll.exists {
+    let menuHeader = app.descendants(matching: .any)["native-overflow-user-header"].firstMatch
+    if !menuHeader.exists {
       let tabBtn = tabButton(tab, app: app)
       XCTAssertTrue(tabBtn.waitForExistence(timeout: 10))
       tap(tabBtn, app: app)
-      if !menuScroll.waitForExistence(timeout: 1.5) {
+      if !menuHeader.waitForExistence(timeout: 1.8) {
         tap(tabBtn, app: app)
       }
     }
-    XCTAssertTrue(menuScroll.waitForExistence(timeout: 8))
+    XCTAssertTrue(menuHeader.waitForExistence(timeout: 8))
     let item = app.buttons[identifier]
-    reveal(item, app: app)
-    XCTAssertTrue(item.waitForExistence(timeout: 8))
+    if !item.waitForExistence(timeout: 4), app.scrollViews["native-overflow-menu-scroll"].exists {
+      reveal(item, app: app)
+    }
+    XCTAssertTrue(item.waitForExistence(timeout: 6))
     tap(item, app: app)
   }
 

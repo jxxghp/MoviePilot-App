@@ -12,6 +12,7 @@ enum NativeDiscoverModuleID: String, CaseIterable, Codable, Identifiable, Sendab
   case doubanTop250
   case latest
   case mediaLibrary
+  case categories
 
   /// 稳定模块键。
   var id: String { rawValue }
@@ -27,7 +28,8 @@ enum NativeDiscoverModuleID: String, CaseIterable, Codable, Identifiable, Sendab
     case .doubanShowing: "豆瓣热映"
     case .doubanTop250: "豆瓣 Top250"
     case .latest: "最新入库"
-    case .mediaLibrary: "媒体库与分类"
+    case .mediaLibrary: "媒体库"
+    case .categories: "分类浏览"
     }
   }
 
@@ -42,7 +44,8 @@ enum NativeDiscoverModuleID: String, CaseIterable, Codable, Identifiable, Sendab
     case .doubanShowing: "sparkles"
     case .doubanTop250: "star.circle"
     case .latest: "clock.arrow.circlepath"
-    case .mediaLibrary: "square.grid.2x2"
+    case .mediaLibrary: "rectangle.stack"
+    case .categories: "square.grid.2x2"
     }
   }
 
@@ -76,7 +79,13 @@ struct NativeDiscoverModuleItem: Identifiable, Codable, Equatable, Sendable {
       result.append(item)
     }
     for fallback in defaults where seen.insert(fallback.id).inserted {
-      result.append(fallback)
+      if fallback.id == .categories,
+        let mediaIdx = result.firstIndex(where: { $0.id == .mediaLibrary })
+      {
+        result.insert(fallback, at: mediaIdx + 1)
+      } else {
+        result.append(fallback)
+      }
     }
     return result
   }

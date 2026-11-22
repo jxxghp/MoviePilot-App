@@ -1114,8 +1114,8 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         }
         .scrollIndicators(.hidden)
         .frame(maxHeight: 440)
+        .accessibilityIdentifier("native-overflow-menu-scroll")
       }
-      .accessibilityIdentifier("native-overflow-menu-scroll")
     }
     .frame(width: 238)
     .modifier(NativeLiquidGlassPopoverSurface(cornerRadius: 26))
@@ -1795,16 +1795,35 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
   }
 
-  /// TMDB 卡片须有真实原生 ID，缺失身份时不把标题当作后端 ID 提交。
+  /// 卡片须有真实原生 ID（兼容 TMDB / 豆瓣 / Bangumi / AniList），缺失身份时不把标题当作后端 ID 提交。
   private func project(_ item: NativeDiscoverAPIItem, fallbackType: String) -> NativeDiscoverMedia?
   {
-    let source = item.mediaSource ?? "themoviedb"
-    let mediaID =
-      item.mediaID.flatMap { $0.isEmpty ? nil : $0 }
-      ?? (source == "themoviedb" ? item.tmdbID.map(String.init) : nil)
-    guard let mediaID else { return nil }
+    let resolvedSource: String
+    let resolvedID: String?
+    if let explicitSource = item.mediaSource, !explicitSource.isEmpty,
+      let explicitID = item.mediaID, !explicitID.isEmpty, explicitID != "0"
+    {
+      resolvedSource = explicitSource
+      resolvedID = explicitID
+    } else if let tmdbID = item.tmdbID, tmdbID > 0 {
+      resolvedSource = "themoviedb"
+      resolvedID = String(tmdbID)
+    } else if let doubanID = item.doubanID, !doubanID.isEmpty, doubanID != "0" {
+      resolvedSource = "douban"
+      resolvedID = doubanID
+    } else if let bangumiID = item.bangumiID, bangumiID > 0 {
+      resolvedSource = "bangumi"
+      resolvedID = String(bangumiID)
+    } else if let anilistID = item.anilistID, anilistID > 0 {
+      resolvedSource = "anilist"
+      resolvedID = String(anilistID)
+    } else {
+      return nil
+    }
+    guard let mediaID = resolvedID else { return nil }
+    let resolvedType = MediaSummaryItem.normalizeMediaType(item.type) ?? fallbackType
     let identity = NativeMediaIdentity(
-      source: source, mediaID: mediaID, type: item.type ?? fallbackType)
+      source: resolvedSource, mediaID: mediaID, type: resolvedType)
     let genresSummary = item.genreNames.prefix(2).joined(separator: " / ")
     return NativeDiscoverMedia(
       id: identity.id,
@@ -2541,12 +2560,12 @@ private struct NativeDiscoverMusicItem: Decodable, Sendable {
 
 /// 发现接口只反序列化详情首屏需要的字段，不将完整外部 JSON 塞进 SwiftUI。
 private struct NativeDiscoverAPIItem: Decodable, Sendable {
-  /// 后端影视风格可为对象数组。
-  struct Genre: Decodable, Sendable { let name: String? }
-
   let mediaSource: String?
   let mediaID: String?
   let tmdbID: Int?
+  let doubanID: String?
+  let bangumiID: Int?
+  let anilistID: Int?
   let type: String?
   let title: String?
   let year: String?
@@ -2556,7 +2575,7 @@ private struct NativeDiscoverAPIItem: Decodable, Sendable {
   let logoPath: String?
   let overview: String?
   let voteAverage: Double?
-  let genres: [Genre]?
+  let genres: [MediaNamedTag]?
 
   /// 提取可读风格名称用于主视觉与趋势横卡副标。
   var genreNames: [String] {
@@ -2569,6 +2588,9 @@ private struct NativeDiscoverAPIItem: Decodable, Sendable {
     case mediaSource = "media_source"
     case mediaID = "media_id"
     case tmdbID = "tmdb_id"
+    case doubanID = "douban_id"
+    case bangumiID = "bangumi_id"
+    case anilistID = "anilist_id"
     case releaseDate = "release_date"
     case posterPath = "poster_path"
     case backdropPath = "backdrop_path"

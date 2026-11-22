@@ -10,10 +10,10 @@ struct NativeMediaDetailPage: View {
   let session: NativeSession
   let identity: NativeMediaIdentity
 
-  @State private var detail: NativeMediaDetailPayload?
+  @State private var detail: MediaDetailPayload?
   @State private var status = NativeMediaStatusSnapshot()
-  @State private var credits: [NativeMediaPersonItem] = []
-  @State private var recommendations: [NativeMediaSummaryItem] = []
+  @State private var credits: [MediaPersonSummary] = []
+  @State private var recommendations: [MediaSummaryItem] = []
   @State private var failed = false
   @State private var attempt = 0
   @State private var isLoading = true
@@ -156,11 +156,13 @@ struct NativeMediaDetailPage: View {
 
   /// 详情页沉浸式固定剧照背景：复用发现页同款下拉弹性延展、轻视差、渐进柔焦与六段平滑软边溶解，完全无拼缝。
   private func heroBackdrop(
-    _ detail: NativeMediaDetailPayload, width: CGFloat, height: CGFloat,
+    _ detail: MediaDetailPayload, width: CGFloat, height: CGFloat,
     progress: CGFloat, eased: CGFloat
   ) -> some View {
-    let backdrop = Self.resolveArtwork(
-      detail.backdropPath ?? detail.posterPath, source: detail.mediaSource ?? identity.source)
+    let source = detail.mediaSource ?? identity.source
+    let backdrop = [detail.backdropPath, detail.posterPath]
+      .compactMap { Self.resolveArtwork($0, source: source) }
+      .first
     let scrollUp = max(-scrollOffset, 0)
     let pullDown = max(scrollOffset, 0)
     let backdropHeight = height * 1.08 + pullDown
@@ -252,7 +254,7 @@ struct NativeMediaDetailPage: View {
   }
 
   /// 前景标题与核心元数据浮置在固定背景头图底部区域，随正文自然上滚。
-  private func heroHeaderOverlay(_ detail: NativeMediaDetailPayload, height: CGFloat) -> some View {
+  private func heroHeaderOverlay(_ detail: MediaDetailPayload, height: CGFloat) -> some View {
     let isLight = colorScheme == .light
     return VStack(alignment: .leading, spacing: 10) {
       Spacer(minLength: 0)
@@ -326,7 +328,7 @@ struct NativeMediaDetailPage: View {
   /// 主操作区遵循 Liquid Glass 分组规范：按权限展示订阅开关、资源搜索与入库状态，不伪造未接入动作。
   /// 统一等高、比例均衡的详情操作栏：已入库时主播放按钮全宽独占第一行，订阅与搜索资源并排等宽居第二行；未入库时订阅与搜索资源等宽并排，避免三四枚按钮挤压变形。
   @ViewBuilder
-  private func actionBar(_ detail: NativeMediaDetailPayload) -> some View {
+  private func actionBar(_ detail: MediaDetailPayload) -> some View {
     let tv = isTelevision(detail)
     let subscribedCount = status.seasons.count
     let hasPlay = (status.itemID?.isEmpty == false)
@@ -338,9 +340,10 @@ struct NativeMediaDetailPage: View {
           Button {
             Task {
               isLaunchingPlayback = true
-              let posterRaw = Self.resolveArtwork(
-                detail.posterPath ?? detail.backdropPath,
-                source: detail.mediaSource ?? identity.source)
+              let source = detail.mediaSource ?? identity.source
+              let posterRaw = [detail.posterPath, detail.backdropPath]
+                .compactMap { Self.resolveArtwork($0, source: source) }
+                .first
               let artworkURL = NativeMediaPlaybackLauncher.proxiedArtworkURL(
                 session: session, raw: posterRaw)
               let err = await NativeMediaPlaybackLauncher.shared.playMediaServerItem(
@@ -525,7 +528,7 @@ struct NativeMediaDetailPage: View {
 
   /// 剧情简介默认保留优雅阅读行距，长文本提供原地展开/收起。
   @ViewBuilder
-  private func synopsisSection(_ detail: NativeMediaDetailPayload) -> some View {
+  private func synopsisSection(_ detail: MediaDetailPayload) -> some View {
     if let overview = detail.overview?.trimmingCharacters(in: .whitespacesAndNewlines),
       !overview.isEmpty
     {
@@ -553,7 +556,7 @@ struct NativeMediaDetailPage: View {
   }
 
   /// 剧集分季卡片展示真实海报、集数与各季独立订阅状态。
-  private func seasonsSection(_ detail: NativeMediaDetailPayload, seasons: [NativeMediaSeasonItem])
+  private func seasonsSection(_ detail: MediaDetailPayload, seasons: [MediaSeasonSummary])
     -> some View
   {
     VStack(alignment: .leading, spacing: 14) {
@@ -575,13 +578,15 @@ struct NativeMediaDetailPage: View {
   }
 
   /// 单季透色玻璃卡片：2:3 季海报 + 季名/年份/集数 + 独立订阅按钮。
-  private func seasonRow(_ detail: NativeMediaDetailPayload, season: NativeMediaSeasonItem)
+  private func seasonRow(_ detail: MediaDetailPayload, season: MediaSeasonSummary)
     -> some View
   {
     let isSubscribed = status.seasons[season.seasonNumber] != nil
     let isMutating = mutatingSeason == season.seasonNumber
-    let poster = Self.resolveArtwork(
-      season.posterPath ?? detail.posterPath, source: detail.mediaSource ?? identity.source)
+    let source = detail.mediaSource ?? identity.source
+    let poster = [season.posterPath, detail.posterPath]
+      .compactMap { Self.resolveArtwork($0, source: source) }
+      .first
     return CinematicPanel(padding: 12) {
       HStack(alignment: .top, spacing: 12) {
         NativeMediaArtwork(session: session, reference: poster, role: .poster, maximumWidth: 240)
@@ -656,29 +661,35 @@ struct NativeMediaDetailPage: View {
     }
   }
 
-  /// 演职员采用 Cinematic 圆形头像横栏，具备 TMDB 人物 ID 时支持推入人物详情页。
-  private func castSection(_ people: [NativeMediaPersonItem]) -> some View {
-    VStack(alignment: .leading, spacing: 14) {
+  /// 演职员采用 Cinematic 圆形头像横栏，支持 TMDB / 豆瓣 / Bangumi / AniList 推入原生人物详情页。
+  private func castSection(_ people: [MediaPersonSummary]) -> some View {
+    let detailSource = detail?.mediaSource ?? identity.source
+    return VStack(alignment: .leading, spacing: 14) {
       Text("演职员")
         .font(.title3.weight(.bold))
         .accessibilityAddTraits(.isHeader)
       ScrollView(.horizontal) {
         LazyHStack(alignment: .top, spacing: 14) {
           ForEach(people.prefix(18)) { person in
-            if let personID = person.numericID,
-              person.source?.lowercased() ?? "themoviedb" == "themoviedb"
+            let personSource = person.source ?? detailSource
+            if let personID = person.resolvedPersonID,
+              MediaSourceEndpoint.supportsPersonDetail(source: personSource)
             {
               NavigationLink {
                 NativePersonDetailPage(
-                  session: session, personID: personID, fallbackName: person.displayName,
-                  fallbackAvatar: Self.resolveArtwork(person.artworkPath, source: person.source))
+                  session: session,
+                  source: personSource,
+                  personID: personID,
+                  fallbackName: person.displayName,
+                  fallbackAvatar: Self.resolveArtwork(
+                    person.artworkPath(forSource: personSource), source: personSource))
               } label: {
-                personCard(person)
+                personCard(person, fallbackSource: personSource)
               }
               .buttonStyle(.plain)
               .accessibilityIdentifier("native-media-detail-cast-\(personID)")
             } else {
-              personCard(person)
+              personCard(person, fallbackSource: personSource)
             }
           }
         }
@@ -689,8 +700,9 @@ struct NativeMediaDetailPage: View {
   }
 
   /// 单个圆形演员头像与角色名卡片。
-  private func personCard(_ person: NativeMediaPersonItem) -> some View {
-    let avatar = Self.resolveArtwork(person.artworkPath, source: person.source ?? "themoviedb")
+  private func personCard(_ person: MediaPersonSummary, fallbackSource: String) -> some View {
+    let source = person.source ?? fallbackSource
+    let avatar = Self.resolveArtwork(person.artworkPath(forSource: source), source: source)
     return VStack(spacing: 7) {
       Group {
         if let avatar {
@@ -722,23 +734,26 @@ struct NativeMediaDetailPage: View {
 
   /// 推荐/相似作品横向海报栏，点击后在同一原生 NavigationStack 推入下一部详情。
   private var recommendationsSection: some View {
-    VStack(alignment: .leading, spacing: 14) {
+    let fallbackSource = detail?.mediaSource ?? identity.source
+    return VStack(alignment: .leading, spacing: 14) {
       Text("你可能也喜欢")
         .font(.title3.weight(.bold))
         .accessibilityAddTraits(.isHeader)
       ScrollView(.horizontal) {
         LazyHStack(alignment: .top, spacing: 12) {
           ForEach(recommendations.prefix(16)) { item in
-            if let nextIdentity = item.identity {
+            if let resolved = item.resolvedIdentity(fallbackSource: fallbackSource) {
+              let nextIdentity = NativeMediaIdentity(
+                source: resolved.source, mediaID: resolved.mediaID, type: resolved.type)
               NavigationLink {
                 NativeMediaDetailPage(session: session, identity: nextIdentity)
               } label: {
-                recommendationCard(item)
+                recommendationCard(item, fallbackSource: fallbackSource)
               }
               .buttonStyle(.plain)
               .accessibilityIdentifier("native-media-detail-recommend-\(nextIdentity.id)")
             } else {
-              recommendationCard(item)
+              recommendationCard(item, fallbackSource: fallbackSource)
             }
           }
         }
@@ -749,8 +764,10 @@ struct NativeMediaDetailPage: View {
   }
 
   /// 与发现页一致的 2:3 居中海报推荐卡片。
-  private func recommendationCard(_ item: NativeMediaSummaryItem) -> some View {
-    let poster = Self.resolveArtwork(item.posterPath, source: item.mediaSource ?? "themoviedb")
+  private func recommendationCard(_ item: MediaSummaryItem, fallbackSource: String) -> some View {
+    let resolved = item.resolvedIdentity(fallbackSource: fallbackSource)
+    let poster = Self.resolveArtwork(
+      item.posterPath, source: resolved?.source ?? item.mediaSource ?? fallbackSource)
     return VStack(spacing: 6) {
       NativeMediaArtwork(session: session, reference: poster, role: .poster, maximumWidth: 420)
         .frame(width: 108, height: 162)
@@ -761,11 +778,11 @@ struct NativeMediaDetailPage: View {
         }
         .nativeMediaExistsOverlay(
           session: session,
-          source: item.identity?.source,
-          mediaID: item.identity?.mediaID,
+          source: resolved?.source,
+          mediaID: resolved?.mediaID,
           title: item.title,
           year: item.year,
-          type: item.identity?.type ?? item.type
+          type: resolved?.type ?? item.type
         )
       Text(item.title ?? "未命名作品")
         .font(.footnote.weight(.medium))
@@ -784,7 +801,7 @@ struct NativeMediaDetailPage: View {
 
   /// 补充作品资料卡（导演、状态、地区与来源标识），采用低遮罩透色玻璃容器。
   @ViewBuilder
-  private func metadataPanel(_ detail: NativeMediaDetailPayload) -> some View {
+  private func metadataPanel(_ detail: MediaDetailPayload) -> some View {
     let rows = metadataRows(detail)
     if !rows.isEmpty {
       CinematicPanel {
@@ -829,14 +846,15 @@ struct NativeMediaDetailPage: View {
 
   /// 并行读取核心详情与状态/演职员/推荐；命中作品缓存时首帧直出且静默复用，下拉刷新强制重拉。
   private func loadAll(forceRefresh: Bool = false) async {
-    let cacheKey = "mediaDetail|\(identity.source)|\(identity.mediaID)|\(identity.type)"
+    let normalizedType = MediaSummaryItem.normalizeMediaType(identity.type) ?? "电影"
+    let cacheKey = "mediaDetail|\(identity.source)|\(identity.mediaID)|\(normalizedType)"
     if !forceRefresh,
       let cached:
         (
-          detail: NativeMediaDetailPayload,
+          detail: MediaDetailPayload,
           status: NativeMediaStatusSnapshot,
-          credits: [NativeMediaPersonItem],
-          recommendations: [NativeMediaSummaryItem]
+          credits: [MediaPersonSummary],
+          recommendations: [MediaSummaryItem]
         ) = NativePageDataCache.shared.get(cacheKey, session: session)
     {
       detail = cached.detail
@@ -855,10 +873,11 @@ struct NativeMediaDetailPage: View {
         path: ["media", identity.mediaID],
         query: [
           URLQueryItem(name: "media_source", value: identity.source),
-          URLQueryItem(name: "type_name", value: identity.type),
-        ])
+          URLQueryItem(name: "type_name", value: normalizedType),
+        ],
+        timeout: 30)
       let loaded = try await session.request(
-        endpoint, as: NativeMediaDetailPayload.self, requiring: .init(category: .discovery)
+        endpoint, as: MediaDetailPayload.self, requiring: .init(category: .discovery)
       ).value
       try Task.checkCancellation()
       guard loaded.title?.isEmpty == false else {
@@ -867,12 +886,11 @@ struct NativeMediaDetailPage: View {
       }
       detail = loaded
 
-      let tmdbID = loaded.tmdbID ?? (identity.source == "themoviedb" ? Int(identity.mediaID) : nil)
-      let mediaType = loaded.type ?? identity.type
+      let mediaType = MediaSummaryItem.normalizeMediaType(loaded.type) ?? normalizedType
 
-      async let statusTask = loadMediaStatus(loaded)
-      async let creditsTask = loadCredits(tmdbID: tmdbID, type: mediaType)
-      async let recommendTask = loadRecommendations(tmdbID: tmdbID, type: mediaType)
+      async let statusTask = loadMediaStatus(loaded, fallbackType: mediaType)
+      async let creditsTask = loadCredits(for: loaded, type: mediaType)
+      async let recommendTask = loadRecommendations(for: loaded, type: mediaType)
       let (loadedStatus, loadedCredits, loadedRecommendations) = await (
         statusTask, creditsTask, recommendTask
       )
@@ -891,14 +909,17 @@ struct NativeMediaDetailPage: View {
   }
 
   /// 单次请求查询本地媒体库入库状态与当前账号各季订阅状态。
-  private func loadMediaStatus(_ loaded: NativeMediaDetailPayload) async
+  private func loadMediaStatus(_ loaded: MediaDetailPayload, fallbackType: String? = nil) async
     -> NativeMediaStatusSnapshot?
   {
     let payload = [
       NativeMediaStatusQuery(
         mediaSource: loaded.mediaSource ?? identity.source,
         mediaID: loaded.mediaID ?? identity.mediaID,
-        mtype: loaded.type ?? identity.type,
+        mtype: MediaSummaryItem.normalizeMediaType(loaded.type)
+          ?? fallbackType
+          ?? MediaSummaryItem.normalizeMediaType(identity.type)
+          ?? "电影",
         title: loaded.title,
         year: loaded.year)
     ]
@@ -910,41 +931,40 @@ struct NativeMediaDetailPage: View {
     ).value.first
   }
 
-  /// 读取 TMDB 演职员列表，缺省时页面自动回落到详情内嵌的 actors。
-  private func loadCredits(tmdbID: Int?, type: String) async -> [NativeMediaPersonItem] {
-    guard let tmdbID,
-      let endpoint = try? APIEndpoint(
-        path: ["tmdb", "credits", String(tmdbID), type],
-        query: [URLQueryItem(name: "page", value: "1")])
+  /// 读取当前数据源演职员列表（TMDB / 豆瓣 / Bangumi / AniList），缺省时页面自动回落到详情内嵌的 actors。
+  private func loadCredits(for loaded: MediaDetailPayload, type: String) async
+    -> [MediaPersonSummary]
+  {
+    guard
+      let endpoint = MediaSourceEndpoint.creditsEndpoint(
+        for: loaded,
+        fallbackSource: identity.source,
+        fallbackMediaID: identity.mediaID,
+        type: type)
     else { return [] }
     return
       (try? await session.request(
-        endpoint, as: [NativeMediaPersonItem].self, requiring: .init(category: .discovery)
+        endpoint, as: [MediaPersonSummary].self, requiring: .init(category: .discovery)
       ).value) ?? []
   }
 
-  /// 读取 TMDB 推荐作品；若推荐为空则尝试相似作品作为补充。
-  private func loadRecommendations(tmdbID: Int?, type: String) async -> [NativeMediaSummaryItem] {
-    guard let tmdbID else { return [] }
-    if let recEndpoint = try? APIEndpoint(
-      path: ["tmdb", "recommend", String(tmdbID), type],
-      query: [URLQueryItem(name: "page", value: "1")]),
-      let items = try? await session.request(
-        recEndpoint, as: [NativeMediaSummaryItem].self, requiring: .init(category: .discovery)
-      ).value,
-      !items.isEmpty
-    {
-      return items
+  /// 读取当前数据源推荐作品（TMDB / 豆瓣 / Bangumi / AniList）；TMDB 推荐为空时自动回落到相似作品。
+  private func loadRecommendations(for loaded: MediaDetailPayload, type: String) async
+    -> [MediaSummaryItem]
+  {
+    let endpoints = MediaSourceEndpoint.recommendationEndpoints(
+      for: loaded,
+      fallbackSource: identity.source,
+      fallbackMediaID: identity.mediaID,
+      type: type)
+    for endpoint in endpoints {
+      if let items = try? await session.request(
+        endpoint, as: [MediaSummaryItem].self, requiring: .init(category: .discovery)
+      ).value, !items.isEmpty {
+        return items
+      }
     }
-    guard
-      let simEndpoint = try? APIEndpoint(
-        path: ["tmdb", "similar", String(tmdbID), type],
-        query: [URLQueryItem(name: "page", value: "1")])
-    else { return [] }
-    return
-      (try? await session.request(
-        simEndpoint, as: [NativeMediaSummaryItem].self, requiring: .init(category: .discovery)
-      ).value) ?? []
+    return []
   }
 
   /// 显式单次提交订阅新增请求；绝不自动重试，成功后重新同步媒体状态。
@@ -1035,32 +1055,35 @@ struct NativeMediaDetailPage: View {
   }
 
   /// 区分电视剧与电影布局分支。
-  private func isTelevision(_ detail: NativeMediaDetailPayload) -> Bool {
-    (detail.type ?? identity.type) == "电视剧"
+  private func isTelevision(_ detail: MediaDetailPayload) -> Bool {
+    (MediaSummaryItem.normalizeMediaType(detail.type)
+      ?? MediaSummaryItem.normalizeMediaType(identity.type)) == "电视剧"
   }
 
-  /// 优先展示正片季（季号 >= 1），特别篇（0 季）排在末尾。
-  private func resolvedSeasons(_ detail: NativeMediaDetailPayload) -> [NativeMediaSeasonItem] {
-    let all = detail.seasonInfo ?? []
-    let regular = all.filter { $0.seasonNumber > 0 }.sorted { $0.seasonNumber < $1.seasonNumber }
-    let specials = all.filter { $0.seasonNumber == 0 }
-    return regular + specials
+  /// 优先展示正片季（季号 >= 1），特别篇（0 季）排在末尾；豆瓣剧集缺省 `season_info` 时从 `seasons` 自动拼装。
+  private func resolvedSeasons(_ detail: MediaDetailPayload) -> [MediaSeasonSummary] {
+    detail.resolvedSeasons
   }
 
-  /// 优先展示 TMDB credits 接口返回的完整演员阵容，无结果时回落到详情内嵌演员。
-  private func displayCast(_ detail: NativeMediaDetailPayload) -> [NativeMediaPersonItem] {
+  /// 优先展示演职员接口返回的完整演员阵容，无结果时回落到详情内嵌演员。
+  private func displayCast(_ detail: MediaDetailPayload) -> [MediaPersonSummary] {
     credits.isEmpty ? (detail.actors ?? []) : credits
   }
 
   /// 拼装头图下方的年份、类型、时长/季数与分级摘要。
-  private func metadataLineParts(_ detail: NativeMediaDetailPayload) -> [String] {
+  private func metadataLineParts(_ detail: MediaDetailPayload) -> [String] {
     var parts: [String] = []
     if let year = detail.year, !year.isEmpty { parts.append(year) }
-    parts.append(detail.type ?? identity.type)
+    parts.append(
+      MediaSummaryItem.normalizeMediaType(detail.type)
+        ?? MediaSummaryItem.normalizeMediaType(identity.type)
+        ?? identity.type)
     if let runtime = detail.runtime, runtime > 0 {
       parts.append("\(runtime) 分钟")
     } else if let seasonsCount = detail.numberOfSeasons, seasonsCount > 0 {
       parts.append("\(seasonsCount) 季")
+    } else if isTelevision(detail), !detail.resolvedSeasons.isEmpty {
+      parts.append("\(detail.resolvedSeasons.count) 季")
     }
     if let rating = detail.contentRating, !rating.isEmpty {
       parts.append(rating)
@@ -1069,7 +1092,7 @@ struct NativeMediaDetailPage: View {
   }
 
   /// 拼装单季副标（首播年份与集数）。
-  private func seasonMetadata(_ season: NativeMediaSeasonItem) -> String {
+  private func seasonMetadata(_ season: MediaSeasonSummary) -> String {
     var parts: [String] = []
     if let date = season.airDate, date.count >= 4 {
       parts.append(String(date.prefix(4)))
@@ -1081,8 +1104,7 @@ struct NativeMediaDetailPage: View {
   }
 
   /// 构造底部资料卡的键值明细行。
-  private func metadataRows(_ detail: NativeMediaDetailPayload) -> [(label: String, value: String)]
-  {
+  private func metadataRows(_ detail: MediaDetailPayload) -> [(label: String, value: String)] {
     var rows: [(String, String)] = []
     if let original = detail.originalTitle, !original.isEmpty, original != detail.title {
       rows.append(("原名", original))
@@ -1101,6 +1123,9 @@ struct NativeMediaDetailPage: View {
     if !countries.isEmpty {
       rows.append(("地区", countries.prefix(3).joined(separator: " / ")))
     }
+    if let doubanID = detail.doubanID, !doubanID.isEmpty {
+      rows.append(("豆瓣 ID", doubanID))
+    }
     if let imdb = detail.imdbID, !imdb.isEmpty {
       rows.append(("IMDb", imdb))
     }
@@ -1108,7 +1133,7 @@ struct NativeMediaDetailPage: View {
   }
 
   /// 将后端 TMDB 相对图片路径安全补全为 HTTPS 源地址，仍经同源后端图片代理获取。
-  static func resolveArtwork(_ raw: String?, source: String?) -> String? {
+  nonisolated static func resolveArtwork(_ raw: String?, source: String?) -> String? {
     guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty
     else { return nil }
     if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
@@ -1121,20 +1146,35 @@ struct NativeMediaDetailPage: View {
   }
 }
 
-/// 原生人物详情页：展示人物头像、简介与参演作品网格，可继续推入任意影视详情。
+/// 原生人物详情页：展示人物头像、简介与参演作品网格，支持 TMDB / 豆瓣 / Bangumi / AniList，并可继续推入任意影视详情。
 @MainActor
 struct NativePersonDetailPage: View {
   let session: NativeSession
+  let source: String
   let personID: Int
   let fallbackName: String
   let fallbackAvatar: String?
 
-  @State private var person: NativeMediaPersonItem?
-  @State private var works: [NativeMediaSummaryItem] = []
+  @State private var person: MediaPersonSummary?
+  @State private var works: [MediaSummaryItem] = []
   @State private var failed = false
   @State private var attempt = 0
   @State private var bioExpanded = false
   @ScaledMetric(relativeTo: .body) private var tileWidth = 104.0
+
+  init(
+    session: NativeSession,
+    source: String = "themoviedb",
+    personID: Int,
+    fallbackName: String,
+    fallbackAvatar: String?
+  ) {
+    self.session = session
+    self.source = source
+    self.personID = personID
+    self.fallbackName = fallbackName
+    self.fallbackAvatar = fallbackAvatar
+  }
 
   /// 采用统一 Cinematic 连续渐变与透色卡片，不依赖任何网页视图。
   var body: some View {
@@ -1174,14 +1214,16 @@ struct NativePersonDetailPage: View {
                 columns: [GridItem(.adaptive(minimum: tileWidth), spacing: 11)], spacing: 18
               ) {
                 ForEach(works) { item in
-                  if let identity = item.identity {
+                  if let resolved = item.resolvedIdentity(fallbackSource: source) {
+                    let nextIdentity = NativeMediaIdentity(
+                      source: resolved.source, mediaID: resolved.mediaID, type: resolved.type)
                     NavigationLink {
-                      NativeMediaDetailPage(session: session, identity: identity)
+                      NativeMediaDetailPage(session: session, identity: nextIdentity)
                     } label: {
                       workTile(item)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityIdentifier("native-person-work-\(identity.id)")
+                    .accessibilityIdentifier("native-person-work-\(nextIdentity.id)")
                   } else {
                     workTile(item)
                   }
@@ -1218,7 +1260,8 @@ struct NativePersonDetailPage: View {
   /// 居中人物圆形肖像与基础履历信息。
   private var header: some View {
     let avatar =
-      NativeMediaDetailPage.resolveArtwork(person?.artworkPath, source: "themoviedb")
+      NativeMediaDetailPage.resolveArtwork(
+        person?.artworkPath(forSource: source), source: person?.source ?? source)
       ?? fallbackAvatar
     return VStack(spacing: 12) {
       Group {
@@ -1249,14 +1292,21 @@ struct NativePersonDetailPage: View {
           .foregroundStyle(.primary.opacity(0.72))
           .multilineTextAlignment(.center)
       }
+      if let aliases = person?.alsoKnownAs, !aliases.isEmpty {
+        Text(aliases.prefix(4).joined(separator: " · "))
+          .font(.caption)
+          .foregroundStyle(.primary.opacity(0.62))
+          .multilineTextAlignment(.center)
+          .lineLimit(2)
+      }
     }
     .frame(maxWidth: .infinity)
   }
 
   /// 人物参演作品的 2:3 居中海报单元格。
-  private func workTile(_ item: NativeMediaSummaryItem) -> some View {
+  private func workTile(_ item: MediaSummaryItem) -> some View {
     let poster = NativeMediaDetailPage.resolveArtwork(
-      item.posterPath, source: item.mediaSource ?? "themoviedb")
+      item.posterPath, source: item.mediaSource ?? source)
     return VStack(spacing: 6) {
       Color.clear.aspectRatio(2.0 / 3.0, contentMode: .fit)
         .overlay {
@@ -1276,28 +1326,29 @@ struct NativePersonDetailPage: View {
     .multilineTextAlignment(.center)
   }
 
-  /// 并行读取人物资料与参演作品列表。
+  /// 并行读取人物资料与参演作品列表（按当前来源路由至 TMDB / 豆瓣 / Bangumi / AniList）。
   private func load() async {
     failed = false
-    do {
-      let personEndpoint = try APIEndpoint(path: ["tmdb", "person", String(personID)])
-      let creditsEndpoint = try APIEndpoint(
-        path: ["tmdb", "person", "credits", String(personID)],
-        query: [URLQueryItem(name: "page", value: "1")])
-      async let personTask = try? session.request(
-        personEndpoint, as: NativeMediaPersonItem.self, requiring: .init(category: .discovery)
-      ).value
-      async let worksTask = try? session.request(
-        creditsEndpoint, as: [NativeMediaSummaryItem].self, requiring: .init(category: .discovery)
-      ).value
-      let (loadedPerson, loadedWorks) = await (personTask, worksTask)
-      guard !Task.isCancelled else { return }
-      person = loadedPerson
-      works = loadedWorks ?? []
-      if loadedPerson == nil && works.isEmpty { failed = true }
-    } catch {
+    guard
+      let personEndpoint = MediaSourceEndpoint.personDetailEndpoint(
+        source: source, personID: personID),
+      let creditsEndpoint = MediaSourceEndpoint.personCreditsEndpoint(
+        source: source, personID: personID, page: 1)
+    else {
       failed = true
+      return
     }
+    async let personTask = try? session.request(
+      personEndpoint, as: MediaPersonSummary.self, requiring: .init(category: .discovery)
+    ).value
+    async let worksTask = try? session.request(
+      creditsEndpoint, as: [MediaSummaryItem].self, requiring: .init(category: .discovery)
+    ).value
+    let (loadedPerson, loadedWorks) = await (personTask, worksTask)
+    guard !Task.isCancelled else { return }
+    person = loadedPerson
+    works = loadedWorks ?? []
+    if loadedPerson == nil && works.isEmpty { failed = true }
   }
 }
 
@@ -1397,228 +1448,6 @@ private struct NativeSubscribeCreatePayload: Encodable {
     case mediaSource = "media_source"
     case mediaID = "media_id"
     case season
-  }
-}
-
-/// 完整影视详情响应投影，覆盖基础信息、时长、分级、分季与内嵌演职员。
-private struct NativeMediaDetailPayload: Decodable, Sendable {
-  /// 后端影视风格或国家对象。
-  struct NamedTag: Decodable, Sendable { let name: String? }
-
-  let mediaSource: String?
-  let mediaID: String?
-  let tmdbID: Int?
-  let imdbID: String?
-  let type: String?
-  let title: String?
-  let originalTitle: String?
-  let year: String?
-  let releaseDate: String?
-  let runtime: Int?
-  let status: String?
-  let tagline: String?
-  let contentRating: String?
-  let numberOfSeasons: Int?
-  let numberOfEpisodes: Int?
-  let posterPath: String?
-  let backdropPath: String?
-  let overview: String?
-  let voteAverage: Double?
-  let genres: [NamedTag]?
-  let productionCountries: [NamedTag]?
-  let seasonInfo: [NativeMediaSeasonItem]?
-  let actors: [NativeMediaPersonItem]?
-  let directors: [NativeMediaPersonItem]?
-
-  /// 提取清洗后的风格名称列表。
-  var genreNames: [String] {
-    (genres ?? []).compactMap { $0.name?.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-  }
-
-  /// 对应后端 `MediaInfo` 的 snake_case 字段。
-  private enum CodingKeys: String, CodingKey {
-    case mediaSource = "media_source"
-    case mediaID = "media_id"
-    case tmdbID = "tmdb_id"
-    case imdbID = "imdb_id"
-    case type
-    case title
-    case originalTitle = "original_title"
-    case year
-    case releaseDate = "release_date"
-    case runtime
-    case status
-    case tagline
-    case contentRating = "content_rating"
-    case numberOfSeasons = "number_of_seasons"
-    case numberOfEpisodes = "number_of_episodes"
-    case posterPath = "poster_path"
-    case backdropPath = "backdrop_path"
-    case overview
-    case voteAverage = "vote_average"
-    case genres
-    case productionCountries = "production_countries"
-    case seasonInfo = "season_info"
-    case actors
-    case directors
-  }
-}
-
-/// 剧集单季信息投影。
-private struct NativeMediaSeasonItem: Decodable, Sendable, Identifiable {
-  let seasonNumber: Int
-  let name: String?
-  let airDate: String?
-  let episodeCount: Int?
-  let overview: String?
-  let posterPath: String?
-
-  /// 季号作为单季列表稳定标识。
-  var id: Int { seasonNumber }
-
-  /// 后端缺省季名时使用本地第 N 季 / 特别篇标题。
-  var displayTitle: String {
-    if let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
-      return name
-    }
-    return seasonNumber == 0 ? "特别篇" : "第 \(seasonNumber) 季"
-  }
-
-  /// 兼容 `season_info` 的字段键。
-  private enum CodingKeys: String, CodingKey {
-    case seasonNumber = "season_number"
-    case name
-    case airDate = "air_date"
-    case episodeCount = "episode_count"
-    case overview
-    case posterPath = "poster_path"
-  }
-}
-
-/// 演职员与人物详情共享投影，兼容列表项与 `/tmdb/person/{id}`。
-private struct NativeMediaPersonItem: Decodable, Sendable, Identifiable {
-  let source: String?
-  let numericID: Int?
-  let name: String?
-  let originalName: String?
-  let character: String?
-  let knownForDepartment: String?
-  let profilePath: String?
-  let avatar: String?
-  let birthday: String?
-  let placeOfBirth: String?
-  let biography: String?
-
-  /// 结合数值 ID 与姓名保证列表键唯一。
-  var id: String {
-    if let numericID { return "p:\(numericID)" }
-    return "n:\(displayName):\(character ?? "")"
-  }
-
-  /// 优先展示本地化姓名，缺省回落原名。
-  var displayName: String {
-    if let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
-      return name
-    }
-    if let originalName = originalName?.trimmingCharacters(in: .whitespacesAndNewlines),
-      !originalName.isEmpty
-    {
-      return originalName
-    }
-    return "演职员"
-  }
-
-  /// 角色或职业副标。
-  var subtitle: String? {
-    if let character = character?.trimmingCharacters(in: .whitespacesAndNewlines),
-      !character.isEmpty
-    {
-      return character
-    }
-    return knownForDepartment
-  }
-
-  /// 统一提取人物头像引用。
-  var artworkPath: String? {
-    if let profilePath, !profilePath.isEmpty { return profilePath }
-    if let avatar, !avatar.isEmpty { return avatar }
-    return nil
-  }
-
-  /// 兼容后端 `id` 为整型或字符串数字的格式差异。
-  init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    source = try container.decodeIfPresent(String.self, forKey: .source)
-    if let intID = try? container.decodeIfPresent(Int.self, forKey: .id) {
-      numericID = intID
-    } else if let strID = try? container.decodeIfPresent(String.self, forKey: .id) {
-      numericID = Int(strID)
-    } else {
-      numericID = nil
-    }
-    name = try container.decodeIfPresent(String.self, forKey: .name)
-    originalName = try container.decodeIfPresent(String.self, forKey: .originalName)
-    character = try container.decodeIfPresent(String.self, forKey: .character)
-    knownForDepartment = try container.decodeIfPresent(String.self, forKey: .knownForDepartment)
-    profilePath = try container.decodeIfPresent(String.self, forKey: .profilePath)
-    avatar = try container.decodeIfPresent(String.self, forKey: .avatar)
-    birthday = try container.decodeIfPresent(String.self, forKey: .birthday)
-    placeOfBirth = try container.decodeIfPresent(String.self, forKey: .placeOfBirth)
-    biography = try container.decodeIfPresent(String.self, forKey: .biography)
-  }
-
-  /// 匹配 `MediaPerson` 字段名。
-  private enum CodingKeys: String, CodingKey {
-    case source
-    case id
-    case name
-    case originalName = "original_name"
-    case character
-    case knownForDepartment = "known_for_department"
-    case profilePath = "profile_path"
-    case avatar
-    case birthday
-    case placeOfBirth = "place_of_birth"
-    case biography
-  }
-}
-
-/// 推荐作品与人物参演作品使用的轻量摘要模型。
-private struct NativeMediaSummaryItem: Decodable, Sendable, Identifiable {
-  let mediaSource: String?
-  let mediaID: String?
-  let tmdbID: Int?
-  let type: String?
-  let title: String?
-  let year: String?
-  let posterPath: String?
-
-  /// 优先使用规范媒体身份作为唯一键。
-  var id: String {
-    identity?.id ?? "\(title ?? "item")|\(year ?? "")|\(posterPath ?? "")"
-  }
-
-  /// 构造可推入详情页的规范媒体身份。
-  var identity: NativeMediaIdentity? {
-    let source = mediaSource ?? "themoviedb"
-    let resolvedID =
-      mediaID.flatMap { $0.isEmpty ? nil : $0 }
-      ?? (source == "themoviedb" ? tmdbID.map(String.init) : nil)
-    guard let resolvedID else { return nil }
-    let resolvedType = (type == "电视剧" || type == "电影") ? (type ?? "电影") : "电影"
-    return NativeMediaIdentity(source: source, mediaID: resolvedID, type: resolvedType)
-  }
-
-  /// 对应后端 `MediaInfo` 轻量字段。
-  private enum CodingKeys: String, CodingKey {
-    case mediaSource = "media_source"
-    case mediaID = "media_id"
-    case tmdbID = "tmdb_id"
-    case type
-    case title
-    case year
-    case posterPath = "poster_path"
   }
 }
 
