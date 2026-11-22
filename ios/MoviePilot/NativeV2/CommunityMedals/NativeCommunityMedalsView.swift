@@ -330,8 +330,8 @@ struct NativeCommunityMedalShowcaseView: View {
             .fill(
               RadialGradient(
                 colors: [
-                  tone.opacity(colorScheme == .dark ? 0.36 : 0.44),
-                  tone.opacity(colorScheme == .dark ? 0.11 : 0.15),
+                  tone.opacity(colorScheme == .dark ? 0.24 : 0.30),
+                  tone.opacity(colorScheme == .dark ? 0.07 : 0.10),
                   .clear,
                 ],
                 center: .center,

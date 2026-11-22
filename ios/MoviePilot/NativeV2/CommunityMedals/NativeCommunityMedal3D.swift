@@ -553,19 +553,19 @@ final class CommunityMedalRenderCache: @unchecked Sendable {
       UIColor(red: 0.14, green: 0.16, blue: 0.19, alpha: 1).setFill()
       cg.fill(CGRect(origin: .zero, size: size))
 
-      // 7 组影棚柔光条带，令金属边沿与浮雕在拖动时产生细腻流动高光
+      // 克制的影棚柔光条带，仅在拖动倾斜时呈现细腻柔和的金属光泽，不遮盖原画质感
       let strips: [(CGRect, UIColor)] = [
-        (CGRect(x: 90, y: 14, width: 332, height: 42), UIColor(white: 1.0, alpha: 0.92)),
+        (CGRect(x: 90, y: 14, width: 332, height: 42), UIColor(white: 1.0, alpha: 0.48)),
         (
           CGRect(x: 24, y: 68, width: 92, height: 118),
-          UIColor(red: 0.85, green: 0.92, blue: 1.0, alpha: 0.65)
+          UIColor(red: 0.88, green: 0.93, blue: 1.0, alpha: 0.34)
         ),
         (
           CGRect(x: 396, y: 62, width: 92, height: 118),
-          UIColor(red: 1.0, green: 0.95, blue: 0.88, alpha: 0.62)
+          UIColor(red: 1.0, green: 0.96, blue: 0.90, alpha: 0.32)
         ),
-        (CGRect(x: 170, y: 82, width: 172, height: 34), UIColor(white: 0.96, alpha: 0.45)),
-        (CGRect(x: 60, y: 196, width: 392, height: 28), UIColor(white: 0.55, alpha: 0.28)),
+        (CGRect(x: 170, y: 82, width: 172, height: 34), UIColor(white: 0.96, alpha: 0.22)),
+        (CGRect(x: 60, y: 196, width: 392, height: 28), UIColor(white: 0.55, alpha: 0.16)),
       ]
       for (rect, color) in strips {
         cg.saveGState()
@@ -583,7 +583,7 @@ final class CommunityMedalRenderCache: @unchecked Sendable {
       let filter = CIFilter(name: "CIGaussianBlur")
     {
       filter.setValue(ci, forKey: kCIInputImageKey)
-      filter.setValue(14.0, forKey: kCIInputRadiusKey)
+      filter.setValue(22.0, forKey: kCIInputRadiusKey)
       let ciContext = CIContext(options: nil)
       if let out = filter.outputImage?.cropped(to: ci.extent),
         let cgOut = ciContext.createCGImage(out, from: ci.extent)
@@ -738,10 +738,10 @@ final class CommunityMedalRenderCache: @unchecked Sendable {
         normalBytes[outIdx + 2] = UInt8(max(0, min(255, ((nz / len) * 0.5 + 0.5) * 255.0)))
         normalBytes[outIdx + 3] = 255
 
-        // smoothstep(0.26, 0.45, h) 保留珐琅柔和质感，高起金属呈现真实金属反光
+        // smoothstep(0.26, 0.45, h) 保持珐琅与宝石深邃质感，金属棱线仅保留克制的细腻反光
         let t = max(0, min(1, (hC - 0.26) / (0.45 - 0.26)))
         let smooth = t * t * (3.0 - 2.0 * t)
-        let metal = 0.14 + 0.86 * smooth
+        let metal = 0.04 + 0.46 * smooth
         metalBytes[y * dim + x] = UInt8(max(0, min(255, metal * 255.0)))
       }
     }
@@ -1117,7 +1117,7 @@ struct NativeMedal3DStageView: UIViewRepresentable {
     private func setupScene() {
       scene.background.contents = UIColor.clear
       scene.lightingEnvironment.contents = CommunityMedalRenderCache.shared.studioEnvironmentMap()
-      scene.lightingEnvironment.intensity = 1.35
+      scene.lightingEnvironment.intensity = 0.48
 
       let cameraNode = SCNNode()
       let camera = SCNCamera()
@@ -1128,30 +1128,30 @@ struct NativeMedal3DStageView: UIViewRepresentable {
       cameraNode.position = SCNVector3(0, 0, 5.65)
       scene.rootNode.addChildNode(cameraNode)
 
-      // 影棚主定向光（对应 Web (-3, 4, 5)）
+      // 影棚主定向光（对应 Web (-3, 4, 5)，以克制光比衬托浮雕而非过曝高光）
       let keyLight = SCNNode()
       keyLight.light = SCNLight()
       keyLight.light?.type = .directional
-      keyLight.light?.intensity = 820
-      keyLight.light?.color = UIColor.white
+      keyLight.light?.intensity = 340
+      keyLight.light?.color = UIColor(red: 1.0, green: 0.99, blue: 0.97, alpha: 1)
       keyLight.position = SCNVector3(-3, 4, 5)
       keyLight.look(at: SCNVector3Zero)
       scene.rootNode.addChildNode(keyLight)
 
-      // 右侧冷暖轮廓补光
+      // 右侧柔和轮廓补光
       let rimLight = SCNNode()
       rimLight.light = SCNLight()
       rimLight.light?.type = .directional
-      rimLight.light?.intensity = 420
+      rimLight.light?.intensity = 150
       rimLight.light?.color = UIColor(red: 0.90, green: 0.94, blue: 1.0, alpha: 1)
       rimLight.position = SCNVector3(4, 1.5, 3)
       rimLight.look(at: SCNVector3Zero)
       scene.rootNode.addChildNode(rimLight)
 
-      // 勋章主色微氛围补光
+      // 勋章主色轻氛围补光（极淡染色，不冲淡底部金属与宝石本色）
       accentLightNode.light = SCNLight()
       accentLightNode.light?.type = .omni
-      accentLightNode.light?.intensity = 220
+      accentLightNode.light?.intensity = 65
       accentLightNode.position = SCNVector3(0, -2.5, 3.5)
       scene.rootNode.addChildNode(accentLightNode)
 
@@ -1159,7 +1159,7 @@ struct NativeMedal3DStageView: UIViewRepresentable {
       let ambient = SCNNode()
       ambient.light = SCNLight()
       ambient.light?.type = .ambient
-      ambient.light?.intensity = 240
+      ambient.light?.intensity = 120
       ambient.light?.color = UIColor(white: 0.92, alpha: 1)
       scene.rootNode.addChildNode(ambient)
 
@@ -1209,8 +1209,8 @@ struct NativeMedal3DStageView: UIViewRepresentable {
         let sideMat = SCNMaterial()
         sideMat.lightingModel = .physicallyBased
         sideMat.diffuse.contents = bundle.edgeMetalColor
-        sideMat.metalness.contents = NSNumber(value: 0.94)
-        sideMat.roughness.contents = NSNumber(value: 0.34)
+        sideMat.metalness.contents = NSNumber(value: 0.88)
+        sideMat.roughness.contents = NSNumber(value: 0.45)
         shape.materials = [sideMat]
         let rimNode = SCNNode(geometry: shape)
         contentRoot.addChildNode(rimNode)
@@ -1279,16 +1279,19 @@ struct NativeMedal3DStageView: UIViewRepresentable {
       mat.diffuse.minificationFilter = .linear
       mat.diffuse.magnificationFilter = .linear
       mat.diffuse.maxAnisotropy = 4
+      // 以原画自带金工光影为主，通过轻度自发光锁住真实材质与色彩深度，避免强灯冲白细节
+      mat.emission.contents = diffuse
+      mat.emission.intensity = 0.52
       if let normal {
         mat.normal.contents = normal
-        mat.normal.intensity = 1.0
+        mat.normal.intensity = 0.68
       }
       if let metalness {
         mat.metalness.contents = metalness
       } else {
-        mat.metalness.contents = NSNumber(value: 0.65)
+        mat.metalness.contents = NSNumber(value: 0.36)
       }
-      mat.roughness.contents = NSNumber(value: 0.28)
+      mat.roughness.contents = NSNumber(value: 0.46)
       mat.isDoubleSided = false
       mat.writesToDepthBuffer = true
       mat.readsFromDepthBuffer = true
