@@ -1369,12 +1369,13 @@ struct NativeManualTransferSheet: View {
                 title: "最低文件大小阈值 (MiB)", placeholder: "0 表示不限制",
                 text: $minFilesizeText, numeric: true)
               if mediaType != "音乐" {
+                Divider().overlay(NativeTheme.chipBorder)
                 compactField(
                   title: "自定义剧集识别格式", placeholder: "留空使用默认", text: $episodeFormat)
-                HStack(spacing: 10) {
-                  compactField(title: "指定 PART", placeholder: "如 part1", text: $episodePart)
-                  compactField(title: "剧集组 ID", placeholder: "可选", text: $episodeGroup)
-                }
+                Divider().overlay(NativeTheme.chipBorder)
+                compactField(title: "指定 PART", placeholder: "如 part1", text: $episodePart)
+                Divider().overlay(NativeTheme.chipBorder)
+                compactField(title: "剧集组 ID", placeholder: "可选", text: $episodeGroup)
               }
             }
             .padding(.top, 10)
@@ -1568,23 +1569,21 @@ struct NativeManualTransferSheet: View {
     text: Binding<String>,
     numeric: Bool = false
   ) -> some View {
-    VStack(alignment: .leading, spacing: 5) {
+    HStack(spacing: 12) {
       Text(title)
-        .font(.caption2.weight(.medium))
-        .foregroundStyle(.secondary)
+        .font(.subheadline)
+        .foregroundStyle(.primary)
+        .layoutPriority(1)
       TextField(placeholder, text: text)
         .textFieldStyle(.plain)
-        .font(.caption)
+        .font(.subheadline)
+        .foregroundStyle(.primary)
+        .multilineTextAlignment(.trailing)
         .keyboardType(numeric ? .numberPad : .default)
         .autocorrectionDisabled()
         .textInputAutocapitalization(.never)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 8)
-        .background {
-          RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(NativeTheme.chipFill)
-        }
     }
+    .padding(.vertical, 2)
   }
 
   /// 初始化存储列表、媒体库目录、自动目的路径与已有整理历史检测。

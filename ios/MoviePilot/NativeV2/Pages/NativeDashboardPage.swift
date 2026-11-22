@@ -27,6 +27,8 @@ struct NativeDashboardPage: View {
   @State private var schedules: [NativeDashboardSchedule]?
   @State private var systemInfo: NativeDashboardSystemInfo?
   @State private var pluginWidgets: [NativeDashboardPluginWidget] = []
+  @State private var communityProfile: CommunityProfile?
+  @State private var presentedMedalKey: PresentedCommunityMedalKey?
   @State private var widgetItems: [NativeDashboardWidgetConfig] =
     NativeDashboardWidgetConfig.defaults
   @State private var showsWidgetEditor = false
@@ -59,6 +61,7 @@ struct NativeDashboardPage: View {
       _schedules = State(initialValue: cached.schedules)
       _systemInfo = State(initialValue: cached.systemInfo)
       _pluginWidgets = State(initialValue: cached.pluginWidgets)
+      _communityProfile = State(initialValue: cached.communityProfile)
       _hasLoadedOnce = State(initialValue: true)
     }
   }
@@ -69,6 +72,7 @@ struct NativeDashboardPage: View {
       || !activeDownloads.isEmpty || !cpuSamples.isEmpty || memory != nil
       || !networkSamples.isEmpty || !transferTrend.isEmpty || schedules != nil
       || systemInfo != nil || !pluginWidgets.isEmpty
+      || (communityProfile?.hasEarnedMedals == true)
   }
 
   /// 首次进入且尚未完成初次载入时仅展示纯粹的居中加载动画，不露出空卡片或底部编辑按钮。
@@ -154,6 +158,15 @@ struct NativeDashboardPage: View {
         saveWidgetsToStorage(updated)
       }
     }
+    .fullScreenCover(item: $presentedMedalKey) { selected in
+      if let binding = Binding($communityProfile) {
+        NativeCommunityMedalShowcaseView(
+          profile: binding,
+          initialKey: selected.key,
+          session: session
+        )
+      }
+    }
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         if let onOpenMessages {
@@ -180,6 +193,12 @@ struct NativeDashboardPage: View {
   @ViewBuilder
   private func dashboardWidgetView(for item: NativeDashboardWidgetConfig) -> some View {
     switch item.id {
+    case "communityMedals":
+      if let profile = communityProfile, profile.hasEarnedMedals {
+        NativeCommunityMedalsWidget(profile: profile) { record in
+          presentedMedalKey = PresentedCommunityMedalKey(key: record.key)
+        }
+      }
     case "statistics":
       if let statistics { librarySummary(statistics) }
     case "storage":
@@ -903,9 +922,16 @@ struct NativeDashboardPage: View {
       schedules = cached.schedules
       systemInfo = cached.systemInfo
       pluginWidgets = cached.pluginWidgets
+      communityProfile = cached.communityProfile
       hasLoadedOnce = true
       syncWidgetsFromStorage()
       await pollRealtimeMetrics(includeMemory: true)
+      if communityProfile == nil {
+        if let loadedMedals = await loadCommunityProfile() {
+          communityProfile = loadedMedals
+          saveCache(cacheKey)
+        }
+      }
       return
     }
     let hadContent = hasAnyContent
@@ -924,13 +950,14 @@ struct NativeDashboardPage: View {
     async let jobsTask = readDashboard("schedule", as: [NativeDashboardSchedule].self)
     async let sysTask = readDashboard("system", as: NativeDashboardSystemInfo.self)
     async let widgetsTask = loadPluginWidgets()
+    async let medalsTask = loadCommunityProfile()
 
     let (
       newStats, newStorage, newRecent, newDownloader, newDownloads,
-      newCPU, newMem, newNet, newTrend, newSchedules, newSys, newWidgets
+      newCPU, newMem, newNet, newTrend, newSchedules, newSys, newWidgets, newMedals
     ) = await (
       statsTask, storageTask, recentTask, downloaderTask, downloadsTask,
-      cpuTask, memTask, netTask, trendTask, jobsTask, sysTask, widgetsTask
+      cpuTask, memTask, netTask, trendTask, jobsTask, sysTask, widgetsTask, medalsTask
     )
 
     guard session.user.isSuperuser, !Task.isCancelled else { return }
@@ -949,6 +976,7 @@ struct NativeDashboardPage: View {
     if let newSchedules { schedules = newSchedules }
     if let newSys { systemInfo = newSys }
     if let newWidgets { pluginWidgets = newWidgets }
+    if let newMedals { communityProfile = newMedals }
     hasLoadedOnce = true
     syncWidgetsFromStorage()
     saveCache(cacheKey)
@@ -998,8 +1026,22 @@ struct NativeDashboardPage: View {
         downloader: downloader, activeDownloads: activeDownloads,
         cpuSamples: cpuSamples, memory: memory, networkSamples: networkSamples,
         transferTrend: transferTrend, schedules: schedules, systemInfo: systemInfo,
-        pluginWidgets: pluginWidgets),
+        pluginWidgets: pluginWidgets, communityProfile: communityProfile),
       for: cacheKey, session: session)
+  }
+
+  /// 拉取超级管理员关联的 GitHub 社区勋章档案（兼容旧版后端与未启用场景，静默回退不报错）。
+  private func loadCommunityProfile() async -> CommunityProfile? {
+    guard session.user.isSuperuser, !Task.isCancelled else { return nil }
+    do {
+      let endpoint = try APIEndpoint(path: ["github", "community"])
+      return try await session.request(
+        endpoint, as: CommunityProfile.self,
+        requiring: .init(category: .admin)
+      ).value
+    } catch {
+      return nil
+    }
   }
 
   private func readDashboard<Value: Decodable & Sendable>(
@@ -1616,6 +1658,8 @@ private struct NativeDashboardWidgetConfig: Identifiable, Codable, Equatable, Se
 
   static let defaults: [NativeDashboardWidgetConfig] = [
     NativeDashboardWidgetConfig(
+      id: "communityMedals", title: "社区勋章", symbol: "medal.fill", enabled: true),
+    NativeDashboardWidgetConfig(
       id: "statistics", title: "媒体库统计", symbol: "film.stack", enabled: true),
     NativeDashboardWidgetConfig(
       id: "storage", title: "存储空间", symbol: "externaldrive", enabled: true),
@@ -1656,7 +1700,11 @@ private struct NativeDashboardWidgetConfig: Identifiable, Codable, Equatable, Se
       }
     }
     for base in defaults where seen.insert(base.id).inserted {
-      result.append(base)
+      if base.id == "communityMedals" {
+        result.insert(base, at: 0)
+      } else {
+        result.append(base)
+      }
     }
     for plugin in plugins {
       let key = "plugin:\(plugin.id)"
@@ -1749,6 +1797,11 @@ private struct NativeDashboardWidgetsSheet: View {
   }
 }
 
+private struct PresentedCommunityMedalKey: Identifiable {
+  let key: String
+  var id: String { key }
+}
+
 private struct NativeDashboardCacheSnapshot {
   let statistics: NativeDashboardStatistics?
   let storage: NativeDashboardStorage?
@@ -1762,4 +1815,5 @@ private struct NativeDashboardCacheSnapshot {
   let schedules: [NativeDashboardSchedule]?
   let systemInfo: NativeDashboardSystemInfo?
   let pluginWidgets: [NativeDashboardPluginWidget]
+  let communityProfile: CommunityProfile?
 }

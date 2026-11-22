@@ -1504,78 +1504,31 @@ struct NativeAgentChatPage: View {
 
 private struct NativeAgentMarkdownView: View {
   let markdown: String
+  @Environment(\.colorScheme) private var colorScheme
 
-  private enum Block: Identifiable {
-    case text(id: Int, content: String)
-    case code(id: Int, language: String, content: String)
-    var id: Int {
-      switch self {
-      case .text(let i, _): i
-      case .code(let i, _, _): i
-      }
-    }
+  private struct IndexedBlock: Identifiable {
+    let id: Int
+    let block: AgentMarkdownBlock
   }
 
-  private var blocks: [Block] {
-    var result: [Block] = []
-    var currentText: [String] = []
-    var currentCode: [String] = []
-    var inCode = false
-    var codeLang = ""
-    var nextID = 0
-
-    func flushText() {
-      let joined = currentText.joined(separator: "\n").trimmingCharacters(
-        in: .whitespacesAndNewlines)
-      if !joined.isEmpty {
-        result.append(.text(id: nextID, content: joined))
-        nextID += 1
-      }
-      currentText.removeAll()
+  private var blocks: [IndexedBlock] {
+    AgentMarkdownParser.parse(markdown).enumerated().map {
+      IndexedBlock(id: $0.offset, block: $0.element)
     }
-
-    for line in markdown.components(separatedBy: .newlines) {
-      let trimmed = line.trimmingCharacters(in: .whitespaces)
-      if trimmed.hasPrefix("```") {
-        if inCode {
-          result.append(
-            .code(id: nextID, language: codeLang, content: currentCode.joined(separator: "\n")))
-          nextID += 1
-          currentCode.removeAll()
-          codeLang = ""
-          inCode = false
-        } else {
-          flushText()
-          codeLang = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-          inCode = true
-        }
-      } else if inCode {
-        currentCode.append(line)
-      } else {
-        currentText.append(line)
-      }
-    }
-    if inCode {
-      result.append(
-        .code(id: nextID, language: codeLang, content: currentCode.joined(separator: "\n")))
-    } else {
-      flushText()
-    }
-    return result
   }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      ForEach(blocks) { block in
-        switch block {
-        case .text(_, let raw):
+      ForEach(blocks) { item in
+        switch item.block {
+        case .text(let raw):
           VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(raw.components(separatedBy: .newlines).enumerated()), id: \.offset) {
               _, line in
               markdownLineView(line)
             }
           }
-        case .code(_, let lang, let code):
+        case .code(let lang, let code):
           VStack(alignment: .leading, spacing: 0) {
             HStack {
               Text(lang.isEmpty ? "CODE" : lang.uppercased())
@@ -1608,8 +1561,103 @@ private struct NativeAgentMarkdownView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
               .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.6)
           }
+        case .table(let table):
+          markdownTableView(table)
         }
       }
+    }
+  }
+
+  /// 原生玻璃 GFM 表格卡片：支持横向滚动、列对齐、表头强调、斑马纹与单元格内联 Markdown。
+  private func markdownTableView(_ table: AgentMarkdownTable) -> some View {
+    let dividerColor = Color.primary.opacity(colorScheme == .dark ? 0.14 : 0.11)
+    let zebraColor = Color.primary.opacity(colorScheme == .dark ? 0.04 : 0.03)
+    return ScrollView(.horizontal, showsIndicators: true) {
+      Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
+        GridRow {
+          ForEach(Array(table.headers.enumerated()), id: \.offset) { colIndex, header in
+            let alignment =
+              table.alignments.indices.contains(colIndex)
+              ? table.alignments[colIndex] : .leading
+            inlineMarkdownText(header)
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(.primary)
+              .multilineTextAlignment(textAlignment(for: alignment))
+              .frame(
+                minWidth: 54,
+                maxWidth: 220,
+                alignment: frameAlignment(for: alignment)
+              )
+              .fixedSize(horizontal: false, vertical: true)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 8)
+              .overlay(alignment: .trailing) {
+                if colIndex < table.headers.count - 1 {
+                  Rectangle().fill(dividerColor).frame(width: 0.5)
+                }
+              }
+          }
+        }
+        .background(NativeTheme.chipFill)
+
+        ForEach(Array(table.rows.enumerated()), id: \.offset) { rowIndex, row in
+          GridRow {
+            ForEach(Array(row.enumerated()), id: \.offset) { colIndex, cell in
+              let alignment =
+                table.alignments.indices.contains(colIndex)
+                ? table.alignments[colIndex] : .leading
+              inlineMarkdownText(cell)
+                .font(.caption)
+                .foregroundStyle(.primary.opacity(0.92))
+                .multilineTextAlignment(textAlignment(for: alignment))
+                .textSelection(.enabled)
+                .frame(
+                  minWidth: 54,
+                  maxWidth: 220,
+                  alignment: frameAlignment(for: alignment)
+                )
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .overlay(alignment: .trailing) {
+                  if colIndex < row.count - 1 {
+                    Rectangle().fill(dividerColor).frame(width: 0.5)
+                  }
+                }
+            }
+          }
+          .background(rowIndex.isMultiple(of: 2) ? Color.clear : zebraColor)
+          .overlay(alignment: .top) {
+            Rectangle().fill(dividerColor).frame(height: 0.5)
+          }
+        }
+      }
+    }
+    .background(
+      NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+    )
+    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.6)
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("native-agent-markdown-table")
+  }
+
+  private func frameAlignment(for alignment: AgentMarkdownColumnAlignment) -> Alignment {
+    switch alignment {
+    case .leading: .leading
+    case .center: .center
+    case .trailing: .trailing
+    }
+  }
+
+  private func textAlignment(for alignment: AgentMarkdownColumnAlignment) -> TextAlignment {
+    switch alignment {
+    case .leading: .leading
+    case .center: .center
+    case .trailing: .trailing
     }
   }
 
@@ -1618,6 +1666,15 @@ private struct NativeAgentMarkdownView: View {
     let trimmed = raw.trimmingCharacters(in: .whitespaces)
     if trimmed.isEmpty {
       Spacer().frame(height: 3)
+    } else if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+      Rectangle()
+        .fill(Color.primary.opacity(colorScheme == .dark ? 0.16 : 0.12))
+        .frame(height: 0.6)
+        .padding(.vertical, 4)
+    } else if trimmed.hasPrefix("#### ") {
+      inlineMarkdownText(String(trimmed.dropFirst(5)))
+        .font(.footnote.bold())
+        .foregroundStyle(.primary)
     } else if trimmed.hasPrefix("### ") {
       inlineMarkdownText(String(trimmed.dropFirst(4)))
         .font(.subheadline.bold())

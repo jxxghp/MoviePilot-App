@@ -55,6 +55,43 @@ final class NativeV2EntryTests: XCTestCase {
     }
     let more = app.buttons["native-discover-more-热门电影"]
     XCTAssertTrue(more.waitForExistence(timeout: 40))
+    if environment["MOVIEPILOT_NATIVE_V2_LIVE_SCOPE"] == "medals" {
+      tap(tabButton("我的", app: app), app: app)
+      let medalsWidget = app.descendants(matching: .any)["native-dashboard-community-medals"]
+        .firstMatch
+      XCTAssertTrue(medalsWidget.waitForExistence(timeout: 20))
+      try await Task.sleep(nanoseconds: 1_500_000_000)
+      capture("native-v2-live-medals-widget")
+
+      let codeMedal = app.buttons["native-community-medal-code"]
+      XCTAssertTrue(codeMedal.waitForExistence(timeout: 10))
+      tap(codeMedal, app: app)
+      let stage = app.descendants(matching: .any)["native-medal-3d-stage"].firstMatch
+      XCTAssertTrue(stage.waitForExistence(timeout: 10))
+      try await Task.sleep(nanoseconds: 2_000_000_000)
+      capture("native-v2-live-medal-3d-front")
+
+      // 轻点 3D 舞台翻面查看背面凹雕铭文
+      stage.tap()
+      try await Task.sleep(nanoseconds: 1_500_000_000)
+      capture("native-v2-live-medal-3d-back")
+
+      // 切换到主创勋章并打开详情弹窗
+      let maintainerSwitch = app.buttons["native-medal-switch-maintainer"]
+      if maintainerSwitch.waitForExistence(timeout: 6) {
+        tap(maintainerSwitch, app: app)
+        try await Task.sleep(nanoseconds: 1_800_000_000)
+        capture("native-v2-live-medal-3d-maintainer")
+      }
+      let detailsBtn = app.buttons["native-medal-action-details"]
+      if detailsBtn.waitForExistence(timeout: 6) {
+        tap(detailsBtn, app: app)
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+        capture("native-v2-live-medal-detail-sheet")
+      }
+      XCTAssertEqual(app.webViews.count, 0)
+      return
+    }
     if environment["MOVIEPILOT_NATIVE_V2_LIVE_SCOPE"] == "subscriptions" {
       openOverflowItem("native-workspace-subscriptions", viaTab: "探索", app: app)
       let subScroll = app.scrollViews["native-subscriptions-scroll"]

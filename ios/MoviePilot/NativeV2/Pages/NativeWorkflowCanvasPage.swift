@@ -793,11 +793,12 @@ private struct NativeWorkflowAddNodeSheet: View {
   }
 }
 
-/// 单个工作流节点的原生参数编辑器弹层。
+/// 单个工作流节点的原生参数编辑器弹层（iOS 设置式「左标签 + 右参数值」分组布局）。
 @MainActor
 private struct NativeWorkflowNodeEditorSheet: View {
   @Binding var node: NativeWorkflowNode
   @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
 
   @State private var nameText = ""
   @State private var descText = ""
@@ -812,102 +813,116 @@ private struct NativeWorkflowNodeEditorSheet: View {
       ZStack {
         CinematicBackground()
         ScrollView {
-          VStack(alignment: .leading, spacing: 14) {
-            CinematicPanel(padding: 14) {
-              VStack(alignment: .leading, spacing: 12) {
-                Text("基础属性").font(.headline).foregroundStyle(.primary)
-                VStack(alignment: .leading, spacing: 4) {
-                  Text("节点名称").font(.caption).foregroundStyle(.primary.opacity(0.72))
-                  TextField(
-                    "", text: $nameText,
-                    prompt: Text("输入节点名称").foregroundColor(.secondary)
+          VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+              sectionHeader("基础属性")
+              CinematicPanel(padding: 0) {
+                VStack(spacing: 0) {
+                  settingInputRow(
+                    "节点名称",
+                    placeholder: "输入节点名称",
+                    text: $nameText,
+                    accessibilityID: "native-workflow-node-name-field"
                   )
-                  .foregroundStyle(.primary)
-                  .padding(10)
-                  .background(NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10))
-                  .accessibilityIdentifier("native-workflow-node-name-field")
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                  Text("节点描述").font(.caption).foregroundStyle(.primary.opacity(0.72))
-                  TextField(
-                    "", text: $descText,
-                    prompt: Text("输入说明（可选）").foregroundColor(.secondary)
+                  CinematicFormDivider()
+                  settingInputRow(
+                    "节点描述",
+                    placeholder: "可选说明",
+                    text: $descText
                   )
-                  .foregroundStyle(.primary)
-                  .padding(10)
-                  .background(NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10))
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                  Text("超时时间（秒）").font(.caption).foregroundStyle(.primary.opacity(0.72))
-                  TextField(
-                    "", text: $timeoutText,
-                    prompt: Text("默认不限制").foregroundColor(.secondary)
+                  CinematicFormDivider()
+                  settingInputRow(
+                    "超时时间",
+                    placeholder: "默认不限制（秒）",
+                    text: $timeoutText,
+                    keyboardType: .numberPad
                   )
-                  .keyboardType(.numberPad)
-                  .foregroundStyle(.primary)
-                  .padding(10)
-                  .background(NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10))
                 }
               }
             }
 
-            CinematicPanel(padding: 14) {
-              VStack(alignment: .leading, spacing: 12) {
-                Text("动作参数").font(.headline).foregroundStyle(.primary)
-                ForEach(Array(boolParams.enumerated()), id: \.element.key) { idx, item in
-                  Toggle(
-                    item.key,
-                    isOn: Binding(
-                      get: { boolParams[idx].value },
-                      set: { boolParams[idx].value = $0 }
-                    )
-                  )
-                  .tint(Color(red: 0.62, green: 0.46, blue: 0.92))
-                }
-                ForEach(Array(stringParams.enumerated()), id: \.element.key) { idx, item in
-                  VStack(alignment: .leading, spacing: 4) {
-                    Text(item.key).font(.caption.monospaced()).foregroundStyle(
-                      .primary.opacity(0.72))
-                    TextField(
-                      "",
-                      text: Binding(
-                        get: { stringParams[idx].value },
-                        set: { stringParams[idx].value = $0 }
-                      ),
-                      prompt: Text("参数值").foregroundColor(.secondary)
-                    )
-                    .foregroundStyle(.primary)
-                    .padding(10)
-                    .background(NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10))
-                    .accessibilityIdentifier("native-workflow-param-\(item.key)")
+            if !boolParams.isEmpty || !stringParams.isEmpty {
+              VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("动作参数")
+                CinematicPanel(padding: 0) {
+                  VStack(spacing: 0) {
+                    ForEach(Array(boolParams.enumerated()), id: \.element.key) { idx, item in
+                      if idx > 0 {
+                        CinematicFormDivider()
+                      }
+                      Toggle(
+                        isOn: Binding(
+                          get: { boolParams[idx].value },
+                          set: { boolParams[idx].value = $0 }
+                        )
+                      ) {
+                        Text(item.key)
+                          .font(.subheadline.monospaced())
+                          .foregroundStyle(.primary)
+                      }
+                      .tint(appearance.accentColor)
+                      .padding(.horizontal, 15)
+                      .padding(.vertical, 10)
+                    }
+                    ForEach(Array(stringParams.enumerated()), id: \.element.key) { idx, item in
+                      if idx > 0 || !boolParams.isEmpty {
+                        CinematicFormDivider()
+                      }
+                      settingInputRow(
+                        item.key,
+                        placeholder: "输入参数值",
+                        text: Binding(
+                          get: { stringParams[idx].value },
+                          set: { stringParams[idx].value = $0 }
+                        ),
+                        monospacedLabel: true,
+                        accessibilityID: "native-workflow-param-\(item.key)"
+                      )
+                    }
                   }
                 }
+              }
+            }
 
-                Divider().overlay(.primary.opacity(0.10))
-                HStack(spacing: 8) {
-                  TextField(
-                    "", text: $newKey,
-                    prompt: Text("新增参数键").foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 8) {
+              sectionHeader("新增自定义参数")
+              CinematicPanel(padding: 0) {
+                VStack(spacing: 0) {
+                  settingInputRow(
+                    "参数键",
+                    placeholder: "如 max_count",
+                    text: $newKey,
+                    monospacedValue: true
                   )
-                  .foregroundStyle(.primary)
-                  .padding(8)
-                  .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-                  TextField(
-                    "", text: $newValue,
-                    prompt: Text("参数值").foregroundColor(.secondary)
+                  CinematicFormDivider()
+                  settingInputRow(
+                    "参数值",
+                    placeholder: "输入默认值",
+                    text: $newValue
                   )
-                  .foregroundStyle(.primary)
-                  .padding(8)
-                  .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-                  Button("添加") {
+                  CinematicFormDivider()
+                  Button {
                     let k = newKey.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !k.isEmpty else { return }
-                    stringParams.append((key: k, value: newValue))
+                    if let existingIdx = stringParams.firstIndex(where: { $0.key == k }) {
+                      stringParams[existingIdx].value = newValue
+                    } else {
+                      stringParams.append((key: k, value: newValue))
+                    }
                     newKey = ""
                     newValue = ""
+                  } label: {
+                    Label("添加参数", systemImage: "plus.circle.fill")
+                      .font(.subheadline.weight(.semibold))
+                      .foregroundStyle(
+                        newKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                          ? .secondary : appearance.accentColor
+                      )
+                      .frame(maxWidth: .infinity)
+                      .padding(.vertical, 12)
                   }
-                  .font(.caption.weight(.semibold))
-                  .foregroundStyle(NativeTheme.brand)
+                  .buttonStyle(.plain)
+                  .disabled(newKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
               }
             }
@@ -939,6 +954,41 @@ private struct NativeWorkflowNodeEditorSheet: View {
       .onAppear { loadFields() }
     }
     .nativeGlassSheet()
+  }
+
+  private func sectionHeader(_ title: String) -> some View {
+    Text(title)
+      .font(.footnote.weight(.medium))
+      .foregroundStyle(.secondary)
+      .padding(.horizontal, 4)
+  }
+
+  private func settingInputRow(
+    _ label: String,
+    placeholder: String,
+    text: Binding<String>,
+    monospacedLabel: Bool = false,
+    monospacedValue: Bool = false,
+    keyboardType: UIKeyboardType = .default,
+    accessibilityID: String? = nil
+  ) -> some View {
+    HStack(spacing: 12) {
+      Text(label)
+        .font(monospacedLabel ? .subheadline.monospaced() : .subheadline)
+        .foregroundStyle(.primary)
+        .lineLimit(1)
+        .layoutPriority(1)
+      TextField(placeholder, text: text)
+        .font(monospacedValue ? .subheadline.monospaced() : .subheadline)
+        .foregroundStyle(.primary)
+        .multilineTextAlignment(.trailing)
+        .keyboardType(keyboardType)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .accessibilityIdentifier(accessibilityID ?? "")
+    }
+    .padding(.horizontal, 15)
+    .padding(.vertical, 12)
   }
 
   private func loadFields() {

@@ -528,51 +528,50 @@ struct NativeDiagnosticsToolsPage: View {
         Spacer(minLength: 0)
       }
 
-      CinematicPanel(padding: 15) {
-        VStack(alignment: .leading, spacing: 12) {
-          VStack(alignment: .leading, spacing: 5) {
-            Text("标题 / 文件名 / 种子名称")
-              .font(.caption.weight(.medium))
-              .foregroundStyle(.secondary)
-            TextField("例如：The.Matrix.1999.2160p.BluRay.x265", text: $testTitle)
+      CinematicPanel(padding: 0) {
+        VStack(spacing: 0) {
+          HStack(spacing: 12) {
+            Text("标题 / 种子名")
+              .font(.subheadline)
+              .foregroundStyle(.primary)
+              .layoutPriority(1)
+            TextField("如 The.Matrix.1999.2160p", text: $testTitle)
               .textFieldStyle(.plain)
               .font(.subheadline)
               .foregroundStyle(.primary)
-              .padding(10)
-              .background(
-                NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-              )
-              .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                  .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.6)
-              }
+              .multilineTextAlignment(.trailing)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
               .accessibilityIdentifier("native-diag-test-title")
           }
+          .padding(.horizontal, 15)
+          .padding(.vertical, 12)
 
-          VStack(alignment: .leading, spacing: 5) {
-            Text("副标题 / 种子描述（可选）")
-              .font(.caption.weight(.medium))
-              .foregroundStyle(.secondary)
-            TextField("可选补充描述或中文译名", text: $testSubtitle)
+          CinematicFormDivider()
+
+          HStack(spacing: 12) {
+            Text("副标题")
+              .font(.subheadline)
+              .foregroundStyle(.primary)
+              .layoutPriority(1)
+            TextField("可选描述或中文译名", text: $testSubtitle)
               .textFieldStyle(.plain)
               .font(.subheadline)
               .foregroundStyle(.primary)
-              .padding(10)
-              .background(
-                NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-              )
-              .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                  .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.6)
-              }
+              .multilineTextAlignment(.trailing)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
           }
+          .padding(.horizontal, 15)
+          .padding(.vertical, 12)
 
           if testMode == .recognize {
             if !mediaSources.isEmpty {
+              CinematicFormDivider()
               HStack {
                 Text("识别数据源")
-                  .font(.caption.weight(.medium))
-                  .foregroundStyle(.secondary)
+                  .font(.subheadline)
+                  .foregroundStyle(.primary)
                 Spacer()
                 Picker("识别数据源", selection: $selectedMediaSource) {
                   Text("系统默认").tag("")
@@ -583,9 +582,12 @@ struct NativeDiagnosticsToolsPage: View {
                 .pickerStyle(.menu)
                 .tint(appearance.accentColor)
               }
+              .padding(.horizontal, 15)
+              .padding(.vertical, 8)
             }
 
-            DisclosureGroup("临时自定义识别词（仅本次测试生效）", isExpanded: $showCustomWordsField) {
+            CinematicFormDivider()
+            DisclosureGroup(isExpanded: $showCustomWordsField) {
               VStack(alignment: .leading, spacing: 6) {
                 TextEditor(text: $testCustomWords)
                   .font(.system(.caption, design: .monospaced))
@@ -593,28 +595,40 @@ struct NativeDiagnosticsToolsPage: View {
                   .frame(minHeight: 74)
                   .padding(8)
                   .background(
-                    NativeTheme.fieldFill,
+                    Color.primary.opacity(0.05),
                     in: RoundedRectangle(cornerRadius: 10, style: .continuous)
                   )
-                  .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                      .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.6)
-                  }
                 Text("支持正则表达式，特殊字符需要 \\ 转义，一行为一组（如：屏蔽词、被替换词 => 替换词、前定位词 <> 后定位词 >> 集偏移量）。")
                   .font(.caption2)
                   .foregroundStyle(.secondary)
               }
               .padding(.top, 6)
+            } label: {
+              HStack {
+                Text("临时自定义识别词")
+                  .font(.subheadline)
+                  .foregroundStyle(.primary)
+                Spacer()
+                let lines =
+                  testCustomWords
+                  .components(separatedBy: .newlines)
+                  .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                  .count
+                Text(lines > 0 ? "已填 \(lines) 行" : "可选")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
             }
-            .font(.caption.weight(.medium))
-            .foregroundStyle(.secondary)
             .tint(appearance.accentColor)
+            .padding(.horizontal, 15)
+            .padding(.vertical, 11)
           } else {
+            CinematicFormDivider()
             VStack(alignment: .leading, spacing: 6) {
               HStack {
                 Text("优先级规则组")
-                  .font(.caption.weight(.medium))
-                  .foregroundStyle(.secondary)
+                  .font(.subheadline)
+                  .foregroundStyle(.primary)
                 Spacer()
                 if ruleGroups.isEmpty {
                   Text("未检测到规则组")
@@ -643,33 +657,35 @@ struct NativeDiagnosticsToolsPage: View {
                     NativeTheme.chipFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
               }
             }
+            .padding(.horizontal, 15)
+            .padding(.vertical, 10)
           }
-
-          Button {
-            Task { await executeRecognitionOrRuleTest() }
-          } label: {
-            HStack(spacing: 8) {
-              if isRunningTest {
-                ProgressView().controlSize(.small).tint(.white)
-              } else {
-                Image(systemName: testMode == .recognize ? "wand.and.stars" : "checkmark.seal")
-                  .font(.subheadline.weight(.semibold))
-              }
-              Text(testMode == .recognize ? "开始名称识别" : "开始规则测试")
-                .font(.subheadline.weight(.bold))
-            }
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .background(appearance.accentColor, in: Capsule())
-          }
-          .buttonStyle(.plain)
-          .disabled(
-            isRunningTest || testTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-              || (testMode == .rule && selectedRuleGroup.isEmpty)
-          )
-          .accessibilityIdentifier("native-diag-test-run")
         }
       }
+
+      Button {
+        Task { await executeRecognitionOrRuleTest() }
+      } label: {
+        HStack(spacing: 8) {
+          if isRunningTest {
+            ProgressView().controlSize(.small).tint(.white)
+          } else {
+            Image(systemName: testMode == .recognize ? "wand.and.stars" : "checkmark.seal")
+              .font(.subheadline.weight(.semibold))
+          }
+          Text(testMode == .recognize ? "开始名称识别" : "开始规则测试")
+            .font(.subheadline.weight(.bold))
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .background(appearance.accentColor, in: Capsule())
+      }
+      .buttonStyle(.plain)
+      .disabled(
+        isRunningTest || testTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          || (testMode == .rule && selectedRuleGroup.isEmpty)
+      )
+      .accessibilityIdentifier("native-diag-test-run")
 
       if let testErrorMessage {
         CinematicPanel(padding: 13) {
@@ -1802,38 +1818,69 @@ private struct NativeEpisodeRuleEditorSheet: View {
       ZStack {
         CinematicBackground()
         ScrollView {
-          VStack(alignment: .leading, spacing: 14) {
-            CinematicPanel(padding: 15) {
-              VStack(alignment: .leading, spacing: 12) {
-                field(
-                  "规则名称",
-                  placeholder: "输入规则的名称",
-                  hint: nil,
-                  text: $rule.name
-                )
-                field(
-                  "正则表达式",
-                  placeholder: "例如：^.*\\[(?<ep>\\d{2,3})\\].*$",
-                  hint: "必须包含 (?<ep>...) 命名组",
-                  text: $rule.pattern,
-                  monospaced: true
-                )
-                Stepper("排序优先级：\(rule.order)", value: $rule.order, in: 1...999)
-                  .font(.subheadline)
-                VStack(alignment: .leading, spacing: 4) {
-                  Stepper(
-                    "最小大小：\(rule.minFileSizeMB) MB", value: $rule.minFileSizeMB, in: 0...10000,
-                    step: 10
+          VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+              Text("规则参数")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+
+              CinematicPanel(padding: 0) {
+                VStack(spacing: 0) {
+                  settingRow(
+                    "规则名称",
+                    placeholder: "输入规则名称",
+                    text: $rule.name
                   )
-                  .font(.subheadline)
-                  Text("小于此大小的文件将不参与匹配")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                  CinematicFormDivider()
+                  settingRow(
+                    "正则表达式",
+                    placeholder: "^.*\\[(?<ep>\\d{2,3})\\].*$",
+                    text: $rule.pattern,
+                    monospaced: true
+                  )
+                  CinematicFormDivider()
+                  HStack {
+                    Text("排序优先级")
+                      .font(.subheadline)
+                      .foregroundStyle(.primary)
+                    Spacer()
+                    Stepper("\(rule.order)", value: $rule.order, in: 1...999)
+                      .font(.subheadline.monospacedDigit())
+                      .fixedSize()
+                  }
+                  .padding(.horizontal, 15)
+                  .padding(.vertical, 9)
+                  CinematicFormDivider()
+                  HStack {
+                    Text("最小大小")
+                      .font(.subheadline)
+                      .foregroundStyle(.primary)
+                    Spacer()
+                    Stepper(
+                      "\(rule.minFileSizeMB) MB",
+                      value: $rule.minFileSizeMB,
+                      in: 0...10000,
+                      step: 10
+                    )
+                    .font(.subheadline.monospacedDigit())
+                    .fixedSize()
+                  }
+                  .padding(.horizontal, 15)
+                  .padding(.vertical, 9)
+                  CinematicFormDivider()
+                  Toggle("启用此规则", isOn: $rule.enabled)
+                    .font(.subheadline)
+                    .tint(appearance.accentColor)
+                    .padding(.horizontal, 15)
+                    .padding(.vertical, 10)
                 }
-                Toggle("启用此规则", isOn: $rule.enabled)
-                  .font(.subheadline)
-                  .tint(appearance.accentColor)
               }
+
+              Text("正则表达式必须包含 (?<ep>...) 命名组；小于最小大小的文件将不参与匹配。")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
             }
 
             CinematicPanel(padding: 14) {
@@ -1887,34 +1934,27 @@ private struct NativeEpisodeRuleEditorSheet: View {
     .nativeGlassSheet()
   }
 
-  private func field(
+  private func settingRow(
     _ label: String,
     placeholder: String,
-    hint: String? = nil,
     text: Binding<String>,
     monospaced: Bool = false
   ) -> some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Text(label).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+    HStack(spacing: 12) {
+      Text(label)
+        .font(.subheadline)
+        .foregroundStyle(.primary)
+        .layoutPriority(1)
       TextField(placeholder, text: text)
         .textFieldStyle(.plain)
         .font(monospaced ? .system(.subheadline, design: .monospaced) : .subheadline)
+        .foregroundStyle(.primary)
+        .multilineTextAlignment(.trailing)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled(monospaced)
-        .padding(10)
-        .background(
-          NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-        )
-        .overlay {
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.6)
-        }
-      if let hint {
-        Text(hint)
-          .font(.caption2)
-          .foregroundStyle(.secondary)
-      }
     }
+    .padding(.horizontal, 15)
+    .padding(.vertical, 12)
   }
 }
 

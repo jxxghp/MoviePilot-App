@@ -280,14 +280,20 @@ struct NativeWidgetSettingsSheet: View {
                     .font(.caption)
                     .foregroundStyle(.primary.opacity(0.68))
 
-                  TextField("本机小组件显示名称", text: $profileName)
-                    .textFieldStyle(.plain)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10))
-                    .accessibilityIdentifier("native-widget-profile-name")
+                  Divider().overlay(.primary.opacity(0.10))
+                  HStack(spacing: 12) {
+                    Text("小组件名称")
+                      .font(.subheadline)
+                      .foregroundStyle(.primary)
+                      .layoutPriority(1)
+                    TextField("本机小组件显示名称", text: $profileName)
+                      .textFieldStyle(.plain)
+                      .font(.subheadline)
+                      .foregroundStyle(.primary)
+                      .multilineTextAlignment(.trailing)
+                      .accessibilityIdentifier("native-widget-profile-name")
+                  }
+                  .padding(.vertical, 2)
 
                   if let generatedAt = state.generatedAt {
                     Text(
