@@ -1827,11 +1827,22 @@ final class NativeV2EntryTests: XCTestCase {
     tap(item, app: app)
   }
 
-  /// iPhone 底栏与 iPad 顶部浮动标签栏结构不同，统一解析当前平台的原生标签按钮。
+  /// iPhone 底栏、iPad 顶部浮动标签栏与 iPhone Duo 竖向侧边操作区结构不同，统一解析当前平台的原生入口按钮。
   private func tabButton(_ label: String, app: XCUIApplication) -> XCUIElement {
     let tabBarButton = app.tabBars.buttons[label]
     if tabBarButton.exists { return tabBarButton }
+    let toolbarButton = app.toolbars.buttons["native-v2-tab-\(label)"].firstMatch
+    if toolbarButton.exists { return toolbarButton }
+    let identified = app.buttons["native-v2-tab-\(label)"].firstMatch
+    if identified.exists { return identified }
     return app.buttons[label].firstMatch
+  }
+
+  /// 在已登录状态下优先匹配 iPad 展开侧边栏中的列表项，否则回退到通用标签/侧栏按钮。
+  private func sidebarOrTabElement(_ label: String, app: XCUIApplication) -> XCUIElement {
+    let cellText = app.cells.staticTexts[label].firstMatch
+    if cellText.exists && cellText.isHittable { return cellText }
+    return tabButton(label, app: app)
   }
 
   /// 等待主画面上的真实图片代理回执，确保截图记录的是已渲染海报。
@@ -3197,6 +3208,147 @@ final class NativeV2EntryTests: XCTestCase {
     let (data, _) = try await URLSession.shared.data(
       from: URL(string: base + "__native/stats")!)
     return try JSONDecoder().decode([String: [String: Int]].self, from: data)
+  }
+
+  /// 全面验收 iPad（横竖屏 + 侧栏工作台 + Bento 双列 + 多列网格）与 iPhone Duo（系统竖向侧边操作区替代传统底栏）的导航与页面布局，并采集实机截图供视觉核对。
+  func testAdaptiveIPadAndDuoNavigationShowcase() async throws {
+    continueAfterFailure = false
+    let app = try await signInToNativeBusiness("a", mode: "ready")
+    defer {
+      XCUIDevice.shared.orientation = .portrait
+      app.terminate()
+    }
+    let isPad = UIDevice.current.userInterfaceIdiom == .pad
+    let isDuo = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4"
+
+    if isDuo {
+      // iPhone Duo 必须使用系统竖向侧边操作区，不再渲染传统底部 UITabBar。
+      XCTAssertEqual(app.tabBars.count, 0, "iPhone Duo 应使用侧边操作区而非底部标签栏。")
+      let laterBtn = app.buttons["以后"].firstMatch
+      if laterBtn.waitForExistence(timeout: 2.5) {
+        laterBtn.tap()
+      }
+      let discoverMore = app.buttons["native-discover-more-热门电影"]
+      XCTAssertTrue(discoverMore.waitForExistence(timeout: 15))
+      try await waitForArtwork("a", minimum: 2)
+      capture("duo-01-discover")
+
+      let exploreBtn = tabButton("探索", app: app)
+      XCTAssertTrue(exploreBtn.waitForExistence(timeout: 8))
+      exploreBtn.tap()
+      try await Task.sleep(nanoseconds: 1_200_000_000)
+      capture("duo-02-explore")
+
+      let mineBtn = tabButton("我的", app: app)
+      XCTAssertTrue(mineBtn.waitForExistence(timeout: 8))
+      mineBtn.tap()
+      XCTAssertTrue(app.scrollViews["native-dashboard-scroll"].waitForExistence(timeout: 12))
+      try await Task.sleep(nanoseconds: 1_200_000_000)
+      capture("duo-03-dashboard")
+
+      let settingsBtn = tabButton("设置", app: app)
+      XCTAssertTrue(settingsBtn.waitForExistence(timeout: 8))
+      settingsBtn.tap()
+      XCTAssertTrue(app.scrollViews["native-settings-scroll"].waitForExistence(timeout: 12))
+      try await Task.sleep(nanoseconds: 800_000_000)
+      capture("duo-04-settings")
+
+      let moreMenuBtn = app.buttons["native-duo-more-menu"].firstMatch
+      XCTAssertTrue(moreMenuBtn.waitForExistence(timeout: 8), "iPhone Duo 侧边操作区应提供「更多」功能入口。")
+      moreMenuBtn.tap()
+      XCTAssertTrue(
+        app.descendants(matching: .any)["native-overflow-user-header"].firstMatch.waitForExistence(
+          timeout: 8))
+      try await Task.sleep(nanoseconds: 600_000_000)
+      capture("duo-05-overflow-menu")
+
+      let subsItem = app.buttons["native-workspace-subscriptions"].firstMatch
+      XCTAssertTrue(subsItem.waitForExistence(timeout: 6))
+      subsItem.tap()
+      XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 12))
+      try await Task.sleep(nanoseconds: 1_000_000_000)
+      capture("duo-06-subscriptions")
+
+      // 返回根页并验证侧边操作区的搜索与智能助手入口
+      let backCandidates = [
+        app.buttons["返回"].firstMatch,
+        app.buttons["Back"].firstMatch,
+        app.buttons["设置"].firstMatch,
+        app.navigationBars.buttons.element(boundBy: 0),
+      ]
+      if let backBtn = backCandidates.first(where: { $0.exists && $0.isHittable }) {
+        backBtn.tap()
+        try await Task.sleep(nanoseconds: 800_000_000)
+      }
+      let searchBtn = app.buttons["native-v2-search-tab-item"].firstMatch
+      if searchBtn.waitForExistence(timeout: 6) {
+        searchBtn.tap()
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        capture("duo-07-search")
+      }
+      let agentBtn = app.buttons["native-duo-agent"].firstMatch
+      if agentBtn.waitForExistence(timeout: 6) {
+        agentBtn.tap()
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        capture("duo-08-agent")
+      }
+      return
+    }
+
+    if isPad {
+      XCUIDevice.shared.orientation = .portrait
+      let discoverMore = app.buttons["native-discover-more-热门电影"]
+      XCTAssertTrue(discoverMore.waitForExistence(timeout: 15))
+      try await waitForArtwork("a", minimum: 2)
+      capture("ipad-portrait-01-discover")
+
+      tabButton("探索", app: app).tap()
+      try await Task.sleep(nanoseconds: 1_200_000_000)
+      capture("ipad-portrait-02-explore")
+
+      tabButton("我的", app: app).tap()
+      XCTAssertTrue(app.scrollViews["native-dashboard-scroll"].waitForExistence(timeout: 12))
+      try await Task.sleep(nanoseconds: 1_200_000_000)
+      capture("ipad-portrait-03-dashboard")
+
+      tabButton("设置", app: app).tap()
+      XCTAssertTrue(app.scrollViews["native-settings-scroll"].waitForExistence(timeout: 12))
+      try await Task.sleep(nanoseconds: 800_000_000)
+      capture("ipad-portrait-04-settings")
+
+      // 切换横屏验收 iPadOS 原生侧边栏工作台（「我的订阅」双列、「下载」、发现页、仪表盘 Bento 双列与探索多列）
+      XCUIDevice.shared.orientation = .landscapeLeft
+      try await Task.sleep(nanoseconds: 1_200_000_000)
+
+      let subsCell = app.cells.staticTexts["我的订阅"].firstMatch
+      if subsCell.waitForExistence(timeout: 6) {
+        subsCell.tap()
+        XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 12))
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        capture("ipad-landscape-01-sidebar-subscriptions")
+      }
+
+      sidebarOrTabElement("发现", app: app).tap()
+      try await Task.sleep(nanoseconds: 1_200_000_000)
+      capture("ipad-landscape-02-discover")
+
+      sidebarOrTabElement("我的", app: app).tap()
+      XCTAssertTrue(app.scrollViews["native-dashboard-scroll"].waitForExistence(timeout: 12))
+      try await Task.sleep(nanoseconds: 1_200_000_000)
+      capture("ipad-landscape-03-dashboard")
+
+      sidebarOrTabElement("探索", app: app).tap()
+      try await Task.sleep(nanoseconds: 1_200_000_000)
+      capture("ipad-landscape-04-explore")
+
+      let downloadsCell = app.cells.staticTexts["下载"].firstMatch
+      if downloadsCell.waitForExistence(timeout: 5) {
+        downloadsCell.tap()
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        capture("ipad-landscape-05-downloads")
+      }
+      return
+    }
   }
 
   /// 画面只保留合成实例，明确作为运行验收而非尚未实现业务页的设计图。

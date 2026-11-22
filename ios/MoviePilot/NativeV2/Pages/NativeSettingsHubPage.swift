@@ -60,8 +60,8 @@ struct NativeSettingsHubPage: View {
           appearanceAndDeviceSection
           accountAndServerSection
         }
-        .frame(maxWidth: 740, alignment: .leading)
-        .padding(.horizontal, CinematicStyle.margin)
+        .frame(maxWidth: NativeDeviceLayout.isIPad ? 840 : 740, alignment: .leading)
+        .padding(.horizontal, NativeDeviceLayout.isIPad ? 24 : CinematicStyle.margin)
         .padding(.top, 14)
         .padding(.bottom, 44)
         .frame(maxWidth: .infinity)
@@ -76,9 +76,11 @@ struct NativeSettingsHubPage: View {
     .toolbarBackground(.hidden, for: .navigationBar)
     .sheet(isPresented: $showsNotificationSettings) {
       NativeNotificationSettingsSheet(session: session)
+        .nativeAdaptiveSheetSizing()
     }
     .sheet(isPresented: $showsWidgetSettings) {
       NativeWidgetSettingsSheet(session: session)
+        .nativeAdaptiveSheetSizing()
     }
     .alert(t("清理本地缓存"), isPresented: $showsClearCacheConfirm) {
       Button(t("清理"), role: .destructive) {

@@ -44,8 +44,10 @@ struct NativeExplorePage: View {
   @State private var reloadToken = 0
   @State private var contextDetailIdentity: NativeMediaIdentity?
   @State private var contextResourceItem: NativeExploreItem?
+  @State private var containerWidth: CGFloat = 0
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   /// 初始化探索页并选中指定的默认来源。
   init(
@@ -101,7 +103,10 @@ struct NativeExplorePage: View {
           }
         }
         .padding(.vertical, 12)
+        .frame(maxWidth: 1240, alignment: .leading)
+        .frame(maxWidth: .infinity)
       }
+      .nativeTrackContainerWidth($containerWidth)
       .scrollIndicators(.hidden)
       .refreshable {
         if isMusicSelected {
@@ -171,9 +176,13 @@ struct NativeExplorePage: View {
     "\(cacheKey)|\(reloadToken)"
   }
 
-  /// 紧凑三列海报网格（iPad 宽屏自动扩展至五列）。
+  /// 随实时容器宽度自适应 3~6 列海报网格（兼容 iPad 全屏、分屏、侧栏展开与 iPhone Duo）。
   private var columns: [GridItem] {
-    let count = horizontalSizeClass == .regular ? 5 : 3
+    let count =
+      containerWidth > 0
+      ? NativeDeviceLayout.posterGridCount(
+        for: min(containerWidth, 1240), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+      : (horizontalSizeClass == .regular ? 5 : 3)
     return Array(repeating: GridItem(.flexible(), spacing: 11, alignment: .top), count: count)
   }
 

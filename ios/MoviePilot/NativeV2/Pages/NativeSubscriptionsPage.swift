@@ -39,6 +39,8 @@ struct NativeSubscriptionsPage: View {
 
   @ObservedObject private var appearance = NativeAppearanceStore.shared
   @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @State private var containerWidth: CGFloat = 0
   @State private var items: [NativeSubscribeItem] = []
   @State private var filter: Filter
   @State private var stateFilter: StateFilter = .all
@@ -76,18 +78,23 @@ struct NativeSubscriptionsPage: View {
           } else if filteredItems.isEmpty {
             emptyCard
           } else {
-            LazyVStack(spacing: 12) {
+            let columnCount = NativeDeviceLayout.cardGridCount(
+              for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+            let gridColumns = Array(
+              repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: columnCount)
+            LazyVGrid(columns: gridColumns, spacing: 12) {
               ForEach(filteredItems) { item in
                 subscribeCard(item)
               }
             }
           }
         }
-        .frame(maxWidth: 820)
-        .padding(.horizontal, CinematicStyle.margin)
+        .frame(maxWidth: containerWidth >= 740 ? 1180 : 820)
+        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: containerWidth))
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
       }
+      .nativeTrackContainerWidth($containerWidth)
       .scrollIndicators(.hidden)
       .refreshable { await load(forceRefresh: true) }
       .modifier(NativeSoftTopScrollEdge())
@@ -149,6 +156,7 @@ struct NativeSubscriptionsPage: View {
         feedback = NativeSubscribeFeedback(isError: false, message: "订阅规则已更新。")
         attempt += 1
       }
+      .nativeAdaptiveSheetSizing()
     }
     .alert(
       "取消订阅",

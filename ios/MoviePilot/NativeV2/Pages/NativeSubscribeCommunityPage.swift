@@ -30,7 +30,9 @@ struct NativeSubscribeCommunityPage: View {
   @State private var forkingID: Int?
   @State private var feedback: NativeCommunityFeedback?
 
+  @State private var containerWidth: CGFloat = 0
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   /// 连续深色紫玫瑰渐变、分区切换胶囊、热门海报网格与分享订阅卡片列表。
   var body: some View {
@@ -58,11 +60,12 @@ struct NativeSubscribeCommunityPage: View {
             popularGrid
           }
         }
-        .frame(maxWidth: 880)
-        .padding(.horizontal, CinematicStyle.margin)
+        .frame(maxWidth: 1200)
+        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: containerWidth))
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
       }
+      .nativeTrackContainerWidth($containerWidth)
       .scrollIndicators(.hidden)
       .refreshable { await load() }
       .modifier(NativeSoftTopScrollEdge())
@@ -96,9 +99,13 @@ struct NativeSubscribeCommunityPage: View {
     selectedTab == .shares ? shareItems.isEmpty : popularItems.isEmpty
   }
 
-  /// 三列海报网格（iPad 五列）。
+  /// 随实时容器宽度自适应 3~6 列海报网格。
   private var columns: [GridItem] {
-    let count = horizontalSizeClass == .regular ? 5 : 3
+    let count =
+      containerWidth > 0
+      ? NativeDeviceLayout.posterGridCount(
+        for: min(containerWidth, 1200), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+      : (horizontalSizeClass == .regular ? 5 : 3)
     return Array(repeating: GridItem(.flexible(), spacing: 11, alignment: .top), count: count)
   }
 

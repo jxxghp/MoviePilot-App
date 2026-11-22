@@ -8,6 +8,7 @@ struct NativeAgentFloatingMascot: View {
 
   @AppStorage("nativeV2.mascot.x") private var normalizedX: Double = 0.88
   @AppStorage("nativeV2.mascot.y") private var normalizedY: Double = 0.72
+  @Environment(\.nativeVerticalBarEdge) private var verticalBarEdge
   @State private var dragTranslation: CGSize = .zero
   @State private var isDragging: Bool = false
   @State private var isBlinking: Bool = false
@@ -17,12 +18,18 @@ struct NativeAgentFloatingMascot: View {
 
   var body: some View {
     GeometryReader { proxy in
-      let safeLeft = max(proxy.safeAreaInsets.leading, 8) + mascotWidth / 2
+      let leadingClearance: CGFloat = verticalBarEdge == .leading ? 76 : 8
+      let trailingClearance: CGFloat = verticalBarEdge == .trailing ? 76 : 8
+      let topClearance: CGFloat = NativeDeviceLayout.isIPad ? 72 : 52
+      let bottomClearance: CGFloat =
+        (NativeDeviceLayout.isIPad || verticalBarEdge.isActive) ? 38 : 110
+      let safeLeft = max(proxy.safeAreaInsets.leading, leadingClearance) + mascotWidth / 2
       let safeRight = max(
-        proxy.size.width - max(proxy.safeAreaInsets.trailing, 8) - mascotWidth / 2, safeLeft + 1)
-      let safeTop = max(proxy.safeAreaInsets.top, 44) + 52
+        proxy.size.width - max(proxy.safeAreaInsets.trailing, trailingClearance) - mascotWidth / 2,
+        safeLeft + 1)
+      let safeTop = max(proxy.safeAreaInsets.top, 44) + topClearance
       let safeBottom = max(
-        proxy.size.height - max(proxy.safeAreaInsets.bottom, 20) - 110, safeTop + 1)
+        proxy.size.height - max(proxy.safeAreaInsets.bottom, 20) - bottomClearance, safeTop + 1)
       let usableWidth = max(safeRight - safeLeft, 1)
       let usableHeight = max(safeBottom - safeTop, 1)
 

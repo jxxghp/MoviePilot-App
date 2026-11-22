@@ -58,6 +58,8 @@ struct NativePluginMarketPage: View {
   @State private var pendingReset: NativeMarketPluginRecord?
   @State private var pendingUninstall: NativeMarketPluginRecord?
   @State private var feedback: NativePluginMarketFeedback?
+  @State private var containerWidth: CGFloat = 0
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   private struct FormSelection {
     let plugin: NativeInstalledPlugin
@@ -90,18 +92,23 @@ struct NativePluginMarketPage: View {
           } else if filteredItems.isEmpty {
             emptyCard
           } else {
-            LazyVStack(spacing: 12) {
+            let columnCount = NativeDeviceLayout.cardGridCount(
+              for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+            let gridColumns = Array(
+              repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: columnCount)
+            LazyVGrid(columns: gridColumns, spacing: 12) {
               ForEach(filteredItems) { plugin in
                 installedPluginCard(plugin)
               }
             }
           }
         }
-        .frame(maxWidth: 820)
-        .padding(.horizontal, CinematicStyle.margin)
+        .frame(maxWidth: containerWidth >= 740 ? 1180 : 820)
+        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: containerWidth))
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
       }
+      .nativeTrackContainerWidth($containerWidth)
       .scrollIndicators(.hidden)
       .refreshable { await loadInstalled(forceRefresh: true) }
       .modifier(NativeSoftTopScrollEdge())

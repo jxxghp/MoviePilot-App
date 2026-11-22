@@ -21,6 +21,8 @@ struct NativeWorkflowsPage: View {
   @State private var pendingReset: NativeWorkflowItem?
   @State private var pendingDelete: NativeWorkflowItem?
   @State private var feedback: NativeWorkflowFeedback?
+  @State private var containerWidth: CGFloat = 0
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
     ZStack {
@@ -38,18 +40,23 @@ struct NativeWorkflowsPage: View {
           } else if workflows.isEmpty {
             emptyCard
           } else {
-            LazyVStack(spacing: 12) {
+            let columnCount = NativeDeviceLayout.cardGridCount(
+              for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+            let gridColumns = Array(
+              repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: columnCount)
+            LazyVGrid(columns: gridColumns, spacing: 12) {
               ForEach(workflows) { workflow in
                 workflowCard(workflow)
               }
             }
           }
         }
-        .frame(maxWidth: 840)
-        .padding(.horizontal, CinematicStyle.margin)
+        .frame(maxWidth: containerWidth >= 740 ? 1180 : 840)
+        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: containerWidth))
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
       }
+      .nativeTrackContainerWidth($containerWidth)
       .scrollIndicators(.hidden)
       .refreshable { await load(forceRefresh: true) }
       .modifier(NativeSoftTopScrollEdge())

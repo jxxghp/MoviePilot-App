@@ -75,8 +75,10 @@ struct NativeMediaServerLibraryPage: View {
   @State private var loadFailed: Bool = false
   @State private var queryGeneration = UUID()
   @State private var searchDebounceTask: Task<Void, Never>?
+  @State private var containerWidth: CGFloat = 0
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.colorScheme) private var colorScheme
   @ObservedObject private var appearance = NativeAppearanceStore.shared
 
@@ -118,7 +120,11 @@ struct NativeMediaServerLibraryPage: View {
   }
 
   private var gridColumns: [GridItem] {
-    let count = horizontalSizeClass == .regular ? 5 : 3
+    let count =
+      containerWidth > 0
+      ? NativeDeviceLayout.posterGridCount(
+        for: min(containerWidth, 1240), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+      : (horizontalSizeClass == .regular ? 5 : 3)
     return Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: count)
   }
 
@@ -135,7 +141,10 @@ struct NativeMediaServerLibraryPage: View {
           contentBody
         }
         .padding(.vertical, 12)
+        .frame(maxWidth: 1240, alignment: .leading)
+        .frame(maxWidth: .infinity)
       }
+      .nativeTrackContainerWidth($containerWidth)
       .scrollIndicators(.hidden)
       .refreshable {
         await loadFilters()

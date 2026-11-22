@@ -757,8 +757,10 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     scheduleControlsHide()
   }
 
-  /// 音乐优先竖屏沉浸、全屏视频支持横竖屏自由旋转。
-  override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .allButUpsideDown }
+  /// 音乐与全屏视频在 iPad 上支持全部四个方向，在 iPhone 上保持 `.allButUpsideDown`。
+  override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+    UIDevice.current.userInterfaceIdiom == .pad ? .all : .allButUpsideDown
+  }
 
   /// 沉浸播放页始终使用浅色状态栏图标。
   override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
@@ -768,6 +770,14 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
   /// 全屏视频播放时自动弱化底部 Home 指示条。
   override var prefersHomeIndicatorAutoHidden: Bool { !isAudioPlayback }
+
+  #if compiler(>=6.4)
+    /// 全屏影院视频播放在 iPhone Duo 上显式关闭系统竖向侧栏，保持完整宽银幕画面与水平底部控制坞；音乐播放保持系统自动策略。
+    @available(iOS 27.1, *)
+    override var preferredVerticalBarBehavior: UIVerticalBarBehavior {
+      isAudioPlayback ? .automatic : .disabled
+    }
+  #endif
 
   /// 控制器真正脱离窗口时（且非画中画保活及非音乐最小化收起）安全释放资源。
   override func viewDidDisappear(_ animated: Bool) {

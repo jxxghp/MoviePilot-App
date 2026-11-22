@@ -70,27 +70,58 @@ struct NativeMediaServerDetailPage: View {
 
   var body: some View {
     GeometryReader { viewport in
-      let heroHeight = resolvedHeroHeight(viewportHeight: viewport.size.height)
+      let viewportWidth = viewport.size.width
+      let hasHorizontalInset =
+        viewport.safeAreaInsets.leading > 0 || viewport.safeAreaInsets.trailing > 0
+      let backdropWidth =
+        hasHorizontalInset
+        ? viewportWidth + viewport.safeAreaInsets.leading + viewport.safeAreaInsets.trailing
+        : viewportWidth
+      let margin = NativeDeviceLayout.horizontalMargin(for: viewportWidth)
+      let heroHeight = NativeDeviceLayout.detailHeroHeight(
+        width: viewportWidth,
+        height: viewport.size.height,
+        isAccessibilitySize: dynamicTypeSize.isAccessibilitySize
+      )
       let progress = min(max(-scrollOffset / max(heroHeight * 0.62, 1), 0), 1)
       let eased = progress * progress * (3 - 2 * progress)
 
       ZStack(alignment: .top) {
         ambientSurface(progress: eased).ignoresSafeArea()
         if let detail {
-          heroBackdrop(
-            detail,
-            width: viewport.size.width,
-            height: heroHeight,
-            progress: progress,
-            eased: eased
-          )
-          .ignoresSafeArea(edges: .top)
+          if hasHorizontalInset {
+            Color.clear
+              .frame(width: viewportWidth, height: 1)
+              .overlay(alignment: .topLeading) {
+                heroBackdrop(
+                  detail,
+                  width: backdropWidth,
+                  height: heroHeight,
+                  progress: progress,
+                  eased: eased
+                )
+                .ignoresSafeArea(edges: [.top, .horizontal])
+              }
+              .allowsHitTesting(false)
+              .accessibilityHidden(true)
+          } else {
+            heroBackdrop(
+              detail,
+              width: viewportWidth,
+              height: heroHeight,
+              progress: progress,
+              eased: eased
+            )
+            .ignoresSafeArea(edges: .top)
+          }
         }
 
         ScrollView {
           VStack(alignment: .leading, spacing: 0) {
             if let detail {
               heroHeaderOverlay(detail, height: heroHeight)
+                .frame(maxWidth: 1020, alignment: .leading)
+                .frame(maxWidth: .infinity)
 
               VStack(alignment: .leading, spacing: 22) {
                 if let feedbackMessage {
@@ -108,7 +139,7 @@ struct NativeMediaServerDetailPage: View {
                 }
 
                 if detail.kind == .boxSet, !collectionItems.isEmpty {
-                  collectionItemsSection(detail)
+                  collectionItemsSection(detail, containerWidth: viewportWidth)
                 }
 
                 if detail.kind == .series, !seasons.isEmpty {
@@ -133,13 +164,17 @@ struct NativeMediaServerDetailPage: View {
 
                 metadataCard(detail)
               }
-              .padding(.horizontal, CinematicStyle.margin)
+              .frame(maxWidth: 1020, alignment: .leading)
+              .padding(.horizontal, margin)
               .padding(.top, 8)
               .padding(.bottom, 40)
+              .frame(maxWidth: .infinity)
             } else if loadFailed {
               failureCard
-                .padding(.horizontal, CinematicStyle.margin)
+                .frame(maxWidth: 820)
+                .padding(.horizontal, margin)
                 .padding(.top, 110)
+                .frame(maxWidth: .infinity)
             } else {
               NativeMediaDetailSkeletonView(heroHeight: heroHeight)
             }
@@ -770,13 +805,19 @@ struct NativeMediaServerDetailPage: View {
 
   // MARK: - Collection Items Section (BoxSet -> Child Items)
 
-  private var collectionGridColumns: [GridItem] {
-    let count = horizontalSizeClass == .regular ? 5 : 3
+  private func collectionGridColumns(for width: CGFloat) -> [GridItem] {
+    let count =
+      width > 0
+      ? NativeDeviceLayout.posterGridCount(
+        for: min(width, 1020), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+      : (horizontalSizeClass == .regular ? 5 : 3)
     return Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: count)
   }
 
   /// 合集详情页内嵌的子作品海报网格，点击后进入对应电影或剧集的原生媒体库详情页。
-  private func collectionItemsSection(_ detail: MediaServerItemDetailDTO) -> some View {
+  private func collectionItemsSection(
+    _ detail: MediaServerItemDetailDTO, containerWidth: CGFloat = 0
+  ) -> some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
         Text("合集内容")
@@ -788,7 +829,7 @@ struct NativeMediaServerDetailPage: View {
           .foregroundStyle(.primary.opacity(0.60))
       }
 
-      LazyVGrid(columns: collectionGridColumns, spacing: 16) {
+      LazyVGrid(columns: collectionGridColumns(for: containerWidth), spacing: 16) {
         ForEach(collectionItems) { child in
           NavigationLink {
             NativeMediaServerDetailPage(

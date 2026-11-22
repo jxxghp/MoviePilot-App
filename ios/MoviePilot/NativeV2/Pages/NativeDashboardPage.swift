@@ -36,6 +36,7 @@ struct NativeDashboardPage: View {
   @State private var hasLoadedOnce = false
   @State private var failedSections: [String] = []
   @State private var isPageVisible = false
+  @State private var containerWidth: CGFloat = 0
 
   /// 优先从会话级缓存同步恢复数据，避免切换标签时闪烁加载态。
   init(
@@ -90,11 +91,17 @@ struct NativeDashboardPage: View {
           .accessibilityIdentifier("native-dashboard-loading")
       } else {
         ScrollView {
+          let useTwoColumns = containerWidth >= 820 && !dynamicTypeSize.isAccessibilitySize
+          let margin = NativeDeviceLayout.horizontalMargin(for: containerWidth)
           VStack(alignment: .leading, spacing: 20) {
             if loading { loadingIndicator }
             if !failedSections.isEmpty { errorPanel }
-            ForEach(widgetItems.filter(\.enabled)) { item in
-              dashboardWidgetView(for: item)
+            if useTwoColumns {
+              dashboardAdaptiveBentoContent
+            } else {
+              ForEach(widgetItems.filter(\.enabled)) { item in
+                dashboardWidgetView(for: item)
+              }
             }
 
             HStack {
@@ -121,12 +128,13 @@ struct NativeDashboardPage: View {
             }
             .padding(.top, 4)
           }
-          .frame(maxWidth: 820, alignment: .leading)
-          .padding(.horizontal, CinematicStyle.margin)
+          .frame(maxWidth: useTwoColumns ? 1200 : 820, alignment: .leading)
+          .padding(.horizontal, margin)
           .padding(.top, 8)
           .padding(.bottom, 36)
           .frame(maxWidth: .infinity)
         }
+        .nativeTrackContainerWidth($containerWidth)
         .scrollIndicators(.hidden)
         .modifier(NativeSoftTopScrollEdge())
         .refreshable { await load(forceRefresh: true) }
@@ -157,6 +165,7 @@ struct NativeDashboardPage: View {
         widgetItems = updated
         saveWidgetsToStorage(updated)
       }
+      .nativeAdaptiveSheetSizing()
     }
     .fullScreenCover(item: $presentedMedalKey) { selected in
       if let binding = Binding($communityProfile) {
@@ -187,6 +196,97 @@ struct NativeDashboardPage: View {
         }
       }
     }
+  }
+
+  /// 判断某个仪表盘组件当前是否拥有可渲染内容，用于宽屏 Bento 双列排布时避免产生空白占位。
+  private func hasRenderableWidgetContent(for item: NativeDashboardWidgetConfig) -> Bool {
+    switch item.id {
+    case "communityMedals":
+      return communityProfile?.hasEarnedMedals == true
+    case "statistics":
+      return statistics != nil
+    case "storage":
+      return storage != nil
+    case "recentImports":
+      return true
+    case "downloader":
+      return downloader != nil || !activeDownloads.isEmpty
+    case "cpu":
+      return !cpuSamples.isEmpty
+    case "memory":
+      return memory != nil
+    case "network":
+      return !networkSamples.isEmpty
+    case "transferTrend":
+      return !transferTrend.isEmpty
+    case "schedules":
+      return schedules != nil
+    case "systemInfo":
+      return systemInfo != nil
+    default:
+      return pluginWidgets.contains(where: { "plugin:\($0.id)" == item.id })
+    }
+  }
+
+  /// 宽屏 iPad 仪表盘 Bento 排布：社区徽章与媒体库统计独占通栏，其余模块保持用户自定义顺序并自动按双列并排，大幅减少空白浪费与纵向滚动距离。
+  @ViewBuilder
+  private var dashboardAdaptiveBentoContent: some View {
+    let visibleItems = widgetItems.filter { $0.enabled && hasRenderableWidgetContent(for: $0) }
+    let fullWidthIDs: Set<String> = ["communityMedals", "statistics"]
+    let chunks = Self.groupDashboardBentoChunks(visibleItems, fullWidthIDs: fullWidthIDs)
+    ForEach(chunks) { chunk in
+      if chunk.isFullWidth, let only = chunk.items.first {
+        dashboardWidgetView(for: only)
+      } else {
+        LazyVGrid(
+          columns: [
+            GridItem(.flexible(), spacing: 18, alignment: .top),
+            GridItem(.flexible(), spacing: 18, alignment: .top),
+          ],
+          alignment: .leading,
+          spacing: 18
+        ) {
+          ForEach(chunk.items) { item in
+            dashboardWidgetView(for: item)
+          }
+        }
+      }
+    }
+  }
+
+  /// 将仪表盘可见组件按通栏项与连续双列组切分，保持用户排序的同时实现均衡双列排布。
+  private struct DashboardBentoChunk: Identifiable {
+    let id: String
+    let isFullWidth: Bool
+    let items: [NativeDashboardWidgetConfig]
+  }
+
+  private static func groupDashboardBentoChunks(
+    _ items: [NativeDashboardWidgetConfig], fullWidthIDs: Set<String>
+  ) -> [DashboardBentoChunk] {
+    var result: [DashboardBentoChunk] = []
+    var buffer: [NativeDashboardWidgetConfig] = []
+    for item in items {
+      if fullWidthIDs.contains(item.id) {
+        if !buffer.isEmpty {
+          result.append(
+            DashboardBentoChunk(
+              id: "grid-\(buffer.map(\.id).joined(separator: "-"))",
+              isFullWidth: false, items: buffer))
+          buffer = []
+        }
+        result.append(DashboardBentoChunk(id: "full-\(item.id)", isFullWidth: true, items: [item]))
+      } else {
+        buffer.append(item)
+      }
+    }
+    if !buffer.isEmpty {
+      result.append(
+        DashboardBentoChunk(
+          id: "grid-\(buffer.map(\.id).joined(separator: "-"))",
+          isFullWidth: false, items: buffer))
+    }
+    return result
   }
 
   /// 按当前已启用的组件配置顺序渲染对应仪表盘卡片。
@@ -248,9 +348,11 @@ struct NativeDashboardPage: View {
   // MARK: - 1. 媒体库统计
 
   private func librarySummary(_ values: NativeDashboardStatistics) -> some View {
+    let metricColumnsCount: Int =
+      dynamicTypeSize.isAccessibilitySize ? 1 : (containerWidth >= 740 ? 4 : 2)
     let columns = Array(
       repeating: GridItem(.flexible(), spacing: 12, alignment: .top),
-      count: dynamicTypeSize.isAccessibilitySize ? 1 : 2)
+      count: metricColumnsCount)
     return VStack(alignment: .leading, spacing: 10) {
       sectionTitle("媒体库统计", detail: "本月入库")
       LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {

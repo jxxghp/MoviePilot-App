@@ -63,6 +63,7 @@ struct NativeV2RootView: View {
             }
           }
         )
+        .nativeProvideVerticalBarEdge()
         .id(snapshot.scope.generation)
       } else {
         NavigationStack {

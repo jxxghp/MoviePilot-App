@@ -33,33 +33,65 @@ struct NativeMediaDetailPage: View {
   /// 按当前认证会话直接加载单部影视详情、入库/订阅状态、演职员与推荐；头图采用与发现页一致的沉浸式固定背景、下拉延展、轻视差、渐进柔焦与六段无痕溶解。
   var body: some View {
     GeometryReader { viewport in
-      let heroHeight = resolvedHeroHeight(viewportHeight: viewport.size.height)
+      let viewportWidth = viewport.size.width
+      let hasHorizontalInset =
+        viewport.safeAreaInsets.leading > 0 || viewport.safeAreaInsets.trailing > 0
+      let backdropWidth =
+        hasHorizontalInset
+        ? viewportWidth + viewport.safeAreaInsets.leading + viewport.safeAreaInsets.trailing
+        : viewportWidth
+      let margin = NativeDeviceLayout.horizontalMargin(for: viewportWidth)
+      let heroHeight = NativeDeviceLayout.detailHeroHeight(
+        width: viewportWidth,
+        height: viewport.size.height,
+        isAccessibilitySize: dynamicTypeSize.isAccessibilitySize
+      )
       let progress = transitionProgress(height: heroHeight)
       let eased = smoothstep(progress)
       ZStack(alignment: .top) {
         ambientSurface(progress: eased).ignoresSafeArea()
         if let detail {
-          heroBackdrop(
-            detail,
-            width: viewport.size.width,
-            height: heroHeight,
-            progress: progress,
-            eased: eased
-          )
-          .ignoresSafeArea(edges: .top)
+          if hasHorizontalInset {
+            Color.clear
+              .frame(width: viewportWidth, height: 1)
+              .overlay(alignment: .topLeading) {
+                heroBackdrop(
+                  detail,
+                  width: backdropWidth,
+                  height: heroHeight,
+                  progress: progress,
+                  eased: eased
+                )
+                .ignoresSafeArea(edges: [.top, .horizontal])
+              }
+              .allowsHitTesting(false)
+              .accessibilityHidden(true)
+          } else {
+            heroBackdrop(
+              detail,
+              width: viewportWidth,
+              height: heroHeight,
+              progress: progress,
+              eased: eased
+            )
+            .ignoresSafeArea(edges: .top)
+          }
         }
         ScrollView {
           VStack(alignment: .leading, spacing: 0) {
             if let detail {
-              heroHeaderOverlay(detail, height: heroHeight)
+              heroHeaderOverlay(detail, height: heroHeight, margin: margin)
+                .frame(maxWidth: 1020, alignment: .leading)
+                .frame(maxWidth: .infinity)
               VStack(alignment: .leading, spacing: 24) {
                 if let actionFeedback {
                   feedbackBanner(actionFeedback)
                 }
-                actionBar(detail)
+                actionBar(detail, containerWidth: viewportWidth)
                 synopsisSection(detail)
                 if isTelevision(detail), !resolvedSeasons(detail).isEmpty {
-                  seasonsSection(detail, seasons: resolvedSeasons(detail))
+                  seasonsSection(
+                    detail, seasons: resolvedSeasons(detail), containerWidth: viewportWidth)
                 }
                 if !displayCast(detail).isEmpty {
                   castSection(displayCast(detail))
@@ -69,13 +101,17 @@ struct NativeMediaDetailPage: View {
                 }
                 metadataPanel(detail)
               }
-              .padding(.horizontal, CinematicStyle.margin)
+              .frame(maxWidth: 1020, alignment: .leading)
+              .padding(.horizontal, margin)
               .padding(.top, 8)
               .padding(.bottom, 36)
+              .frame(maxWidth: .infinity)
             } else if failed {
               failureState
-                .padding(.horizontal, CinematicStyle.margin)
+                .frame(maxWidth: 820)
+                .padding(.horizontal, margin)
                 .padding(.top, 110)
+                .frame(maxWidth: .infinity)
             } else {
               NativeMediaDetailSkeletonView(heroHeight: heroHeight)
                 .transition(.opacity)
@@ -254,7 +290,9 @@ struct NativeMediaDetailPage: View {
   }
 
   /// 前景标题与核心元数据浮置在固定背景头图底部区域，随正文自然上滚。
-  private func heroHeaderOverlay(_ detail: MediaDetailPayload, height: CGFloat) -> some View {
+  private func heroHeaderOverlay(
+    _ detail: MediaDetailPayload, height: CGFloat, margin: CGFloat = CinematicStyle.margin
+  ) -> some View {
     let isLight = colorScheme == .light
     return VStack(alignment: .leading, spacing: 10) {
       Spacer(minLength: 0)
@@ -320,20 +358,24 @@ struct NativeMediaDetailPage: View {
         .scrollIndicators(.hidden)
       }
     }
-    .padding(.horizontal, CinematicStyle.margin)
+    .padding(.horizontal, margin)
     .padding(.bottom, 16)
     .frame(maxWidth: .infinity, minHeight: height, alignment: .bottomLeading)
   }
 
-  /// 主操作区遵循 Liquid Glass 分组规范：按权限展示订阅开关、资源搜索与入库状态，不伪造未接入动作。
-  /// 统一等高、比例均衡的详情操作栏：已入库时主播放按钮全宽独占第一行，订阅与搜索资源并排等宽居第二行；未入库时订阅与搜索资源等宽并排，避免三四枚按钮挤压变形。
+  /// 主操作区遵循 Liquid Glass 分组规范：宽屏单行均衡排布，窄屏已入库时播放主按钮独占第一行、订阅与搜索资源并排居第二行。
   @ViewBuilder
-  private func actionBar(_ detail: MediaDetailPayload) -> some View {
+  private func actionBar(_ detail: MediaDetailPayload, containerWidth: CGFloat = 0) -> some View {
     let tv = isTelevision(detail)
     let subscribedCount = status.seasons.count
     let hasPlay = (status.itemID?.isEmpty == false)
+    let useSingleRow = containerWidth >= 680 && !dynamicTypeSize.isAccessibilitySize
     if canSubscribe || canSearchResources || hasPlay {
-      VStack(spacing: 10) {
+      let layout =
+        useSingleRow
+        ? AnyLayout(HStackLayout(spacing: 10))
+        : AnyLayout(VStackLayout(spacing: 10))
+      layout {
         if let itemID = status.itemID, !itemID.isEmpty {
           let serverSuffix =
             (status.server?.isEmpty == false) ? " · \(status.server!)" : ""
@@ -593,11 +635,15 @@ struct NativeMediaDetailPage: View {
     }
   }
 
-  /// 剧集分季卡片展示真实海报、集数与各季独立订阅状态。
-  private func seasonsSection(_ detail: MediaDetailPayload, seasons: [MediaSeasonSummary])
-    -> some View
-  {
-    VStack(alignment: .leading, spacing: 14) {
+  /// 剧集分季卡片展示真实海报、集数与各季独立订阅状态；宽屏自动采用双列排布。
+  private func seasonsSection(
+    _ detail: MediaDetailPayload, seasons: [MediaSeasonSummary], containerWidth: CGFloat = 0
+  ) -> some View {
+    let columnCount = NativeDeviceLayout.cardGridCount(
+      for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+    let columns = Array(
+      repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: columnCount)
+    return VStack(alignment: .leading, spacing: 14) {
       HStack {
         Text("剧集分季")
           .font(.title3.weight(.bold))
@@ -607,7 +653,7 @@ struct NativeMediaDetailPage: View {
           .font(.caption)
           .foregroundStyle(.primary.opacity(0.62))
       }
-      VStack(spacing: 12) {
+      LazyVGrid(columns: columns, spacing: 12) {
         ForEach(seasons) { season in
           seasonRow(detail, season: season)
         }

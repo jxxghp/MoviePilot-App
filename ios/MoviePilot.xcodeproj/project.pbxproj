@@ -20,6 +20,7 @@
 		23E731081F1C8B9393CDE436 /* MoviePilotWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A53F32D403882DC68D3CE17 /* MoviePilotWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		26EA21BAF0EB0F9D663FE97F /* MoviePilotWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E9D58111CB3F6D0CC5F8EB /* MoviePilotWidgets.swift */; };
 		29D3DF44DA14967EB9C79979 /* NativeSystemSettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68C6FA6CA18037E7B4A18B47 /* NativeSystemSettingsPage.swift */; };
+		A1E000020000000000000002 /* NativeDeviceLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1E000010000000000000001 /* NativeDeviceLayout.swift */; };
 		29E6D5DE3717F6EBA7D36D69 /* NativeDynamicActionCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C61A153F85D5CD1A2B2698 /* NativeDynamicActionCenter.swift */; };
 		2BA2E297A78BF7DB111DB06C /* NativeSystemIntegrationSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A47B559552B90D83BE13166 /* NativeSystemIntegrationSheets.swift */; };
 		2E02C60A35D867A2008213A0 /* NativePluginDataPageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D388D03E1CAFD2739ADF561 /* NativePluginDataPageView.swift */; };
@@ -119,6 +120,7 @@
 
 /* Begin PBXFileReference section */
 		018FA9D54CDFDB2AC49D2983 /* NativeMediaSearchPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaSearchPage.swift; sourceTree = "<group>"; };
+		A1E000010000000000000001 /* NativeDeviceLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDeviceLayout.swift; sourceTree = "<group>"; };
 		06C61A153F85D5CD1A2B2698 /* NativeDynamicActionCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDynamicActionCenter.swift; sourceTree = "<group>"; };
 		074E2F176D7B19065BD0557F /* ThirdPartyNotices.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = ThirdPartyNotices.txt; sourceTree = "<group>"; };
 		A1C000010000000000000001 /* CommunityMedals */ = {isa = PBXFileReference; lastKnownFileType = folder; path = CommunityMedals; sourceTree = "<group>"; };
@@ -324,6 +326,7 @@
 			children = (
 				1CC709A18D7FAEDC0527EDD8 /* NativeAgentFloatingMascot.swift */,
 				56A041E4198BE71B63A2B109 /* NativeAppModel.swift */,
+				A1E000010000000000000001 /* NativeDeviceLayout.swift */,
 				06C61A153F85D5CD1A2B2698 /* NativeDynamicActionCenter.swift */,
 				A7D4C74144CA16E15C0B2839 /* NativeEntityIcons.swift */,
 				87FA9E46584D4776F3809815 /* NativeMediaPlaybackLauncher.swift */,
@@ -579,6 +582,7 @@
 				0FE557F4111AB0095942BEFF /* NativeDiscoverModulesSheet.swift in Sources */,
 				DDCEE1C105B831849FC9B502 /* NativeDiscoverPage.swift in Sources */,
 				02938EC7396846498DBB3C3F /* NativeDownloadsPage.swift in Sources */,
+				A1E000020000000000000002 /* NativeDeviceLayout.swift in Sources */,
 				29E6D5DE3717F6EBA7D36D69 /* NativeDynamicActionCenter.swift in Sources */,
 				1B6DCC76020A6EE81DA87E69 /* NativeEntityIcons.swift in Sources */,
 				DB471BEA03F64E92F0182C28 /* NativeExplorePage.swift in Sources */,
@@ -718,7 +722,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 2.0.1;
+				MARKETING_VERSION = 2.0.2;
 				MOVIEPILOT_APNS_ENVIRONMENT = production;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -859,7 +863,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 2.0.1;
+				MARKETING_VERSION = 2.0.2;
 				MOVIEPILOT_APNS_ENVIRONMENT = production;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;

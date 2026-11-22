@@ -9,13 +9,14 @@ import UIKit
 /// 已认证 MoviePilot 的原生主导航：4+1 底部架构（发现 / 探索 / 我的 / 设置 + 动态上下文或全局搜索按钮），二次点击任意主标签弹出其余全部功能菜单。
 @MainActor
 struct NativeV2MainShell<PluginDestination: View>: View {
-  /// 4+1 底栏标签定义：发现、探索、我的（仪表盘）、设置 + 右侧独立动态按钮/全局搜索。
+  /// 主导航目的地：iPhone 为 4+1 底部架构，iPad 额外扩展侧栏工作台直达入口，iPhone Duo 通过系统竖向侧边操作区切换。
   private enum Page: Hashable {
     case discover
     case explore
     case mine
     case settings
     case search
+    case sidebarWorkspace(NativeWorkspaceDestination)
   }
 
   let session: NativeSession
@@ -32,6 +33,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @ObservedObject private var appearance = NativeAppearanceStore.shared
   @ObservedObject private var playbackLauncher = NativeMediaPlaybackLauncher.shared
   @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.nativeVerticalBarEdge) private var verticalBarEdge
   @State private var selectedTab: Page = .discover
   @State private var discovery = NativeDiscoverContent(
     featured: nil, rails: [], continueWatching: [], providers: [], categories: [], isLoading: true)
@@ -114,8 +116,8 @@ struct NativeV2MainShell<PluginDestination: View>: View {
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .zIndex(45)
         }
-        if showFloatingAssistant && !showsOverflowMenu && !showsAgentSheet
-          && !showsShortcutsSheet && !showsMessagesSheet
+        if showFloatingAssistant && !usesDuoSideOperationBar && !showsOverflowMenu
+          && !showsAgentSheet && !showsShortcutsSheet && !showsMessagesSheet
         {
           NativeAgentFloatingMascot(
             onOpen: { showsAgentSheet = true },
@@ -159,6 +161,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
     .sheet(isPresented: $showsShortcutsSheet) {
       NativeShortcutsSheet(session: session)
+        .nativeAdaptiveSheetSizing()
     }
     .sheet(isPresented: $showsMessagesSheet) {
       NavigationStack {
@@ -178,6 +181,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       }
       .presentationDetents([.large])
       .presentationDragIndicator(.visible)
+      .nativeAdaptiveSheetSizing()
       .nativeGlassSheet()
     }
     .sheet(
@@ -201,6 +205,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       }
       .presentationDetents([.large])
       .presentationDragIndicator(.visible)
+      .nativeAdaptiveSheetSizing()
       .nativeGlassSheet()
     }
     .sheet(
@@ -215,6 +220,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       NativeDiscoverModulesSheet(initialModules: discoverModules) { updated in
         await saveDiscoverModules(updated)
       }
+      .nativeAdaptiveSheetSizing()
     }
     .task(id: canDiscover ? discoveryAttempt : nil) {
       if canDiscover {
@@ -282,6 +288,19 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
   }
 
+  /// 是否启用 iPhone Duo 系统竖向侧边操作区（替代传统底部导航栏，并在硬件折叠或退出竖向模式时自动平滑回退）。
+  private var usesDuoSideOperationBar: Bool {
+    NativeDeviceLayout.isIPhoneDuoHardware && verticalBarEdge.isActive
+  }
+
+  /// 是否属于顶层 4 主标签（用于控制双击弹出溢出菜单与代理拦截范围，iPad 侧栏工作台项与搜索项不参与）。
+  private func isPrimaryRootTab(_ page: Page) -> Bool {
+    switch page {
+    case .discover, .explore, .mine, .settings: true
+    case .search, .sidebarWorkspace: false
+    }
+  }
+
   /// 二次点击底部 4 个主图标中的任意一个时弹出溢出菜单；切换主标签时自动清理离开标签上临时承载的溢出页面，避免跨标签堆积无关导航历史。
   private var tabSelection: Binding<Page> {
     Binding(
@@ -291,7 +310,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           triggerTrailingCustomAction()
           return
         }
-        if next == selectedTab && next != .search {
+        if next == selectedTab && isPrimaryRootTab(next) {
           toggleOverflowMenu()
         } else {
           if showsOverflowMenu {
@@ -306,16 +325,19 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       })
   }
 
-  /// 拦截 UIKit UITabBarController 对当前已选中标签的重复点击以及右下角动态自定义按钮的点击。
+  /// 拦截 iPhone 上 UITabBarController 对当前已选中标签的重复点击以及右下角动态自定义按钮的点击；iPad 使用原生 sidebarAdaptable 侧栏，iPhone Duo 使用系统竖向侧边操作区，均不改写系统代理。
+  @ViewBuilder
   private var tabReselectInterceptor: some View {
-    NativeTabBarReselectInterceptor(
-      shouldInterceptReselect: { selectedTab != .search },
-      onReselect: { toggleOverflowMenu() },
-      shouldInterceptTrailingTab: { hasTrailingCustomAction },
-      onSelectTrailingTab: { triggerTrailingCustomAction() }
-    )
-    .frame(width: 0, height: 0)
-    .allowsHitTesting(false)
+    if !usesDuoSideOperationBar && !NativeDeviceLayout.isIPad {
+      NativeTabBarReselectInterceptor(
+        shouldInterceptReselect: { isPrimaryRootTab(selectedTab) },
+        onReselect: { toggleOverflowMenu() },
+        shouldInterceptTrailingTab: { hasTrailingCustomAction },
+        onSelectTrailingTab: { triggerTrailingCustomAction() }
+      )
+      .frame(width: 0, height: 0)
+      .allowsHitTesting(false)
+    }
   }
 
   /// 右侧 +1 圆形按钮标题：页面动态动作 > 全局搜索。
@@ -341,99 +363,446 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     return .search
   }
 
-  /// 原生 4+1 TabView：前 4 项为发现、探索、我的（仪表盘）、设置，第 +1 项为右侧动态主按钮/全局搜索。
+  /// 跨形态主导航：iPhone Duo 使用系统竖向侧边操作区壳层；iPad 使用 iPadOS 18+ `sidebarAdaptable` 顶部浮动栏 + 可展开侧边工作台；iPhone 保持 4+1 底部玻璃胶囊架构。
   @ViewBuilder private var page: some View {
-    if #available(iOS 18, *) {
-      TabView(selection: tabSelection) {
-        if canDiscover {
-          Tab(t("发现"), systemImage: "sparkles.tv", value: Page.discover) {
-            discoveryTab
-          }
-          .accessibilityIdentifier("native-v2-tab-发现")
+    if usesDuoSideOperationBar {
+      duoSideOperationShell
+    } else if #available(iOS 18, *), NativeDeviceLayout.isIPad {
+      iPadSidebarAdaptableShell
+    } else if #available(iOS 18, *) {
+      iPhoneModernTabShell
+    } else {
+      legacyTabShell
+    }
+  }
 
-          Tab(t("探索"), systemImage: "safari", value: Page.explore) {
-            exploreTab
-          }
-          .accessibilityIdentifier("native-v2-tab-探索")
+  /// iPhone Duo 专属壳层：移除底部/顶部标签栏，由各根页面的系统竖向侧边操作区直接承载主导航、全部功能入口、智能助手与上下文动态主动作。
+  @ViewBuilder private var duoSideOperationShell: some View {
+    switch selectedTab {
+    case .discover:
+      if canDiscover {
+        discoveryTab
+      } else {
+        mineTab
+      }
+    case .explore:
+      if canDiscover {
+        exploreTab
+      } else {
+        mineTab
+      }
+    case .mine:
+      mineTab
+    case .settings:
+      settingsTab
+    case .search:
+      if canDiscover {
+        searchTab
+      } else {
+        mineTab
+      }
+    case .sidebarWorkspace(let destination):
+      sidebarWorkspaceTab(destination)
+    }
+  }
+
+  /// iPhone Duo 根页面竖向侧边操作栏：充分利用侧边纵向空间集中放置 4 主入口、工作台菜单、智能助手与底部动态动作/全局搜索。
+  @ToolbarContentBuilder
+  private var duoSideOperationToolbar: some ToolbarContent {
+    ToolbarItemGroup(placement: .bottomBar) {
+      if canDiscover {
+        duoNavToolbarButton(
+          title: t("发现"),
+          symbol: selectedTab == .discover ? "sparkles.tv.fill" : "sparkles.tv",
+          isSelected: selectedTab == .discover,
+          id: "native-v2-tab-发现"
+        ) {
+          selectDuoRootTab(.discover)
         }
-        Tab(value: Page.mine) {
-          mineTab
-        } label: {
+        duoNavToolbarButton(
+          title: t("探索"),
+          symbol: selectedTab == .explore ? "safari.fill" : "safari",
+          isSelected: selectedTab == .explore,
+          id: "native-v2-tab-探索"
+        ) {
+          selectDuoRootTab(.explore)
+        }
+      }
+      Button {
+        selectDuoRootTab(.mine)
+      } label: {
+        if let userTabAvatar {
+          Label {
+            Text(t("我的"))
+          } icon: {
+            Image(uiImage: userTabAvatar)
+          }
+        } else {
+          Label(
+            t("我的"),
+            systemImage: selectedTab == .mine ? "person.crop.circle.fill" : "person.crop.circle")
+        }
+      }
+      .tint(selectedTab == .mine ? appearance.accentColor : .primary)
+      .accessibilityLabel(t("我的"))
+      .accessibilityAddTraits(selectedTab == .mine ? .isSelected : [])
+      .accessibilityIdentifier("native-v2-tab-我的")
+
+      duoNavToolbarButton(
+        title: t("设置"),
+        symbol: selectedTab == .settings ? "gearshape.fill" : "gearshape",
+        isSelected: selectedTab == .settings,
+        id: "native-v2-tab-设置"
+      ) {
+        selectDuoRootTab(.settings)
+      }
+
+      duoNavToolbarButton(
+        title: t("更多"),
+        symbol: showsOverflowMenu ? "square.grid.2x2.fill" : "square.grid.2x2",
+        isSelected: showsOverflowMenu,
+        id: "native-duo-more-menu"
+      ) {
+        toggleOverflowMenu()
+      }
+
+      duoNavToolbarButton(
+        title: t("助手"),
+        symbol: "sparkles",
+        isSelected: showsAgentSheet,
+        id: "native-duo-agent"
+      ) {
+        showsOverflowMenu = false
+        showsAgentSheet = true
+      }
+
+      if canDiscover || hasTrailingCustomAction {
+        Spacer()
+        duoNavToolbarButton(
+          title: hasTrailingCustomAction ? trailingButtonTitle : t("搜索"),
+          symbol: trailingButtonSymbol,
+          isSelected: hasTrailingCustomAction || selectedTab == .search,
+          id: "native-v2-search-tab-item"
+        ) {
+          if hasTrailingCustomAction {
+            triggerTrailingCustomAction()
+          } else {
+            selectDuoRootTab(.search)
+          }
+        }
+      }
+    }
+    .nativeDuoVerticalPreferred()
+  }
+
+  /// iPhone Duo 侧边操作区单个导航/工具按钮：选中态自动以主题强调色高亮，提供完整可访问性标签与标识。
+  private func duoNavToolbarButton(
+    title: String,
+    symbol: String,
+    isSelected: Bool,
+    id: String,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      Label(title, systemImage: symbol)
+    }
+    .tint(isSelected ? appearance.accentColor : .primary)
+    .accessibilityLabel(title)
+    .accessibilityAddTraits(isSelected ? .isSelected : [])
+    .accessibilityIdentifier(id)
+  }
+
+  /// iPhone Duo 侧边操作区切换根入口：切换不同入口时清理跨标签溢出栈；重复点击当前已激活主入口时切换工作台菜单。
+  private func selectDuoRootTab(_ target: Page) {
+    if target == selectedTab && isPrimaryRootTab(target) {
+      toggleOverflowMenu()
+      return
+    }
+    if showsOverflowMenu {
+      withAnimation(.spring(response: 0.22, dampingFraction: 0.90)) {
+        showsOverflowMenu = false
+      }
+    }
+    clearOverflowDestinations(in: selectedTab)
+    dynamicActionCenter.reset()
+    selectedTab = target
+  }
+
+  /// iPhone Duo 子页面底部动态动作栏：当推入的子页面注册了动态主动作（如新增、搜索）时，将其直接呈现在侧边操作区中。
+  @ToolbarContentBuilder
+  private var duoPushedDynamicActionToolbar: some ToolbarContent {
+    ToolbarItemGroup(placement: .bottomBar) {
+      duoNavToolbarButton(
+        title: t("更多"),
+        symbol: showsOverflowMenu ? "square.grid.2x2.fill" : "square.grid.2x2",
+        isSelected: showsOverflowMenu,
+        id: "native-duo-more-menu"
+      ) {
+        toggleOverflowMenu()
+      }
+      if let dynamic = dynamicActionCenter.current {
+        Spacer()
+        duoNavToolbarButton(
+          title: dynamic.title,
+          symbol: dynamic.symbol,
+          isSelected: true,
+          id: "native-v2-search-tab-item"
+        ) {
+          triggerTrailingCustomAction()
+        }
+      }
+    }
+    .nativeDuoVerticalPreferred()
+  }
+
+  /// iPadOS 18+ 原生自适应侧边栏壳层：顶部浮动胶囊保留 4+1 主入口，展开左侧边栏可一键直达订阅、日历、资源、下载、文件、整理、工作流、插件与工具。
+  @available(iOS 18, *)
+  private var iPadSidebarAdaptableShell: some View {
+    TabView(selection: tabSelection) {
+      if canDiscover {
+        Tab(t("发现"), systemImage: "sparkles.tv", value: Page.discover) {
+          discoveryTab
+        }
+        .accessibilityIdentifier("native-v2-tab-发现")
+
+        Tab(t("探索"), systemImage: "safari", value: Page.explore) {
+          exploreTab
+        }
+        .accessibilityIdentifier("native-v2-tab-探索")
+      }
+      Tab(value: Page.mine) {
+        mineTab
+      } label: {
+        if let userTabAvatar {
+          Label {
+            Text(t("我的"))
+          } icon: {
+            Image(uiImage: userTabAvatar)
+          }
+        } else {
+          Label(t("我的"), systemImage: "person.crop.circle")
+        }
+      }
+      .accessibilityIdentifier("native-v2-tab-我的")
+
+      Tab(t("设置"), systemImage: "gearshape", value: Page.settings) {
+        settingsTab
+      }
+      .accessibilityIdentifier("native-v2-tab-设置")
+
+      if canDiscover || hasTrailingCustomAction {
+        Tab(
+          hasTrailingCustomAction ? trailingButtonTitle : t("搜索"),
+          systemImage: trailingButtonSymbol,
+          value: Page.search,
+          role: trailingTabRole
+        ) {
+          searchTab
+        }
+        .accessibilityIdentifier("native-v2-search-tab-item")
+      }
+
+      if canSubscribe || canSearchResources || canManageDownloads || snapshot.user.isSuperuser {
+        TabSection(t("工作台")) {
+          if canSubscribe {
+            Tab(
+              t("我的订阅"), systemImage: "bookmark.fill",
+              value: Page.sidebarWorkspace(.subscriptions)
+            ) {
+              sidebarWorkspaceTab(.subscriptions)
+            }
+            .accessibilityIdentifier("native-sidebar-subscriptions")
+
+            Tab(
+              t("订阅日历"), systemImage: "calendar",
+              value: Page.sidebarWorkspace(.calendar)
+            ) {
+              sidebarWorkspaceTab(.calendar)
+            }
+            .accessibilityIdentifier("native-sidebar-calendar")
+          }
+          if canSearchResources {
+            Tab(
+              t("站点资源"), systemImage: "magnifyingglass.circle.fill",
+              value: Page.sidebarWorkspace(.resources)
+            ) {
+              sidebarWorkspaceTab(.resources)
+            }
+            .accessibilityIdentifier("native-sidebar-resources")
+          }
+          if canManageDownloads {
+            Tab(
+              t("下载"), systemImage: "arrow.down.circle.fill",
+              value: Page.sidebarWorkspace(.downloads)
+            ) {
+              sidebarWorkspaceTab(.downloads)
+            }
+            .accessibilityIdentifier("native-sidebar-downloads")
+
+            Tab(
+              t("文件管理"), systemImage: "folder.fill",
+              value: Page.sidebarWorkspace(.files)
+            ) {
+              sidebarWorkspaceTab(.files)
+            }
+            .accessibilityIdentifier("native-sidebar-files")
+
+            Tab(
+              t("整理历史"), systemImage: "clock.arrow.circlepath",
+              value: Page.sidebarWorkspace(.history)
+            ) {
+              sidebarWorkspaceTab(.history)
+            }
+            .accessibilityIdentifier("native-sidebar-history")
+
+            Tab(
+              t("工作流"), systemImage: "flowchart",
+              value: Page.sidebarWorkspace(.workflows)
+            ) {
+              sidebarWorkspaceTab(.workflows)
+            }
+            .accessibilityIdentifier("native-sidebar-workflows")
+          }
+          if snapshot.user.isSuperuser {
+            Tab(
+              t("插件"), systemImage: "puzzlepiece.extension.fill",
+              value: Page.sidebarWorkspace(.pluginMarket)
+            ) {
+              sidebarWorkspaceTab(.pluginMarket)
+            }
+            .accessibilityIdentifier("native-sidebar-plugins")
+          }
+        }
+        .tabPlacement(.sidebarOnly)
+      }
+
+      TabSection(t("快捷工具")) {
+        if canDiscover {
+          Tab(t("音乐"), systemImage: "music.note.list", value: Page.sidebarWorkspace(.music)) {
+            sidebarWorkspaceTab(.music)
+          }
+          .accessibilityIdentifier("native-sidebar-music")
+        }
+        Tab(t("消息中心"), systemImage: "bell.fill", value: Page.sidebarWorkspace(.messages)) {
+          sidebarWorkspaceTab(.messages)
+        }
+        .accessibilityIdentifier("native-sidebar-messages")
+
+        Tab(t("智能助手"), systemImage: "sparkles", value: Page.sidebarWorkspace(.agent)) {
+          sidebarWorkspaceTab(.agent)
+        }
+        .accessibilityIdentifier("native-sidebar-agent")
+      }
+      .tabPlacement(.sidebarOnly)
+    }
+    .tabViewStyle(.sidebarAdaptable)
+  }
+
+  /// iPad 侧栏工作台项独立导航栈容器。
+  private func sidebarWorkspaceTab(_ destination: NativeWorkspaceDestination) -> some View {
+    NavigationStack {
+      workspaceDestinationView(destination)
+        .navigationDestination(for: NativeWorkspaceDestination.self) { next in
+          workspaceDestinationView(next)
+        }
+    }
+  }
+
+  /// iPhone iOS 18+ 原生 4+1 TabView：前 4 项为发现、探索、我的（仪表盘）、设置，第 +1 项为右侧动态主按钮/全局搜索。
+  @available(iOS 18, *)
+  private var iPhoneModernTabShell: some View {
+    TabView(selection: tabSelection) {
+      if canDiscover {
+        Tab(t("发现"), systemImage: "sparkles.tv", value: Page.discover) {
+          discoveryTab
+        }
+        .accessibilityIdentifier("native-v2-tab-发现")
+
+        Tab(t("探索"), systemImage: "safari", value: Page.explore) {
+          exploreTab
+        }
+        .accessibilityIdentifier("native-v2-tab-探索")
+      }
+      Tab(value: Page.mine) {
+        mineTab
+      } label: {
+        if let userTabAvatar {
+          Label {
+            Text(t("我的"))
+          } icon: {
+            Image(uiImage: userTabAvatar)
+          }
+        } else {
+          Label(t("我的"), systemImage: "person.crop.circle")
+        }
+      }
+      .accessibilityIdentifier("native-v2-tab-我的")
+
+      Tab(t("设置"), systemImage: "gearshape", value: Page.settings) {
+        settingsTab
+      }
+      .accessibilityIdentifier("native-v2-tab-设置")
+
+      if canDiscover || hasTrailingCustomAction {
+        Tab(
+          hasTrailingCustomAction ? trailingButtonTitle : t("搜索"),
+          systemImage: trailingButtonSymbol,
+          value: Page.search,
+          role: trailingTabRole
+        ) {
+          searchTab
+        }
+        .accessibilityIdentifier("native-v2-search-tab-item")
+      }
+    }
+  }
+
+  /// iOS 16–17 兼容 TabView 壳层。
+  private var legacyTabShell: some View {
+    TabView(selection: tabSelection) {
+      if canDiscover {
+        discoveryTab
+          .tag(Page.discover)
+          .tabItem {
+            Label(t("发现"), systemImage: "sparkles.tv")
+              .accessibilityIdentifier("native-v2-tab-发现")
+          }
+        exploreTab
+          .tag(Page.explore)
+          .tabItem {
+            Label(t("探索"), systemImage: "safari")
+              .accessibilityIdentifier("native-v2-tab-探索")
+          }
+      }
+      mineTab
+        .tag(Page.mine)
+        .tabItem {
           if let userTabAvatar {
             Label {
               Text(t("我的"))
             } icon: {
               Image(uiImage: userTabAvatar)
             }
+            .accessibilityIdentifier("native-v2-tab-我的")
           } else {
             Label(t("我的"), systemImage: "person.crop.circle")
-          }
-        }
-        .accessibilityIdentifier("native-v2-tab-我的")
-
-        Tab(t("设置"), systemImage: "gearshape", value: Page.settings) {
-          settingsTab
-        }
-        .accessibilityIdentifier("native-v2-tab-设置")
-
-        if canDiscover || hasTrailingCustomAction {
-          Tab(
-            hasTrailingCustomAction ? trailingButtonTitle : t("搜索"),
-            systemImage: trailingButtonSymbol,
-            value: Page.search,
-            role: trailingTabRole
-          ) {
-            searchTab
-          }
-          .accessibilityIdentifier("native-v2-search-tab-item")
-        }
-      }
-    } else {
-      TabView(selection: tabSelection) {
-        if canDiscover {
-          discoveryTab
-            .tag(Page.discover)
-            .tabItem {
-              Label(t("发现"), systemImage: "sparkles.tv")
-                .accessibilityIdentifier("native-v2-tab-发现")
-            }
-          exploreTab
-            .tag(Page.explore)
-            .tabItem {
-              Label(t("探索"), systemImage: "safari")
-                .accessibilityIdentifier("native-v2-tab-探索")
-            }
-        }
-        mineTab
-          .tag(Page.mine)
-          .tabItem {
-            if let userTabAvatar {
-              Label {
-                Text(t("我的"))
-              } icon: {
-                Image(uiImage: userTabAvatar)
-              }
               .accessibilityIdentifier("native-v2-tab-我的")
-            } else {
-              Label(t("我的"), systemImage: "person.crop.circle")
-                .accessibilityIdentifier("native-v2-tab-我的")
-            }
           }
-        settingsTab
-          .tag(Page.settings)
-          .tabItem {
-            Label(t("设置"), systemImage: "gearshape")
-              .accessibilityIdentifier("native-v2-tab-设置")
-          }
-        if canDiscover {
-          searchTab
-            .tag(Page.search)
-            .tabItem {
-              Label(
-                hasTrailingCustomAction ? trailingButtonTitle : t("搜索"),
-                systemImage: trailingButtonSymbol)
-            }
         }
+      settingsTab
+        .tag(Page.settings)
+        .tabItem {
+          Label(t("设置"), systemImage: "gearshape")
+            .accessibilityIdentifier("native-v2-tab-设置")
+        }
+      if canDiscover {
+        searchTab
+          .tag(Page.search)
+          .tabItem {
+            Label(
+              hasTrailingCustomAction ? trailingButtonTitle : t("搜索"),
+              systemImage: trailingButtonSymbol)
+          }
       }
     }
   }
@@ -446,8 +815,19 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         initialSource: .tmdbMovies,
         externalSource: $pendingExploreSource
       )
+      .nativeDuoPrefersToolbarItems()
+      .toolbar {
+        if usesDuoSideOperationBar {
+          duoSideOperationToolbar
+        }
+      }
       .navigationDestination(for: NativeWorkspaceDestination.self) { destination in
         workspaceDestinationView(destination)
+          .toolbar {
+            if usesDuoSideOperationBar {
+              duoPushedDynamicActionToolbar
+            }
+          }
       }
     }
     .background(tabReselectInterceptor)
@@ -467,8 +847,19 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           memberDashboardView
         }
       }
+      .nativeDuoPrefersToolbarItems()
+      .toolbar {
+        if usesDuoSideOperationBar {
+          duoSideOperationToolbar
+        }
+      }
       .navigationDestination(for: NativeWorkspaceDestination.self) { destination in
         workspaceDestinationView(destination)
+          .toolbar {
+            if usesDuoSideOperationBar {
+              duoPushedDynamicActionToolbar
+            }
+          }
       }
     }
     .background(tabReselectInterceptor)
@@ -596,8 +987,19 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           onLogout()
         }
       )
+      .nativeDuoPrefersToolbarItems()
+      .toolbar {
+        if usesDuoSideOperationBar {
+          duoSideOperationToolbar
+        }
+      }
       .navigationDestination(for: NativeWorkspaceDestination.self) { destination in
         workspaceDestinationView(destination)
+          .toolbar {
+            if usesDuoSideOperationBar {
+              duoPushedDynamicActionToolbar
+            }
+          }
       }
       .navigationDestination(isPresented: $showsPlugins) {
         pluginDestination()
@@ -618,6 +1020,12 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           searchPath.append(NativeMediaIdentity(source: source, mediaID: id, type: type))
         }
       )
+      .nativeDuoPrefersToolbarItems()
+      .toolbar {
+        if usesDuoSideOperationBar {
+          duoSideOperationToolbar
+        }
+      }
       .navigationDestination(for: NativeMediaIdentity.self) { identity in
         NativeMediaDetailPage(session: session, identity: identity)
       }
@@ -731,6 +1139,12 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         onRetry: { discoveryAttempt += 1 }
       )
       .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeDuoPrefersToolbarItems()
+      .toolbar {
+        if usesDuoSideOperationBar {
+          duoSideOperationToolbar
+        }
+      }
       .navigationDestination(for: NativeMediaDestination.self) { destination in
         switch destination {
         case .media(let identity):
@@ -751,6 +1165,11 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           }
         case .workspace(let dest):
           workspaceDestinationView(dest)
+            .toolbar {
+              if usesDuoSideOperationBar {
+                duoPushedDynamicActionToolbar
+              }
+            }
         case .explore(let source):
           NativeExplorePage(session: session, initialSource: source)
         case .mediaServer(let target):
@@ -878,7 +1297,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     case .settings:
       settingsPath.removeAll(where: isOverflowWorkspaceDestination)
       if showsPlugins { showsPlugins = false }
-    case .search:
+    case .search, .sidebarWorkspace:
       break
     }
   }
@@ -891,7 +1310,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     clearOverflowDestinations(in: .settings)
   }
 
-  /// 从全局溢出菜单选中任意功能时，单层替换跨标签临时页面（永不层层叠加无关历史），在当前标签中直接呈现。
+  /// 从全局溢出菜单选中任意功能时，单层替换跨标签临时页面（永不层层叠加无关历史），在当前标签中直接呈现；iPad 若已位于侧栏工作台则直接切换对应侧栏项。
   private func openFromOverflow(_ destination: NativeWorkspaceDestination) {
     withAnimation(.easeOut(duration: 0.2)) {
       showsOverflowMenu = false
@@ -909,6 +1328,13 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     case .search:
       selectedTab = .mine
       minePath.append(destination)
+    case .sidebarWorkspace:
+      if NativeDeviceLayout.isIPad {
+        selectedTab = .sidebarWorkspace(destination)
+      } else {
+        selectedTab = .mine
+        minePath.append(destination)
+      }
     }
   }
 
@@ -1339,8 +1765,11 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       }
       .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
       .modifier(NativeLiquidGlassPopoverSurface(cornerRadius: 18))
+      .frame(maxWidth: NativeDeviceLayout.isIPad ? 520 : .infinity)
       .padding(.horizontal, 14)
-      .padding(.bottom, 86)
+      .padding(
+        .bottom,
+        usesDuoSideOperationBar ? 16 : (NativeDeviceLayout.isIPad ? 24 : 86))
     }
     .accessibilityIdentifier("native-mini-music-bar")
   }
@@ -1376,34 +1805,48 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .accessibilityIdentifier("native-system-route-banner")
   }
 
-  /// 溢出菜单弹出锚点：跟随当前激活的底部标签，呈现从对应图标处弹性绽放的原生动画。
+  /// 溢出菜单弹出锚点：iPhone 跟随底部主标签，iPad 贴近顶部浮动标签栏，iPhone Duo 贴靠系统竖向侧边操作区边缘。
   private var overflowMenuAnchor: UnitPoint {
+    if usesDuoSideOperationBar {
+      return verticalBarEdge == .leading ? .leading : .trailing
+    }
+    if NativeDeviceLayout.isIPad {
+      return .top
+    }
     switch selectedTab {
-    case .discover: .bottomLeading
-    case .explore: UnitPoint(x: 0.34, y: 1.0)
-    case .mine: UnitPoint(x: 0.66, y: 1.0)
-    case .settings: .bottomTrailing
-    case .search: .bottomLeading
+    case .discover: return .bottomLeading
+    case .explore: return UnitPoint(x: 0.34, y: 1.0)
+    case .mine: return UnitPoint(x: 0.66, y: 1.0)
+    case .settings: return .bottomTrailing
+    case .search, .sidebarWorkspace: return .bottomLeading
     }
   }
 
-  /// 溢出菜单屏幕停靠位置：左半区标签靠左对齐，右半区标签靠右对齐。
+  /// 溢出菜单屏幕停靠位置：iPhone Duo 贴靠当前系统侧栏边，iPad 顶部居中贴靠浮动栏下方，iPhone 左右贴底对齐。
   private var overflowMenuAlignment: Alignment {
+    if usesDuoSideOperationBar {
+      return verticalBarEdge == .leading ? .bottomLeading : .bottomTrailing
+    }
+    if NativeDeviceLayout.isIPad {
+      return .top
+    }
     switch selectedTab {
-    case .mine, .settings: .bottomTrailing
-    default: .bottomLeading
+    case .mine, .settings: return .bottomTrailing
+    default: return .bottomLeading
     }
   }
 
   /// 溢出菜单动态非对称弹性绽放过渡（直接挂在条件渲染卡片节点上，确保每次弹出都有明显缩放、位移与回弹）。
   private var overflowMenuTransition: AnyTransition {
     let anchor = overflowMenuAnchor
+    let insertionY: CGFloat = NativeDeviceLayout.isIPad ? -24 : (usesDuoSideOperationBar ? 14 : 48)
+    let removalY: CGFloat = NativeDeviceLayout.isIPad ? -14 : (usesDuoSideOperationBar ? 8 : 26)
     return .asymmetric(
       insertion: .scale(scale: 0.28, anchor: anchor)
-        .combined(with: .offset(y: 48))
+        .combined(with: .offset(y: insertionY))
         .combined(with: .opacity),
       removal: .scale(scale: 0.64, anchor: anchor)
-        .combined(with: .offset(y: 26))
+        .combined(with: .offset(y: removalY))
         .combined(with: .opacity)
     )
   }
@@ -1474,10 +1917,11 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         .accessibilityIdentifier("native-overflow-menu-scroll")
       }
     }
-    .frame(width: 238)
+    .frame(width: NativeDeviceLayout.isIPad ? 276 : 238)
     .modifier(NativeLiquidGlassPopoverSurface(cornerRadius: 26))
     .padding(.horizontal, 16)
-    .padding(.bottom, 92)
+    .padding(.top, NativeDeviceLayout.isIPad ? 72 : 0)
+    .padding(.bottom, NativeDeviceLayout.isIPad ? 24 : (usesDuoSideOperationBar ? 20 : 92))
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: overflowMenuAlignment)
   }
 
@@ -2754,16 +3198,17 @@ private struct NativeTabBarReselectInterceptor: UIViewControllerRepresentable {
     }
 
     func attach(to tabBarController: UITabBarController) {
-      if observedTabBarController === tabBarController, tabBarController.delegate === self {
+      if let existing = tabBarController.delegate as? Coordinator {
+        // 复用已挂载的代理实例并就地刷新回调，绝不在多标签切换期间反复改写 delegate，彻底杜绝 iPad sidebarAdaptable 下的重布局乒乓死循环。
+        existing.shouldInterceptReselect = shouldInterceptReselect
+        existing.onReselect = onReselect
+        existing.shouldInterceptTrailingTab = shouldInterceptTrailingTab
+        existing.onSelectTrailingTab = onSelectTrailingTab
+        observedTabBarController = tabBarController
         return
       }
-      if let existing = tabBarController.delegate, existing !== self {
-        // 如果已挂过另一个同类代理，保持其底层原始 delegate，避免嵌套死循环
-        if let other = existing as? Coordinator {
-          originalDelegate = other.originalDelegate
-        } else {
-          originalDelegate = existing
-        }
+      if let existing = tabBarController.delegate {
+        originalDelegate = existing
       }
       observedTabBarController = tabBarController
       tabBarController.delegate = self
@@ -2779,12 +3224,15 @@ private struct NativeTabBarReselectInterceptor: UIViewControllerRepresentable {
         onReselect()
         return false
       }
-      if let last = tabBarController.viewControllers?.last,
-        viewController === last,
-        shouldInterceptTrailingTab()
-      {
-        onSelectTrailingTab()
-        return false
+      if shouldInterceptTrailingTab() {
+        let isSearchTrailingItem =
+          viewController.tabBarItem.accessibilityIdentifier == "native-v2-search-tab-item"
+          || (!NativeDeviceLayout.isIPad
+            && viewController === tabBarController.viewControllers?.last)
+        if isSearchTrailingItem {
+          onSelectTrailingTab()
+          return false
+        }
       }
       return originalDelegate?.tabBarController?(tabBarController, shouldSelect: viewController)
         ?? true

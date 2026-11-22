@@ -32,8 +32,8 @@ struct NativeMusicPage: View {
           searchText: searchText,
           reloadToken: reloadToken
         )
-        .frame(maxWidth: 880)
-        .padding(.horizontal, CinematicStyle.margin)
+        .frame(maxWidth: 1200)
+        .padding(.horizontal, NativeDeviceLayout.isIPad ? 24 : CinematicStyle.margin)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
       }
@@ -61,8 +61,10 @@ struct NativeMusicExploreSection: View {
   @State private var isLoading = true
   @State private var loadFailed = false
   @State private var localReloadToken = 0
+  @State private var containerWidth: CGFloat = 0
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -91,14 +93,19 @@ struct NativeMusicExploreSection: View {
         }
       }
     }
+    .nativeTrackContainerWidth($containerWidth)
     .task(id: "\(selectedFeed.rawValue)|\(reloadToken)|\(localReloadToken)") {
       await load(forceRefresh: reloadToken > 0 || localReloadToken > 0)
     }
   }
 
-  /// 两列方形封面网格（iPad 宽屏四列）。
+  /// 随实时容器宽度自适应 2~5 列方形封面网格。
   private var columns: [GridItem] {
-    let count = horizontalSizeClass == .regular ? 4 : 2
+    let count =
+      containerWidth > 0
+      ? NativeDeviceLayout.squareGridCount(
+        for: min(containerWidth, 1200), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+      : (horizontalSizeClass == .regular ? 4 : 2)
     return Array(repeating: GridItem(.flexible(), spacing: 13, alignment: .top), count: count)
   }
 

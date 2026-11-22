@@ -324,6 +324,7 @@ struct NativeDiscoverPage: View {
   @ObservedObject private var appearance = NativeAppearanceStore.shared
   @State private var scrollOffset: CGFloat = 0
   @State private var selectedFeatureIndex = 0
+  @State private var containerWidth: CGFloat = 0
 
   /// 页面只消费已认证的业务投影与显式导航动作，默认缺图不发起无身份 URL 请求。
   init(
@@ -371,7 +372,18 @@ struct NativeDiscoverPage: View {
   /// 主视觉延伸至顶部安全区，随滚动柔和退场并过渡为 Cinematic 烟灰紫底色。
   var body: some View {
     GeometryReader { viewport in
-      let heroHeight = resolvedHeroHeight(viewportHeight: viewport.size.height)
+      let viewportWidth = viewport.size.width
+      let hasHorizontalInset =
+        viewport.safeAreaInsets.leading > 0 || viewport.safeAreaInsets.trailing > 0
+      let backdropWidth =
+        hasHorizontalInset
+        ? viewportWidth + viewport.safeAreaInsets.leading + viewport.safeAreaInsets.trailing
+        : viewportWidth
+      let heroHeight = NativeDeviceLayout.discoverHeroHeight(
+        width: viewportWidth,
+        height: viewport.size.height,
+        isAccessibilitySize: dynamicTypeSize.isAccessibilitySize
+      )
       let progress = transitionProgress(height: heroHeight)
       let eased = smoothstep(progress)
       let populatedRails = content.rails.filter { !$0.items.isEmpty }
@@ -383,13 +395,29 @@ struct NativeDiscoverPage: View {
       ZStack(alignment: .top) {
         ambientSurface(progress: eased).ignoresSafeArea()
         if let activeFeature {
-          featureBackground(
-            activeFeature, width: viewport.size.width, height: heroHeight,
-            progress: progress, eased: eased
-          )
-          .id(activeFeature.id)
-          .transition(.opacity)
-          .ignoresSafeArea(edges: .top)
+          if hasHorizontalInset {
+            Color.clear
+              .frame(width: viewportWidth, height: 1)
+              .overlay(alignment: .topLeading) {
+                featureBackground(
+                  activeFeature, width: backdropWidth, height: heroHeight,
+                  progress: progress, eased: eased
+                )
+                .ignoresSafeArea(edges: [.top, .horizontal])
+              }
+              .id(activeFeature.id)
+              .transition(.opacity)
+              .allowsHitTesting(false)
+              .accessibilityHidden(true)
+          } else {
+            featureBackground(
+              activeFeature, width: viewportWidth, height: heroHeight,
+              progress: progress, eased: eased
+            )
+            .id(activeFeature.id)
+            .transition(.opacity)
+            .ignoresSafeArea(edges: .top)
+          }
         }
         ScrollView {
           VStack(spacing: 24) {
@@ -404,7 +432,7 @@ struct NativeDiscoverPage: View {
               }
               LazyVStack(alignment: .leading, spacing: 26) {
                 if isPreview, content.featuredItems.isEmpty {
-                  previewMarker.padding(.horizontal, CinematicStyle.margin)
+                  previewMarker.padding(.horizontal, horizontalMargin)
                 }
                 if hasContent {
                   orderedSections(populatedRails: populatedRails, hasLibrary: hasLibrary)
@@ -433,7 +461,7 @@ struct NativeDiscoverPage: View {
                   }
                 }
                 if !hasContent || content.loadFailed {
-                  discoveryStatus.padding(.horizontal, CinematicStyle.margin)
+                  discoveryStatus.padding(.horizontal, horizontalMargin)
                 }
               }
             }
@@ -453,6 +481,7 @@ struct NativeDiscoverPage: View {
         topSafeAreaVeil(progress: eased, height: max(viewport.safeAreaInsets.top, 48) + 42)
       }
     }
+    .nativeTrackContainerWidth($containerWidth)
     .onChange(of: content.featuredItems.map(\.id)) { ids in
       if selectedFeatureIndex >= ids.count { selectedFeatureIndex = 0 }
     }
@@ -750,7 +779,7 @@ struct NativeDiscoverPage: View {
       .padding(.top, 2)
     }
     .multilineTextAlignment(.center)
-    .frame(maxWidth: .infinity, alignment: .center)
+    .frame(maxWidth: 680, alignment: .center)
     .padding(.bottom, 10)
   }
 
@@ -857,7 +886,7 @@ struct NativeDiscoverPage: View {
         }
         .padding(.horizontal, legacyHorizontalPadding)
       }
-      .modifier(NativeHorizontalEdgeMargins(horizontal: CinematicStyle.margin))
+      .modifier(NativeHorizontalEdgeMargins(horizontal: horizontalMargin))
       .scrollIndicators(.hidden)
     }
   }
@@ -926,7 +955,7 @@ struct NativeDiscoverPage: View {
         }
         .padding(.horizontal, legacyHorizontalPadding)
       }
-      .modifier(NativeHorizontalEdgeMargins(horizontal: CinematicStyle.margin))
+      .modifier(NativeHorizontalEdgeMargins(horizontal: horizontalMargin))
       .scrollIndicators(.hidden)
     }
   }
@@ -1080,7 +1109,7 @@ struct NativeDiscoverPage: View {
         }
         .padding(.horizontal, legacyHorizontalPadding)
       }
-      .modifier(NativeHorizontalEdgeMargins(horizontal: CinematicStyle.margin))
+      .modifier(NativeHorizontalEdgeMargins(horizontal: horizontalMargin))
       .scrollIndicators(.hidden)
     }
   }
@@ -1089,7 +1118,8 @@ struct NativeDiscoverPage: View {
   private var categoriesSection: some View {
     VStack(alignment: .leading, spacing: 14) {
       sectionHeader("分类浏览")
-      let perRow = dynamicTypeSize.isAccessibilitySize ? 1 : 2
+      let perRow = NativeDeviceLayout.discoverCategoryColumns(
+        for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
       let rows = stride(from: 0, to: content.categories.count, by: perRow).map {
         Array(content.categories[$0..<min($0 + perRow, content.categories.count)])
       }
@@ -1113,20 +1143,23 @@ struct NativeDiscoverPage: View {
               .accessibilityIdentifier("native-discover-category-\(category.id)")
             }
             if row.count < perRow {
-              Color.clear.frame(maxWidth: .infinity)
+              ForEach(0..<(perRow - row.count), id: \.self) { _ in
+                Color.clear.frame(maxWidth: .infinity)
+              }
             }
           }
         }
       }
-      .padding(.horizontal, CinematicStyle.margin)
+      .padding(.horizontal, horizontalMargin)
     }
   }
 
   /// 媒体库卡片直接呈现服务端封面原图，不叠加名称遮罩，仅在右上角以轻透角标展示入库数量。
   private func providerArtwork(_ provider: NativeDiscoverProvider) -> some View {
-    ZStack(alignment: .topTrailing) {
+    let providerHeight: CGFloat = NativeDeviceLayout.isWideCanvas(containerWidth) ? 136 : 112
+    return ZStack(alignment: .topTrailing) {
       artwork(provider.artworkReference, .provider)
-        .frame(width: cardWidth, height: 112).clipped()
+        .frame(width: cardWidth, height: providerHeight).clipped()
       if let count = provider.itemCount {
         Text(count.formatted(.number))
           .font(.caption2.monospacedDigit().weight(.bold))
@@ -1147,7 +1180,7 @@ struct NativeDiscoverPage: View {
       RoundedRectangle(cornerRadius: 19, style: .continuous)
         .strokeBorder(.white.opacity(0.16), lineWidth: 0.7)
     }
-    .frame(width: cardWidth, height: 112)
+    .frame(width: cardWidth, height: providerHeight)
     .accessibilityLabel(provider.name)
     .accessibilityValue(provider.itemCount.map { "\($0) 项内容" } ?? "")
   }
@@ -1196,7 +1229,7 @@ struct NativeDiscoverPage: View {
         .accessibilityIdentifier("native-discover-more-\(title)")
       }
     }
-    .padding(.horizontal, CinematicStyle.margin)
+    .padding(.horizontal, horizontalMargin)
   }
 
   /// 页面没有可浏览的数据时，用一张卡片反馈当前状态和可用的后续操作。
@@ -1232,17 +1265,28 @@ struct NativeDiscoverPage: View {
     }
   }
 
+  /// 按当前容器宽度返回发现页外边距（iPad 适度加宽，窄屏保持 16pt）。
+  private var horizontalMargin: CGFloat {
+    NativeDeviceLayout.horizontalMargin(for: containerWidth)
+  }
+
   /// iOS 16 没有 ScrollView.contentMargins，回退为内容内部水平留白。
   private var legacyHorizontalPadding: CGFloat {
     if #available(iOS 17, *) { return 0 }
-    return CinematicStyle.margin
+    return horizontalMargin
   }
 
-  /// 普通窄屏选用接近 既定深色渐变玻璃的三列加右侧探头海报宽度，大字号自动让出文字空间。
-  private var posterWidth: CGFloat { dynamicTypeSize.isAccessibilitySize ? 146 : 112 }
+  /// 按当前画布宽度自适应海报宽度（iPhone 3 列加探头，iPad 宽屏清晰大海报）。
+  private var posterWidth: CGFloat {
+    NativeDeviceLayout.discoverPosterWidth(
+      for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+  }
 
-  /// 大字号继续观看和平台横卡保留较宽的文字区域。
-  private var cardWidth: CGFloat { dynamicTypeSize.isAccessibilitySize ? 260 : 238 }
+  /// 按当前画布宽度自适应 16:9 横幅卡宽度。
+  private var cardWidth: CGFloat {
+    NativeDeviceLayout.discoverCardWidth(
+      for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+  }
 }
 
 /// 发现栏目的完整海报网格从首屏快照开始，保留已浏览作品并独立翻页。
@@ -1320,8 +1364,8 @@ struct NativeDiscoverRailGrid<Destination: View>: View {
           }
           if loadRequest != nil || loadFailed { paginationFooter }
         }
-        .frame(maxWidth: 900)
-        .padding(.horizontal, 16)
+        .frame(maxWidth: 1240)
+        .padding(.horizontal, NativeDeviceLayout.isIPad ? 24 : 16)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
       }

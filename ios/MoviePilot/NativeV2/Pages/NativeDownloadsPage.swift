@@ -37,6 +37,8 @@ struct NativeDownloadsPage: View {
   @State private var mutatingHash: String?
   @State private var pendingDelete: NativeDownloadTask?
   @State private var feedback: NativeDownloadFeedback?
+  @State private var containerWidth: CGFloat = 0
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   /// 连续紫玫瑰渐变背景、下载器筛选胶囊、16:9 缩略图进度玻璃卡与原生刷新工具栏。
   var body: some View {
@@ -58,18 +60,23 @@ struct NativeDownloadsPage: View {
           } else if displayedTasks.isEmpty {
             emptyCard
           } else {
-            LazyVStack(spacing: 14) {
+            let columnCount = NativeDeviceLayout.cardGridCount(
+              for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+            let gridColumns = Array(
+              repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: columnCount)
+            LazyVGrid(columns: gridColumns, spacing: 14) {
               ForEach(displayedTasks) { task in
                 downloadRow(task)
               }
             }
           }
         }
-        .frame(maxWidth: 820)
-        .padding(.horizontal, CinematicStyle.margin)
+        .frame(maxWidth: containerWidth >= 740 ? 1180 : 820)
+        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: containerWidth))
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
       }
+      .nativeTrackContainerWidth($containerWidth)
       .scrollIndicators(.hidden)
       .refreshable { await load(forceRefresh: true) }
       .modifier(NativeSoftTopScrollEdge())
