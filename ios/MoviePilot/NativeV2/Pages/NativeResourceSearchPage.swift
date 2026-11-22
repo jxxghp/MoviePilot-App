@@ -25,10 +25,17 @@ struct NativeResourceSearchPage: View {
   private enum QueryMode: Equatable {
     case lastResults
     case keyword(String)
-    case browseHome(siteID: Int, siteName: String)
+    case siteResource(siteID: Int, siteName: String, keyword: String?)
+
+    var isSiteResource: Bool {
+      if case .siteResource = self { return true }
+      return false
+    }
 
     var isBrowseHome: Bool {
-      if case .browseHome = self { return true }
+      if case .siteResource(_, _, let kw) = self {
+        return kw == nil
+      }
       return false
     }
   }
@@ -233,8 +240,12 @@ struct NativeResourceSearchPage: View {
         "正在载入上次搜索结果…"
       case .keyword(let term):
         "正在搜索「\(term)」…"
-      case .browseHome:
-        "正在获取站点首页资源…"
+      case .siteResource(_, let siteName, let term):
+        if let term, !term.isEmpty {
+          "正在 \(siteName) 中搜索「\(term)」…"
+        } else {
+          "正在获取 \(siteName) 站点资源…"
+        }
       }
     case .media:
       "正在检索匹配站点资源…"
@@ -461,7 +472,10 @@ struct NativeResourceSearchPage: View {
     switch queryMode {
     case .lastResults:
       return "上次搜索结果"
-    case .browseHome(_, let siteName):
+    case .siteResource(_, let siteName, let term):
+      if let term, !term.isEmpty {
+        return "单站搜索「\(term)」· \(siteName)"
+      }
       return "站点资源 · \(siteName)"
     case .keyword(let term):
       return "搜索「\(term)」· \(scope)"
@@ -756,20 +770,25 @@ struct NativeResourceSearchPage: View {
     {
       return match.name
     }
-    if case .browseHome(_, let siteName) = queryMode, !siteName.isEmpty {
+    if case .siteResource(_, let siteName, _) = queryMode, !siteName.isEmpty {
       return siteName
     }
     return nil
   }
 
-  /// 提交搜索或单站浏览：有关键词时按词检索，留空时仅在单选站点下浏览站点资源；立即清空旧结果并展示骨架屏。
+  /// 提交搜索或单站浏览：单选站点且具备管理权限时直连 `/api/v1/site/resource/{site_id}`（支持留空浏览与直搜，不受全局过滤规则裁空）；全站或多站按关键词走 `/api/v1/search/title`。
   private func submitSearch() {
     let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
     let nextMode: QueryMode
     if trimmed.isEmpty {
       guard querySiteIDs.count == 1, let siteID = querySiteIDs.first else { return }
       let siteName = sites.first(where: { $0.id == siteID })?.name ?? "#\(siteID)"
-      nextMode = .browseHome(siteID: siteID, siteName: siteName)
+      nextMode = .siteResource(siteID: siteID, siteName: siteName, keyword: nil)
+    } else if querySiteIDs.count == 1, let siteID = querySiteIDs.first,
+      session.user.allows(.init(category: .manage))
+    {
+      let siteName = sites.first(where: { $0.id == siteID })?.name ?? "#\(siteID)"
+      nextMode = .siteResource(siteID: siteID, siteName: siteName, keyword: trimmed)
     } else {
       nextMode = .keyword(trimmed)
     }
@@ -832,8 +851,11 @@ struct NativeResourceSearchPage: View {
           responseContract: .payload,
           maximumResponseBytes: 12 * 1024 * 1024,
           timeout: 90)
-      case .browseHome(let siteID, _):
-        let query = [URLQueryItem(name: "page", value: String(page))]
+      case .siteResource(let siteID, _, let term):
+        var query = [URLQueryItem(name: "page", value: String(page))]
+        if let term, !term.isEmpty {
+          query.insert(URLQueryItem(name: "keyword", value: term), at: 0)
+        }
         return try APIEndpoint(
           path: ["site", "resource", String(siteID)],
           query: query,
@@ -879,17 +901,13 @@ struct NativeResourceSearchPage: View {
     do {
       let endpoint = try buildSearchEndpoint(page: 0)
       let requirement: PermissionRequirement =
-        queryMode.isBrowseHome ? .init(category: .manage) : .init(category: .search)
+        queryMode.isSiteResource ? .init(category: .manage) : .init(category: .search)
       let envelope = try await session.request(
         endpoint, as: NativeResourceSearchEnvelope.self, requiring: requirement
       ).value
       try Task.checkCancellation()
       results = envelope.items
       canLoadMore = !envelope.items.isEmpty && queryMode != .lastResults
-      if envelope.items.isEmpty, let msg = envelope.message, !msg.isEmpty, envelope.success == false
-      {
-        feedback = NativeResourceFeedback(isError: false, message: msg)
-      }
     } catch is CancellationError {
       return
     } catch {
@@ -909,7 +927,7 @@ struct NativeResourceSearchPage: View {
     do {
       let endpoint = try buildSearchEndpoint(page: nextPage)
       let requirement: PermissionRequirement =
-        queryMode.isBrowseHome ? .init(category: .manage) : .init(category: .search)
+        queryMode.isSiteResource ? .init(category: .manage) : .init(category: .search)
       let envelope = try await session.request(
         endpoint, as: NativeResourceSearchEnvelope.self, requiring: requirement
       ).value

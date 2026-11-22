@@ -7,11 +7,11 @@ public struct APICollectionMetadata: Equatable, Sendable {
   public let page: Int?
   public let pageSize: Int?
 
-  /// 已提供但不合法的分页头是协议错误，不能静默丢弃后误判列表已完整。
+  /// 已提供但不合法的分页头是协议错误，不能静默丢弃后误判列表已完整；兼容 0 基分页端点（如站点资源/标题搜索的 `X-Page: 0`）。
   init(response: HTTPURLResponse) throws {
     totalCount = try Self.integer("X-Total-Count", response: response, minimum: 0)
     resultCount = try Self.integer("X-Result-Count", response: response, minimum: 0)
-    page = try Self.integer("X-Page", response: response, minimum: 1)
+    page = try Self.integer("X-Page", response: response, minimum: 0)
     pageSize = try Self.integer("X-Page-Size", response: response, minimum: 1)
   }
 

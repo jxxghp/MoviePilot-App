@@ -379,9 +379,9 @@ struct APIClientTests {
     }
   }
 
-  /// 负页码、溢出、非整数和零窗口不能静默变成“没有更多数据”。
+  /// 负页码、溢出、非整数和零窗口不能静默变成“没有更多数据”；同时兼容后端 0 基分页接口的 `X-Page: 0`。
   @Test(arguments: [
-    ["X-Page": "0"], ["X-Page-Size": "0"], ["X-Total-Count": "-1"],
+    ["X-Page": "-1"], ["X-Page-Size": "0"], ["X-Total-Count": "-1"],
     ["X-Result-Count": "2.0"], ["X-Total-Count": String(repeating: "9", count: 80)],
   ])
   func rejectsMalformedCollectionHeaders(_ fields: [String: String]) async throws {
@@ -392,6 +392,24 @@ struct APIClientTests {
     await #expect(throws: APIError.invalidResponse) {
       try await Self.client().request(APIEndpoint(path: ["plugin"]), as: [Int].self)
     }
+  }
+
+  /// 站点资源浏览与模糊搜索采用 0 基分页，后端返回 `X-Page: 0` 时应正常解析并保留集合元数据。
+  @Test func acceptsZeroBasedCollectionPageHeader() async throws {
+    APIURLProtocol.state.prepare(
+      body: Data(#"{"success":true,"message":"","data":[1,2]}"#.utf8),
+      headers: [
+        "Content-Type": "application/json",
+        "X-Page": "0",
+        "X-Result-Count": "2",
+      ])
+    let result = try await Self.client().request(
+      APIEndpoint(
+        path: ["site", "resource", "1"], query: [URLQueryItem(name: "page", value: "0")]),
+      as: [Int].self)
+    #expect(result.value == [1, 2])
+    #expect(result.collection.page == 0)
+    #expect(result.collection.resultCount == 2)
   }
 
   /// HTTP 失败只投影安全分类；包括旧 GET 动作在内，收到限流或失败都不重发。
