@@ -24,6 +24,8 @@ struct NativeDownloadsPage: View {
 
   let session: NativeSession
 
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @Environment(\.colorScheme) private var colorScheme
   @State private var clients: [NativeDownloaderClient] = []
   @State private var selectedClient: String?
   @State private var tasks: [NativeDownloadTask] = []
@@ -204,102 +206,199 @@ struct NativeDownloadsPage: View {
     .buttonStyle(.plain)
   }
 
-  /// 下载任务玻璃横卡：左侧 16:9 媒体画面与进度覆层，右侧片名、速度/剩余时间、进度条与控制动作。
+  /// 下载任务玻璃横卡：上方缩略图与完整标题/下载器信息，中部全宽速率与流光进度条，底部体积/剩余时间与快捷控制。
   private func downloadRow(_ task: NativeDownloadTask) -> some View {
     let artworkURL = NativeMediaDetailPage.resolveArtwork(
       task.media?.backdrop ?? task.media?.image ?? task.media?.poster,
       source: task.media?.mediaSource ?? "themoviedb")
     let isMutating = mutatingHash == task.hash
-    return CinematicPanel(padding: 12) {
+    let progressTint: Color = task.isPaused ? NativeTheme.badgeMutedText : appearance.accentColor
+    return CinematicPanel(padding: 13) {
       VStack(alignment: .leading, spacing: 11) {
         HStack(alignment: .top, spacing: 12) {
-          thumbnail(url: artworkURL, progress: task.clampedProgress, isPaused: task.isPaused)
-          VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-              if let identity = task.detailIdentity {
-                NavigationLink {
-                  NativeMediaDetailPage(session: session, identity: identity)
-                } label: {
-                  Text(task.displayTitle)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                }
-                .buttonStyle(.plain)
-              } else {
+          Group {
+            if let identity = task.detailIdentity {
+              NavigationLink {
+                NativeMediaDetailPage(session: session, identity: identity)
+              } label: {
+                thumbnail(url: artworkURL, isPaused: task.isPaused)
+              }
+              .buttonStyle(.plain)
+            } else {
+              thumbnail(url: artworkURL, isPaused: task.isPaused)
+            }
+          }
+          VStack(alignment: .leading, spacing: 6) {
+            if let identity = task.detailIdentity {
+              NavigationLink {
+                NativeMediaDetailPage(session: session, identity: identity)
+              } label: {
                 Text(task.displayTitle)
                   .font(.headline)
                   .foregroundStyle(.primary)
-                  .lineLimit(1)
+                  .lineLimit(2)
+                  .multilineTextAlignment(.leading)
               }
-              Spacer(minLength: 4)
+              .buttonStyle(.plain)
+            } else {
+              Text(task.displayTitle)
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+            }
+            HStack(spacing: 6) {
               if let downloader = task.downloader, !downloader.isEmpty {
                 HStack(spacing: 4) {
                   NativeBrandIcon(
-                    kind: .downloader, type: downloader, size: 16, cornerRadius: 4)
+                    kind: .downloader, type: downloader, size: 14, cornerRadius: 3.5)
                   Text(downloader)
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.primary.opacity(0.84))
+                    .foregroundStyle(.primary.opacity(0.86))
+                    .lineLimit(1)
                 }
-                .padding(.horizontal, 6)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 7)
                 .padding(.vertical, 3)
                 .background {
-                  Capsule().fill(.primary.opacity(0.12))
+                  Capsule()
+                    .fill(.primary.opacity(colorScheme == .dark ? 0.11 : 0.08))
+                    .overlay {
+                      Capsule().strokeBorder(.primary.opacity(0.14), lineWidth: 0.5)
+                    }
                 }
               }
+              if let sourceLabel = task.sourceSummary {
+                Text(sourceLabel)
+                  .font(.caption)
+                  .foregroundStyle(.primary.opacity(0.64))
+                  .lineLimit(1)
+                  .truncationMode(.tail)
+              }
             }
-            Text(task.subtitleLine)
-              .font(.caption)
-              .foregroundStyle(.primary.opacity(0.66))
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
+        VStack(alignment: .leading, spacing: 6) {
+          HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if task.isPaused {
+              HStack(spacing: 4) {
+                Image(systemName: "pause.circle.fill")
+                  .font(.caption)
+                Text("已暂停")
+                  .font(.caption.weight(.medium))
+              }
+              .foregroundStyle(NativeTheme.badgeMutedText)
+            } else {
+              HStack(spacing: 10) {
+                HStack(spacing: 3) {
+                  Image(systemName: "arrow.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(appearance.accentColor)
+                  Text(task.formattedDownSpeed)
+                    .font(.caption.weight(.medium).monospacedDigit())
+                    .foregroundStyle(.primary.opacity(0.90))
+                }
+                HStack(spacing: 3) {
+                  Image(systemName: "arrow.up")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.primary.opacity(0.46))
+                  Text(task.formattedUpSpeed)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.primary.opacity(0.58))
+                }
+              }
               .lineLimit(1)
-            Text(task.speedLine)
-              .font(.caption.monospacedDigit())
-              .foregroundStyle(.primary.opacity(0.84))
-              .lineLimit(1)
-            GeometryReader { bar in
-              ZStack(alignment: .leading) {
-                Capsule().fill(.primary.opacity(0.18))
+            }
+            Spacer(minLength: 6)
+            Text(task.percentText)
+              .font(.subheadline.weight(.semibold).monospacedDigit())
+              .foregroundStyle(.primary.opacity(task.isPaused ? 0.58 : 0.94))
+          }
+
+          GeometryReader { bar in
+            let fillWidth =
+              task.clampedProgress > 0
+              ? max(bar.size.width * task.clampedProgress, 6)
+              : 0
+            ZStack(alignment: .leading) {
+              Capsule()
+                .fill(Color.primary.opacity(colorScheme == .dark ? 0.14 : 0.10))
+              if fillWidth > 0 {
                 Capsule()
                   .fill(
-                    task.isPaused
-                      ? NativeTheme.badgeMutedText : Color.primary.opacity(0.90)
+                    LinearGradient(
+                      colors: [progressTint.opacity(0.74), progressTint],
+                      startPoint: .leading,
+                      endPoint: .trailing
+                    )
                   )
-                  .frame(width: max(bar.size.width * task.clampedProgress, 4))
+                  .frame(width: min(fillWidth, bar.size.width))
               }
             }
-            .frame(height: 3.5)
-            .padding(.top, 2)
           }
+          .frame(height: 5.5)
         }
-        if canManage {
-          HStack(spacing: 10) {
-            Button {
-              Task { await toggleTaskState(task) }
-            } label: {
-              HStack(spacing: 5) {
-                if isMutating {
-                  ProgressView().controlSize(.mini).tint(.primary)
-                } else {
-                  Image(systemName: task.isPaused ? "play.fill" : "pause.fill")
-                    .font(.caption2.weight(.semibold))
+
+        HStack(alignment: .center, spacing: 8) {
+          Text(task.footerMetaLine)
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.primary.opacity(0.62))
+            .lineLimit(1)
+            .truncationMode(.tail)
+          Spacer(minLength: 6)
+          if canManage {
+            HStack(spacing: 8) {
+              Button {
+                Task { await toggleTaskState(task) }
+              } label: {
+                HStack(spacing: 4) {
+                  if isMutating {
+                    ProgressView().controlSize(.mini).tint(.primary)
+                  } else {
+                    Image(systemName: task.isPaused ? "play.fill" : "pause.fill")
+                      .font(.caption2.weight(.semibold))
+                  }
+                  Text(task.isPaused ? "继续" : "暂停")
+                    .font(.caption.weight(.semibold))
                 }
-                Text(task.isPaused ? "继续" : "暂停")
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+                .background {
+                  Capsule()
+                    .fill(.primary.opacity(colorScheme == .dark ? 0.14 : 0.09))
+                    .overlay {
+                      Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 0.6)
+                    }
+                }
+                .frame(minHeight: 32)
+              }
+              .buttonStyle(.plain)
+              .disabled(mutatingHash != nil)
+              .accessibilityIdentifier("native-download-toggle-\(task.hash)")
+
+              Button {
+                pendingDelete = task
+              } label: {
+                Image(systemName: "trash")
                   .font(.caption.weight(.semibold))
+                  .foregroundStyle(.primary.opacity(0.72))
+                  .frame(width: 32, height: 32)
+                  .background {
+                    Circle()
+                      .fill(.primary.opacity(colorScheme == .dark ? 0.11 : 0.07))
+                      .overlay {
+                        Circle().strokeBorder(.primary.opacity(0.15), lineWidth: 0.6)
+                      }
+                  }
               }
-              .foregroundStyle(.primary)
-              .padding(.horizontal, 12)
-              .padding(.vertical, 6)
-              .background {
-                Capsule()
-                  .fill(.primary.opacity(0.14))
-                  .overlay { Capsule().strokeBorder(.primary.opacity(0.20), lineWidth: 0.6) }
-              }
-              .frame(minHeight: 34)
+              .buttonStyle(.plain)
+              .disabled(mutatingHash != nil)
+              .accessibilityLabel("删除任务")
+              .accessibilityIdentifier("native-download-delete-\(task.hash)")
             }
-            .buttonStyle(.plain)
-            .disabled(mutatingHash != nil)
-            .accessibilityIdentifier("native-download-toggle-\(task.hash)")
-            Spacer()
           }
         }
       }
@@ -321,30 +420,27 @@ struct NativeDownloadsPage: View {
     .accessibilityIdentifier("native-download-card-\(task.hash)")
   }
 
-  /// 16:9 媒体缩略图带底部柔和渐暗与百分比进度条覆层。
-  private func thumbnail(url: String?, progress: Double, isPaused: Bool) -> some View {
-    ZStack(alignment: .bottomLeading) {
+  /// 16:9 紧凑剧照缩略图，避免挤压标题区域，仅在暂停态展示柔和居中状态徽章。
+  private func thumbnail(url: String?, isPaused: Bool) -> some View {
+    ZStack {
       NativeMediaArtwork(
-        session: session, reference: url, role: .continueWatching, maximumWidth: 360
+        session: session, reference: url, role: .continueWatching, maximumWidth: 320
       )
-      .frame(width: 126, height: 74)
+      .frame(width: 92, height: 56)
       .clipped()
-      LinearGradient(
-        colors: [.clear, .black.opacity(0.74)], startPoint: .center, endPoint: .bottom)
-      HStack(spacing: 4) {
-        Image(systemName: isPaused ? "pause.fill" : "arrow.down")
-          .font(.system(size: 8, weight: .bold))
-        Text(String(format: "%.1f%%", progress * 100))
-          .font(.system(size: 11, weight: .semibold).monospacedDigit())
+      if isPaused {
+        Color.black.opacity(0.38)
+        Image(systemName: "pause.fill")
+          .font(.system(size: 13, weight: .bold))
+          .foregroundStyle(.white.opacity(0.92))
+          .padding(7)
+          .background(.black.opacity(0.45), in: Circle())
       }
-      .foregroundStyle(.primary)
-      .padding(.horizontal, 7)
-      .padding(.bottom, 5)
     }
-    .frame(width: 126, height: 74)
-    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+    .frame(width: 92, height: 56)
+    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     .overlay {
-      RoundedRectangle(cornerRadius: 11, style: .continuous)
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
         .strokeBorder(.primary.opacity(0.14), lineWidth: 0.6)
     }
   }
@@ -683,21 +779,57 @@ private struct NativeDownloadTask: Decodable, Sendable, Identifiable {
     return suffix.isEmpty ? base : "\(base) \(suffix)"
   }
 
-  /// 副标展示站点、总大小与剩余时间。
-  var subtitleLine: String {
+  /// 标题下方的站点与年份补充摘要。
+  var sourceSummary: String? {
     var parts: [String] = []
     if let siteName, !siteName.isEmpty { parts.append(siteName) }
-    if let size, size > 0 { parts.append(Self.formatBytes(size)) }
-    if let leftTime, !leftTime.isEmpty { parts.append("剩余 \(leftTime)") }
-    return parts.isEmpty ? (title ?? "队列中") : parts.joined(separator: " · ")
+    if let year, !year.isEmpty { parts.append(year) }
+    if parts.isEmpty, let rawTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !rawTitle.isEmpty, rawTitle != displayTitle
+    {
+      return rawTitle
+    }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
   }
 
-  /// 速率与实时状态文本。
-  var speedLine: String {
-    if isPaused { return "已暂停" }
-    let down = dlspeed?.isEmpty == false ? dlspeed! : "0B"
-    let up = upspeed?.isEmpty == false ? upspeed! : "0B"
-    return "↓ \(down)/s   ↑ \(up)/s"
+  /// 右侧进度百分比文案。
+  var percentText: String {
+    String(format: "%.1f%%", clampedProgress * 100)
+  }
+
+  /// 底部体积与剩余时间汇总（展示已下 / 总大小及预计剩余时间）。
+  var footerMetaLine: String {
+    var parts: [String] = []
+    if let size, size > 0 {
+      let downloaded = size * clampedProgress
+      parts.append("\(Self.formatBytes(downloaded)) / \(Self.formatBytes(size))")
+    }
+    if !isPaused, let leftTime, !leftTime.isEmpty {
+      parts.append("剩余 \(leftTime)")
+    }
+    if parts.isEmpty {
+      return isPaused ? "已暂停" : "队列中"
+    }
+    return parts.joined(separator: " · ")
+  }
+
+  /// 格式化下载速率（兼容已带 `/s` 后缀的字符串）。
+  var formattedDownSpeed: String {
+    Self.normalizeRate(dlspeed)
+  }
+
+  /// 格式化上传速率（兼容已带 `/s` 后缀的字符串）。
+  var formattedUpSpeed: String {
+    Self.normalizeRate(upspeed)
+  }
+
+  private static func normalizeRate(_ raw: String?) -> String {
+    let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return "0B/s" }
+    if trimmed.lowercased().hasSuffix("/s") {
+      return trimmed
+    }
+    return "\(trimmed)/s"
   }
 
   /// 仅当任务绑定有效影视主身份时提供详情跳转。

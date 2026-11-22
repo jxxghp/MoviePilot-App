@@ -55,6 +55,41 @@ final class NativeV2EntryTests: XCTestCase {
     }
     let more = app.buttons["native-discover-more-热门电影"]
     XCTAssertTrue(more.waitForExistence(timeout: 40))
+    if environment["MOVIEPILOT_NATIVE_V2_LIVE_SCOPE"] == "subscriptions" {
+      openOverflowItem("native-workspace-subscriptions", viaTab: "探索", app: app)
+      let subScroll = app.scrollViews["native-subscriptions-scroll"]
+      XCTAssertTrue(subScroll.waitForExistence(timeout: 15))
+      try await Task.sleep(nanoseconds: 2_500_000_000)
+      capture("native-v2-live-subscriptions-all")
+      let tvFilter = app.buttons["native-subscriptions-filter-电视剧"]
+      if tvFilter.waitForExistence(timeout: 8) {
+        tap(tvFilter, app: app)
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        capture("native-v2-live-subscriptions-tv-top")
+        // 按完成进度排序，直接展示不同集数刻度（部分进度、缺集漏集、大集数聚合等）
+        let filterMenu = app.buttons["native-subscriptions-filter-menu"]
+        if filterMenu.waitForExistence(timeout: 6) {
+          tap(filterMenu, app: app)
+          let progressSort = app.buttons["完成进度"]
+          if progressSort.waitForExistence(timeout: 6) {
+            progressSort.tap()
+            try await Task.sleep(nanoseconds: 1_500_000_000)
+            capture("native-v2-live-subscriptions-tv-progress")
+            subScroll.swipeUp()
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            capture("native-v2-live-subscriptions-tv-gaps")
+          }
+        }
+      }
+      app.navigationBars.buttons.firstMatch.tap()
+      openOverflowItem("native-workspace-downloads", viaTab: "探索", app: app)
+      if app.scrollViews["native-downloads-scroll"].waitForExistence(timeout: 12) {
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+        capture("native-v2-live-downloads-card")
+      }
+      XCTAssertEqual(app.webViews.count, 0)
+      return
+    }
     if environment["MOVIEPILOT_NATIVE_V2_LIVE_SCOPE"] != "search" {
       // 等待实际后端图片代理完成首屏解码，不用合成海报代替线上媒体素材。
       try await Task.sleep(nanoseconds: 4_000_000_000)
@@ -799,6 +834,8 @@ final class NativeV2EntryTests: XCTestCase {
 
     openOverflowItem("native-workspace-subscriptions", viaTab: "发现", app: app)
     XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 10))
+    let subTicks = app.descendants(matching: .any)["native-subscribe-ticks-702"].firstMatch
+    XCTAssertTrue(subTicks.waitForExistence(timeout: 10))
     let subToggle = app.buttons["native-subscribe-toggle-702"]
     XCTAssertTrue(subToggle.waitForExistence(timeout: 10))
     tap(subToggle, app: app)
@@ -820,6 +857,9 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(app.scrollViews["native-downloads-scroll"].waitForExistence(timeout: 10))
     let dlToggle = app.buttons["native-download-toggle-abc123def456"]
     XCTAssertTrue(dlToggle.waitForExistence(timeout: 10))
+    let dlDeleteBtn = app.buttons["native-download-delete-abc123def456"]
+    XCTAssertTrue(dlDeleteBtn.waitForExistence(timeout: 8))
+    capture("native-v2-fixture-downloads")
     tap(dlToggle, app: app)
     XCTAssertTrue(
       app.descendants(matching: .any)["native-downloads-feedback"].firstMatch

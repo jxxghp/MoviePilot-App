@@ -37,6 +37,8 @@ struct NativeSubscriptionsPage: View {
 
   let session: NativeSession
 
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @Environment(\.colorScheme) private var colorScheme
   @State private var items: [NativeSubscribeItem] = []
   @State private var filter: Filter
   @State private var stateFilter: StateFilter = .all
@@ -196,7 +198,7 @@ struct NativeSubscriptionsPage: View {
       }
     case .progressDesc:
       return matched.sorted {
-        ($0.episodeProgress?.fraction ?? 0) > ($1.episodeProgress?.fraction ?? 0)
+        ($0.progressProjection?.fraction ?? 0) > ($1.progressProjection?.fraction ?? 0)
       }
     case .dateDesc:
       return matched.sorted { $0.id > $1.id }
@@ -299,22 +301,9 @@ struct NativeSubscriptionsPage: View {
                 .foregroundStyle(.yellow)
             }
           }
-          if let progress = item.episodeProgress {
-            VStack(alignment: .leading, spacing: 4) {
-              Text("已更新 \(progress.completed) / \(progress.total) 集")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.primary.opacity(0.80))
-              GeometryReader { bar in
-                ZStack(alignment: .leading) {
-                  Capsule().fill(.primary.opacity(0.16))
-                  Capsule()
-                    .fill(Color(red: 0.72, green: 0.56, blue: 0.96))
-                    .frame(width: max(bar.size.width * progress.fraction, 4))
-                }
-              }
-              .frame(height: 3.5)
-            }
-            .padding(.top, 2)
+          if let projection = item.progressProjection {
+            subscribeTickStrip(projection, item: item)
+              .padding(.top, 2)
           }
           HStack(spacing: 10) {
             Button {
@@ -368,6 +357,103 @@ struct NativeSubscriptionsPage: View {
     }
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("native-subscribe-card-\(item.id)")
+  }
+
+  /// 离散剧集/曲目胶片刻度格：以独立分格替代下载式连续进度条，支持逐集缺口与洗版三态呈现。
+  private func subscribeTickStrip(
+    _ projection: SubscribeProgressProjection,
+    item: NativeSubscribeItem
+  ) -> some View {
+    let activeTint: Color =
+      item.isPaused
+      ? NativeTheme.badgeMutedText
+      : (projection.isBestVersion ? NativeTheme.warning : appearance.accentColor)
+    let tickCount = projection.ticks.count
+    let spacing: CGFloat = tickCount <= 10 ? 4 : (tickCount <= 18 ? 3.5 : 2.5)
+    let compactFixedWidth = tickCount <= 10
+
+    return VStack(alignment: .leading, spacing: 5) {
+      HStack(alignment: .firstTextBaseline, spacing: 6) {
+        Text(projection.summaryText)
+          .font(.caption.weight(.medium).monospacedDigit())
+          .foregroundStyle(
+            .primary.opacity(projection.completed > 0 || projection.acquired > 0 ? 0.88 : 0.68)
+          )
+          .lineLimit(1)
+        Spacer(minLength: 4)
+        if let detail = projection.detailText {
+          Text(detail)
+            .font(.caption2.weight(.medium).monospacedDigit())
+            .foregroundStyle(
+              projection.missingNumbers.isEmpty
+                ? Color.primary.opacity(0.62)
+                : activeTint.opacity(colorScheme == .dark ? 0.92 : 0.88)
+            )
+            .lineLimit(1)
+            .truncationMode(.tail)
+        }
+      }
+      HStack(spacing: spacing) {
+        ForEach(Array(projection.ticks.enumerated()), id: \.offset) { _, state in
+          subscribeTickCell(state: state, tint: activeTint, fixedCompactWidth: compactFixedWidth)
+        }
+        if compactFixedWidth {
+          Spacer(minLength: 0)
+        }
+      }
+      .frame(height: 8)
+    }
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(projection.accessibilitySummary)
+    .accessibilityIdentifier("native-subscribe-ticks-\(item.id)")
+  }
+
+  /// 单个胶片刻度格：已收齐为发光实格、部分/初版为半透描边格、未获取为凹陷空槽。
+  private func subscribeTickCell(
+    state: SubscribeTickState,
+    tint: Color,
+    fixedCompactWidth: Bool
+  ) -> some View {
+    let shape = RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+    return Group {
+      switch state {
+      case .complete:
+        shape
+          .fill(
+            LinearGradient(
+              colors: [tint.opacity(0.96), tint.opacity(0.76)],
+              startPoint: .top,
+              endPoint: .bottom
+            )
+          )
+          .overlay {
+            shape.strokeBorder(
+              Color.white.opacity(colorScheme == .dark ? 0.24 : 0.34),
+              lineWidth: 0.5
+            )
+          }
+      case .partial:
+        shape
+          .fill(tint.opacity(colorScheme == .dark ? 0.34 : 0.28))
+          .overlay {
+            shape.strokeBorder(
+              tint.opacity(colorScheme == .dark ? 0.78 : 0.68),
+              lineWidth: 0.8
+            )
+          }
+      case .empty:
+        shape
+          .fill(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.06))
+          .overlay {
+            shape.strokeBorder(
+              Color.primary.opacity(colorScheme == .dark ? 0.22 : 0.16),
+              lineWidth: 0.6
+            )
+          }
+      }
+    }
+    .frame(width: fixedCompactWidth ? 16 : nil, height: 8)
+    .frame(maxWidth: fixedCompactWidth ? nil : .infinity)
   }
 
   /// 2:3 竖版海报，沿用全应用统一的 420px 内存缓存档位。
@@ -534,18 +620,11 @@ private struct NativeSubscribeFeedback {
 
 /// `GET /api/v1/subscribe/` 单条订阅投影。
 private struct NativeSubscribeItem: Decodable, Sendable, Identifiable {
-  /// 剧集更新进度结构。
-  struct EpisodeProgress {
-    let completed: Int
-    let total: Int
-    /// 0...1 进度比例。
-    var fraction: Double { total > 0 ? min(max(Double(completed) / Double(total), 0), 1) : 0 }
-  }
-
   let id: Int
   let name: String
   let year: String?
   let type: String?
+  let musicType: String?
   let season: Int?
   let poster: String?
   let mediaSource: String?
@@ -553,9 +632,16 @@ private struct NativeSubscribeItem: Decodable, Sendable, Identifiable {
   var state: String?
   let vote: Double?
   let totalEpisode: Int?
+  let startEpisode: Int?
   let lackEpisode: Int?
   let completedEpisode: Int?
+  let note: [Int]?
   let bestVersion: Int?
+  let bestVersionFull: Int?
+  let currentPriority: Int?
+  let episodePriority: [String: Int]?
+  let totalTracks: Int?
+  let completedTracks: Int?
 
   /// 标题附带季号。
   var displayTitle: String {
@@ -568,11 +654,23 @@ private struct NativeSubscribeItem: Decodable, Sendable, Identifiable {
   /// `S` 表示暂停。
   var isPaused: Bool { (state ?? "R").uppercased() == "S" }
 
-  /// 剧集集数进度（优先使用后端派生 `completed_episode`）。
-  var episodeProgress: EpisodeProgress? {
-    guard type == "电视剧", let total = totalEpisode, total > 0 else { return nil }
-    let completed = completedEpisode ?? max(total - (lackEpisode ?? 0), 0)
-    return EpisodeProgress(completed: completed, total: total)
+  /// 剧集与音乐专辑的离散胶片刻度投影。
+  var progressProjection: SubscribeProgressProjection? {
+    SubscribeProgressProjection.make(
+      type: type,
+      musicType: musicType,
+      totalEpisode: totalEpisode,
+      startEpisode: startEpisode,
+      lackEpisode: lackEpisode,
+      completedEpisode: completedEpisode,
+      note: note,
+      bestVersion: bestVersion,
+      bestVersionFull: bestVersionFull,
+      currentPriority: currentPriority,
+      episodePriority: episodePriority,
+      totalTracks: totalTracks,
+      completedTracks: completedTracks
+    )
   }
 
   /// 具备规范影视身份时允许直接进入原生详情页。
@@ -584,12 +682,40 @@ private struct NativeSubscribeItem: Decodable, Sendable, Identifiable {
     return NativeMediaIdentity(source: source, mediaID: mediaID, type: type)
   }
 
+  /// 容错解码后端扩展字段（如历史字符串型 `note` 或不同版本缺失字段）。
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(Int.self, forKey: .id)
+    name = try container.decode(String.self, forKey: .name)
+    year = try? container.decodeIfPresent(String.self, forKey: .year)
+    type = try? container.decodeIfPresent(String.self, forKey: .type)
+    musicType = try? container.decodeIfPresent(String.self, forKey: .musicType)
+    season = try? container.decodeIfPresent(Int.self, forKey: .season)
+    poster = try? container.decodeIfPresent(String.self, forKey: .poster)
+    mediaSource = try? container.decodeIfPresent(String.self, forKey: .mediaSource)
+    mediaID = try? container.decodeIfPresent(String.self, forKey: .mediaID)
+    state = try? container.decodeIfPresent(String.self, forKey: .state)
+    vote = try? container.decodeIfPresent(Double.self, forKey: .vote)
+    totalEpisode = try? container.decodeIfPresent(Int.self, forKey: .totalEpisode)
+    startEpisode = try? container.decodeIfPresent(Int.self, forKey: .startEpisode)
+    lackEpisode = try? container.decodeIfPresent(Int.self, forKey: .lackEpisode)
+    completedEpisode = try? container.decodeIfPresent(Int.self, forKey: .completedEpisode)
+    note = try? container.decodeIfPresent([Int].self, forKey: .note)
+    bestVersion = try? container.decodeIfPresent(Int.self, forKey: .bestVersion)
+    bestVersionFull = try? container.decodeIfPresent(Int.self, forKey: .bestVersionFull)
+    currentPriority = try? container.decodeIfPresent(Int.self, forKey: .currentPriority)
+    episodePriority = try? container.decodeIfPresent([String: Int].self, forKey: .episodePriority)
+    totalTracks = try? container.decodeIfPresent(Int.self, forKey: .totalTracks)
+    completedTracks = try? container.decodeIfPresent(Int.self, forKey: .completedTracks)
+  }
+
   /// 对应 `_SchemaSubscribe` 字段。
   private enum CodingKeys: String, CodingKey {
     case id
     case name
     case year
     case type
+    case musicType = "music_type"
     case season
     case poster
     case mediaSource = "media_source"
@@ -597,8 +723,15 @@ private struct NativeSubscribeItem: Decodable, Sendable, Identifiable {
     case state
     case vote
     case totalEpisode = "total_episode"
+    case startEpisode = "start_episode"
     case lackEpisode = "lack_episode"
     case completedEpisode = "completed_episode"
+    case note
     case bestVersion = "best_version"
+    case bestVersionFull = "best_version_full"
+    case currentPriority = "current_priority"
+    case episodePriority = "episode_priority"
+    case totalTracks = "total_tracks"
+    case completedTracks = "completed_tracks"
   }
 }
