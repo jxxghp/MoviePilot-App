@@ -323,7 +323,7 @@ struct NativeCommunityMedalShowcaseView: View {
         }
 
       GeometryReader { proxy in
-        let stageSize = min(proxy.size.width - 28, min(proxy.size.height * 0.46, 390))
+        let stageSize = min(proxy.size.width - 28, min(proxy.size.height * 0.50, 410))
         ZStack {
           // 勋章背后径向氛围光晕（随切换平滑过渡）
           Circle()
@@ -341,20 +341,70 @@ struct NativeCommunityMedalShowcaseView: View {
             )
             .frame(width: stageSize * 1.24, height: stageSize * 1.24)
             .blur(radius: 18)
-            .position(x: proxy.size.width * 0.5, y: proxy.size.height * 0.36)
+            .position(x: proxy.size.width * 0.5, y: proxy.size.height * 0.38)
             .animation(.easeInOut(duration: 0.45), value: activeKey)
             .allowsHitTesting(false)
 
           VStack(spacing: 0) {
-            // 顶部栏：右上角原生圆形关闭按钮
+            // 顶部栏：左上角更多操作弹出菜单（佩戴 / 保存图片 / 勋章详情），右上角关闭按钮
             HStack {
-              if let login = profile.login, !login.isEmpty {
-                Label("@\(login)", systemImage: "person.badge.shield.checkmark")
-                  .font(.caption.weight(.medium))
-                  .foregroundStyle(.primary.opacity(0.72))
-                  .padding(.horizontal, 11)
-                  .padding(.vertical, 6)
-                  .background(.primary.opacity(colorScheme == .dark ? 0.10 : 0.08), in: Capsule())
+              if let record {
+                Menu {
+                  Button {
+                    store.toggleWear(record.key, userID: profile.userID)
+                  } label: {
+                    Label(
+                      isWorn ? "取消佩戴" : "佩戴勋章",
+                      systemImage: isWorn ? "checkmark.seal.fill" : "seal"
+                    )
+                  }
+                  Button {
+                    generateSharePoster(for: record)
+                  } label: {
+                    Label(
+                      isGeneratingShare ? "正在生成图片…" : "保存图片",
+                      systemImage: "square.and.arrow.up"
+                    )
+                  }
+                  .disabled(isGeneratingShare)
+                  Button {
+                    showsDetailSheet = true
+                  } label: {
+                    Label("勋章详情", systemImage: "info.circle")
+                  }
+                } label: {
+                  HStack(spacing: 6) {
+                    if let login = profile.login, !login.isEmpty {
+                      Image(
+                        systemName: isWorn ? "checkmark.seal.fill" : "person.badge.shield.checkmark"
+                      )
+                      .font(.caption.weight(.semibold))
+                      .foregroundStyle(isWorn ? tone : .primary.opacity(0.78))
+                      Text("@\(login)")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.primary.opacity(0.84))
+                      Image(systemName: "ellipsis")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.primary.opacity(0.55))
+                    } else {
+                      Image(systemName: "ellipsis")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 24, height: 24)
+                    }
+                  }
+                  .padding(.horizontal, profile.login?.isEmpty == false ? 12 : 6)
+                  .frame(minWidth: 36, minHeight: 36)
+                  .background {
+                    Capsule()
+                      .fill(.primary.opacity(colorScheme == .dark ? 0.14 : 0.10))
+                      .overlay {
+                        Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 0.6)
+                      }
+                  }
+                }
+                .accessibilityLabel("勋章操作菜单")
+                .accessibilityIdentifier("native-medal-showcase-menu")
               }
               Spacer()
               Button {
@@ -379,7 +429,7 @@ struct NativeCommunityMedalShowcaseView: View {
             .padding(.horizontal, 20)
             .padding(.top, 10)
 
-            Spacer(minLength: 4)
+            Spacer(minLength: 8)
 
             // 中央 3D 动态互动勋章舞台
             if let record {
@@ -430,101 +480,63 @@ struct NativeCommunityMedalShowcaseView: View {
 
             Spacer(minLength: 10)
 
-            // 多枚勋章横向切换胶囊条
+            // 多枚勋章自动换行居中展示，一屏显示全部已获勋章，无需左右滚动
             if medals.count > 1 {
-              ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                  ForEach(medals) { item in
-                    let isSelected = item.key == activeKey
-                    let itemTone = CommunityMedalColor.color(hex: item.spec?.toneHex ?? "#9b7bff")
-                    let itemUnseen = store.isUnseen(item, userID: profile.userID)
-                    Button {
-                      withAnimation(.easeInOut(duration: 0.22)) {
-                        activeKey = item.key
+              NativeCenteredFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
+                ForEach(medals) { item in
+                  let isSelected = item.key == activeKey
+                  let itemTone = CommunityMedalColor.color(hex: item.spec?.toneHex ?? "#9b7bff")
+                  let itemUnseen = store.isUnseen(item, userID: profile.userID)
+                  Button {
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                      activeKey = item.key
+                    }
+                    store.markSeen(item, userID: profile.userID)
+                  } label: {
+                    HStack(spacing: 5) {
+                      if let badge = CommunityMedalAssetLoader.shared.badgeImage(for: item) {
+                        Image(uiImage: badge)
+                          .resizable()
+                          .scaledToFit()
+                          .frame(width: 19, height: 19)
                       }
-                      store.markSeen(item, userID: profile.userID)
-                    } label: {
-                      HStack(spacing: 6) {
-                        if let badge = CommunityMedalAssetLoader.shared.badgeImage(for: item) {
-                          Image(uiImage: badge)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 20, height: 20)
-                        }
-                        Text(item.spec?.name ?? item.key)
-                          .font(.caption.weight(isSelected ? .semibold : .medium))
-                          .foregroundStyle(.primary.opacity(isSelected ? 0.98 : 0.74))
-                        if itemUnseen {
-                          Circle()
-                            .fill(Color.red)
-                            .frame(width: 6, height: 6)
-                        }
-                      }
-                      .padding(.horizontal, 12)
-                      .padding(.vertical, 8)
-                      .background {
-                        Capsule()
-                          .fill(
-                            isSelected
-                              ? itemTone.opacity(colorScheme == .dark ? 0.28 : 0.22)
-                              : Color.primary.opacity(colorScheme == .dark ? 0.09 : 0.06)
-                          )
-                          .overlay {
-                            Capsule()
-                              .strokeBorder(
-                                isSelected
-                                  ? itemTone.opacity(0.62)
-                                  : Color.primary.opacity(0.14),
-                                lineWidth: 0.7
-                              )
-                          }
+                      Text(item.spec?.name ?? item.key)
+                        .font(.caption.weight(isSelected ? .semibold : .medium))
+                        .foregroundStyle(.primary.opacity(isSelected ? 0.98 : 0.74))
+                      if itemUnseen {
+                        Circle()
+                          .fill(Color.red)
+                          .frame(width: 6, height: 6)
                       }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("native-medal-switch-\(item.key)")
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 7)
+                    .background {
+                      Capsule()
+                        .fill(
+                          isSelected
+                            ? itemTone.opacity(colorScheme == .dark ? 0.28 : 0.22)
+                            : Color.primary.opacity(colorScheme == .dark ? 0.09 : 0.06)
+                        )
+                        .overlay {
+                          Capsule()
+                            .strokeBorder(
+                              isSelected
+                                ? itemTone.opacity(0.62)
+                                : Color.primary.opacity(0.14),
+                              lineWidth: 0.7
+                            )
+                        }
+                    }
                   }
+                  .buttonStyle(.plain)
+                  .accessibilityIdentifier("native-medal-switch-\(item.key)")
                 }
-                .padding(.horizontal, 20)
-              }
-              .padding(.bottom, 14)
-            }
-
-            // 底部 3 个主操作按钮：佩戴 / 保存分享图片 / 详情
-            if let record {
-              HStack(spacing: 10) {
-                showcaseActionButton(
-                  title: isWorn ? "已佩戴" : "佩戴",
-                  symbol: isWorn ? "checkmark.seal.fill" : "seal",
-                  highlighted: isWorn,
-                  tint: tone
-                ) {
-                  store.toggleWear(record.key, userID: profile.userID)
-                }
-                .accessibilityIdentifier("native-medal-action-wear")
-
-                showcaseActionButton(
-                  title: isGeneratingShare ? "生成中…" : "保存图片",
-                  symbol: "square.and.arrow.up",
-                  highlighted: false,
-                  tint: tone
-                ) {
-                  generateSharePoster(for: record)
-                }
-                .disabled(isGeneratingShare)
-                .accessibilityIdentifier("native-medal-action-share")
-
-                showcaseActionButton(
-                  title: "详情",
-                  symbol: "info.circle",
-                  highlighted: false,
-                  tint: tone
-                ) {
-                  showsDetailSheet = true
-                }
-                .accessibilityIdentifier("native-medal-action-details")
               }
               .padding(.horizontal, 20)
-              .padding(.bottom, 22)
+              .padding(.bottom, 26)
+            } else {
+              Spacer().frame(height: 26)
             }
           }
           .opacity(showsDetailSheet ? 0.14 : 1.0)
@@ -562,43 +574,6 @@ struct NativeCommunityMedalShowcaseView: View {
     } message: {
       Text(shareErrorMessage ?? "请稍后重试。")
     }
-  }
-
-  private func showcaseActionButton(
-    title: String,
-    symbol: String,
-    highlighted: Bool,
-    tint: Color,
-    action: @escaping () -> Void
-  ) -> some View {
-    Button(action: action) {
-      HStack(spacing: 6) {
-        Image(systemName: symbol)
-          .font(.caption.weight(.semibold))
-        Text(title)
-          .font(.subheadline.weight(.semibold))
-          .lineLimit(1)
-      }
-      .foregroundStyle(highlighted ? tint : .primary)
-      .frame(maxWidth: .infinity)
-      .frame(minHeight: 44)
-      .background {
-        Capsule()
-          .fill(
-            highlighted
-              ? tint.opacity(colorScheme == .dark ? 0.22 : 0.16)
-              : Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.08)
-          )
-          .overlay {
-            Capsule()
-              .strokeBorder(
-                highlighted ? tint.opacity(0.55) : Color.primary.opacity(0.18),
-                lineWidth: 0.7
-              )
-          }
-      }
-    }
-    .buttonStyle(.plain)
   }
 
   private func generateSharePoster(for record: CommunityMedalRecord) {
@@ -641,6 +616,90 @@ struct NativeCommunityMedalShowcaseView: View {
 private struct ShareableMedalPoster: Identifiable {
   let id = UUID()
   let image: UIImage
+}
+
+/// 逐行自动换行且每行水平居中的流式布局，用于全屏展示底部勋章胶囊切换栏。
+private struct NativeCenteredFlowLayout: Layout {
+  var horizontalSpacing: CGFloat = 8
+  var verticalSpacing: CGFloat = 8
+
+  private struct Row {
+    var indices: [Int]
+    var sizes: [CGSize]
+    var width: CGFloat
+    var height: CGFloat
+  }
+
+  func sizeThatFits(
+    proposal: ProposedViewSize,
+    subviews: Subviews,
+    cache: inout ()
+  ) -> CGSize {
+    let maxWidth = proposal.width ?? .infinity
+    let rows = buildRows(maxWidth: maxWidth, subviews: subviews)
+    let totalHeight = rows.enumerated().reduce(CGFloat(0)) { acc, pair in
+      acc + pair.element.height + (pair.offset > 0 ? verticalSpacing : 0)
+    }
+    let fittedWidth = proposal.width ?? (rows.map(\.width).max() ?? 0)
+    return CGSize(width: fittedWidth, height: totalHeight)
+  }
+
+  func placeSubviews(
+    in bounds: CGRect,
+    proposal: ProposedViewSize,
+    subviews: Subviews,
+    cache: inout ()
+  ) {
+    let rows = buildRows(maxWidth: bounds.width, subviews: subviews)
+    var y = bounds.minY
+    for row in rows {
+      var x = bounds.minX + max(0, (bounds.width - row.width) * 0.5)
+      for (idx, size) in zip(row.indices, row.sizes) {
+        let itemY = y + (row.height - size.height) * 0.5
+        subviews[idx].place(
+          at: CGPoint(x: x, y: itemY),
+          proposal: ProposedViewSize(size)
+        )
+        x += size.width + horizontalSpacing
+      }
+      y += row.height + verticalSpacing
+    }
+  }
+
+  private func buildRows(maxWidth: CGFloat, subviews: Subviews) -> [Row] {
+    var rows: [Row] = []
+    var currentIndices: [Int] = []
+    var currentSizes: [CGSize] = []
+    var currentWidth: CGFloat = 0
+    var currentHeight: CGFloat = 0
+
+    for (idx, subview) in subviews.enumerated() {
+      let size = subview.sizeThatFits(.unspecified)
+      let extra = currentIndices.isEmpty ? size.width : horizontalSpacing + size.width
+      if !currentIndices.isEmpty && currentWidth + extra > maxWidth {
+        rows.append(
+          Row(
+            indices: currentIndices, sizes: currentSizes, width: currentWidth, height: currentHeight
+          ))
+        currentIndices = [idx]
+        currentSizes = [size]
+        currentWidth = size.width
+        currentHeight = size.height
+      } else {
+        currentIndices.append(idx)
+        currentSizes.append(size)
+        currentWidth += extra
+        currentHeight = max(currentHeight, size.height)
+      }
+    }
+    if !currentIndices.isEmpty {
+      rows.append(
+        Row(
+          indices: currentIndices, sizes: currentSizes, width: currentWidth, height: currentHeight
+        ))
+    }
+    return rows
+  }
 }
 
 private struct NativeMedalActivityShareSheet: UIViewControllerRepresentable {

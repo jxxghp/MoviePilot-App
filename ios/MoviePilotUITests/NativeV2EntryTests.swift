@@ -83,11 +83,15 @@ final class NativeV2EntryTests: XCTestCase {
         try await Task.sleep(nanoseconds: 1_800_000_000)
         capture("native-v2-live-medal-3d-maintainer")
       }
-      let detailsBtn = app.buttons["native-medal-action-details"]
-      if detailsBtn.waitForExistence(timeout: 6) {
-        tap(detailsBtn, app: app)
-        try await Task.sleep(nanoseconds: 1_200_000_000)
-        capture("native-v2-live-medal-detail-sheet")
+      let menuBtn = app.buttons["native-medal-showcase-menu"]
+      if menuBtn.waitForExistence(timeout: 6) {
+        menuBtn.tap()
+        let detailsItem = app.buttons["勋章详情"]
+        if detailsItem.waitForExistence(timeout: 6) {
+          detailsItem.tap()
+          try await Task.sleep(nanoseconds: 1_200_000_000)
+          capture("native-v2-live-medal-detail-sheet")
+        }
       }
       XCTAssertEqual(app.webViews.count, 0)
       return
