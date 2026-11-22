@@ -36,11 +36,7 @@ struct NativeAppearanceSettingsPage: View {
     VStack(alignment: .leading, spacing: 10) {
       sectionHeader("实时预览")
       ZStack {
-        LinearGradient(
-          stops: appearance.backgroundStops(for: colorScheme),
-          startPoint: .topLeading,
-          endPoint: .bottomTrailing
-        )
+        CinematicAmbientGradient()
         VStack(alignment: .leading, spacing: 12) {
           HStack(spacing: 10) {
             Image(systemName: "sparkles.tv")
@@ -213,6 +209,18 @@ struct NativeAppearanceSettingsPage: View {
             supportsOpacity: false
           )
           .font(.subheadline)
+          Divider().overlay(.primary.opacity(0.10))
+          Toggle(isOn: $appearance.animateBackground) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text("动态流光背景")
+                .font(.subheadline)
+              Text("在当前配色范围内缓慢流动，低电量或减弱动态时自动静止")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+          }
+          .tint(appearance.accentColor)
+          .accessibilityIdentifier("native-appearance-animate-bg")
         }
       }
     }

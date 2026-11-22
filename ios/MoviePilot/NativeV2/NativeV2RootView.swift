@@ -12,6 +12,9 @@ struct NativeV2RootView: View {
 
   @ObservedObject private var model: NativeAppModel
   @ObservedObject private var manager: NativeSessionManager
+  @ObservedObject private var routeHub = NativeSystemRouteHub.shared
+  @ObservedObject private var playbackLauncher = NativeMediaPlaybackLauncher.shared
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
   @State private var pendingForget: SavedInstance?
   @State private var showsAPIKey = false
   @State private var showsPassword = false
@@ -19,6 +22,7 @@ struct NativeV2RootView: View {
   @State private var hasCompletedInitialBoot = false
   @FocusState private var focused: Field?
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.colorScheme) private var colorScheme
 
   private var showsColdBootSplash: Bool {
     guard !hasCompletedInitialBoot, model.selected != nil else { return false }
@@ -117,11 +121,25 @@ struct NativeV2RootView: View {
               .onChange(of: model.form) { _ in scroll.scrollTo("native-v2-top", anchor: .top) }
             }
           }
-          .navigationTitle(title)
+          .navigationTitle("")
           .navigationBarTitleDisplayMode(.inline)
+          .toolbarBackground(.hidden, for: .navigationBar)
           .toolbar { toolbar }
         }
+        if let miniMusic = playbackLauncher.miniMusicState {
+          unauthenticatedMiniMusicBar(miniMusic)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .zIndex(45)
+        }
+        if let banner = routeHub.bannerMessage {
+          unauthenticatedBannerOverlay(banner)
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .zIndex(60)
+        }
       }
+    }
+    .onAppear {
+      playbackLauncher.presentPendingExternalPlaybackIfNeeded()
     }
     .onChange(of: model.busy) { busy in
       if !busy {
@@ -190,81 +208,69 @@ struct NativeV2RootView: View {
     }
   }
 
-  /// 居中影院风品牌主视觉：图标微光光晕、品牌标题、副标，以及登录态下的已连接服务地址胶囊。
+  /// 极简编排式品牌页眉：去发光与去厚重图标盒，使用纯矢量 LaunchMark 徽标配左对齐大标题，聚焦连接与登录表单主体。
   private var brand: some View {
     Section {
-      VStack(spacing: 12) {
-        ZStack {
-          Circle()
-            .fill(
-              RadialGradient(
-                colors: [
-                  Color(red: 0.58, green: 0.38, blue: 0.98).opacity(0.42),
-                  Color(red: 0.84, green: 0.44, blue: 0.72).opacity(0.16),
-                  .clear,
-                ],
-                center: .center,
-                startRadius: 8,
-                endRadius: 64
-              )
-            )
-            .frame(width: 126, height: 126)
-            .accessibilityHidden(true)
-
-          Image("BrandMark")
+      VStack(alignment: .leading, spacing: 14) {
+        HStack(spacing: 10) {
+          Image("LaunchMark")
             .resizable()
             .scaledToFit()
-            .frame(width: 76, height: 76)
-            .clipShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
-            .shadow(
-              color: Color(red: 0.45, green: 0.25, blue: 0.85).opacity(0.45), radius: 18, y: 8
-            )
+            .frame(width: 34, height: 34)
             .accessibilityHidden(true)
-        }
-        .frame(height: 92)
 
-        VStack(spacing: 5) {
           Text("MoviePilot")
-            .font(.title.bold())
-            .foregroundStyle(.primary)
-          Text(L10n.text("你的媒体世界，随时连接。"))
-            .font(.subheadline)
-            .foregroundStyle(.primary.opacity(0.68))
-            .multilineTextAlignment(.center)
+            .font(.title3.weight(.semibold))
+            .foregroundStyle(.primary.opacity(0.90))
         }
 
-        if model.form != .connection, let addressText = model.selected?.address.url.absoluteString {
-          Button {
-            model.changeServer()
-          } label: {
-            HStack(spacing: 7) {
-              Circle()
-                .fill(Color(red: 0.42, green: 0.90, blue: 0.60))
-                .frame(width: 7, height: 7)
-              Text(addressText)
-                .font(.caption.monospaced().weight(.medium))
-                .foregroundStyle(.primary.opacity(0.90))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .accessibilityIdentifier("native-v2-server")
-              Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.primary.opacity(0.55))
+        VStack(alignment: .leading, spacing: 6) {
+          Text(title)
+            .font(.system(size: 32, weight: .bold))
+            .tracking(-0.5)
+            .foregroundStyle(.primary)
+            .accessibilityAddTraits(.isHeader)
+
+          if model.form == .connection {
+            Text(L10n.text("你的媒体世界，随时连接。"))
+              .font(.subheadline)
+              .foregroundStyle(.primary.opacity(0.60))
+          } else if let addressText = model.selected?.address.url.absoluteString {
+            Button {
+              model.changeServer()
+            } label: {
+              HStack(spacing: 8) {
+                Circle()
+                  .fill(NativeTheme.success)
+                  .frame(width: 7, height: 7)
+                Text(addressText)
+                  .font(.caption.monospaced().weight(.medium))
+                  .foregroundStyle(.primary.opacity(0.88))
+                  .lineLimit(1)
+                  .truncationMode(.middle)
+                  .accessibilityIdentifier("native-v2-server")
+                Image(systemName: "arrow.triangle.2.circlepath")
+                  .font(.caption2.weight(.semibold))
+                  .foregroundStyle(.primary.opacity(0.52))
+              }
+              .padding(.horizontal, 12)
+              .padding(.vertical, 7)
+              .background {
+                Capsule()
+                  .fill(NativeTheme.chipFill)
+                  .overlay {
+                    Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.7)
+                  }
+              }
             }
-            .padding(.horizontal, 13)
-            .padding(.vertical, 7)
-            .background {
-              Capsule()
-                .fill(.primary.opacity(0.10))
-                .overlay { Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 0.6) }
-            }
+            .buttonStyle(.plain)
+            .padding(.top, 2)
           }
-          .buttonStyle(.plain)
-          .padding(.top, 2)
         }
       }
-      .frame(maxWidth: .infinity)
-      .padding(.top, 8)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, 4)
+      .padding(.top, 10)
       .padding(.bottom, 6)
     }
     .listRowBackground(Color.clear).listRowSeparator(.hidden)
@@ -277,39 +283,50 @@ struct NativeV2RootView: View {
       CinematicFormSection(
         footer: L10n.text("支持 HTTPS、局域网地址和部署子路径。")
       ) {
-        CinematicFormRow(symbol: "link") {
-          TextField(
-            L10n.text("MoviePilot 服务地址"), text: $model.address,
-            prompt: fieldPrompt("MoviePilot 服务地址")
-          )
-          .keyboardType(.URL).textInputAutocapitalization(.never)
-          .autocorrectionDisabled().submitLabel(.go).focused($focused, equals: .address)
-          .accessibilityIdentifier("native-v2-address")
-          .onSubmit {
-            focused = nil
-            model.connectAddress()
-          }
-          if !model.address.isEmpty {
-            Button {
-              model.address = ""
-            } label: {
-              Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 18))
-                .frame(width: 44, height: 44).contentShape(Rectangle())
+        HStack(spacing: 14) {
+          Image(systemName: "link")
+            .font(.body.weight(.medium))
+            .foregroundStyle(focused == .address ? appearance.accentColor : .secondary)
+            .frame(width: 24)
+            .accessibilityHidden(true)
+          HStack(spacing: 8) {
+            TextField(
+              L10n.text("MoviePilot 服务地址"), text: $model.address,
+              prompt: fieldPrompt("MoviePilot 服务地址")
+            )
+            .keyboardType(.URL).textInputAutocapitalization(.never)
+            .autocorrectionDisabled().submitLabel(.go).focused($focused, equals: .address)
+            .accessibilityIdentifier("native-v2-address")
+            .onSubmit {
+              focused = nil
+              model.connectAddress()
             }
-            .buttonStyle(.plain).foregroundStyle(.secondary)
-            .accessibilityLabel(L10n.text("清除地址"))
-            .accessibilityIdentifier("native-v2-clear-address")
+            if !model.address.isEmpty {
+              Button {
+                model.address = ""
+              } label: {
+                Image(systemName: "xmark.circle.fill")
+                  .font(.system(size: 18))
+                  .frame(width: 44, height: 44).contentShape(Rectangle())
+              }
+              .buttonStyle(.plain).foregroundStyle(.secondary)
+              .accessibilityLabel(L10n.text("清除地址"))
+              .accessibilityIdentifier("native-v2-clear-address")
+            }
           }
+          .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(minHeight: 50)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 6)
         if !model.address.lowercased().hasPrefix("http://")
           && !model.address.lowercased().hasPrefix("https://")
         {
           CinematicFormDivider()
           HStack(spacing: 8) {
             Text("快捷前缀")
-              .font(.caption2)
-              .foregroundStyle(.primary.opacity(0.52))
+              .font(.caption2.weight(.medium))
+              .foregroundStyle(.secondary)
             ForEach(["https://", "http://"], id: \.self) { prefix in
               Button {
                 model.address = prefix + model.address
@@ -317,21 +334,24 @@ struct NativeV2RootView: View {
               } label: {
                 Text(prefix)
                   .font(.caption.monospaced().weight(.semibold))
-                  .foregroundStyle(NativeTheme.brand)
+                  .foregroundStyle(appearance.accentColor)
                   .padding(.horizontal, 10)
-                  .padding(.vertical, 4)
+                  .padding(.vertical, 5)
                   .background {
                     Capsule()
-                      .fill(.primary.opacity(0.09))
-                      .overlay { Capsule().strokeBorder(.primary.opacity(0.16), lineWidth: 0.6) }
+                      .fill(appearance.accentColor.opacity(colorScheme == .light ? 0.11 : 0.15))
+                      .overlay {
+                        Capsule().strokeBorder(
+                          appearance.accentColor.opacity(0.28), lineWidth: 0.6)
+                      }
                   }
               }
               .buttonStyle(.plain)
             }
             Spacer(minLength: 0)
           }
-          .padding(.horizontal, 14)
-          .padding(.vertical, 9)
+          .padding(.horizontal, 18)
+          .padding(.vertical, 10)
         }
       }
       actionSection {
@@ -347,16 +367,20 @@ struct NativeV2RootView: View {
             Button {
               model.connect(instance)
             } label: {
-              CinematicPanel(padding: 13) {
+              CinematicPanel(padding: 13, showsShadow: false) {
                 HStack(spacing: 12) {
-                  Image(systemName: "server.rack")
-                    .font(.system(size: 19, weight: .medium))
-                    .foregroundStyle(
-                      isSelected
-                        ? NativeTheme.success
-                        : .primary
-                    )
-                    .frame(width: 28, height: 28)
+                  ZStack {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                      .fill(
+                        (isSelected ? NativeTheme.success : appearance.accentColor)
+                          .opacity(colorScheme == .light ? 0.12 : 0.16)
+                      )
+                      .frame(width: 38, height: 38)
+                    Image(systemName: "server.rack")
+                      .font(.system(size: 16, weight: .semibold))
+                      .foregroundStyle(isSelected ? NativeTheme.success : appearance.accentColor)
+                  }
+                  .accessibilityHidden(true)
 
                   VStack(alignment: .leading, spacing: 3) {
                     Text(host)
@@ -365,18 +389,19 @@ struct NativeV2RootView: View {
                       .lineLimit(1)
                     Text(instance.address.url.absoluteString)
                       .font(.caption.monospaced())
-                      .foregroundStyle(.primary.opacity(0.60))
+                      .foregroundStyle(.secondary)
                       .lineLimit(nil)
                   }
                   Spacer(minLength: 8)
                   if isSelected {
                     Image(systemName: "checkmark.circle.fill")
+                      .font(.body)
                       .foregroundStyle(NativeTheme.success)
                       .accessibilityLabel(L10n.text("当前服务"))
                   } else {
                     Image(systemName: "chevron.right")
                       .font(.caption.weight(.semibold))
-                      .foregroundStyle(.primary.opacity(0.40))
+                      .foregroundStyle(.secondary.opacity(0.75))
                       .accessibilityHidden(true)
                   }
                 }
@@ -391,9 +416,17 @@ struct NativeV2RootView: View {
             }
           }
         } header: {
-          Text(L10n.text("已保存的服务"))
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.primary.opacity(0.72))
+          HStack(spacing: 6) {
+            Text(L10n.text("已保存的服务"))
+              .font(.footnote.weight(.semibold))
+              .foregroundStyle(.secondary)
+            Text("\(model.saved.count)")
+              .font(.caption2.monospacedDigit().weight(.semibold))
+              .foregroundStyle(.secondary)
+              .padding(.horizontal, 7)
+              .padding(.vertical, 2)
+              .background(NativeTheme.chipFill, in: Capsule())
+          }
         }
         .textCase(nil)
         .disabled(model.busy)
@@ -409,7 +442,12 @@ struct NativeV2RootView: View {
         footer: model.form == .initialization
           ? L10n.text("密码为 6–50 位，至少包含字母、数字、符号中的两类。API Key 仅提交到此服务。") : nil
       ) {
-        CinematicFormRow(symbol: "person") {
+        HStack(spacing: 14) {
+          Image(systemName: "person")
+            .font(.body.weight(.medium))
+            .foregroundStyle(focused == .username ? appearance.accentColor : .secondary)
+            .frame(width: 24)
+            .accessibilityHidden(true)
           TextField(L10n.text("用户名"), text: $model.username, prompt: fieldPrompt("用户名"))
             .textContentType(.username).textInputAutocapitalization(.never)
             .autocorrectionDisabled().disabled(model.fixedUsername)
@@ -417,6 +455,9 @@ struct NativeV2RootView: View {
             .onSubmit { focused = .password }
             .accessibilityIdentifier("native-v2-username")
         }
+        .frame(minHeight: 50)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 6)
         CinematicFormDivider()
         passwordField("密码", text: $model.password, field: .password, id: "native-v2-password")
         if model.form == .initialization {
@@ -446,6 +487,7 @@ struct NativeV2RootView: View {
                     .frame(width: 44, height: 44).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
                 .accessibilityLabel(L10n.text(showsAPIKey ? "隐藏 API Key" : "显示 API Key"))
                 .accessibilityIdentifier("native-v2-show-api-key")
                 Button {
@@ -458,6 +500,7 @@ struct NativeV2RootView: View {
                     .frame(width: 44, height: 44).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
                 .accessibilityLabel(L10n.text("复制 API Key"))
                 .accessibilityIdentifier("native-v2-copy-api-key")
               }
@@ -471,7 +514,12 @@ struct NativeV2RootView: View {
           }
         } else if model.needsOTP {
           CinematicFormDivider()
-          CinematicFormRow(symbol: "number.shield") {
+          HStack(spacing: 14) {
+            Image(systemName: "number.shield")
+              .font(.body.weight(.medium))
+              .foregroundStyle(focused == .otp ? appearance.accentColor : .secondary)
+              .frame(width: 24)
+              .accessibilityHidden(true)
             TextField(
               L10n.text("身份验证器验证码"), text: $model.otp, prompt: fieldPrompt("身份验证器验证码")
             )
@@ -479,6 +527,9 @@ struct NativeV2RootView: View {
             .focused($focused, equals: .otp)
             .accessibilityIdentifier("native-v2-otp")
           }
+          .frame(minHeight: 50)
+          .padding(.horizontal, 18)
+          .padding(.vertical, 6)
         }
       }
       .disabled(model.busy)
@@ -486,19 +537,19 @@ struct NativeV2RootView: View {
         CinematicFormSection(
           footer: L10n.text("密码仅在本机安全保存，验证码不会保存。")
         ) {
-          CinematicFormRow {
+          CinematicFormRow(symbol: "checkmark.shield") {
             Toggle(L10n.text("保持登录"), isOn: $model.rememberSession)
-              .tint(Color(red: 0.62, green: 0.48, blue: 0.94))
+              .tint(appearance.accentColor)
               .accessibilityIdentifier("native-v2-remember-session")
           }
           CinematicFormDivider()
-          CinematicFormRow {
+          CinematicFormRow(symbol: "key.horizontal") {
             Toggle(
               L10n.text("记住账号密码"),
               isOn: Binding(
                 get: { model.rememberCredentials }, set: { model.setRememberCredentials($0) })
             )
-            .tint(Color(red: 0.62, green: 0.48, blue: 0.94))
+            .tint(appearance.accentColor)
             .accessibilityIdentifier("native-v2-remember-password")
           }
         }
@@ -526,39 +577,50 @@ struct NativeV2RootView: View {
   private func passwordField(
     _ title: String, text: Binding<String>, field: Field, id: String
   ) -> some View {
-    CinematicFormRow(symbol: "lock") {
-      Group {
-        if showsPassword {
-          TextField(L10n.text(title), text: text, prompt: fieldPrompt(title))
-        } else {
-          SecureField(L10n.text(title), text: text, prompt: fieldPrompt(title))
+    HStack(spacing: 14) {
+      Image(systemName: "lock")
+        .font(.body.weight(.medium))
+        .foregroundStyle(focused == field ? appearance.accentColor : .secondary)
+        .frame(width: 24)
+        .accessibilityHidden(true)
+      HStack(spacing: 8) {
+        Group {
+          if showsPassword {
+            TextField(L10n.text(title), text: text, prompt: fieldPrompt(title))
+          } else {
+            SecureField(L10n.text(title), text: text, prompt: fieldPrompt(title))
+          }
+        }
+        .textContentType(.password).textInputAutocapitalization(.never).autocorrectionDisabled()
+        .focused($focused, equals: field)
+        .submitLabel(
+          field == .password && (model.form == .initialization || model.needsOTP) ? .next : .done
+        )
+        .onSubmit {
+          focused =
+            field == .password
+            ? (model.form == .initialization ? .confirmation : (model.needsOTP ? .otp : nil)) : nil
+        }
+        .accessibilityIdentifier(id)
+        if field == .password {
+          Button {
+            showsPassword.toggle()
+          } label: {
+            Image(systemName: showsPassword ? "eye.slash" : "eye")
+              .font(.system(size: 18))
+              .frame(width: 44, height: 44).contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(.secondary)
+          .accessibilityLabel(L10n.text(showsPassword ? "隐藏密码" : "显示密码"))
+          .accessibilityIdentifier("native-v2-show-password")
         }
       }
-      // 首次创建先保留标准密码输入；系统自动生成和 Passkey 在 P6 完整验收。
-      .textContentType(.password).textInputAutocapitalization(.never).autocorrectionDisabled()
-      .focused($focused, equals: field)
-      .submitLabel(
-        field == .password && (model.form == .initialization || model.needsOTP) ? .next : .done
-      )
-      .onSubmit {
-        focused =
-          field == .password
-          ? (model.form == .initialization ? .confirmation : (model.needsOTP ? .otp : nil)) : nil
-      }
-      .accessibilityIdentifier(id)
-      if field == .password {
-        Button {
-          showsPassword.toggle()
-        } label: {
-          Image(systemName: showsPassword ? "eye.slash" : "eye")
-            .font(.system(size: 18))
-            .frame(width: 44, height: 44).contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(L10n.text(showsPassword ? "隐藏密码" : "显示密码"))
-        .accessibilityIdentifier("native-v2-show-password")
-      }
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
+    .frame(minHeight: 50)
+    .padding(.horizontal, 18)
+    .padding(.vertical, 6)
   }
 
   /// 换实例、换表单或离开前台后，不继承用户刚刚打开的明文显示选项。
@@ -583,7 +645,7 @@ struct NativeV2RootView: View {
     }.buttonStyle(.plain).accessibilityIdentifier(id)
   }
 
-  /// 高对比度白色胶囊主操作按钮（与详情页/设置中心视觉统一），先收起键盘再提交。
+  /// 主题强调色渐变胶囊主操作按钮（禁用态转为低饱和通透玻璃胶囊），同时适配深浅色模式并先收起键盘再提交。
   private func primary(
     _ key: String, id: String, disabled: Bool, action: @escaping () -> Void
   ) -> some View {
@@ -593,25 +655,38 @@ struct NativeV2RootView: View {
         #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
       action()
     } label: {
-      HStack(spacing: 8) {
-        Text(L10n.text(key))
-          .font(.headline.weight(.bold))
-        Image(systemName: "arrow.right")
-          .font(.subheadline.weight(.bold))
-      }
-      .foregroundStyle(
-        disabled ? .white.opacity(0.48) : Color(red: 0.10, green: 0.08, blue: 0.16)
-      )
-      .frame(maxWidth: .infinity, minHeight: 52)
-      .background {
-        Capsule()
-          .fill(disabled ? .white.opacity(0.14) : .white)
-          .overlay {
-            if disabled {
-              Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 0.7)
-            }
+      Text(L10n.text(key))
+        .font(.body.weight(.semibold))
+        .foregroundStyle(
+          disabled ? Color.primary.opacity(0.48) : Color.white
+        )
+        .frame(maxWidth: .infinity, minHeight: 52)
+        .background {
+          if disabled {
+            Capsule()
+              .fill(appearance.accentColor.opacity(colorScheme == .light ? 0.14 : 0.16))
+              .overlay {
+                Capsule().strokeBorder(
+                  appearance.accentColor.opacity(colorScheme == .light ? 0.24 : 0.28),
+                  lineWidth: 0.7)
+              }
+          } else {
+            Capsule()
+              .fill(
+                LinearGradient(
+                  colors: [
+                    appearance.accentColor,
+                    appearance.accentColor.opacity(colorScheme == .light ? 0.86 : 0.78),
+                  ],
+                  startPoint: .topLeading,
+                  endPoint: .bottomTrailing
+                )
+              )
+              .overlay {
+                Capsule().strokeBorder(.white.opacity(0.28), lineWidth: 0.7)
+              }
           }
-      }
+        }
     }
     .buttonStyle(.plain)
     .disabled(disabled)
@@ -663,6 +738,112 @@ struct NativeV2RootView: View {
             #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
       }
+    }
+  }
+
+  /// 登录前系统集成提示横幅（如暂不支持的文件类型、无效链接或需要先完成登录的提示）。
+  private func unauthenticatedBannerOverlay(_ message: String) -> some View {
+    VStack {
+      HStack(spacing: 10) {
+        Image(systemName: "info.circle.fill")
+          .foregroundStyle(NativeTheme.brand)
+        Text(message)
+          .font(.footnote)
+          .foregroundStyle(.primary)
+          .multilineTextAlignment(.leading)
+        Spacer(minLength: 0)
+        Button {
+          routeHub.bannerMessage = nil
+        } label: {
+          Image(systemName: "xmark")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L10n.text("关闭提示"))
+      }
+      .padding(.horizontal, 14)
+      .padding(.vertical, 11)
+      .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+          .strokeBorder(.primary.opacity(0.16), lineWidth: 0.7)
+      }
+      .padding(.horizontal, 16)
+      .padding(.top, 56)
+      Spacer(minLength: 0)
+    }
+  }
+
+  /// 未登录状态下最小化本地/外部音频播放时仍提供悬浮迷你控制条，方便随时还原或停止。
+  private func unauthenticatedMiniMusicBar(_ state: NativeMiniMusicState) -> some View {
+    VStack {
+      Spacer(minLength: 0)
+      HStack(spacing: 11) {
+        Group {
+          if let artwork = state.artwork {
+            Image(uiImage: artwork).resizable().scaledToFill()
+          } else {
+            ZStack {
+              LinearGradient(
+                colors: [NativeTheme.brand.opacity(0.68), NativeTheme.brand.opacity(0.32)],
+                startPoint: .topLeading, endPoint: .bottomTrailing)
+              Image(systemName: "music.note")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+            }
+          }
+        }
+        .frame(width: 38, height: 38)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text(state.title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+          if !state.subtitle.isEmpty {
+            Text(state.subtitle)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+        Button {
+          playbackLauncher.toggleMinimizedPlayPause()
+        } label: {
+          Image(systemName: state.isPlaying ? "pause.fill" : "play.fill")
+            .font(.subheadline.weight(.semibold))
+            .frame(width: 34, height: 34)
+        }
+        .buttonStyle(.plain)
+
+        Button {
+          playbackLauncher.stopMinimizedAudio()
+        } label: {
+          Image(systemName: "xmark")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 30, height: 30)
+        }
+        .buttonStyle(.plain)
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 8)
+      .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+          .strokeBorder(.primary.opacity(0.16), lineWidth: 0.7)
+      }
+      .contentShape(Rectangle())
+      .onTapGesture {
+        playbackLauncher.expandMinimizedAudio()
+      }
+      .padding(.horizontal, 16)
+      .padding(.bottom, 14)
     }
   }
 

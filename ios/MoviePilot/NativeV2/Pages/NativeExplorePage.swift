@@ -10,6 +10,7 @@ import UIKit
 struct NativeExplorePage: View {
   let session: NativeSession
   let initialSource: NativeExploreSourceKind
+  @Binding var externalSource: NativeExploreSourceKind?
 
   @State private var selectedSource: NativeExploreSourceKind
   @State private var extraSources: [NativeExtraDiscoverSource] = []
@@ -49,10 +50,12 @@ struct NativeExplorePage: View {
   /// 初始化探索页并选中指定的默认来源。
   init(
     session: NativeSession,
-    initialSource: NativeExploreSourceKind = .tmdbMovies
+    initialSource: NativeExploreSourceKind = .tmdbMovies,
+    externalSource: Binding<NativeExploreSourceKind?> = .constant(nil)
   ) {
     self.session = session
     self.initialSource = initialSource
+    _externalSource = externalSource
     _selectedSource = State(initialValue: initialSource)
   }
 
@@ -115,7 +118,18 @@ struct NativeExplorePage: View {
     .toolbarBackground(.hidden, for: .navigationBar)
     .onAppear {
       syncSourceConfigs()
+      if let targetSource = externalSource {
+        externalSource = nil
+        selectedExtraID = nil
+        selectedSource = targetSource
+      }
       Task { await loadExtraSources() }
+    }
+    .onChange(of: externalSource) { targetSource in
+      guard let targetSource else { return }
+      externalSource = nil
+      selectedExtraID = nil
+      selectedSource = targetSource
     }
     .navigationDestination(
       isPresented: Binding(

@@ -202,6 +202,7 @@ final class NativeAppearanceStore: ObservableObject {
     static let useCustomText = "nativeV2.appearance.useCustomText"
     static let textHex = "nativeV2.appearance.textHex"
     static let lightTextHex = "nativeV2.appearance.lightTextHex"
+    static let animateBackground = "nativeV2.appearance.animateBackground"
   }
 
   private let defaults: UserDefaults
@@ -246,6 +247,11 @@ final class NativeAppearanceStore: ObservableObject {
     didSet { defaults.set(customLightTextHex, forKey: Keys.lightTextHex) }
   }
 
+  /// 是否启用缓慢微弱的同色系动态流光背景（减弱动态效果与低电量模式下自动暂停）。
+  @Published var animateBackground: Bool {
+    didSet { defaults.set(animateBackground, forKey: Keys.animateBackground) }
+  }
+
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
     mode =
@@ -262,6 +268,8 @@ final class NativeAppearanceStore: ObservableObject {
     useCustomTextColor = defaults.bool(forKey: Keys.useCustomText)
     customTextHex = defaults.string(forKey: Keys.textHex) ?? "#F5F2FF"
     customLightTextHex = defaults.string(forKey: Keys.lightTextHex) ?? "#1C1A24"
+    animateBackground =
+      defaults.object(forKey: Keys.animateBackground) as? Bool ?? true
     // 导航栏默认入口与返回按钮统一采用系统文本色，避免被主题强调色染成彩色。
     UINavigationBar.appearance().tintColor = .label
   }
@@ -330,6 +338,19 @@ final class NativeAppearanceStore: ObservableObject {
     ]
   }
 
+  /// 返回用于网格流光渐变的 4 节点同源色板，确保动态流动严格限定在用户所选配色内。
+  func backgroundPalette(for scheme: ColorScheme) -> [Color] {
+    if backgroundPreset == .custom {
+      return [
+        customBackgroundStartColor,
+        customBackgroundMidColor,
+        customBackgroundMidColor,
+        customBackgroundEndColor,
+      ]
+    }
+    return scheme == .light ? backgroundPreset.lightStops : backgroundPreset.darkStops
+  }
+
   /// 隐私遮罩与纯色降级底色。
   func solidBackgroundColor(for scheme: ColorScheme) -> Color {
     if backgroundPreset == .custom {
@@ -351,6 +372,7 @@ final class NativeAppearanceStore: ObservableObject {
     useCustomTextColor = false
     customTextHex = "#F5F2FF"
     customLightTextHex = "#1C1A24"
+    animateBackground = true
   }
 
   /// 将十六进制色值解析为 `Color`。

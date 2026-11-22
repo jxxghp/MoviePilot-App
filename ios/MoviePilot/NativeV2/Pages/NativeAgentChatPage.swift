@@ -19,7 +19,7 @@ struct NativeAgentChatPage: View {
   @State private var messages: [NativeAgentMessage] = []
   @State private var sessions: [NativeAgentSessionSummary] = []
   @State private var commands: [NativeAgentCommandItem] = []
-  @State private var draftText = ""
+  @State private var draftText: String
   @State private var pendingUploads: [NativeAgentUploadedAttachment] = []
   @State private var isUploadingAttachment = false
   @State private var isSending = false
@@ -37,6 +37,12 @@ struct NativeAgentChatPage: View {
   @State private var previewImageItem: NativeAgentImagePreviewItem?
   @State private var shareFileItem: NativeAgentShareFileItem?
   @State private var downloadingAttachmentURL: String?
+
+  /// 初始化智能助手对话页；外部链接仅可预填输入草稿，绝不自动替用户发送消息。
+  init(session: NativeSession, initialPrompt: String = "") {
+    self.session = session
+    _draftText = State(initialValue: initialPrompt)
+  }
 
   var body: some View {
     ZStack {

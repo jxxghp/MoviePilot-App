@@ -40,6 +40,9 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @State private var mediaIdentities: [String: NativeMediaIdentity] = [:]
   @State private var musicSeeds: [String: NativeMusicCardItem] = [:]
   @State private var pendingSearchQuery: String?
+  @State private var pendingSearchKind: String?
+  @State private var pendingExploreSource: NativeExploreSourceKind?
+  @State private var pendingAgentPrompt = ""
   @State private var discoverPath: [NativeMediaDestination] = []
   @State private var explorePath: [NativeWorkspaceDestination] = []
   @State private var minePath: [NativeWorkspaceDestination] = []
@@ -176,9 +179,12 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       .presentationDragIndicator(.visible)
       .nativeGlassSheet()
     }
-    .sheet(isPresented: $showsAgentSheet) {
+    .sheet(
+      isPresented: $showsAgentSheet,
+      onDismiss: { pendingAgentPrompt = "" }
+    ) {
       NavigationStack {
-        NativeAgentChatPage(session: session)
+        NativeAgentChatPage(session: session, initialPrompt: pendingAgentPrompt)
           .toolbar {
             ToolbarItem(placement: .topBarLeading) {
               Button {
@@ -436,7 +442,8 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     NavigationStack(path: $explorePath) {
       NativeExplorePage(
         session: session,
-        initialSource: .tmdbMovies
+        initialSource: .tmdbMovies,
+        externalSource: $pendingExploreSource
       )
       .navigationDestination(for: NativeWorkspaceDestination.self) { destination in
         workspaceDestinationView(destination)
@@ -604,6 +611,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       NativeMediaSearchPage(
         session: session,
         externalSearchQuery: $pendingSearchQuery,
+        externalSearchKind: $pendingSearchKind,
         onSelect: { source, id, type in
           guard let id, let type else { return }
           searchPath.append(NativeMediaIdentity(source: source, mediaID: id, type: type))
@@ -717,6 +725,8 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       NativeMusicPage(session: session)
     case .subscriptions:
       NativeSubscriptionsPage(session: session)
+    case .subscriptionsFiltered(let filter):
+      NativeSubscriptionsPage(session: session, initialFilter: filter)
     case .subscribeCommunity:
       NativeSubscribeCommunityPage(session: session)
     case .downloads:
@@ -725,8 +735,13 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       NativeCalendarPage(session: session)
     case .resources:
       NativeResourceSearchPage(session: session, target: .lastResults)
+    case .resourcesQuery(let keyword, let browseHome):
+      NativeResourceSearchPage(
+        session: session, target: .lastResults, initialKeyword: keyword, browseHome: browseHome)
     case .history:
       NativeTransferHistoryPage(session: session)
+    case .historyQuery(let search):
+      NativeTransferHistoryPage(session: session, initialSearch: search)
     case .sites:
       NativeSitesPage(session: session)
     case .messages:
@@ -735,6 +750,8 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       NativeAgentChatPage(session: session)
     case .files:
       NativeFileManagerPage(session: session)
+    case .filesTarget(let storage, let path):
+      NativeFileManagerPage(session: session, initialStorage: storage, initialPath: path)
     case .workflows:
       NativeWorkflowsPage(session: session)
     case .settings:
@@ -767,8 +784,9 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   /// 判断路由是否属于底部溢出菜单的跨标签功能页（不属于单个主标签的持久历史）。
   private func isOverflowWorkspaceDestination(_ destination: NativeWorkspaceDestination) -> Bool {
     switch destination {
-    case .subscriptions, .subscribeCommunity, .calendar, .resources, .downloads, .files, .history,
-      .workflows, .pluginMarket:
+    case .subscriptions, .subscriptionsFiltered, .subscribeCommunity, .calendar, .resources,
+      .resourcesQuery, .downloads, .files, .filesTarget, .history, .historyQuery, .workflows,
+      .pluginMarket, .music:
       true
     default:
       false
@@ -824,58 +842,327 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
   }
 
-  /// 消费来自 APNs 通知、桌面小组件与主屏幕快捷方式的受限路由意图，严格遵循当前账号权限门禁。
+  /// 在设置主标签下安全打开专项设置或运维工具子页面。
+  private func openSettingsDestination(_ destination: NativeWorkspaceDestination) {
+    clearAllOverflowDestinations()
+    selectedTab = .settings
+    settingsPath = [destination]
+  }
+
+  /// 消费来自 APNs 通知、桌面小组件、主屏幕快捷方式与 `moviepilot://` 联动链接的受限路由意图，严格遵循当前账号权限门禁。
   private func consumeSystemRouteIfNeeded() {
     guard let target = routeHub.consumeTarget() else { return }
     showsOverflowMenu = false
+    showsMessagesSheet = false
+    showsAgentSheet = false
+    showsShortcutsSheet = false
+    showsModuleSheet = false
+    if target != .discover {
+      launchSplashTimedOut = true
+    }
+    switch target {
+    case .playMediaServerItem, .playStorageFile, .playExternalURL, .playLocalFile:
+      break
+    default:
+      NativeMediaPlaybackLauncher.shared.dismissFullScreenPlayerIfNeeded(animated: false)
+    }
     switch target {
     case .discover:
-      if canDiscover {
-        clearOverflowDestinations(in: selectedTab)
-        selectedTab = .discover
+      guard canDiscover else {
+        routeHub.postBanner(t("当前账号没有访问发现页的权限。"))
+        return
       }
-    case .explore:
-      if canDiscover {
-        clearOverflowDestinations(in: selectedTab)
-        selectedTab = .explore
+      clearOverflowDestinations(in: selectedTab)
+      discoverPath = []
+      selectedTab = .discover
+
+    case .explore(let rawSource):
+      guard canDiscover else {
+        routeHub.postBanner(t("当前账号没有访问探索页的权限。"))
+        return
       }
+      clearOverflowDestinations(in: selectedTab)
+      explorePath = []
+      if let rawSource, let source = NativeExploreSourceKind(rawValue: rawSource) {
+        pendingExploreSource = source
+      }
+      selectedTab = .explore
+
     case .dashboard:
       clearOverflowDestinations(in: selectedTab)
+      minePath = []
       selectedTab = .mine
+
     case .settings:
       clearOverflowDestinations(in: selectedTab)
+      settingsPath = []
       selectedTab = .settings
-    case .search:
-      if canDiscover {
-        clearOverflowDestinations(in: selectedTab)
-        selectedTab = .search
+
+    case .search(let query, let kind):
+      guard canDiscover else {
+        routeHub.postBanner(t("当前账号没有访问搜索页的权限。"))
+        return
       }
-    case .subscriptions:
-      if canSubscribe { openFromOverflow(.subscriptions) }
+      clearOverflowDestinations(in: selectedTab)
+      searchPath = []
+      pendingSearchQuery = query
+      pendingSearchKind = kind
+      selectedTab = .search
+
+    case .mediaDetail(let source, let mediaID, let mediaType):
+      guard canDiscover else {
+        routeHub.postBanner(t("当前账号没有访问影视详情的权限。"))
+        return
+      }
+      clearAllOverflowDestinations()
+      selectedTab = .discover
+      discoverPath = [
+        .media(NativeMediaIdentity(source: source, mediaID: mediaID, type: mediaType))
+      ]
+
+    case .subscriptions(let category):
+      guard canSubscribe else {
+        routeHub.postBanner(t("当前账号没有访问订阅中心的权限。"))
+        return
+      }
+      let filter: NativeSubscriptionsPage.Filter =
+        switch category {
+        case "movie": .movie
+        case "tv": .tv
+        case "music": .music
+        default: .all
+        }
+      openFromOverflow(filter == .all ? .subscriptions : .subscriptionsFiltered(filter))
+
+    case .subscribeCommunity:
+      guard canSubscribe else {
+        routeHub.postBanner(t("当前账号没有访问订阅分享的权限。"))
+        return
+      }
+      openFromOverflow(.subscribeCommunity)
+
     case .calendar:
-      if canSubscribe { openFromOverflow(.calendar) }
-    case .resources:
-      if canSearchResources { openFromOverflow(.resources) }
-    case .downloads:
-      if canManageDownloads { openFromOverflow(.downloads) }
-    case .files:
-      if canManageDownloads { openFromOverflow(.files) }
-    case .history:
-      if canManageDownloads { openFromOverflow(.history) }
-    case .workflows:
-      if canManageDownloads { openFromOverflow(.workflows) }
-    case .sites:
-      if canManageDownloads {
-        clearAllOverflowDestinations()
-        selectedTab = .settings
-        settingsPath = [.sites]
+      guard canSubscribe else {
+        routeHub.postBanner(t("当前账号没有访问订阅日历的权限。"))
+        return
       }
+      openFromOverflow(.calendar)
+
+    case .resources(let keyword, let browseHome):
+      guard canSearchResources else {
+        routeHub.postBanner(t("当前账号没有搜索站点资源的权限。"))
+        return
+      }
+      if keyword == nil && !browseHome {
+        openFromOverflow(.resources)
+      } else {
+        openFromOverflow(.resourcesQuery(keyword: keyword, browseHome: browseHome))
+      }
+
+    case .downloads:
+      guard canManageDownloads else {
+        routeHub.postBanner(t("当前账号没有访问下载管理的权限。"))
+        return
+      }
+      openFromOverflow(.downloads)
+
+    case .files(let storage, let path):
+      guard canManageDownloads else {
+        routeHub.postBanner(t("当前账号没有访问文件管理的权限。"))
+        return
+      }
+      if storage == nil && path == nil {
+        openFromOverflow(.files)
+      } else {
+        openFromOverflow(.filesTarget(storage: storage, path: path))
+      }
+
+    case .history(let search):
+      guard canManageDownloads else {
+        routeHub.postBanner(t("当前账号没有访问整理历史的权限。"))
+        return
+      }
+      if let search, !search.isEmpty {
+        openFromOverflow(.historyQuery(search))
+      } else {
+        openFromOverflow(.history)
+      }
+
+    case .workflows:
+      guard canManageDownloads else {
+        routeHub.postBanner(t("当前账号没有访问工作流的权限。"))
+        return
+      }
+      openFromOverflow(.workflows)
+
+    case .sites:
+      guard canManageDownloads else {
+        routeHub.postBanner(t("当前账号没有访问站点管理的权限。"))
+        return
+      }
+      openSettingsDestination(.sites)
+
     case .messages:
       showsMessagesSheet = true
-    case .plugins:
-      if snapshot.user.isSuperuser { openFromOverflow(.pluginMarket) }
-    case .agent:
+
+    case .plugins(let installedOnly):
+      guard snapshot.user.isSuperuser else {
+        routeHub.postBanner(t("仅管理员可访问插件中心。"))
+        return
+      }
+      if installedOnly {
+        clearAllOverflowDestinations()
+        selectedTab = .settings
+        settingsPath = []
+        showsPlugins = true
+      } else {
+        openFromOverflow(.pluginMarket)
+      }
+
+    case .agent(let prompt):
+      pendingAgentPrompt = prompt ?? ""
       showsAgentSheet = true
+
+    case .music:
+      guard canDiscover else {
+        routeHub.postBanner(t("当前账号没有访问音乐中心的权限。"))
+        return
+      }
+      openFromOverflow(.music)
+
+    case .shortcuts:
+      showsShortcutsSheet = true
+
+    case .users:
+      guard snapshot.user.isSuperuser else {
+        routeHub.postBanner(t("仅管理员可访问用户管理。"))
+        return
+      }
+      openSettingsDestination(.users)
+
+    case .appearance:
+      openSettingsDestination(.appearance)
+
+    case .systemSettings:
+      guard snapshot.user.isSuperuser else {
+        routeHub.postBanner(t("仅管理员可访问系统设置。"))
+        return
+      }
+      openSettingsDestination(.settings)
+
+    case .systemModule(let rawDomain):
+      guard snapshot.user.isSuperuser else {
+        routeHub.postBanner(t("仅管理员可访问系统模块设置。"))
+        return
+      }
+      guard let domain = Self.systemModuleDomain(for: rawDomain) else { return }
+      openSettingsDestination(.systemModule(domain))
+
+    case .diagnostics(let rawTool):
+      guard snapshot.user.isSuperuser else {
+        routeHub.postBanner(t("仅管理员可访问系统诊断工具。"))
+        return
+      }
+      guard let tool = Self.diagnosticsTool(for: rawTool) else { return }
+      openSettingsDestination(.diagnostics(tool))
+
+    case .channelAuth:
+      openSettingsDestination(.channelAuth)
+
+    case .subscribeSearchSettings:
+      guard snapshot.user.isSuperuser else {
+        routeHub.postBanner(t("仅管理员可访问订阅与搜索设置。"))
+        return
+      }
+      openSettingsDestination(.subscribeSearchSettings)
+
+    case .mediaSourceSettings:
+      guard snapshot.user.isSuperuser else {
+        routeHub.postBanner(t("仅管理员可访问媒体源设置。"))
+        return
+      }
+      openSettingsDestination(.mediaSourceSettings)
+
+    case .downloadersManage:
+      guard snapshot.user.isSuperuser else {
+        routeHub.postBanner(t("仅管理员可访问下载器管理。"))
+        return
+      }
+      openSettingsDestination(.downloadersManage)
+
+    case .mediaServersManage:
+      guard snapshot.user.isSuperuser else {
+        routeHub.postBanner(t("仅管理员可访问媒体服务器管理。"))
+        return
+      }
+      openSettingsDestination(.mediaServersManage)
+
+    case .playbackSettings:
+      openSettingsDestination(.playbackSettings)
+
+    case .playMediaServerItem(let itemID, let server, let title):
+      guard canDiscover else {
+        routeHub.postBanner(t("当前账号没有播放媒体库条目的权限。"))
+        return
+      }
+      Task {
+        if let err = await NativeMediaPlaybackLauncher.shared.playMediaServerItem(
+          session: session, itemID: itemID, server: server, title: title ?? "")
+        {
+          routeHub.postBanner(err)
+        }
+      }
+
+    case .playStorageFile(let storage, let path, let fileName):
+      guard canManageDownloads else {
+        routeHub.postBanner(t("当前账号没有播放存储文件的权限。"))
+        return
+      }
+      let resolvedName =
+        fileName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        ? fileName!
+        : (path as NSString).lastPathComponent
+      Task {
+        if let err = await NativeMediaPlaybackLauncher.shared.playStorageFile(
+          session: session, storage: storage, path: path, fileName: resolvedName)
+        {
+          routeHub.postBanner(err)
+        }
+      }
+
+    case .playExternalURL(let url, let title, let kind):
+      NativeMediaPlaybackLauncher.shared.enqueueOrPlayExternalURL(
+        url: url, title: title, kind: kind)
+
+    case .playLocalFile:
+      break
+    }
+  }
+
+  /// 将深度链接系统模块标识映射为原生设置模块枚举。
+  private static func systemModuleDomain(for raw: String) -> NativeSystemModulesPage.Domain? {
+    switch raw {
+    case "site_scope": .siteScope
+    case "directories": .directories
+    case "services": .services
+    case "notifications": .notifications
+    case "rules": .rules
+    case "scraping": .scraping
+    case "nettest": .nettest
+    default: nil
+    }
+  }
+
+  /// 将深度链接诊断工具标识映射为原生工具枚举。
+  private static func diagnosticsTool(for raw: String) -> NativeDiagnosticsToolsPage.Tool? {
+    switch raw {
+    case "health": .health
+    case "nettest": .nettest
+    case "rule_test": .ruleTest
+    case "words": .words
+    case "live_log": .liveLog
+    case "scheduler": .scheduler
+    default: nil
     }
   }
 
@@ -1854,15 +2141,19 @@ enum NativeWorkspaceDestination: Hashable {
   case explore(NativeExploreSourceKind)
   case music
   case subscriptions
+  case subscriptionsFiltered(NativeSubscriptionsPage.Filter)
   case subscribeCommunity
   case downloads
   case calendar
   case resources
+  case resourcesQuery(keyword: String?, browseHome: Bool)
   case history
+  case historyQuery(String)
   case sites
   case messages
   case agent
   case files
+  case filesTarget(storage: String?, path: String?)
   case workflows
   case settings
   case systemModule(NativeSystemModulesPage.Domain)

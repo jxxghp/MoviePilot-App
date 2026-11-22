@@ -26,7 +26,7 @@ struct NativeTransferHistoryPage: View {
   @State private var hasMore = false
   @State private var filter: StatusFilter = .all
   @State private var sortAscending = false
-  @State private var searchText = ""
+  @State private var searchText: String
   @State private var expandedIDs: Set<Int> = []
   @State private var isLoading = true
   @State private var isLoadingMore = false
@@ -38,6 +38,12 @@ struct NativeTransferHistoryPage: View {
   @State private var isDeleting = false
   @State private var showsQueueSheet = false
   @State private var feedback: NativeHistoryFeedback?
+
+  /// 初始化整理历史页，支持由 `moviepilot://history?search=...` 预填筛选关键词。
+  init(session: NativeSession, initialSearch: String = "") {
+    self.session = session
+    _searchText = State(initialValue: initialSearch)
+  }
 
   var body: some View {
     ZStack {

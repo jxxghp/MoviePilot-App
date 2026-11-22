@@ -32,7 +32,7 @@ struct NativeResourceSearchPage: View {
   let target: NativeResourceSearchTarget
 
   @ObservedObject private var appearance = NativeAppearanceStore.shared
-  @State private var keyword = ""
+  @State private var keyword: String
   @State private var sites: [NativeSearchSite] = []
   @State private var querySiteIDs: Set<Int> = []
   @State private var results: [NativeResourceContext] = []
@@ -47,12 +47,36 @@ struct NativeResourceSearchPage: View {
   @State private var isLoadingMore = false
   @State private var loadFailed = false
   @State private var attempt = 0
-  @State private var queryMode: QueryMode = .lastResults
+  @State private var queryMode: QueryMode
   @State private var currentPage = 0
   @State private var canLoadMore = false
   @State private var selectedForDownload: NativeResourceContext?
   @State private var feedback: NativeResourceFeedback?
   @FocusState private var searchFocused: Bool
+
+  /// 初始化站点资源检索页，支持直达上次结果、按外部深链关键字检索或直接浏览站点首页。
+  init(
+    session: NativeSession,
+    target: NativeResourceSearchTarget,
+    initialKeyword: String? = nil,
+    browseHome: Bool = false
+  ) {
+    self.session = session
+    self.target = target
+    let trimmed = initialKeyword?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    _keyword = State(initialValue: trimmed)
+    if case .lastResults = target {
+      if !trimmed.isEmpty {
+        _queryMode = State(initialValue: .keyword(trimmed))
+      } else if browseHome {
+        _queryMode = State(initialValue: .browseHome)
+      } else {
+        _queryMode = State(initialValue: .lastResults)
+      }
+    } else {
+      _queryMode = State(initialValue: .lastResults)
+    }
+  }
 
   var body: some View {
     ZStack {

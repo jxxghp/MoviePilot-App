@@ -43,9 +43,9 @@ final class NativeAppModel: ObservableObject {
     manager = NativeSessionManager(tokens: TokenStore())
   }
 
-  /// 冷启动只尝试恢复上次实例令牌，绝不自动提交可选的已保存密码。
+  /// 冷启动只尝试恢复上次实例令牌，绝不自动提交可选的已保存密码，同时保留冷启动携带的系统深链与快捷项意图。
   func start() {
-    if let selected { connect(selected) }
+    if let selected { connect(selected, preserveSystemLaunchIntent: true) }
   }
 
   /// 地址校验失败保留原输入，成功则沿用相同标准地址的 UUID。
@@ -58,9 +58,9 @@ final class NativeAppModel: ObservableObject {
     }
   }
 
-  /// 新实例先取消旧尝试和草稿，只有本次返回可以更新界面与回填凭据。
-  func connect(_ instance: SavedInstance) {
-    changeServer()
+  /// 新实例先取消旧尝试和草稿，只有本次返回可以更新界面与回填凭据；冷启动/小组件发起的连接保留系统跳转意图。
+  func connect(_ instance: SavedInstance, preserveSystemLaunchIntent: Bool = false) {
+    resetSessionState(clearSystemIntents: !preserveSystemLaunchIntent)
     do {
       selected = try instances.select(instance.address)
       saved = instances.instances
@@ -88,15 +88,22 @@ final class NativeAppModel: ObservableObject {
 
   /// 退出连接页不注销已保存令牌；旧网络、通知绑定、快捷项与临时 Widget 代次必须先停止。
   func changeServer() {
+    resetSessionState(clearSystemIntents: true)
+  }
+
+  /// 清理旧实例网络任务与界面草稿；独立本地文件与外部直链播放不随服务会话重置而中断。
+  private func resetSessionState(clearSystemIntents: Bool) {
     operationID = UUID()
     task?.cancel()
     task = nil
     busy = false
     if let selected { WidgetService.shared.endSession(instanceId: selected.id, clear: false) }
-    WidgetService.shared.cancelOpen()
-    NativeSystemRouteHub.shared.clearPending()
+    if clearSystemIntents {
+      WidgetService.shared.cancelOpen()
+      NativeSystemRouteHub.shared.clearPending()
+    }
     manager.disconnect()
-    NativeMediaPlaybackLauncher.shared.dismissActivePlayer(animated: false)
+    NativeMediaPlaybackLauncher.shared.dismissSessionBoundPlayer(animated: false)
     NotificationService.shared.attachNative(nil)
     clearSecrets()
     username = ""
@@ -172,7 +179,7 @@ final class NativeAppModel: ObservableObject {
     guard let selected else { return }
     do {
       try manager.logout()
-      NativeMediaPlaybackLauncher.shared.dismissActivePlayer(animated: false)
+      NativeMediaPlaybackLauncher.shared.dismissSessionBoundPlayer(animated: false)
       WidgetService.shared.endSession(instanceId: selected.id, clear: true)
       WidgetService.shared.cancelOpen()
       NativeSystemRouteHub.shared.clearPending()
@@ -193,11 +200,11 @@ final class NativeAppModel: ObservableObject {
     if case .authenticated = state, let session = manager.currentSession {
       NotificationService.shared.attachNative(session)
       WidgetService.shared.reconcile(native: session)
-      NativeSystemRouteHub.shared.resolveShortcut(for: session.instance.id.uuidString)
+      NativeSystemRouteHub.shared.resolvePending(for: session.instance.id.uuidString)
       return
     }
     if case .loginRequired(_, .expired) = state, let selected {
-      NativeMediaPlaybackLauncher.shared.dismissActivePlayer(animated: false)
+      NativeMediaPlaybackLauncher.shared.dismissSessionBoundPlayer(animated: false)
       NativePageDataCache.shared.clearAll()
       NativeMediaArtworkCache.shared.clearMemory()
       Self.dismissPresentedModals()
@@ -216,7 +223,7 @@ final class NativeAppModel: ObservableObject {
     }
   }
 
-  /// 回到前台或快捷项触发时，先校验令牌有效性（超时自动退出登录），再恢复未消费的系统集成。
+  /// 回到前台或深链/快捷项触发时，先校验令牌有效性（超时自动退出登录），再恢复未消费的系统集成。
   func resumeSystemIntegrations() {
     guard let session = manager.currentSession else { return }
     if session.isTokenExpired() {
@@ -235,15 +242,18 @@ final class NativeAppModel: ObservableObject {
     }
     NotificationService.shared.resumePending()
     WidgetService.shared.resumePending(native: session)
-    NativeSystemRouteHub.shared.resolveShortcut(for: session.instance.id.uuidString)
+    NativeSystemRouteHub.shared.resolvePending(for: session.instance.id.uuidString)
   }
 
-  /// 会话过期自动退出时收起可能仍盖在顶层的原生播放器或 UIKit 弹窗，保证登录页立刻可见。
+  /// 会话过期自动退出时收起可能仍盖在顶层的会话关联播放器或 UIKit 弹窗，保留独立本地/外部媒体播放。
   private static func dismissPresentedModals() {
     for scene in UIApplication.shared.connectedScenes {
       guard let windowScene = scene as? UIWindowScene else { continue }
       for window in windowScene.windows where window.isKeyWindow {
-        if window.rootViewController?.presentedViewController != nil {
+        if let presented = window.rootViewController?.presentedViewController {
+          if let player = presented as? MediaPlaybackViewController, !player.isSessionBound {
+            continue
+          }
           window.rootViewController?.dismiss(animated: false)
         }
       }
@@ -272,7 +282,7 @@ final class NativeAppModel: ObservableObject {
           if manager.currentSession == nil { start() }
           return
         }
-        connect(savedTarget)
+        connect(savedTarget, preserveSystemLaunchIntent: true)
       } catch {
         NativeSystemRouteHub.shared.postBanner(L10n.text("无法打开此小组件，请检查当前账号权限或重新启用资料。"))
         if manager.currentSession == nil { start() }

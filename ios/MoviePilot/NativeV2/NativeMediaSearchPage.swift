@@ -387,6 +387,7 @@ struct NativeMediaSearchPage: View {
   let session: NativeSession
   let onSelect: (String, String?, String?) -> Void
   @Binding var externalSearchQuery: String?
+  @Binding var externalSearchKind: String?
   @State private var query: String
   @State private var kind: NativeMediaSearchType = .media
   @State private var sources: [NativeMediaSourceOption] = []
@@ -417,10 +418,12 @@ struct NativeMediaSearchPage: View {
   init(
     session: NativeSession, initialQuery: String = "",
     externalSearchQuery: Binding<String?> = .constant(nil),
+    externalSearchKind: Binding<String?> = .constant(nil),
     onSelect: @escaping (String, String?, String?) -> Void = { _, _, _ in }
   ) {
     self.session = session
     _externalSearchQuery = externalSearchQuery
+    _externalSearchKind = externalSearchKind
     self.onSelect = onSelect
     _query = State(initialValue: initialQuery)
     _recentQueries = State(initialValue: Self.loadRecentQueries(for: session))
@@ -505,6 +508,9 @@ struct NativeMediaSearchPage: View {
       if !isLoadingSources { sourceLoadAttempt = UUID() }
     }
     .onChange(of: externalSearchQuery) { _ in
+      consumeExternalSearchIfNeeded()
+    }
+    .onChange(of: externalSearchKind) { _ in
       consumeExternalSearchIfNeeded()
     }
     .onDisappear(perform: cancelSearch)
@@ -1001,13 +1007,22 @@ struct NativeMediaSearchPage: View {
 
   /// 消费从发现卡片右键「搜索」等外部入口传入的关键词并立即触发检索。
   private func consumeExternalSearchIfNeeded() {
-    guard let pending = externalSearchQuery?.trimmingCharacters(in: .whitespacesAndNewlines),
-      !pending.isEmpty
-    else { return }
+    let pendingKind = externalSearchKind.flatMap(NativeMediaSearchType.init(rawValue:))
+    let pendingQuery = externalSearchQuery?.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard pendingKind != nil || (pendingQuery != nil && !(pendingQuery?.isEmpty ?? true)) else {
+      return
+    }
+    externalSearchKind = nil
     externalSearchQuery = nil
-    query = pending
-    if kind == .library { kind = .media }
-    submitSearch()
+    if let pendingKind {
+      kind = pendingKind
+    } else if kind == .library {
+      kind = .media
+    }
+    if let pendingQuery, !pendingQuery.isEmpty {
+      query = pendingQuery
+      submitSearch()
+    }
   }
 
   /// 参照 Cinematic 全局搜索的人物圆形头像横栏，支持推入 TMDB / 豆瓣 / Bangumi / AniList 原生人物详情页。

@@ -1,5 +1,7 @@
+import AVFoundation
 import Combine
 import Foundation
+import ImageIO
 import MoviePilotCore
 import MoviePilotSession
 import UIKit
@@ -14,30 +16,60 @@ struct NativeMiniMusicState {
   let hasNext: Bool
 }
 
-/// 原生媒体播放调度器：脱离 WebCoordinator 直接拉起 `MediaPlaybackViewController`（VLCKit/AVKit/PiP），支持媒体服务器流、音乐队列、存储本地文件播放与可最小化悬浮音乐迷你条。
+/// 原生媒体播放调度器：脱离 WebCoordinator 直接拉起 `MediaPlaybackViewController`（VLCKit/AVKit/PiP），支持媒体服务器流、音乐队列、存储文件、系统打开的本地音视频文件与外部直链播放，以及可最小化悬浮音乐迷你条。
 @MainActor
 final class NativeMediaPlaybackLauncher: ObservableObject {
   static let shared = NativeMediaPlaybackLauncher()
+
+  /// 冷启动尚未完成窗口挂载时暂存的外部播放请求（本地文件或直链流）。
+  private enum PendingExternalPlayback {
+    case localFile(
+      url: URL,
+      title: String,
+      kind: PlayableMediaKind,
+      lease: SecurityScopedResourceLease,
+      deleteAfterClose: Bool
+    )
+    case externalURL(url: URL, title: String?, kind: PlayableMediaKind)
+  }
+
+  /// 本地音频文件提取到的内嵌展示元数据。
+  private struct LocalAudioMetadata: Sendable {
+    let title: String?
+    let artist: String?
+    let album: String?
+    let artworkData: Data?
+  }
 
   @Published private(set) var miniMusicState: NativeMiniMusicState?
 
   private var activePlayer: MediaPlaybackViewController?
   private var minimizedPlayer: MediaPlaybackViewController?
+  private var pendingExternalPlayback: PendingExternalPlayback?
+  private var externalLaunchTask: Task<Void, Never>?
 
   private init() {}
 
   /// 判断文件扩展名是否支持使用原生播放器直接播放。
   static func isPlayableMediaExtension(_ rawExt: String?) -> Bool {
-    guard let ext = rawExt?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
-    else { return false }
-    return videoExtensions.contains(ext) || audioExtensions.contains(ext)
+    PlayableMediaFormat.isPlayableExtension(rawExt)
   }
 
   /// 判断是否为音频扩展名。
   static func isAudioExtension(_ rawExt: String?) -> Bool {
-    guard let ext = rawExt?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+    PlayableMediaFormat.isAudioExtension(rawExt)
+  }
+
+  /// 判断 URL 是否位于应用沙箱 `Documents/Inbox/` 临时移交目录内（仅此类副本在关闭后清理，绝不删除原位用户文件）。
+  static func isInsideDocumentsInbox(_ url: URL) -> Bool {
+    guard url.isFileURL,
+      let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
     else { return false }
-    return audioExtensions.contains(ext)
+    let inboxPath = docs.appendingPathComponent("Inbox", isDirectory: true)
+      .standardizedFileURL.resolvingSymlinksInPath().path
+    let filePath = url.standardizedFileURL.resolvingSymlinksInPath().path
+    let prefix = inboxPath.hasSuffix("/") ? inboxPath : inboxPath + "/"
+    return filePath.hasPrefix(prefix)
   }
 
   /// 将封面原始地址转换为当前实例受信任的图片代理地址，供原生播放器加载封面与锁屏海报。
@@ -73,7 +105,7 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
       let manifest = try await client.loadManifest(itemId: itemID, server: server)
       return present(
         manifest: manifest, client: client, instanceID: session.instance.id,
-        itemID: itemID, title: title, artworkURL: artworkURL,
+        itemID: itemID, title: title.isEmpty ? manifest.title : title, artworkURL: artworkURL,
         queue: queue, queueIndex: queueIndex)
     } catch {
       return "无法读取媒体服务器播放流，请确认影片仍在媒体库中并检查后台连接。"
@@ -126,24 +158,77 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
     }
   }
 
-  /// 强制关闭当前活跃或最小化的播放器（实例切换、退出登录或新起播替换时调用）。
+  /// 接收系统文件菜单 / 共享面板打开的本机音视频文件；若窗口尚未挂载则自动排队至首帧展示。
+  func enqueueOrPlayLocalFile(
+    url: URL,
+    title: String,
+    kind: PlayableMediaKind,
+    securityScopeLease: SecurityScopedResourceLease,
+    deleteAfterClose: Bool
+  ) {
+    let shouldDelete = deleteAfterClose && Self.isInsideDocumentsInbox(url)
+    let request = PendingExternalPlayback.localFile(
+      url: url, title: title, kind: kind, lease: securityScopeLease, deleteAfterClose: shouldDelete)
+    if Self.topViewController() == nil {
+      pendingExternalPlayback = request
+      return
+    }
+    pendingExternalPlayback = nil
+    launchExternalPlayback(request)
+  }
+
+  /// 接收 `moviepilot://play?url=...` 外部直链流；无需登录 MoviePilot 且不附带任何账号凭据。
+  func enqueueOrPlayExternalURL(
+    url: URL,
+    title: String?,
+    kind: PlayableMediaKind
+  ) {
+    let request = PendingExternalPlayback.externalURL(url: url, title: title, kind: kind)
+    if Self.topViewController() == nil {
+      pendingExternalPlayback = request
+      return
+    }
+    pendingExternalPlayback = nil
+    launchExternalPlayback(request)
+  }
+
+  /// 窗口完成挂载并可见后消费冷启动期间排队的本地文件或外部直链播放请求。
+  func presentPendingExternalPlaybackIfNeeded() {
+    guard let pending = pendingExternalPlayback, Self.topViewController() != nil else { return }
+    pendingExternalPlayback = nil
+    launchExternalPlayback(pending)
+  }
+
+  /// 仅关闭绑定到 MoviePilot 服务会话的播放器；独立本地文件与外部直链播放不受切换服务或会话刷新影响。
+  func dismissSessionBoundPlayer(animated: Bool = true) {
+    if let player = activePlayer, player.isSessionBound {
+      activePlayer = nil
+      dismissController(player, animated: animated)
+    }
+    if let mini = minimizedPlayer, mini.isSessionBound {
+      minimizedPlayer = nil
+      miniMusicState = nil
+      dismissController(mini, animated: animated)
+    }
+  }
+
+  /// 仅收起全屏呈现中的播放器（保留最小化悬浮音乐条），用于响应外部页面跳转深链。
+  func dismissFullScreenPlayerIfNeeded(animated: Bool = false) {
+    guard let player = activePlayer else { return }
+    activePlayer = nil
+    dismissController(player, animated: animated)
+  }
+
+  /// 强制关闭当前活跃或最小化的播放器（新起播替换或手动停止时调用）。
   func dismissActivePlayer(animated: Bool = true) {
     miniMusicState = nil
     if let player = activePlayer {
       activePlayer = nil
-      let wasPresented = player.presentingViewController != nil && !player.isBeingDismissed
-      if !animated, wasPresented {
-        player.dismiss(animated: false)
-      }
-      player.closeFromShell()
+      dismissController(player, animated: animated)
     }
     if let mini = minimizedPlayer {
       minimizedPlayer = nil
-      let wasPresented = mini.presentingViewController != nil && !mini.isBeingDismissed
-      if !animated, wasPresented {
-        mini.dismiss(animated: false)
-      }
-      mini.closeFromShell()
+      dismissController(mini, animated: animated)
     }
   }
 
@@ -174,16 +259,172 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
     dismissActivePlayer(animated: false)
   }
 
+  /// 异步准备并拉起本地音视频文件或外部直链播放器，自动提取本地音频内嵌标题/艺人/专辑/封面。
+  private func launchExternalPlayback(_ request: PendingExternalPlayback) {
+    externalLaunchTask?.cancel()
+    externalLaunchTask = Task { [weak self] in
+      guard let self else { return }
+      switch request {
+      case .localFile(let url, let title, let kind, let lease, let deleteAfterClose):
+        guard FileManager.default.isReadableFile(atPath: url.path) else {
+          lease.release()
+          if deleteAfterClose { try? FileManager.default.removeItem(at: url) }
+          NativeSystemRouteHub.shared.postBanner(L10n.text("无法读取该本地音视频文件，请确认文件已下载到本机。"))
+          return
+        }
+        let metadata: LocalAudioMetadata? =
+          kind == .audio ? await Self.extractLocalAudioMetadata(from: url) : nil
+        guard !Task.isCancelled else {
+          lease.release()
+          return
+        }
+        let resolvedTitle =
+          metadata?.title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? title
+        let artwork = metadata?.artworkData.flatMap(Self.decodeBoundedArtwork)
+        let fileSize =
+          (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(String.init) ?? "0"
+        let itemID = "local:\(url.lastPathComponent):\(fileSize)"
+        let manifest = MediaPlaybackManifest(
+          itemId: itemID,
+          server: nil,
+          title: resolvedTitle,
+          contentUrl: url,
+          mediaType: kind.rawValue,
+          artist: metadata?.artist,
+          album: metadata?.album,
+          subtitles: [],
+          lyricsUrl: nil
+        )
+        if let error = present(
+          manifest: manifest,
+          client: nil,
+          instanceID: MediaPlaybackViewController.externalPlaybackNamespace,
+          itemID: itemID,
+          title: resolvedTitle,
+          artworkURL: nil,
+          initialArtwork: artwork,
+          queue: [],
+          queueIndex: 0,
+          deleteContentFileOnClose: deleteAfterClose,
+          securityScopeLease: lease
+        ) {
+          lease.release()
+          if deleteAfterClose { try? FileManager.default.removeItem(at: url) }
+          NativeSystemRouteHub.shared.postBanner(error)
+        }
+
+      case .externalURL(let url, let title, let kind):
+        let fallbackName = url.deletingPathExtension().lastPathComponent
+          .trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedTitle =
+          title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? (fallbackName.isEmpty || fallbackName == "/" ? nil : fallbackName)
+          ?? url.host
+          ?? L10n.text("在线媒体")
+        let itemID = "external:\(url.absoluteString)"
+        let manifest = MediaPlaybackManifest(
+          itemId: itemID,
+          server: nil,
+          title: resolvedTitle,
+          contentUrl: url,
+          mediaType: kind.rawValue,
+          artist: nil,
+          album: nil,
+          subtitles: [],
+          lyricsUrl: nil
+        )
+        if let error = present(
+          manifest: manifest,
+          client: nil,
+          instanceID: MediaPlaybackViewController.externalPlaybackNamespace,
+          itemID: itemID,
+          title: resolvedTitle,
+          artworkURL: nil,
+          initialArtwork: nil,
+          queue: [],
+          queueIndex: 0,
+          deleteContentFileOnClose: false,
+          securityScopeLease: nil
+        ) {
+          NativeSystemRouteHub.shared.postBanner(error)
+        }
+      }
+    }
+  }
+
+  /// 在后台读取本地音频内嵌标签与限长封面，读取失败静默降级为文件名与默认占位封面。
+  nonisolated private static func extractLocalAudioMetadata(from url: URL) async
+    -> LocalAudioMetadata
+  {
+    let asset = AVURLAsset(url: url)
+    guard let items = try? await asset.load(.commonMetadata) else {
+      return LocalAudioMetadata(title: nil, artist: nil, album: nil, artworkData: nil)
+    }
+    var title: String?
+    var artist: String?
+    var album: String?
+    var artworkData: Data?
+    for item in items {
+      guard let commonKey = item.commonKey else { continue }
+      switch commonKey {
+      case .commonKeyTitle where title == nil:
+        title = (try? await item.load(.stringValue))?.trimmingCharacters(
+          in: .whitespacesAndNewlines)
+      case .commonKeyArtist where artist == nil:
+        artist = (try? await item.load(.stringValue))?
+          .trimmingCharacters(in: .whitespacesAndNewlines)
+      case .commonKeyAlbumName where album == nil:
+        album = (try? await item.load(.stringValue))?
+          .trimmingCharacters(in: .whitespacesAndNewlines)
+      case .commonKeyArtwork where artworkData == nil:
+        if let data = try? await item.load(.dataValue), !data.isEmpty, data.count <= 8 * 1024 * 1024
+        {
+          artworkData = data
+        }
+      default:
+        break
+      }
+    }
+    return LocalAudioMetadata(title: title, artist: artist, album: album, artworkData: artworkData)
+  }
+
+  /// 将内嵌封面数据按最大 960px 限尺寸安全解码，防止超大封面图触发内存峰值。
+  private static func decodeBoundedArtwork(_ data: Data) -> UIImage? {
+    guard !data.isEmpty, data.count <= 8 * 1024 * 1024,
+      let source = CGImageSourceCreateWithData(data as CFData, nil),
+      let image = CGImageSourceCreateThumbnailAtIndex(
+        source, 0,
+        [
+          kCGImageSourceCreateThumbnailFromImageAlways: true,
+          kCGImageSourceThumbnailMaxPixelSize: 960,
+          kCGImageSourceCreateThumbnailWithTransform: true,
+        ] as CFDictionary)
+    else { return nil }
+    return UIImage(cgImage: image)
+  }
+
+  /// 关闭单个播放器实例并清理其呈现状态。
+  private func dismissController(_ controller: MediaPlaybackViewController, animated: Bool) {
+    let wasPresented = controller.presentingViewController != nil && !controller.isBeingDismissed
+    if !animated, wasPresented {
+      controller.dismiss(animated: false)
+    }
+    controller.closeFromShell()
+  }
+
   /// 查找前台活跃窗口顶层控制器并全屏呈现原生播放器。
   private func present(
     manifest: MediaPlaybackManifest,
-    client: MediaPlaybackClient,
+    client: MediaPlaybackClient?,
     instanceID: UUID,
     itemID: String,
     title: String,
     artworkURL: URL?,
+    initialArtwork: UIImage? = nil,
     queue: [MediaPlaybackQueueItem],
-    queueIndex: Int
+    queueIndex: Int,
+    deleteContentFileOnClose: Bool = false,
+    securityScopeLease: SecurityScopedResourceLease? = nil
   ) -> String? {
     dismissActivePlayer(animated: false)
     guard let presenter = Self.topViewController() else {
@@ -196,8 +437,11 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
       itemId: itemID,
       displayTitle: title,
       artworkURL: artworkURL,
+      initialArtwork: initialArtwork,
       queue: queue,
       queueIndex: queueIndex,
+      deleteContentFileOnClose: deleteContentFileOnClose,
+      securityScopeLease: securityScopeLease,
       onMinimize: { [weak self] vc in
         guard let self else { return }
         self.minimizedPlayer = vc
@@ -235,7 +479,16 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
     }
     player.modalPresentationStyle = .fullScreen
     activePlayer = player
-    presenter.present(player, animated: true)
+    if presenter.presentedViewController != nil {
+      DispatchQueue.main.async { [weak self, weak presenter, weak player] in
+        guard let self, let presenter, let player, self.activePlayer === player,
+          player.presentingViewController == nil
+        else { return }
+        presenter.present(player, animated: true)
+      }
+    } else {
+      presenter.present(player, animated: true)
+    }
     return nil
   }
 
@@ -251,11 +504,11 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
     }
     return current
   }
+}
 
-  private static let videoExtensions: Set<String> = [
-    "mp4", "mkv", "mov", "m4v", "avi", "ts", "m2ts", "webm", "flv", "wmv", "rmvb",
-  ]
-  private static let audioExtensions: Set<String> = [
-    "mp3", "flac", "m4a", "aac", "wav", "ogg", "opus", "alac", "ape",
-  ]
+extension String {
+  /// 空白字符串转为 nil，方便链式回退标题展示。
+  fileprivate var nilIfEmpty: String? {
+    isEmpty ? nil : self
+  }
 }

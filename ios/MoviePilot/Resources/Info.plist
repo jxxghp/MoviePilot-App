@@ -15,9 +15,164 @@
     <key>CFBundleURLName</key><string>org.moviepilot.app.notification</string>
     <key>CFBundleURLSchemes</key><array><string>moviepilot-app</string></array>
   </dict><dict>
-    <key>CFBundleURLName</key><string>org.moviepilot.app.widget</string>
+    <key>CFBundleURLName</key><string>com.moviepilot.app.deeplink</string>
     <key>CFBundleURLSchemes</key><array><string>moviepilot</string></array>
   </dict></array>
+  <key>LSSupportsOpeningDocumentsInPlace</key><true/>
+  <key>CFBundleDocumentTypes</key><array>
+    <dict>
+      <key>CFBundleTypeName</key><string>MoviePilot Video</string>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>LSItemContentTypes</key><array>
+        <string>public.movie</string>
+        <string>public.video</string>
+        <string>public.audiovisual-content</string>
+        <string>public.mpeg-4</string>
+        <string>com.apple.quicktime-movie</string>
+        <string>public.avi</string>
+        <string>public.mpeg</string>
+        <string>public.mpeg-2-video</string>
+        <string>public.mpeg-2-transport-stream</string>
+        <string>org.matroska.mkv</string>
+        <string>org.webmproject.webm</string>
+        <string>com.adobe.flash-video</string>
+        <string>com.microsoft.windows-media-wmv</string>
+        <string>com.real.realmedia-vbr</string>
+        <string>com.moviepilot.media.m2ts</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>MoviePilot Audio</string>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>LSItemContentTypes</key><array>
+        <string>public.audio</string>
+        <string>public.mp3</string>
+        <string>public.mpeg-4-audio</string>
+        <string>public.aac-audio</string>
+        <string>com.microsoft.waveform-audio</string>
+        <string>public.aiff-audio</string>
+        <string>public.flac</string>
+        <string>org.xiph.flac</string>
+        <string>org.xiph.ogg</string>
+        <string>org.xiph.opus</string>
+        <string>org.matroska.mka</string>
+        <string>com.monkeysaudio.ape</string>
+        <string>com.microsoft.windows-media-wma</string>
+      </array>
+    </dict>
+  </array>
+  <key>UTImportedTypeDeclarations</key><array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>org.matroska.mkv</string>
+      <key>UTTypeDescription</key><string>Matroska Video</string>
+      <key>UTTypeConformsTo</key><array><string>public.movie</string><string>public.audiovisual-content</string></array>
+      <key>UTTypeTagSpecification</key><dict>
+        <key>public.filename-extension</key><array><string>mkv</string><string>mk3d</string></array>
+        <key>public.mime-type</key><array><string>video/x-matroska</string></array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>org.matroska.mka</string>
+      <key>UTTypeDescription</key><string>Matroska Audio</string>
+      <key>UTTypeConformsTo</key><array><string>public.audio</string></array>
+      <key>UTTypeTagSpecification</key><dict>
+        <key>public.filename-extension</key><array><string>mka</string></array>
+        <key>public.mime-type</key><array><string>audio/x-matroska</string></array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>org.webmproject.webm</string>
+      <key>UTTypeDescription</key><string>WebM Video</string>
+      <key>UTTypeConformsTo</key><array><string>public.movie</string><string>public.audiovisual-content</string></array>
+      <key>UTTypeTagSpecification</key><dict>
+        <key>public.filename-extension</key><array><string>webm</string></array>
+        <key>public.mime-type</key><array><string>video/webm</string></array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>com.adobe.flash-video</string>
+      <key>UTTypeDescription</key><string>Flash Video</string>
+      <key>UTTypeConformsTo</key><array><string>public.movie</string><string>public.audiovisual-content</string></array>
+      <key>UTTypeTagSpecification</key><dict>
+        <key>public.filename-extension</key><array><string>flv</string><string>f4v</string></array>
+        <key>public.mime-type</key><array><string>video/x-flv</string></array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>com.microsoft.windows-media-wmv</string>
+      <key>UTTypeDescription</key><string>Windows Media Video</string>
+      <key>UTTypeConformsTo</key><array><string>public.movie</string><string>public.audiovisual-content</string></array>
+      <key>UTTypeTagSpecification</key><dict>
+        <key>public.filename-extension</key><array><string>wmv</string><string>asf</string></array>
+        <key>public.mime-type</key><array><string>video/x-ms-wmv</string></array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>com.real.realmedia-vbr</string>
+      <key>UTTypeDescription</key><string>RealMedia Video</string>
+      <key>UTTypeConformsTo</key><array><string>public.movie</string><string>public.audiovisual-content</string></array>
+      <key>UTTypeTagSpecification</key><dict>
+        <key>public.filename-extension</key><array><string>rmvb</string><string>rm</string></array>
+        <key>public.mime-type</key><array><string>application/vnd.rn-realmedia-vbr</string></array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>com.moviepilot.media.m2ts</string>
+      <key>UTTypeDescription</key><string>Transport Stream Video</string>
+      <key>UTTypeConformsTo</key><array><string>public.movie</string><string>public.audiovisual-content</string></array>
+      <key>UTTypeTagSpecification</key><dict>
+        <key>public.filename-extension</key><array><string>m2ts</string><string>mts</string><string>vob</string><string>ogv</string></array>
+        <key>public.mime-type</key><array><string>video/mp2t</string></array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>org.xiph.flac</string>
+      <key>UTTypeDescription</key><string>FLAC Audio</string>
+      <key>UTTypeConformsTo</key><array><string>public.audio</string></array>
+      <key>UTTypeTagSpecification</key><dict>
+        <key>public.filename-extension</key><array><string>flac</string></array>
+        <key>public.mime-type</key><array><string>audio/flac</string></array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>org.xiph.ogg</string>
+      <key>UTTypeDescription</key><string>Ogg Audio</string>
+      <key>UTTypeConformsTo</key><array><string>public.audio</string></array>
+      <key>UTTypeTagSpecification</key><dict>
+        <key>public.filename-extension</key><array><string>ogg</string><string>oga</string></array>
+        <key>public.mime-type</key><array><string>audio/ogg</string></array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>org.xiph.opus</string>
+      <key>UTTypeDescription</key><string>Opus Audio</string>
+      <key>UTTypeConformsTo</key><array><string>public.audio</string></array>
+      <key>UTTypeTagSpecification</key><dict>
+        <key>public.filename-extension</key><array><string>opus</string></array>
+        <key>public.mime-type</key><array><string>audio/opus</string></array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>com.monkeysaudio.ape</string>
+      <key>UTTypeDescription</key><string>Monkey's Audio</string>
+      <key>UTTypeConformsTo</key><array><string>public.audio</string></array>
+      <key>UTTypeTagSpecification</key><dict>
+        <key>public.filename-extension</key><array><string>ape</string></array>
+        <key>public.mime-type</key><array><string>audio/x-ape</string></array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>com.microsoft.windows-media-wma</string>
+      <key>UTTypeDescription</key><string>Windows Media Audio</string>
+      <key>UTTypeConformsTo</key><array><string>public.audio</string></array>
+      <key>UTTypeTagSpecification</key><dict>
+        <key>public.filename-extension</key><array><string>wma</string></array>
+        <key>public.mime-type</key><array><string>audio/x-ms-wma</string></array>
+      </dict>
+    </dict>
+  </array>
   <key>LSApplicationQueriesSchemes</key><array>
     <string>emby</string>
     <string>jellyfin</string>

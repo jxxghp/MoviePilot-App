@@ -1565,6 +1565,48 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
+  /// 验证外部 `moviepilot://` 路径联动深链：依次直达订阅分类、诊断词表、文件管理、整理历史、正在下载与关键词搜索，无效路径展示安全提示。
+  func testNativeDeepLinkPathRouting() async throws {
+    guard #available(iOS 16.4, *) else {
+      throw XCTSkip("XCUIApplication.open(_:) 需要 iOS 16.4 及以上系统")
+    }
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    // 移除 cleanPicker 的重置参数，避免 `app.open(_:)` 触发重连时清空已保存的当前实例。
+    app.launchArguments = arguments
+
+    app.open(URL(string: "moviepilot://subscribe/movie")!)
+    XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 15))
+
+    app.open(URL(string: "moviepilot://diagnostics/words")!)
+    XCTAssertTrue(app.scrollViews["native-diag-scroll"].waitForExistence(timeout: 15))
+
+    app.open(URL(string: "moviepilot://files?storage=local&path=/")!)
+    XCTAssertTrue(app.scrollViews["native-files-scroll"].waitForExistence(timeout: 15))
+
+    app.open(URL(string: "moviepilot://history?search=Matrix")!)
+    XCTAssertTrue(app.scrollViews["native-history-scroll"].waitForExistence(timeout: 15))
+
+    app.open(URL(string: "moviepilot://open?path=/downloading")!)
+    XCTAssertTrue(app.scrollViews["native-downloads-scroll"].waitForExistence(timeout: 15))
+
+    app.open(URL(string: "moviepilot://search?q=Matrix")!)
+    XCTAssertTrue(app.scrollViews["native-media-search-scroll"].waitForExistence(timeout: 15))
+
+    app.open(URL(string: "moviepilot://shortcuts")!)
+    XCTAssertTrue(app.buttons["native-shortcuts-close"].waitForExistence(timeout: 15))
+    capture("sheet-preview-shortcuts")
+
+    app.open(URL(string: "moviepilot://messages")!)
+    XCTAssertTrue(app.scrollViews["native-messages-scroll"].waitForExistence(timeout: 15))
+    capture("sheet-preview-messages")
+
+    app.open(URL(string: "moviepilot://unknown/not-real")!)
+    XCTAssertTrue(
+      app.staticTexts["无法识别该 MoviePilot 链接路径，请检查链接格式。"].waitForExistence(timeout: 10))
+    XCTAssertEqual(app.webViews.count, 0)
+  }
+
   /// 单条发现源失败仍保留可用轨道；重试更新全部轨道且不注入预览样例。
   func testNativeDiscoverRetainsAvailableRailsAndRetriesPartialFailure() async throws {
     let app = try await signInToNativeBusiness(mode: "partial-discovery-failed")

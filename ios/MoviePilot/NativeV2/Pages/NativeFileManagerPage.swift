@@ -25,10 +25,8 @@ struct NativeFileManagerPage: View {
   @State private var storages: [NativeStorageOption] = [
     NativeStorageOption(value: "local", title: "本地")
   ]
-  @State private var activeStorage = "local"
-  @State private var pathStack: [NativeFileItem] = [
-    NativeFileItem(storage: "local", type: "dir", path: "/", name: "根目录")
-  ]
+  @State private var activeStorage: String
+  @State private var pathStack: [NativeFileItem]
   @State private var items: [NativeFileItem] = []
   @State private var fileFilter: FileFilter = .all
   @State private var fileSort: FileSort = .nameAsc
@@ -42,6 +40,29 @@ struct NativeFileManagerPage: View {
   @State private var pendingTransfer: NativeFileItem?
   @State private var playingFilePath: String?
   @State private var feedback: NativeFileFeedback?
+
+  /// 初始化文件管理器，支持通过 `moviepilot://files?storage=...&path=...` 直接落位至指定存储与目录。
+  init(session: NativeSession, initialStorage: String? = nil, initialPath: String? = nil) {
+    self.session = session
+    let storage =
+      initialStorage?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+      ? initialStorage!.trimmingCharacters(in: .whitespacesAndNewlines)
+      : "local"
+    _activeStorage = State(initialValue: storage)
+    var stack = [NativeFileItem(storage: storage, type: "dir", path: "/", name: "根目录")]
+    if let rawPath = initialPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !rawPath.isEmpty, rawPath != "/"
+    {
+      let segments = rawPath.split(separator: "/").map(String.init)
+      var currentPath = ""
+      for segment in segments {
+        currentPath += "/\(segment)"
+        stack.append(
+          NativeFileItem(storage: storage, type: "dir", path: currentPath + "/", name: segment))
+      }
+    }
+    _pathStack = State(initialValue: stack)
+  }
 
   /// 连续语义背景、一体化存储切换与面包屑地址栏、目录/文件玻璃列表。
   var body: some View {

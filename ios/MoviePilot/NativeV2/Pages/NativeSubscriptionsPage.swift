@@ -8,7 +8,7 @@ import SwiftUI
 @MainActor
 struct NativeSubscriptionsPage: View {
   /// 订阅列表的分类筛选维度。
-  private enum Filter: String, CaseIterable, Identifiable {
+  enum Filter: String, CaseIterable, Identifiable, Hashable {
     case all = "全部"
     case movie = "电影"
     case tv = "电视剧"
@@ -38,7 +38,7 @@ struct NativeSubscriptionsPage: View {
   let session: NativeSession
 
   @State private var items: [NativeSubscribeItem] = []
-  @State private var filter: Filter = .all
+  @State private var filter: Filter
   @State private var stateFilter: StateFilter = .all
   @State private var sortMode: SortMode = .defaultOrder
   @State private var searchText = ""
@@ -49,6 +49,12 @@ struct NativeSubscriptionsPage: View {
   @State private var editingItem: NativeSubscribeItem?
   @State private var pendingDelete: NativeSubscribeItem?
   @State private var feedback: NativeSubscribeFeedback?
+
+  /// 初始化订阅中心，可选按外部深链或小组件意图直接切换至电影/电视剧/音乐分类。
+  init(session: NativeSession, initialFilter: Filter = .all) {
+    self.session = session
+    _filter = State(initialValue: initialFilter)
+  }
 
   /// 采用统一深色紫玫瑰渐变与透色海报玻璃卡，卡片可直达原生影视详情页。
   var body: some View {

@@ -172,8 +172,9 @@ extension EnvironmentValues {
   }
 }
 
-/// 弹窗原生通透玻璃底面：iOS 26+ 使用系统 Liquid Glass（`.glassEffect(.regular)` + 同心圆角）避免旧版 `.ultraThinMaterial` 偏灰，
-/// iOS 16.4–25 回退轻透毛玻璃叠柔和背景光泽，保持通透玻璃层次与文字可读性。
+/// 弹窗原生通透玻璃底面：完整保留系统原生 Sheet 弹性手势、分档吸附、拖拽指示条与同心圆角，
+/// 彻底移除发灰的 `.ultraThinMaterial` 与 iOS 26 大面片深灰雾底，
+/// 直接以半透明主界面同源流光渐变 + 极轻透色光泽与玻璃高光边呈现与主界面一致的通透质感。
 @MainActor
 private struct NativeSheetGlassBackdrop: View {
   @Environment(\.colorScheme) private var colorScheme
@@ -181,35 +182,42 @@ private struct NativeSheetGlassBackdrop: View {
 
   var body: some View {
     let isLight = colorScheme == .light
-    Group {
+    ZStack {
+      // 主界面同源流光渐变以半透明透色铺底：既保留背后画面的通透层次，又绝不发灰发黑。
+      CinematicAmbientGradient()
+        .opacity(isLight ? 0.82 : 0.78)
+
+      // 极轻主题强调色与紫玫透色玻璃光泽，贴合主界面低雾感透色玻璃质感。
+      LinearGradient(
+        colors: isLight
+          ? [Color.white.opacity(0.24), .clear, appearance.accentColor.opacity(0.06)]
+          : [
+            appearance.accentColor.opacity(0.12),
+            .clear,
+            Color(red: 0.70, green: 0.39, blue: 0.59).opacity(0.10),
+          ],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+      )
+
+      // iOS 26 原生同心圆角细高光边，突出通透玻璃器皿边界而不产生灰雾遮罩。
       if #available(iOS 26, *) {
-        Color.clear
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-          .glassEffect(.regular, in: ConcentricRectangle())
-          .ignoresSafeArea()
-      } else {
-        let stops = appearance.backgroundStops(for: colorScheme)
-        ZStack {
-          Rectangle()
-            .fill(.ultraThinMaterial)
-            .opacity(isLight ? 0.56 : 0.36)
-          LinearGradient(
-            stops: stops,
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
+        ConcentricRectangle()
+          .stroke(
+            LinearGradient(
+              colors: isLight
+                ? [
+                  .white.opacity(0.85), .black.opacity(0.06), appearance.accentColor.opacity(0.16),
+                ]
+                : [.white.opacity(0.28), .white.opacity(0.08), .white.opacity(0.14)],
+              startPoint: .topLeading,
+              endPoint: .bottomTrailing
+            ),
+            lineWidth: 1.2
           )
-          .opacity(isLight ? 0.20 : 0.24)
-          LinearGradient(
-            colors: isLight
-              ? [Color.white.opacity(0.24), Color.white.opacity(0.08)]
-              : [Color.white.opacity(0.06), Color.clear],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-          )
-        }
-        .ignoresSafeArea()
       }
     }
+    .ignoresSafeArea()
     .preferredColorScheme(appearance.preferredColorScheme)
   }
 }
@@ -254,14 +262,79 @@ enum CinematicStyle {
   static let separator = Color.white.opacity(0.10)
 }
 
-/// 所有原生页面共用连续背景渐变，随用户选择的深/浅色主题及背景过渡配色实时更新；在模态弹窗中自动透明并透出原生玻璃底面。
+/// 缓慢微弱的同色系动态流光渐变：严格限定在用户当前所选渐变色板内呼吸流动（iOS 18+ 使用 GPU 加速 `MeshGradient`，
+/// 旧版使用柔和端点漂移），在减弱动态效果、低电量模式、后台态或关闭开关时自动静止，零额外耗电且不偏离设定色调。
 @MainActor
-struct CinematicBackground: View {
+struct CinematicAmbientGradient: View {
   @Environment(\.colorScheme) private var colorScheme
-  @Environment(\.nativeIsSheetPresentation) private var isSheetPresentation
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.scenePhase) private var scenePhase
   @ObservedObject private var appearance = NativeAppearanceStore.shared
 
-  /// 背景静止以减少干扰，也避免减弱动态模式下仍有装饰性移动；弹窗内仅清理导航容器实底而不二次叠渐变。
+  /// 仅在前台、启用动态背景、未开启减弱动态与非低电量模式下缓慢流动。
+  private var isPaused: Bool {
+    !appearance.animateBackground || reduceMotion || scenePhase != .active
+      || ProcessInfo.processInfo.isLowPowerModeEnabled
+  }
+
+  var body: some View {
+    TimelineView(.animation(minimumInterval: 1.0 / 15.0, paused: isPaused)) { timeline in
+      let phase = isPaused ? 0.0 : timeline.date.timeIntervalSinceReferenceDate
+      gradientView(at: phase)
+    }
+  }
+
+  /// 按当前相位绘制 3×3 网格流光或温和线性漂移，所有色点 100% 取自当前主题色板。
+  @ViewBuilder
+  private func gradientView(at phase: TimeInterval) -> some View {
+    let palette = appearance.backgroundPalette(for: colorScheme)
+    let c0 = palette.indices.contains(0) ? palette[0] : CinematicStyle.background
+    let c1 = palette.indices.contains(1) ? palette[1] : c0
+    let c2 = palette.indices.contains(2) ? palette[2] : c1
+    let c3 = palette.indices.contains(3) ? palette[3] : c2
+
+    if #available(iOS 18.0, *) {
+      let topX: Float = 0.50 + 0.18 * Float(sin(phase * 0.21))
+      let leftY: Float = 0.50 + 0.16 * Float(cos(phase * 0.17 + 0.6))
+      let centerX: Float = 0.50 + 0.18 * Float(sin(phase * 0.15 + 1.4))
+      let centerY: Float = 0.50 + 0.17 * Float(cos(phase * 0.19 + 0.3))
+      let rightY: Float = 0.50 + 0.16 * Float(sin(phase * 0.18 + 2.2))
+      let bottomX: Float = 0.50 + 0.18 * Float(cos(phase * 0.23 + 1.1))
+      MeshGradient(
+        width: 3,
+        height: 3,
+        points: [
+          SIMD2(0.0, 0.0), SIMD2(topX, 0.0), SIMD2(1.0, 0.0),
+          SIMD2(0.0, leftY), SIMD2(centerX, centerY), SIMD2(1.0, rightY),
+          SIMD2(0.0, 1.0), SIMD2(bottomX, 1.0), SIMD2(1.0, 1.0),
+        ],
+        colors: [
+          c0, c0, c1,
+          c1, c2, c2,
+          c2, c3, c3,
+        ],
+        smoothsColors: true
+      )
+    } else {
+      let startX = 0.08 + 0.12 * sin(phase * 0.19)
+      let startY = 0.06 + 0.08 * cos(phase * 0.15)
+      let endX = 0.92 + 0.08 * cos(phase * 0.17 + 1.0)
+      let endY = 0.94 + 0.06 * sin(phase * 0.21 + 0.8)
+      LinearGradient(
+        stops: appearance.backgroundStops(for: colorScheme),
+        startPoint: UnitPoint(x: startX, y: startY),
+        endPoint: UnitPoint(x: endX, y: endY)
+      )
+    }
+  }
+}
+
+/// 所有原生页面共用连续背景渐变，随用户选择的深/浅色主题与背景过渡配色缓慢微弱流动；在模态弹窗中自动透明并透出原生玻璃底面。
+@MainActor
+struct CinematicBackground: View {
+  @Environment(\.nativeIsSheetPresentation) private var isSheetPresentation
+
+  /// 弹窗内仅清理导航容器实底而不二次叠渐变；主页面渲染同色系缓慢动态流光背景。
   @ViewBuilder
   var body: some View {
     if isSheetPresentation {
@@ -273,11 +346,9 @@ struct CinematicBackground: View {
         Color.clear.allowsHitTesting(false)
       }
     } else {
-      LinearGradient(
-        stops: appearance.backgroundStops(for: colorScheme),
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-      ).ignoresSafeArea().allowsHitTesting(false)
+      CinematicAmbientGradient()
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
     }
   }
 }

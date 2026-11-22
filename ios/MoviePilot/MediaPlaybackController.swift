@@ -366,9 +366,45 @@ private enum MediaPlaybackError: LocalizedError {
   }
 }
 
+/// 托管来自系统文件菜单的安全作用域文件租约，确保播放器解码停止后且至多一次释放权限。
+final class SecurityScopedResourceLease: @unchecked Sendable {
+  private struct State {
+    var active: Bool
+  }
+
+  private let url: URL
+  private let state: OSAllocatedUnfairLock<State>
+
+  /// 立即申请安全作用域访问权限；非安全作用域文件（如 Inbox 副本）也能安全构造为空租约。
+  init(url: URL) {
+    self.url = url
+    let granted = url.isFileURL ? url.startAccessingSecurityScopedResource() : false
+    self.state = OSAllocatedUnfairLock(initialState: State(active: granted))
+  }
+
+  /// 幂等释放安全作用域；可在后台解码停止完成后安全调用。
+  func release() {
+    let shouldStop = state.withLock { state -> Bool in
+      guard state.active else { return false }
+      state.active = false
+      return true
+    }
+    if shouldStop {
+      url.stopAccessingSecurityScopedResource()
+    }
+  }
+
+  deinit {
+    release()
+  }
+}
+
 /// 使用原生 UIKit 控件驱动 VLCKit，提供影院级视频播放与 Apple Music 质感音乐播放体验，并在独立后台队列安全释放解码器避免返回卡死。
 @MainActor
 final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDelegate {
+  /// 非实例绑定播放（本地音视频文件与外部直链流）的固定本地进度命名空间。
+  static let externalPlaybackNamespace = UUID(
+    uuidString: "A7B56C10-5E6F-4C8B-9F72-3F2189D7C001")!
   /// 专用串行后台释放队列，彻底避免 `VLCMediaPlayer.stop()` 与 libVLC vout 线程在主线程互相死锁。
   private static let teardownQueue = DispatchQueue(
     label: "com.moviepilot.playback.teardown", qos: .userInitiated)
@@ -376,11 +412,16 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private static let activeAudioSessions = OSAllocatedUnfairLock(initialState: 0)
 
   private var manifest: MediaPlaybackManifest
-  private let client: MediaPlaybackClient
+  private let client: MediaPlaybackClient?
   private let instanceId: UUID
   private var itemId: String
   private var displayTitle: String
   private var artworkURL: URL?
+  private let initialArtwork: UIImage?
+  private let deleteContentFileOnClose: Bool
+  private let securityScopeLease: SecurityScopedResourceLease?
+  /// 当前播放是否绑定 MoviePilot 服务会话；本地文件与外部直链不随服务切换或登出而中断。
+  let isSessionBound: Bool
   private let queue: [MediaPlaybackQueueItem]
   private var queueIndex: Int
   private let player = VLCMediaPlayer(options: ["--no-mouse-events", "--no-keyboard-events"])
@@ -518,26 +559,33 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   /// 清单显式声明音频时展示音乐播放器；兼容旧服务响应仍按视频处理。
   private var isAudioPlayback: Bool { manifest.mediaType == "audio" }
 
-  /// 建立单条目或队列播放器，进度按服务实例和媒体条目隔离在本机保存。
+  /// 建立单条目、队列或独立本地/外部流播放器，进度按服务实例和媒体条目隔离在本机保存。
   init(
     manifest: MediaPlaybackManifest,
-    client: MediaPlaybackClient,
+    client: MediaPlaybackClient?,
     instanceId: UUID,
     itemId: String,
     displayTitle: String,
     artworkURL: URL? = nil,
+    initialArtwork: UIImage? = nil,
     queue: [MediaPlaybackQueueItem] = [],
     queueIndex: Int = 0,
+    deleteContentFileOnClose: Bool = false,
+    securityScopeLease: SecurityScopedResourceLease? = nil,
     onMinimize: @escaping (MediaPlaybackViewController) -> Void,
     onExpand: @escaping (MediaPlaybackViewController) -> Void,
     onClosePlayback: @escaping (MediaPlaybackViewController) -> Void
   ) {
     self.manifest = manifest
     self.client = client
+    self.isSessionBound = client != nil
     self.instanceId = instanceId
     self.itemId = itemId
     self.displayTitle = displayTitle
     self.artworkURL = artworkURL
+    self.initialArtwork = initialArtwork
+    self.deleteContentFileOnClose = deleteContentFileOnClose
+    self.securityScopeLease = securityScopeLease
     self.queue = queue
     self.queueIndex = queue.indices.contains(queueIndex) ? queueIndex : 0
     self.onMinimize = onMinimize
@@ -566,6 +614,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
     player.play()
     if isAudioPlayback {
+      if let initialArtwork {
+        applyResolvedArtwork(initialArtwork, animated: false)
+      }
       loadLyrics()
       loadArtwork()
     }
@@ -1565,11 +1616,11 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     lyricsStack.addArrangedSubview(label)
   }
 
-  /// 初始化解码器并绑定后端返回的同源媒体流。
+  /// 初始化解码器并绑定受控媒体流或独立无凭据本地/外部音视频源。
   private func configurePlayer() -> Bool {
     player.drawable = isAudioPlayback ? nil : videoView
     do {
-      player.media = try client.makeMedia(url: manifest.contentUrl)
+      player.media = try makePlaybackMedia(url: manifest.contentUrl)
     } catch {
       showError(error.localizedDescription)
       return false
@@ -1579,9 +1630,25 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     return true
   }
 
+  /// 构造解码器媒体对象；独立播放模式下不附加任何 MoviePilot Cookie 或认证头。
+  private func makePlaybackMedia(url: URL) throws -> VLCMedia {
+    if let client {
+      return try client.makeMedia(url: url)
+    }
+    if url.isFileURL {
+      guard let media = VLCMedia(url: url) else { throw MediaPlaybackError.unavailable }
+      return media
+    }
+    guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+      let media = VLCMedia(url: url)
+    else { throw MediaPlaybackError.unavailable }
+    media.addOption(":network-caching=1500")
+    return media
+  }
+
   /// 通过授权歌词地址下载 LRC 并将时间轴绑定到当前播放器。
   private func loadLyrics() {
-    guard let lyricsURL = manifest.lyricsUrl else {
+    guard let lyricsURL = manifest.lyricsUrl, let client else {
       replaceLyrics(with: [])
       return
     }
@@ -1589,7 +1656,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     lyricsTask = Task { [weak self] in
       guard let self else { return }
       do {
-        let text = try await self.client.downloadLyrics(lyricsURL, itemId: self.itemId)
+        let text = try await client.downloadLyrics(lyricsURL, itemId: self.itemId)
         guard !Task.isCancelled, !self.closed else { return }
         self.replaceLyrics(with: Self.parseLyrics(text))
       } catch {
@@ -1601,25 +1668,34 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
   /// 下载后端图片代理的单曲封面，并同步更新主封面、迷你头图、氛围背景与锁屏信息。
   private func loadArtwork() {
-    guard let artworkURL else { return }
+    guard let artworkURL, let client else { return }
     artworkTask?.cancel()
     artworkTask = Task { [weak self] in
-      guard let self, let image = try? await self.client.downloadArtwork(artworkURL),
+      guard let self, let image = try? await client.downloadArtwork(artworkURL),
         !Task.isCancelled, !self.closed
       else { return }
-      self.musicArtwork.image = image
-      self.musicMiniArtwork.image = image
-      self.musicArtwork.accessibilityValue = L10n.text("专辑封面已加载")
-      self.musicArtworkPlaceholder.isHidden = true
-      self.musicBackdropImageView.image = image
+      self.applyResolvedArtwork(image, animated: true)
+    }
+  }
+
+  /// 将已解码的封面图统一应用至主封面、迷你头图、氛围背景与锁屏媒体信息。
+  private func applyResolvedArtwork(_ image: UIImage, animated: Bool) {
+    musicArtwork.image = image
+    musicMiniArtwork.image = image
+    musicArtwork.accessibilityValue = L10n.text("专辑封面已加载")
+    musicArtworkPlaceholder.isHidden = true
+    musicBackdropImageView.image = image
+    if animated {
       UIView.animate(withDuration: 0.45) {
         self.musicBackdropImageView.alpha = 1
       }
-      self.currentMiniArtworkImage = image
-      self.nowPlayingArtwork = Self.makeNowPlayingArtwork(image)
-      self.notifyMiniMusicStateIfNeeded()
-      self.refreshNowPlayingInfo()
+    } else {
+      musicBackdropImageView.alpha = 1
     }
+    currentMiniArtworkImage = image
+    nowPlayingArtwork = Self.makeNowPlayingArtwork(image)
+    notifyMiniMusicStateIfNeeded()
+    refreshNowPlayingInfo()
   }
 
   /// 锁屏服务会在后台队列请求同一张不可变封面图，避免闭包继承界面主线程隔离。
@@ -2192,7 +2268,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   /// 加载下一条媒体服务器流（支持 itemId 与专辑曲目元数据匹配），非阻塞切换媒体并更新封面和歌词。
   private func switchTrack(at index: Int) {
     guard isAudioPlayback, trackSwitchTask == nil, queue.indices.contains(index),
-      index != queueIndex
+      index != queueIndex, let client
     else { return }
     let item = queue[index]
     skipBackButton.isEnabled = false
@@ -2205,14 +2281,14 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       do {
         let nextManifest: MediaPlaybackManifest
         if !item.itemId.isEmpty {
-          nextManifest = try await self.client.loadManifest(
+          nextManifest = try await client.loadManifest(
             itemId: item.itemId, server: item.server)
         } else {
-          nextManifest = try await self.client.loadMusicManifest(
+          nextManifest = try await client.loadMusicManifest(
             title: item.title, artist: item.artist, album: item.album)
         }
         guard !Task.isCancelled, !self.closed else { return }
-        let media = try self.client.makeMedia(url: nextManifest.contentUrl)
+        let media = try client.makeMedia(url: nextManifest.contentUrl)
         self.player.pause()
         self.player.media = media
         self.manifest = nextManifest
@@ -2498,11 +2574,12 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
   /// 通过当前授权下载用户所选外挂字幕并挂载到当前解码会话。
   private func loadSubtitle(_ subtitle: MediaPlaybackSubtitle) {
+    guard let client else { return }
     subtitleTask?.cancel()
     subtitleTask = Task { [weak self] in
       guard let self else { return }
       do {
-        let fileURL = try await self.client.download(subtitle, itemId: self.itemId)
+        let fileURL = try await client.download(subtitle, itemId: self.itemId)
         guard !Task.isCancelled, !self.closed else {
           try? FileManager.default.removeItem(at: fileURL)
           return
@@ -2625,9 +2702,11 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     var filesToClean = subtitleFiles
     if manifest.contentUrl.isFileURL,
       manifest.contentUrl.lastPathComponent.hasPrefix("moviepilot-play-")
+        || deleteContentFileOnClose
     {
       filesToClean.append(manifest.contentUrl)
     }
+    let leaseToRelease = securityScopeLease
     subtitleFiles.removeAll()
     activeSubtitleFile = nil
 
@@ -2640,6 +2719,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       for file in filesToClean {
         try? FileManager.default.removeItem(at: file)
       }
+      leaseToRelease?.release()
     }
   }
 
