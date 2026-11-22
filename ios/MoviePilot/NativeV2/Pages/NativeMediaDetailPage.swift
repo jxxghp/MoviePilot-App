@@ -41,6 +41,8 @@ struct NativeMediaDetailPage: View {
         ? viewportWidth + viewport.safeAreaInsets.leading + viewport.safeAreaInsets.trailing
         : viewportWidth
       let margin = NativeDeviceLayout.horizontalMargin(for: viewportWidth)
+      let isPortraitPhone = viewportWidth < viewport.size.height && viewportWidth < 680
+      let isWide = viewportWidth >= 680
       let heroHeight = NativeDeviceLayout.detailHeroHeight(
         width: viewportWidth,
         height: viewport.size.height,
@@ -59,6 +61,7 @@ struct NativeMediaDetailPage: View {
                   detail,
                   width: backdropWidth,
                   height: heroHeight,
+                  isPortraitPhone: isPortraitPhone,
                   progress: progress,
                   eased: eased
                 )
@@ -71,6 +74,7 @@ struct NativeMediaDetailPage: View {
               detail,
               width: viewportWidth,
               height: heroHeight,
+              isPortraitPhone: isPortraitPhone,
               progress: progress,
               eased: eased
             )
@@ -80,8 +84,8 @@ struct NativeMediaDetailPage: View {
         ScrollView {
           VStack(alignment: .leading, spacing: 0) {
             if let detail {
-              heroHeaderOverlay(detail, height: heroHeight, margin: margin)
-                .frame(maxWidth: 1020, alignment: .leading)
+              heroHeaderOverlay(detail, height: heroHeight, margin: margin, isWide: isWide)
+                .frame(maxWidth: 1020, alignment: .center)
                 .frame(maxWidth: .infinity)
               VStack(alignment: .leading, spacing: 24) {
                 if let actionFeedback {
@@ -124,14 +128,11 @@ struct NativeMediaDetailPage: View {
         .scrollIndicators(.hidden)
         .refreshable { await loadAll(forceRefresh: true) }
         .modifier(NativeDetailScrollClipping())
-        .modifier(NativeSoftTopScrollEdge())
         .ignoresSafeArea(edges: .top)
         .modifier(NativeDetailScrollObservation(offset: $scrollOffset))
         .accessibilityIdentifier("native-media-detail-scroll")
-
-        topSafeAreaVeil(progress: eased, height: max(viewport.safeAreaInsets.top, 48) + 42)
       }
-      .navigationTitle(progress > 0.72 ? (detail?.title ?? "") : "")
+      .navigationTitle("")
     }
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
@@ -163,13 +164,6 @@ struct NativeMediaDetailPage: View {
     session.user.allows(.init(category: .search))
   }
 
-  private func resolvedHeroHeight(viewportHeight: CGFloat) -> CGFloat {
-    if dynamicTypeSize.isAccessibilitySize {
-      return max(500, viewportHeight * 0.64)
-    }
-    return min(max(viewportHeight * 0.56, 410), 530)
-  }
-
   private func smoothstep(_ t: CGFloat) -> CGFloat {
     let clamped = min(max(t, 0), 1)
     return clamped * clamped * (3 - 2 * clamped)
@@ -190,21 +184,25 @@ struct NativeMediaDetailPage: View {
     }
   }
 
-  /// 详情页沉浸式固定剧照背景：复用发现页同款下拉弹性延展、轻视差、渐进柔焦与六段平滑软边溶解，完全无拼缝。
+  /// 详情页无遮挡沉浸式海报背景：顶部零模糊零遮罩，竖屏手机优先高分辨率竖版海报、宽屏优先电影剧照，底部平滑融入页面背景。
   private func heroBackdrop(
     _ detail: MediaDetailPayload, width: CGFloat, height: CGFloat,
-    progress: CGFloat, eased: CGFloat
+    isPortraitPhone: Bool, progress: CGFloat, eased: CGFloat
   ) -> some View {
     let source = detail.mediaSource ?? identity.source
-    let backdrop = [detail.backdropPath, detail.posterPath]
-      .compactMap { Self.resolveArtwork($0, source: source) }
-      .first
+    let heroReference: String? =
+      if isPortraitPhone {
+        Self.resolveArtwork(detail.posterPath, source: source, tmdbSize: "w780")
+          ?? Self.resolveArtwork(detail.backdropPath, source: source, tmdbSize: "w1280")
+      } else {
+        Self.resolveArtwork(detail.backdropPath, source: source, tmdbSize: "w1280")
+          ?? Self.resolveArtwork(detail.posterPath, source: source, tmdbSize: "w780")
+      }
     let scrollUp = max(-scrollOffset, 0)
     let pullDown = max(scrollOffset, 0)
-    let backdropHeight = height * 1.08 + pullDown
-    let parallax = reduceMotion ? 0 : -min(scrollUp, height) * 0.07
-    let blurRadius: CGFloat = (reduceMotion || reduceTransparency) ? 0 : eased * 18
-    let visibility = max(0, 1 - Double(eased) * 0.94)
+    let backdropHeight = height * 1.06 + pullDown
+    let parallax = reduceMotion ? 0 : -min(scrollUp, height) * 0.08
+    let visibility = max(0, 1 - Double(eased) * 0.96)
     let isLight = colorScheme == .light
     let fadeBase =
       isLight
@@ -212,108 +210,93 @@ struct NativeMediaDetailPage: View {
       : Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
     return ZStack(alignment: .bottom) {
       NativeMediaArtwork(
-        session: session, reference: backdrop, role: .backdrop, maximumWidth: 1280
+        session: session, reference: heroReference, role: .backdrop, maximumWidth: 1280
       )
       .frame(width: width, height: backdropHeight)
       .clipped()
-      .blur(radius: blurRadius, opaque: false)
-      // 浅色模式顶部轻微柔化，确保状态栏和返回按钮在深色剧照上依然清晰。
-      if isLight {
-        VStack {
-          LinearGradient(
-            colors: [fadeBase.opacity(0.62), fadeBase.opacity(0.22), .clear],
-            startPoint: .top, endPoint: .bottom
-          )
-          .frame(height: 112)
-          Spacer(minLength: 0)
-        }
-        .frame(width: width, height: backdropHeight)
-      }
-      // 底部多段平滑融底：深色下压暗托起白字，浅色下柔化融底托起深色文字。
+      // 仅底部平滑融底托起 Logo 与信息区，顶部保持 100% 纯净无遮挡。
       LinearGradient(
         stops: isLight
           ? [
-            .init(color: .clear, location: 0.34),
-            .init(color: fadeBase.opacity(0.56), location: 0.62),
-            .init(color: fadeBase.opacity(0.92), location: 0.82),
+            .init(color: .clear, location: 0.48),
+            .init(color: fadeBase.opacity(0.42), location: 0.68),
+            .init(color: fadeBase.opacity(0.88), location: 0.86),
             .init(color: fadeBase, location: 1),
           ]
           : [
-            .init(color: .clear, location: 0.36),
-            .init(color: fadeBase.opacity(0.45), location: 0.64),
-            .init(color: fadeBase.opacity(0.86), location: 0.86),
+            .init(color: .clear, location: 0.48),
+            .init(color: fadeBase.opacity(0.38), location: 0.68),
+            .init(color: fadeBase.opacity(0.86), location: 0.88),
             .init(color: fadeBase, location: 1),
           ], startPoint: .top, endPoint: .bottom
       )
       .frame(width: width, height: backdropHeight)
-      .opacity(max(0, 1 - Double(eased) * (isLight ? 0.25 : 0.6)))
     }
     .offset(y: parallax)
-    .overlay(
-      isLight ? fadeBase.opacity(Double(eased) * 0.32) : .black.opacity(Double(eased) * 0.22)
-    )
     .mask(alignment: .top) {
       LinearGradient(
         stops: [
           .init(color: .white, location: 0),
-          .init(color: .white, location: 0.44),
-          .init(color: .white.opacity(0.86), location: 0.60),
-          .init(color: .white.opacity(0.42), location: 0.78),
-          .init(color: .white.opacity(0.10), location: 0.90),
+          .init(color: .white, location: 0.58),
+          .init(color: .white.opacity(0.86), location: 0.72),
+          .init(color: .white.opacity(0.38), location: 0.86),
           .init(color: .clear, location: 1),
         ], startPoint: .top, endPoint: .bottom
       )
       .frame(height: backdropHeight)
-      .offset(y: min(scrollOffset, 0) * 0.88)
+      .offset(y: min(scrollOffset, 0) * 0.85)
     }
     .opacity(progress >= 0.99 ? 0 : visibility)
     .allowsHitTesting(false)
     .accessibilityHidden(true)
   }
 
-  /// 滚动离顶后在状态栏和导航栏安全区呈现渐进柔化底色，与发现页保持一致。
-  private func topSafeAreaVeil(progress: CGFloat, height: CGFloat) -> some View {
-    let opacity = Double(progress)
-    let surface = NativeTheme.topVeilColor(for: colorScheme, appearance: appearance)
-    return LinearGradient(
-      stops: [
-        .init(color: surface.opacity(opacity), location: 0),
-        .init(color: surface.opacity(0.94 * opacity), location: 0.44),
-        .init(color: surface.opacity(0.62 * opacity), location: 0.72),
-        .init(color: .clear, location: 1),
-      ], startPoint: .top, endPoint: .bottom
-    )
-    .frame(height: height)
-    .ignoresSafeArea(edges: .top)
-    .allowsHitTesting(false)
-    .accessibilityHidden(true)
-  }
-
-  /// 前景标题与核心元数据浮置在固定背景头图底部区域，随正文自然上滚。
+  /// 前景透明媒体 Logo 与居中元数据浮置在海报底部融底区，随正文自然上滚。
   private func heroHeaderOverlay(
-    _ detail: MediaDetailPayload, height: CGFloat, margin: CGFloat = CinematicStyle.margin
+    _ detail: MediaDetailPayload, height: CGFloat, margin: CGFloat = CinematicStyle.margin,
+    isWide: Bool = false
   ) -> some View {
     let isLight = colorScheme == .light
-    return VStack(alignment: .leading, spacing: 10) {
+    let source = detail.mediaSource ?? identity.source
+    let titleText = detail.title ?? "未命名作品"
+    let logoRef = Self.resolveArtwork(detail.logoPath, source: source, tmdbSize: "w500")
+    return VStack(alignment: .center, spacing: 10) {
       Spacer(minLength: 0)
-      Text(detail.title ?? "未命名作品")
-        .font(.system(.largeTitle, design: .serif).weight(.bold))
-        .foregroundStyle(isLight ? Color.primary : Color.white)
-        .shadow(color: isLight ? .clear : .black.opacity(0.45), radius: 10, y: 3)
+      if let logoRef, !logoRef.isEmpty {
+        NativeDiscoverLogoBanner(
+          session: session,
+          reference: logoRef,
+          fallbackTitle: titleText,
+          isAccessibilitySize: dynamicTypeSize.isAccessibilitySize,
+          maxWidth: isWide ? 340 : 284,
+          maxHeight: isWide ? 104 : 88,
+          textAlignment: .center,
+          fallbackColor: isLight ? Color.primary : Color.white
+        )
         .accessibilityIdentifier("native-media-detail-title")
+      } else {
+        Text(titleText)
+          .font(.system(.largeTitle, design: .serif).weight(.bold))
+          .foregroundStyle(isLight ? Color.primary : Color.white)
+          .multilineTextAlignment(.center)
+          .shadow(color: isLight ? .clear : .black.opacity(0.45), radius: 10, y: 3)
+          .accessibilityIdentifier("native-media-detail-title")
+      }
       if let tagline = detail.tagline?.trimmingCharacters(in: .whitespacesAndNewlines),
         !tagline.isEmpty
       {
         Text(tagline)
           .font(.subheadline.italic())
           .foregroundStyle(isLight ? Color.secondary : Color.white.opacity(0.76))
+          .multilineTextAlignment(.center)
           .lineLimit(2)
       }
       let summaryParts = metadataLineParts(detail)
       if !summaryParts.isEmpty {
         Text(summaryParts.joined(separator: "  ·  "))
           .font(.subheadline.weight(.medium))
-          .foregroundStyle(isLight ? Color.primary.opacity(0.80) : Color.white.opacity(0.84))
+          .foregroundStyle(isLight ? Color.primary.opacity(0.82) : Color.white.opacity(0.86))
+          .multilineTextAlignment(.center)
       }
       HStack(spacing: 10) {
         if let rating = detail.voteAverage, rating > 0 {
@@ -337,30 +320,28 @@ struct NativeMediaDetailPage: View {
             .accessibilityIdentifier("native-media-detail-library-badge")
         }
       }
-      let genres = detail.genreNames.prefix(4)
+      let genres = detail.genreNames.prefix(isWide ? 4 : 3)
       if !genres.isEmpty {
-        ScrollView(.horizontal) {
-          HStack(spacing: 8) {
-            ForEach(Array(genres), id: \.self) { genre in
-              Text(genre)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(NativeTheme.chipText)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background {
-                  Capsule()
-                    .fill(NativeTheme.chipFill)
-                    .overlay { Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.6) }
-                }
-            }
+        HStack(spacing: 8) {
+          ForEach(Array(genres), id: \.self) { genre in
+            Text(genre)
+              .font(.caption.weight(.medium))
+              .lineLimit(1)
+              .foregroundStyle(NativeTheme.chipText)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 5)
+              .background {
+                Capsule()
+                  .fill(NativeTheme.chipFill)
+                  .overlay { Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.6) }
+              }
           }
         }
-        .scrollIndicators(.hidden)
       }
     }
     .padding(.horizontal, margin)
     .padding(.bottom, 16)
-    .frame(maxWidth: .infinity, minHeight: height, alignment: .bottomLeading)
+    .frame(maxWidth: .infinity, minHeight: height, alignment: .bottom)
   }
 
   /// 主操作区遵循 Liquid Glass 分组规范：宽屏单行均衡排布，窄屏已入库时播放主按钮独占第一行、订阅与搜索资源并排居第二行。
@@ -1217,7 +1198,9 @@ struct NativeMediaDetailPage: View {
   }
 
   /// 将后端 TMDB 相对图片路径安全补全为 HTTPS 源地址，仍经同源后端图片代理获取。
-  nonisolated static func resolveArtwork(_ raw: String?, source: String?) -> String? {
+  nonisolated static func resolveArtwork(
+    _ raw: String?, source: String?, tmdbSize: String = "w500"
+  ) -> String? {
     guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty
     else { return nil }
     if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
@@ -1226,7 +1209,7 @@ struct NativeMediaDetailPage: View {
     guard trimmed.hasPrefix("/"), !trimmed.contains(".."), !trimmed.contains(" "),
       (source ?? "themoviedb").lowercased() == "themoviedb"
     else { return nil }
-    return "https://image.tmdb.org/t/p/w500" + trimmed
+    return "https://image.tmdb.org/t/p/\(tmdbSize)" + trimmed
   }
 }
 

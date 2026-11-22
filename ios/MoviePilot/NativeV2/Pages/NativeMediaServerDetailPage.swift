@@ -15,6 +15,7 @@ struct NativeMediaServerDetailPage: View {
   let fallbackPoster: String?
 
   @State private var detail: MediaServerItemDetailDTO?
+  @State private var fetchedLogoURL: String?
   @State private var seasons: [MediaServerBrowseItemDTO] = []
   @State private var episodes: [MediaServerBrowseItemDTO] = []
   @State private var collectionItems: [MediaServerBrowseItemDTO] = []
@@ -56,6 +57,8 @@ struct NativeMediaServerDetailPage: View {
     self.fallbackPoster = fallbackPoster
   }
 
+  private static var mediaLogoCache: [String: String] = [:]
+
   private var canSubscribe: Bool { session.user.allows(.init(category: .subscribe)) }
   private var canSearchResources: Bool { session.user.allows(.init(category: .search)) }
   private var resolvedServer: String? { detail?.server ?? server }
@@ -78,6 +81,8 @@ struct NativeMediaServerDetailPage: View {
         ? viewportWidth + viewport.safeAreaInsets.leading + viewport.safeAreaInsets.trailing
         : viewportWidth
       let margin = NativeDeviceLayout.horizontalMargin(for: viewportWidth)
+      let isPortraitPhone = viewportWidth < viewport.size.height && viewportWidth < 680
+      let isWide = viewportWidth >= 680
       let heroHeight = NativeDeviceLayout.detailHeroHeight(
         width: viewportWidth,
         height: viewport.size.height,
@@ -97,6 +102,7 @@ struct NativeMediaServerDetailPage: View {
                   detail,
                   width: backdropWidth,
                   height: heroHeight,
+                  isPortraitPhone: isPortraitPhone,
                   progress: progress,
                   eased: eased
                 )
@@ -109,6 +115,7 @@ struct NativeMediaServerDetailPage: View {
               detail,
               width: viewportWidth,
               height: heroHeight,
+              isPortraitPhone: isPortraitPhone,
               progress: progress,
               eased: eased
             )
@@ -119,8 +126,8 @@ struct NativeMediaServerDetailPage: View {
         ScrollView {
           VStack(alignment: .leading, spacing: 0) {
             if let detail {
-              heroHeaderOverlay(detail, height: heroHeight)
-                .frame(maxWidth: 1020, alignment: .leading)
+              heroHeaderOverlay(detail, height: heroHeight, margin: margin, isWide: isWide)
+                .frame(maxWidth: 1020, alignment: .center)
                 .frame(maxWidth: .infinity)
 
               VStack(alignment: .leading, spacing: 22) {
@@ -186,46 +193,14 @@ struct NativeMediaServerDetailPage: View {
         .scrollIndicators(.hidden)
         .refreshable { await loadAll() }
         .modifier(MediaServerDetailScrollClipping())
-        .modifier(NativeSoftTopScrollEdge())
         .ignoresSafeArea(edges: .top)
         .modifier(MediaServerDetailScrollObservation(offset: $scrollOffset))
         .accessibilityIdentifier("native-mediaserver-detail-scroll")
-
-        topSafeAreaVeil(progress: eased, height: max(viewport.safeAreaInsets.top, 48) + 42)
       }
-      .navigationTitle(progress > 0.72 ? (detail?.title ?? fallbackTitle ?? "") : "")
+      .navigationTitle("")
     }
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
-    .toolbar {
-      if let playUrl = detail?.playUrl, let url = URL(string: playUrl) {
-        ToolbarItem(placement: .topBarTrailing) {
-          Menu {
-            if let ext = detail?.resolvedExternalIdentity {
-              NavigationLink {
-                NativeMediaDetailPage(
-                  session: session,
-                  identity: NativeMediaIdentity(
-                    source: ext.source, mediaID: ext.mediaID, type: ext.type)
-                )
-              } label: {
-                Label("查看刮削元数据详情", systemImage: "info.circle")
-              }
-            }
-            Button {
-              UIApplication.shared.open(url)
-            } label: {
-              Label("在外部媒体服务器打开", systemImage: "arrow.up.right.square")
-            }
-          } label: {
-            Image(systemName: "ellipsis")
-          }
-          .tint(.primary)
-          .accessibilityLabel("更多选项")
-          .accessibilityIdentifier("native-mediaserver-detail-menu")
-        }
-      }
-    }
     .task(id: "\(server ?? "")|\(itemID)") {
       await loadAll()
     }
@@ -248,17 +223,6 @@ struct NativeMediaServerDetailPage: View {
 
   // MARK: - Hero
 
-  private func resolvedHeroHeight(viewportHeight: CGFloat) -> CGFloat {
-    if dynamicTypeSize.isAccessibilitySize {
-      return max(480, viewportHeight * 0.62)
-    }
-    let kind = detail?.kind ?? MediaServerItemKind(rawItemType: fallbackItemType)
-    if kind == .episode {
-      return min(max(viewportHeight * 0.44, 330), 420)
-    }
-    return min(max(viewportHeight * 0.54, 390), 510)
-  }
-
   @ViewBuilder
   private func ambientSurface(progress: CGFloat) -> some View {
     ZStack {
@@ -270,23 +234,24 @@ struct NativeMediaServerDetailPage: View {
     }
   }
 
-  /// 沉浸式固定剧照背景：对齐 `NativeMediaDetailPage`，保留下拉弹性延展、轻视差、渐进柔焦与六段平滑软边溶解，彻底消除上滑时的色块断层。
+  /// 无遮挡沉浸式海报背景：顶部零模糊零遮罩，竖屏手机优先竖版海报、宽屏/分集优先横版剧照，底部平滑融入页面背景。
   private func heroBackdrop(
     _ detail: MediaServerItemDetailDTO, width: CGFloat, height: CGFloat,
-    progress: CGFloat, eased: CGFloat
+    isPortraitPhone: Bool, progress: CGFloat, eased: CGFloat
   ) -> some View {
     let ref: String? =
       if detail.kind == .episode {
         detail.thumb ?? detail.backdrop ?? detail.poster
+      } else if isPortraitPhone {
+        detail.poster ?? detail.backdrop ?? detail.thumb
       } else {
         detail.backdrop ?? detail.poster ?? detail.thumb
       }
     let scrollUp = max(-scrollOffset, 0)
     let pullDown = max(scrollOffset, 0)
-    let backdropHeight = height * 1.08 + pullDown
-    let parallax = reduceMotion ? 0 : -min(scrollUp, height) * 0.07
-    let blurRadius: CGFloat = (reduceMotion || reduceTransparency) ? 0 : eased * 18
-    let visibility = max(0, 1 - Double(eased) * 0.94)
+    let backdropHeight = height * 1.06 + pullDown
+    let parallax = reduceMotion ? 0 : -min(scrollUp, height) * 0.08
+    let visibility = max(0, 1 - Double(eased) * 0.96)
     let isLight = colorScheme == .light
     let fadeBase =
       isLight
@@ -297,88 +262,89 @@ struct NativeMediaServerDetailPage: View {
       NativeMediaArtwork(session: session, reference: ref, role: .backdrop, maximumWidth: 1280)
         .frame(width: width, height: backdropHeight)
         .clipped()
-        .blur(radius: blurRadius, opaque: false)
 
-      if isLight {
-        VStack {
-          LinearGradient(
-            colors: [fadeBase.opacity(0.62), fadeBase.opacity(0.22), .clear],
-            startPoint: .top, endPoint: .bottom
-          )
-          .frame(height: 112)
-          Spacer(minLength: 0)
-        }
-        .frame(width: width, height: backdropHeight)
-      }
-
+      // 仅底部平滑融底托起 Logo 与信息区，顶部保持 100% 纯净无遮挡。
       LinearGradient(
         stops: isLight
           ? [
-            .init(color: .clear, location: 0.34),
-            .init(color: fadeBase.opacity(0.56), location: 0.62),
-            .init(color: fadeBase.opacity(0.92), location: 0.82),
+            .init(color: .clear, location: 0.48),
+            .init(color: fadeBase.opacity(0.42), location: 0.68),
+            .init(color: fadeBase.opacity(0.88), location: 0.86),
             .init(color: fadeBase, location: 1),
           ]
           : [
-            .init(color: .clear, location: 0.36),
-            .init(color: fadeBase.opacity(0.45), location: 0.64),
-            .init(color: fadeBase.opacity(0.86), location: 0.86),
+            .init(color: .clear, location: 0.48),
+            .init(color: fadeBase.opacity(0.38), location: 0.68),
+            .init(color: fadeBase.opacity(0.86), location: 0.88),
             .init(color: fadeBase, location: 1),
           ],
         startPoint: .top,
         endPoint: .bottom
       )
       .frame(width: width, height: backdropHeight)
-      .opacity(max(0, 1 - Double(eased) * (isLight ? 0.25 : 0.6)))
     }
     .offset(y: parallax)
-    .overlay(
-      isLight ? fadeBase.opacity(Double(eased) * 0.32) : .black.opacity(Double(eased) * 0.22)
-    )
     .mask(alignment: .top) {
       LinearGradient(
         stops: [
           .init(color: .white, location: 0),
-          .init(color: .white, location: 0.44),
-          .init(color: .white.opacity(0.86), location: 0.60),
-          .init(color: .white.opacity(0.42), location: 0.78),
-          .init(color: .white.opacity(0.10), location: 0.90),
+          .init(color: .white, location: 0.58),
+          .init(color: .white.opacity(0.86), location: 0.72),
+          .init(color: .white.opacity(0.38), location: 0.86),
           .init(color: .clear, location: 1),
         ],
         startPoint: .top,
         endPoint: .bottom
       )
       .frame(height: backdropHeight)
-      .offset(y: min(scrollOffset, 0) * 0.88)
+      .offset(y: min(scrollOffset, 0) * 0.85)
     }
     .opacity(progress >= 0.99 ? 0 : visibility)
     .allowsHitTesting(false)
     .accessibilityHidden(true)
   }
 
-  /// 滚动离顶后在状态栏和导航栏安全区呈现渐进柔化底色，与 `NativeMediaDetailPage` 保持一致。
-  private func topSafeAreaVeil(progress: CGFloat, height: CGFloat) -> some View {
-    let opacity = Double(progress)
-    let surface = NativeTheme.topVeilColor(for: colorScheme, appearance: appearance)
-    return LinearGradient(
-      stops: [
-        .init(color: surface.opacity(opacity), location: 0),
-        .init(color: surface.opacity(0.94 * opacity), location: 0.44),
-        .init(color: surface.opacity(0.62 * opacity), location: 0.72),
-        .init(color: .clear, location: 1),
-      ],
-      startPoint: .top,
-      endPoint: .bottom
-    )
-    .frame(height: height)
-    .ignoresSafeArea(edges: .top)
-    .allowsHitTesting(false)
-    .accessibilityHidden(true)
-  }
-
-  private func heroHeaderOverlay(_ detail: MediaServerItemDetailDTO, height: CGFloat) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
+  private func heroHeaderOverlay(
+    _ detail: MediaServerItemDetailDTO, height: CGFloat, margin: CGFloat = CinematicStyle.margin,
+    isWide: Bool = false
+  ) -> some View {
+    let isLight = colorScheme == .light
+    let titleText = heroDisplayTitle(detail)
+    let logoRef =
+      (detail.logo?.isEmpty == false ? detail.logo : nil)
+      ?? (fetchedLogoURL?.isEmpty == false ? fetchedLogoURL : nil)
+    return VStack(alignment: .center, spacing: 10) {
       Spacer(minLength: 0)
+
+      if let logoRef, !logoRef.isEmpty {
+        NativeDiscoverLogoBanner(
+          session: session,
+          reference: logoRef,
+          fallbackTitle: titleText,
+          isAccessibilitySize: dynamicTypeSize.isAccessibilitySize,
+          maxWidth: isWide ? 340 : 284,
+          maxHeight: isWide ? 104 : 88,
+          textAlignment: .center,
+          fallbackColor: isLight ? Color.primary : Color.white
+        )
+        .accessibilityIdentifier("native-mediaserver-detail-title")
+      } else {
+        Text(titleText)
+          .font(.system(.largeTitle, design: .serif).weight(.bold))
+          .foregroundStyle(isLight ? Color.primary : Color.white)
+          .multilineTextAlignment(.center)
+          .shadow(color: isLight ? .clear : .black.opacity(0.45), radius: 10, y: 3)
+          .fixedSize(horizontal: false, vertical: true)
+          .accessibilityIdentifier("native-mediaserver-detail-title")
+      }
+
+      let meta = metadataLineParts(detail)
+      if !meta.isEmpty {
+        Text(meta.joined(separator: " · "))
+          .font(.subheadline.weight(.medium))
+          .foregroundStyle(isLight ? Color.primary.opacity(0.82) : Color.white.opacity(0.86))
+          .multilineTextAlignment(.center)
+      }
 
       HStack(spacing: 6) {
         Text(dimensionBadgeTitle(detail))
@@ -408,39 +374,23 @@ struct NativeMediaServerDetailPage: View {
         }
       }
 
-      Text(heroDisplayTitle(detail))
-        .font(.system(.title, design: .serif).weight(.bold))
-        .foregroundStyle(.primary)
-        .multilineTextAlignment(.leading)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityIdentifier("native-mediaserver-detail-title")
-
-      let meta = metadataLineParts(detail)
-      if !meta.isEmpty {
-        Text(meta.joined(separator: " · "))
-          .font(.subheadline.weight(.medium))
-          .foregroundStyle(.primary.opacity(0.76))
-      }
-
       if !detail.genres.isEmpty {
-        ScrollView(.horizontal) {
-          HStack(spacing: 6) {
-            ForEach(detail.genres.prefix(6), id: \.self) { genre in
-              Text(genre)
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.primary.opacity(0.82))
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(.primary.opacity(0.10), in: Capsule())
-            }
+        HStack(spacing: 6) {
+          ForEach(detail.genres.prefix(isWide ? 4 : 3), id: \.self) { genre in
+            Text(genre)
+              .font(.caption2.weight(.medium))
+              .lineLimit(1)
+              .foregroundStyle(.primary.opacity(0.82))
+              .padding(.horizontal, 9)
+              .padding(.vertical, 4)
+              .background(.primary.opacity(0.10), in: Capsule())
           }
         }
-        .scrollIndicators(.hidden)
       }
     }
-    .padding(.horizontal, CinematicStyle.margin)
+    .padding(.horizontal, margin)
     .padding(.bottom, 16)
-    .frame(maxWidth: .infinity, minHeight: height, alignment: .bottomLeading)
+    .frame(maxWidth: .infinity, minHeight: height, alignment: .bottom)
   }
 
   // MARK: - Breadcrumb (3-Tier Navigation)
@@ -520,39 +470,49 @@ struct NativeMediaServerDetailPage: View {
   private func actionBar(_ detail: MediaServerItemDetailDTO) -> some View {
     let hasPlayAction = canInitiatePlayback(detail)
     let subscribeTarget = detail.resolvedExternalIdentity
+    let externalURL = detail.playUrl.flatMap(URL.init(string:))
+    let hasOverflowActions = subscribeTarget != nil || externalURL != nil
     return VStack(spacing: 10) {
       if hasPlayAction {
-        Button {
-          Task { await triggerPrimaryPlay(detail) }
-        } label: {
-          HStack(spacing: 8) {
-            if isLaunchingPlayback {
-              ProgressView()
-                .controlSize(.small)
-                .tint(colorScheme == .light ? .white : .black)
-            } else {
-              Image(systemName: "play.fill")
+        HStack(spacing: 10) {
+          Button {
+            Task { await triggerPrimaryPlay(detail) }
+          } label: {
+            HStack(spacing: 8) {
+              if isLaunchingPlayback {
+                ProgressView()
+                  .controlSize(.small)
+                  .tint(colorScheme == .light ? .white : .black)
+              } else {
+                Image(systemName: "play.fill")
+                  .font(.subheadline.weight(.bold))
+              }
+              Text(primaryPlayLabel(detail))
                 .font(.subheadline.weight(.bold))
+                .lineLimit(1)
             }
-            Text(primaryPlayLabel(detail))
-              .font(.subheadline.weight(.bold))
-              .lineLimit(1)
+            .foregroundStyle(
+              colorScheme == .light ? .white : Color(red: 0.08, green: 0.08, blue: 0.12)
+            )
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background {
+              Capsule().fill(colorScheme == .light ? appearance.accentColor : .white)
+            }
           }
-          .foregroundStyle(
-            colorScheme == .light ? .white : Color(red: 0.08, green: 0.08, blue: 0.12)
-          )
-          .frame(maxWidth: .infinity)
-          .frame(height: 48)
-          .background {
-            Capsule().fill(colorScheme == .light ? appearance.accentColor : .white)
+          .buttonStyle(.plain)
+          .disabled(isLaunchingPlayback)
+          .accessibilityIdentifier("native-mediaserver-detail-play")
+
+          if hasOverflowActions {
+            overflowActionMenu(detail: detail, external: subscribeTarget, externalURL: externalURL)
           }
         }
-        .buttonStyle(.plain)
-        .disabled(isLaunchingPlayback)
-        .accessibilityIdentifier("native-mediaserver-detail-play")
       }
 
-      if (canSubscribe && subscribeTarget != nil) || canSearchResources {
+      if (canSubscribe && subscribeTarget != nil) || canSearchResources
+        || (!hasPlayAction && hasOverflowActions)
+      {
         HStack(spacing: 10) {
           if canSubscribe, let ext = subscribeTarget {
             let subscribedNow = isCurrentlySubscribed(detail, external: ext)
@@ -635,9 +595,54 @@ struct NativeMediaServerDetailPage: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("native-mediaserver-detail-search")
           }
+
+          if !hasPlayAction && hasOverflowActions {
+            overflowActionMenu(detail: detail, external: subscribeTarget, externalURL: externalURL)
+          }
         }
       }
     }
+  }
+
+  /// 将原先右上角的更多选项收拢至操作栏圆形「…」玻璃菜单，保持顶部海报区域纯净无多余按钮。
+  private func overflowActionMenu(
+    detail: MediaServerItemDetailDTO,
+    external: (source: String, mediaID: String, type: String)?,
+    externalURL: URL?
+  ) -> some View {
+    Menu {
+      if let ext = external {
+        NavigationLink {
+          NativeMediaDetailPage(
+            session: session,
+            identity: NativeMediaIdentity(
+              source: ext.source, mediaID: ext.mediaID, type: ext.type)
+          )
+        } label: {
+          Label("查看刮削元数据详情", systemImage: "info.circle")
+        }
+      }
+      if let url = externalURL {
+        Button {
+          UIApplication.shared.open(url)
+        } label: {
+          Label("在外部媒体服务器打开", systemImage: "arrow.up.right.square")
+        }
+      }
+    } label: {
+      Image(systemName: "ellipsis")
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.primary)
+        .frame(width: 48, height: 48)
+        .background {
+          Circle()
+            .fill(.primary.opacity(colorScheme == .light ? 0.08 : 0.13))
+            .overlay { Circle().strokeBorder(.primary.opacity(0.20), lineWidth: 0.7) }
+        }
+        .contentShape(Circle())
+    }
+    .accessibilityLabel("更多选项")
+    .accessibilityIdentifier("native-mediaserver-detail-menu")
   }
 
   @ViewBuilder
@@ -1691,6 +1696,7 @@ struct NativeMediaServerDetailPage: View {
   private func loadAll() async {
     isLoading = true
     loadFailed = false
+    fetchedLogoURL = nil
     var query = [URLQueryItem(name: "itemid", value: itemID)]
     if let server, !server.isEmpty {
       query.append(URLQueryItem(name: "server", value: server))
@@ -1715,13 +1721,50 @@ struct NativeMediaServerDetailPage: View {
           await loadSubscriptionStatus(loaded, external: ext)
         }
       }()
-      _ = await (childrenTask, subStatusTask)
+      async let logoTask: Void = loadLogoIfNeeded(for: loaded)
+      _ = await (childrenTask, subStatusTask, logoTask)
     } catch is CancellationError {
       return
     } catch {
       loadFailed = true
       isLoading = false
     }
+  }
+
+  /// 媒体库详情未直接返回 Logo 时，利用外部媒体源编号静默拉取透明标题 Logo 并按身份缓存。
+  private func loadLogoIfNeeded(for loaded: MediaServerItemDetailDTO) async {
+    if let direct = loaded.logo?.trimmingCharacters(in: .whitespacesAndNewlines), !direct.isEmpty {
+      fetchedLogoURL = direct
+      return
+    }
+    guard let ext = loaded.resolvedExternalIdentity else { return }
+    let cacheKey = "\(session.scope.instanceID.uuidString)|\(ext.source)|\(ext.mediaID)|\(ext.type)"
+    if let cached = Self.mediaLogoCache[cacheKey] {
+      fetchedLogoURL = cached
+      return
+    }
+    struct LogoProbe: Decodable, Sendable {
+      let logoPath: String?
+      private enum CodingKeys: String, CodingKey {
+        case logoPath = "logo_path"
+      }
+    }
+    guard
+      let endpoint = try? APIEndpoint(
+        path: ["media", ext.mediaID],
+        query: [
+          URLQueryItem(name: "media_source", value: ext.source),
+          URLQueryItem(name: "type_name", value: ext.type),
+        ]),
+      let probe = try? await session.request(
+        endpoint, as: LogoProbe.self, requiring: .init(category: .discovery)
+      ).value,
+      let resolved = NativeMediaDetailPage.resolveArtwork(
+        probe.logoPath, source: ext.source, tmdbSize: "w500"),
+      !resolved.isEmpty
+    else { return }
+    Self.mediaLogoCache[cacheKey] = resolved
+    fetchedLogoURL = resolved
   }
 
   private func loadHierarchyChildren(for loaded: MediaServerItemDetailDTO) async {

@@ -137,20 +137,20 @@ enum NativeDeviceLayout {
     return min(max(height * 0.67, 470), 640)
   }
 
-  /// 影视与媒体库详情页首屏头图高度：iPad 与宽屏横版保持剧照电影比例，不侵占过多正文首屏空间。
+  /// 影视与媒体库详情页首屏头图高度：加大海报默认占据面积以呈现沉浸式无遮挡影院首屏，同时在 iPad 与横屏下保持优雅比例。
   static func detailHeroHeight(
     width: CGFloat, height: CGFloat, isAccessibilitySize: Bool
   ) -> CGFloat {
     if isAccessibilitySize {
-      return max(480, min(height * 0.62, 600))
+      return max(560, min(height * 0.74, 700))
     }
     if width >= 740 && width > height {
-      return min(max(height * 0.50, 360), 470)
+      return min(max(height * 0.62, 460), 600)
     }
     if width >= 740 {
-      return min(max(height * 0.44, 410), 510)
+      return min(max(height * 0.56, 540), 680)
     }
-    return min(max(height * 0.56, 410), 530)
+    return min(max(height * 0.68, 520), 660)
   }
 }
 

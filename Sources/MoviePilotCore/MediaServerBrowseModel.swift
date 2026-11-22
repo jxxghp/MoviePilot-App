@@ -590,6 +590,7 @@ public struct MediaServerItemDetailDTO: Decodable, Identifiable, Hashable, Senda
   public let poster: String?
   public let backdrop: String?
   public let thumb: String?
+  public let logo: String?
   public let genres: [String]
   public let studios: [String]
   public let people: [MediaServerPersonDTO]
@@ -660,7 +661,8 @@ public struct MediaServerItemDetailDTO: Decodable, Identifiable, Hashable, Senda
   }
 
   private enum CodingKeys: String, CodingKey {
-    case server, title, subtitle, overview, tagline, rating, poster, backdrop, thumb
+    case server, title, subtitle, overview, tagline, rating, poster, backdrop, thumb, logo
+    case logoPath = "logo_path"
     case genres, studios, people, played
     case itemId = "item_id"
     case serverType = "server_type"
@@ -716,6 +718,11 @@ public struct MediaServerItemDetailDTO: Decodable, Identifiable, Hashable, Senda
     poster = try container.decodeIfPresent(String.self, forKey: .poster)
     backdrop = try container.decodeIfPresent(String.self, forKey: .backdrop)
     thumb = try container.decodeIfPresent(String.self, forKey: .thumb)
+    let rawLogo = try? container.decodeIfPresent(String.self, forKey: .logo)
+    let rawLogoPath = try? container.decodeIfPresent(String.self, forKey: .logoPath)
+    logo =
+      (rawLogo?.isEmpty == false ? rawLogo : nil)
+      ?? (rawLogoPath?.isEmpty == false ? rawLogoPath : nil)
     genres = (try? container.decodeIfPresent([String].self, forKey: .genres)) ?? []
     studios = (try? container.decodeIfPresent([String].self, forKey: .studios)) ?? []
     people = (try? container.decodeIfPresent([MediaServerPersonDTO].self, forKey: .people)) ?? []

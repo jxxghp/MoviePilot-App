@@ -388,6 +388,7 @@ public struct MediaDetailPayload: Decodable, Equatable, Sendable {
   public let numberOfEpisodes: Int?
   public let posterPath: String?
   public let backdropPath: String?
+  public let logoPath: String?
   public let overview: String?
   public let voteAverage: Double?
   public let genres: [MediaNamedTag]?
@@ -471,6 +472,7 @@ public struct MediaDetailPayload: Decodable, Equatable, Sendable {
     self.numberOfEpisodes = MediaDetailDecoding.flexibleInt(container, forKey: .numberOfEpisodes)
     self.posterPath = try? container.decodeIfPresent(String.self, forKey: .posterPath)
     self.backdropPath = try? container.decodeIfPresent(String.self, forKey: .backdropPath)
+    self.logoPath = try? container.decodeIfPresent(String.self, forKey: .logoPath)
     self.overview = try? container.decodeIfPresent(String.self, forKey: .overview)
     self.voteAverage = MediaDetailDecoding.flexibleDouble(container, forKey: .voteAverage)
     self.genres = MediaDetailDecoding.lossyArray(
@@ -543,6 +545,7 @@ public struct MediaDetailPayload: Decodable, Equatable, Sendable {
     case numberOfEpisodes = "number_of_episodes"
     case posterPath = "poster_path"
     case backdropPath = "backdrop_path"
+    case logoPath = "logo_path"
     case overview
     case voteAverage = "vote_average"
     case genres

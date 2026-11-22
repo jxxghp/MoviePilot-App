@@ -1486,9 +1486,9 @@ private struct NativeDiscoverArtworkPlaceholder: View {
   }
 }
 
-/// 发现页主视觉透明标题 Logo 视图：经当前实例图片代理无底色加载透明标题图，缺图或加载中平滑降级为电影感大字标题。
+/// 主视觉与详情页共用透明标题 Logo 视图：经当前实例图片代理无底色加载透明标题图，缺图或加载中平滑降级为电影感大字标题。
 @MainActor
-private struct NativeDiscoverLogoBanner: View {
+struct NativeDiscoverLogoBanner: View {
   nonisolated private static let publicLogoHosts: Set<String> = [
     "assets.fanart.tv", "image.tmdb.org",
   ]
@@ -1506,6 +1506,10 @@ private struct NativeDiscoverLogoBanner: View {
   let reference: String
   let fallbackTitle: String
   let isAccessibilitySize: Bool
+  var maxWidth: CGFloat = 278
+  var maxHeight: CGFloat = 76
+  var textAlignment: TextAlignment = .center
+  var fallbackColor: Color? = nil
   @State private var logoImage: UIImage?
 
   var body: some View {
@@ -1516,13 +1520,15 @@ private struct NativeDiscoverLogoBanner: View {
         Image(uiImage: resolved)
           .resizable()
           .scaledToFit()
-          .frame(maxWidth: 278, maxHeight: 76)
+          .frame(maxWidth: maxWidth, maxHeight: maxHeight)
           .shadow(color: .black.opacity(0.55), radius: 12, y: 4)
           .accessibilityLabel(fallbackTitle)
       } else {
         Text(fallbackTitle)
           .font(.system(.largeTitle, design: .serif).weight(.bold))
           .tracking(fallbackTitle.count <= 6 ? 4 : 1)
+          .foregroundStyle(fallbackColor ?? Color.primary)
+          .multilineTextAlignment(textAlignment)
           .shadow(color: .black.opacity(0.45), radius: 10, y: 3)
           .lineLimit(isAccessibilitySize ? nil : 2)
       }
