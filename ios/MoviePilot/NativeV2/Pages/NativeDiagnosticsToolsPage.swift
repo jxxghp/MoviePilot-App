@@ -508,7 +508,7 @@ struct NativeDiagnosticsToolsPage: View {
   // MARK: - 3. 名称识别与过滤规则测试（对标 Web 英雄卡与解析明细）
 
   private var ruleTestContent: some View {
-    VStack(alignment: .leading, spacing: 14) {
+    VStack(alignment: .leading, spacing: 18) {
       HStack(spacing: 8) {
         ForEach(TestMode.allCases) { option in
           Button {
@@ -528,138 +528,118 @@ struct NativeDiagnosticsToolsPage: View {
         Spacer(minLength: 0)
       }
 
-      CinematicPanel(padding: 0) {
-        VStack(spacing: 0) {
-          HStack(spacing: 12) {
-            Text("标题 / 种子名")
-              .font(.subheadline)
-              .foregroundStyle(.primary)
-              .layoutPriority(1)
-            TextField("如 The.Matrix.1999.2160p", text: $testTitle)
-              .textFieldStyle(.plain)
-              .font(.subheadline)
-              .foregroundStyle(.primary)
-              .multilineTextAlignment(.trailing)
-              .textInputAutocapitalization(.never)
-              .autocorrectionDisabled()
-              .accessibilityIdentifier("native-diag-test-title")
+      formGroupedSection("测试内容") {
+        formInputRow(
+          "标题 / 种子名",
+          text: $testTitle,
+          placeholder: "如 The.Matrix.1999.2160p",
+          accessibilityID: "native-diag-test-title"
+        )
+        CinematicFormDivider()
+        formInputRow(
+          "副标题",
+          text: $testSubtitle,
+          placeholder: "可选描述或中文译名",
+          accessibilityID: "native-diag-test-subtitle"
+        )
+      }
+
+      if testMode == .recognize {
+        formGroupedSection("识别选项") {
+          if !mediaSources.isEmpty {
+            HStack(spacing: 12) {
+              Text("识别数据源")
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+              Spacer(minLength: 8)
+              Picker("识别数据源", selection: $selectedMediaSource) {
+                Text("系统默认").tag("")
+                ForEach(mediaSources) { src in
+                  Text(src.displayName).tag(src.mediaSource)
+                }
+              }
+              .pickerStyle(.menu)
+              .tint(appearance.accentColor)
+            }
+            .padding(.horizontal, 15)
+            .padding(.vertical, 10)
+            CinematicFormDivider()
           }
-          .padding(.horizontal, 15)
-          .padding(.vertical, 12)
 
-          CinematicFormDivider()
-
-          HStack(spacing: 12) {
-            Text("副标题")
-              .font(.subheadline)
-              .foregroundStyle(.primary)
-              .layoutPriority(1)
-            TextField("可选描述或中文译名", text: $testSubtitle)
-              .textFieldStyle(.plain)
-              .font(.subheadline)
-              .foregroundStyle(.primary)
-              .multilineTextAlignment(.trailing)
-              .textInputAutocapitalization(.never)
-              .autocorrectionDisabled()
+          DisclosureGroup(isExpanded: $showCustomWordsField) {
+            VStack(alignment: .leading, spacing: 8) {
+              TextEditor(text: $testCustomWords)
+                .font(.system(.caption, design: .monospaced))
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: 88)
+                .padding(10)
+                .background(
+                  Color.primary.opacity(0.05),
+                  in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
+              Text("支持正则表达式，特殊字符需要 \\ 转义，一行为一组（如：屏蔽词、被替换词 => 替换词、前定位词 <> 后定位词 >> 集偏移量）。")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.top, 10)
+          } label: {
+            HStack(spacing: 8) {
+              Text("临时自定义识别词")
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+              Spacer(minLength: 8)
+              let lines =
+                testCustomWords
+                .components(separatedBy: .newlines)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                .count
+              Text(lines > 0 ? "已填 \(lines) 行" : "可选")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
           }
+          .tint(appearance.accentColor)
           .padding(.horizontal, 15)
-          .padding(.vertical, 12)
-
-          if testMode == .recognize {
-            if !mediaSources.isEmpty {
-              CinematicFormDivider()
-              HStack {
-                Text("识别数据源")
-                  .font(.subheadline)
-                  .foregroundStyle(.primary)
-                Spacer()
-                Picker("识别数据源", selection: $selectedMediaSource) {
-                  Text("系统默认").tag("")
-                  ForEach(mediaSources) { src in
-                    Text(src.displayName).tag(src.mediaSource)
+          .padding(.vertical, 13)
+        }
+      } else {
+        formGroupedSection("优先级规则组") {
+          VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+              Text("目标规则组")
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+              Spacer(minLength: 8)
+              if ruleGroups.isEmpty {
+                Text("未检测到规则组")
+                  .font(.caption)
+                  .foregroundStyle(NativeTheme.warning)
+              } else {
+                Picker("规则组", selection: $selectedRuleGroup) {
+                  ForEach(ruleGroups) { group in
+                    Text(group.name).tag(group.name)
                   }
                 }
                 .pickerStyle(.menu)
                 .tint(appearance.accentColor)
               }
-              .padding(.horizontal, 15)
-              .padding(.vertical, 8)
             }
-
-            CinematicFormDivider()
-            DisclosureGroup(isExpanded: $showCustomWordsField) {
-              VStack(alignment: .leading, spacing: 6) {
-                TextEditor(text: $testCustomWords)
-                  .font(.system(.caption, design: .monospaced))
-                  .scrollContentBackground(.hidden)
-                  .frame(minHeight: 74)
-                  .padding(8)
-                  .background(
-                    Color.primary.opacity(0.05),
-                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                  )
-                Text("支持正则表达式，特殊字符需要 \\ 转义，一行为一组（如：屏蔽词、被替换词 => 替换词、前定位词 <> 后定位词 >> 集偏移量）。")
-                  .font(.caption2)
-                  .foregroundStyle(.secondary)
-              }
-              .padding(.top, 6)
-            } label: {
-              HStack {
-                Text("临时自定义识别词")
-                  .font(.subheadline)
-                  .foregroundStyle(.primary)
-                Spacer()
-                let lines =
-                  testCustomWords
-                  .components(separatedBy: .newlines)
-                  .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-                  .count
-                Text(lines > 0 ? "已填 \(lines) 行" : "可选")
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
-              }
+            if let current = ruleGroups.first(where: { $0.name == selectedRuleGroup }),
+              let ruleStr = current.ruleString, !ruleStr.isEmpty
+            {
+              Text(ruleStr)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                  NativeTheme.chipFill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
-            .tint(appearance.accentColor)
-            .padding(.horizontal, 15)
-            .padding(.vertical, 11)
-          } else {
-            CinematicFormDivider()
-            VStack(alignment: .leading, spacing: 6) {
-              HStack {
-                Text("优先级规则组")
-                  .font(.subheadline)
-                  .foregroundStyle(.primary)
-                Spacer()
-                if ruleGroups.isEmpty {
-                  Text("未检测到规则组")
-                    .font(.caption)
-                    .foregroundStyle(NativeTheme.warning)
-                } else {
-                  Picker("规则组", selection: $selectedRuleGroup) {
-                    ForEach(ruleGroups) { group in
-                      Text(group.name).tag(group.name)
-                    }
-                  }
-                  .pickerStyle(.menu)
-                  .tint(appearance.accentColor)
-                }
-              }
-              if let current = ruleGroups.first(where: { $0.name == selectedRuleGroup }),
-                let ruleStr = current.ruleString, !ruleStr.isEmpty
-              {
-                Text(ruleStr)
-                  .font(.system(size: 11, design: .monospaced))
-                  .foregroundStyle(.secondary)
-                  .lineLimit(3)
-                  .padding(8)
-                  .frame(maxWidth: .infinity, alignment: .leading)
-                  .background(
-                    NativeTheme.chipFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-              }
-            }
-            .padding(.horizontal, 15)
-            .padding(.vertical, 10)
           }
+          .padding(.horizontal, 15)
+          .padding(.vertical, 12)
         }
       }
 
@@ -677,7 +657,7 @@ struct NativeDiagnosticsToolsPage: View {
             .font(.subheadline.weight(.bold))
         }
         .foregroundStyle(.white)
-        .frame(maxWidth: .infinity, minHeight: 44)
+        .frame(maxWidth: .infinity, minHeight: 46)
         .background(appearance.accentColor, in: Capsule())
       }
       .buttonStyle(.plain)
@@ -702,6 +682,58 @@ struct NativeDiagnosticsToolsPage: View {
         ruleResultCard(ruleRes)
       }
     }
+  }
+
+  /// 对齐订阅编辑弹层的分组表单容器。
+  private func formGroupedSection<Content: View>(
+    _ header: String, @ViewBuilder content: () -> Content
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 7) {
+      Text(header)
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 6)
+      CinematicPanel(padding: 0) {
+        VStack(spacing: 0) { content() }
+      }
+    }
+  }
+
+  /// 对齐订阅编辑弹层的宽松单行输入行，保留充足呼吸感与一键清空操作。
+  private func formInputRow(
+    _ label: String,
+    text: Binding<String>,
+    placeholder: String,
+    accessibilityID: String
+  ) -> some View {
+    HStack(spacing: 12) {
+      Text(label)
+        .font(.subheadline)
+        .foregroundStyle(.primary)
+        .layoutPriority(1)
+      Spacer(minLength: 8)
+      TextField(placeholder, text: text)
+        .textFieldStyle(.plain)
+        .font(.subheadline)
+        .foregroundStyle(.primary)
+        .multilineTextAlignment(.trailing)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .accessibilityIdentifier(accessibilityID)
+      if !text.wrappedValue.isEmpty {
+        Button {
+          text.wrappedValue = ""
+        } label: {
+          Image(systemName: "xmark.circle.fill")
+            .font(.subheadline)
+            .foregroundStyle(.secondary.opacity(0.65))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("清空\(label)")
+      }
+    }
+    .padding(.horizontal, 15)
+    .padding(.vertical, 13)
   }
 
   /// 对标 Web `NameTestView.vue` 的识别英雄卡 + 多维解析链路 + 应用识别词。

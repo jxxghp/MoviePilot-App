@@ -942,17 +942,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       moreButton.menu = makeMusicMenu()
       topBar.addArrangedSubview(fixedSquareControl(moreButton, diameter: 40))
     } else {
-      // 视频模式右上角一排统一收纳全部功能按钮：字幕、音轨、画面比例、倍速、小窗画中画
+      // 视频模式右上角一排统一收纳辅助功能按钮：字幕、音轨、画面比例、倍速、小窗画中画
       let topButtonDiameter: CGFloat = 38
       let topButtonPointSize: CGFloat = 15
-
-      configureGlassButton(
-        episodeListButton, symbol: "list.bullet", accessibility: L10n.text("选集"),
-        diameter: topButtonDiameter, pointSize: topButtonPointSize)
-      episodeListButton.accessibilityIdentifier = "video-playback-episodes"
-      episodeListButton.isHidden = queue.count <= 1
-      episodeListButton.addAction(
-        UIAction { [weak self] _ in self?.showQueueMenu() }, for: .touchUpInside)
 
       configureGlassButton(
         subtitleButton, symbol: "captions.bubble", accessibility: L10n.text("选择字幕"),
@@ -991,7 +983,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         UIAction { [weak self] _ in self?.minimizePlayback() }, for: .touchUpInside)
 
       let topActionsStack = UIStackView(arrangedSubviews: [
-        episodeListButton, subtitleButton, audioButton, aspectButton, speedButton, pipTopButton,
+        subtitleButton, audioButton, aspectButton, speedButton, pipTopButton,
       ])
       topActionsStack.axis = .horizontal
       topActionsStack.alignment = .center
@@ -1330,12 +1322,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     ])
   }
 
-  /// 影院视频控制布局：居中平衡三键 + 底部统一玻璃进度与功能坞（倍速/比例/字幕/音轨）。
+  /// 影院视频控制布局：居中平衡三键 + 底部统一玻璃进度栏（多集时两侧附带上一集、下一集与选集按钮）。
   private func configureVideoControlsLayout() {
-    configureGlassButton(
-      prevEpisodeButton, symbol: "backward.end.fill", accessibility: L10n.text("上一集"),
-      diameter: 46, pointSize: 17)
-    prevEpisodeButton.accessibilityIdentifier = "video-playback-prev-episode"
     configureGlassButton(
       skipBackButton, symbol: "gobackward.10", accessibility: L10n.text("后退 10 秒"),
       diameter: 54, pointSize: 20)
@@ -1345,38 +1333,21 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     configureGlassButton(
       skipForwardButton, symbol: "goforward.10", accessibility: L10n.text("前进 10 秒"),
       diameter: 54, pointSize: 20)
-    configureGlassButton(
-      nextEpisodeButton, symbol: "forward.end.fill", accessibility: L10n.text("下一集"),
-      diameter: 46, pointSize: 17)
-    nextEpisodeButton.accessibilityIdentifier = "video-playback-next-episode"
 
-    prevEpisodeButton.addAction(
-      UIAction { [weak self] _ in
-        guard let self else { return }
-        self.switchTrack(at: self.queueIndex - 1)
-      }, for: .touchUpInside)
     skipBackButton.addAction(
       UIAction { [weak self] _ in self?.skip(seconds: -10, showHud: true) }, for: .touchUpInside)
     playButton.addAction(UIAction { [weak self] _ in self?.togglePlayback() }, for: .touchUpInside)
     skipForwardButton.addAction(
       UIAction { [weak self] _ in self?.skip(seconds: 10, showHud: true) }, for: .touchUpInside)
-    nextEpisodeButton.addAction(
-      UIAction { [weak self] _ in self?.playNextTrack() }, for: .touchUpInside)
 
     transport.axis = .horizontal
     transport.alignment = .center
     transport.distribution = .fill
-    transport.spacing = queue.count > 1 ? 18 : 28
+    transport.spacing = 28
     transport.translatesAutoresizingMaskIntoConstraints = false
-    if queue.count > 1 {
-      transport.addArrangedSubview(fixedSquareControl(prevEpisodeButton, diameter: 46))
-    }
     transport.addArrangedSubview(fixedSquareControl(skipBackButton, diameter: 54))
     transport.addArrangedSubview(fixedSquareControl(playButton, diameter: 68))
     transport.addArrangedSubview(fixedSquareControl(skipForwardButton, diameter: 54))
-    if queue.count > 1 {
-      transport.addArrangedSubview(fixedSquareControl(nextEpisodeButton, diameter: 46))
-    }
     view.addSubview(transport)
     NSLayoutConstraint.activate([
       transport.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -1385,13 +1356,47 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
     configureUpNextOverlay()
 
-    let progressRow = UIStackView(arrangedSubviews: [elapsedLabel, positionSlider, durationLabel])
+    // 进度条两侧的上一集 / 下一集 / 选集按钮（多集队列时显示，单影片自动隐藏）
+    configureVideoIconDockButton(
+      prevEpisodeButton, symbol: "backward.end.fill", accessibility: L10n.text("上一集"))
+    prevEpisodeButton.accessibilityIdentifier = "video-playback-prev-episode"
+    prevEpisodeButton.isHidden = queue.count <= 1
+    prevEpisodeButton.setContentHuggingPriority(.required, for: .horizontal)
+    prevEpisodeButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+    prevEpisodeButton.addAction(
+      UIAction { [weak self] _ in
+        guard let self else { return }
+        self.switchTrack(at: self.queueIndex - 1)
+      }, for: .touchUpInside)
+
+    configureVideoIconDockButton(
+      nextEpisodeButton, symbol: "forward.end.fill", accessibility: L10n.text("下一集"))
+    nextEpisodeButton.accessibilityIdentifier = "video-playback-next-episode"
+    nextEpisodeButton.isHidden = queue.count <= 1
+    nextEpisodeButton.setContentHuggingPriority(.required, for: .horizontal)
+    nextEpisodeButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+    nextEpisodeButton.addAction(
+      UIAction { [weak self] _ in self?.playNextTrack() }, for: .touchUpInside)
+
+    configureVideoIconDockButton(
+      episodeListButton, symbol: "list.bullet", accessibility: L10n.text("选集"))
+    episodeListButton.accessibilityIdentifier = "video-playback-episodes"
+    episodeListButton.isHidden = queue.count <= 1
+    episodeListButton.setContentHuggingPriority(.required, for: .horizontal)
+    episodeListButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+    episodeListButton.addAction(
+      UIAction { [weak self] _ in self?.showQueueMenu() }, for: .touchUpInside)
+
+    let progressRow = UIStackView(arrangedSubviews: [
+      prevEpisodeButton, elapsedLabel, positionSlider, durationLabel, nextEpisodeButton,
+      episodeListButton,
+    ])
     progressRow.axis = .horizontal
     progressRow.alignment = .center
-    progressRow.spacing = 10
+    progressRow.spacing = 8
     progressRow.translatesAutoresizingMaskIntoConstraints = false
 
-    // 底部极简：仅保留单行玻璃进度条，功能按钮全部收纳在右上角一排
+    // 底部统一玻璃进度栏：进度条居中伸展，多集时左侧上一集、右侧下一集与选集
     progressPanel.layer.cornerRadius = 22
     progressPanel.layer.cornerCurve = .continuous
     progressPanel.layer.borderWidth = 0.7
@@ -1403,12 +1408,12 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
     NSLayoutConstraint.activate([
       progressRow.leadingAnchor.constraint(
-        equalTo: progressPanel.contentView.leadingAnchor, constant: 14),
+        equalTo: progressPanel.contentView.leadingAnchor, constant: 12),
       progressRow.trailingAnchor.constraint(
-        equalTo: progressPanel.contentView.trailingAnchor, constant: -14),
-      progressRow.topAnchor.constraint(equalTo: progressPanel.contentView.topAnchor, constant: 10),
+        equalTo: progressPanel.contentView.trailingAnchor, constant: -12),
+      progressRow.topAnchor.constraint(equalTo: progressPanel.contentView.topAnchor, constant: 8),
       progressRow.bottomAnchor.constraint(
-        equalTo: progressPanel.contentView.bottomAnchor, constant: -10),
+        equalTo: progressPanel.contentView.bottomAnchor, constant: -8),
       progressPanel.leadingAnchor.constraint(equalTo: controls.leadingAnchor),
       progressPanel.trailingAnchor.constraint(equalTo: controls.trailingAnchor),
       progressPanel.topAnchor.constraint(equalTo: controls.topAnchor),
@@ -1421,11 +1426,11 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     _ button: UIButton, symbol: String, accessibility: String
   ) {
     var config = UIButton.Configuration.plain()
-    config.baseForegroundColor = UIColor.white.withAlphaComponent(0.90)
-    config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8)
+    config.baseForegroundColor = UIColor.white.withAlphaComponent(0.92)
+    config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
     config.image = UIImage(
       systemName: symbol,
-      withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .medium))
+      withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold))
     button.configuration = config
     button.accessibilityLabel = accessibility
   }
@@ -2442,7 +2447,10 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       let audioTracks = player.audioTracks
       subtitleButton.isHidden = manifest.subtitles.isEmpty && subtitleTracks.isEmpty
       audioButton.isHidden = audioTracks.count <= 1
-      episodeListButton.isHidden = queue.count <= 1
+      let hasQueue = queue.count > 1
+      prevEpisodeButton.isHidden = !hasQueue
+      nextEpisodeButton.isHidden = !hasQueue
+      episodeListButton.isHidden = !hasQueue
       if !isPlaying && hasPlayedCurrentItem && duration > 5_000
         && (current >= duration - 1_500) && queue.indices.contains(queueIndex + 1)
       {

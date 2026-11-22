@@ -92,4 +92,24 @@ struct MediaServerBrowseModelTests {
     #expect(item.progressFraction == 0.25)
     #expect(item.formattedDuration == "1 小时")
   }
+
+  @Test func decodesBoxSetCollectionItem() throws {
+    let json = """
+      {
+        "item_id": 9001,
+        "server": "Emby",
+        "server_type": "emby",
+        "item_type": "BoxSet",
+        "media_type": "合集",
+        "title": "哈利·波特合集",
+        "subtitle": "共 8 部",
+        "child_count": 8
+      }
+      """
+    let item = try JSONDecoder().decode(MediaServerBrowseItemDTO.self, from: Data(json.utf8))
+    #expect(item.itemId == "9001")
+    #expect(item.kind == .boxSet)
+    #expect(item.childCount == 8)
+    #expect(!item.kind.isDirectlyPlayable)
+  }
 }

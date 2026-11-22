@@ -1568,14 +1568,20 @@ private struct NativeAgentMarkdownView: View {
     }
   }
 
-  /// 原生玻璃 GFM 表格卡片：支持横向滚动、列对齐、表头强调、斑马纹与单元格内联 Markdown。
+  /// 原生玻璃 GFM 表格卡片：支持横向滚动、列对齐、平滑整行表头、斑马纹与单元格内联 Markdown，仅外框保留圆角避免单元格出现独立圆角伪影。
   private func markdownTableView(_ table: AgentMarkdownTable) -> some View {
     let dividerColor = Color.primary.opacity(colorScheme == .dark ? 0.14 : 0.11)
+    let headerFill = Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.06)
     let zebraColor = Color.primary.opacity(colorScheme == .dark ? 0.04 : 0.03)
+    let columnCount = max(
+      table.headers.count,
+      table.rows.map(\.count).max() ?? 0
+    )
     return ScrollView(.horizontal, showsIndicators: true) {
       Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
         GridRow {
-          ForEach(Array(table.headers.enumerated()), id: \.offset) { colIndex, header in
+          ForEach(0..<columnCount, id: \.self) { colIndex in
+            let header = table.headers.indices.contains(colIndex) ? table.headers[colIndex] : ""
             let alignment =
               table.alignments.indices.contains(colIndex)
               ? table.alignments[colIndex] : .leading
@@ -1584,58 +1590,71 @@ private struct NativeAgentMarkdownView: View {
               .foregroundStyle(.primary)
               .multilineTextAlignment(textAlignment(for: alignment))
               .frame(
-                minWidth: 54,
+                minWidth: 56,
                 maxWidth: 220,
                 alignment: frameAlignment(for: alignment)
               )
               .fixedSize(horizontal: false, vertical: true)
               .padding(.horizontal, 10)
-              .padding(.vertical, 8)
+              .padding(.vertical, 9)
+              .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: frameAlignment(for: alignment)
+              )
+              .background { Rectangle().fill(headerFill) }
               .overlay(alignment: .trailing) {
-                if colIndex < table.headers.count - 1 {
+                if colIndex < columnCount - 1 {
                   Rectangle().fill(dividerColor).frame(width: 0.5)
                 }
               }
           }
         }
-        .background(NativeTheme.chipFill)
 
         ForEach(Array(table.rows.enumerated()), id: \.offset) { rowIndex, row in
+          Rectangle()
+            .fill(dividerColor)
+            .frame(height: 0.5)
           GridRow {
-            ForEach(Array(row.enumerated()), id: \.offset) { colIndex, cell in
+            ForEach(0..<columnCount, id: \.self) { colIndex in
+              let cell = row.indices.contains(colIndex) ? row[colIndex] : ""
               let alignment =
                 table.alignments.indices.contains(colIndex)
                 ? table.alignments[colIndex] : .leading
+              let rowFill = rowIndex.isMultiple(of: 2) ? Color.clear : zebraColor
               inlineMarkdownText(cell)
                 .font(.caption)
                 .foregroundStyle(.primary.opacity(0.92))
                 .multilineTextAlignment(textAlignment(for: alignment))
                 .textSelection(.enabled)
                 .frame(
-                  minWidth: 54,
+                  minWidth: 56,
                   maxWidth: 220,
                   alignment: frameAlignment(for: alignment)
                 )
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 7)
+                .padding(.vertical, 8)
+                .frame(
+                  maxWidth: .infinity,
+                  maxHeight: .infinity,
+                  alignment: frameAlignment(for: alignment)
+                )
+                .background { Rectangle().fill(rowFill) }
                 .overlay(alignment: .trailing) {
-                  if colIndex < row.count - 1 {
+                  if colIndex < columnCount - 1 {
                     Rectangle().fill(dividerColor).frame(width: 0.5)
                   }
                 }
             }
           }
-          .background(rowIndex.isMultiple(of: 2) ? Color.clear : zebraColor)
-          .overlay(alignment: .top) {
-            Rectangle().fill(dividerColor).frame(height: 0.5)
-          }
         }
       }
     }
-    .background(
-      NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-    )
+    .background {
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .fill(NativeTheme.fieldFill)
+    }
     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     .overlay {
       RoundedRectangle(cornerRadius: 10, style: .continuous)

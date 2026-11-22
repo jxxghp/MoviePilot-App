@@ -546,6 +546,17 @@ struct NativeMediaServerLibraryPage: View {
         }
       }
       .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .overlay(alignment: .topLeading) {
+        if item.kind == .boxSet {
+          Text("合集")
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2.5)
+            .background(appearance.accentColor.opacity(0.88), in: Capsule())
+            .padding(6)
+        }
+      }
       .overlay(alignment: .topTrailing) {
         if item.played == true {
           Image(systemName: "checkmark.circle.fill")
@@ -587,6 +598,8 @@ struct NativeMediaServerLibraryPage: View {
     if let year = item.yearText, !year.isEmpty { parts.append(year) }
     if let subtitle = item.subtitle, !subtitle.isEmpty, subtitle != item.yearText {
       parts.append(subtitle)
+    } else if item.kind == .boxSet, let count = item.childCount, count > 0 {
+      parts.append("共 \(count) 部")
     }
     return parts.isEmpty ? nil : parts.joined(separator: " · ")
   }
@@ -636,6 +649,7 @@ struct NativeMediaServerLibraryPage: View {
   // MARK: - Networking
 
   private func loadServersAndLibraries() async {
+    var serverNormalized = false
     if let endpoint = try? APIEndpoint(
       path: ["mediaserver", "clients"], responseContract: .payload),
       let list = try? await session.request(
@@ -643,8 +657,27 @@ struct NativeMediaServerLibraryPage: View {
       ).value
     {
       servers = list
+      if !list.contains(where: { $0.name == activeServer }),
+        let matched =
+          list.first(where: { $0.name.caseInsensitiveCompare(activeServer) == .orderedSame })
+          ?? list.first(where: {
+            ($0.type ?? "").caseInsensitiveCompare(activeServer) == .orderedSame
+          })
+          ?? list.first
+      {
+        activeServer = matched.name
+        if activeServerType == nil {
+          activeServerType = matched.type
+        }
+        serverNormalized = true
+      }
     }
     await loadLibrariesForActiveServer(selectFirstIfMissing: false)
+    if serverNormalized {
+      async let filtersRefresh: Void = loadFilters()
+      async let itemsRefresh: Void = reloadItems()
+      _ = await (filtersRefresh, itemsRefresh)
+    }
   }
 
   private func loadLibrariesForActiveServer(selectFirstIfMissing: Bool) async {
@@ -729,6 +762,15 @@ struct NativeMediaServerLibraryPage: View {
     ]
     if let activeLibraryID, !activeLibraryID.isEmpty {
       query.append(URLQueryItem(name: "library_id", value: activeLibraryID))
+    }
+    let normalizedLibType = (activeLibraryType ?? "").trimmingCharacters(
+      in: .whitespacesAndNewlines
+    )
+    .lowercased()
+    if normalizedLibType == "合集" || normalizedLibType == "boxsets"
+      || normalizedLibType == "boxset" || normalizedLibType == "collections"
+    {
+      query.append(URLQueryItem(name: "item_type", value: "BoxSet"))
     }
     if !selectedGenre.isEmpty {
       query.append(URLQueryItem(name: "genre", value: selectedGenre))

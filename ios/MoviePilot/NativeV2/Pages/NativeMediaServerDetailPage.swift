@@ -17,6 +17,7 @@ struct NativeMediaServerDetailPage: View {
   @State private var detail: MediaServerItemDetailDTO?
   @State private var seasons: [MediaServerBrowseItemDTO] = []
   @State private var episodes: [MediaServerBrowseItemDTO] = []
+  @State private var collectionItems: [MediaServerBrowseItemDTO] = []
   @State private var selectedSeasonNumber: Int?
   @State private var selectedSourceID: String?
   @State private var trackSelection = MediaPlaybackTrackSelection()
@@ -26,11 +27,14 @@ struct NativeMediaServerDetailPage: View {
   @State private var isLaunchingPlayback = false
   @State private var isSubscribing = false
   @State private var isSubscribed = false
+  @State private var subscribedSeasons: Set<Int> = []
+  @State private var pendingCancelSubscribe: MediaServerCancelSubscribeTarget?
   @State private var synopsisExpanded = false
   @State private var feedbackMessage: (text: String, isError: Bool)?
   @State private var scrollOffset: CGFloat = 0
 
   @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -73,8 +77,14 @@ struct NativeMediaServerDetailPage: View {
       ZStack(alignment: .top) {
         ambientSurface(progress: eased).ignoresSafeArea()
         if let detail {
-          heroBackdrop(detail, width: viewport.size.width, height: heroHeight, eased: eased)
-            .ignoresSafeArea(edges: .top)
+          heroBackdrop(
+            detail,
+            width: viewport.size.width,
+            height: heroHeight,
+            progress: progress,
+            eased: eased
+          )
+          .ignoresSafeArea(edges: .top)
         }
 
         ScrollView {
@@ -95,6 +105,10 @@ struct NativeMediaServerDetailPage: View {
 
                 if detail.kind.isDirectlyPlayable, let source = activeMediaSource {
                   prePlayTrackSelectorCard(detail: detail, source: source)
+                }
+
+                if detail.kind == .boxSet, !collectionItems.isEmpty {
+                  collectionItemsSection(detail)
                 }
 
                 if detail.kind == .series, !seasons.isEmpty {
@@ -131,9 +145,12 @@ struct NativeMediaServerDetailPage: View {
             }
           }
           .frame(maxWidth: .infinity)
+          .modifier(MediaServerDetailLegacyScrollProbe())
         }
+        .coordinateSpace(name: "native-mediaserver-detail-scroll")
         .scrollIndicators(.hidden)
         .refreshable { await loadAll() }
+        .modifier(MediaServerDetailScrollClipping())
         .modifier(NativeSoftTopScrollEdge())
         .ignoresSafeArea(edges: .top)
         .modifier(MediaServerDetailScrollObservation(offset: $scrollOffset))
@@ -177,6 +194,21 @@ struct NativeMediaServerDetailPage: View {
     .task(id: "\(server ?? "")|\(itemID)") {
       await loadAll()
     }
+    .alert(
+      "取消订阅",
+      isPresented: Binding(
+        get: { pendingCancelSubscribe != nil },
+        set: { if !$0 { pendingCancelSubscribe = nil } }
+      ),
+      presenting: pendingCancelSubscribe
+    ) { target in
+      Button("取消订阅", role: .destructive) {
+        Task { await performUnsubscribe(target) }
+      }
+      Button("保留", role: .cancel) {}
+    } message: { target in
+      Text(target.message)
+    }
   }
 
   // MARK: - Hero
@@ -203,8 +235,10 @@ struct NativeMediaServerDetailPage: View {
     }
   }
 
+  /// 沉浸式固定剧照背景：对齐 `NativeMediaDetailPage`，保留下拉弹性延展、轻视差、渐进柔焦与六段平滑软边溶解，彻底消除上滑时的色块断层。
   private func heroBackdrop(
-    _ detail: MediaServerItemDetailDTO, width: CGFloat, height: CGFloat, eased: CGFloat
+    _ detail: MediaServerItemDetailDTO, width: CGFloat, height: CGFloat,
+    progress: CGFloat, eased: CGFloat
   ) -> some View {
     let ref: String? =
       if detail.kind == .episode {
@@ -218,8 +252,9 @@ struct NativeMediaServerDetailPage: View {
     let parallax = reduceMotion ? 0 : -min(scrollUp, height) * 0.07
     let blurRadius: CGFloat = (reduceMotion || reduceTransparency) ? 0 : eased * 18
     let visibility = max(0, 1 - Double(eased) * 0.94)
+    let isLight = colorScheme == .light
     let fadeBase =
-      colorScheme == .light
+      isLight
       ? NativeTheme.topVeilColor(for: .light, appearance: appearance)
       : Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
 
@@ -227,39 +262,83 @@ struct NativeMediaServerDetailPage: View {
       NativeMediaArtwork(session: session, reference: ref, role: .backdrop, maximumWidth: 1280)
         .frame(width: width, height: backdropHeight)
         .clipped()
-        .blur(radius: blurRadius)
-        .offset(y: parallax)
-        .opacity(visibility)
+        .blur(radius: blurRadius, opaque: false)
+
+      if isLight {
+        VStack {
+          LinearGradient(
+            colors: [fadeBase.opacity(0.62), fadeBase.opacity(0.22), .clear],
+            startPoint: .top, endPoint: .bottom
+          )
+          .frame(height: 112)
+          Spacer(minLength: 0)
+        }
+        .frame(width: width, height: backdropHeight)
+      }
 
       LinearGradient(
-        stops: [
-          .init(color: fadeBase.opacity(0.0), location: 0.0),
-          .init(color: fadeBase.opacity(0.08), location: 0.34),
-          .init(color: fadeBase.opacity(0.32), location: 0.56),
-          .init(color: fadeBase.opacity(0.68), location: 0.76),
-          .init(color: fadeBase.opacity(0.92), location: 0.90),
-          .init(color: fadeBase, location: 1.0),
-        ],
+        stops: isLight
+          ? [
+            .init(color: .clear, location: 0.34),
+            .init(color: fadeBase.opacity(0.56), location: 0.62),
+            .init(color: fadeBase.opacity(0.92), location: 0.82),
+            .init(color: fadeBase, location: 1),
+          ]
+          : [
+            .init(color: .clear, location: 0.36),
+            .init(color: fadeBase.opacity(0.45), location: 0.64),
+            .init(color: fadeBase.opacity(0.86), location: 0.86),
+            .init(color: fadeBase, location: 1),
+          ],
         startPoint: .top,
         endPoint: .bottom
       )
       .frame(width: width, height: backdropHeight)
+      .opacity(max(0, 1 - Double(eased) * (isLight ? 0.25 : 0.6)))
     }
-    .frame(width: width, height: backdropHeight)
-    .clipped()
+    .offset(y: parallax)
+    .overlay(
+      isLight ? fadeBase.opacity(Double(eased) * 0.32) : .black.opacity(Double(eased) * 0.22)
+    )
+    .mask(alignment: .top) {
+      LinearGradient(
+        stops: [
+          .init(color: .white, location: 0),
+          .init(color: .white, location: 0.44),
+          .init(color: .white.opacity(0.86), location: 0.60),
+          .init(color: .white.opacity(0.42), location: 0.78),
+          .init(color: .white.opacity(0.10), location: 0.90),
+          .init(color: .clear, location: 1),
+        ],
+        startPoint: .top,
+        endPoint: .bottom
+      )
+      .frame(height: backdropHeight)
+      .offset(y: min(scrollOffset, 0) * 0.88)
+    }
+    .opacity(progress >= 0.99 ? 0 : visibility)
     .allowsHitTesting(false)
+    .accessibilityHidden(true)
   }
 
+  /// 滚动离顶后在状态栏和导航栏安全区呈现渐进柔化底色，与 `NativeMediaDetailPage` 保持一致。
   private func topSafeAreaVeil(progress: CGFloat, height: CGFloat) -> some View {
-    let base = NativeTheme.topVeilColor(for: colorScheme, appearance: appearance)
+    let opacity = Double(progress)
+    let surface = NativeTheme.topVeilColor(for: colorScheme, appearance: appearance)
     return LinearGradient(
-      colors: [base.opacity(Double(progress) * 0.88), base.opacity(0)],
+      stops: [
+        .init(color: surface.opacity(opacity), location: 0),
+        .init(color: surface.opacity(0.94 * opacity), location: 0.44),
+        .init(color: surface.opacity(0.62 * opacity), location: 0.72),
+        .init(color: .clear, location: 1),
+      ],
       startPoint: .top,
       endPoint: .bottom
     )
     .frame(height: height)
     .ignoresSafeArea(edges: .top)
     .allowsHitTesting(false)
+    .accessibilityHidden(true)
   }
 
   private func heroHeaderOverlay(_ detail: MediaServerItemDetailDTO, height: CGFloat) -> some View {
@@ -441,35 +520,51 @@ struct NativeMediaServerDetailPage: View {
       if (canSubscribe && subscribeTarget != nil) || canSearchResources {
         HStack(spacing: 10) {
           if canSubscribe, let ext = subscribeTarget {
+            let subscribedNow = isCurrentlySubscribed(detail, external: ext)
             Button {
-              Task { await performSubscribe(detail, external: ext) }
+              if subscribedNow {
+                let targetSeason = resolveCancelSeason(detail, external: ext)
+                let titleText = detail.seriesName ?? detail.title
+                let message =
+                  targetSeason.map { "确认取消《\(titleText)》第 \($0) 季的订阅吗？" }
+                  ?? "确认取消《\(titleText)》的订阅吗？"
+                pendingCancelSubscribe = MediaServerCancelSubscribeTarget(
+                  source: ext.source,
+                  mediaID: ext.mediaID,
+                  type: ext.type,
+                  season: targetSeason,
+                  message: message
+                )
+              } else {
+                Task { await performSubscribe(detail, external: ext) }
+              }
             } label: {
               HStack(spacing: 6) {
                 if isSubscribing {
                   ProgressView().controlSize(.mini).tint(.primary)
                 } else {
-                  Image(systemName: isSubscribed ? "bookmark.fill" : "plus")
+                  Image(systemName: subscribedNow ? "bookmark.fill" : "plus")
                     .font(.subheadline.weight(.semibold))
                 }
-                Text(subscribeButtonTitle(detail))
+                Text(subscribeButtonTitle(detail, subscribed: subscribedNow))
                   .font(.subheadline.weight(.semibold))
                   .lineLimit(1)
               }
               .foregroundStyle(
-                isSubscribed ? Color(red: 0.44, green: 0.90, blue: 0.66) : .primary
+                subscribedNow ? Color(red: 0.44, green: 0.90, blue: 0.66) : .primary
               )
               .frame(maxWidth: .infinity)
               .frame(height: 46)
               .background {
                 Capsule()
                   .fill(
-                    isSubscribed
+                    subscribedNow
                       ? Color(red: 0.24, green: 0.66, blue: 0.46).opacity(0.24)
                       : .primary.opacity(colorScheme == .light ? 0.08 : 0.13)
                   )
                   .overlay {
                     Capsule().strokeBorder(
-                      isSubscribed
+                      subscribedNow
                         ? Color(red: 0.44, green: 0.90, blue: 0.66).opacity(0.36)
                         : .primary.opacity(0.20),
                       lineWidth: 0.7
@@ -478,7 +573,7 @@ struct NativeMediaServerDetailPage: View {
               }
             }
             .buttonStyle(.plain)
-            .disabled(isSubscribing || isSubscribed)
+            .disabled(isSubscribing)
             .accessibilityIdentifier("native-mediaserver-detail-subscribe")
           }
 
@@ -671,6 +766,91 @@ struct NativeMediaServerDetailPage: View {
     let embedded = source.subtitleStreams.filter { !$0.isExternal && $0.subtitleId == nil }
     guard let ordinal = embedded.firstIndex(where: { $0.id == stream.id }) else { return false }
     return trackSelection.subtitleExternalID == nil && trackSelection.subtitleOrdinal == ordinal
+  }
+
+  // MARK: - Collection Items Section (BoxSet -> Child Items)
+
+  private var collectionGridColumns: [GridItem] {
+    let count = horizontalSizeClass == .regular ? 5 : 3
+    return Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: count)
+  }
+
+  /// 合集详情页内嵌的子作品海报网格，点击后进入对应电影或剧集的原生媒体库详情页。
+  private func collectionItemsSection(_ detail: MediaServerItemDetailDTO) -> some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack {
+        Text("合集内容")
+          .font(.title3.weight(.bold))
+          .accessibilityAddTraits(.isHeader)
+        Spacer()
+        Text("共 \(collectionItems.count) 部")
+          .font(.caption.weight(.medium))
+          .foregroundStyle(.primary.opacity(0.60))
+      }
+
+      LazyVGrid(columns: collectionGridColumns, spacing: 16) {
+        ForEach(collectionItems) { child in
+          NavigationLink {
+            NativeMediaServerDetailPage(
+              session: session,
+              server: child.server ?? resolvedServer,
+              itemID: child.itemId,
+              fallbackTitle: child.title,
+              fallbackItemType: child.itemType,
+              fallbackPoster: child.poster ?? child.thumb
+            )
+          } label: {
+            VStack(alignment: .leading, spacing: 6) {
+              NativeMediaArtwork(
+                session: session,
+                reference: child.poster ?? child.thumb ?? child.backdrop,
+                role: .poster,
+                maximumWidth: 320
+              )
+              .frame(maxWidth: .infinity)
+              .aspectRatio(2.0 / 3.0, contentMode: .fill)
+              .clipped()
+              .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+              .overlay(alignment: .topTrailing) {
+                if child.played == true {
+                  Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white, NativeTheme.success)
+                    .padding(6)
+                } else if let rating = child.rating, rating > 0 {
+                  Text(String(format: "%.1f", rating))
+                    .font(.caption2.weight(.bold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2.5)
+                    .background(.black.opacity(0.62), in: Capsule())
+                    .padding(6)
+                }
+              }
+              .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                  .strokeBorder(.white.opacity(0.14), lineWidth: 0.6)
+              }
+
+              Text(child.title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+
+              if let year = child.yearText, !year.isEmpty {
+                Text(year)
+                  .font(.caption2)
+                  .foregroundStyle(.primary.opacity(0.60))
+                  .lineLimit(1)
+              }
+            }
+          }
+          .buttonStyle(.plain)
+          .accessibilityIdentifier("native-mediaserver-collection-item-\(child.itemId)")
+        }
+      }
+    }
   }
 
   // MARK: - Seasons Section (Series -> Seasons)
@@ -1121,6 +1301,7 @@ struct NativeMediaServerDetailPage: View {
       }
     case .musicAlbum: "专辑"
     case .audio: "音乐"
+    case .boxSet: "合集"
     default: detail.mediaType ?? "媒体"
     }
   }
@@ -1141,6 +1322,11 @@ struct NativeMediaServerDetailPage: View {
       if let ec = detail.episodeCount, ec > 0 { parts.append("\(ec) 集") }
     } else if detail.kind == .season, let ec = detail.episodeCount ?? detail.childCount, ec > 0 {
       parts.append("共 \(ec) 集")
+    } else if detail.kind == .boxSet,
+      let count = detail.childCount ?? (collectionItems.isEmpty ? nil : collectionItems.count),
+      count > 0
+    {
+      parts.append("共 \(count) 部")
     }
     if let rating = detail.rating, rating > 0 {
       parts.append(String(format: "★ %.1f", rating))
@@ -1198,8 +1384,42 @@ struct NativeMediaServerDetailPage: View {
     return "立即播放"
   }
 
-  private func subscribeButtonTitle(_ detail: MediaServerItemDetailDTO) -> String {
-    if isSubscribed { return "已订阅" }
+  private func isCurrentlySubscribed(
+    _ detail: MediaServerItemDetailDTO,
+    external: (source: String, mediaID: String, type: String)
+  ) -> Bool {
+    if external.type == "电视剧" {
+      if let season = detail.seasonNumber {
+        return subscribedSeasons.contains(season) || isSubscribed
+      }
+      return !subscribedSeasons.isEmpty || isSubscribed
+    }
+    return isSubscribed
+  }
+
+  private func resolveCancelSeason(
+    _ detail: MediaServerItemDetailDTO,
+    external: (source: String, mediaID: String, type: String)
+  ) -> Int? {
+    guard external.type == "电视剧" else { return nil }
+    if let season = detail.seasonNumber {
+      return season
+    }
+    if let selectedSeasonNumber, subscribedSeasons.contains(selectedSeasonNumber) {
+      return selectedSeasonNumber
+    }
+    return subscribedSeasons.sorted().first
+  }
+
+  private func subscribeButtonTitle(
+    _ detail: MediaServerItemDetailDTO, subscribed: Bool
+  ) -> String {
+    if subscribed {
+      if detail.kind == .series, subscribedSeasons.count > 0 {
+        return "已订阅 \(subscribedSeasons.count) 季"
+      }
+      return "已订阅"
+    }
     if detail.kind == .season || detail.kind == .episode { return "订阅本季" }
     return "订阅"
   }
@@ -1309,6 +1529,8 @@ struct NativeMediaServerDetailPage: View {
       }
     }
     do {
+      let targetSeason =
+        external.type == "电视剧" ? (detail.seasonNumber ?? selectedSeasonNumber ?? 1) : nil
       let body = try JSONEncoder().encode(
         SubscribeBody(
           name: detail.seriesName ?? detail.title,
@@ -1316,17 +1538,111 @@ struct NativeMediaServerDetailPage: View {
           year: detail.yearText ?? "",
           mediaSource: external.source,
           mediaID: external.mediaID,
-          season: external.type == "电视剧" ? (detail.seasonNumber ?? selectedSeasonNumber ?? 1) : nil
+          season: targetSeason
         )
       )
       let endpoint = try APIEndpoint(
         path: ["subscribe"], method: .post, body: body, trailingSlash: true)
       try await session.perform(endpoint, requiring: .init(category: .subscribe))
-      isSubscribed = true
+      if let targetSeason {
+        subscribedSeasons.insert(targetSeason)
+      } else {
+        isSubscribed = true
+      }
+      await loadSubscriptionStatus(detail, external: external)
       feedbackMessage = ("已成功添加订阅。", false)
     } catch {
       feedbackMessage = ("添加订阅失败，可能已存在或暂无权限。", true)
     }
+  }
+
+  private func performUnsubscribe(_ target: MediaServerCancelSubscribeTarget) async {
+    guard canSubscribe else { return }
+    isSubscribing = true
+    defer { isSubscribing = false }
+    do {
+      var query = [URLQueryItem(name: "media_source", value: target.source)]
+      if let season = target.season, target.type == "电视剧" {
+        query.append(URLQueryItem(name: "season", value: String(season)))
+      }
+      let endpoint = try APIEndpoint(
+        path: ["subscribe", "media", target.mediaID],
+        method: .delete,
+        query: query
+      )
+      try await session.perform(endpoint, requiring: .init(category: .subscribe))
+      if let season = target.season {
+        subscribedSeasons.remove(season)
+      } else {
+        isSubscribed = false
+      }
+      if let detail, let ext = detail.resolvedExternalIdentity {
+        await loadSubscriptionStatus(detail, external: ext)
+      }
+      feedbackMessage = (
+        target.season.map { "已取消第 \($0) 季订阅。" } ?? "已取消订阅。",
+        false
+      )
+    } catch {
+      feedbackMessage = ("取消订阅失败，请稍后重试。", true)
+    }
+  }
+
+  /// 查询当前作品在 MoviePilot 中的订阅与分季订阅状态，使「已订阅」按钮与媒体详情页保持一致并支持再次点击取消。
+  private func loadSubscriptionStatus(
+    _ loaded: MediaServerItemDetailDTO,
+    external: (source: String, mediaID: String, type: String)
+  ) async {
+    struct StatusQueryItem: Encodable {
+      let mediaSource: String
+      let mediaID: String
+      let mtype: String
+      let title: String?
+      let year: String?
+
+      private enum CodingKeys: String, CodingKey {
+        case mtype, title, year
+        case mediaSource = "media_source"
+        case mediaID = "media_id"
+      }
+    }
+    struct StatusResponseItem: Decodable {
+      let subscribed: Bool
+      let seasons: [Int: String]
+
+      private enum CodingKeys: String, CodingKey {
+        case subscribed, seasons
+      }
+
+      init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        subscribed = try container.decodeIfPresent(Bool.self, forKey: .subscribed) ?? false
+        let rawSeasons =
+          try container.decodeIfPresent([String: String].self, forKey: .seasons) ?? [:]
+        var parsed: [Int: String] = [:]
+        for (key, value) in rawSeasons {
+          if let number = Int(key) { parsed[number] = value }
+        }
+        seasons = parsed
+      }
+    }
+    let payload = [
+      StatusQueryItem(
+        mediaSource: external.source,
+        mediaID: external.mediaID,
+        mtype: external.type,
+        title: loaded.seriesName ?? loaded.title,
+        year: loaded.yearText
+      )
+    ]
+    guard let body = try? JSONEncoder().encode(payload),
+      let endpoint = try? APIEndpoint(path: ["media", "status"], method: .post, body: body),
+      let snapshot = try? await session.request(
+        endpoint, as: [StatusResponseItem].self, requiring: .init(category: .discovery)
+      ).value.first
+    else { return }
+    isSubscribed = snapshot.subscribed
+    subscribedSeasons = Set(snapshot.seasons.keys)
   }
 
   // MARK: - Data Loading
@@ -1352,7 +1668,13 @@ struct NativeMediaServerDetailPage: View {
           for: firstSource, preferChineseSub: preferZh)
       }
       isLoading = false
-      await loadHierarchyChildren(for: loaded)
+      async let childrenTask: Void = loadHierarchyChildren(for: loaded)
+      async let subStatusTask: Void = {
+        if let ext = loaded.resolvedExternalIdentity {
+          await loadSubscriptionStatus(loaded, external: ext)
+        }
+      }()
+      _ = await (childrenTask, subStatusTask)
     } catch is CancellationError {
       return
     } catch {
@@ -1437,6 +1759,22 @@ struct NativeMediaServerDetailPage: View {
         episodes = tracks
       }
 
+    case .boxSet:
+      if let endpoint = try? APIEndpoint(
+        path: ["mediaserver", "browse"],
+        query: [
+          URLQueryItem(name: "server", value: srv),
+          URLQueryItem(name: "parent_id", value: loaded.itemId),
+          URLQueryItem(name: "limit", value: "100"),
+        ]
+      ),
+        let page = try? await session.request(
+          endpoint, as: MediaServerBrowsePageDTO.self, requiring: .init(category: .discovery)
+        ).value
+      {
+        collectionItems = page.items
+      }
+
     default:
       break
     }
@@ -1462,7 +1800,33 @@ struct NativeMediaServerDetailPage: View {
   }
 }
 
-/// iOS 18+ 原生滚动偏移观察器（用于详情页 Hero 视差与标题渐显）。
+/// 待确认取消订阅的目标参数。
+private struct MediaServerCancelSubscribeTarget: Identifiable {
+  let id = UUID()
+  let source: String
+  let mediaID: String
+  let type: String
+  let season: Int?
+  let message: String
+}
+
+private struct MediaServerDetailScrollOffsetKey: PreferenceKey {
+  static let defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+private struct MediaServerDetailScrollClipping: ViewModifier {
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if #available(iOS 17, *) {
+      content.scrollClipDisabled()
+    } else {
+      content
+    }
+  }
+}
+
+/// iOS 18+ 原生滚动偏移观察器（用于详情页 Hero 视差、模糊与标题渐显）。
 private struct MediaServerDetailScrollObservation: ViewModifier {
   @Binding var offset: CGFloat
 
@@ -1471,12 +1835,35 @@ private struct MediaServerDetailScrollObservation: ViewModifier {
     if #available(iOS 18, *) {
       content.onScrollGeometryChange(for: CGFloat.self) { geometry in
         let raw = -(geometry.contentOffset.y + geometry.contentInsets.top)
-        return max(min(raw, 200), -640)
+        let clamped = max(min(raw, 240), -720)
+        return (clamped * 2).rounded() / 2
       } action: { _, value in
         if abs(offset - value) >= 0.5 { offset = value }
       }
     } else {
+      content.onPreferenceChange(MediaServerDetailScrollOffsetKey.self) { raw in
+        let clamped = max(min(raw, 240), -720)
+        if abs(offset - clamped) >= 0.5 { offset = clamped }
+      }
+    }
+  }
+}
+
+private struct MediaServerDetailLegacyScrollProbe: ViewModifier {
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if #available(iOS 18, *) {
       content
+    } else {
+      content.background(alignment: .top) {
+        GeometryReader { proxy in
+          Color.clear.preference(
+            key: MediaServerDetailScrollOffsetKey.self,
+            value: proxy.frame(in: .named("native-mediaserver-detail-scroll")).minY
+          )
+        }
+        .frame(height: 0)
+      }
     }
   }
 }

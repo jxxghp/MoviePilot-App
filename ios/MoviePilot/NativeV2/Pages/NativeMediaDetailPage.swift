@@ -377,20 +377,24 @@ struct NativeMediaDetailPage: View {
                 let seasons = resolvedSeasons(detail)
                 let primarySeason =
                   seasons.first(where: { $0.seasonNumber > 0 })?.seasonNumber ?? 1
-                let anySubscribed = subscribedCount > 0
+                let anySubscribed = subscribedCount > 0 || status.subscribed
+                let firstSubscribedSeason = status.seasons.keys.sorted().first
                 Button {
                   if !anySubscribed {
                     Task { await performSubscribe(season: primarySeason) }
                   } else {
                     pendingCancelSeason = NativeSeasonCancelTarget(
-                      season: status.seasons.keys.sorted().first,
-                      message:
-                        "确认取消《\(detail.title ?? "该剧集")》第 \(status.seasons.keys.sorted().first ?? primarySeason) 季的订阅吗？"
+                      season: firstSubscribedSeason,
+                      message: firstSubscribedSeason.map {
+                        "确认取消《\(detail.title ?? "该剧集")》第 \($0) 季的订阅吗？"
+                      } ?? "确认取消《\(detail.title ?? "该剧集")》的订阅吗？"
                     )
                   }
                 } label: {
                   detailCapsuleLabel(
-                    title: anySubscribed ? "已订阅 \(subscribedCount) 季" : "订阅第 \(primarySeason) 季",
+                    title: subscribedCount > 0
+                      ? "已订阅 \(subscribedCount) 季"
+                      : (status.subscribed ? "已订阅" : "订阅第 \(primarySeason) 季"),
                     symbol: anySubscribed ? "bookmark.fill" : "bookmark",
                     prominent: !hasPlay && !anySubscribed,
                     accentFilled: anySubscribed

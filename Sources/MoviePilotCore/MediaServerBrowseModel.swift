@@ -53,6 +53,7 @@ public enum MediaServerItemKind: Hashable, Sendable {
   case episode
   case musicAlbum
   case audio
+  case boxSet
   case folder
   case other(String)
 
@@ -65,7 +66,8 @@ public enum MediaServerItemKind: Hashable, Sendable {
     case "episode": self = .episode
     case "musicalbum", "album": self = .musicAlbum
     case "audio", "track", "song", "music", "音乐": self = .audio
-    case "folder", "directory", "boxset", "collection": self = .folder
+    case "boxset", "collection", "合集": self = .boxSet
+    case "folder", "directory": self = .folder
     default: self = .other(rawItemType ?? "")
     }
   }
@@ -472,6 +474,38 @@ public struct MediaServerBrowseItemDTO: Decodable, Identifiable, Hashable, Senda
     self.playedPercentage = playedPercentage
     self.resumePositionMs = resumePositionMs
     self.useCookies = useCookies
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    itemId = try container.decode(MediaServerFlexibleScalar.self, forKey: .itemId).value
+    server = try container.decodeIfPresent(String.self, forKey: .server)
+    serverType = try container.decodeIfPresent(String.self, forKey: .serverType)
+    itemType = try container.decodeIfPresent(String.self, forKey: .itemType) ?? "Movie"
+    mediaType = try container.decodeIfPresent(String.self, forKey: .mediaType)
+    title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+    originalTitle = try container.decodeIfPresent(String.self, forKey: .originalTitle)
+    subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
+    overview = try container.decodeIfPresent(String.self, forKey: .overview)
+    yearScalar = try container.decodeIfPresent(MediaServerFlexibleScalar.self, forKey: .yearScalar)
+    premiereDate = try container.decodeIfPresent(String.self, forKey: .premiereDate)
+    rating = try container.decodeIfPresent(Double.self, forKey: .rating)
+    durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
+    poster = try container.decodeIfPresent(String.self, forKey: .poster)
+    backdrop = try container.decodeIfPresent(String.self, forKey: .backdrop)
+    thumb = try container.decodeIfPresent(String.self, forKey: .thumb)
+    seriesId = try container.decodeIfPresent(MediaServerFlexibleScalar.self, forKey: .seriesId)?
+      .value
+    seriesName = try container.decodeIfPresent(String.self, forKey: .seriesName)
+    seasonId = try container.decodeIfPresent(MediaServerFlexibleScalar.self, forKey: .seasonId)?
+      .value
+    seasonNumber = try container.decodeIfPresent(Int.self, forKey: .seasonNumber)
+    episodeNumber = try container.decodeIfPresent(Int.self, forKey: .episodeNumber)
+    childCount = try container.decodeIfPresent(Int.self, forKey: .childCount)
+    played = try container.decodeIfPresent(Bool.self, forKey: .played)
+    playedPercentage = try container.decodeIfPresent(Double.self, forKey: .playedPercentage)
+    resumePositionMs = try container.decodeIfPresent(Int.self, forKey: .resumePositionMs)
+    useCookies = try container.decodeIfPresent(Bool.self, forKey: .useCookies)
   }
 }
 

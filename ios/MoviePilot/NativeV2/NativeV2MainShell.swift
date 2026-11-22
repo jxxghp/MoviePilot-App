@@ -2124,7 +2124,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     guard let title = item.title, !title.isEmpty else { return nil }
     let rawItemID = item.itemID?.value ?? item.id?.value
     let identifier = rawItemID ?? title
-    let resolvedServer = (item.server?.isEmpty == false ? item.server : nil) ?? server
+    let resolvedServer = !server.isEmpty ? server : (item.server ?? server)
     let rawPercent = item.percent ?? 0
     let normalized = rawPercent > 1 ? rawPercent / 100.0 : rawPercent
     let label =
@@ -2152,7 +2152,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     guard let title = item.title, !title.isEmpty else { return nil }
     let rawItemID = item.itemID?.value ?? item.id?.value
     let identifier = rawItemID ?? title
-    let resolvedServer = (item.server?.isEmpty == false ? item.server : nil) ?? server
+    let resolvedServer = !server.isEmpty ? server : (item.server ?? server)
     return NativeDiscoverMedia(
       id: "latest|\(identifier)",
       title: title,
@@ -2164,7 +2164,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     )
   }
 
-  /// 媒体库卡片按服务端库名、数量与主图投影，点击进入应用内原生媒体库浏览页。
+  /// 媒体库卡片按服务端库名、数量与主图投影，点击进入应用内原生媒体库浏览页；始终使用已配置的真实服务器实例名而非模块返回的小写类型名。
   private func projectLibraryProvider(
     _ item: NativeMediaServerLibrary, server: String, defaultServerType: String?
   ) -> NativeDiscoverProvider? {
@@ -2175,7 +2175,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       name: name,
       itemCount: item.itemCount,
       artworkReference: item.image ?? item.imageList?.first,
-      server: (item.server?.isEmpty == false ? item.server : nil) ?? server,
+      server: !server.isEmpty ? server : (item.server ?? server),
       serverType: item.serverType ?? defaultServerType,
       serverID: item.serverID?.value,
       itemID: item.itemID?.value ?? item.id?.value,
