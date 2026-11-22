@@ -1,6 +1,6 @@
 # MoviePilot-App (v2 全原生 iOS 客户端)
 
-MoviePilot 官方全原生 SwiftUI iOS 客户端（`v2` 分支），直接对接 MoviePilot V3 后端 API，提供统一深色紫玫瑰渐变玻璃视觉体系、iOS 26+ Liquid Glass 导航及原生本地播放体验。[查看完整界面图册（50 张）](screenshots/README.md)。
+MoviePilot 官方全原生 SwiftUI iOS 客户端（`v2` 分支），直接对接 MoviePilot V3 后端 API，提供统一深色紫玫瑰渐变玻璃视觉体系、iOS 26+ Liquid Glass 导航及原生本地播放体验。[查看完整界面图册（60 张）](screenshots/README.md)。
 
 ## 核心能力
 
@@ -34,7 +34,7 @@ xcodebuild build \
 
 ## 界面图册
 
-完整 50 张实测截图（含连接服务/登录页、4+1 导航、设置中心、发现/探索/详情、订阅/下载/文件/整理历史、工作流画布、站点与插件页面）请见 [screenshots/README.md](screenshots/README.md)。
+完整 60 张实测截图（含连接服务/登录页、4+1 导航、设置中心、发现/探索/豆瓣与剧集详情、捷径词表与日志、站点历史流量图表、订阅/资源/下载/文件/整理历史、工作流画布与插件页面）请见 [screenshots/README.md](screenshots/README.md)。
 
 ## 许可证
 
