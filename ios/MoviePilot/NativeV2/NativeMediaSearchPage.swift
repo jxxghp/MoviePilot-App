@@ -782,12 +782,19 @@ struct NativeMediaSearchPage: View {
   /// 每个分类独立保留来源，避免切换分类后把内置音乐来源发送给影视搜索。
   private var selectedSources: Set<String> { selections[kind] ?? [] }
 
-  /// 已入库媒体服务器搜索结果分组（支持直接播放单曲/影片或选择剧集季集播放）。
+  /// 已入库媒体服务器搜索结果分组（点击卡片进入媒体服务器详情页，长按支持快捷播放）。
   private var libraryResultsSection: some View {
     Section {
       ForEach(libraryResults) { item in
-        Button {
-          Task { await openLibraryItem(item) }
+        NavigationLink {
+          NativeMediaServerDetailPage(
+            session: session,
+            server: item.server,
+            itemID: item.playableItemID,
+            fallbackTitle: item.displayTitle,
+            fallbackItemType: item.type,
+            fallbackPoster: item.resolvedImageReference(baseURL: session.instance.address.url)
+          )
         } label: {
           CinematicPanel(padding: 9) {
             HStack(alignment: .center, spacing: 12) {
@@ -848,13 +855,23 @@ struct NativeMediaSearchPage: View {
 
               if launchingLibraryItemID == item.id {
                 ProgressView().controlSize(.small).tint(.primary)
+              } else {
+                Image(systemName: "chevron.right")
+                  .font(.caption.weight(.semibold))
+                  .foregroundStyle(.secondary)
               }
             }
             .contentShape(Rectangle())
           }
         }
         .buttonStyle(.plain)
-        .disabled(launchingLibraryItemID != nil)
+        .contextMenu {
+          Button {
+            Task { await openLibraryItem(item) }
+          } label: {
+            Label(item.isSeries ? "快捷选集播放" : "立即播放", systemImage: "play.fill")
+          }
+        }
         .accessibilityIdentifier("native-media-search-library-\(item.playableItemID)")
       }
     } header: {

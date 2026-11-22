@@ -381,50 +381,72 @@ struct NativeDashboardPage: View {
           LazyVStack(spacing: 0) {
             ForEach(Array(recentImports.prefix(6).enumerated()), id: \.element.id) { index, item in
               if index > 0 { CinematicFormDivider() }
-              HStack(spacing: 12) {
-                NativeMediaArtwork(
-                  session: session, reference: item.image, role: .poster, maximumWidth: 160
-                )
-                .frame(width: 36, height: 50)
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                VStack(alignment: .leading, spacing: 3) {
-                  HStack(spacing: 6) {
-                    Text(item.displayTitle)
-                      .font(.subheadline.weight(.semibold))
-                      .foregroundStyle(.primary)
-                      .lineLimit(1)
-                    if !item.seasonEpisodeText.isEmpty {
-                      NativeAdaptiveBadge(item.seasonEpisodeText, tint: NativeTheme.brand)
-                    }
+              Group {
+                if let identity = item.mediaIdentity {
+                  NavigationLink {
+                    NativeMediaDetailPage(session: session, identity: identity)
+                  } label: {
+                    recentImportRow(item, showChevron: true)
                   }
-                  HStack(spacing: 8) {
-                    if let mode = item.modeLabel {
-                      Text(mode)
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(NativeTheme.info)
-                    }
-                    if let date = item.date, !date.isEmpty {
-                      Text(date)
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    }
-                  }
+                  .buttonStyle(.plain)
+                } else {
+                  recentImportRow(item, showChevron: false)
                 }
-                Spacer(minLength: 4)
-                NativeAdaptiveBadge(
-                  item.status == false ? "失败" : "已入库",
-                  tint: item.status == false ? NativeTheme.danger : NativeTheme.success
-                )
               }
-              .padding(.horizontal, 14)
-              .padding(.vertical, 10)
             }
           }
         }
       }
     }
     .accessibilityIdentifier("native-dashboard-recent-imports")
+  }
+
+  private func recentImportRow(_ item: NativeDashboardRecentImport, showChevron: Bool) -> some View
+  {
+    HStack(spacing: 12) {
+      NativeMediaArtwork(
+        session: session, reference: item.image, role: .poster, maximumWidth: 160
+      )
+      .frame(width: 36, height: 50)
+      .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+      VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: 6) {
+          Text(item.displayTitle)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+          if !item.seasonEpisodeText.isEmpty {
+            NativeAdaptiveBadge(item.seasonEpisodeText, tint: NativeTheme.brand)
+          }
+        }
+        HStack(spacing: 8) {
+          if let mode = item.modeLabel {
+            Text(mode)
+              .font(.caption2.weight(.medium))
+              .foregroundStyle(NativeTheme.info)
+          }
+          if let date = item.date, !date.isEmpty {
+            Text(date)
+              .font(.caption2.monospacedDigit())
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+          }
+        }
+      }
+      Spacer(minLength: 4)
+      NativeAdaptiveBadge(
+        item.status == false ? "失败" : "已入库",
+        tint: item.status == false ? NativeTheme.danger : NativeTheme.success
+      )
+      if showChevron {
+        Image(systemName: "chevron.right")
+          .font(.caption2.weight(.semibold))
+          .foregroundStyle(.secondary)
+      }
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 10)
+    .contentShape(Rectangle())
   }
 
   // MARK: - 4. 下载器速率与活跃任务
@@ -1427,6 +1449,9 @@ private struct NativeDashboardRecentImportsResponse: Decodable, Sendable {
 private struct NativeDashboardRecentImport: Decodable, Sendable, Identifiable {
   let id: Int
   let title: String?
+  let type: String?
+  let mediaSource: String?
+  let mediaID: String?
   let seasons: String?
   let episodes: String?
   let mode: String?
@@ -1434,9 +1459,26 @@ private struct NativeDashboardRecentImport: Decodable, Sendable, Identifiable {
   let date: String?
   let image: String?
 
+  private enum CodingKeys: String, CodingKey {
+    case id, title, type, seasons, episodes, mode, status, date, image
+    case mediaSource = "media_source"
+    case mediaID = "media_id"
+  }
+
   var displayTitle: String {
     if let title, !title.isEmpty { return title }
     return "记录 #\(id)"
+  }
+
+  var mediaIdentity: NativeMediaIdentity? {
+    guard let source = mediaSource?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !source.isEmpty,
+      let mid = mediaID?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !mid.isEmpty, mid != "0"
+    else { return nil }
+    let mediaType = (type?.isEmpty == false ? type! : "电影")
+    guard mediaType == "电影" || mediaType == "电视剧" else { return nil }
+    return NativeMediaIdentity(source: source, mediaID: mid, type: mediaType)
   }
 
   var seasonEpisodeText: String {

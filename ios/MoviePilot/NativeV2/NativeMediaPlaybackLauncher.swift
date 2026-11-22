@@ -89,7 +89,7 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
     return components?.url
   }
 
-  /// 播放媒体服务器已入库条目（Emby / Jellyfin / Plex），直连 `GET /api/v1/mediaserver/stream-info`。
+  /// 播放媒体服务器已入库条目（全媒体服务器统一接口），支持播前指定版本/音轨/字幕以及连续剧分集队列。
   func playMediaServerItem(
     session: NativeSession,
     itemID: String,
@@ -97,16 +97,18 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
     title: String,
     artworkURL: URL? = nil,
     queue: [MediaPlaybackQueueItem] = [],
-    queueIndex: Int = 0
+    queueIndex: Int = 0,
+    trackSelection: MediaPlaybackTrackSelection? = nil
   ) async -> String? {
     do {
       let auth = try session.playbackAuthorization()
       let client = MediaPlaybackClient(address: auth.address, accessToken: auth.accessToken)
-      let manifest = try await client.loadManifest(itemId: itemID, server: server)
+      let manifest = try await client.loadManifest(
+        itemId: itemID, server: server, mediaSourceId: trackSelection?.mediaSourceID)
       return present(
         manifest: manifest, client: client, instanceID: session.instance.id,
         itemID: itemID, title: title.isEmpty ? manifest.title : title, artworkURL: artworkURL,
-        queue: queue, queueIndex: queueIndex)
+        queue: queue, queueIndex: queueIndex, initialTrackSelection: trackSelection)
     } catch {
       return "无法读取媒体服务器播放流，请确认影片仍在媒体库中并检查后台连接。"
     }
@@ -423,6 +425,7 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
     initialArtwork: UIImage? = nil,
     queue: [MediaPlaybackQueueItem],
     queueIndex: Int,
+    initialTrackSelection: MediaPlaybackTrackSelection? = nil,
     deleteContentFileOnClose: Bool = false,
     securityScopeLease: SecurityScopedResourceLease? = nil
   ) -> String? {
@@ -440,6 +443,7 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
       initialArtwork: initialArtwork,
       queue: queue,
       queueIndex: queueIndex,
+      initialTrackSelection: initialTrackSelection,
       deleteContentFileOnClose: deleteContentFileOnClose,
       securityScopeLease: securityScopeLease,
       onMinimize: { [weak self] vc in

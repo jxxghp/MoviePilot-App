@@ -19,6 +19,37 @@ struct MediaPlaybackManifest: Decodable, Sendable {
   let album: String?
   let subtitles: [MediaPlaybackSubtitle]
   let lyricsUrl: URL?
+  let mediaSourceId: String?
+  let resumePositionMs: Int?
+  let durationMs: Int?
+
+  init(
+    itemId: String,
+    server: String?,
+    title: String,
+    contentUrl: URL,
+    mediaType: String?,
+    artist: String?,
+    album: String?,
+    subtitles: [MediaPlaybackSubtitle],
+    lyricsUrl: URL?,
+    mediaSourceId: String? = nil,
+    resumePositionMs: Int? = nil,
+    durationMs: Int? = nil
+  ) {
+    self.itemId = itemId
+    self.server = server
+    self.title = title
+    self.contentUrl = contentUrl
+    self.mediaType = mediaType
+    self.artist = artist
+    self.album = album
+    self.subtitles = subtitles
+    self.lyricsUrl = lyricsUrl
+    self.mediaSourceId = mediaSourceId
+    self.resumePositionMs = resumePositionMs
+    self.durationMs = durationMs
+  }
 }
 
 /// 后端发现的一条同名外挂字幕；内嵌字幕由 VLCKit 读取。
@@ -29,7 +60,7 @@ struct MediaPlaybackSubtitle: Decodable, Sendable {
   let url: URL
 }
 
-/// 播放队列中的单曲信息（兼容媒体服务器 itemId 与专辑曲目元数据匹配）。
+/// 播放队列中的单集或单曲信息（兼容视频连续剧分集与音乐专辑曲目）。
 struct MediaPlaybackQueueItem: Decodable, Sendable {
   let itemId: String
   let title: String
@@ -37,6 +68,8 @@ struct MediaPlaybackQueueItem: Decodable, Sendable {
   let artworkURL: String?
   let artist: String?
   let album: String?
+  let subtitle: String?
+  let mediaSourceId: String?
 
   init(
     itemId: String,
@@ -44,7 +77,9 @@ struct MediaPlaybackQueueItem: Decodable, Sendable {
     server: String? = nil,
     artworkURL: String? = nil,
     artist: String? = nil,
-    album: String? = nil
+    album: String? = nil,
+    subtitle: String? = nil,
+    mediaSourceId: String? = nil
   ) {
     self.itemId = itemId
     self.title = title
@@ -52,6 +87,8 @@ struct MediaPlaybackQueueItem: Decodable, Sendable {
     self.artworkURL = artworkURL
     self.artist = artist
     self.album = album
+    self.subtitle = subtitle
+    self.mediaSourceId = mediaSourceId
   }
 }
 
@@ -83,11 +120,16 @@ final class MediaPlaybackClient {
     session = URLSession(configuration: configuration)
   }
 
-  /// 使用当前实例访问令牌读取已入库条目、流地址和外挂字幕清单。
-  func loadManifest(itemId: String, server: String? = nil) async throws -> MediaPlaybackManifest {
+  /// 使用当前实例访问令牌读取已入库条目、流地址和外挂字幕清单，支持指定多版本媒体源。
+  func loadManifest(itemId: String, server: String? = nil, mediaSourceId: String? = nil)
+    async throws -> MediaPlaybackManifest
+  {
     selectedServer = server
     var queryItems = [URLQueryItem(name: "itemid", value: itemId)]
     if let server { queryItems.append(URLQueryItem(name: "server", value: server)) }
+    if let mediaSourceId, !mediaSourceId.isEmpty {
+      queryItems.append(URLQueryItem(name: "media_source_id", value: mediaSourceId))
+    }
     let url = endpoint(
       ["api", "v1", "mediaserver", "stream-info"],
       queryItems: queryItems)
@@ -110,7 +152,8 @@ final class MediaPlaybackClient {
       envelope.success, let manifest = envelope.data,
       manifest.itemId == itemId,
       manifest.mediaType == nil || manifest.mediaType == "video" || manifest.mediaType == "audio",
-      isTrustedMediaURL(manifest.contentUrl, itemId: itemId, server: server)
+      isTrustedMediaURL(
+        manifest.contentUrl, itemId: itemId, server: server, mediaSourceId: mediaSourceId)
     else { throw MediaPlaybackError.unavailable }
     resourceCookie = cookie
     guard
@@ -126,6 +169,36 @@ final class MediaPlaybackClient {
       throw MediaPlaybackError.unavailable
     }
     return manifest
+  }
+
+  /// 尽力将当前播放位置和状态异步回传给媒体服务器（不阻塞交互、失败静默忽略）。
+  func reportProgress(
+    itemId: String,
+    server: String?,
+    mediaSourceId: String?,
+    positionMs: Int,
+    durationMs: Int?,
+    isPaused: Bool,
+    state: String
+  ) async {
+    guard let server, !server.isEmpty, !itemId.isEmpty, !itemId.hasPrefix("file.") else { return }
+    let url = endpoint(["api", "v1", "mediaserver", "progress"])
+    var payload: [String: Any] = [
+      "item_id": itemId,
+      "server": server,
+      "position_ms": max(0, positionMs),
+      "is_paused": isPaused,
+      "state": state,
+    ]
+    if let mediaSourceId, !mediaSourceId.isEmpty { payload["media_source_id"] = mediaSourceId }
+    if let durationMs, durationMs > 0 { payload["duration_ms"] = durationMs }
+    guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+    request.httpBody = body
+    _ = try? await session.data(for: request)
   }
 
   /// 下载所选外挂字幕到 App 临时目录，避免把账号令牌放进播放器 URL。
@@ -147,10 +220,13 @@ final class MediaPlaybackClient {
       data.append(byte)
     }
     guard !data.isEmpty else { throw MediaPlaybackError.subtitleUnavailable }
+    let idExt = (subtitle.subtitleId as NSString).pathExtension.lowercased()
+    let urlExt = subtitle.url.pathExtension.lowercased()
+    let allowedExts: Set<String> = ["srt", "ass", "ssa", "vtt", "smi", "sub"]
+    let ext = allowedExts.contains(idExt) ? idExt : (allowedExts.contains(urlExt) ? urlExt : "srt")
     let fileURL = FileManager.default.temporaryDirectory
       .appendingPathComponent("moviepilot-\(UUID().uuidString)")
-      .appendingPathExtension(
-        subtitle.url.pathExtension.isEmpty ? "srt" : subtitle.url.pathExtension)
+      .appendingPathExtension(ext)
     try data.write(to: fileURL, options: .atomic)
     return fileURL
   }
@@ -296,14 +372,22 @@ final class MediaPlaybackClient {
   }
 
   /// 校验媒体地址同源且精确对应所选条目的流接口。
-  private func isTrustedMediaURL(_ url: URL, itemId: String, server: String?) -> Bool {
+  private func isTrustedMediaURL(
+    _ url: URL, itemId: String, server: String?, mediaSourceId: String? = nil
+  ) -> Bool {
     guard address.contains(url), url.user == nil, url.password == nil, url.fragment == nil,
       url.path == endpoint(["api", "v1", "mediaserver", "stream"]).path,
       let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
     else { return false }
-    return queryItems.count == (server == nil ? 1 : 2)
-      && queryItems.first(where: { $0.name == "itemid" })?.value == itemId
-      && (server == nil || queryItems.first(where: { $0.name == "server" })?.value == server)
+    let allowedNames: Set<String> = ["itemid", "server", "media_source_id"]
+    guard queryItems.allSatisfy({ allowedNames.contains($0.name) }),
+      Set(queryItems.map(\.name)).count == queryItems.count,
+      queryItems.first(where: { $0.name == "itemid" })?.value == itemId,
+      server == nil || queryItems.first(where: { $0.name == "server" })?.value == server,
+      mediaSourceId == nil
+        || queryItems.first(where: { $0.name == "media_source_id" })?.value == mediaSourceId
+    else { return false }
+    return true
   }
 
   /// 校验字幕地址同源且位于当前条目的字幕接口路径下。
@@ -401,7 +485,9 @@ final class SecurityScopedResourceLease: @unchecked Sendable {
 
 /// 使用原生 UIKit 控件驱动 VLCKit，提供影院级视频播放与 Apple Music 质感音乐播放体验，并在独立后台队列安全释放解码器避免返回卡死。
 @MainActor
-final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDelegate {
+final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDelegate,
+  VLCMediaPlayerDelegate
+{
   /// 非实例绑定播放（本地音视频文件与外部直链流）的固定本地进度命名空间。
   static let externalPlaybackNamespace = UUID(
     uuidString: "A7B56C10-5E6F-4C8B-9F72-3F2189D7C001")!
@@ -482,7 +568,33 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private let aspectButton = UIButton(type: .system)
   private let subtitleButton = UIButton(type: .system)
   private let audioButton = UIButton(type: .system)
+  private let episodeListButton = UIButton(type: .system)
+  private let prevEpisodeButton = UIButton(type: .system)
+  private let nextEpisodeButton = UIButton(type: .system)
   private weak var playbackMenuButton: UIButton?
+
+  // Auto-play-next glass countdown card (video episode queue)
+  private let upNextOverlay = UIVisualEffectView(
+    effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+  private let upNextHeaderLabel = UILabel()
+  private let upNextTitleLabel = UILabel()
+  private let upNextCountdownLabel = UILabel()
+  private let upNextPlayButton = UIButton(type: .system)
+  private let upNextCancelButton = UIButton(type: .system)
+  private var upNextTask: Task<Void, Never>?
+  private var upNextDismissedForCurrentItem = false
+
+  // Track preference & progress reporting state
+  private var pendingTrackSelection: MediaPlaybackTrackSelection?
+  private var appliedAudioSelection = false
+  private var appliedSubtitleSelection = false
+  private var appliedDefaultRate = false
+  private var activeExternalSubtitleID: String?
+  private var lastObservedPositionMs = 0
+  private var lastObservedDurationMs = 0
+  private var hasPlayedCurrentItem = false
+  private var lastProgressReportAt: Date = .distantPast
+  private var progressReportTask: Task<Void, Never>?
 
   // Music utility bar buttons
   private let lyricsToggleButton = UIButton(type: .system)
@@ -570,6 +682,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     initialArtwork: UIImage? = nil,
     queue: [MediaPlaybackQueueItem] = [],
     queueIndex: Int = 0,
+    initialTrackSelection: MediaPlaybackTrackSelection? = nil,
     deleteContentFileOnClose: Bool = false,
     securityScopeLease: SecurityScopedResourceLease? = nil,
     onMinimize: @escaping (MediaPlaybackViewController) -> Void,
@@ -588,6 +701,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     self.securityScopeLease = securityScopeLease
     self.queue = queue
     self.queueIndex = queue.indices.contains(queueIndex) ? queueIndex : 0
+    self.pendingTrackSelection = initialTrackSelection
     self.onMinimize = onMinimize
     self.onExpand = onExpand
     self.onClosePlayback = onClosePlayback
@@ -833,6 +947,14 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       let topButtonPointSize: CGFloat = 15
 
       configureGlassButton(
+        episodeListButton, symbol: "list.bullet", accessibility: L10n.text("选集"),
+        diameter: topButtonDiameter, pointSize: topButtonPointSize)
+      episodeListButton.accessibilityIdentifier = "video-playback-episodes"
+      episodeListButton.isHidden = queue.count <= 1
+      episodeListButton.addAction(
+        UIAction { [weak self] _ in self?.showQueueMenu() }, for: .touchUpInside)
+
+      configureGlassButton(
         subtitleButton, symbol: "captions.bubble", accessibility: L10n.text("选择字幕"),
         diameter: topButtonDiameter, pointSize: topButtonPointSize)
       subtitleButton.addAction(
@@ -869,7 +991,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         UIAction { [weak self] _ in self?.minimizePlayback() }, for: .touchUpInside)
 
       let topActionsStack = UIStackView(arrangedSubviews: [
-        subtitleButton, audioButton, aspectButton, speedButton, pipTopButton,
+        episodeListButton, subtitleButton, audioButton, aspectButton, speedButton, pipTopButton,
       ])
       topActionsStack.axis = .horizontal
       topActionsStack.alignment = .center
@@ -1211,6 +1333,10 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   /// 影院视频控制布局：居中平衡三键 + 底部统一玻璃进度与功能坞（倍速/比例/字幕/音轨）。
   private func configureVideoControlsLayout() {
     configureGlassButton(
+      prevEpisodeButton, symbol: "backward.end.fill", accessibility: L10n.text("上一集"),
+      diameter: 46, pointSize: 17)
+    prevEpisodeButton.accessibilityIdentifier = "video-playback-prev-episode"
+    configureGlassButton(
       skipBackButton, symbol: "gobackward.10", accessibility: L10n.text("后退 10 秒"),
       diameter: 54, pointSize: 20)
     configureGlassButton(
@@ -1219,26 +1345,45 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     configureGlassButton(
       skipForwardButton, symbol: "goforward.10", accessibility: L10n.text("前进 10 秒"),
       diameter: 54, pointSize: 20)
+    configureGlassButton(
+      nextEpisodeButton, symbol: "forward.end.fill", accessibility: L10n.text("下一集"),
+      diameter: 46, pointSize: 17)
+    nextEpisodeButton.accessibilityIdentifier = "video-playback-next-episode"
 
+    prevEpisodeButton.addAction(
+      UIAction { [weak self] _ in
+        guard let self else { return }
+        self.switchTrack(at: self.queueIndex - 1)
+      }, for: .touchUpInside)
     skipBackButton.addAction(
       UIAction { [weak self] _ in self?.skip(seconds: -10, showHud: true) }, for: .touchUpInside)
     playButton.addAction(UIAction { [weak self] _ in self?.togglePlayback() }, for: .touchUpInside)
     skipForwardButton.addAction(
       UIAction { [weak self] _ in self?.skip(seconds: 10, showHud: true) }, for: .touchUpInside)
+    nextEpisodeButton.addAction(
+      UIAction { [weak self] _ in self?.playNextTrack() }, for: .touchUpInside)
 
     transport.axis = .horizontal
     transport.alignment = .center
     transport.distribution = .fill
-    transport.spacing = 28
+    transport.spacing = queue.count > 1 ? 18 : 28
     transport.translatesAutoresizingMaskIntoConstraints = false
+    if queue.count > 1 {
+      transport.addArrangedSubview(fixedSquareControl(prevEpisodeButton, diameter: 46))
+    }
     transport.addArrangedSubview(fixedSquareControl(skipBackButton, diameter: 54))
     transport.addArrangedSubview(fixedSquareControl(playButton, diameter: 68))
     transport.addArrangedSubview(fixedSquareControl(skipForwardButton, diameter: 54))
+    if queue.count > 1 {
+      transport.addArrangedSubview(fixedSquareControl(nextEpisodeButton, diameter: 46))
+    }
     view.addSubview(transport)
     NSLayoutConstraint.activate([
       transport.centerXAnchor.constraint(equalTo: view.centerXAnchor),
       transport.centerYAnchor.constraint(equalTo: view.centerYAnchor),
     ])
+
+    configureUpNextOverlay()
 
     let progressRow = UIStackView(arrangedSubviews: [elapsedLabel, positionSlider, durationLabel])
     progressRow.axis = .horizontal
@@ -1618,6 +1763,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
   /// 初始化解码器并绑定受控媒体流或独立无凭据本地/外部音视频源。
   private func configurePlayer() -> Bool {
+    player.delegate = self
     player.drawable = isAudioPlayback ? nil : videoView
     do {
       player.media = try makePlaybackMedia(url: manifest.contentUrl)
@@ -1625,9 +1771,299 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       showError(error.localizedDescription)
       return false
     }
-    let saved = UserDefaults.standard.integer(forKey: progressKey)
-    savedProgress = saved > 30_000 ? saved : nil
+    let localSaved = UserDefaults.standard.integer(forKey: progressKey)
+    let serverSaved = manifest.resumePositionMs ?? 0
+    let bestSaved = max(localSaved, serverSaved)
+    savedProgress = bestSaved > 30_000 ? bestSaved : nil
     return true
+  }
+
+  /// 创建片尾自动播放下一集悬浮玻璃倒计时浮层（仅视频剧集队列使用）。
+  private func configureUpNextOverlay() {
+    upNextOverlay.translatesAutoresizingMaskIntoConstraints = false
+    upNextOverlay.layer.cornerRadius = 20
+    upNextOverlay.layer.cornerCurve = .continuous
+    upNextOverlay.layer.borderWidth = 0.8
+    upNextOverlay.layer.borderColor = UIColor.white.withAlphaComponent(0.22).cgColor
+    upNextOverlay.clipsToBounds = true
+    upNextOverlay.alpha = 0
+    upNextOverlay.isHidden = true
+    upNextOverlay.accessibilityIdentifier = "video-playback-up-next"
+
+    upNextHeaderLabel.text = L10n.text("即将播放下一集")
+    upNextHeaderLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+    upNextHeaderLabel.textColor = UIColor.white.withAlphaComponent(0.72)
+
+    upNextTitleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+    upNextTitleLabel.textColor = .white
+    upNextTitleLabel.numberOfLines = 2
+
+    upNextCountdownLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+    upNextCountdownLabel.textColor = UIColor.white.withAlphaComponent(0.76)
+
+    var playConfig = UIButton.Configuration.filled()
+    playConfig.baseBackgroundColor = .white
+    playConfig.baseForegroundColor = .black
+    playConfig.cornerStyle = .capsule
+    playConfig.contentInsets = NSDirectionalEdgeInsets(top: 7, leading: 14, bottom: 7, trailing: 14)
+    playConfig.title = L10n.text("立即播放")
+    playConfig.image = UIImage(systemName: "play.fill")
+    playConfig.imagePadding = 6
+    playConfig.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+      pointSize: 11, weight: .semibold)
+    upNextPlayButton.configuration = playConfig
+    upNextPlayButton.accessibilityIdentifier = "video-playback-up-next-play"
+    upNextPlayButton.addAction(
+      UIAction { [weak self] _ in
+        guard let self else { return }
+        self.cancelUpNextCountdown(markDismissed: false)
+        self.playNextTrack()
+      }, for: .touchUpInside)
+
+    var cancelConfig = UIButton.Configuration.plain()
+    cancelConfig.baseForegroundColor = UIColor.white.withAlphaComponent(0.86)
+    cancelConfig.contentInsets = NSDirectionalEdgeInsets(
+      top: 7, leading: 12, bottom: 7, trailing: 12)
+    cancelConfig.title = L10n.text("取消")
+    upNextCancelButton.configuration = cancelConfig
+    upNextCancelButton.accessibilityIdentifier = "video-playback-up-next-cancel"
+    upNextCancelButton.addAction(
+      UIAction { [weak self] _ in self?.cancelUpNextCountdown(markDismissed: true) },
+      for: .touchUpInside)
+
+    let buttonsRow = UIStackView(arrangedSubviews: [upNextPlayButton, upNextCancelButton])
+    buttonsRow.axis = .horizontal
+    buttonsRow.alignment = .center
+    buttonsRow.spacing = 8
+
+    let contentStack = UIStackView(arrangedSubviews: [
+      upNextHeaderLabel, upNextTitleLabel, upNextCountdownLabel, buttonsRow,
+    ])
+    contentStack.axis = .vertical
+    contentStack.alignment = .leading
+    contentStack.spacing = 6
+    contentStack.setCustomSpacing(10, after: upNextCountdownLabel)
+    contentStack.translatesAutoresizingMaskIntoConstraints = false
+
+    upNextOverlay.contentView.addSubview(contentStack)
+    view.addSubview(upNextOverlay)
+    NSLayoutConstraint.activate([
+      contentStack.leadingAnchor.constraint(
+        equalTo: upNextOverlay.contentView.leadingAnchor, constant: 16),
+      contentStack.trailingAnchor.constraint(
+        equalTo: upNextOverlay.contentView.trailingAnchor, constant: -16),
+      contentStack.topAnchor.constraint(equalTo: upNextOverlay.contentView.topAnchor, constant: 14),
+      contentStack.bottomAnchor.constraint(
+        equalTo: upNextOverlay.contentView.bottomAnchor, constant: -14),
+      upNextOverlay.trailingAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -18),
+      upNextOverlay.bottomAnchor.constraint(equalTo: controls.topAnchor, constant: -16),
+      upNextOverlay.widthAnchor.constraint(lessThanOrEqualToConstant: 290),
+    ])
+  }
+
+  /// 展示 5 秒自动连播下一集倒计时浮层，倒计时结束自动切入下一集。
+  private func presentUpNextCountdownIfNeeded() {
+    guard !closed, !isAudioPlayback, !upNextDismissedForCurrentItem,
+      upNextTask == nil, trackSwitchTask == nil,
+      queue.indices.contains(queueIndex + 1)
+    else { return }
+    let nextItem = queue[queueIndex + 1]
+    upNextTitleLabel.text =
+      nextItem.subtitle.map { "\($0) · \(nextItem.title)" } ?? nextItem.title
+    upNextCountdownLabel.text = L10n.format("%d 秒后自动播放", 5)
+    upNextOverlay.isHidden = false
+    UIView.animate(withDuration: 0.24) { self.upNextOverlay.alpha = 1 }
+
+    upNextTask = Task { [weak self] in
+      for remaining in stride(from: 5, through: 1, by: -1) {
+        guard let self, !Task.isCancelled, !self.closed else { return }
+        self.upNextCountdownLabel.text = L10n.format("%d 秒后自动播放", remaining)
+        try? await Task.sleep(for: .seconds(1))
+      }
+      guard let self, !Task.isCancelled, !self.closed else { return }
+      self.upNextTask = nil
+      self.hideUpNextOverlay()
+      self.playNextTrack()
+    }
+  }
+
+  /// 取消自动连播倒计时并隐藏浮层。
+  private func cancelUpNextCountdown(markDismissed: Bool) {
+    upNextTask?.cancel()
+    upNextTask = nil
+    if markDismissed { upNextDismissedForCurrentItem = true }
+    hideUpNextOverlay()
+  }
+
+  /// 隐藏下一集倒计时浮层。
+  private func hideUpNextOverlay() {
+    guard !upNextOverlay.isHidden else { return }
+    UIView.animate(withDuration: 0.18) {
+      self.upNextOverlay.alpha = 0
+    } completion: { _ in
+      self.upNextOverlay.isHidden = true
+    }
+  }
+
+  // MARK: - VLCMediaPlayerDelegate
+
+  /// VLCKit 4.x 状态回调：监听自然播完以触发视频连播倒计时或音乐自动下一首。
+  nonisolated func mediaPlayerStateChanged(_ newState: VLCMediaPlayerState) {
+    Task { @MainActor [weak self] in
+      guard let self, !self.closed else { return }
+      if newState == .playing {
+        self.hasPlayedCurrentItem = true
+        self.applyDefaultRateIfNeeded()
+        self.applyTrackPreferencesIfReady()
+      } else if newState == .stopping || newState == .stopped {
+        self.handlePossiblePlaybackCompletion()
+      }
+    }
+  }
+
+  /// VLCKit 4.x 轨道就绪回调：收到音轨或字幕轨道后立即应用播前选择。
+  nonisolated func mediaPlayerTrackAdded(_ trackId: String, with trackType: VLCMedia.TrackType) {
+    _ = trackId
+    _ = trackType
+    Task { @MainActor [weak self] in
+      guard let self, !self.closed else { return }
+      self.applyTrackPreferencesIfReady()
+    }
+  }
+
+  /// 判定是否已播至片尾并触发视频自动下一集倒计时或音乐自动切歌。
+  private func handlePossiblePlaybackCompletion() {
+    guard hasPlayedCurrentItem, trackSwitchTask == nil, !resumeDecisionPending else { return }
+    let duration = max(lastObservedDurationMs, Int(player.media?.length.intValue ?? 0))
+    let position = max(lastObservedPositionMs, Int(player.time.intValue))
+    let nearEnd =
+      duration > 5_000
+      && (position >= duration * 93 / 100 || (duration - position) <= 3_500)
+    guard nearEnd else { return }
+    reportPlaybackProgress(state: "stopped", force: true)
+    guard queue.indices.contains(queueIndex + 1) else { return }
+    if isAudioPlayback {
+      playNextTrack()
+    } else {
+      presentUpNextCountdownIfNeeded()
+    }
+  }
+
+  /// 首次进入播放态时同步用户设置的默认倍速。
+  private func applyDefaultRateIfNeeded() {
+    guard !appliedDefaultRate, player.isPlaying else { return }
+    appliedDefaultRate = true
+    if abs(currentPlaybackRate - 1.0) >= 0.01 {
+      player.rate = currentPlaybackRate
+    }
+  }
+
+  /// 当 VLC 轨道就绪时自动应用用户在详情页播前选择的音轨与字幕（或系统默认中文字幕偏好）。
+  private func applyTrackPreferencesIfReady() {
+    guard !isAudioPlayback, !closed else { return }
+
+    if !appliedAudioSelection {
+      let audioTracks = player.audioTracks
+      if !audioTracks.isEmpty {
+        if let selection = pendingTrackSelection {
+          if let ordinal = selection.audioOrdinal, audioTracks.indices.contains(ordinal) {
+            audioTracks[ordinal].isSelectedExclusively = true
+            appliedAudioSelection = true
+          } else if let lang = selection.audioLanguage?.lowercased(),
+            let matched = audioTracks.first(where: { track in
+              let hay = "\(track.language ?? "") \(track.trackName) \(track.trackDescription ?? "")"
+                .lowercased()
+              return hay.contains(lang)
+            })
+          {
+            matched.isSelectedExclusively = true
+            appliedAudioSelection = true
+          } else {
+            appliedAudioSelection = true
+          }
+        } else {
+          appliedAudioSelection = true
+        }
+      }
+    }
+
+    if !appliedSubtitleSelection {
+      let textTracks = player.textTracks
+      if let selection = pendingTrackSelection {
+        if selection.subtitleDisabled {
+          player.deselectAllTextTracks()
+          appliedSubtitleSelection = true
+        } else if let extID = selection.subtitleExternalID,
+          let matchedSub = manifest.subtitles.first(where: { $0.subtitleId == extID })
+        {
+          appliedSubtitleSelection = true
+          loadSubtitle(matchedSub)
+        } else if !textTracks.isEmpty {
+          if let ordinal = selection.subtitleOrdinal, textTracks.indices.contains(ordinal) {
+            textTracks[ordinal].isSelectedExclusively = true
+            appliedSubtitleSelection = true
+          } else if let lang = selection.subtitleLanguage?.lowercased(),
+            let matched = textTracks.first(where: { track in
+              let hay = "\(track.language ?? "") \(track.trackName) \(track.trackDescription ?? "")"
+                .lowercased()
+              return hay.contains(lang)
+            })
+          {
+            matched.isSelectedExclusively = true
+            appliedSubtitleSelection = true
+          }
+        }
+      } else {
+        let preferChinese =
+          UserDefaults.standard.object(forKey: "nativeV2.playback.preferChineseSub") as? Bool
+          ?? true
+        guard preferChinese else {
+          appliedSubtitleSelection = true
+          return
+        }
+        let chineseKeywords = ["zh", "chi", "zho", "cmn", "chs", "cht", "中文", "简体", "繁体", "中字"]
+        if let matchedEmbedded = textTracks.first(where: { track in
+          let hay = "\(track.language ?? "") \(track.trackName) \(track.trackDescription ?? "")"
+            .lowercased()
+          return chineseKeywords.contains { hay.contains($0) }
+        }) {
+          matchedEmbedded.isSelectedExclusively = true
+          appliedSubtitleSelection = true
+        } else if let matchedExternal = manifest.subtitles.first(where: { sub in
+          let hay = "\(sub.language ?? "") \(sub.title)".lowercased()
+          return chineseKeywords.contains { hay.contains($0) }
+        }) {
+          appliedSubtitleSelection = true
+          loadSubtitle(matchedExternal)
+        }
+      }
+    }
+  }
+
+  /// 向源媒体服务器异步回传播放进度（每 15 秒节流，暂停/停止立即发送）。
+  private func reportPlaybackProgress(state: String, force: Bool = false) {
+    guard let client, let server = manifest.server, !server.isEmpty else { return }
+    let now = Date()
+    if !force && now.timeIntervalSince(lastProgressReportAt) < 15 { return }
+    lastProgressReportAt = now
+    let position = max(lastObservedPositionMs, Int(player.time.intValue))
+    let duration = max(lastObservedDurationMs, Int(player.media?.length.intValue ?? 0))
+    let paused = state == "paused" || !player.isPlaying
+    let itemId = self.itemId
+    let mediaSourceId = manifest.mediaSourceId
+    progressReportTask?.cancel()
+    progressReportTask = Task {
+      await client.reportProgress(
+        itemId: itemId,
+        server: server,
+        mediaSourceId: mediaSourceId,
+        positionMs: position,
+        durationMs: duration > 0 ? duration : nil,
+        isPaused: paused,
+        state: state
+      )
+    }
   }
 
   /// 构造解码器媒体对象；独立播放模式下不附加任何 MoviePilot Cookie 或认证头。
@@ -1897,8 +2333,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     center.changePlaybackPositionCommand.isEnabled = true
     center.skipForwardCommand.isEnabled = !isAudioPlayback
     center.skipBackwardCommand.isEnabled = !isAudioPlayback
-    center.nextTrackCommand.isEnabled = isAudioPlayback && queue.indices.contains(queueIndex + 1)
-    center.previousTrackCommand.isEnabled = isAudioPlayback && queueIndex > 0
+    center.nextTrackCommand.isEnabled = queue.indices.contains(queueIndex + 1)
+    center.previousTrackCommand.isEnabled = queueIndex > 0
     refreshNowPlayingInfo()
   }
 
@@ -1992,12 +2428,26 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       pictureInPicture.refresh()
     }
     if isPlaying || current > 0 { loading.stopAnimating() }
+    if current > 0 { lastObservedPositionMs = current }
+    if duration > 0 { lastObservedDurationMs = duration }
+    if isPlaying {
+      hasPlayedCurrentItem = true
+      applyDefaultRateIfNeeded()
+      applyTrackPreferencesIfReady()
+      reportPlaybackProgress(state: "playing")
+    }
 
     if !isAudioPlayback {
       let subtitleTracks = player.textTracks
       let audioTracks = player.audioTracks
       subtitleButton.isHidden = manifest.subtitles.isEmpty && subtitleTracks.isEmpty
       audioButton.isHidden = audioTracks.count <= 1
+      episodeListButton.isHidden = queue.count <= 1
+      if !isPlaying && hasPlayedCurrentItem && duration > 5_000
+        && (current >= duration - 1_500) && queue.indices.contains(queueIndex + 1)
+      {
+        presentUpNextCountdownIfNeeded()
+      }
     }
 
     refreshQueueControls(current: current)
@@ -2103,7 +2553,13 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       showControls()
       return
     }
-    if player.isPlaying { player.pause() } else { player.play() }
+    if player.isPlaying {
+      player.pause()
+      reportPlaybackProgress(state: "paused", force: true)
+    } else {
+      cancelUpNextCountdown(markDismissed: false)
+      player.play()
+    }
     refreshPlaybackState()
     if !isAudioPlayback { showControls() }
   }
@@ -2265,14 +2721,22 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     switchTrack(at: queueIndex + 1)
   }
 
-  /// 加载下一条媒体服务器流（支持 itemId 与专辑曲目元数据匹配），非阻塞切换媒体并更新封面和歌词。
+  /// 加载队列中的另一首单曲或另一集视频，非阻塞切换媒体并清理上一集外挂字幕缓存。
   private func switchTrack(at index: Int) {
-    guard isAudioPlayback, trackSwitchTask == nil, queue.indices.contains(index),
+    guard trackSwitchTask == nil, queue.indices.contains(index),
       index != queueIndex, let client
     else { return }
+    cancelUpNextCountdown(markDismissed: false)
+    reportPlaybackProgress(state: "stopped", force: true)
     let item = queue[index]
-    skipBackButton.isEnabled = false
-    skipForwardButton.isEnabled = false
+    let wasAudio = isAudioPlayback
+    if wasAudio {
+      skipBackButton.isEnabled = false
+      skipForwardButton.isEnabled = false
+    } else {
+      prevEpisodeButton.isEnabled = false
+      nextEpisodeButton.isEnabled = false
+    }
     MPRemoteCommandCenter.shared().previousTrackCommand.isEnabled = false
     MPRemoteCommandCenter.shared().nextTrackCommand.isEnabled = false
     loading.startAnimating()
@@ -2282,7 +2746,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         let nextManifest: MediaPlaybackManifest
         if !item.itemId.isEmpty {
           nextManifest = try await client.loadManifest(
-            itemId: item.itemId, server: item.server)
+            itemId: item.itemId, server: item.server ?? self.manifest.server,
+            mediaSourceId: item.mediaSourceId)
         } else {
           nextManifest = try await client.loadMusicManifest(
             title: item.title, artist: item.artist, album: item.album)
@@ -2290,39 +2755,83 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         guard !Task.isCancelled, !self.closed else { return }
         let media = try client.makeMedia(url: nextManifest.contentUrl)
         self.player.pause()
+        self.cleanupTemporarySubtitles()
         self.player.media = media
         self.manifest = nextManifest
         self.itemId = nextManifest.itemId
-        self.displayTitle = item.title
-        self.musicTitleLabel.text = item.title
-        self.musicMiniTitleLabel.text = item.title
-        let subtitle = [nextManifest.artist ?? item.artist, nextManifest.album ?? item.album]
-          .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-          .filter { !$0.isEmpty }
-          .joined(separator: " — ")
-        self.musicArtistLabel.text = subtitle.isEmpty ? L10n.text("未知艺人") : subtitle
-        self.musicMiniSubtitleLabel.text = self.musicArtistLabel.text
-        let nextArtwork = item.artworkURL.flatMap(URL.init(string:))
-        if nextArtwork != self.artworkURL {
-          self.artworkURL = nextArtwork
-          self.musicArtwork.image = nil
-          self.musicMiniArtwork.image = nil
-          self.musicArtworkPlaceholder.isHidden = false
-          self.musicBackdropImageView.image = nil
-          self.musicBackdropImageView.alpha = 0
-          self.nowPlayingArtwork = nil
-          self.loadArtwork()
+        self.displayTitle =
+          (!wasAudio && item.subtitle != nil)
+          ? "\(item.subtitle!) · \(item.title)"
+          : item.title
+        self.titleLabel.text =
+          wasAudio
+          ? ((nextManifest.album?.isEmpty == false ? nextManifest.album : nil)
+            ?? L10n.text("正在播放"))
+          : self.displayTitle
+
+        if wasAudio {
+          self.musicTitleLabel.text = item.title
+          self.musicMiniTitleLabel.text = item.title
+          let subtitle = [nextManifest.artist ?? item.artist, nextManifest.album ?? item.album]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " — ")
+          self.musicArtistLabel.text = subtitle.isEmpty ? L10n.text("未知艺人") : subtitle
+          self.musicMiniSubtitleLabel.text = self.musicArtistLabel.text
+          let nextArtwork = item.artworkURL.flatMap(URL.init(string:))
+          if nextArtwork != self.artworkURL {
+            self.artworkURL = nextArtwork
+            self.musicArtwork.image = nil
+            self.musicMiniArtwork.image = nil
+            self.musicArtworkPlaceholder.isHidden = false
+            self.musicBackdropImageView.image = nil
+            self.musicBackdropImageView.alpha = 0
+            self.nowPlayingArtwork = nil
+            self.loadArtwork()
+          }
+          self.lyricsTask?.cancel()
+          self.replaceLyrics(with: [])
+          self.loadLyrics()
+          self.savedProgress = nil
+          self.resumePromptShown = true
+        } else {
+          // 切集保留语言/关闭字幕偏好，但清除上一集专属的媒体源与外挂字幕 ID
+          if let prev = self.pendingTrackSelection {
+            self.pendingTrackSelection = MediaPlaybackTrackSelection(
+              mediaSourceID: nil,
+              audioOrdinal: prev.audioOrdinal,
+              audioLanguage: prev.audioLanguage,
+              audioDisplayTitle: prev.audioDisplayTitle,
+              subtitleDisabled: prev.subtitleDisabled,
+              subtitleOrdinal: nil,
+              subtitleExternalID: nil,
+              subtitleLanguage: prev.subtitleLanguage,
+              subtitleDisplayTitle: prev.subtitleDisplayTitle
+            )
+          }
+          self.appliedAudioSelection = false
+          self.appliedSubtitleSelection = false
+          self.appliedDefaultRate = false
+          self.activeExternalSubtitleID = nil
+          self.upNextDismissedForCurrentItem = false
+          let localSaved = UserDefaults.standard.integer(forKey: self.progressKey)
+          let serverSaved = nextManifest.resumePositionMs ?? 0
+          let bestSaved = max(localSaved, serverSaved)
+          self.savedProgress = bestSaved > 30_000 ? bestSaved : nil
+          self.resumePromptShown = false
         }
+
+        self.lastObservedPositionMs = 0
+        self.lastObservedDurationMs = 0
+        self.hasPlayedCurrentItem = false
         self.queueIndex = index
-        self.savedProgress = nil
-        self.resumePromptShown = true
-        self.lyricsTask?.cancel()
-        self.replaceLyrics(with: [])
-        self.loadLyrics()
         self.player.time = VLCTime(int: 0)
         self.player.play()
         self.trackSwitchTask = nil
         self.refreshPlaybackState()
+        if !wasAudio {
+          self.presentSeekHud(item.subtitle ?? item.title)
+        }
       } catch {
         guard !Task.isCancelled, !self.closed else { return }
         self.loading.stopAnimating()
@@ -2333,30 +2842,63 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 展示当前专辑播放队列清单，支持直接点选切歌。
+  /// 清理已下载的上一集外挂字幕临时文件，避免缓存堆积。
+  private func cleanupTemporarySubtitles() {
+    subtitleTask?.cancel()
+    subtitleTask = nil
+    let oldFiles = subtitleFiles
+    subtitleFiles.removeAll()
+    activeSubtitleFile = nil
+    activeExternalSubtitleID = nil
+    guard !oldFiles.isEmpty else { return }
+    Self.teardownQueue.async {
+      for file in oldFiles {
+        try? FileManager.default.removeItem(at: file)
+      }
+    }
+  }
+
+  /// 展示当前剧集选集列表或专辑播放队列，支持直接点选切集/切歌。
   private func showQueueMenu() {
     guard queue.count > 1 else { return }
     let alert = UIAlertController(
-      title: L10n.text("播放队列"), message: nil, preferredStyle: .actionSheet)
-    for (index, item) in queue.prefix(30).enumerated() {
-      let prefix = index == queueIndex ? "▶ " : "\(index + 1). "
+      title: isAudioPlayback ? L10n.text("播放队列") : L10n.text("选集"),
+      message: nil, preferredStyle: .actionSheet)
+    for (index, item) in queue.prefix(50).enumerated() {
+      let prefix = index == queueIndex ? "▶ " : ""
+      let label: String
+      if let sub = item.subtitle, !sub.isEmpty {
+        label = "\(prefix)\(sub) · \(item.title)"
+      } else {
+        label = "\(prefix)\(index + 1). \(item.title)"
+      }
       alert.addAction(
-        UIAlertAction(title: "\(prefix)\(item.title)", style: .default) { [weak self] _ in
+        UIAlertAction(title: label, style: .default) { [weak self] _ in
           self?.switchTrack(at: index)
         })
     }
     alert.addAction(UIAlertAction(title: L10n.text("取消"), style: .cancel))
-    presentActionSheet(alert, from: musicQueueButton)
+    presentActionSheet(alert, from: isAudioPlayback ? musicQueueButton : episodeListButton)
   }
 
-  /// 根据队列位置更新界面按钮及锁屏上一首、下一首命令的可用状态。
+  /// 根据队列位置更新界面按钮及锁屏上一首/上一集、下一首/下一集命令的可用状态。
   private func refreshQueueControls(current: Int) {
-    guard isAudioPlayback else { return }
-    skipBackButton.isEnabled = queueIndex > 0 || current > 3_000
-    skipForwardButton.isEnabled = queue.indices.contains(queueIndex + 1)
     let center = MPRemoteCommandCenter.shared()
-    center.previousTrackCommand.isEnabled = skipBackButton.isEnabled
-    center.nextTrackCommand.isEnabled = skipForwardButton.isEnabled
+    if isAudioPlayback {
+      skipBackButton.isEnabled = queueIndex > 0 || current > 3_000
+      skipForwardButton.isEnabled = queue.indices.contains(queueIndex + 1)
+      center.previousTrackCommand.isEnabled = skipBackButton.isEnabled
+      center.nextTrackCommand.isEnabled = skipForwardButton.isEnabled
+    } else {
+      let hasPrev = queueIndex > 0
+      let hasNext = queue.indices.contains(queueIndex + 1)
+      prevEpisodeButton.isEnabled = hasPrev
+      prevEpisodeButton.alpha = hasPrev ? 1.0 : 0.42
+      nextEpisodeButton.isEnabled = hasNext
+      nextEpisodeButton.alpha = hasNext ? 1.0 : 0.42
+      center.previousTrackCommand.isEnabled = hasPrev
+      center.nextTrackCommand.isEnabled = hasNext
+    }
   }
 
   /// 按毫秒格式化已播放或总时长。
@@ -2543,27 +3085,36 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 显示内嵌和同名外挂字幕选项。
+  /// 显示内嵌和外挂字幕选项并标记当前激活轨道。
   private func showSubtitleMenu() {
     let alert = UIAlertController(
       title: L10n.text("字幕"), message: nil, preferredStyle: .actionSheet)
-    alert.addAction(
-      UIAlertAction(title: L10n.text("关闭字幕"), style: .default) { [weak self] _ in
-        self?.player.deselectAllTextTracks()
-      })
     let tracks = player.textTracks
+    let anySelected = tracks.contains(where: \.isSelected) || activeExternalSubtitleID != nil
+    alert.addAction(
+      UIAlertAction(title: "\(anySelected ? "" : "✓ ")\(L10n.text("关闭字幕"))", style: .default) {
+        [weak self] _ in
+        guard let self else { return }
+        self.activeExternalSubtitleID = nil
+        self.player.deselectAllTextTracks()
+      })
     for track in tracks {
       let name =
         track.trackName.isEmpty ? (track.trackDescription ?? L10n.text("字幕")) : track.trackName
+      let prefix = (track.isSelected && activeExternalSubtitleID == nil) ? "✓ " : ""
       alert.addAction(
-        UIAlertAction(title: L10n.format("内嵌 · %@", name), style: .default) { _ in
+        UIAlertAction(title: "\(prefix)\(L10n.format("内嵌 · %@", name))", style: .default) {
+          [weak self] _ in
+          self?.activeExternalSubtitleID = nil
           track.isSelectedExclusively = true
         })
     }
     for subtitle in manifest.subtitles {
+      let prefix = activeExternalSubtitleID == subtitle.subtitleId ? "✓ " : ""
       alert.addAction(
         UIAlertAction(
-          title: "\(subtitle.language ?? L10n.text("外挂")) · \(subtitle.title)", style: .default
+          title: "\(prefix)\(subtitle.language ?? L10n.text("外挂")) · \(subtitle.title)",
+          style: .default
         ) { [weak self] _ in
           self?.loadSubtitle(subtitle)
         })
@@ -2572,9 +3123,10 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     presentActionSheet(alert, from: subtitleButton.isHidden ? topBar : subtitleButton)
   }
 
-  /// 通过当前授权下载用户所选外挂字幕并挂载到当前解码会话。
+  /// 通过当前授权下载用户所选外挂字幕并挂载到当前解码会话（避免重复加载同一外挂字幕）。
   private func loadSubtitle(_ subtitle: MediaPlaybackSubtitle) {
     guard let client else { return }
+    guard activeExternalSubtitleID != subtitle.subtitleId else { return }
     subtitleTask?.cancel()
     subtitleTask = Task { [weak self] in
       guard let self else { return }
@@ -2586,6 +3138,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         }
         self.subtitleFiles.append(fileURL)
         self.activeSubtitleFile = fileURL
+        self.activeExternalSubtitleID = subtitle.subtitleId
         _ = self.player.addPlaybackSlave(fileURL, type: .subtitle, enforce: true)
         self.showControls()
       } catch {
@@ -2595,7 +3148,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 显示当前内嵌音轨并允许切换语言或描述。
+  /// 显示当前内嵌音轨并标记正在播放的音轨。
   private func showAudioMenu() {
     let tracks = player.audioTracks
     let alert = UIAlertController(
@@ -2603,8 +3156,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     for track in tracks {
       let name =
         track.trackName.isEmpty ? (track.trackDescription ?? L10n.text("音轨")) : track.trackName
+      let prefix = track.isSelected ? "✓ " : ""
       alert.addAction(
-        UIAlertAction(title: name, style: .default) { _ in
+        UIAlertAction(title: "\(prefix)\(name)", style: .default) { _ in
           track.isSelectedExclusively = true
         })
     }
@@ -2667,9 +3221,14 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   /// 立即解除 UI/定时/画中画绑定，并将 `VLCMediaPlayer.stop()`、音频会话释放与临时文件清理全部移交后台串行队列，彻底根除点返回主线程死锁。
   private func closePlayback() {
     guard !closed else { return }
+    if hasPlayedCurrentItem {
+      reportPlaybackProgress(state: "stopped", force: true)
+    }
     closed = true
     updateTimer?.invalidate()
     updateTimer = nil
+    upNextTask?.cancel()
+    upNextTask = nil
     subtitleTask?.cancel()
     lyricsTask?.cancel()
     artworkTask?.cancel()
@@ -2706,6 +3265,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     {
       filesToClean.append(manifest.contentUrl)
     }
+    let filesSnapshot = filesToClean
     let leaseToRelease = securityScopeLease
     subtitleFiles.removeAll()
     activeSubtitleFile = nil
@@ -2716,7 +3276,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       if Self.activeAudioSessions.withLock({ $0 == 0 }) {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
       }
-      for file in filesToClean {
+      for file in filesSnapshot {
         try? FileManager.default.removeItem(at: file)
       }
       leaseToRelease?.release()

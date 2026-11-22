@@ -2821,6 +2821,76 @@ final class NativeV2EntryTests: XCTestCase {
     XCUIDevice.shared.orientation = .portrait
   }
 
+  /// 媒体服务器原生浏览、三层详情（剧/季/集）、播前音轨/字幕选择与最近入库入口端到端验证。
+  func testMediaServerBrowseAndThreeLevelDetail() async throws {
+    try await configure("a", mode: "mediaserver", reset: true)
+    let app = try cleanPicker()
+    connect("a", app: app)
+    enterCredentials("a", app: app)
+    tap(app.buttons["native-v2-login"], app: app)
+    XCTAssertTrue(tabButton("我的", app: app).waitForExistence(timeout: 15))
+
+    // 1. 发现页展示「媒体库」与「最新入库」卡片
+    let providerCard = app.descendants(matching: .any)["native-discover-provider-library|lib-tv"]
+      .firstMatch
+    reveal(providerCard, app: app)
+    XCTAssertTrue(providerCard.waitForExistence(timeout: 15))
+    capture("native-v2-ms-01-discover")
+
+    // 2. 点击媒体库卡片进入原生媒体库浏览页（含筛选与排序栏）
+    tap(providerCard, app: app)
+    let seriesCard = app.descendants(matching: .any)["native-mediaserver-item-series-100"]
+      .firstMatch
+    XCTAssertTrue(seriesCard.waitForExistence(timeout: 15))
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-mediaserver-filter-sort"].firstMatch.exists)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-mediaserver-filter-played"].firstMatch.exists)
+    capture("native-v2-ms-02-library")
+
+    // 3. 点击剧集进入 Series 详情页（播放/订阅/搜索按钮 + 分季列表）
+    tap(seriesCard, app: app)
+    let detailTitle = app.staticTexts["native-mediaserver-detail-title"].firstMatch
+    XCTAssertTrue(detailTitle.waitForExistence(timeout: 15))
+    XCTAssertTrue(app.buttons["native-mediaserver-detail-play"].firstMatch.exists)
+    XCTAssertTrue(app.buttons["native-mediaserver-detail-subscribe"].firstMatch.exists)
+    capture("native-v2-ms-03-series")
+
+    // 4. 点击第 1 季进入 Season 详情页（完整分集列表）
+    let seasonCard = app.descendants(matching: .any)["native-mediaserver-season-season-1"]
+      .firstMatch
+    reveal(seasonCard, app: app)
+    XCTAssertTrue(seasonCard.waitForExistence(timeout: 10))
+    tap(seasonCard, app: app)
+    let ep1Row = app.descendants(matching: .any)["native-mediaserver-episode-row-ep-101"].firstMatch
+    reveal(ep1Row, app: app)
+    XCTAssertTrue(ep1Row.waitForExistence(timeout: 15))
+    capture("native-v2-ms-04-season")
+
+    // 5. 点击第 1 集进入 Episode 详情页（播前版本/音轨/字幕选择器 + 剧/季面包屑）
+    tap(ep1Row, app: app)
+    let preplayCard = app.descendants(matching: .any)["native-mediaserver-preplay-selector"]
+      .firstMatch
+    reveal(preplayCard, app: app)
+    XCTAssertTrue(preplayCard.waitForExistence(timeout: 15))
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-mediaserver-preplay-audio"].firstMatch.exists)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-mediaserver-preplay-subtitle"].firstMatch.exists)
+    capture("native-v2-ms-05-episode-tracks")
+
+    let counts = try await stats()
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/mediaserver/library"] ?? 0, 1)
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/mediaserver/browse"] ?? 0, 1)
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/mediaserver/detail"] ?? 0, 3)
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/mediaserver/seasons"] ?? 0, 1)
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/mediaserver/season-episodes"] ?? 0, 1)
+    XCTAssertTrue(
+      counts["unexpected", default: [:]].isEmpty,
+      "Unexpected requests: \(counts["unexpected"] ?? [:])")
+    app.terminate()
+  }
+
   /// 原生三语即时切换；P8 默认切换后无须调试参数即可直接进入原生入口，且零 WebView。
   func testStableSceneRoutingAndNativeLanguages() throws {
     let app = try cleanPicker()

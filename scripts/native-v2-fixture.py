@@ -248,7 +248,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                 if name not in self.server.profiles or mode not in {
                     "ready", "new", "otp", "expired", "unavailable", "slow",
                     "discovery-only", "resource-search-only", "search-failed", "storage-failed",
-                    "partial-discovery-failed", "subscribe-failed",
+                    "partial-discovery-failed", "subscribe-failed", "mediaserver",
                 }:
                     raise ValueError()
             except (KeyError, ValueError, TypeError):
@@ -473,6 +473,11 @@ class NativeHandler(BaseHTTPRequestHandler):
             if endpoint == "api/v1/agent/stream":
                 self.agent_stream_endpoint(name, body)
                 return
+            if endpoint == "api/v1/mediaserver/progress":
+                with self.server.lock:
+                    self.server.profiles[name]["counts"]["POST api/v1/mediaserver/progress"] += 1
+                self.reply(200, {"success": True, "message": "", "data": {"reported": True}})
+                return
             if endpoint == "api/v1/notification/app":
                 with self.server.lock:
                     self.server.profiles[name]["counts"]["POST api/v1/notification/app"] += 1
@@ -571,6 +576,12 @@ class NativeHandler(BaseHTTPRequestHandler):
             "api/v1/mediaserver/playing",
             "api/v1/mediaserver/latest",
             "api/v1/mediaserver/library",
+            "api/v1/mediaserver/browse",
+            "api/v1/mediaserver/filters",
+            "api/v1/mediaserver/detail",
+            "api/v1/mediaserver/seasons",
+            "api/v1/mediaserver/season-episodes",
+            "api/v1/mediaserver/search",
             "api/v1/media/search",
             "api/v1/media/source",
             "api/v1/download/clients",
@@ -710,12 +721,10 @@ class NativeHandler(BaseHTTPRequestHandler):
         elif endpoint in {
             "api/v1/discover/source",
             "api/v1/recommend/tmdb_trending",
-            "api/v1/mediaserver/clients",
-            "api/v1/mediaserver/playing",
-            "api/v1/mediaserver/latest",
-            "api/v1/mediaserver/library",
         }:
             value = []
+        elif endpoint.startswith("api/v1/mediaserver/"):
+            value = self.mediaserver_fixture(endpoint, query, mode)
         elif endpoint.startswith("api/v1/user/config/"):
             cfg_key = endpoint.rsplit("/", 1)[-1]
             with self.server.lock:
@@ -1837,7 +1846,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                 profile["counts"]["image-auth-rejected"] += 1
             self.reply(401, {"success": False})
         elif not re.fullmatch(
-            r"https://images\.example\.test/(?:1[0-9]{2}|5[0-9]{2})/(?:poster|backdrop)\.png",
+            r"https://images\.example\.test/(?:1[0-9]{2}|3[0-9]{2}|5[0-9]{2})/(?:poster|backdrop)\.png",
             reference,
         ):
             self.reply(400, {"success": False})
@@ -1845,6 +1854,264 @@ class NativeHandler(BaseHTTPRequestHandler):
             with self.server.lock:
                 profile["counts"]["image-served"] += 1
             self.reply_image(reference)
+
+    @staticmethod
+    def mediaserver_fixture(endpoint, query, mode):
+        """在 mediaserver 验收模式下返回多维 Emby 风格媒体库浏览、三层详情与播前选轨夹具。"""
+        if mode != "mediaserver":
+            if endpoint == "api/v1/mediaserver/browse":
+                return {"items": [], "total_count": 0, "start_index": 0, "limit": 30, "has_more": False}
+            if endpoint == "api/v1/mediaserver/filters":
+                return {"genres": [], "years": []}
+            return [] if endpoint != "api/v1/mediaserver/detail" else None
+
+        server = query.get("server", ["Emby"])[0] or "Emby"
+        if endpoint == "api/v1/mediaserver/clients":
+            return [{"name": "Emby", "type": "emby"}]
+        if endpoint == "api/v1/mediaserver/library":
+            return [
+                {
+                    "id": "lib-tv", "item_id": "lib-tv", "server": "Emby", "server_type": "emby",
+                    "name": "电视剧集", "type": "电视剧", "item_count": 24,
+                    "image": "https://images.example.test/301/backdrop.png",
+                    "link": "https://emby.example.test/web/index.html#!/videos?parentId=lib-tv",
+                },
+                {
+                    "id": "lib-movies", "item_id": "lib-movies", "server": "Emby", "server_type": "emby",
+                    "name": "精选电影", "type": "电影", "item_count": 68,
+                    "image": "https://images.example.test/302/backdrop.png",
+                    "link": "https://emby.example.test/web/index.html#!/videos?parentId=lib-movies",
+                },
+            ]
+        if endpoint == "api/v1/mediaserver/playing":
+            return [
+                {
+                    "id": "ep-101", "item_id": "ep-101", "server": "Emby", "type": "Episode",
+                    "title": "星际迷航：新世界", "subtitle": "S01E01 陌生新世界",
+                    "year": "2025", "percent": 42.0,
+                    "image": "https://images.example.test/311/backdrop.png",
+                }
+            ]
+        if endpoint == "api/v1/mediaserver/latest":
+            return [
+                {
+                    "id": "series-100", "item_id": "series-100", "server": "Emby", "type": "Series",
+                    "title": "星际迷航：新世界", "subtitle": "第 2 季", "year": "2025",
+                    "image": "https://images.example.test/301/poster.png",
+                },
+                {
+                    "id": "movie-200", "item_id": "movie-200", "server": "Emby", "type": "Movie",
+                    "title": "深空回响", "subtitle": "4K HDR", "year": "2025",
+                    "image": "https://images.example.test/302/poster.png",
+                },
+            ]
+        if endpoint == "api/v1/mediaserver/filters":
+            return {
+                "genres": ["科幻", "冒险", "剧情"],
+                "years": [2025, 2024, 2023],
+                "item_types": ["Movie", "Series"],
+                "sort_options": ["date_created", "title", "premiere_date", "rating", "date_played"],
+            }
+        if endpoint == "api/v1/mediaserver/browse":
+            items = [
+                {
+                    "item_id": "series-100", "server": server, "server_type": "emby",
+                    "item_type": "Series", "media_type": "电视剧", "title": "星际迷航：新世界",
+                    "subtitle": "2 季", "year": "2025", "rating": 8.9, "child_count": 2,
+                    "poster": "https://images.example.test/301/poster.png",
+                    "backdrop": "https://images.example.test/301/backdrop.png",
+                    "played": False, "played_percentage": 35.0,
+                },
+                {
+                    "item_id": "movie-200", "server": server, "server_type": "emby",
+                    "item_type": "Movie", "media_type": "电影", "title": "深空回响",
+                    "subtitle": "2025", "year": "2025", "rating": 8.4, "duration_ms": 7440000,
+                    "poster": "https://images.example.test/302/poster.png",
+                    "backdrop": "https://images.example.test/302/backdrop.png",
+                    "played": True, "played_percentage": 100.0,
+                },
+            ]
+            search = (query.get("search", [""])[0] or "").strip()
+            if search:
+                items = [it for it in items if search in it["title"]]
+            played = query.get("played", [""])[0]
+            if played == "true":
+                items = [it for it in items if it.get("played")]
+            elif played == "false":
+                items = [it for it in items if not it.get("played")]
+            return {
+                "items": items, "total_count": len(items),
+                "start_index": 0, "limit": 30, "has_more": False,
+            }
+        if endpoint == "api/v1/mediaserver/seasons":
+            return [
+                {
+                    "item_id": "season-1", "server": server, "server_type": "emby",
+                    "item_type": "Season", "media_type": "电视剧", "title": "第 1 季",
+                    "subtitle": "共 3 集", "year": "2024", "season_number": 1, "child_count": 3,
+                    "series_id": "series-100", "series_name": "星际迷航：新世界",
+                    "poster": "https://images.example.test/303/poster.png",
+                },
+                {
+                    "item_id": "season-2", "server": server, "server_type": "emby",
+                    "item_type": "Season", "media_type": "电视剧", "title": "第 2 季",
+                    "subtitle": "共 2 集", "year": "2025", "season_number": 2, "child_count": 2,
+                    "series_id": "series-100", "series_name": "星际迷航：新世界",
+                    "poster": "https://images.example.test/304/poster.png",
+                },
+            ]
+        if endpoint == "api/v1/mediaserver/season-episodes":
+            return [
+                {
+                    "item_id": "ep-101", "server": server, "server_type": "emby",
+                    "item_type": "Episode", "media_type": "电视剧", "title": "陌生新世界",
+                    "subtitle": "S01E01", "overview": "进取号在未知星系收到神秘求救信号，开启全新航程。",
+                    "year": "2024", "duration_ms": 3120000, "season_number": 1, "episode_number": 1,
+                    "series_id": "series-100", "series_name": "星际迷航：新世界", "season_id": "season-1",
+                    "thumb": "https://images.example.test/311/backdrop.png",
+                    "played": False, "played_percentage": 42.0, "resume_position_ms": 1310000,
+                },
+                {
+                    "item_id": "ep-102", "server": server, "server_type": "emby",
+                    "item_type": "Episode", "media_type": "电视剧", "title": "彗星之子",
+                    "subtitle": "S01E02", "overview": "船员试图改变一颗古老彗星的轨道以拯救行星文明。",
+                    "year": "2024", "duration_ms": 3000000, "season_number": 1, "episode_number": 2,
+                    "series_id": "series-100", "series_name": "星际迷航：新世界", "season_id": "season-1",
+                    "thumb": "https://images.example.test/312/backdrop.png",
+                    "played": False, "played_percentage": 0.0,
+                },
+                {
+                    "item_id": "ep-103", "server": server, "server_type": "emby",
+                    "item_type": "Episode", "media_type": "电视剧", "title": "伊利里亚的幽灵",
+                    "subtitle": "S01E03", "overview": "一场离子风暴席卷星舰，引发船员间的光敏异变。",
+                    "year": "2024", "duration_ms": 2940000, "season_number": 1, "episode_number": 3,
+                    "series_id": "series-100", "series_name": "星际迷航：新世界", "season_id": "season-1",
+                    "thumb": "https://images.example.test/313/backdrop.png",
+                    "played": True, "played_percentage": 100.0,
+                },
+            ]
+        if endpoint == "api/v1/mediaserver/search":
+            return [
+                {
+                    "id": "series-100", "item_id": "series-100", "server": server, "server_type": "emby",
+                    "title": "星际迷航：新世界", "subtitle": "科幻 / 冒险", "year": "2025",
+                    "type": "电视剧", "image": "https://images.example.test/301/poster.png",
+                },
+                {
+                    "id": "movie-200", "item_id": "movie-200", "server": server, "server_type": "emby",
+                    "title": "深空回响", "subtitle": "科幻", "year": "2025",
+                    "type": "电影", "image": "https://images.example.test/302/poster.png",
+                },
+            ]
+        if endpoint == "api/v1/mediaserver/detail":
+            item_id = (query.get("itemid") or query.get("item_id") or [""])[0]
+            sources = [
+                {
+                    "id": "src-4k",
+                    "name": "2160p HDR10 · HEVC · 18.4 GB",
+                    "container": "mkv",
+                    "size": 19756849561,
+                    "bitrate": 24500000,
+                    "duration_ms": 3120000,
+                    "streams": [
+                        {
+                            "index": 0, "type": "video", "codec": "hevc",
+                            "width": 3840, "height": 2160, "video_range": "HDR10",
+                            "display_title": "4K HEVC HDR10",
+                        },
+                        {
+                            "index": 1, "type": "audio", "codec": "dts",
+                            "language": "chi", "display_title": "中文 (DTS-HD MA 5.1)",
+                            "channels": 6, "channel_layout": "5.1", "is_default": True,
+                        },
+                        {
+                            "index": 2, "type": "audio", "codec": "truehd",
+                            "language": "eng", "display_title": "English (Dolby Atmos 7.1)",
+                            "channels": 8, "channel_layout": "7.1", "is_default": False,
+                        },
+                        {
+                            "index": 3, "type": "subtitle", "codec": "ass",
+                            "language": "chi", "display_title": "简繁双语特效 (ASS)",
+                            "is_default": True, "is_external": True,
+                            "subtitle_id": "ms:src-4k:3.ass",
+                        },
+                        {
+                            "index": 4, "type": "subtitle", "codec": "subrip",
+                            "language": "eng", "display_title": "English (SRT)",
+                            "is_default": False, "is_external": False,
+                        },
+                    ],
+                },
+                {
+                    "id": "src-1080p",
+                    "name": "1080p WEB-DL · H264 · 4.2 GB",
+                    "container": "mp4",
+                    "size": 4509715660,
+                    "bitrate": 6200000,
+                    "duration_ms": 3120000,
+                    "streams": [
+                        {
+                            "index": 0, "type": "video", "codec": "h264",
+                            "width": 1920, "height": 1080, "video_range": "SDR",
+                            "display_title": "1080P H264",
+                        },
+                        {
+                            "index": 1, "type": "audio", "codec": "aac",
+                            "language": "chi", "display_title": "中文 (AAC 2.0)",
+                            "channels": 2, "channel_layout": "2.0", "is_default": True,
+                        },
+                    ],
+                },
+            ]
+            people = [
+                {"id": "p1", "name": "安松·蒙特", "role": "饰 克里斯托弗·派克", "type": "Actor", "image": "https://images.example.test/501/poster.png"},
+                {"id": "p2", "name": "丽贝卡·罗梅恩", "role": "饰 一号大副", "type": "Actor", "image": "https://images.example.test/502/poster.png"},
+            ]
+            if item_id == "series-100":
+                return {
+                    "item_id": "series-100", "server": server, "server_type": "emby",
+                    "item_type": "Series", "media_type": "电视剧",
+                    "title": "星际迷航：新世界", "original_title": "Star Trek: Strange New Worlds",
+                    "tagline": "探索未知星海的壮丽航程",
+                    "overview": "讲述派克船长带领进取号探索银河系中全新世界的经典科幻剧集，每集呈现独立而震撼的星际冒险。",
+                    "year": "2025", "premiere_date": "2024-05-05", "rating": 8.9,
+                    "genres": ["科幻", "冒险", "剧情"], "studios": ["Paramount+"],
+                    "poster": "https://images.example.test/301/poster.png",
+                    "backdrop": "https://images.example.test/301/backdrop.png",
+                    "child_count": 2, "season_count": 2, "episode_count": 5, "tmdb_id": "103516",
+                    "play_url": "https://emby.example.test/web/index.html#!/item?id=series-100",
+                    "people": people, "media_sources": [], "can_play": False,
+                }
+            if item_id == "season-1":
+                return {
+                    "item_id": "season-1", "server": server, "server_type": "emby",
+                    "item_type": "Season", "media_type": "电视剧",
+                    "title": "第 1 季", "series_id": "series-100", "series_name": "星际迷航：新世界",
+                    "season_number": 1, "child_count": 3, "episode_count": 3, "year": "2024", "rating": 8.8,
+                    "overview": "第一季共 3 集，进取号重返星际舰队执行首轮深空探索任务。",
+                    "genres": ["科幻", "冒险"], "tmdb_id": "103516",
+                    "poster": "https://images.example.test/303/poster.png",
+                    "backdrop": "https://images.example.test/301/backdrop.png",
+                    "play_url": "https://emby.example.test/web/index.html#!/item?id=season-1",
+                    "people": people, "media_sources": [], "can_play": False,
+                }
+            return {
+                "item_id": item_id or "ep-101", "server": server, "server_type": "emby",
+                "item_type": "Episode", "media_type": "电视剧",
+                "title": "陌生新世界", "series_id": "series-100", "series_name": "星际迷航：新世界",
+                "season_id": "season-1", "season_name": "第 1 季",
+                "season_number": 1, "episode_number": 1,
+                "year": "2024", "premiere_date": "2024-05-05", "rating": 9.1,
+                "duration_ms": 3120000, "resume_position_ms": 1310000, "played_percentage": 42.0,
+                "overview": "进取号在未知星系收到神秘求救信号，派克船长必须决定是否介入这颗行星的首次接触事件。",
+                "genres": ["科幻", "冒险"], "tmdb_id": "103516",
+                "poster": "https://images.example.test/301/poster.png",
+                "backdrop": "https://images.example.test/311/backdrop.png",
+                "thumb": "https://images.example.test/311/backdrop.png",
+                "play_url": "https://emby.example.test/web/index.html#!/item?id=ep-101",
+                "people": people, "media_sources": sources, "can_play": True,
+            }
+        return []
 
     @staticmethod
     def media(item_id, media_type):

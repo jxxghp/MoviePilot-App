@@ -100,12 +100,18 @@ struct NativeDiscoverMedia: Identifiable, Hashable {
   let posterReference: String?
   let backdropReference: String?
   let identity: NativeMediaIdentity?
+  let mediaServerItemID: String?
+  let mediaServerName: String?
+  let mediaServerItemType: String?
 
   /// 后端尚无海报时 posterReference 可为空，卡片显示克制的原生缺图态。
   init(
     id: String, title: String, year: String? = nil, detail: String? = nil,
     posterReference: String? = nil, backdropReference: String? = nil,
-    identity: NativeMediaIdentity? = nil
+    identity: NativeMediaIdentity? = nil,
+    mediaServerItemID: String? = nil,
+    mediaServerName: String? = nil,
+    mediaServerItemType: String? = nil
   ) {
     self.id = id
     self.title = title
@@ -114,6 +120,9 @@ struct NativeDiscoverMedia: Identifiable, Hashable {
     self.posterReference = posterReference
     self.backdropReference = backdropReference
     self.identity = identity
+    self.mediaServerItemID = mediaServerItemID
+    self.mediaServerName = mediaServerName
+    self.mediaServerItemType = mediaServerItemType
   }
 }
 
@@ -144,29 +153,34 @@ struct NativeDiscoverProgress: Identifiable {
 }
 
 /// 媒体平台横幅是数据标签，不引入远程产品标识或账号请求。
-/// 媒体库卡片投影，保留媒体服务器跳转所需元数据（供点击直达对应媒体服务器 App 或网页）。
+/// 媒体库卡片投影，保留媒体服务器原生浏览与外部深度链接所需元数据。
 struct NativeDiscoverProvider: Identifiable {
   let id: String
   let name: String
   let itemCount: Int?
   let artworkReference: String?
+  let server: String?
   let serverType: String?
   let serverID: String?
   let itemID: String?
+  let libraryType: String?
   let link: String?
 
   /// 负数量代表无有效计数时按缺失处理，不显示伪造的零片目。
   init(
     id: String, name: String, itemCount: Int? = nil, artworkReference: String? = nil,
-    serverType: String? = nil, serverID: String? = nil, itemID: String? = nil, link: String? = nil
+    server: String? = nil, serverType: String? = nil, serverID: String? = nil,
+    itemID: String? = nil, libraryType: String? = nil, link: String? = nil
   ) {
     self.id = id
     self.name = name
     self.itemCount = itemCount.flatMap { $0 >= 0 ? $0 : nil }
     self.artworkReference = artworkReference
+    self.server = server
     self.serverType = serverType
     self.serverID = serverID
     self.itemID = itemID
+    self.libraryType = libraryType
     self.link = link
   }
 }
@@ -297,6 +311,7 @@ struct NativeDiscoverPage: View {
   let onOpenProvider: ((String) -> Void)?
   let onOpenCategory: ((String) -> Void)?
   let onPlayContinueWatching: ((NativeDiscoverProgress) -> Void)?
+  let onOpenContinueWatchingDetail: ((NativeDiscoverProgress) -> Void)?
   let onManageModules: (() -> Void)?
   let onLoadMoreRail: ((String) -> Void)?
   let loadingRailIDs: Set<String>
@@ -326,6 +341,7 @@ struct NativeDiscoverPage: View {
     onOpenProvider: ((String) -> Void)? = nil,
     onOpenCategory: ((String) -> Void)? = nil,
     onPlayContinueWatching: ((NativeDiscoverProgress) -> Void)? = nil,
+    onOpenContinueWatchingDetail: ((NativeDiscoverProgress) -> Void)? = nil,
     onManageModules: (() -> Void)? = nil,
     onLoadMoreRail: ((String) -> Void)? = nil,
     loadingRailIDs: Set<String> = [],
@@ -344,6 +360,7 @@ struct NativeDiscoverPage: View {
     self.onOpenProvider = onOpenProvider
     self.onOpenCategory = onOpenCategory
     self.onPlayContinueWatching = onPlayContinueWatching
+    self.onOpenContinueWatchingDetail = onOpenContinueWatchingDetail
     self.onManageModules = onManageModules
     self.onLoadMoreRail = onLoadMoreRail
     self.loadingRailIDs = loadingRailIDs
@@ -824,7 +841,11 @@ struct NativeDiscoverPage: View {
                 }
               }
               Button {
-                onOpenMedia(item.media.id)
+                if let onOpenContinueWatchingDetail {
+                  onOpenContinueWatchingDetail(item)
+                } else {
+                  onOpenMedia(item.media.id)
+                }
               } label: {
                 Label("查看详情", systemImage: "info.circle")
               }
@@ -849,7 +870,7 @@ struct NativeDiscoverPage: View {
         LazyHStack(alignment: .top, spacing: rail.style == .backdrop ? 13 : 11) {
           ForEach(Array(rail.items.enumerated()), id: \.element.id) { index, item in
             Group {
-              if item.identity != nil {
+              if item.identity != nil || item.mediaServerItemID != nil {
                 Button {
                   onOpenMedia(item.id)
                 } label: {
@@ -1271,6 +1292,20 @@ struct NativeDiscoverRailGrid<Destination: View>: View {
                 if let identity = item.identity {
                   NavigationLink {
                     destination(identity)
+                  } label: {
+                    tile(item)
+                  }
+                  .buttonStyle(.plain)
+                } else if let msItemID = item.mediaServerItemID, !msItemID.isEmpty {
+                  NavigationLink {
+                    NativeMediaServerDetailPage(
+                      session: session,
+                      server: item.mediaServerName,
+                      itemID: msItemID,
+                      fallbackTitle: item.title,
+                      fallbackItemType: item.mediaServerItemType,
+                      fallbackPoster: item.posterReference
+                    )
                   } label: {
                     tile(item)
                   }

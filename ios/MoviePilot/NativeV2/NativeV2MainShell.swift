@@ -39,6 +39,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @State private var discoveryAttempt = 0
   @State private var mediaIdentities: [String: NativeMediaIdentity] = [:]
   @State private var musicSeeds: [String: NativeMusicCardItem] = [:]
+  @State private var mediaServerItems: [String: MediaServerNavigationTarget] = [:]
   @State private var pendingSearchQuery: String?
   @State private var pendingSearchKind: String?
   @State private var pendingExploreSource: NativeExploreSourceKind?
@@ -646,7 +647,9 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           Task { await quickSubscribeFromDiscover(media) }
         },
         onOpenMedia: { id in
-          if let seed = musicSeeds[id] {
+          if let msTarget = mediaServerItems[id] {
+            discoverPath.append(.mediaServer(msTarget))
+          } else if let seed = musicSeeds[id] {
             discoverPath.append(.music(seed))
           } else if let identity = mediaIdentities[id] {
             discoverPath.append(.media(identity))
@@ -659,7 +662,24 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         },
         onOpenProvider: { providerID in
           if let provider = discovery.providers.first(where: { $0.id == providerID }) {
-            NativeMediaServerAppLauncher.openLibrary(provider)
+            let serverName = provider.server ?? latestServerName ?? ""
+            if !serverName.isEmpty {
+              discoverPath.append(
+                .mediaServer(
+                  .library(
+                    server: serverName,
+                    serverType: provider.serverType,
+                    libraryID: provider.itemID,
+                    libraryName: provider.name,
+                    libraryType: provider.libraryType,
+                    externalLink: provider.link,
+                    serverID: provider.serverID
+                  )
+                )
+              )
+            } else {
+              NativeMediaServerAppLauncher.openLibrary(provider)
+            }
           }
         },
         onOpenCategory: { categoryID in
@@ -673,9 +693,33 @@ struct NativeV2MainShell<PluginDestination: View>: View {
             }
             return
           }
+          let artworkURL = NativeMediaPlaybackLauncher.proxiedArtworkURL(
+            session: session, raw: item.media.posterReference)
           Task {
             _ = await NativeMediaPlaybackLauncher.shared.playMediaServerItem(
-              session: session, itemID: itemID, server: item.server, title: item.media.title)
+              session: session,
+              itemID: itemID,
+              server: item.server,
+              title: item.media.title,
+              artworkURL: artworkURL
+            )
+          }
+        },
+        onOpenContinueWatchingDetail: { item in
+          if let itemID = item.itemID, !itemID.isEmpty {
+            discoverPath.append(
+              .mediaServer(
+                .detail(
+                  server: item.server ?? latestServerName,
+                  itemID: itemID,
+                  fallbackTitle: item.media.title,
+                  fallbackItemType: item.media.mediaServerItemType,
+                  fallbackPoster: item.media.posterReference
+                )
+              )
+            )
+          } else if let identity = mediaIdentities[item.media.id] {
+            discoverPath.append(.media(identity))
           }
         },
         onManageModules: { showsModuleSheet = true },
@@ -709,6 +753,32 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           workspaceDestinationView(dest)
         case .explore(let source):
           NativeExplorePage(session: session, initialSource: source)
+        case .mediaServer(let target):
+          switch target {
+          case .library(
+            let server, let serverType, let libraryID, let libraryName, let libraryType,
+            let externalLink, let serverID):
+            NativeMediaServerLibraryPage(
+              session: session,
+              server: server,
+              serverType: serverType,
+              libraryID: libraryID,
+              libraryName: libraryName,
+              libraryType: libraryType,
+              externalLink: externalLink,
+              serverID: serverID
+            )
+          case .detail(
+            let server, let itemID, let fallbackTitle, let fallbackItemType, let fallbackPoster):
+            NativeMediaServerDetailPage(
+              session: session,
+              server: server,
+              itemID: itemID,
+              fallbackTitle: fallbackTitle,
+              fallbackItemType: fallbackItemType,
+              fallbackPoster: fallbackPoster
+            )
+          }
         }
       }
     }
@@ -1532,6 +1602,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     var continueWatching: [NativeDiscoverProgress] = []
     var latestItems: [NativeDiscoverMedia] = []
     var providers: [NativeDiscoverProvider] = []
+    var nextMediaServerItems: [String: MediaServerNavigationTarget] = [:]
     if let server = clients?.first?.name, !server.isEmpty {
       latestServerName = server
       async let playingTask = try? requestMediaServerPlaying(server: server)
@@ -1542,10 +1613,32 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       continueWatching = (playingRows ?? []).compactMap {
         projectContinueWatching($0, server: server)
       }
-      latestItems = (latestRows ?? []).compactMap(projectLatestItem)
+      for progress in continueWatching {
+        if let itemID = progress.itemID, !itemID.isEmpty {
+          nextMediaServerItems[progress.media.id] = .detail(
+            server: progress.server ?? server,
+            itemID: itemID,
+            fallbackTitle: progress.media.title,
+            fallbackItemType: progress.media.mediaServerItemType,
+            fallbackPoster: progress.media.posterReference
+          )
+        }
+      }
+      latestItems = (latestRows ?? []).compactMap { projectLatestItem($0, server: server) }
+      for media in latestItems {
+        if let itemID = media.mediaServerItemID, !itemID.isEmpty {
+          nextMediaServerItems[media.id] = .detail(
+            server: media.mediaServerName ?? server,
+            itemID: itemID,
+            fallbackTitle: media.title,
+            fallbackItemType: media.mediaServerItemType,
+            fallbackPoster: media.posterReference
+          )
+        }
+      }
       let defaultType = clients?.first?.type
       providers = (libraryRows ?? []).compactMap {
-        projectLibraryProvider($0, defaultServerType: defaultType)
+        projectLibraryProvider($0, server: server, defaultServerType: defaultType)
       }
     } else {
       latestServerName = nil
@@ -1617,6 +1710,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           id: "latest", title: "最新入库", items: latestItems, hasMore: latestItems.count >= 20))
     }
     musicSeeds = nextMusicSeeds
+    mediaServerItems = nextMediaServerItems
     railNextPage = [:]
     loadingRailIDs = []
 
@@ -1878,6 +1972,15 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         if let identity = item.identity {
           mediaIdentities[item.id] = identity
         }
+        if let msItemID = item.mediaServerItemID, !msItemID.isEmpty {
+          mediaServerItems[item.id] = .detail(
+            server: item.mediaServerName ?? latestServerName,
+            itemID: msItemID,
+            fallbackTitle: item.title,
+            fallbackItemType: item.mediaServerItemType,
+            fallbackPoster: item.posterReference
+          )
+        }
       }
       var updatedRails = discovery.rails
       let old = updatedRails[idx]
@@ -1978,7 +2081,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     if railID == "latest" {
       guard let server = latestServerName, !server.isEmpty else { return ([], false) }
       let rows = try await requestMediaServerLatest(server: server, count: 20, page: page)
-      let projected = rows.compactMap(projectLatestItem)
+      let projected = rows.compactMap { projectLatestItem($0, server: server) }
       return (projected, rows.count >= 20)
     }
     if railID == "doubanMusic" {
@@ -2019,7 +2122,9 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     -> NativeDiscoverProgress?
   {
     guard let title = item.title, !title.isEmpty else { return nil }
-    let identifier = item.itemID?.value ?? item.id?.value ?? title
+    let rawItemID = item.itemID?.value ?? item.id?.value
+    let identifier = rawItemID ?? title
+    let resolvedServer = (item.server?.isEmpty == false ? item.server : nil) ?? server
     let rawPercent = item.percent ?? 0
     let normalized = rawPercent > 1 ? rawPercent / 100.0 : rawPercent
     let label =
@@ -2030,28 +2135,38 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       title: title,
       year: item.year?.value,
       detail: item.subtitle,
-      posterReference: item.image
+      posterReference: item.image,
+      mediaServerItemID: rawItemID,
+      mediaServerName: resolvedServer,
+      mediaServerItemType: item.type
     )
     return NativeDiscoverProgress(
       media: media, progress: normalized, progressLabel: label,
-      itemID: item.itemID?.value ?? item.id?.value, server: server)
+      itemID: rawItemID, server: resolvedServer)
   }
 
-  /// 媒体服务器最新入库条目展示真实海报和年份/副标，不虚构外部 TMDB 详情身份。
-  private func projectLatestItem(_ item: NativeMediaServerPlayItem) -> NativeDiscoverMedia? {
+  /// 媒体服务器最新入库条目保留真实海报、年份/副标与媒体服务器条目标识，点击进入原生媒体服务器详情页。
+  private func projectLatestItem(_ item: NativeMediaServerPlayItem, server: String)
+    -> NativeDiscoverMedia?
+  {
     guard let title = item.title, !title.isEmpty else { return nil }
-    let identifier = item.itemID?.value ?? item.id?.value ?? title
+    let rawItemID = item.itemID?.value ?? item.id?.value
+    let identifier = rawItemID ?? title
+    let resolvedServer = (item.server?.isEmpty == false ? item.server : nil) ?? server
     return NativeDiscoverMedia(
       id: "latest|\(identifier)",
       title: title,
       year: item.year?.value ?? item.subtitle,
-      posterReference: item.image
+      posterReference: item.image,
+      mediaServerItemID: rawItemID,
+      mediaServerName: resolvedServer,
+      mediaServerItemType: item.type
     )
   }
 
-  /// 媒体库卡片按服务端库名、数量与主图投影。
+  /// 媒体库卡片按服务端库名、数量与主图投影，点击进入应用内原生媒体库浏览页。
   private func projectLibraryProvider(
-    _ item: NativeMediaServerLibrary, defaultServerType: String?
+    _ item: NativeMediaServerLibrary, server: String, defaultServerType: String?
   ) -> NativeDiscoverProvider? {
     guard let name = item.name, !name.isEmpty else { return nil }
     let identifier = item.itemID?.value ?? item.id?.value ?? name
@@ -2060,9 +2175,11 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       name: name,
       itemCount: item.itemCount,
       artworkReference: item.image ?? item.imageList?.first,
+      server: (item.server?.isEmpty == false ? item.server : nil) ?? server,
       serverType: item.serverType ?? defaultServerType,
       serverID: item.serverID?.value,
       itemID: item.itemID?.value ?? item.id?.value,
+      libraryType: item.type,
       link: item.link
     )
   }
@@ -2169,15 +2286,16 @@ enum NativeWorkspaceDestination: Hashable {
   case playbackSettings
 }
 
-/// 发现导航栈只接收已加载的分区、可验证媒体身份或受控业务页面。
+/// 发现导航栈只接收已加载的分区、可验证媒体身份、媒体服务器目标或受控业务页面。
 private enum NativeMediaDestination: Identifiable, Hashable {
   case rail(NativeDiscoverRail)
   case media(NativeMediaIdentity)
   case music(NativeMusicCardItem)
   case explore(NativeExploreSourceKind)
   case workspace(NativeWorkspaceDestination)
+  case mediaServer(MediaServerNavigationTarget)
 
-  /// 区分分区网格、详情与工作台页面路由。
+  /// 区分分区网格、详情、媒体服务器浏览与工作台页面路由。
   var id: String {
     switch self {
     case .rail(let rail): "rail:" + rail.id
@@ -2185,6 +2303,7 @@ private enum NativeMediaDestination: Identifiable, Hashable {
     case .music(let seed): "music:" + seed.id
     case .explore(let source): "explore:" + source.rawValue
     case .workspace(let dest): "workspace:\(dest.hashValue)"
+    case .mediaServer(let target): "mediaserver:\(target.hashValue)"
     }
   }
 }
@@ -2915,6 +3034,8 @@ private struct NativeMediaServerClient: Decodable, Sendable {
 private struct NativeMediaServerPlayItem: Decodable, Sendable {
   let id: NativeMediaServerScalar?
   let itemID: NativeMediaServerScalar?
+  let server: String?
+  let type: String?
   let title: String?
   let subtitle: String?
   let year: NativeMediaServerScalar?
@@ -2923,7 +3044,7 @@ private struct NativeMediaServerPlayItem: Decodable, Sendable {
 
   /// 映射 MediaServerPlayItem 的稳定字段。
   private enum CodingKeys: String, CodingKey {
-    case id, title, subtitle, year, image, percent
+    case id, server, type, title, subtitle, year, image, percent
     case itemID = "item_id"
   }
 }
@@ -2932,7 +3053,9 @@ private struct NativeMediaServerPlayItem: Decodable, Sendable {
 private struct NativeMediaServerLibrary: Decodable, Sendable {
   let id: NativeMediaServerScalar?
   let itemID: NativeMediaServerScalar?
+  let server: String?
   let name: String?
+  let type: String?
   let itemCount: Int?
   let image: String?
   let imageList: [String]?
@@ -2942,7 +3065,7 @@ private struct NativeMediaServerLibrary: Decodable, Sendable {
 
   /// 映射 MediaServerLibrary 的稳定字段。
   private enum CodingKeys: String, CodingKey {
-    case id, name, image, link
+    case id, server, name, type, image, link
     case itemID = "item_id"
     case itemCount = "item_count"
     case imageList = "image_list"
