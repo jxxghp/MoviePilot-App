@@ -1,177 +1,410 @@
-import { CinematicPanel, NativeAdaptiveBadge, NativeAdaptivePill } from '../../../../commons/design_system/src/main/ets/components/CinematicSurfaces';
-import { GeneratedDesignTokens } from '../../../../commons/design_system/src/main/ets/tokens/GeneratedTokens';
-import { HarmonyAppearanceStore } from '../../../../commons/design_system/src/main/ets/store/AppearanceStore';
+import {
+  MoviePilotRepository,
+  MpDashboardStats,
+  MpCommunityState,
+  MpCommunityMedal,
+  MpMessageItem,
+  MpSchedulerItem,
+  formatByteSize,
+  formatSpeed
+} from '@moviepilot/core_rust_bridge';
+import {
+  CinematicPanel,
+  NativeAdaptiveBadge,
+  NativeBackHeader,
+  HarmonyPageHeader,
+  HarmonyUnderlineTabBar,
+  HarmonyThemeColors,
+  GeneratedDesignTokens,
+  HarmonyAppearanceStore,
+  mpPrimaryText,
+  mpSecondaryText
+} from '@moviepilot/design_system';
+import {
+  NativeCommunityMedalsWidget,
+  CommunityMedal3DComponent
+} from '@moviepilot/medal_3d';
 
 /**
- * 鸿蒙「我的」无大标题仪表盘（1:1 复刻 iOS 黄金截图 + 原生 `bindSheet` 消息中心与捷径诊断入口）：
- * 2×2 媒体库统计、存储空间环形进度条、下载器绿↓蓝↑双速子卡与 7 天整理趋势。
+ * 鸿蒙「我的」主仪表盘（遵循 HarmonyOS 左侧大标题 + 右侧动态光感消息与设置入口）：
+ * 100% 消费真实 `/api/v1/dashboard/*`、`/api/v1/github/community` 与 `/api/v1/message/web`，
+ * 包含 2×2 媒体库统计、真实 3D 社区勋章矩阵、存储空间环形卡、下载器双速卡片、8 日整理趋势柱图与带封面图消息中心。
  */
 @Component
 export struct HarmonyDashboardPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @Prop userName: string = 'admin';
+  @Prop serverUrl: string = '';
+  @State private stats: MpDashboardStats = {
+    movieCount: 0, tvCount: 0, episodeCount: 0, userCount: 0,
+    storageUsedBytes: 0, storageTotalBytes: 0,
+    downloadSpeed: 0, uploadSpeed: 0, downloadSize: 0, uploadSize: 0,
+    memoryPercent: 0, memoryUsedBytes: 0, transferCounts: [], scheduleCount: 0
+  };
+  @State private community: MpCommunityState = { githubLogin: 'MoviePilot', earnedCount: 0, totalCount: 7, medals: [] };
+  @State private messages: MpMessageItem[] = [];
   @State private showMessagesSheet: boolean = false;
+  @State private showMedalSheet: boolean = false;
+  @State private selectedMedal: MpCommunityMedal | null = null;
   onOpenShortcuts: () => void = () => {};
+  onOpenSettings: () => void = () => {};
+
+  aboutToAppear(): void {
+    this.refreshDashboard();
+  }
+
+  private async refreshDashboard(): Promise<void> {
+    const repo = MoviePilotRepository.shared();
+    try {
+      const res = await Promise.all([
+        repo.fetchDashboardStats(),
+        repo.fetchCommunityMedals(),
+        repo.fetchMessages()
+      ]);
+      this.stats = res[0];
+      this.community = res[1];
+      this.messages = res[2];
+    } catch {
+      // keep existing state
+    }
+  }
+
+  private storageRatioPercent(): number {
+    if (this.stats.storageTotalBytes <= 0) { return 0; }
+    return Math.min(100, Math.max(0, (this.stats.storageUsedBytes / this.stats.storageTotalBytes) * 100));
+  }
+
+  private maxTransfer(): number {
+    let m = 1;
+    for (let i = 0; i < this.stats.transferCounts.length; i++) {
+      if (this.stats.transferCounts[i] > m) { m = this.stats.transferCounts[i]; }
+    }
+    return m;
+  }
 
   @Builder
   messagesSheetBuilder() {
     Column({ space: 12 }) {
-      Text('消息中心').fontSize(18).fontWeight(FontWeight.Bold).fontColor(Color.White).width('100%')
-      CinematicPanel({ panelPadding: 14 }) {
-        Column({ space: 4 }) {
-          Text('整理入库成功').fontSize(15).fontWeight(FontWeight.Medium).fontColor(Color.White)
-          Text('《奥德赛》2160p REMUX 已完成刮削并刷新 Emby 媒体库。').fontSize(12).fontColor('#CCFFFFFF')
-        }.alignItems(HorizontalAlign.Start)
+      Text(`消息中心 (${this.messages.length})`)
+        .fontSize(18)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(mpPrimaryText(this.isDark))
+        .width('100%')
+      Scroll() {
+        Column({ space: 10 }) {
+          if (this.messages.length === 0) {
+            Text('暂无最新消息通知').fontSize(13).fontColor(mpSecondaryText(this.isDark)).margin({ top: 24 })
+          } else {
+            ForEach(this.messages, (msg: MpMessageItem) => {
+              CinematicPanel({ panelPadding: 12, cornerRadius: 16 }) {
+                Row({ space: 12 }) {
+                  if (msg.image.length > 0) {
+                    Image(msg.image)
+                      .width(56)
+                      .height(78)
+                      .borderRadius(10)
+                      .objectFit(ImageFit.Cover)
+                      .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                  }
+                  Column({ space: 4 }) {
+                    Row() {
+                      Text(msg.title)
+                        .fontSize(14)
+                        .fontWeight(FontWeight.Medium)
+                        .fontColor(mpPrimaryText(this.isDark))
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                        .layoutWeight(1)
+                      if (msg.date.length > 0) {
+                        Text(msg.date.substring(0, 16)).fontSize(10).fontColor(mpSecondaryText(this.isDark))
+                      }
+                    }.width('100%')
+                    Text(msg.text)
+                      .fontSize(12)
+                      .fontColor(mpSecondaryText(this.isDark))
+                      .maxLines(3)
+                      .lineHeight(18)
+                      .width('100%')
+                  }
+                  .alignItems(HorizontalAlign.Start)
+                  .layoutWeight(1)
+                }.width('100%')
+              }
+            }, (msg: MpMessageItem) => msg.id)
+          }
+        }
+      }.scrollBar(BarState.Off).layoutWeight(1)
+    }.padding(20).width('100%').height('100%')
+  }
+
+  @Builder
+  medalShowcaseSheetBuilder() {
+    Column({ space: 16 }) {
+      if (this.selectedMedal) {
+        Text(this.selectedMedal.title)
+          .fontSize(20)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(mpPrimaryText(this.isDark))
+        Text(this.selectedMedal.subtitle)
+          .fontSize(13)
+          .fontColor(mpSecondaryText(this.isDark))
+        CommunityMedal3DComponent({
+          medalId: this.selectedMedal.id,
+          frontAsset: this.selectedMedal.frontAsset,
+          backAsset: this.selectedMedal.backAsset,
+          title: this.selectedMedal.title,
+          subtitle: this.selectedMedal.subtitle,
+          ownerName: this.community.githubLogin,
+          earnedDate: this.selectedMedal.earnedDate
+        })
       }
-      CinematicPanel({ panelPadding: 14 }) {
-        Column({ space: 4 }) {
-          Text('订阅命中推送').fontSize(15).fontWeight(FontWeight.Medium).fontColor(Color.White)
-          Text('《合成追剧 S01E09》已自动推送至 qBittorrent。').fontSize(12).fontColor('#CCFFFFFF')
-        }.alignItems(HorizontalAlign.Start)
-      }
-    }.padding(20).width('100%')
+    }
+    .padding(24)
+    .width('100%')
+    .alignItems(HorizontalAlign.Center)
   }
 
   build() {
-    Scroll() {
-      Column({ space: 18 }) {
-        // 顶部右上角双图标光感胶囊
-        Row() {
-          Blank()
-          Row({ space: 14 }) {
-            SymbolGlyph($r('sys.symbol.bell')).fontSize(20).fontColor([Color.White])
-              .onClick(() => { this.showMessagesSheet = true; })
-            SymbolGlyph($r('sys.symbol.bolt')).fontSize(20).fontColor([Color.White])
-              .onClick(() => this.onOpenShortcuts())
-          }
-          .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-          .borderRadius(20)
-          .backgroundEffect({ radius: 28, saturation: 1.3, brightness: 1.05, color: '#60251E35' })
-        }
-        .width('100%')
-        .margin({ top: 44 })
+    Column() {
+      HarmonyPageHeader({
+        title: '我的',
+        subtitle: this.serverUrl ? `${this.userName} · ${this.serverUrl.replace(/^https?:\/\//, '')}` : this.userName,
+        secondarySymbol: 'sys.symbol.bell',
+        secondaryAccessibility: '消息中心',
+        primarySymbol: 'sys.symbol.gearshape',
+        primaryAccessibility: '系统设置',
+        onSecondaryClick: () => { this.showMessagesSheet = true; },
+        onPrimaryClick: () => this.onOpenSettings()
+      })
         .bindSheet($$this.showMessagesSheet, this.messagesSheetBuilder(), {
           detents: [SheetSize.MEDIUM, SheetSize.LARGE],
           blurStyle: BlurStyle.COMPONENT_THIN,
           dragBar: true,
-          backgroundColor: '#CC2F2640'
+          backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
         })
 
-        // 1. 媒体库统计 2×2
-        Text('媒体库统计').fontSize(19).fontWeight(FontWeight.Bold).fontColor(Color.White).width('100%')
-        Row({ space: 12 }) {
-          CinematicPanel({ panelPadding: 15 }) {
-            Column({ space: 6 }) {
-              Text('776').fontSize(24).fontWeight(FontWeight.Bold).fontColor(Color.White)
-              Text('电影').fontSize(12).fontColor('#B8FFFFFF')
-              NativeAdaptiveBadge({ text: '本月 +9', tintHex: '#FFCC6B' })
-            }.alignItems(HorizontalAlign.Start)
-          }.layoutWeight(1)
-          CinematicPanel({ panelPadding: 15 }) {
-            Column({ space: 6 }) {
-              Text('1,268').fontSize(24).fontWeight(FontWeight.Bold).fontColor(Color.White)
-              Text('剧集').fontSize(12).fontColor('#B8FFFFFF')
-              NativeAdaptiveBadge({ text: '本月 +49', tintHex: '#D6BDFF' })
-            }.alignItems(HorizontalAlign.Start)
-          }.layoutWeight(1)
-        }
-        Row({ space: 12 }) {
-          CinematicPanel({ panelPadding: 15 }) {
-            Column({ space: 6 }) {
-              Text('31,532').fontSize(24).fontWeight(FontWeight.Bold).fontColor(Color.White)
-              Text('剧集单集').fontSize(12).fontColor('#B8FFFFFF')
-              NativeAdaptiveBadge({ text: '本月 +792', tintHex: '#75D6E6' })
-            }.alignItems(HorizontalAlign.Start)
-          }.layoutWeight(1)
-          CinematicPanel({ panelPadding: 15 }) {
-            Column({ space: 6 }) {
-              Text('128').fontSize(24).fontWeight(FontWeight.Bold).fontColor(Color.White)
-              Text('音乐').fontSize(12).fontColor('#B8FFFFFF')
-              NativeAdaptiveBadge({ text: '本月 +14', tintHex: '#F58FBD' })
-            }.alignItems(HorizontalAlign.Start)
-          }.layoutWeight(1)
-        }
-
-        // 2. 存储空间环形进度卡
-        Text('存储空间').fontSize(19).fontWeight(FontWeight.Bold).fontColor(Color.White).width('100%')
-        CinematicPanel({ panelPadding: 16 }) {
-          Row({ space: 18 }) {
-            Stack() {
-              Progress({ value: 76.6, total: 100, type: ProgressType.Ring })
-                .width(86).height(86).color(this.accentHex).backgroundColor('#22FFFFFF')
-                .style({ strokeWidth: 9 })
-              Text('76.6%').fontSize(14).fontWeight(FontWeight.Bold).fontColor(Color.White)
-            }
-            Column({ space: 4 }) {
-              Text('26.47 TB / 34.56 TB').fontSize(16).fontWeight(FontWeight.Bold).fontColor(Color.White)
-              Text('已用 / 总容量').fontSize(12).fontColor('#B8FFFFFF')
-              Text('剩余 8.08 TB').fontSize(13).fontColor(GeneratedDesignTokens.semanticColor('success', this.isDark))
-            }.alignItems(HorizontalAlign.Start)
-          }.width('100%')
-        }
-
-        // 3. 下载器双速卡片
-        Text('下载器').fontSize(19).fontWeight(FontWeight.Bold).fontColor(Color.White).width('100%')
-        CinematicPanel({ panelPadding: 16 }) {
-          Column({ space: 10 }) {
-            Row({ space: 12 }) {
-              Column({ space: 4 }) {
-                Text('↓ 12.4 MB/s').fontSize(15).fontWeight(FontWeight.Bold).fontColor('#75E6A3')
-                Text('实时下载').fontSize(11).fontColor('#99FFFFFF')
+      Scroll() {
+        Column({ space: 18 }) {
+          // 1. 媒体库统计 2×2
+          Text('媒体库统计').fontSize(17).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
+          Row({ space: 12 }) {
+            Column() {
+              CinematicPanel({ panelPadding: 15, cornerRadius: 18 }) {
+                Column({ space: 6 }) {
+                  Text(`${this.stats.movieCount}`).fontSize(25).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                  Text('电影').fontSize(12).fontColor(mpSecondaryText(this.isDark))
+                  NativeAdaptiveBadge({ text: '媒体库', tintHex: '#FAAD14' })
+                }.alignItems(HorizontalAlign.Start)
               }
-              .layoutWeight(1).padding(12).borderRadius(14).backgroundColor('#18FFFFFF').alignItems(HorizontalAlign.Start)
-
-              Column({ space: 4 }) {
-                Text('↑ 21.0 KB/s').fontSize(15).fontWeight(FontWeight.Bold).fontColor('#75C7FF')
-                Text('实时上传').fontSize(11).fontColor('#99FFFFFF')
+            }.layoutWeight(1)
+            Column() {
+              CinematicPanel({ panelPadding: 15, cornerRadius: 18 }) {
+                Column({ space: 6 }) {
+                  Text(`${this.stats.tvCount}`).fontSize(25).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                  Text('剧集').fontSize(12).fontColor(mpSecondaryText(this.isDark))
+                  NativeAdaptiveBadge({ text: '自动追更', tintHex: this.accentHex })
+                }.alignItems(HorizontalAlign.Start)
               }
-              .layoutWeight(1).padding(12).borderRadius(14).backgroundColor('#18FFFFFF').alignItems(HorizontalAlign.Start)
+            }.layoutWeight(1)
+          }
+          Row({ space: 12 }) {
+            Column() {
+              CinematicPanel({ panelPadding: 15, cornerRadius: 18 }) {
+                Column({ space: 6 }) {
+                  Text(`${this.stats.episodeCount}`).fontSize(25).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                  Text('剧集单集').fontSize(12).fontColor(mpSecondaryText(this.isDark))
+                  NativeAdaptiveBadge({ text: '已刮削', tintHex: '#36CFC9' })
+                }.alignItems(HorizontalAlign.Start)
+              }
+            }.layoutWeight(1)
+            Column() {
+              CinematicPanel({ panelPadding: 15, cornerRadius: 18, interactive: true }) {
+                Column({ space: 6 }) {
+                  Text(`${this.stats.scheduleCount}`).fontSize(25).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                  Text('后台定时服务').fontSize(12).fontColor(mpSecondaryText(this.isDark))
+                  NativeAdaptiveBadge({ text: '点击诊断', tintHex: '#52C41A' })
+                }.alignItems(HorizontalAlign.Start)
+              }
+            }.layoutWeight(1).onClick(() => this.onOpenShortcuts())
+          }
+
+          // 2. 真实 3D 社区勋章矩阵
+          if (this.community.medals.length > 0) {
+            NativeCommunityMedalsWidget({
+              githubLogin: this.community.githubLogin,
+              earnedCount: this.community.earnedCount,
+              totalCount: this.community.totalCount,
+              medals: this.community.medals,
+              onSelectMedal: (m: MpCommunityMedal) => {
+                this.selectedMedal = m;
+                this.showMedalSheet = true;
+              }
+            })
+              .bindSheet($$this.showMedalSheet, this.medalShowcaseSheetBuilder(), {
+                detents: [SheetSize.LARGE],
+                blurStyle: BlurStyle.COMPONENT_THIN,
+                dragBar: true,
+                backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
+              })
+          }
+
+          // 3. 存储空间环形进度卡
+          Text('存储空间').fontSize(17).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
+          CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
+            Row({ space: 18 }) {
+              Stack() {
+                Progress({ value: this.storageRatioPercent(), total: 100, type: ProgressType.Ring })
+                  .width(86).height(86).color(this.accentHex).backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                  .style({ strokeWidth: 9 })
+                Text(`${this.storageRatioPercent().toFixed(1)}%`).fontSize(14).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+              }
+              Column({ space: 4 }) {
+                Text(`${formatByteSize(this.stats.storageUsedBytes)} / ${formatByteSize(this.stats.storageTotalBytes)}`)
+                  .fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                Text('已用 / 总容量').fontSize(12).fontColor(mpSecondaryText(this.isDark))
+                Text(`剩余 ${formatByteSize(Math.max(0, this.stats.storageTotalBytes - this.stats.storageUsedBytes))}`)
+                  .fontSize(13).fontColor(GeneratedDesignTokens.semanticColor('success', this.isDark))
+              }.alignItems(HorizontalAlign.Start)
+            }.width('100%')
+          }
+
+          // 4. 下载器实时双速卡
+          Text('下载器').fontSize(17).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
+          CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
+            Column({ space: 10 }) {
+              Row({ space: 12 }) {
+                Column({ space: 4 }) {
+                  Text(`↓ ${formatSpeed(this.stats.downloadSpeed)}`).fontSize(15).fontWeight(FontWeight.Bold).fontColor('#52C41A')
+                  Text('实时下载').fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                }
+                .layoutWeight(1).padding(12).borderRadius(14).backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).alignItems(HorizontalAlign.Start)
+
+                Column({ space: 4 }) {
+                  Text(`↑ ${formatSpeed(this.stats.uploadSpeed)}`).fontSize(15).fontWeight(FontWeight.Bold).fontColor('#6EA8FE')
+                  Text('实时上传').fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                }
+                .layoutWeight(1).padding(12).borderRadius(14).backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).alignItems(HorizontalAlign.Start)
+              }
+              Text(`累计下载 ${formatByteSize(this.stats.downloadSize)} · 累计上传 ${formatByteSize(this.stats.uploadSize)}`)
+                .fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
             }
-            Text('累计下载 3.93 TB').fontSize(12).fontColor('#99FFFFFF').width('100%')
+          }
+
+          // 5. 近期整理趋势（真实 8 天柱图）
+          if (this.stats.transferCounts.length > 0) {
+            Text('整理趋势').fontSize(17).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
+            CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
+              Row({ space: 8 }) {
+                ForEach(this.stats.transferCounts, (count: number, idx: number) => {
+                  Column({ space: 4 }) {
+                    Text(`${count}`).fontSize(10).fontColor(mpSecondaryText(this.isDark))
+                    Column()
+                      .width(20)
+                      .height(Math.max(8, Math.round((count / this.maxTransfer()) * 84)))
+                      .borderRadius(6)
+                      .linearGradient({ angle: 180, colors: [[this.accentHex, 0], ['#559E7AF5', 1]] })
+                    Text(`D${idx + 1}`).fontSize(10).fontColor(mpSecondaryText(this.isDark))
+                  }
+                  .layoutWeight(1)
+                  .justifyContent(FlexAlign.End)
+                  .height(120)
+                })
+              }.width('100%')
+            }
           }
         }
+        .padding({ left: 16, right: 16, top: 6, bottom: 124 })
       }
-      .padding({ left: 20, right: 20, bottom: 128 })
+      .scrollBar(BarState.Off)
+      .layoutWeight(1)
     }
     .width('100%')
     .height('100%')
   }
 }
 
-/** 鸿蒙捷径与诊断中心页（健康检查 / 名称识别 / 实时日志 / 定时服务 / 词表）。 */
+/** 鸿蒙捷径与诊断中心页（采用规范下划线页签栏切换定时服务与实时日志）。 */
 @Component
 export struct HarmonyDiagnosticsPage {
-  @State private tab: string = '健康检查';
+  @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @State private activeTabIdx: number = 0;
+  @State private schedulers: MpSchedulerItem[] = [];
+  @State private logs: string[] = [];
+  @State private loading: boolean = true;
   onBack: () => void = () => {};
 
+  aboutToAppear(): void {
+    this.loadDiag();
+  }
+
+  private async loadDiag(): Promise<void> {
+    this.loading = true;
+    const repo = MoviePilotRepository.shared();
+    try {
+      const res = await Promise.all([
+        repo.fetchSchedulers(),
+        repo.fetchLiveLogs()
+      ]);
+      this.schedulers = res[0];
+      this.logs = res[1];
+    } catch {
+      // ignore
+    }
+    this.loading = false;
+  }
+
   build() {
-    Column({ space: 12 }) {
-      Row() {
-        Text('‹ 返回').fontSize(15).fontColor(Color.White).onClick(() => this.onBack())
-        Blank()
-        Text('捷径与诊断中心').fontSize(17).fontWeight(FontWeight.Medium).fontColor(Color.White)
-        Blank()
-        Text('   ')
-      }.width('100%').padding({ left: 18, right: 18, top: 46 })
+    Column({ space: 8 }) {
+      NativeBackHeader({
+        title: '捷径与诊断中心',
+        trailingSymbol: 'sys.symbol.arrow_clockwise',
+        trailingAccessibility: '刷新诊断数据',
+        onBack: () => this.onBack(),
+        onTrailingClick: () => this.loadDiag()
+      })
 
-      Scroll() {
-        Row({ space: 8 }) {
-          ForEach(['健康检查', '名称识别', '实时日志', '定时服务', '词表规则'], (t: string) => {
-            NativeAdaptivePill({ title: t, selected: this.tab === t, onTap: () => { this.tab = t; } })
-          })
-        }.padding({ left: 20, right: 20 })
-      }.scrollable(ScrollDirection.Horizontal)
+      HarmonyUnderlineTabBar({
+        tabs: [`定时服务 (${this.schedulers.length})`, '实时日志'],
+        selectedIndex: this.activeTabIdx,
+        onSelect: (idx: number) => { this.activeTabIdx = idx; }
+      })
 
-      Column({ space: 10 }) {
-        ForEach(['TheMovieDB 元数据模块', 'qBittorrent 下载器', 'Emby 媒体服务器', 'Rust ohos-rs 共享内核'], (m: string) => {
-          CinematicPanel({ panelPadding: 14 }) {
-            Row() {
-              Text(m).fontSize(15).fontColor(Color.White).layoutWeight(1)
-              NativeAdaptiveBadge({ text: '健康', tintHex: '#75E6A3' })
-            }.width('100%')
-          }
-        })
-      }.padding({ left: 20, right: 20 })
+      if (this.loading) {
+        Column() {
+          LoadingProgress().width(32).height(32).color(this.accentHex)
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+      } else {
+        Scroll() {
+          Column({ space: 10 }) {
+            if (this.activeTabIdx === 0) {
+              ForEach(this.schedulers, (s: MpSchedulerItem) => {
+                CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
+                  Row() {
+                    Column({ space: 3 }) {
+                      Text(s.name).fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                      Text(`${s.provider} · 下次执行 ${s.nextRun || '等待调度'}`).fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                    }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                    NativeAdaptiveBadge({ text: s.status || '等待', tintHex: '#52C41A' })
+                  }.width('100%')
+                }
+              }, (s: MpSchedulerItem) => s.id)
+            } else {
+              CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
+                Column({ space: 6 }) {
+                  ForEach(this.logs, (line: string, idx: number) => {
+                    Text(line).fontSize(11).fontColor(mpPrimaryText(this.isDark)).lineHeight(17).width('100%')
+                  }, (_line: string, idx: number) => `log_${idx}`)
+                }
+              }
+            }
+          }.padding({ left: 16, right: 16, top: 6, bottom: 40 })
+        }.scrollBar(BarState.Off).layoutWeight(1)
+      }
     }.width('100%').height('100%')
   }
 }

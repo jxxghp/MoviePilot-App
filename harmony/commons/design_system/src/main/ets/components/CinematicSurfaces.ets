@@ -1,86 +1,109 @@
 import { GeneratedDesignTokens } from '../tokens/GeneratedTokens';
 import { HarmonyAppearanceStore } from '../store/AppearanceStore';
+import {
+  HarmonyMotionTokens,
+  HarmonySurfaceModifier,
+  HarmonySurfaceRole,
+  HarmonyThemeColors
+} from './HarmonyDynamicLight';
 
-/** 主导航 4 标签页枚举。 */
-export type HarmonyMainTab = 'discover' | 'explore' | 'dashboard' | 'settings';
+/**
+ * 鸿蒙原生 5 大对等导航目标（避免照搬 iOS 4+1 隐藏菜单）：
+ * 发现 · 探索 · 订阅 · 更多 · 我的（手机底部动态光感页签栏，折叠屏展开/平板/2in1 自动切换为左侧竖向侧边栏）。
+ */
+export type HarmonyMainTab = 'discover' | 'explore' | 'subscribe' | 'more' | 'dashboard';
 
-/** 重复点击底栏主图标弹出的 8 项快捷入口。 */
-export interface OverflowMenuItem {
+/** 「更多」中心业务入口定义。 */
+export interface MoreToolItem {
   id: string;
   title: string;
-  symbolKey: string;
+  subtitle: string;
+  symbolName: string;
+  tintHex: string;
   group: number;
 }
 
-export const OVERFLOW_MENU_ITEMS: OverflowMenuItem[] = [
-  { id: 'subscriptions', title: '我的订阅', symbolKey: 'menu_subscriptions', group: 0 },
-  { id: 'calendar', title: '订阅日历', symbolKey: 'menu_calendar', group: 0 },
-  { id: 'resources', title: '站点资源', symbolKey: 'menu_resources', group: 0 },
-  { id: 'downloads', title: '下载', symbolKey: 'menu_downloads', group: 0 },
-  { id: 'files', title: '文件管理', symbolKey: 'menu_files', group: 1 },
-  { id: 'history', title: '整理历史', symbolKey: 'menu_history', group: 1 },
-  { id: 'workflows', title: '工作流', symbolKey: 'menu_workflows', group: 1 },
-  { id: 'plugins', title: '插件', symbolKey: 'menu_plugins', group: 1 },
+export const MORE_TOOL_ITEMS: MoreToolItem[] = [
+  { id: 'resources', title: '站点资源', subtitle: '9 维筛选与一键推送', symbolName: 'sys.symbol.film', tintHex: '#6EA8FE', group: 0 },
+  { id: 'downloads', title: '下载管理', subtitle: '实时队列与限速控制', symbolName: 'sys.symbol.arrow_down_circle', tintHex: '#52C41A', group: 0 },
+  { id: 'files', title: '文件管理', subtitle: '多存储浏览与直放', symbolName: 'sys.symbol.folder', tintHex: '#FAAD14', group: 0 },
+  { id: 'history', title: '整理历史', subtitle: '识别入库记录追踪', symbolName: 'sys.symbol.clock', tintHex: '#A78BFA', group: 0 },
+  { id: 'workflows', title: '工作流', subtitle: '节点画布与社区分享', symbolName: 'sys.symbol.share', tintHex: '#B37FEB', group: 1 },
+  { id: 'plugins', title: '插件中心', subtitle: '原生表单与联邦视图', symbolName: 'sys.symbol.puzzle', tintHex: '#36CFC9', group: 1 },
+  { id: 'sites', title: '站点管理', subtitle: '双向流量与连通测试', symbolName: 'sys.symbol.worldclock', tintHex: '#73D13D', group: 1 },
+  { id: 'calendar', title: '追剧日历', subtitle: '剧集播出排期追踪', symbolName: 'sys.symbol.calendar', tintHex: '#F759AB', group: 1 }
 ];
 
+export function mpPrimaryText(isDark: boolean): string {
+  return HarmonyThemeColors.primaryText(isDark);
+}
+
+export function mpSecondaryText(isDark: boolean): string {
+  return HarmonyThemeColors.secondaryText(isDark);
+}
+
+export function mpMutedText(isDark: boolean): string {
+  return HarmonyThemeColors.mutedText(isDark);
+}
+
 /**
- * 鸿蒙原生动态流光背景组件（`CinematicAmbientGradient`）：
- * 消费 `GeneratedDesignTokens` 4 段同源色板，15fps 柔和角度漂移，退后台/省电自动暂停。
+ * 鸿蒙原生画布背景（`CinematicAmbientGradient`）：
+ * 默认呈现冷静、高可读的鸿蒙中性深/浅底色（`#0D0D11` / `#F1F3F5`）；
+ * 仅当用户在外观中显式开启「氛围流光」时才叠加柔和顶部氛围微光，避免大面积高频动画影响帧率与对比度。
  */
 @Component
 export struct CinematicAmbientGradient {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_BG_PRESET) bgPreset: string = GeneratedDesignTokens.DEFAULT_BACKGROUND_PRESET;
-  @StorageLink(HarmonyAppearanceStore.KEY_ANIMATE_BG) animateBg: boolean = true;
-  @State private angleDeg: number = 145;
-  private timerId: number = -1;
-
-  aboutToAppear(): void {
-    if (this.animateBg) {
-      let tick = 0;
-      const intervalMs = Math.round(1000 / Math.max(1, GeneratedDesignTokens.AMBIENT_FPS));
-      this.timerId = setInterval(() => {
-        tick += 0.06;
-        this.angleDeg = 145 + Math.sin(tick) * 18;
-      }, intervalMs);
-    }
-  }
-
-  aboutToDisappear(): void {
-    if (this.timerId >= 0) {
-      clearInterval(this.timerId);
-      this.timerId = -1;
-    }
-  }
+  @StorageLink(HarmonyAppearanceStore.KEY_ANIMATE_BG) animateBg: boolean = false;
 
   build() {
-    Column()
-      .width('100%')
-      .height('100%')
-      .linearGradient({
-        angle: this.angleDeg,
-        colors: HarmonyAppearanceStore.getGradientStops(this.bgPreset, this.isDark)
-      })
-      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor(HarmonyThemeColors.canvas(this.isDark))
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+
+      if (this.animateBg) {
+        Column()
+          .width('100%')
+          .height(340)
+          .linearGradient({
+            angle: 180,
+            colors: HarmonyAppearanceStore.getGradientStops(this.bgPreset, this.isDark)
+          })
+          .opacity(this.isDark ? 0.24 : 0.14)
+          .position({ top: 0, left: 0 })
+          .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .hitTestBehavior(HitTestMode.None)
   }
 }
 
 /**
- * 鸿蒙原生低雾玻璃 + 动态点光源卡片（`CinematicPanel`）：
- * 严格使用 HarmonyOS NEXT 原生 `backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THIN)` +
- * **`pointLight` 动态点光源边缘受光（`IlluminatedType.BORDER_CONTENT`）** + 按压 **`lightUpEffect`**。
+ * 鸿蒙原生分层卡片容器（`CinematicPanel`）：
+ * 通过 `HarmonySurfaceModifier` 自动分级适配：
+ * - HarmonyOS 7（API 26+）：`uiMaterial.ImmersiveMaterial` 动态光感与交互形变；
+ * - HarmonyOS 6（API 20–25）：`hdsEffect.pointLight` 边缘动态受光；
+ * - HarmonyOS 5（API 12–19）：自动回退至冷静清晰的分层底色卡片。
  */
 @Component
 export struct CinematicPanel {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @StorageLink(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) dynamicLight: boolean = true;
   @Prop panelPadding: number = GeneratedDesignTokens.PANEL_PADDING_VP;
-  @Prop cornerRadius: number = GeneratedDesignTokens.PANEL_CORNER_RADIUS_VP;
-  @Prop enablePointLight: boolean = true;
-  @State private lightX: number = 160;
-  @State private lightY: number = 60;
-  @State private isPressed: boolean = false;
-  @BuilderParam content: () => void;
+  @Prop cornerRadius: number = 16;
+  @Prop surfaceRole: HarmonySurfaceRole = 'card';
+  @Prop interactive: boolean = false;
+  @BuilderParam content: () => void = this.defaultBuilder;
+
+  @Builder
+  defaultBuilder() {}
 
   build() {
     Column() {
@@ -89,232 +112,472 @@ export struct CinematicPanel {
     .width('100%')
     .padding(this.panelPadding)
     .borderRadius(this.cornerRadius)
-    .backgroundColor(this.isDark ? '#1AFFFFFF' : '#94FFFFFF')
-    .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THIN, {
-      colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT,
-      adaptiveColor: AdaptiveColor.AVERAGE,
-      policy: BlurStyleActivePolicy.FOLLOWS_WINDOW_ACTIVE_STATE
-    })
-    .border({
-      width: GeneratedDesignTokens.PANEL_BORDER_WIDTH_VP,
-      color: this.isDark ? '#33FFFFFF' : '#22000000',
-      radius: this.cornerRadius
-    })
-    .pointLight(this.enablePointLight ? {
-      lightSource: {
-        positionX: this.lightX,
-        positionY: this.lightY,
-        positionZ: 90,
-        intensity: GeneratedDesignTokens.POINT_LIGHT_CARD_INTENSITY,
-        color: this.accentHex
-      },
-      illuminated: IlluminatedType.BORDER_CONTENT,
-      bloom: 0.35
-    } : undefined)
-    .lightUpEffect(this.isPressed ? 1.0 : 0.94)
-    .onTouch((ev: TouchEvent) => {
-      if (ev.touches.length > 0) {
-        this.lightX = ev.touches[0].x;
-        this.lightY = ev.touches[0].y;
-      }
-      this.isPressed = ev.type === TouchType.Down || ev.type === TouchType.Move;
-    })
-    .shadow({
-      radius: this.isDark ? 12 : 8,
-      color: this.isDark ? '#24000000' : '#12000000',
-      offsetY: this.isDark ? 5 : 3
-    })
+    .attributeModifier(new HarmonySurfaceModifier(
+      this.isDark,
+      this.surfaceRole,
+      this.cornerRadius,
+      this.accentHex,
+      this.interactive,
+      this.dynamicLight
+    ))
+    .hoverEffect(this.interactive ? HoverEffect.Highlight : HoverEffect.None)
   }
 }
 
-/** 鸿蒙原生 4+1 流体光感悬浮底部导航栏（`backgroundEffect` + `pointLight` 动态光斑 + 右侧独立 `+1` 圆钮）。 */
+/**
+ * 鸿蒙原生顶部状态栏渐进模糊保护罩（滚动时自动柔和隔离状态栏与下方内容）。
+ */
 @Component
-export struct FloatingFourPlusOneNavBar {
+export struct NativeTopStatusBarBlur {
+  @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
+  @Prop visibilityProgress: number = 1.0;
+
+  build() {
+    Column()
+      .width('100%')
+      .height(52)
+      .linearGradient({
+        angle: 180,
+        colors: this.isDark
+          ? [['#EB0D0D11', 0.0], ['#B80D0D11', 0.58], ['#000D0D11', 1.0]]
+          : [['#EBF1F3F5', 0.0], ['#B8F1F3F5', 0.58], ['#00F1F3F5', 1.0]]
+      })
+      .opacity(Math.max(0, Math.min(1, this.visibilityProgress)))
+      .hitTestBehavior(HitTestMode.None)
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+  }
+}
+
+/**
+ * 鸿蒙原生二级页面标题栏（左对齐标题 + 圆形动态光感返回键 + 无障碍语义）。
+ */
+@Component
+export struct NativeBackHeader {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @StorageLink(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) dynamicLight: boolean = true;
+  @Prop title: string = '';
+  @Prop trailingText: string = '';
+  @Prop trailingSymbol: string = '';
+  @Prop trailingAccessibility: string = '操作';
+  onBack: () => void = () => {};
+  onTrailingClick: () => void = () => {};
+
+  build() {
+    Row({ space: 12 }) {
+      Button({ type: ButtonType.Circle }) {
+        SymbolGlyph($r('sys.symbol.chevron_left'))
+          .fontSize(20)
+          .fontColor([mpPrimaryText(this.isDark)])
+      }
+      .width(40)
+      .height(40)
+      .backgroundColor(Color.Transparent)
+      .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 20, this.accentHex, true, this.dynamicLight))
+      .hoverEffect(HoverEffect.Highlight)
+      .accessibilityText('返回上一级')
+      .onClick(() => this.onBack())
+
+      Text(this.title)
+        .fontSize(20)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(mpPrimaryText(this.isDark))
+        .layoutWeight(1)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+
+      if (this.trailingSymbol.length > 0) {
+        Button({ type: ButtonType.Circle }) {
+          SymbolGlyph($r(this.trailingSymbol))
+            .fontSize(20)
+            .fontColor([mpPrimaryText(this.isDark)])
+        }
+        .width(40)
+        .height(40)
+        .backgroundColor(Color.Transparent)
+        .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 20, this.accentHex, true, this.dynamicLight))
+        .hoverEffect(HoverEffect.Highlight)
+        .accessibilityText(this.trailingAccessibility)
+        .onClick(() => this.onTrailingClick())
+      } else if (this.trailingText.length > 0) {
+        Button(this.trailingText)
+          .fontSize(13)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(mpPrimaryText(this.isDark))
+          .height(36)
+          .padding({ left: 14, right: 14 })
+          .borderRadius(18)
+          .backgroundColor(Color.Transparent)
+          .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 18, this.accentHex, true, this.dynamicLight))
+          .hoverEffect(HoverEffect.Highlight)
+          .onClick(() => this.onTrailingClick())
+      }
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 44, bottom: 8 })
+  }
+}
+
+/**
+ * 鸿蒙原生一级主页面标题栏（遵循 HarmonyOS 左侧大标题 + 右侧动态光感动作圆钮规范）。
+ */
+@Component
+export struct HarmonyPageHeader {
+  @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @StorageLink(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) dynamicLight: boolean = true;
+  @Prop title: string = '';
+  @Prop subtitle: string = '';
+  @Prop primarySymbol: string = '';
+  @Prop primaryAccessibility: string = '搜索';
+  @Prop secondarySymbol: string = '';
+  @Prop secondaryAccessibility: string = '操作';
+  onPrimaryClick: () => void = () => {};
+  onSecondaryClick: () => void = () => {};
+
+  build() {
+    Row({ space: 10 }) {
+      Column({ space: 2 }) {
+        Text(this.title)
+          .fontSize(26)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(mpPrimaryText(this.isDark))
+          .maxLines(1)
+        if (this.subtitle.length > 0) {
+          Text(this.subtitle)
+            .fontSize(12)
+            .fontColor(mpSecondaryText(this.isDark))
+            .maxLines(1)
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+
+      if (this.secondarySymbol.length > 0) {
+        Button({ type: ButtonType.Circle }) {
+          SymbolGlyph($r(this.secondarySymbol))
+            .fontSize(20)
+            .fontColor([mpPrimaryText(this.isDark)])
+        }
+        .width(40)
+        .height(40)
+        .backgroundColor(Color.Transparent)
+        .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 20, this.accentHex, true, this.dynamicLight))
+        .hoverEffect(HoverEffect.Highlight)
+        .accessibilityText(this.secondaryAccessibility)
+        .onClick(() => this.onSecondaryClick())
+      }
+
+      if (this.primarySymbol.length > 0) {
+        Button({ type: ButtonType.Circle }) {
+          SymbolGlyph($r(this.primarySymbol))
+            .fontSize(20)
+            .fontColor([mpPrimaryText(this.isDark)])
+        }
+        .width(40)
+        .height(40)
+        .backgroundColor(Color.Transparent)
+        .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 20, this.accentHex, true, this.dynamicLight))
+        .hoverEffect(HoverEffect.Highlight)
+        .accessibilityText(this.primaryAccessibility)
+        .onClick(() => this.onPrimaryClick())
+      }
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 44, bottom: 8 })
+  }
+}
+
+/**
+ * 鸿蒙规范页级切换页签栏（对标 ArkUI `SubTabBarStyle`）：
+ * 专用于平级功能域或页内章节切换（如「我的订阅 / 订阅广场」、「已安装 / 插件市场」、「数据页 / 参数配置」），
+ * 告别所有切换都堆砌方框胶囊的做法，带 150ms 标准缓动下划线指示器与完整无障碍 `accessibilitySelected` 语义。
+ */
+@Component
+export struct HarmonyUnderlineTabBar {
+  @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @Prop tabs: string[] = [];
+  @Prop selectedIndex: number = 0;
+  onSelect: (index: number) => void = () => {};
+
+  build() {
+    Column() {
+      Row() {
+        ForEach(this.tabs, (label: string, idx: number) => {
+          Column({ space: 6 }) {
+            Text(label)
+              .fontSize(15)
+              .fontWeight(this.selectedIndex === idx ? FontWeight.Bold : FontWeight.Medium)
+              .fontColor(this.selectedIndex === idx ? this.accentHex : mpSecondaryText(this.isDark))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .animation({ duration: HarmonyMotionTokens.DURATION_SHORT, curve: HarmonyMotionTokens.CURVE_STANDARD })
+
+            Column()
+              .width(this.selectedIndex === idx ? 26 : 0)
+              .height(3)
+              .borderRadius(1.5)
+              .backgroundColor(this.accentHex)
+              .animation({ duration: HarmonyMotionTokens.DURATION_LOCAL, curve: HarmonyMotionTokens.CURVE_STANDARD })
+          }
+          .layoutWeight(1)
+          .height(44)
+          .justifyContent(FlexAlign.Center)
+          .hoverEffect(HoverEffect.Highlight)
+          .focusable(true)
+          .accessibilityText(`${label}${this.selectedIndex === idx ? '，已选中' : ''}`)
+          .onClick(() => this.onSelect(idx))
+        })
+      }
+      .width('100%')
+      .padding({ left: 12, right: 12 })
+
+      Divider().color(HarmonyThemeColors.divider(this.isDark))
+    }
+    .width('100%')
+  }
+}
+
+/**
+ * 鸿蒙规范互斥模式分段控制器（对标 ArkUI `SegmentButton`）：
+ * 专用于 2~4 项互斥视图或设置切换（如「深色 / 浅色 / 跟随系统」、「热门电影 / 热门剧集 / 社区分享」）。
+ */
+@Component
+export struct HarmonySegmentedSwitch {
+  @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @Prop options: string[] = [];
+  @Prop selectedIndex: number = 0;
+  onSelect: (index: number) => void = () => {};
+
+  build() {
+    Row({ space: 2 }) {
+      ForEach(this.options, (label: string, idx: number) => {
+        Row() {
+          Text(label)
+            .fontSize(13)
+            .fontWeight(this.selectedIndex === idx ? FontWeight.Bold : FontWeight.Medium)
+            .fontColor(this.selectedIndex === idx ? Color.White : mpSecondaryText(this.isDark))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .layoutWeight(1)
+        .height(36)
+        .justifyContent(FlexAlign.Center)
+        .borderRadius(18)
+        .backgroundColor(this.selectedIndex === idx ? this.accentHex : Color.Transparent)
+        .animation({ duration: HarmonyMotionTokens.DURATION_SHORT, curve: HarmonyMotionTokens.CURVE_STANDARD })
+        .hoverEffect(HoverEffect.Highlight)
+        .focusable(true)
+        .accessibilityText(`${label}${this.selectedIndex === idx ? '，已选中' : ''}`)
+        .onClick(() => this.onSelect(idx))
+      })
+    }
+    .width('100%')
+    .padding(3)
+    .borderRadius(21)
+    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+    .border({ width: 0.5, color: HarmonyThemeColors.borderSubtle(this.isDark), radius: 21 })
+  }
+}
+
+/**
+ * 鸿蒙自适应底部 5 页签导航栏（窄屏手机使用，HarmonyOS 7 动态光感 + 低版本自动回退）。
+ */
+@Component
+export struct HarmonyBottomNavBar {
+  @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @StorageLink(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) dynamicLight: boolean = true;
   @Prop selectedTab: HarmonyMainTab = 'discover';
   @Prop userInitial: string = 'A';
-  @State private spotlightX: number = 48;
+  @Prop userAvatar: string = '';
   onTabClick: (tab: HarmonyMainTab) => void = () => {};
-  onPlusOneClick: () => void = () => {};
 
   private tabLabel(tab: HarmonyMainTab): string {
     if (tab === 'discover') { return '发现'; }
     if (tab === 'explore') { return '探索'; }
-    if (tab === 'dashboard') { return '我的'; }
-    return '设置';
+    if (tab === 'subscribe') { return '订阅'; }
+    if (tab === 'more') { return '更多'; }
+    return '我的';
+  }
+
+  private tabSymbol(tab: HarmonyMainTab, active: boolean): string {
+    if (tab === 'discover') { return active ? 'sys.symbol.TV_tv_fill' : 'sys.symbol.TV_tv'; }
+    if (tab === 'explore') { return 'sys.symbol.compass'; }
+    if (tab === 'subscribe') { return active ? 'sys.symbol.star_fill' : 'sys.symbol.star'; }
+    return 'sys.symbol.dot_grid_2x2';
   }
 
   build() {
-    Row({ space: 12 }) {
-      // 左侧 4 主 Tab 流体玻璃胶囊
-      Row() {
-        ForEach(['discover', 'explore', 'dashboard', 'settings'] as HarmonyMainTab[], (tab: HarmonyMainTab, idx: number) => {
-          Column({ space: 2 }) {
-            if (tab === 'dashboard') {
+    Row() {
+      ForEach(['discover', 'explore', 'subscribe', 'more', 'dashboard'] as HarmonyMainTab[], (tab: HarmonyMainTab) => {
+        Column({ space: 3 }) {
+          if (tab === 'dashboard') {
+            if (this.userAvatar.length > 0) {
+              Image(this.userAvatar)
+                .width(22)
+                .height(22)
+                .borderRadius(11)
+                .objectFit(ImageFit.Cover)
+                .border({
+                  width: this.selectedTab === tab ? 1.6 : 0.8,
+                  color: this.selectedTab === tab ? this.accentHex : HarmonyThemeColors.borderSubtle(this.isDark),
+                  radius: 11
+                })
+            } else {
               Text(this.userInitial)
-                .fontSize(12)
+                .fontSize(11)
                 .fontWeight(FontWeight.Bold)
                 .fontColor(Color.White)
-                .width(24)
-                .height(24)
+                .width(22)
+                .height(22)
                 .textAlign(TextAlign.Center)
-                .borderRadius(12)
+                .borderRadius(11)
                 .backgroundColor(this.accentHex)
-            } else {
-              SymbolGlyph($r(tab === 'discover' ? 'sys.symbol.sparkles' : (tab === 'explore' ? 'sys.symbol.compass' : 'sys.symbol.gearshape')))
-                .fontSize(21)
-                .fontColor([this.selectedTab === tab ? this.accentHex : (this.isDark ? '#E6FFFFFF' : '#242030')])
             }
-            Text(this.tabLabel(tab))
-              .fontSize(10)
-              .fontWeight(this.selectedTab === tab ? FontWeight.Medium : FontWeight.Regular)
-              .fontColor(this.selectedTab === tab ? this.accentHex : (this.isDark ? '#CCFFFFFF' : '#403B4F'))
+          } else {
+            SymbolGlyph($r(this.tabSymbol(tab, this.selectedTab === tab)))
+              .fontSize(21)
+              .fontColor([this.selectedTab === tab ? this.accentHex : mpSecondaryText(this.isDark)])
           }
-          .layoutWeight(1)
-          .height(52)
-          .justifyContent(FlexAlign.Center)
-          .borderRadius(26)
-          .backgroundColor(this.selectedTab === tab ? (this.isDark ? '#26FFFFFF' : '#229E7AF5') : Color.Transparent)
-          .onClick(() => {
-            this.spotlightX = idx * 66 + 38;
-            this.onTabClick(tab);
-          })
-        })
-      }
-      .layoutWeight(1)
-      .height(62)
-      .padding({ left: 6, right: 6 })
-      .borderRadius(31)
-      .backgroundEffect({
-        radius: GeneratedDesignTokens.NAV_BLUR_RADIUS,
-        saturation: GeneratedDesignTokens.NAV_BLUR_SATURATION,
-        brightness: GeneratedDesignTokens.NAV_BLUR_BRIGHTNESS,
-        color: this.isDark ? '#70261F36' : '#CCFFFFFF'
+          Text(this.tabLabel(tab))
+            .fontSize(10)
+            .fontWeight(this.selectedTab === tab ? FontWeight.Bold : FontWeight.Regular)
+            .fontColor(this.selectedTab === tab ? this.accentHex : mpSecondaryText(this.isDark))
+        }
+        .layoutWeight(1)
+        .height(54)
+        .justifyContent(FlexAlign.Center)
+        .borderRadius(20)
+        .backgroundColor(this.selectedTab === tab ? (this.isDark ? '#249E7AF5' : '#1A9E7AF5') : Color.Transparent)
+        .animation({ duration: HarmonyMotionTokens.DURATION_SHORT, curve: HarmonyMotionTokens.CURVE_STANDARD })
+        .hoverEffect(HoverEffect.Highlight)
+        .focusable(true)
+        .accessibilityText(`${this.tabLabel(tab)}${this.selectedTab === tab ? '，已选中' : ''}`)
+        .onClick(() => this.onTabClick(tab))
       })
-      .border({ width: 0.8, color: this.isDark ? '#44FFFFFF' : '#22000000', radius: 31 })
-      .pointLight({
-        lightSource: {
-          positionX: this.spotlightX,
-          positionY: 31,
-          positionZ: 70,
-          intensity: GeneratedDesignTokens.POINT_LIGHT_NAV_INTENSITY,
-          color: this.accentHex
-        },
-        illuminated: IlluminatedType.BORDER_CONTENT,
-        bloom: 0.45
-      })
-      .shadow({ radius: 16, color: '#38000000', offsetY: 6 })
-
-      // 右侧独立 +1 光感玻璃圆钮（默认全局搜索）
-      Stack() {
-        SymbolGlyph($r('sys.symbol.magnifyingglass'))
-          .fontSize(24)
-          .fontColor([this.isDark ? Color.White : '#1C1A24'])
-      }
-      .width(60)
-      .height(60)
-      .borderRadius(30)
-      .backgroundEffect({
-        radius: GeneratedDesignTokens.NAV_BLUR_RADIUS,
-        saturation: GeneratedDesignTokens.NAV_BLUR_SATURATION,
-        brightness: GeneratedDesignTokens.NAV_BLUR_BRIGHTNESS,
-        color: this.isDark ? '#70261F36' : '#CCFFFFFF'
-      })
-      .border({ width: 0.8, color: this.isDark ? '#44FFFFFF' : '#22000000', radius: 30 })
-      .pointLight({
-        lightSource: { positionX: 30, positionY: 30, positionZ: 60, intensity: 1.3, color: this.accentHex },
-        illuminated: IlluminatedType.BORDER_CONTENT
-      })
-      .onClick(() => this.onPlusOneClick())
     }
     .width('100%')
-    .padding({ left: 18, right: 18, bottom: 14 })
+    .height(62)
+    .padding({ left: 8, right: 8 })
+    .borderRadius(31)
+    .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'bar', 31, this.accentHex, true, this.dynamicLight))
+    .margin({ left: 14, right: 14, bottom: 14 })
   }
 }
 
-/** 重复点击底栏主图标弹出的 8 项鸿蒙光感快捷菜单。 */
+/**
+ * 鸿蒙宽屏/折叠屏展开/平板侧边竖向导航栏（`ADAPTATION.md` 宽窗口自动由底栏转换为侧栏）。
+ */
 @Component
-export struct FloatingOverflowMenuCard {
+export struct HarmonySideNavRail {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
-  @Prop userName: string = 'admin';
-  @Prop isSuperuser: boolean = true;
-  onSelect: (id: string) => void = () => {};
+  @StorageLink(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) dynamicLight: boolean = true;
+  @Prop selectedTab: HarmonyMainTab = 'discover';
+  @Prop userInitial: string = 'A';
+  @Prop userAvatar: string = '';
+  onTabClick: (tab: HarmonyMainTab) => void = () => {};
+  onSearchClick: () => void = () => {};
+
+  private tabLabel(tab: HarmonyMainTab): string {
+    if (tab === 'discover') { return '发现'; }
+    if (tab === 'explore') { return '探索'; }
+    if (tab === 'subscribe') { return '订阅'; }
+    if (tab === 'more') { return '更多'; }
+    return '我的';
+  }
+
+  private tabSymbol(tab: HarmonyMainTab, active: boolean): string {
+    if (tab === 'discover') { return active ? 'sys.symbol.TV_tv_fill' : 'sys.symbol.TV_tv'; }
+    if (tab === 'explore') { return 'sys.symbol.compass'; }
+    if (tab === 'subscribe') { return active ? 'sys.symbol.star_fill' : 'sys.symbol.star'; }
+    return 'sys.symbol.dot_grid_2x2';
+  }
 
   build() {
-    Column({ space: 4 }) {
-      Row({ space: 10 }) {
-        Text(this.userName.substring(0, 1).toUpperCase())
-          .fontSize(15)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Color.White)
-          .width(38)
-          .height(38)
-          .textAlign(TextAlign.Center)
-          .borderRadius(19)
-          .backgroundColor(this.accentHex)
-        Column({ space: 2 }) {
-          Text(this.userName)
-            .fontSize(15)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(this.isDark ? Color.White : '#1C1A24')
-          Text(this.isSuperuser ? '● 超级管理员' : '● 普通成员')
-            .fontSize(11)
-            .fontColor(GeneratedDesignTokens.semanticColor('success', this.isDark))
-        }
-        .alignItems(HorizontalAlign.Start)
+    Column({ space: 10 }) {
+      Button({ type: ButtonType.Circle }) {
+        SymbolGlyph($r('sys.symbol.magnifyingglass'))
+          .fontSize(20)
+          .fontColor([Color.White])
       }
-      .width('100%')
-      .padding({ left: 14, right: 14, top: 10, bottom: 8 })
+      .width(44)
+      .height(44)
+      .backgroundColor(this.accentHex)
+      .margin({ top: 48, bottom: 12 })
+      .accessibilityText('全局搜索')
+      .hoverEffect(HoverEffect.Highlight)
+      .onClick(() => this.onSearchClick())
 
-      Divider().color(this.isDark ? '#20FFFFFF' : '#18000000')
-
-      ForEach(OVERFLOW_MENU_ITEMS.filter((i) => i.group === 0), (item: OverflowMenuItem) => {
-        Row({ space: 12 }) {
-          Text(item.title)
-            .fontSize(15)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.isDark ? Color.White : '#1C1A24')
+      ForEach(['discover', 'explore', 'subscribe', 'more', 'dashboard'] as HarmonyMainTab[], (tab: HarmonyMainTab) => {
+        Column({ space: 4 }) {
+          if (tab === 'dashboard') {
+            if (this.userAvatar.length > 0) {
+              Image(this.userAvatar).width(24).height(24).borderRadius(12).objectFit(ImageFit.Cover)
+            } else {
+              Text(this.userInitial)
+                .fontSize(11).fontWeight(FontWeight.Bold).fontColor(Color.White)
+                .width(24).height(24).textAlign(TextAlign.Center).borderRadius(12).backgroundColor(this.accentHex)
+            }
+          } else {
+            SymbolGlyph($r(this.tabSymbol(tab, this.selectedTab === tab)))
+              .fontSize(22)
+              .fontColor([this.selectedTab === tab ? this.accentHex : mpSecondaryText(this.isDark)])
+          }
+          Text(this.tabLabel(tab))
+            .fontSize(11)
+            .fontWeight(this.selectedTab === tab ? FontWeight.Bold : FontWeight.Regular)
+            .fontColor(this.selectedTab === tab ? this.accentHex : mpSecondaryText(this.isDark))
         }
-        .width('100%')
-        .padding({ left: 16, right: 16, top: 10, bottom: 10 })
-        .onClick(() => this.onSelect(item.id))
+        .width(64)
+        .height(56)
+        .justifyContent(FlexAlign.Center)
+        .borderRadius(16)
+        .backgroundColor(this.selectedTab === tab ? (this.isDark ? '#249E7AF5' : '#1A9E7AF5') : Color.Transparent)
+        .hoverEffect(HoverEffect.Highlight)
+        .focusable(true)
+        .accessibilityText(`${this.tabLabel(tab)}${this.selectedTab === tab ? '，已选中' : ''}`)
+        .onClick(() => this.onTabClick(tab))
       })
 
-      Divider().color(this.isDark ? '#20FFFFFF' : '#18000000')
-
-      ForEach(OVERFLOW_MENU_ITEMS.filter((i) => i.group === 1), (item: OverflowMenuItem) => {
-        Row({ space: 12 }) {
-          Text(item.title)
-            .fontSize(15)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.isDark ? Color.White : '#1C1A24')
-        }
-        .width('100%')
-        .padding({ left: 16, right: 16, top: 10, bottom: 10 })
-        .onClick(() => this.onSelect(item.id))
-      })
+      Blank()
     }
-    .width(232)
-    .padding({ bottom: 10 })
-    .borderRadius(GeneratedDesignTokens.PANEL_CORNER_RADIUS_VP)
-    .backgroundEffect({
-      radius: 40,
-      saturation: 1.4,
-      brightness: 1.05,
-      color: this.isDark ? '#8C251E35' : '#D9FFFFFF'
-    })
-    .border({ width: 0.9, color: this.isDark ? '#44FFFFFF' : '#24000000', radius: GeneratedDesignTokens.PANEL_CORNER_RADIUS_VP })
-    .pointLight({
-      lightSource: { positionX: 116, positionY: 40, positionZ: 90, intensity: 1.35, color: this.accentHex },
-      illuminated: IlluminatedType.BORDER_CONTENT
-    })
-    .shadow({ radius: 20, color: '#45000000', offsetY: 10 })
+    .width(84)
+    .height('100%')
+    .padding({ bottom: 24 })
+    .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'bar', 0, this.accentHex, false, this.dynamicLight))
   }
 }
 
-/** 通用原生自适应小角标。 */
+/** 悬浮 AI 助手入口球（仅在一级主页呈现，遵循克制原则不遮挡二级业务操作）。 */
+@Component
+export struct FloatingAiMascotButton {
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  onTap: () => void = () => {};
+
+  build() {
+    Button({ type: ButtonType.Circle }) {
+      SymbolGlyph($r('sys.symbol.ai_edit'))
+        .fontSize(22)
+        .fontColor([Color.White])
+    }
+    .width(50)
+    .height(50)
+    .linearGradient({
+      angle: 135,
+      colors: [['#FF9F84FF', 0], ['#FF6B5CE7', 0.6], ['#FFE66BC4', 1]]
+    })
+    .shadow({ radius: 14, color: '#559E7AF5', offsetY: 5 })
+    .hoverEffect(HoverEffect.Scale)
+    .accessibilityText('打开 AI 智能助手')
+    .onClick(() => this.onTap())
+  }
+}
+
+/** 通用原生自适应状态角标。 */
 @Component
 export struct NativeAdaptiveBadge {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
@@ -328,13 +591,15 @@ export struct NativeAdaptiveBadge {
       .fontWeight(FontWeight.Medium)
       .fontColor(this.filled ? Color.White : this.tintHex)
       .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-      .borderRadius(12)
-      .backgroundColor(this.filled ? this.tintHex : (this.isDark ? '#22FFFFFF' : '#14000000'))
-      .border({ width: 0.6, color: this.filled ? this.tintHex : '#33FFFFFF', radius: 12 })
+      .borderRadius(10)
+      .backgroundColor(this.filled ? this.tintHex : (this.isDark ? '#1F9E7AF5' : '#149E7AF5'))
   }
 }
 
-/** 通用自适应筛选胶囊按钮。 */
+/**
+ * 鸿蒙多维筛选芯片（仅用于列表筛选属性，不用于页面切换）：
+ * 支持按压即时反馈、键鼠悬停与无障碍勾选状态。
+ */
 @Component
 export struct NativeAdaptivePill {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
@@ -346,12 +611,15 @@ export struct NativeAdaptivePill {
   build() {
     Text(this.title)
       .fontSize(13)
-      .fontWeight(FontWeight.Medium)
-      .fontColor(this.selected ? Color.White : (this.isDark ? '#DBFFFFFF' : '#242030'))
+      .fontWeight(this.selected ? FontWeight.Medium : FontWeight.Regular)
+      .fontColor(this.selected ? Color.White : mpPrimaryText(this.isDark))
       .padding({ left: 13, right: 13, top: 7, bottom: 7 })
-      .borderRadius(18)
-      .backgroundColor(this.selected ? this.accentHex : (this.isDark ? '#1AFFFFFF' : '#12000000'))
-      .border({ width: 0.7, color: this.selected ? this.accentHex : (this.isDark ? '#2EFFFFFF' : '#20000000'), radius: 18 })
+      .borderRadius(12)
+      .backgroundColor(this.selected ? this.accentHex : HarmonyThemeColors.chipFill(this.isDark))
+      .animation({ duration: HarmonyMotionTokens.DURATION_INSTANT, curve: HarmonyMotionTokens.CURVE_STANDARD })
+      .hoverEffect(HoverEffect.Highlight)
+      .focusable(true)
+      .accessibilityText(`${this.title}${this.selected ? '，已选中' : ''}`)
       .onClick(() => this.onTap())
   }
 }

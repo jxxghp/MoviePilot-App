@@ -26,8 +26,12 @@ android/local.properties
 android/**/build/
 harmony/oh_modules/
 harmony/.hvigor/
+harmony/.idea/
 harmony/**/build/
 harmony/**/oh_modules/
+harmony/**/BuildProfile.ets
+harmony/oh-package-lock.json5
+harmony/**/oh-package-lock.json5
 ios/Frameworks/MoviePilotRustCore.xcframework/
 android/core-rust-bridge/src/main/jniLibs/
 harmony/commons/core_rust_bridge/libs/

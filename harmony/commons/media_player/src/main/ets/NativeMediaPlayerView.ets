@@ -126,7 +126,7 @@ export struct NativeMediaPlayerView {
               .fontColor(Color.White)
               .layoutWeight(1)
               .maxLines(1)
-            SymbolGlyph($r('sys.symbol.picture_in_picture'))
+            SymbolGlyph($r('sys.symbol.full_screen_tv'))
               .fontSize(22)
               .fontColor([Color.White])
           }
@@ -162,7 +162,7 @@ export struct NativeMediaPlayerView {
               .onChange((val: number) => { this.progress = val; })
             Row() {
               Row({ space: 18 }) {
-                SymbolGlyph($r('sys.symbol.text_bubble'))
+                SymbolGlyph($r('sys.symbol.AI_subtitles'))
                   .fontSize(20)
                   .fontColor([this.subtitleEnabled ? '#9E7AF5' : Color.White])
                   .onClick(() => { this.subtitleEnabled = !this.subtitleEnabled; })
@@ -172,7 +172,7 @@ export struct NativeMediaPlayerView {
               }
               Blank()
               Row({ space: 18 }) {
-                SymbolGlyph($r('sys.symbol.rectangle_expand_vertical'))
+                SymbolGlyph($r('sys.symbol.aspect_ratio'))
                   .fontSize(20)
                   .fontColor([Color.White])
                 SymbolGlyph($r('sys.symbol.timer'))
@@ -225,8 +225,9 @@ export struct FloatingMiniMusicBar {
     .width('92%')
     .padding({ left: 12, right: 12, top: 8, bottom: 8 })
     .borderRadius(20)
-    .backgroundEffect({ radius: 32, saturation: 1.35, brightness: 1.04, color: '#78251F35' })
-    .border({ width: 0.7, color: '#38FFFFFF', radius: 20 })
+    .backgroundColor('#E01A1A22')
+    .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
+    .border({ width: 0.6, color: '#24FFFFFF', radius: 20 })
     .onClick(() => this.onExpand())
   }
 }
