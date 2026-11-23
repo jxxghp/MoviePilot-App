@@ -86,6 +86,10 @@ final class NativeAgentChatStore: ObservableObject {
   }
 
   func loadCommands() async {
+    guard session.user.isSuperuser else {
+      commands = []
+      return
+    }
     do {
       let endpoint = try APIEndpoint(path: ["message", "agent", "commands"])
       commands = try await session.request(endpoint, as: [NativeAgentCommandItem].self).value
@@ -698,16 +702,13 @@ struct NativeAgentChatPage: View {
                 }
               }
               if isSending {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                   ProgressView().controlSize(.small).tint(appearance.accentColor)
                   Text("思考中")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(NativeTheme.chipFill, in: Capsule())
-                .overlay { Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.6) }
+                .padding(.vertical, 2)
                 .id("native-agent-thinking")
               }
             }
