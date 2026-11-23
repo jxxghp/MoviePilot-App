@@ -1,0 +1,7 @@
+{
+  "name": "@moviepilot/discover",
+  "version": "2.0.2",
+  "description": "MoviePilot HarmonyOS NEXT discover HAR",
+  "main": "Index.ets",
+  "dependencies": {}
+}

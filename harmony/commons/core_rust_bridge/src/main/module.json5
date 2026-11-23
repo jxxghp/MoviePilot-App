@@ -1,0 +1,7 @@
+{
+  "module": {
+    "name": "core_rust_bridge",
+    "type": "har",
+    "deviceTypes": ["phone", "tablet", "2in1"]
+  }
+}

@@ -1,0 +1,21 @@
+# HarmonyOS NEXT CI 构建镜像模板（需预置华为官方 Command Line Tools 与 HarmonyOS SDK）
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    OHOS_TOOLS_HOME=/opt/harmony/command-line-tools \
+    RUSTUP_HOME=/opt/rustup \
+    CARGO_HOME=/opt/cargo
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl git python3 unzip xz-utils build-essential pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 Rust 工具链与 ohrs CLI
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable \
+    && /opt/cargo/bin/cargo install ohrs --locked
+
+# 将预先下载的 Huawei Command Line Tools 放置于上下文目录 command-line-tools/ 后解包至此
+# COPY command-line-tools /opt/harmony/command-line-tools
+ENV PATH="/opt/cargo/bin:${OHOS_TOOLS_HOME}/bin:${OHOS_TOOLS_HOME}/tool/node/bin:${PATH}"
+
+WORKDIR /workspace

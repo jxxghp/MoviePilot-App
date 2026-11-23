@@ -1,0 +1,19 @@
+{
+  "forms": [
+    {
+      "name": "MoviePilotWidget",
+      "displayName": "MoviePilot 媒体库卡片",
+      "description": "展示电影/剧集统计与实时下载速率",
+      "src": "./ets/widget/WidgetCard.ets",
+      "uiSyntax": "arkts",
+      "window": { "designWidth": 720, "autoDesignWidth": true },
+      "colorMode": "auto",
+      "isDefault": true,
+      "updateEnabled": true,
+      "scheduledUpdateTime": "10:30",
+      "updateDuration": 1,
+      "defaultDimension": "2*4",
+      "supportDimensions": ["2*2", "2*4"]
+    }
+  ]
+}
