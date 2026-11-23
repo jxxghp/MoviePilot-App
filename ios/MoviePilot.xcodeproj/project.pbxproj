@@ -146,6 +146,7 @@
 		E4468F866BDEF9BB3036AF33 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 571C52ACC53E9ADFF2774ACA /* LaunchScreen.storyboard */; };
 		E6614181F752357720A889EB /* NativeMediaDetailPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2CBAA3DC386BDCFF67D1137 /* NativeMediaDetailPage.swift */; };
 		E968F43B46105B95FDB919C4 /* security-back.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = D90A7BC7DD11B74B8776AF79 /* security-back.outline.json */; };
+		E99FD98553961B4C37924301 /* GeneratedTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75AA6BAD2AB90671F8FF5FD1 /* GeneratedTokens.swift */; };
 		EBB575E4B61F7B5B9C040707 /* tester-back-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = E4D90890BC84784C36F50AAD /* tester-back-height.webp */; };
 		EBD4F63E868782325F577479 /* NativeDiagnosticsToolsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7D48CE7A268E8BCABB4E802 /* NativeDiagnosticsToolsPage.swift */; };
 		ED7AB3AFEFD8AAECD1B05FBF /* MoviePilotPluginForms in Frameworks */ = {isa = PBXBuildFile; productRef = 5E248C82425CCA43BA25F73B /* MoviePilotPluginForms */; };
@@ -259,6 +260,7 @@
 		6FA5AFA5548F3E007A5709E9 /* NativePluginComboboxEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginComboboxEditor.swift; sourceTree = "<group>"; };
 		70BEB741019885C804363680 /* code-badge-t1.webp */ = {isa = PBXFileReference; path = "code-badge-t1.webp"; sourceTree = "<group>"; };
 		7566D9064F4C7139A064B5BD /* NativeSubscribeEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscribeEditorSheet.swift; sourceTree = "<group>"; };
+		75AA6BAD2AB90671F8FF5FD1 /* GeneratedTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneratedTokens.swift; sourceTree = "<group>"; };
 		76B2E764B2FD72F7288DDD30 /* NativeDashboardPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDashboardPage.swift; sourceTree = "<group>"; };
 		77D6979872674A2654C34AE8 /* NativeExplorePage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeExplorePage.swift; sourceTree = "<group>"; };
 		7A9BC01CD4B7F00B1EEA93DB /* ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ios; path = .; sourceTree = SOURCE_ROOT; };
@@ -583,6 +585,7 @@
 			children = (
 				BDEA5C38B21EC1C887096B9D /* CinematicForms.swift */,
 				AC48C1614B5128296F31DB7D /* CinematicSurfaces.swift */,
+				75AA6BAD2AB90671F8FF5FD1 /* GeneratedTokens.swift */,
 				38A4D15B8082C9119B8C37AC /* NativeAppearanceStore.swift */,
 			);
 			path = NativeDesignSystem;
@@ -862,6 +865,7 @@
 				8464FBB90159A6B122B561E9 /* AppDelegate.swift in Sources */,
 				81605C89FB80C7DDEB3B42C2 /* CinematicForms.swift in Sources */,
 				6AB5E40E1A68D643F166E5A6 /* CinematicSurfaces.swift in Sources */,
+				E99FD98553961B4C37924301 /* GeneratedTokens.swift in Sources */,
 				B751481BFB0F29D5319D82A4 /* InstanceStore.swift in Sources */,
 				D9DD60CF7154BD6A1589FE6C /* LanguageSettings.swift in Sources */,
 				6BEF4859F2AE0A164D9941B7 /* LegacyWebsiteStorage.swift in Sources */,
