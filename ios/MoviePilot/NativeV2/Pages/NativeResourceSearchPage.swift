@@ -349,11 +349,12 @@ struct NativeResourceSearchPage: View {
     let hasKeyword = !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     let canSubmit = hasKeyword || canBrowseSingleSite
     let isDefaultScope = siteScope == .systemDefault
-    return CinematicPanel(padding: 10) {
-      HStack(spacing: 8) {
+    return CinematicPanel(padding: 6) {
+      HStack(spacing: 6) {
         Image(systemName: "magnifyingglass")
           .font(.subheadline)
           .foregroundStyle(.secondary)
+          .padding(.leading, 6)
         TextField(
           canBrowseSingleSite ? "输入关键词，留空可浏览所选站点" : "输入关键词搜索（单选站点可浏览）",
           text: $keyword
@@ -362,6 +363,7 @@ struct NativeResourceSearchPage: View {
         .autocorrectionDisabled()
         .submitLabel(.search)
         .focused($searchFocused)
+        .frame(minHeight: 44)
         .accessibilityIdentifier("native-resource-search-query")
         .onSubmit { submitSearch() }
         if !keyword.isEmpty {
@@ -370,7 +372,7 @@ struct NativeResourceSearchPage: View {
           } label: {
             Image(systemName: "xmark.circle.fill")
               .foregroundStyle(.secondary)
-              .frame(width: 28, height: 28)
+              .frame(width: 44, height: 44)
               .contentShape(Rectangle())
           }
           .buttonStyle(.plain)
@@ -422,7 +424,8 @@ struct NativeResourceSearchPage: View {
             .background(
               isDefaultScope ? NativeTheme.chipFill : appearance.accentColor, in: Capsule()
             )
-            .contentShape(Capsule())
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
           }
           .accessibilityIdentifier("native-resource-search-sites")
         }
@@ -461,8 +464,10 @@ struct NativeResourceSearchPage: View {
                 }
               }
           }
-          .contentShape(Capsule())
+          .frame(minHeight: 44)
+          .contentShape(Rectangle())
         }
+        .padding(.trailing, 4)
         .buttonStyle(.plain)
         .disabled(isLoading || !canSubmit)
         .opacity(canSubmit || isLoading ? 1.0 : 0.65)
@@ -487,11 +492,15 @@ struct NativeResourceSearchPage: View {
           .foregroundStyle(.secondary)
           .lineLimit(1)
         Spacer(minLength: 8)
-        Button("上次结果") {
+        Button {
           loadLastResults()
+        } label: {
+          Text("上次结果")
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.primary.opacity(0.82))
+            .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+            .contentShape(Rectangle())
         }
-        .font(.caption.weight(.medium))
-        .foregroundStyle(.primary.opacity(0.82))
         .buttonStyle(.plain)
         .disabled(isLoading)
         .accessibilityIdentifier("native-resource-back-last")

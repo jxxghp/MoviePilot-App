@@ -576,6 +576,7 @@ public struct MediaSummaryItem: Decodable, Equatable, Sendable, Identifiable {
   public let title: String?
   public let year: String?
   public let posterPath: String?
+  public let voteAverage: Double?
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -589,6 +590,7 @@ public struct MediaSummaryItem: Decodable, Equatable, Sendable, Identifiable {
     self.title = try? container.decodeIfPresent(String.self, forKey: .title)
     self.year = MediaDetailDecoding.flexibleScalarString(container, forKey: .year)
     self.posterPath = try? container.decodeIfPresent(String.self, forKey: .posterPath)
+    self.voteAverage = MediaDetailDecoding.flexibleDouble(container, forKey: .voteAverage)
   }
 
   /// 优先使用规范媒体身份作为唯一键。
@@ -664,6 +666,7 @@ public struct MediaSummaryItem: Decodable, Equatable, Sendable, Identifiable {
     case title
     case year
     case posterPath = "poster_path"
+    case voteAverage = "vote_average"
   }
 }
 

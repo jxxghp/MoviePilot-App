@@ -340,6 +340,8 @@ struct NativeSettingsHubPage: View {
         Toggle("", isOn: $showFloatingAssistant)
           .labelsHidden()
           .tint(appearance.accentColor)
+          .frame(minHeight: 44)
+          .accessibilityLabel(t("悬浮智能助手"))
       }
       .padding(.horizontal, 16)
       .padding(.vertical, 12)

@@ -18,6 +18,7 @@ private struct NativeMediaSearchItem: Decodable, Sendable, Identifiable {
   let voteAverage: Double?
   let overview: String?
   let posterPath: String?
+  let backdropPath: String?
   let profilePath: String?
   let avatar: MediaImageSet?
   let images: MediaImageSet?
@@ -26,6 +27,7 @@ private struct NativeMediaSearchItem: Decodable, Sendable, Identifiable {
   let releaseTrackID: String?
   let albumID: String?
   let collectionID: Scalar?
+  let tmdbID: Scalar?
   let source: String?
   let character: String?
   let artist: String?
@@ -45,6 +47,7 @@ private struct NativeMediaSearchItem: Decodable, Sendable, Identifiable {
     case releaseDate = "release_date"
     case voteAverage = "vote_average"
     case posterPath = "poster_path"
+    case backdropPath = "backdrop_path"
     case profilePath = "profile_path"
     case avatar
     case images
@@ -53,6 +56,7 @@ private struct NativeMediaSearchItem: Decodable, Sendable, Identifiable {
     case releaseTrackID = "musicbrainz_release_track_id"
     case albumID = "album_id"
     case collectionID = "collection_id"
+    case tmdbID = "tmdb_id"
     case artists, album
   }
 
@@ -145,6 +149,29 @@ private struct NativeMediaSearchItem: Decodable, Sendable, Identifiable {
       (try? APIEndpoint(path: ["media", id])) != nil
     else { return nil }
     return (source, id, type)
+  }
+
+  /// 系列合集详情目标：提取规范 TMDB 合集 ID，供点击合集卡片进入 `GET /api/v1/tmdb/collection/{collection_id}`。
+  var collectionDetailSeed: NativeMediaCollectionSeed? {
+    guard resultKind == .collection || (detailIdentity == nil && collectionID != nil) else {
+      return nil
+    }
+    let candidates = [collectionID?.value, mediaID, tmdbID?.value, publicID?.value]
+    guard
+      let rawID = candidates.compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) })
+        .first(where: { !$0.isEmpty && $0 != "0" && $0.allSatisfy(\.isNumber) })
+    else { return nil }
+    let resolvedBackdrop = backdropPath.flatMap {
+      NativeMediaDetailPage.resolveArtwork(
+        $0, source: mediaSource ?? "themoviedb", tmdbSize: "w780")
+    }
+    return NativeMediaCollectionSeed(
+      collectionID: rawID,
+      title: displayTitle,
+      overview: overview?.trimmingCharacters(in: .whitespacesAndNewlines),
+      posterReference: artworkReference,
+      backdropReference: resolvedBackdrop
+    )
   }
 }
 
@@ -400,6 +427,7 @@ struct NativeMediaSearchPage: View {
   @State private var launchingLibraryItemID: String?
   @State private var selectedMusicAlbum: NativeMusicCardItem?
   @State private var selectedMusicArtist: (id: String, name: String, source: String)?
+  @State private var selectedCollection: NativeMediaCollectionSeed?
   @State private var committedQuery: NativeMediaSearchQuery?
   @State private var didStartInitialSearch = false
   @State private var loadedPage = 0
@@ -434,7 +462,7 @@ struct NativeMediaSearchPage: View {
     ZStack {
       CinematicBackground()
       ScrollView {
-        LazyVStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 18) {
           searchControls
           if let libraryPlaybackFeedback {
             CinematicPanel(padding: 11) {
@@ -445,9 +473,14 @@ struct NativeMediaSearchPage: View {
                 Button {
                   self.libraryPlaybackFeedback = nil
                 } label: {
-                  Image(systemName: "xmark").font(.caption2).foregroundStyle(.secondary)
+                  Image(systemName: "xmark")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("关闭提示")
               }
             }
           }
@@ -461,20 +494,22 @@ struct NativeMediaSearchPage: View {
             }
           }
           if !libraryResults.isEmpty || !results.isEmpty {
-            if trimmedQuery != committedQuery?.term, let term = committedQuery?.term {
-              Text("“\(term)”的搜索结果").font(.subheadline).foregroundStyle(.secondary)
-            }
-            if !libraryResults.isEmpty {
-              libraryResultsSection
-            }
-            if !results.isEmpty {
-              resultsContent
-            }
-            if isSearching, loadedPage > 0 {
-              ProgressView()
-                .tint(.primary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+            LazyVStack(alignment: .leading, spacing: 14) {
+              if trimmedQuery != committedQuery?.term, let term = committedQuery?.term {
+                Text("“\(term)”的搜索结果").font(.subheadline).foregroundStyle(.secondary)
+              }
+              if !libraryResults.isEmpty {
+                libraryResultsSection
+              }
+              if !results.isEmpty {
+                resultsContent
+              }
+              if isSearching, loadedPage > 0 {
+                ProgressView()
+                  .tint(.primary)
+                  .frame(maxWidth: .infinity)
+                  .padding(.vertical, 12)
+              }
             }
           } else if failure == nil {
             if isSearching {
@@ -539,26 +574,42 @@ struct NativeMediaSearchPage: View {
           session: session, artistID: artist.id, artistName: artist.name, source: artist.source)
       }
     }
+    .navigationDestination(
+      isPresented: Binding(
+        get: { selectedCollection != nil },
+        set: { if !$0 { selectedCollection = nil } })
+    ) {
+      if let collection = selectedCollection {
+        NativeMediaCollectionDetailPage(session: session, seed: collection)
+      }
+    }
   }
 
   /// 极简通透的独立液态玻璃搜索框与高辨识度分类筛选栏（聚焦态带主题强调色微光边界）。
   private var searchControls: some View {
     let accent = NativeAppearanceStore.shared.accentColor
     return VStack(alignment: .leading, spacing: 12) {
-      HStack(spacing: 10) {
+      HStack(spacing: 4) {
         Image(systemName: "magnifyingglass")
           .font(.subheadline.weight(.semibold))
           .foregroundStyle(searchFocused ? accent : .secondary)
+          .padding(.trailing, 4)
           .accessibilityHidden(true)
-        TextField("搜索影视、媒体库、人物或音乐", text: $query)
-          .font(.subheadline)
-          .textInputAutocapitalization(.never)
-          .autocorrectionDisabled()
-          .submitLabel(.search)
-          .focused($searchFocused)
-          .onSubmit { submitSearch() }
-          .accessibilityLabel("搜索关键词")
-          .accessibilityIdentifier("native-media-search-query")
+        TextField(
+          "",
+          text: $query,
+          prompt: Text("搜索影视、媒体库、人物或音乐")
+            .foregroundColor(.primary.opacity(0.62))
+        )
+        .font(.subheadline)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .submitLabel(.search)
+        .focused($searchFocused)
+        .frame(minHeight: 44)
+        .onSubmit { submitSearch() }
+        .accessibilityLabel("搜索关键词")
+        .accessibilityIdentifier("native-media-search-query")
         if !query.isEmpty {
           Button {
             query = ""
@@ -568,7 +619,7 @@ struct NativeMediaSearchPage: View {
             Image(systemName: "xmark.circle.fill")
               .font(.subheadline)
               .foregroundStyle(.secondary.opacity(0.82))
-              .frame(width: 30, height: 30)
+              .frame(width: 44, height: 44)
               .contentShape(Rectangle())
           }
           .buttonStyle(.plain)
@@ -584,11 +635,13 @@ struct NativeMediaSearchPage: View {
                 .foregroundStyle(.white)
             }
           }
-          .frame(width: 32, height: 32)
+          .frame(width: 34, height: 34)
           .background(
             trimmedQuery.isEmpty ? Color.primary.opacity(0.14) : accent,
             in: Circle()
           )
+          .frame(width: 44, height: 44)
+          .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(trimmedQuery.isEmpty)
@@ -596,7 +649,7 @@ struct NativeMediaSearchPage: View {
         .accessibilityIdentifier("native-media-search-submit")
       }
       .padding(.leading, 14)
-      .padding(.trailing, 8)
+      .padding(.trailing, 4)
       .frame(minHeight: 48)
       .background {
         Capsule()
@@ -614,7 +667,10 @@ struct NativeMediaSearchPage: View {
       }
       .shadow(
         color: searchFocused ? accent.opacity(0.18) : .black.opacity(0.08),
-        radius: searchFocused ? 10 : 6, y: 3)
+        radius: searchFocused ? 10 : 6, y: 3
+      )
+      .contentShape(Capsule())
+      .onTapGesture { searchFocused = true }
 
       ScrollView(.horizontal) {
         HStack(spacing: 8) {
@@ -649,7 +705,7 @@ struct NativeMediaSearchPage: View {
                       }
                   }
                 }
-                .frame(minHeight: 40)
+                .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -986,10 +1042,13 @@ struct NativeMediaSearchPage: View {
     }
   }
 
-  /// 根据条目类型分发点击动作：影视进入作品详情，音乐专辑/单曲进入音乐专辑详情，艺人进入音乐人详情。
+  /// 根据条目类型分发点击动作：影视进入作品详情，合集进入合集作品列表，音乐专辑/单曲进入音乐专辑详情，艺人进入音乐人详情。
   private func selectionAction(for item: NativeMediaSearchItem) -> (() -> Void)? {
     if let identity = item.detailIdentity {
       return { onSelect(identity.source, identity.id, identity.type) }
+    }
+    if let collection = item.collectionDetailSeed {
+      return { selectedCollection = collection }
     }
     if item.resultKind == .music {
       let source = item.mediaSource ?? item.source ?? "musicbrainz"
@@ -1136,21 +1195,25 @@ struct NativeMediaSearchPage: View {
           .foregroundStyle(.secondary)
           .accessibilityAddTraits(.isHeader)
         Spacer()
-        Button("清空") {
+        Button {
           withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
             clearAllRecentQueries()
           }
+        } label: {
+          Text("清空")
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+            .contentShape(Rectangle())
         }
-        .font(.caption.weight(.medium))
-        .foregroundStyle(.secondary)
         .buttonStyle(.plain)
         .accessibilityIdentifier("native-media-search-clear-recent")
       }
       .padding(.horizontal, 4)
 
-      NativeSearchChipsFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
+      NativeSearchChipsFlowLayout(horizontalSpacing: 8, verticalSpacing: 4) {
         ForEach(recentQueries, id: \.self) { term in
-          HStack(spacing: 5) {
+          HStack(spacing: 0) {
             Button {
               query = term
               submitSearch()
@@ -1164,8 +1227,9 @@ struct NativeMediaSearchPage: View {
                   .foregroundStyle(.primary.opacity(0.88))
                   .lineLimit(1)
               }
-              .padding(.leading, 11)
-              .padding(.vertical, 7)
+              .padding(.leading, 12)
+              .padding(.trailing, 4)
+              .frame(minHeight: 44)
               .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -1179,11 +1243,10 @@ struct NativeMediaSearchPage: View {
               Image(systemName: "xmark")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.secondary.opacity(0.85))
-                .frame(width: 24, height: 28)
+                .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.trailing, 4)
             .accessibilityLabel("删除搜索词 \(term)")
             .accessibilityIdentifier("native-media-search-delete-recent-\(term)")
           }
@@ -1193,6 +1256,7 @@ struct NativeMediaSearchPage: View {
               .overlay {
                 Capsule().strokeBorder(.primary.opacity(0.14), lineWidth: 0.6)
               }
+              .frame(height: 34)
           }
         }
       }
@@ -1774,6 +1838,311 @@ private struct NativeSearchChipsFlowLayout: Layout {
       subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
       x += size.width + horizontalSpacing
       rowHeight = max(rowHeight, size.height)
+    }
+  }
+}
+
+/// 全局搜索合集卡片的路由种子。
+struct NativeMediaCollectionSeed: Hashable, Sendable {
+  let collectionID: String
+  let title: String
+  let overview: String?
+  let posterReference: String?
+  let backdropReference: String?
+}
+
+/// 原生 TMDB 系列合集详情页：请求 `GET /api/v1/tmdb/collection/{collection_id}` 展示合集简介与全部作品海报网格。
+@MainActor
+struct NativeMediaCollectionDetailPage: View {
+  let session: NativeSession
+  let seed: NativeMediaCollectionSeed
+
+  @State private var items: [MediaSummaryItem] = []
+  @State private var currentPage = 0
+  @State private var hasMore = false
+  @State private var isLoading = true
+  @State private var isLoadingMore = false
+  @State private var loadFailed = false
+  @State private var containerWidth: CGFloat = 0
+
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @Environment(\.colorScheme) private var colorScheme
+
+  private let pageSize = 20
+
+  private var gridColumns: [GridItem] {
+    let count =
+      containerWidth > 0
+      ? NativeDeviceLayout.posterGridCount(
+        for: min(containerWidth, 1240), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+      : (horizontalSizeClass == .regular ? 5 : 3)
+    return Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: count)
+  }
+
+  var body: some View {
+    ZStack {
+      CinematicBackground()
+      ScrollView {
+        VStack(alignment: .leading, spacing: 18) {
+          collectionHeaderCard
+
+          if isLoading && items.isEmpty {
+            NativePosterGridSkeletonView(columns: horizontalSizeClass == .regular ? 5 : 3, count: 6)
+          } else if loadFailed && items.isEmpty {
+            CinematicPanel {
+              VStack(spacing: 10) {
+                Image(systemName: "wifi.exclamationmark")
+                  .font(.title2)
+                  .foregroundStyle(.secondary)
+                Text("暂时无法载入合集详情")
+                  .font(.headline)
+                Button("重试") {
+                  Task { await loadPage(1, replace: true) }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(NativeAppearanceStore.shared.accentColor)
+                .accessibilityIdentifier("native-collection-detail-retry")
+              }
+              .frame(maxWidth: .infinity)
+              .padding(.vertical, 14)
+            }
+          } else if items.isEmpty {
+            CinematicPanel {
+              VStack(spacing: 10) {
+                Image(systemName: "film.stack")
+                  .font(.title2)
+                  .foregroundStyle(.secondary)
+                Text("该合集暂无关联作品")
+                  .font(.headline)
+              }
+              .frame(maxWidth: .infinity)
+              .padding(.vertical, 16)
+            }
+          } else {
+            LazyVGrid(columns: gridColumns, spacing: 16) {
+              ForEach(items) { item in
+                if let identity = resolvedIdentity(for: item) {
+                  NavigationLink {
+                    NativeMediaDetailPage(session: session, identity: identity)
+                  } label: {
+                    collectionWorkCard(item, identity: identity)
+                  }
+                  .buttonStyle(.plain)
+                  .accessibilityIdentifier("native-collection-item-\(identity.id)")
+                  .onAppear {
+                    if item.id == items.last?.id, hasMore, !isLoadingMore {
+                      Task { await loadPage(currentPage + 1, replace: false) }
+                    }
+                  }
+                } else {
+                  collectionWorkCard(item, identity: nil)
+                }
+              }
+            }
+
+            if isLoadingMore {
+              HStack {
+                Spacer()
+                ProgressView().tint(.primary)
+                Spacer()
+              }
+              .padding(.vertical, 8)
+            }
+          }
+        }
+        .frame(maxWidth: 1240)
+        .padding(.horizontal, CinematicStyle.margin)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity)
+      }
+      .scrollIndicators(.hidden)
+      .refreshable { await loadPage(1, replace: true) }
+      .modifier(NativeSoftTopScrollEdge())
+      .accessibilityIdentifier("native-collection-detail-scroll")
+    }
+    .nativeTrackContainerWidth($containerWidth)
+    .navigationTitle(seed.title)
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbarBackground(.hidden, for: .navigationBar)
+    .task(id: seed.collectionID) {
+      if items.isEmpty {
+        await loadPage(1, replace: true)
+      }
+    }
+  }
+
+  /// 合集概览头卡：展示合集海报、标题、已收录作品数量与简介。
+  private var collectionHeaderCard: some View {
+    CinematicPanel(padding: 12) {
+      HStack(alignment: .top, spacing: 14) {
+        if let posterRef = seed.posterReference, !posterRef.isEmpty {
+          NativeMediaArtwork(
+            session: session, reference: posterRef, role: .poster, maximumWidth: 240
+          )
+          .frame(width: 72, height: 108)
+          .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+          .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+              .strokeBorder(.primary.opacity(0.14), lineWidth: 0.6)
+          }
+        }
+        VStack(alignment: .leading, spacing: 6) {
+          Text(seed.title)
+            .font(.headline.weight(.bold))
+            .foregroundStyle(.primary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("native-collection-detail-title")
+
+          HStack(spacing: 8) {
+            Text("合集")
+              .font(.caption2.weight(.semibold))
+              .foregroundStyle(NativeAppearanceStore.shared.accentColor)
+              .padding(.horizontal, 7)
+              .padding(.vertical, 3)
+              .background(
+                NativeAppearanceStore.shared.accentColor.opacity(0.16), in: Capsule())
+
+            if !items.isEmpty {
+              Text("共 \(items.count) 部作品")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            }
+          }
+
+          if let overview = seed.overview, !overview.isEmpty {
+            Text(overview)
+              .font(.footnote)
+              .foregroundStyle(.primary.opacity(0.80))
+              .lineLimit(4)
+              .multilineTextAlignment(.leading)
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+  }
+
+  private func collectionWorkCard(
+    _ item: MediaSummaryItem,
+    identity: NativeMediaIdentity?
+  ) -> some View {
+    let source = identity?.source ?? item.mediaSource ?? "themoviedb"
+    let posterRef = NativeMediaDetailPage.resolveArtwork(
+      item.posterPath, source: source, tmdbSize: "w342")
+    let titleText = item.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "未命名作品"
+    return VStack(alignment: .leading, spacing: 6) {
+      Color.clear
+        .aspectRatio(2.0 / 3.0, contentMode: .fit)
+        .overlay {
+          NativeMediaArtwork(
+            session: session,
+            reference: posterRef,
+            role: .poster,
+            maximumWidth: 360
+          )
+        }
+        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .nativeMediaExistsOverlay(
+          session: session,
+          source: identity?.source ?? source,
+          mediaID: identity?.mediaID ?? item.mediaID,
+          title: titleText,
+          year: item.year,
+          type: identity?.type ?? item.type,
+          enabled: identity != nil,
+          badgeSize: 20,
+          inset: 6
+        )
+        .overlay(alignment: .topLeading) {
+          if let rating = item.voteAverage, rating > 0 {
+            Text(String(format: "%.1f", rating))
+              .font(.caption2.weight(.bold).monospacedDigit())
+              .foregroundStyle(.white)
+              .padding(.horizontal, 6)
+              .padding(.vertical, 2.5)
+              .background(.black.opacity(0.62), in: Capsule())
+              .padding(6)
+          }
+        }
+        .overlay {
+          RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(.white.opacity(colorScheme == .light ? 0.20 : 0.12), lineWidth: 0.6)
+        }
+
+      Text(titleText)
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.primary)
+        .lineLimit(2)
+        .multilineTextAlignment(.leading)
+
+      if let year = item.year?.trimmingCharacters(in: .whitespacesAndNewlines), !year.isEmpty {
+        Text(year)
+          .font(.caption2)
+          .foregroundStyle(.primary.opacity(0.60))
+          .lineLimit(1)
+      }
+
+      Spacer(minLength: 0)
+    }
+  }
+
+  private func resolvedIdentity(for item: MediaSummaryItem) -> NativeMediaIdentity? {
+    let source =
+      item.mediaSource?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      ?? "themoviedb"
+    let mediaID =
+      item.mediaID?.trimmingCharacters(in: .whitespacesAndNewlines)
+      ?? item.tmdbID.map(String.init)
+    guard let mediaID, !mediaID.isEmpty, mediaID != "0" else { return nil }
+    let mediaType = item.type?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "电影"
+    return NativeMediaIdentity(
+      source: source.isEmpty ? "themoviedb" : source,
+      mediaID: mediaID,
+      type: mediaType.isEmpty ? "电影" : mediaType
+    )
+  }
+
+  private func loadPage(_ page: Int, replace: Bool) async {
+    if replace {
+      if items.isEmpty { isLoading = true }
+      loadFailed = false
+    } else {
+      isLoadingMore = true
+    }
+    defer {
+      isLoading = false
+      isLoadingMore = false
+    }
+    do {
+      let endpoint = try APIEndpoint(
+        path: ["tmdb", "collection", seed.collectionID],
+        query: [
+          URLQueryItem(name: "page", value: String(page)),
+          URLQueryItem(name: "count", value: String(pageSize)),
+        ]
+      )
+      let loaded = try await session.request(
+        endpoint, as: [MediaSummaryItem].self, requiring: .init(category: .discovery)
+      ).value
+      try Task.checkCancellation()
+      if replace {
+        items = loaded
+      } else {
+        var seen = Set(items.map(\.id))
+        for entry in loaded where seen.insert(entry.id).inserted {
+          items.append(entry)
+        }
+      }
+      currentPage = page
+      hasMore = loaded.count >= pageSize
+    } catch is CancellationError {
+      return
+    } catch {
+      if replace && items.isEmpty {
+        loadFailed = true
+      }
     }
   }
 }
