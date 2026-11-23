@@ -28,7 +28,7 @@ struct NativeSystemModulesPage: View {
       case .services: "server.rack"
       case .notifications: "bell.badge"
       case .rules: "line.3.horizontal.decrease.circle"
-      case .scraping: "sparkles.rectangle.stack"
+      case .scraping: "text.below.photo"
       case .nettest: "network"
       }
     }
@@ -459,7 +459,7 @@ struct NativeSystemModulesPage: View {
           NativeSystemModulesPage(session: session, initialDomain: .scraping)
         } label: {
           HStack(spacing: 14) {
-            Image(systemName: "wand.and.stars")
+            Image(systemName: "text.below.photo")
               .font(.system(size: 18, weight: .medium))
               .foregroundStyle(.primary)
               .frame(width: 24, height: 24)

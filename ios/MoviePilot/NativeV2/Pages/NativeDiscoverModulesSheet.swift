@@ -41,7 +41,7 @@ enum NativeDiscoverModuleID: String, CaseIterable, Codable, Identifiable, Sendab
     case .television: "tv"
     case .trending: "flame"
     case .doubanMusic: "music.note.list"
-    case .doubanShowing: "sparkles"
+    case .doubanShowing: "ticket"
     case .doubanTop250: "star.circle"
     case .latest: "clock.arrow.circlepath"
     case .mediaLibrary: "rectangle.stack"

@@ -860,7 +860,7 @@ struct NativeAgentChatPage: View {
               LinearGradient(
                 colors: [appearance.accentColor.opacity(0.85), NativeTheme.pink.opacity(0.75)],
                 startPoint: .topLeading, endPoint: .bottomTrailing))
-          Image(systemName: "sparkles")
+          Image(systemName: "text.bubble")
             .font(.system(size: 30, weight: .semibold))
             .foregroundStyle(.white)
         }
@@ -958,7 +958,7 @@ struct NativeAgentChatPage: View {
       HStack(alignment: .top, spacing: 10) {
         ZStack {
           Circle().fill(appearance.accentColor.opacity(0.18))
-          Image(systemName: "sparkles")
+          Image(systemName: "text.bubble")
             .font(.caption.weight(.semibold))
             .foregroundStyle(appearance.accentColor)
         }

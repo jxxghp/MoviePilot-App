@@ -654,7 +654,7 @@ struct NativeDiagnosticsToolsPage: View {
           if isRunningTest {
             ProgressView().controlSize(.small).tint(.white)
           } else {
-            Image(systemName: testMode == .recognize ? "wand.and.stars" : "checkmark.seal")
+            Image(systemName: testMode == .recognize ? "text.viewfinder" : "checkmark.seal")
               .font(.subheadline.weight(.semibold))
           }
           Text(testMode == .recognize ? "开始名称识别" : "开始规则测试")

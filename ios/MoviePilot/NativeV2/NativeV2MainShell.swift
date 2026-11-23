@@ -411,14 +411,16 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   private var duoSideOperationToolbar: some ToolbarContent {
     ToolbarItemGroup(placement: .bottomBar) {
       if canDiscover {
-        duoNavToolbarButton(
-          title: t("发现"),
-          symbol: selectedTab == .discover ? "sparkles.tv.fill" : "sparkles.tv",
-          isSelected: selectedTab == .discover,
-          id: "native-v2-tab-发现"
-        ) {
+        // 发现入口使用素材目录中的模板矢量图（DiscoverCards），与底栏其他入口一样选中实心、未选中描边。
+        Button {
           selectDuoRootTab(.discover)
+        } label: {
+          Label(t("发现"), image: selectedTab == .discover ? "DiscoverCards" : "DiscoverCardsOutline")
         }
+        .tint(selectedTab == .discover ? appearance.accentColor : .primary)
+        .accessibilityLabel(t("发现"))
+        .accessibilityAddTraits(selectedTab == .discover ? .isSelected : [])
+        .accessibilityIdentifier("native-v2-tab-发现")
         duoNavToolbarButton(
           title: t("探索"),
           symbol: selectedTab == .explore ? "safari.fill" : "safari",
@@ -468,7 +470,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
 
       duoNavToolbarButton(
         title: t("助手"),
-        symbol: "sparkles",
+        symbol: "text.bubble",
         isSelected: showsAgentSheet,
         id: "native-duo-agent"
       ) {
@@ -560,7 +562,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   private var iPadSidebarAdaptableShell: some View {
     TabView(selection: tabSelection) {
       if canDiscover {
-        Tab(t("发现"), systemImage: "sparkles.tv", value: Page.discover) {
+        Tab(t("发现"), image: "DiscoverCards", value: Page.discover) {
           discoveryTab
         }
         .accessibilityIdentifier("native-v2-tab-发现")
@@ -688,7 +690,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         }
         .accessibilityIdentifier("native-sidebar-messages")
 
-        Tab(t("智能助手"), systemImage: "sparkles", value: Page.sidebarWorkspace(.agent)) {
+        Tab(t("智能助手"), systemImage: "text.bubble", value: Page.sidebarWorkspace(.agent)) {
           sidebarWorkspaceTab(.agent)
         }
         .accessibilityIdentifier("native-sidebar-agent")
@@ -713,7 +715,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   private var iPhoneModernTabShell: some View {
     TabView(selection: tabSelection) {
       if canDiscover {
-        Tab(t("发现"), systemImage: "sparkles.tv", value: Page.discover) {
+        Tab(t("发现"), image: "DiscoverCards", value: Page.discover) {
           discoveryTab
         }
         .accessibilityIdentifier("native-v2-tab-发现")
@@ -764,7 +766,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         discoveryTab
           .tag(Page.discover)
           .tabItem {
-            Label(t("发现"), systemImage: "sparkles.tv")
+            Label(t("发现"), image: "DiscoverCards")
               .accessibilityIdentifier("native-v2-tab-发现")
           }
         exploreTab
@@ -908,7 +910,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
             memberShortcutCard(title: "消息中心", symbol: "bell.fill") {
               showsMessagesSheet = true
             }
-            memberShortcutCard(title: "智能助手", symbol: "sparkles") {
+            memberShortcutCard(title: "智能助手", symbol: "text.bubble") {
               showsAgentSheet = true
             }
           }

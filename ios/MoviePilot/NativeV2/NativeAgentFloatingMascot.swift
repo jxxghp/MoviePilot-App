@@ -52,7 +52,7 @@ struct NativeAgentFloatingMascot: View {
           Button {
             onOpen()
           } label: {
-            Label("打开智能助手", systemImage: "sparkles")
+            Label("打开智能助手", systemImage: "text.bubble")
           }
           Button {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {

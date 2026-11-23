@@ -1454,7 +1454,7 @@ enum NativeSchedulerVisualResolver {
       || key.contains("gc")
     {
       return .init(
-        symbol: "sparkles", tint: NativeTheme.cyan, category: category, providerBadge: badge)
+        symbol: "trash", tint: NativeTheme.cyan, category: category, providerBadge: badge)
     }
     if key.contains("sitedata") || key.contains("站点") {
       return .init(
