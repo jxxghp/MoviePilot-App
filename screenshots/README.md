@@ -1,8 +1,53 @@
-# MoviePilot-App v2 界面图册
+# MoviePilot-App 多平台原生客户端界面图册
 
-以下全部 60 张截图采集自 iPhone 17（iOS 26 模拟器）真实运行界面，展示全原生 SwiftUI v2 客户端（零主流程 WebView）的 4+1 Liquid Glass 导航、玻璃弹层、原生图表与完整业务交互。
+本图册按平台目录归档真机/模拟器运行验收截图：
+- `screenshots/ios/`：iOS 26 模拟器（iPhone 17）60 张黄金验收图
+- `screenshots/android/`：Android 15（API 35 ARM64 硬件 GPU 模拟器）17 张真机链路实测验收图
+- `screenshots/harmony/`：HarmonyOS NEXT 模拟器验收图（待 DevEco Studio 与鸿蒙模拟器就绪后补齐）
 
 特别说明：UI设计风格参考了 [Rex iOS App](https://rexnow.tv)。
+
+---
+
+## Android（Jetpack Compose + AGSL + Rust UniFFI · API 35 实测验收）
+
+以下 17 张截图均采集自 Android 15（API 35，`MoviePilot_API35` ARM64 模拟器，Apple M4 Vulkan `gfxstream` 硬件加速）真实运行界面，直连本地 MoviePilot V3 夹具实例并调用原生 `libmoviepilot_core.so`（884 KB），全程零崩溃（`AndroidRuntime:E` = 0）。
+
+### 连接服务、登录与主导航体验
+
+| 连接服务（AGSL 流光背景） | 登录页 | 发现首页（无接缝主视觉融合） |
+| :---: | :---: | :---: |
+| ![Android连接服务](android/01-connection.png) | ![Android登录](android/02-login.png) | ![Android发现首页](android/03-discover-dark.png) |
+
+| 探索片库（多源筛选网格） | 重复点击底栏 8 项玻璃溢出菜单 | 我的仪表盘（深色模式） |
+| :---: | :---: | :---: |
+| ![Android探索](android/04-explore-dark.png) | ![Android溢出菜单](android/05-overflow-menu.png) | ![Android仪表盘深色](android/06-dashboard-dark.png) |
+
+### 设置中心、订阅、资源筛选与站点
+
+| 设置主中心（Rust 内核标识） | 我的订阅 | 站点资源（Rust 9 维筛选 + 同规格折叠） |
+| :---: | :---: | :---: |
+| ![Android设置中心](android/07-settings-hub-dark.png) | ![Android订阅](android/08-subscriptions.png) | ![Android站点资源](android/09-resources-rust9dim.png) |
+
+| 站点管理（双向绿/玫红流量条） | 纯原生工作流节点画布 | AI 智能助手（Rust Markdown AST） |
+| :---: | :---: | :---: |
+| ![Android站点管理](android/10-sites-traffic.png) | ![Android工作流画布](android/11-workflow-canvas.png) | ![Android智能助手](android/12-agent-chat.png) |
+
+### 插件生态、浅色模式与 3D 社区勋章
+
+| 插件中心 | 动态插件表单（Window Blur 实测） | 我的仪表盘（浅色模式 + 暗色状态栏） |
+| :---: | :---: | :---: |
+| ![Android插件中心](android/13-plugins-installed.png) | ![Android插件表单弹层](android/16-plugin-form-sheet.png) | ![Android仪表盘浅色](android/14-dashboard-light.png) |
+
+| 3D 社区勋章（正面浮雕与陈列墙） | 3D 社区勋章（180° 背面三遍凹雕铭文） | |
+| :---: | :---: | :---: |
+| ![Android3D勋章正面](android/15-medals-3d.png) | ![Android3D勋章背面凹雕](android/17-medal-3d-back-engraving.png) | |
+
+---
+
+## iOS（SwiftUI + Liquid Glass · iOS 26 模拟器）
+
+以下全部 60 张截图采集自 iPhone 17（iOS 26 模拟器）真实运行界面，展示全原生 SwiftUI v2 客户端（零主流程 WebView）的 4+1 Liquid Glass 导航、玻璃弹层、原生图表与完整业务交互。
 
 ## 连接服务与登录
 
