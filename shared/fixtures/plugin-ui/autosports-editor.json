@@ -1,0 +1,17 @@
+{
+  "render_mode": "vuetify",
+  "conf": [
+    {
+      "component": "VAceEditor",
+      "props": {
+        "modelvalue": "competitions_config",
+        "lang": "json",
+        "theme": "monokai",
+        "style": "height: 30rem"
+      }
+    }
+  ],
+  "model": {
+    "competitions_config": "{}"
+  }
+}

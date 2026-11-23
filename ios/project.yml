@@ -6,7 +6,7 @@ options:
   createIntermediateGroups: true
 packages:
   MoviePilotCore:
-    path: ..
+    path: .
   VLCKit:
     url: https://github.com/videolan/vlckit.git
     revision: 3d0f0fa7031eab1a67c817c98a495e1c68fc998c

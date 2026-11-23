@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "cases": [
+    {
+      "name": "headings_lists_and_code",
+      "input": "# 检索结果\n\n找到 **2 部** 电影：\n\n- 《流浪地球2》 (2023)\n- 《沙丘2》 (2024)\n\n```json\n{\"status\": \"ok\"}\n```",
+      "expectedKinds": ["heading", "paragraph", "bulletList", "codeBlock"]
+    },
+    {
+      "name": "unclosed_streaming_code_fence",
+      "input": "正在生成配置：\n```yaml\nenabled: true\ncron: \"0 9 * * *\"",
+      "expectedKinds": ["paragraph", "codeBlock"]
+    },
+    {
+      "name": "table_and_blockquote",
+      "input": "> 已过滤低画质种子\n\n| 站点 | 规格 | 大小 |\n| --- | --- | --- |\n| 合成站 | 2160p REMUX | 42.5 GB |",
+      "expectedKinds": ["blockquote", "table"]
+    }
+  ]
+}

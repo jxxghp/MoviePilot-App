@@ -20,3 +20,12 @@ xcuserdata/
 .env
 .env.local
 .env.*.local
+shared/core-rust/target/
+android/.gradle/
+android/local.properties
+android/**/build/
+harmony/oh_modules/
+harmony/.hvigor/
+harmony/**/build/
+harmony/**/oh_modules/
+ios/Frameworks/MoviePilotRustCore.xcframework/

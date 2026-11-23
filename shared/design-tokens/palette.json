@@ -1,0 +1,95 @@
+{
+  "version": "1.0.0",
+  "defaults": {
+    "mode": "dark",
+    "backgroundPreset": "cinematic",
+    "accentPreset": "violet",
+    "customBackgroundStartHex": "#30334A",
+    "customBackgroundMidHex": "#4A3B57",
+    "customBackgroundEndHex": "#242E40",
+    "customAccentHex": "#9E7AF5",
+    "customTextHex": "#F5F2FF",
+    "customLightTextHex": "#1C1A24",
+    "animateBackground": true
+  },
+  "backgroundPresets": [
+    {
+      "id": "cinematic",
+      "titleZh": "星夜紫玫",
+      "titleEn": "Starlit Violet",
+      "darkStops": ["#30334A", "#4A3B57", "#57384A", "#242E40"],
+      "lightStops": ["#F0EDFC", "#F5EBF7", "#FAEDF2", "#EBF0FC"],
+      "stopLocations": [0.0, 0.33, 0.70, 1.0]
+    },
+    {
+      "id": "ocean",
+      "titleZh": "深海极光",
+      "titleEn": "Ocean Aurora",
+      "darkStops": ["#142947", "#1A3D57", "#1F4757", "#122138"],
+      "lightStops": ["#E6F2FC", "#E8F7FA", "#EDF5FC", "#E3F0FA"],
+      "stopLocations": [0.0, 0.33, 0.70, 1.0]
+    },
+    {
+      "id": "forest",
+      "titleZh": "静谧松林",
+      "titleEn": "Quiet Forest",
+      "darkStops": ["#1A3330", "#244238", "#2E4030", "#142629"],
+      "lightStops": ["#E8F7F2", "#F0FAF0", "#F2F7ED", "#E6F2F0"],
+      "stopLocations": [0.0, 0.33, 0.70, 1.0]
+    },
+    {
+      "id": "amber",
+      "titleZh": "暖阳琥珀",
+      "titleEn": "Warm Amber",
+      "darkStops": ["#3D2B26", "#52362B", "#472E33", "#292129"],
+      "lightStops": ["#FCF2E8", "#FCEDE6", "#FAF0ED", "#F5EDEB"],
+      "stopLocations": [0.0, 0.33, 0.70, 1.0]
+    },
+    {
+      "id": "graphite",
+      "titleZh": "极简石墨",
+      "titleEn": "Minimal Graphite",
+      "darkStops": ["#21242B", "#2E303B", "#292B36", "#1A1C24"],
+      "lightStops": ["#F2F2F7", "#EDF0F5", "#F2F2F5", "#E8EBF2"],
+      "stopLocations": [0.0, 0.33, 0.70, 1.0]
+    },
+    {
+      "id": "custom",
+      "titleZh": "自定义",
+      "titleEn": "Custom",
+      "darkStops": ["#30334A", "#4A3B57", "#57384A", "#242E40"],
+      "lightStops": ["#F0EDFC", "#F5EBF7", "#FAEDF2", "#EBF0FC"],
+      "stopLocations": [0.0, 0.33, 0.70, 1.0]
+    }
+  ],
+  "accentPresets": [
+    { "id": "violet", "titleZh": "星耀紫", "titleEn": "Starlight Violet", "hex": "#9E7AF5" },
+    { "id": "azure", "titleZh": "极光蓝", "titleEn": "Aurora Azure", "hex": "#47A3FA" },
+    { "id": "emerald", "titleZh": "翡翠绿", "titleEn": "Emerald Green", "hex": "#3DC78F" },
+    { "id": "rose", "titleZh": "珊瑚粉", "titleEn": "Coral Rose", "hex": "#EB6B9E" },
+    { "id": "amber", "titleZh": "琥珀金", "titleEn": "Amber Gold", "hex": "#F2A33D" },
+    { "id": "custom", "titleZh": "自定义", "titleEn": "Custom", "hex": "#9E7AF5" }
+  ],
+  "semantic": {
+    "success": { "light": "#148A47", "dark": "#75E6A3" },
+    "warning": { "light": "#BD6B08", "dark": "#FFCC6B" },
+    "danger": { "light": "#CC2933", "dark": "#FF8A94" },
+    "info": { "light": "#1A70D6", "dark": "#75C7FF" },
+    "brand": { "light": "#6638C7", "dark": "#D6BDFF" },
+    "pink": { "light": "#C22E75", "dark": "#F58FBD" },
+    "cyan": { "light": "#0D809E", "dark": "#75D6E6" },
+    "chipFill": { "light": "#0E000000", "dark": "#17FFFFFF" },
+    "chipBorder": { "light": "#1C000000", "dark": "#26FFFFFF" },
+    "chipText": { "light": "#E0242424", "dark": "#DBFFFFFF" },
+    "badgeFill": { "light": "#0F000000", "dark": "#1AFFFFFF" },
+    "badgeMutedText": { "light": "#D1474747", "dark": "#ADFFFFFF" },
+    "fieldFill": { "light": "#0E000000", "dark": "#17FFFFFF" },
+    "fieldBorder": { "light": "#1A000000", "dark": "#24FFFFFF" },
+    "primaryButtonBackground": { "light": "#1F1F29", "dark": "#F0FFFFFF" },
+    "primaryButtonForeground": { "light": "#FFFFFF", "dark": "#1F1A29" },
+    "divider": { "light": "#17000000", "dark": "#1CFFFFFF" },
+    "fallbackBackground": { "light": "#F0EDFC", "dark": "#29293B" },
+    "solidSurface": { "light": "#F7F7FC", "dark": "#473B52" },
+    "roseGlow": { "light": "#1AB36396", "dark": "#1AB36396" }
+  }
+}

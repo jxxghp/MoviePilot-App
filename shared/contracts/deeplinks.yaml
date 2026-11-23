@@ -1,0 +1,65 @@
+scheme: "moviepilot"
+routes:
+  - pattern: "moviepilot://discover"
+    web_aliases: ["/discover", "/"]
+    target: "discover"
+  - pattern: "moviepilot://explore/{source?}"
+    web_aliases: ["/explore", "/explore/{source}"]
+    target: "explore"
+  - pattern: "moviepilot://dashboard"
+    web_aliases: ["/dashboard"]
+    target: "dashboard"
+  - pattern: "moviepilot://settings"
+    web_aliases: ["/setting"]
+    target: "settings"
+  - pattern: "moviepilot://search?q={query}&type={kind}"
+    web_aliases: ["/search"]
+    target: "search"
+  - pattern: "moviepilot://media/{source}/{id}?type={mediaType}"
+    web_aliases: ["/media"]
+    target: "mediaDetail"
+  - pattern: "moviepilot://subscribe/{category?}"
+    web_aliases: ["/subscribe/movie", "/subscribe/tv", "/subscribe/music", "/subscribe/popular"]
+    target: "subscriptions"
+  - pattern: "moviepilot://calendar"
+    web_aliases: ["/calendar"]
+    target: "calendar"
+  - pattern: "moviepilot://resource?keyword={keyword}"
+    web_aliases: ["/resource", "/resource/browse"]
+    target: "resources"
+  - pattern: "moviepilot://downloading"
+    web_aliases: ["/downloading"]
+    target: "downloads"
+  - pattern: "moviepilot://files?storage={storage}&path={path}"
+    web_aliases: ["/filemanager"]
+    target: "files"
+  - pattern: "moviepilot://history?search={search}"
+    web_aliases: ["/history"]
+    target: "history"
+  - pattern: "moviepilot://workflow"
+    web_aliases: ["/workflow"]
+    target: "workflows"
+  - pattern: "moviepilot://sites"
+    web_aliases: ["/site"]
+    target: "sites"
+  - pattern: "moviepilot://plugins/{installed?}"
+    web_aliases: ["/plugins"]
+    target: "plugins"
+  - pattern: "moviepilot://messages"
+    web_aliases: ["/messages"]
+    target: "messages"
+  - pattern: "moviepilot://agent?prompt={prompt}"
+    web_aliases: ["/agent"]
+    target: "agent"
+  - pattern: "moviepilot://music"
+    web_aliases: ["/music"]
+    target: "music"
+  - pattern: "moviepilot://shortcuts"
+    target: "shortcuts"
+  - pattern: "moviepilot://play?url={url}&title={title}&type={video|audio}"
+    note: "External direct URL never attaches MoviePilot credentials"
+    target: "playDirect"
+  - pattern: "moviepilot://play?itemid={itemId}&server={server}"
+    target: "playMediaServerItem"
+  - pattern: "moviepilot://play?storage={storage}&path={path}"
+    target: "playStorageFile"

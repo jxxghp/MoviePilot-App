@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MoviePilot Dynamic Plugin UI Schema",
+  "type": "object",
+  "properties": {
+    "render_mode": { "type": "string", "enum": ["vuetify", "vue"] },
+    "conf": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "model": { "type": "object" }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": ["component"],
+      "properties": {
+        "component": { "type": "string" },
+        "props": { "type": "object" },
+        "text": { "type": ["string", "number", "boolean", "null"] },
+        "html": { "type": "string" },
+        "content": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+        "events": { "type": "object" }
+      }
+    }
+  }
+}

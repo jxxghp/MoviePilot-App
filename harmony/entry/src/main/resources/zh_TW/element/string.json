@@ -1,0 +1,1884 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "MoviePilot"
+    },
+    {
+      "name": "mp_00e69bd1",
+      "value": "已登錄"
+    },
+    {
+      "name": "mp_014ee47c",
+      "value": "正在恢復頁面"
+    },
+    {
+      "name": "mp_015d168b",
+      "value": "本機推播通知"
+    },
+    {
+      "name": "mp_01d809bc",
+      "value": "已保留不在選項中的目前值。"
+    },
+    {
+      "name": "mp_01dc4d09",
+      "value": "合集"
+    },
+    {
+      "name": "mp_02396185",
+      "value": "正在連接你的實例…"
+    },
+    {
+      "name": "mp_02478d88",
+      "value": "無法載入外掛，請重試。"
+    },
+    {
+      "name": "mp_024d6757",
+      "value": "%s 倍"
+    },
+    {
+      "name": "mp_03c62efa",
+      "value": "內嵌 · %s"
+    },
+    {
+      "name": "mp_060bd69b",
+      "value": "專輯封面"
+    },
+    {
+      "name": "mp_061c171e",
+      "value": "上一頁預覽"
+    },
+    {
+      "name": "mp_06507d6e",
+      "value": "暫無已安裝外掛"
+    },
+    {
+      "name": "mp_07c1bdfb",
+      "value": "重新整理帳號狀態"
+    },
+    {
+      "name": "mp_083cf2f6",
+      "value": "正常速度"
+    },
+    {
+      "name": "mp_085231bd",
+      "value": "儲存結果未確認，修改已保留。"
+    },
+    {
+      "name": "mp_0933cd7f",
+      "value": "打開通知網頁"
+    },
+    {
+      "name": "mp_094774b4",
+      "value": "登出"
+    },
+    {
+      "name": "mp_09_00_47206933",
+      "value": "每天 09:00"
+    },
+    {
+      "name": "mp_09_00_89cf167e",
+      "value": "工作日 09:00"
+    },
+    {
+      "name": "mp_09fe2f71",
+      "value": "無法連接此實例，請檢查地址、網路和服務狀態。"
+    },
+    {
+      "name": "mp_0d1d4913",
+      "value": "尚無資料"
+    },
+    {
+      "name": "mp_0d776c4b",
+      "value": "複製綁定碼"
+    },
+    {
+      "name": "mp_0df05ba1",
+      "value": "無法恢復系統音頻會話，請手動繼續播放。"
+    },
+    {
+      "name": "mp_0fecb1ba",
+      "value": "繼續收聽"
+    },
+    {
+      "name": "mp_10_e4d73412",
+      "value": "後退 10 秒"
+    },
+    {
+      "name": "mp_10_f9e98b75",
+      "value": "前進 10 秒"
+    },
+    {
+      "name": "mp_10e20c82",
+      "value": "服務已初始化，請登入。"
+    },
+    {
+      "name": "mp_11d02415",
+      "value": "返回"
+    },
+    {
+      "name": "mp_1209bc96",
+      "value": "當前服務"
+    },
+    {
+      "name": "mp_130448bc",
+      "value": "暫停"
+    },
+    {
+      "name": "mp_15_3e0c2a0a",
+      "value": "每 15 分鐘"
+    },
+    {
+      "name": "mp_163aec91",
+      "value": "內容"
+    },
+    {
+      "name": "mp_16899524",
+      "value": "欄位運算式"
+    },
+    {
+      "name": "mp_178375d9",
+      "value": "當前帳號沒有可用的小組件內容。"
+    },
+    {
+      "name": "mp_17f73df7",
+      "value": "此處只編輯一個欄位；完整自訂值可在上一頁輸入。"
+    },
+    {
+      "name": "mp_1883b092",
+      "value": "%s，頁內分類"
+    },
+    {
+      "name": "mp_18b1353a",
+      "value": "請輸入服務根地址，不要包含查詢參數或 # 後的頁面路徑。"
+    },
+    {
+      "name": "mp_1911c530",
+      "value": "媒體資料來源"
+    },
+    {
+      "name": "mp_195212d5",
+      "value": "刪除服務"
+    },
+    {
+      "name": "mp_1955f6f3",
+      "value": "清除選擇"
+    },
+    {
+      "name": "mp_199d45f0",
+      "value": "續期"
+    },
+    {
+      "name": "mp_19a9d20f",
+      "value": "通知服務中心已更新，請重新生成綁定碼。"
+    },
+    {
+      "name": "mp_19c0b3d2",
+      "value": "通行密鑰驗證已過期，請重新嘗試。"
+    },
+    {
+      "name": "mp_1_1_d1d3a4ce",
+      "value": "每年 1 月 1 日"
+    },
+    {
+      "name": "mp_1_eea4bd1a",
+      "value": "每月 1 日"
+    },
+    {
+      "name": "mp_1ba3846c",
+      "value": "桌面、鎖屏與今天視圖"
+    },
+    {
+      "name": "mp_1bddd5aa",
+      "value": "請在對應服務登錄後，重新啓用小組件資料。"
+    },
+    {
+      "name": "mp_1cead06d",
+      "value": "放棄修改"
+    },
+    {
+      "name": "mp_1cf36235",
+      "value": "將清空本機已快取的海報圖片與頁面快照，不會影響伺服器資料。"
+    },
+    {
+      "name": "mp_1d0167f6",
+      "value": "確認密碼"
+    },
+    {
+      "name": "mp_1d08846f",
+      "value": "正在載入…"
+    },
+    {
+      "name": "mp_1ead6e5d",
+      "value": "更改服務地址"
+    },
+    {
+      "name": "mp_1ec79a32",
+      "value": "將移除此服務的本機登入資訊與快取。"
+    },
+    {
+      "name": "mp_1ed8c078",
+      "value": "下載任務"
+    },
+    {
+      "name": "mp_1ee4fe04",
+      "value": "本機資料"
+    },
+    {
+      "name": "mp_2054d3a5",
+      "value": "請重新加載頁面後再試。"
+    },
+    {
+      "name": "mp_21147016",
+      "value": "搜尋或輸入自訂值"
+    },
+    {
+      "name": "mp_215d6e18",
+      "value": "指定起點"
+    },
+    {
+      "name": "mp_21925350",
+      "value": "播放"
+    },
+    {
+      "name": "mp_219f3f6b",
+      "value": "請檢查標記的設定項目。"
+    },
+    {
+      "name": "mp_21f1e882",
+      "value": "登錄"
+    },
+    {
+      "name": "mp_22ef5dde",
+      "value": "插件面板"
+    },
+    {
+      "name": "mp_245a6285",
+      "value": "生成綁定碼"
+    },
+    {
+      "name": "mp_2484f5fd",
+      "value": "自適應"
+    },
+    {
+      "name": "mp_24e1b9a7",
+      "value": "五段順序：分、時、日、月、週。"
+    },
+    {
+      "name": "mp_24ebb954",
+      "value": "播放偏好"
+    },
+    {
+      "name": "mp_273926ce",
+      "value": "顯示媒體名稱"
+    },
+    {
+      "name": "mp_27bdd826",
+      "value": "啓用小組件"
+    },
+    {
+      "name": "mp_27e4fe4c",
+      "value": "好"
+    },
+    {
+      "name": "mp_28846eb2",
+      "value": "當前安裝的共享區域不可用，請檢查安裝或續簽後重試。"
+    },
+    {
+      "name": "mp_28bf227b",
+      "value": "分鐘"
+    },
+    {
+      "name": "mp_2918633a",
+      "value": "探索"
+    },
+    {
+      "name": "mp_295d363d",
+      "value": "已清除"
+    },
+    {
+      "name": "mp_2b1a13e1",
+      "value": "登錄狀態已變化，請重新打開設置。"
+    },
+    {
+      "name": "mp_2b6db11b",
+      "value": "管道授權"
+    },
+    {
+      "name": "mp_2b78f76f",
+      "value": "用戶頭像"
+    },
+    {
+      "name": "mp_2b8d85e4",
+      "value": "服務狀態已變更，請重試以重新檢查。"
+    },
+    {
+      "name": "mp_2b9d0131",
+      "value": "下載"
+    },
+    {
+      "name": "mp_2bac3354",
+      "value": "無法啓動系統音頻會話，請檢查設備聲音設置。"
+    },
+    {
+      "name": "mp_2ca6432c",
+      "value": "含海報"
+    },
+    {
+      "name": "mp_2d526151",
+      "value": "下載未完成"
+    },
+    {
+      "name": "mp_2e151582",
+      "value": "海報加載中"
+    },
+    {
+      "name": "mp_2f752c00",
+      "value": "移除"
+    },
+    {
+      "name": "mp_307161a0",
+      "value": "顯示操作菜單"
+    },
+    {
+      "name": "mp_30_app_ios_21c19d2f",
+      "value": "每個服務使用當前帳號的只讀資料。有效期為 30 天，屆時需在 App 內續期；退出帳號會移除資料。更新頻率由 iOS 決定。"
+    },
+    {
+      "name": "mp_30a71d31",
+      "value": "在鎖屏查看下載、上傳速度及只讀狀態。"
+    },
+    {
+      "name": "mp_31666400",
+      "value": "地址中不要包含帳號或密碼。連接後再安全登錄。"
+    },
+    {
+      "name": "mp_31961ac9",
+      "value": "當前安裝已解除綁定。"
+    },
+    {
+      "name": "mp_33246f6a",
+      "value": "完成"
+    },
+    {
+      "name": "mp_33b6a458",
+      "value": "服務暫時不可用，正在自動重試…"
+    },
+    {
+      "name": "mp_344d0525",
+      "value": "無法連線至服務，請重試或變更位址。"
+    },
+    {
+      "name": "mp_348e7686",
+      "value": "剩餘 %s"
+    },
+    {
+      "name": "mp_35456c55",
+      "value": "請求過於頻繁，請稍後再試。"
+    },
+    {
+      "name": "mp_35888510",
+      "value": "無法打開此小組件，請檢查當前帳號權限或重新啓用資料。"
+    },
+    {
+      "name": "mp_363fa37e",
+      "value": "添加小組件"
+    },
+    {
+      "name": "mp_36bd217f",
+      "value": "服務就緒後會自動繼續；連接超時後將返回地址列表。"
+    },
+    {
+      "name": "mp_36ce3ec0",
+      "value": "綁定碼已生成，完成主屏幕網頁綁定後可發送測試通知。"
+    },
+    {
+      "name": "mp_36ec2fad",
+      "value": "常用入口"
+    },
+    {
+      "name": "mp_3755f56f",
+      "value": "刪除"
+    },
+    {
+      "name": "mp_37dea08b",
+      "value": "自訂值會原樣交給外掛處理。"
+    },
+    {
+      "name": "mp_37eb4700",
+      "value": "有效期至"
+    },
+    {
+      "name": "mp_38108eaa",
+      "value": "刷新"
+    },
+    {
+      "name": "mp_38175011",
+      "value": "%s\n十分鐘內有效，僅可使用一次。請只粘貼到你自己的通知網頁。"
+    },
+    {
+      "name": "mp_381cf593",
+      "value": "連接超時，請選擇當前網路可用的服務地址，或稍後重試。"
+    },
+    {
+      "name": "mp_394d4c33",
+      "value": "請輸入驗證器驗證碼。"
+    },
+    {
+      "name": "mp_3a105015",
+      "value": "已授權"
+    },
+    {
+      "name": "mp_3aa6248d",
+      "value": "請檢查網路後，在原頁面重新選擇下載。"
+    },
+    {
+      "name": "mp_3c606c95",
+      "value": "外掛"
+    },
+    {
+      "name": "mp_3c7eb36e",
+      "value": "清除本機快取"
+    },
+    {
+      "name": "mp_3d20ab8c",
+      "value": "查看服務概覽、下載、近期入庫與訂閱。"
+    },
+    {
+      "name": "mp_3d313870",
+      "value": "索引與流量"
+    },
+    {
+      "name": "mp_3f00601d",
+      "value": "填寫便於區分服務的名稱。"
+    },
+    {
+      "name": "mp_3f2244c9",
+      "value": "檔案管理"
+    },
+    {
+      "name": "mp_3f8d8bf6",
+      "value": "一般成員"
+    },
+    {
+      "name": "mp_3fc467df",
+      "value": "留空時由外掛決定執行規則。"
+    },
+    {
+      "name": "mp_3fc78f9b",
+      "value": "開啓系統通知"
+    },
+    {
+      "name": "mp_40fc30c6",
+      "value": "小組件資料不可用"
+    },
+    {
+      "name": "mp_410e8b9d",
+      "value": "數字星期由插件解釋；改選時使用星期名稱。"
+    },
+    {
+      "name": "mp_422cc01a",
+      "value": "請輸入較短的顯示名稱，並移除特殊控制字符。"
+    },
+    {
+      "name": "mp_4304c8d4",
+      "value": "執行時間以伺服器和外掛的時區為準。"
+    },
+    {
+      "name": "mp_43f6c2de",
+      "value": "啓用後可在系統小組件中選擇此服務。"
+    },
+    {
+      "name": "mp_4562024d",
+      "value": "應用"
+    },
+    {
+      "name": "mp_45b9874b",
+      "value": "總入庫"
+    },
+    {
+      "name": "mp_46fb4a2a",
+      "value": "站點資源"
+    },
+    {
+      "name": "mp_47379809",
+      "value": "頭像已加載"
+    },
+    {
+      "name": "mp_483f2e6e",
+      "value": "常用排程"
+    },
+    {
+      "name": "mp_48fcdf28",
+      "value": "搜尋與中繼資料來源"
+    },
+    {
+      "name": "mp_4ae7f129",
+      "value": "登入已過期，請重新登入。"
+    },
+    {
+      "name": "mp_4b81846f",
+      "value": "服務"
+    },
+    {
+      "name": "mp_4bd32a60",
+      "value": "下載器"
+    },
+    {
+      "name": "mp_4bd4cb49",
+      "value": "使用實例配置"
+    },
+    {
+      "name": "mp_4c0521ff",
+      "value": "暫時無法讀取"
+    },
+    {
+      "name": "mp_4c83e11c",
+      "value": "影視"
+    },
+    {
+      "name": "mp_4c9426f3",
+      "value": "已用"
+    },
+    {
+      "name": "mp_4c97c6f9",
+      "value": "無法播放"
+    },
+    {
+      "name": "mp_4caf3160",
+      "value": "連線逾時，請重試或變更位址。"
+    },
+    {
+      "name": "mp_4cb5971f",
+      "value": "子母畫面播放"
+    },
+    {
+      "name": "mp_4d0b4688",
+      "value": "取消"
+    },
+    {
+      "name": "mp_4d5c89f2",
+      "value": "使用此資料的小組件將停止顯示內容。"
+    },
+    {
+      "name": "mp_4f4e3344",
+      "value": "返回上一級菜單"
+    },
+    {
+      "name": "mp_4f92dd99",
+      "value": "預設圖標"
+    },
+    {
+      "name": "mp_4fab9865",
+      "value": "重新檢查"
+    },
+    {
+      "name": "mp_4fe5a423",
+      "value": "外觀與本機"
+    },
+    {
+      "name": "mp_50d42057",
+      "value": "綁定碼已複製。請在主屏幕通知網頁中粘貼。"
+    },
+    {
+      "name": "mp_513c1c63",
+      "value": "運算式"
+    },
+    {
+      "name": "mp_5156d0c2",
+      "value": "無法套用，修改已保留。"
+    },
+    {
+      "name": "mp_51d80639",
+      "value": "月份"
+    },
+    {
+      "name": "mp_523e40a0",
+      "value": "發現"
+    },
+    {
+      "name": "mp_5319af76",
+      "value": "訂閱"
+    },
+    {
+      "name": "mp_55a8b99f",
+      "value": "服務回應無法解析，請檢查後端版本及位址。"
+    },
+    {
+      "name": "mp_57fce0c4",
+      "value": "待審批"
+    },
+    {
+      "name": "mp_58421bd3",
+      "value": "暫時無法開啟子母畫面，請等待影片開始播放後重試。"
+    },
+    {
+      "name": "mp_58ce18ea",
+      "value": "整理與目錄"
+    },
+    {
+      "name": "mp_5982c44c",
+      "value": "重新加載"
+    },
+    {
+      "name": "mp_5984ebc4",
+      "value": "選擇或輸入"
+    },
+    {
+      "name": "mp_5_31dad6cc",
+      "value": "產生 5 分鐘管道關聯綁定碼"
+    },
+    {
+      "name": "mp_5a781bec",
+      "value": "繼續收聽？"
+    },
+    {
+      "name": "mp_5b6bd8b2",
+      "value": "無法存取安全儲存，請解鎖裝置後重試。"
+    },
+    {
+      "name": "mp_5c8a9476",
+      "value": "當前安裝"
+    },
+    {
+      "name": "mp_5e8c6fba",
+      "value": "%s\n將清除此服務保存的帳號密碼、登錄狀態和網頁資料。"
+    },
+    {
+      "name": "mp_5f83e7f6",
+      "value": "基礎"
+    },
+    {
+      "name": "mp_637471eb",
+      "value": "管理員已建立，請登入。"
+    },
+    {
+      "name": "mp_63f6267b",
+      "value": "訂閱與搜尋"
+    },
+    {
+      "name": "mp_6403cfdd",
+      "value": "使用通行密鑰登錄"
+    },
+    {
+      "name": "mp_64f2b4a7",
+      "value": "字幕讀取失敗，請選擇其他字幕或檢查後台連接。"
+    },
+    {
+      "name": "mp_65a876f5",
+      "value": "通知服務響應無效。"
+    },
+    {
+      "name": "mp_65ae053f",
+      "value": "上次採樣"
+    },
+    {
+      "name": "mp_66c5aa72",
+      "value": "劇集訂閱"
+    },
+    {
+      "name": "mp_66efa37e",
+      "value": "請等待頁面登錄並完成加載。"
+    },
+    {
+      "name": "mp_67842d71",
+      "value": "關閉字幕"
+    },
+    {
+      "name": "mp_67a246a3",
+      "value": "下一頁"
+    },
+    {
+      "name": "mp_68a38ff4",
+      "value": "這條通知屬於其他實例或帳號，請切換後查看通知中心。"
+    },
+    {
+      "name": "mp_68e23f90",
+      "value": "選擇值"
+    },
+    {
+      "name": "mp_690dc083",
+      "value": "通行密鑰驗證結果無效，請重新嘗試。"
+    },
+    {
+      "name": "mp_69aaa78b",
+      "value": "清除位址"
+    },
+    {
+      "name": "mp_6_50_api_key_f3631cf2",
+      "value": "密碼為 6–50 位，至少包含字母、數字、符號中的兩類。API Key 僅提交至此服務。"
+    },
+    {
+      "name": "mp_6_e478600e",
+      "value": "請輸入身份驗證器中的 6 位驗證碼。"
+    },
+    {
+      "name": "mp_6b576e0f",
+      "value": "請輸入用戶名和密碼。"
+    },
+    {
+      "name": "mp_6ba4b7be",
+      "value": "繼續觀看？"
+    },
+    {
+      "name": "mp_6c14bd7f",
+      "value": "關閉"
+    },
+    {
+      "name": "mp_6f22a707",
+      "value": "超級管理員"
+    },
+    {
+      "name": "mp_70322e1a",
+      "value": "插件圖標已加載"
+    },
+    {
+      "name": "mp_70b20820",
+      "value": "選擇"
+    },
+    {
+      "name": "mp_7185bdf9",
+      "value": "已向系統申請推送令牌，稍後刷新查看綁定狀態。"
+    },
+    {
+      "name": "mp_7262b781",
+      "value": "頁面準備完成後會自動進入，也可以立即重試或切換服務地址。"
+    },
+    {
+      "name": "mp_7328deeb",
+      "value": "連接"
+    },
+    {
+      "name": "mp_73f8f537",
+      "value": "每小時"
+    },
+    {
+      "name": "mp_743aaf95",
+      "value": "已選擇"
+    },
+    {
+      "name": "mp_75930b7d",
+      "value": "主題與外觀"
+    },
+    {
+      "name": "mp_75ae6a8a",
+      "value": "顯示名稱"
+    },
+    {
+      "name": "mp_76b98808",
+      "value": "結束"
+    },
+    {
+      "name": "mp_76fcd732",
+      "value": "外掛"
+    },
+    {
+      "name": "mp_778fc8f9",
+      "value": "全部"
+    },
+    {
+      "name": "mp_77a49f2c",
+      "value": "欄位"
+    },
+    {
+      "name": "mp_785b52eb",
+      "value": "範圍"
+    },
+    {
+      "name": "mp_79b4a5df",
+      "value": "海報暫不可用"
+    },
+    {
+      "name": "mp_79cc871c",
+      "value": "開始"
+    },
+    {
+      "name": "mp_7a5c0fd3",
+      "value": "播放進度"
+    },
+    {
+      "name": "mp_7a66c0d0",
+      "value": "通知"
+    },
+    {
+      "name": "mp_7d126146",
+      "value": "刪除服務？"
+    },
+    {
+      "name": "mp_7debf9cb",
+      "value": "設定"
+    },
+    {
+      "name": "mp_7ea6ff3e",
+      "value": "無法讀取播放資訊，請確認影片仍在媒體庫中並檢查後台連接。"
+    },
+    {
+      "name": "mp_83689796",
+      "value": "請選擇範圍內的值，至少選擇一項。"
+    },
+    {
+      "name": "mp_838c3aed",
+      "value": "正在讀取歌詞…"
+    },
+    {
+      "name": "mp_83dc943e",
+      "value": "系統概覽"
+    },
+    {
+      "name": "mp_83e48d7c",
+      "value": "目前值（不在選項中）"
+    },
+    {
+      "name": "mp_848aaab0",
+      "value": "請檢查此項的值"
+    },
+    {
+      "name": "mp_84c5f125",
+      "value": "音樂訂閱"
+    },
+    {
+      "name": "mp_8616e254",
+      "value": "連接與顯示"
+    },
+    {
+      "name": "mp_86e11829",
+      "value": "服務地址"
+    },
+    {
+      "name": "mp_8921db5c",
+      "value": "無法連接通知服務，請檢查網路與登錄狀態。"
+    },
+    {
+      "name": "mp_89e77dae",
+      "value": "當前播放"
+    },
+    {
+      "name": "mp_8b826b8b",
+      "value": "首次設定"
+    },
+    {
+      "name": "mp_8bfbb87b",
+      "value": "返回中的當前頁面"
+    },
+    {
+      "name": "mp_8c4d505e",
+      "value": "暫無內容"
+    },
+    {
+      "name": "mp_8de89067",
+      "value": "通知與智慧"
+    },
+    {
+      "name": "mp_8f085bab",
+      "value": "已保存的服務"
+    },
+    {
+      "name": "mp_901ea0e2",
+      "value": "使用預設服務中心"
+    },
+    {
+      "name": "mp_907c3945",
+      "value": "清除"
+    },
+    {
+      "name": "mp_9203b76d",
+      "value": "電影訂閱"
+    },
+    {
+      "name": "mp_922c1189",
+      "value": "管道授權與綁定"
+    },
+    {
+      "name": "mp_922c94aa",
+      "value": "目前帳號"
+    },
+    {
+      "name": "mp_936694b4",
+      "value": "更多播放選項"
+    },
+    {
+      "name": "mp_93bbc0cb",
+      "value": "此帳號需要尚未接入的驗證方式。"
+    },
+    {
+      "name": "mp_940c8865",
+      "value": "間隔"
+    },
+    {
+      "name": "mp_94d1041d",
+      "value": "選擇站點"
+    },
+    {
+      "name": "mp_99f6904f",
+      "value": "小時"
+    },
+    {
+      "name": "mp_9a051ee2",
+      "value": "正在檢測服務連接…"
+    },
+    {
+      "name": "mp_9b5d7644",
+      "value": "你的媒體世界，隨時連接。"
+    },
+    {
+      "name": "mp_9c619be3",
+      "value": "實例與重新整理"
+    },
+    {
+      "name": "mp_9ca32f98",
+      "value": "正在儲存…"
+    },
+    {
+      "name": "mp_9d745525",
+      "value": "頁面暫時無法恢復，請檢查連接後重新打開。未確認的操作不會自動重試。"
+    },
+    {
+      "name": "mp_9f206633",
+      "value": "請更新兼容前端後，在通知中心查看這條消息。"
+    },
+    {
+      "name": "mp_9ff1f078",
+      "value": "保持登錄"
+    },
+    {
+      "name": "mp_a05cd5bf",
+      "value": "預設頭像"
+    },
+    {
+      "name": "mp_a0e50002",
+      "value": "總訂閱"
+    },
+    {
+      "name": "mp_a0fb96d8",
+      "value": "刪除已保存的服務？"
+    },
+    {
+      "name": "mp_a1aaf352",
+      "value": "用戶名"
+    },
+    {
+      "name": "mp_a3148a4e",
+      "value": "登錄你的服務，繼續管理訂閱與媒體。"
+    },
+    {
+      "name": "mp_a3ccf702",
+      "value": "資料源"
+    },
+    {
+      "name": "mp_a3ed811e",
+      "value": "身份驗證器驗證碼"
+    },
+    {
+      "name": "mp_a4474dd6",
+      "value": "帳號與服務"
+    },
+    {
+      "name": "mp_a5d9fdec",
+      "value": "歡迎回來"
+    },
+    {
+      "name": "mp_a61b00ed",
+      "value": "資料待更新"
+    },
+    {
+      "name": "mp_a690898d",
+      "value": "當前簽名使用主屏幕通知"
+    },
+    {
+      "name": "mp_a7786512",
+      "value": "指定值"
+    },
+    {
+      "name": "mp_a82c993d",
+      "value": "我的"
+    },
+    {
+      "name": "mp_a858e8aa",
+      "value": "放棄未儲存的修改？"
+    },
+    {
+      "name": "mp_a95436c3",
+      "value": "上次播放到 %s。"
+    },
+    {
+      "name": "mp_aa9d83ef",
+      "value": "懸浮智慧助手"
+    },
+    {
+      "name": "mp_aaa5f2e9",
+      "value": "字幕"
+    },
+    {
+      "name": "mp_ab324996",
+      "value": "無法開啓系統通知，請檢查通知服務與系統設置。"
+    },
+    {
+      "name": "mp_ab5b27de",
+      "value": "移除本機資料？"
+    },
+    {
+      "name": "mp_ac62bd0c",
+      "value": "當前安裝使用主屏幕通知。"
+    },
+    {
+      "name": "mp_acc35bb4",
+      "value": "頁面資源未能完成加載，請檢查連接後重試。"
+    },
+    {
+      "name": "mp_acf014bf",
+      "value": "進度"
+    },
+    {
+      "name": "mp_adf03240",
+      "value": "尚未啓用"
+    },
+    {
+      "name": "mp_af908096",
+      "value": "方式"
+    },
+    {
+      "name": "mp_afb3c40c",
+      "value": "音樂"
+    },
+    {
+      "name": "mp_api_key_10faa9d8",
+      "value": "重新產生 API Key"
+    },
+    {
+      "name": "mp_api_key_3355d57f",
+      "value": "請檢查使用者名稱、密碼及 API Key。"
+    },
+    {
+      "name": "mp_api_key_caddc83f",
+      "value": "顯示 API Key"
+    },
+    {
+      "name": "mp_api_key_f29959e6",
+      "value": "複製 API Key"
+    },
+    {
+      "name": "mp_api_key_f3d9423a",
+      "value": "隱藏 API Key"
+    },
+    {
+      "name": "mp_apns_2903775f",
+      "value": "APNs 提醒"
+    },
+    {
+      "name": "mp_apns_6a627c59",
+      "value": "系統未能註冊 APNs。請檢查簽名能力，或使用主屏幕通知。"
+    },
+    {
+      "name": "mp_app_08c8a84f",
+      "value": "暫時無法讀取小組件資料，請在 App 中檢查"
+    },
+    {
+      "name": "mp_app_273ed3d3",
+      "value": "在 App 中檢查小組件"
+    },
+    {
+      "name": "mp_app_30e2ed9a",
+      "value": "請在 App 中刷新小組件資料"
+    },
+    {
+      "name": "mp_app_62a8b709",
+      "value": "當前 App 尚不支持此實例要求的驗證方式，請檢查賬戶驗證設置。"
+    },
+    {
+      "name": "mp_app_667ee75e",
+      "value": "選擇已在 App 中啓用的服務與只讀內容。"
+    },
+    {
+      "name": "mp_app_7c65e74c",
+      "value": "打開 App"
+    },
+    {
+      "name": "mp_app_985402c4",
+      "value": "在 App 中啓用小組件，再長按選擇服務和內容"
+    },
+    {
+      "name": "mp_app_99e1cfb0",
+      "value": "頁面資源或 App 導航未能就緒。請檢查網路，並確認實例前端已更新後重試。"
+    },
+    {
+      "name": "mp_app_9ed00266",
+      "value": "請在 App 中重新啓用"
+    },
+    {
+      "name": "mp_app_ba4a34d9",
+      "value": "此實例尚未初始化，請先在瀏覽器中創建管理員，再返回 App 重新檢查。"
+    },
+    {
+      "name": "mp_app_be9e79c6",
+      "value": "資料已過期，請打開 App 刷新"
+    },
+    {
+      "name": "mp_app_e726a7ad",
+      "value": "App 導航連接已中斷。請確認實例前端已更新，再重新打開。"
+    },
+    {
+      "name": "mp_app_fa2776e2",
+      "value": "請更新實例的前端資源後，再使用 App 通行密鑰登錄。"
+    },
+    {
+      "name": "mp_apple_apns_server_c371983a",
+      "value": "免費 Apple 個人簽名沒有 APNs 能力。主屏幕通知使用相同的私有 Server，無需開發者帳號。"
+    },
+    {
+      "name": "mp_apppush_52bb00c6",
+      "value": "請先配置並啓用 AppPush 通知渠道。"
+    },
+    {
+      "name": "mp_apppush_c2f6b265",
+      "value": "通知服務中心與實例 AppPush 配置不一致，請先統一服務地址後重新生成綁定碼。"
+    },
+    {
+      "name": "mp_apppush_e1861f52",
+      "value": "實例 AppPush 當前使用 %s。請在後台配置相同地址，或選擇“使用實例配置”後綁定。"
+    },
+    {
+      "name": "mp_b2d4bcee",
+      "value": "播放暫不可用"
+    },
+    {
+      "name": "mp_b2e23403",
+      "value": "當前頁面"
+    },
+    {
+      "name": "mp_b30a6fdf",
+      "value": "添加服務"
+    },
+    {
+      "name": "mp_b4573f61",
+      "value": "月底"
+    },
+    {
+      "name": "mp_b4672d23",
+      "value": "頁面狀態"
+    },
+    {
+      "name": "mp_b4d9b610",
+      "value": "暫時無法連接"
+    },
+    {
+      "name": "mp_b5025e10",
+      "value": "主屏幕通知"
+    },
+    {
+      "name": "mp_b50b0b30",
+      "value": "帳號資訊僅發送到當前服務。記住的帳號密碼僅保存在本機，驗證碼不會保存。"
+    },
+    {
+      "name": "mp_b6dd4c32",
+      "value": "已顯示全部內容"
+    },
+    {
+      "name": "mp_b6fed9af",
+      "value": "日期"
+    },
+    {
+      "name": "mp_b74b22e5",
+      "value": "預設選項"
+    },
+    {
+      "name": "mp_b755b683",
+      "value": "人物"
+    },
+    {
+      "name": "mp_b7575d6f",
+      "value": "系統通知"
+    },
+    {
+      "name": "mp_b819becc",
+      "value": "自定義推薦"
+    },
+    {
+      "name": "mp_b8d0b7f3",
+      "value": "位成員"
+    },
+    {
+      "name": "mp_b9efdd4c",
+      "value": "當前帳號還沒有綁定通知設備。"
+    },
+    {
+      "name": "mp_ba3e98d2",
+      "value": "暫時無法讀取，請解鎖設備、檢查連接後重試。"
+    },
+    {
+      "name": "mp_baf84751",
+      "value": "使用者管理"
+    },
+    {
+      "name": "mp_bb370d56",
+      "value": "無法讀取本地歌詞。"
+    },
+    {
+      "name": "mp_bbc7d362",
+      "value": "連接服務"
+    },
+    {
+      "name": "mp_bcc3a869",
+      "value": "影視資源"
+    },
+    {
+      "name": "mp_bd03b5c1",
+      "value": "已啓用，只讀顯示當前帳號允許的內容。"
+    },
+    {
+      "name": "mp_bde0b46a",
+      "value": "密碼僅在本機安全儲存，驗證碼不會儲存。"
+    },
+    {
+      "name": "mp_be7f8395",
+      "value": "記住帳號密碼"
+    },
+    {
+      "name": "mp_c15ac3ec",
+      "value": "選擇字幕"
+    },
+    {
+      "name": "mp_c1f0f76d",
+      "value": "訂閱行事曆"
+    },
+    {
+      "name": "mp_c2e7e96e",
+      "value": "編輯排程"
+    },
+    {
+      "name": "mp_c493338e",
+      "value": "自訂"
+    },
+    {
+      "name": "mp_c4ad2079",
+      "value": "返回全螢幕"
+    },
+    {
+      "name": "mp_c4e4c1a7",
+      "value": "設定已儲存"
+    },
+    {
+      "name": "mp_c5ca3950",
+      "value": "資源"
+    },
+    {
+      "name": "mp_c753c38b",
+      "value": "重新打開"
+    },
+    {
+      "name": "mp_c75c40a9",
+      "value": "暫不支援的設定元件"
+    },
+    {
+      "name": "mp_c773293d",
+      "value": "系統通知未開啓，可前往設置允許通知。"
+    },
+    {
+      "name": "mp_c839a8ff",
+      "value": "密碼"
+    },
+    {
+      "name": "mp_c9704212",
+      "value": "隱藏密碼"
+    },
+    {
+      "name": "mp_c9ca330f",
+      "value": "媒體庫"
+    },
+    {
+      "name": "mp_c9eebe84",
+      "value": "通知令牌尚未綁定，請檢查後台渠道並重新開啓。"
+    },
+    {
+      "name": "mp_ca00c78d",
+      "value": "語言切換後會重新加載當前頁面，並與網頁共享設置。"
+    },
+    {
+      "name": "mp_cb042c78",
+      "value": "符合此欄位的全部值"
+    },
+    {
+      "name": "mp_cb20077e",
+      "value": "立即重試"
+    },
+    {
+      "name": "mp_cbd05864",
+      "value": "關閉播放器"
+    },
+    {
+      "name": "mp_cc19798b",
+      "value": "工作流程"
+    },
+    {
+      "name": "mp_cc35d36b",
+      "value": "連接超時，請檢查網路及服務狀態後重試。"
+    },
+    {
+      "name": "mp_cd99b225",
+      "value": "語言"
+    },
+    {
+      "name": "mp_ce16e223",
+      "value": "音樂資源"
+    },
+    {
+      "name": "mp_ce20a22a",
+      "value": "正在讀取通知綁定…"
+    },
+    {
+      "name": "mp_ce52b3cf",
+      "value": "近期入庫"
+    },
+    {
+      "name": "mp_cf4f090b",
+      "value": "修改顯示名稱"
+    },
+    {
+      "name": "mp_d04f51a0",
+      "value": "沒有符合項目，可直接新增輸入值。"
+    },
+    {
+      "name": "mp_d0ff6b41",
+      "value": "圖標加載中"
+    },
+    {
+      "name": "mp_d121eaef",
+      "value": "點按切換 · 左滑刪除"
+    },
+    {
+      "name": "mp_d171944c",
+      "value": "發送測試通知"
+    },
+    {
+      "name": "mp_d19e8611",
+      "value": "音軌"
+    },
+    {
+      "name": "mp_d1edda3e",
+      "value": "啓用當前帳號"
+    },
+    {
+      "name": "mp_d2052a57",
+      "value": "目前帳號沒有此操作權限。"
+    },
+    {
+      "name": "mp_d2ee63ce",
+      "value": "兩次輸入的密碼不一致。"
+    },
+    {
+      "name": "mp_d30fc804",
+      "value": "長按可查看操作"
+    },
+    {
+      "name": "mp_d3307f2c",
+      "value": "部分設定暫不支援原生編輯，儲存已停用。"
+    },
+    {
+      "name": "mp_d3d59c09",
+      "value": "通知中心"
+    },
+    {
+      "name": "mp_d3fe9d44",
+      "value": "此帳號暫不可顯示所選內容"
+    },
+    {
+      "name": "mp_d42da9e2",
+      "value": "服務狀態"
+    },
+    {
+      "name": "mp_d438f926",
+      "value": "選擇音軌"
+    },
+    {
+      "name": "mp_d470d7bb",
+      "value": "登錄狀態已改變，請重新打開通知設置。"
+    },
+    {
+      "name": "mp_d4cb2e28",
+      "value": "更改地址"
+    },
+    {
+      "name": "mp_d4e9ca3d",
+      "value": "啟用"
+    },
+    {
+      "name": "mp_d53f301f",
+      "value": "完整運算式"
+    },
+    {
+      "name": "mp_d5bb6069",
+      "value": "頁面仍在加載，正在等待連接和頁面資源就緒。"
+    },
+    {
+      "name": "mp_d5d8edd1",
+      "value": "介面語言"
+    },
+    {
+      "name": "mp_d84b7c84",
+      "value": "每月最後一天"
+    },
+    {
+      "name": "mp_d91f9f56",
+      "value": "選取項目過多"
+    },
+    {
+      "name": "mp_d949ea44",
+      "value": "彈窗操作"
+    },
+    {
+      "name": "mp_d_1a05ef15",
+      "value": "當前帳號已綁定 %d 個通知設備。"
+    },
+    {
+      "name": "mp_d_2c79c8ba",
+      "value": "登錄嘗試過於頻繁，請在 %d 秒後重試。"
+    },
+    {
+      "name": "mp_d_3038d0a3",
+      "value": "項目 %d"
+    },
+    {
+      "name": "mp_d_d_88b091f2",
+      "value": "已提交 %d/%d 個設備，請檢查系統通知。"
+    },
+    {
+      "name": "mp_da065648",
+      "value": "從頭開始"
+    },
+    {
+      "name": "mp_dcc20da0",
+      "value": "免費自簽也可接收通知"
+    },
+    {
+      "name": "mp_dd65cce4",
+      "value": "未能更新已保存的服務，請重試。"
+    },
+    {
+      "name": "mp_dd8303f2",
+      "value": "操作菜單"
+    },
+    {
+      "name": "mp_df16deba",
+      "value": "整理記錄"
+    },
+    {
+      "name": "mp_dns_daec2d0d",
+      "value": "無法解析服務地址，請檢查主機名及當前網路的 DNS 設置。"
+    },
+    {
+      "name": "mp_e10994d9",
+      "value": "未能完成通行密鑰驗證，請重新嘗試。"
+    },
+    {
+      "name": "mp_e188ebca",
+      "value": "起點"
+    },
+    {
+      "name": "mp_e3526937",
+      "value": "星期"
+    },
+    {
+      "name": "mp_e39b02ad",
+      "value": "目錄對應與刮削"
+    },
+    {
+      "name": "mp_e41d3674",
+      "value": "填滿"
+    },
+    {
+      "name": "mp_e487d5ce",
+      "value": "清除本機快取"
+    },
+    {
+      "name": "mp_e4aeceaa",
+      "value": "新增與管理"
+    },
+    {
+      "name": "mp_e5d49dd2",
+      "value": "認證接口返回了不支持的資料，請更新實例或檢查服務後重試。"
+    },
+    {
+      "name": "mp_e700d5fe",
+      "value": "服務與帳號"
+    },
+    {
+      "name": "mp_e77643fa",
+      "value": "重試連線"
+    },
+    {
+      "name": "mp_e91365cf",
+      "value": "可用"
+    },
+    {
+      "name": "mp_e9429323",
+      "value": "未能清除已保存的帳號密碼，請重試。"
+    },
+    {
+      "name": "mp_e9663b94",
+      "value": "權限角色"
+    },
+    {
+      "name": "mp_ea09a58c",
+      "value": "移除本機資料"
+    },
+    {
+      "name": "mp_ea3281a4",
+      "value": "頁面尚未恢復繪制，請重新打開。未確認的操作不會自動重試。"
+    },
+    {
+      "name": "mp_ea8443d8",
+      "value": "解除本機及配對網頁綁定"
+    },
+    {
+      "name": "mp_eb88ff57",
+      "value": "已安裝"
+    },
+    {
+      "name": "mp_ecdf2bcf",
+      "value": "系統阻止了此連接，請檢查服務地址及設備的網路訪問限制。"
+    },
+    {
+      "name": "mp_ed340e9b",
+      "value": "帳號未啟用，請聯絡管理員。"
+    },
+    {
+      "name": "mp_ed41aa6c",
+      "value": "繼續播放"
+    },
+    {
+      "name": "mp_ed5e4c3e",
+      "value": "搜索“%s”"
+    },
+    {
+      "name": "mp_ee561675",
+      "value": "我的訂閱"
+    },
+    {
+      "name": "mp_ee56a53b",
+      "value": "媒體伺服器"
+    },
+    {
+      "name": "mp_ee87f6ec",
+      "value": "伺服器通知管道"
+    },
+    {
+      "name": "mp_ef84e765",
+      "value": "管理員"
+    },
+    {
+      "name": "mp_efd9aa2e",
+      "value": "下載狀態"
+    },
+    {
+      "name": "mp_f0409080",
+      "value": "搜尋"
+    },
+    {
+      "name": "mp_f0739f4f",
+      "value": "此實例要求客戶端證書，請使用網頁登錄。"
+    },
+    {
+      "name": "mp_f12849f1",
+      "value": "切換服務"
+    },
+    {
+      "name": "mp_f152f119",
+      "value": "空值"
+    },
+    {
+      "name": "mp_f28c38e5",
+      "value": "無法連接服務，請檢查地址、端口和服務狀態後重試。"
+    },
+    {
+      "name": "mp_f3ea6d34",
+      "value": "操作"
+    },
+    {
+      "name": "mp_f40b79d7",
+      "value": "站點管理"
+    },
+    {
+      "name": "mp_f526c899",
+      "value": "確定"
+    },
+    {
+      "name": "mp_f567539b",
+      "value": "未知藝人"
+    },
+    {
+      "name": "mp_f5f4160a",
+      "value": "桌面小工具"
+    },
+    {
+      "name": "mp_f60cb7b6",
+      "value": "顯示密碼"
+    },
+    {
+      "name": "mp_f74efb4f",
+      "value": "小組件"
+    },
+    {
+      "name": "mp_f79b3cea",
+      "value": "站點範圍 · 規則群組"
+    },
+    {
+      "name": "mp_f7b2a6ee",
+      "value": "個"
+    },
+    {
+      "name": "mp_f84589c8",
+      "value": "此設備未能安全保存部分登錄資訊，下次可能需要重新輸入。"
+    },
+    {
+      "name": "mp_f8dede89",
+      "value": "服務傳回重新導向，請檢查完整服務位址。"
+    },
+    {
+      "name": "mp_f8ef7f2a",
+      "value": "播放速度"
+    },
+    {
+      "name": "mp_f9e6afb1",
+      "value": "通知服務中心"
+    },
+    {
+      "name": "mp_fadf24db",
+      "value": "保存"
+    },
+    {
+      "name": "mp_fb1c7dc7",
+      "value": "主導航"
+    },
+    {
+      "name": "mp_fc58bba4",
+      "value": "自定義探索"
+    },
+    {
+      "name": "mp_fcabadb2",
+      "value": "正在讀取…"
+    },
+    {
+      "name": "mp_fd099e4d",
+      "value": "此外掛沒有設定項目"
+    },
+    {
+      "name": "mp_fd3b1706",
+      "value": "無法產生安全金鑰，請重試。"
+    },
+    {
+      "name": "mp_fd60ff58",
+      "value": "訊息推播設定"
+    },
+    {
+      "name": "mp_fdad07e6",
+      "value": "下載速度 %s，上傳速度 %s"
+    },
+    {
+      "name": "mp_fe33307a",
+      "value": "媒體"
+    },
+    {
+      "name": "mp_fe84e2eb",
+      "value": "影片畫面"
+    },
+    {
+      "name": "mp_fea82dd2",
+      "value": "清空運算式"
+    },
+    {
+      "name": "mp_ff2340b2",
+      "value": "原生通知需要系統授權"
+    },
+    {
+      "name": "mp_ff5acbda",
+      "value": "操作失敗，請重試。"
+    },
+    {
+      "name": "mp_ff8cad73",
+      "value": "用戶名、密碼或驗證碼不正確。"
+    },
+    {
+      "name": "mp_ffbc3e9f",
+      "value": "建立管理員"
+    },
+    {
+      "name": "mp_http_https_5ce090ea",
+      "value": "支持 HTTP 和 HTTPS。登錄資訊按服務分別保存。"
+    },
+    {
+      "name": "mp_http_https_774a69d0",
+      "value": "請輸入包含 http:// 或 https:// 的完整服務地址。"
+    },
+    {
+      "name": "mp_https_27dd23e2",
+      "value": "當前連接或系統不支持通行密鑰，請使用 HTTPS 地址和支持的系統。"
+    },
+    {
+      "name": "mp_https_8346b93a",
+      "value": "伺服器的 HTTPS 證書未受系統信任或已失效。請修復證書後重試。"
+    },
+    {
+      "name": "mp_https_apppush_ddee8bb6",
+      "value": "請輸入 HTTPS 服務地址，並與實例的 AppPush 消息中心保持一致。"
+    },
+    {
+      "name": "mp_https_f56d307b",
+      "value": "支援 HTTPS、區域網路位址及部署子路徑。"
+    },
+    {
+      "name": "mp_https_movie_pilot_org_ap_1cc7b749",
+      "value": "預設使用 https://movie-pilot.org。更換服務中心時，實例的 AppPush 渠道也須使用相同地址。"
+    },
+    {
+      "name": "mp_https_tls_c53bebc2",
+      "value": "無法建立安全的 HTTPS 連接，請檢查伺服器的 TLS 配置。"
+    },
+    {
+      "name": "mp_ipv6_local_ec409aad",
+      "value": "此 IPv6 地址包含網卡標識，網頁無法使用。請改用 .local 主機名或其他可訪問的地址。"
+    },
+    {
+      "name": "mp_lrc_d90270cd",
+      "value": "暫無同名 LRC 歌詞"
+    },
+    {
+      "name": "mp_moviepilot_00c24418",
+      "value": "MoviePilot 小組件"
+    },
+    {
+      "name": "mp_moviepilot_0d734971",
+      "value": "通知服務未返回帳號身份，請更新 MoviePilot 後端後重試。"
+    },
+    {
+      "name": "mp_moviepilot_1313e380",
+      "value": "當前網路不可用。若連接局域網服務，請檢查系統設置中 MoviePilot 的本地網路權限。"
+    },
+    {
+      "name": "mp_moviepilot_44bc8971",
+      "value": "打開 MoviePilot"
+    },
+    {
+      "name": "mp_moviepilot_4d98d7a3",
+      "value": "正在打開 MoviePilot"
+    },
+    {
+      "name": "mp_moviepilot_548882e2",
+      "value": "請確認影片仍在媒體庫中，並檢查 MoviePilot 與網盤連接。"
+    },
+    {
+      "name": "mp_moviepilot_579e1402",
+      "value": "暫時無法打開 MoviePilot"
+    },
+    {
+      "name": "mp_moviepilot_87d8dff1",
+      "value": "請更新 MoviePilot 並刷新小組件"
+    },
+    {
+      "name": "mp_moviepilot_99d3c551",
+      "value": "MoviePilot 正在準備頁面"
+    },
+    {
+      "name": "mp_moviepilot_a0cfe3e6",
+      "value": "MoviePilot 狀態"
+    },
+    {
+      "name": "mp_moviepilot_a77d197d",
+      "value": "正在等待 MoviePilot"
+    },
+    {
+      "name": "mp_moviepilot_apppush_71c49051",
+      "value": "請在 MoviePilot「設定 → 通知」中添加、啓用並保存 AppPush 渠道；若已啓用，請更新後端後重試。"
+    },
+    {
+      "name": "mp_moviepilot_cd89aea8",
+      "value": "MoviePilot 服務地址"
+    },
+    {
+      "name": "mp_moviepilot_d6f2bdb1",
+      "value": "登出後需要重新輸入帳號密碼或憑證登入目前 MoviePilot 服務。"
+    },
+    {
+      "name": "mp_moviepilot_e7f15286",
+      "value": "當前頁面暫不支持，請更新 MoviePilot 後重試。"
+    },
+    {
+      "name": "mp_moviepilot_f5a7ce49",
+      "value": "長按主屏幕空白處，選擇“編輯”→“添加小組件”，搜索 MoviePilot。鎖屏可在自定中添加；向右滑到今天視圖，也可添加。編輯小組件可選擇服務和內容。"
+    },
+    {
+      "name": "mp_push_notifications_serve_8bf6a5ef",
+      "value": "使用帶 Push Notifications 能力的簽名和已配置的 Server 後開啓。"
+    },
+    {
+      "name": "mp_safari_app_24c9c662",
+      "value": "在 Safari 開啟通知網頁，加入主畫面，再從主畫面開啟並輸入綁定碼。通知由主畫面網頁接收，點擊後可返回 App。"
+    },
+    {
+      "name": "mp_web_7f1d362a",
+      "value": "此外掛使用 Web 介面，相容入口正在遷移。"
+    },
+    {
+      "name": "mp_web_aaedd1fc",
+      "value": "底層代理、並行與進階系統參數請在 Web 管理台設定。"
+    },
+    {
+      "name": "mp_widget_163aec91",
+      "value": "內容"
+    },
+    {
+      "name": "mp_widget_273926ce",
+      "value": "顯示媒體名稱"
+    },
+    {
+      "name": "mp_widget_30a71d31",
+      "value": "在鎖定畫面查看下載、上傳速度及唯讀狀態。"
+    },
+    {
+      "name": "mp_widget_3d20ab8c",
+      "value": "查看服務概覽、下載、近期入庫與訂閱。"
+    },
+    {
+      "name": "mp_widget_4b81846f",
+      "value": "服務"
+    },
+    {
+      "name": "mp_widget_5319af76",
+      "value": "訂閱"
+    },
+    {
+      "name": "mp_widget_66c5aa72",
+      "value": "劇集訂閱"
+    },
+    {
+      "name": "mp_widget_83dc943e",
+      "value": "系統概覽"
+    },
+    {
+      "name": "mp_widget_84c5f125",
+      "value": "音樂訂閱"
+    },
+    {
+      "name": "mp_widget_9203b76d",
+      "value": "電影訂閱"
+    },
+    {
+      "name": "mp_widget_app_667ee75e",
+      "value": "選擇已在 App 中啓用的服務與只讀內容。"
+    },
+    {
+      "name": "mp_widget_ce52b3cf",
+      "value": "近期入庫"
+    },
+    {
+      "name": "mp_widget_efd9aa2e",
+      "value": "下載狀態"
+    },
+    {
+      "name": "mp_widget_moviepilot_00c24418",
+      "value": "MoviePilot 小組件"
+    },
+    {
+      "name": "mp_widget_moviepilot_a0cfe3e6",
+      "value": "MoviePilot 狀態"
+    }
+  ]
+}

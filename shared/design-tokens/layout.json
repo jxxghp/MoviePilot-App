@@ -1,0 +1,79 @@
+{
+  "version": "1.0.0",
+  "margins": {
+    "compact": 20,
+    "wide": 24,
+    "expanded": 28
+  },
+  "breakpoints": {
+    "compactMax": 600,
+    "wideCanvas": 680,
+    "cardTwoColumn": 740,
+    "tabletSplit": 840,
+    "expandedCanvas": 960
+  },
+  "grid": {
+    "posterColumns": [
+      { "minWidth": 1040, "columns": 6 },
+      { "minWidth": 780, "columns": 5 },
+      { "minWidth": 540, "columns": 4 },
+      { "minWidth": 0, "columns": 3 }
+    ],
+    "squareColumns": [
+      { "minWidth": 980, "columns": 5 },
+      { "minWidth": 720, "columns": 4 },
+      { "minWidth": 500, "columns": 3 },
+      { "minWidth": 0, "columns": 2 }
+    ],
+    "discoverCategoryColumns": [
+      { "minWidth": 960, "columns": 4 },
+      { "minWidth": 660, "columns": 3 },
+      { "minWidth": 0, "columns": 2 }
+    ],
+    "posterAspectRatio": 0.6666667,
+    "bannerAspectRatio": 1.7777778,
+    "squareAspectRatio": 1.0
+  },
+  "cards": {
+    "posterCornerRadius": 13,
+    "bannerCornerRadius": 15,
+    "discoverPosterWidth": {
+      "compact": 112,
+      "wide": 136,
+      "expanded": 148,
+      "accessibilityCompact": 146,
+      "accessibilityWide": 168
+    },
+    "discoverCardWidth": {
+      "compact": 238,
+      "wide": 288,
+      "expanded": 316,
+      "accessibilityCompact": 260,
+      "accessibilityWide": 320
+    }
+  },
+  "hero": {
+    "discover": {
+      "phoneRatio": 0.67,
+      "phoneMin": 470,
+      "phoneMax": 640,
+      "tabletPortraitRatio": 0.54,
+      "tabletPortraitMin": 480,
+      "tabletPortraitMax": 620,
+      "tabletLandscapeRatio": 0.60,
+      "tabletLandscapeMin": 420,
+      "tabletLandscapeMax": 560
+    },
+    "detail": {
+      "phoneRatio": 0.68,
+      "phoneMin": 520,
+      "phoneMax": 660,
+      "tabletPortraitRatio": 0.56,
+      "tabletPortraitMin": 540,
+      "tabletPortraitMax": 680,
+      "tabletLandscapeRatio": 0.62,
+      "tabletLandscapeMin": 460,
+      "tabletLandscapeMax": 600
+    }
+  }
+}

@@ -64,7 +64,7 @@ jobs:
           old_tag_object=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq .object.sha)
           echo "OLD_TAG_OBJECT=$old_tag_object" >> "$GITHUB_ENV"
       - name: Build and verify unsigned device IPA
-        run: bash scripts/build-ipa.sh "$RELEASE_VERSION"
+        run: bash tools/ios/build-ipa.sh "$RELEASE_VERSION"
       - uses: actions/upload-artifact@v7
         with:
           name: MoviePilot-${{ env.RELEASE_VERSION }}-unsigned

@@ -19,11 +19,11 @@ jobs:
       - name: Toolchain
         run: xcodebuild -version
       - name: Core tests
-        run: zsh scripts/test-core.sh
+        run: zsh tools/ios/test-core.sh
       - name: Script and fixture verification
-        run: python3 -m unittest discover -s scripts/tests
+        run: python3 -m unittest discover -s tools/tests
       - name: Swift formatting
-        run: xcrun swift-format lint --strict --recursive Sources Tests ios/MoviePilot ios/MoviePilotUITests ios/MoviePilotWidgets
+        run: xcrun swift-format lint --strict --recursive ios/Sources ios/Tests ios/MoviePilot ios/MoviePilotUITests ios/MoviePilotWidgets
       - name: Build WidgetKit extension
         run: >-
           xcodebuild build

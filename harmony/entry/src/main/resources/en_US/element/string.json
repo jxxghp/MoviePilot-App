@@ -1,0 +1,1884 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "MoviePilot"
+    },
+    {
+      "name": "mp_00e69bd1",
+      "value": "Signed in"
+    },
+    {
+      "name": "mp_014ee47c",
+      "value": "Restoring page"
+    },
+    {
+      "name": "mp_015d168b",
+      "value": "Push Notifications"
+    },
+    {
+      "name": "mp_01d809bc",
+      "value": "Unlisted current values are kept."
+    },
+    {
+      "name": "mp_01dc4d09",
+      "value": "Collections"
+    },
+    {
+      "name": "mp_02396185",
+      "value": "Connecting to your instance…"
+    },
+    {
+      "name": "mp_02478d88",
+      "value": "Couldn’t load plugins. Try again."
+    },
+    {
+      "name": "mp_024d6757",
+      "value": "%s times"
+    },
+    {
+      "name": "mp_03c62efa",
+      "value": "Embedded · %s"
+    },
+    {
+      "name": "mp_060bd69b",
+      "value": "Album artwork"
+    },
+    {
+      "name": "mp_061c171e",
+      "value": "Previous page preview"
+    },
+    {
+      "name": "mp_06507d6e",
+      "value": "No installed plugins"
+    },
+    {
+      "name": "mp_07c1bdfb",
+      "value": "Refresh Account"
+    },
+    {
+      "name": "mp_083cf2f6",
+      "value": "Normal speed"
+    },
+    {
+      "name": "mp_085231bd",
+      "value": "Save wasn’t confirmed. Your changes are kept."
+    },
+    {
+      "name": "mp_0933cd7f",
+      "value": "Open notification page"
+    },
+    {
+      "name": "mp_094774b4",
+      "value": "Sign Out"
+    },
+    {
+      "name": "mp_09_00_47206933",
+      "value": "Daily at 09:00"
+    },
+    {
+      "name": "mp_09_00_89cf167e",
+      "value": "Weekdays at 09:00"
+    },
+    {
+      "name": "mp_09fe2f71",
+      "value": "Unable to connect to this instance. Check the address, network and server status."
+    },
+    {
+      "name": "mp_0d1d4913",
+      "value": "No data yet"
+    },
+    {
+      "name": "mp_0d776c4b",
+      "value": "Copy pairing code"
+    },
+    {
+      "name": "mp_0df05ba1",
+      "value": "Unable to resume audio. Resume playback manually."
+    },
+    {
+      "name": "mp_0fecb1ba",
+      "value": "Resume listening"
+    },
+    {
+      "name": "mp_10_e4d73412",
+      "value": "Back 10 seconds"
+    },
+    {
+      "name": "mp_10_f9e98b75",
+      "value": "Forward 10 seconds"
+    },
+    {
+      "name": "mp_10e20c82",
+      "value": "This service is already set up. Please sign in."
+    },
+    {
+      "name": "mp_11d02415",
+      "value": "Back"
+    },
+    {
+      "name": "mp_1209bc96",
+      "value": "Current server"
+    },
+    {
+      "name": "mp_130448bc",
+      "value": "Pause"
+    },
+    {
+      "name": "mp_15_3e0c2a0a",
+      "value": "Every 15 minutes"
+    },
+    {
+      "name": "mp_163aec91",
+      "value": "Content"
+    },
+    {
+      "name": "mp_16899524",
+      "value": "Field expression"
+    },
+    {
+      "name": "mp_178375d9",
+      "value": "No widget content is available for this account."
+    },
+    {
+      "name": "mp_17f73df7",
+      "value": "Edit one field here. Enter a full custom value on the previous page."
+    },
+    {
+      "name": "mp_1883b092",
+      "value": "%s, page categories"
+    },
+    {
+      "name": "mp_18b1353a",
+      "value": "Enter the server root address without query parameters or a page path after #."
+    },
+    {
+      "name": "mp_1911c530",
+      "value": "Media Data Sources"
+    },
+    {
+      "name": "mp_195212d5",
+      "value": "Delete server"
+    },
+    {
+      "name": "mp_1955f6f3",
+      "value": "Clear selection"
+    },
+    {
+      "name": "mp_199d45f0",
+      "value": "Renew"
+    },
+    {
+      "name": "mp_19a9d20f",
+      "value": "Notification server updated. Generate a new pairing code."
+    },
+    {
+      "name": "mp_19c0b3d2",
+      "value": "Passkey verification expired. Try again."
+    },
+    {
+      "name": "mp_1_1_d1d3a4ce",
+      "value": "January 1 each year"
+    },
+    {
+      "name": "mp_1_eea4bd1a",
+      "value": "First day of each month"
+    },
+    {
+      "name": "mp_1ba3846c",
+      "value": "Home Screen, Lock Screen and Today View"
+    },
+    {
+      "name": "mp_1bddd5aa",
+      "value": "Sign in to the corresponding server, then enable the widget profile again."
+    },
+    {
+      "name": "mp_1cead06d",
+      "value": "Discard changes"
+    },
+    {
+      "name": "mp_1cf36235",
+      "value": "Clears cached posters and page snapshots on this device without affecting server data."
+    },
+    {
+      "name": "mp_1d0167f6",
+      "value": "Confirm Password"
+    },
+    {
+      "name": "mp_1d08846f",
+      "value": "Loading…"
+    },
+    {
+      "name": "mp_1ead6e5d",
+      "value": "Change server address"
+    },
+    {
+      "name": "mp_1ec79a32",
+      "value": "This removes saved sign-in information and cached data for this service on this device."
+    },
+    {
+      "name": "mp_1ed8c078",
+      "value": "Downloads"
+    },
+    {
+      "name": "mp_1ee4fe04",
+      "value": "Local profile"
+    },
+    {
+      "name": "mp_2054d3a5",
+      "value": "Reload the page and try again."
+    },
+    {
+      "name": "mp_21147016",
+      "value": "Search or enter a custom value"
+    },
+    {
+      "name": "mp_215d6e18",
+      "value": "Set a starting value"
+    },
+    {
+      "name": "mp_21925350",
+      "value": "Playback"
+    },
+    {
+      "name": "mp_219f3f6b",
+      "value": "Check the highlighted settings."
+    },
+    {
+      "name": "mp_21f1e882",
+      "value": "Sign in"
+    },
+    {
+      "name": "mp_22ef5dde",
+      "value": "Plugin panel"
+    },
+    {
+      "name": "mp_245a6285",
+      "value": "Generate pairing code"
+    },
+    {
+      "name": "mp_2484f5fd",
+      "value": "Fit"
+    },
+    {
+      "name": "mp_24e1b9a7",
+      "value": "Five fields: minute, hour, day, month, weekday."
+    },
+    {
+      "name": "mp_24ebb954",
+      "value": "Playback Preferences"
+    },
+    {
+      "name": "mp_273926ce",
+      "value": "Show media names"
+    },
+    {
+      "name": "mp_27bdd826",
+      "value": "Enable widgets"
+    },
+    {
+      "name": "mp_27e4fe4c",
+      "value": "OK"
+    },
+    {
+      "name": "mp_28846eb2",
+      "value": "Shared storage is unavailable. Check the installation or renew its signature, then retry."
+    },
+    {
+      "name": "mp_28bf227b",
+      "value": "Minute"
+    },
+    {
+      "name": "mp_2918633a",
+      "value": "Explore"
+    },
+    {
+      "name": "mp_295d363d",
+      "value": "Cleared"
+    },
+    {
+      "name": "mp_2b1a13e1",
+      "value": "Your sign-in status changed. Reopen settings."
+    },
+    {
+      "name": "mp_2b6db11b",
+      "value": "Channel Auth"
+    },
+    {
+      "name": "mp_2b78f76f",
+      "value": "User avatar"
+    },
+    {
+      "name": "mp_2b8d85e4",
+      "value": "The service state has changed. Retry to check its current state."
+    },
+    {
+      "name": "mp_2b9d0131",
+      "value": "Downloads"
+    },
+    {
+      "name": "mp_2bac3354",
+      "value": "Unable to start audio. Check your device's sound settings."
+    },
+    {
+      "name": "mp_2ca6432c",
+      "value": "Poster available"
+    },
+    {
+      "name": "mp_2d526151",
+      "value": "Download incomplete"
+    },
+    {
+      "name": "mp_2e151582",
+      "value": "Loading poster"
+    },
+    {
+      "name": "mp_2f752c00",
+      "value": "Remove"
+    },
+    {
+      "name": "mp_307161a0",
+      "value": "Show actions menu"
+    },
+    {
+      "name": "mp_30_app_ios_21c19d2f",
+      "value": "Each server uses a read-only profile for the current account. Profiles expire after 30 days and must be renewed in the App. Signing out removes them. iOS controls update frequency."
+    },
+    {
+      "name": "mp_30a71d31",
+      "value": "View download and upload speeds and status on the Lock Screen."
+    },
+    {
+      "name": "mp_31666400",
+      "value": "Do not include a username or password in the address. Sign in securely after connecting."
+    },
+    {
+      "name": "mp_31961ac9",
+      "value": "This installation is unpaired."
+    },
+    {
+      "name": "mp_33246f6a",
+      "value": "Done"
+    },
+    {
+      "name": "mp_33b6a458",
+      "value": "Server unavailable. Retrying automatically…"
+    },
+    {
+      "name": "mp_344d0525",
+      "value": "Unable to connect. Retry or change the service address."
+    },
+    {
+      "name": "mp_348e7686",
+      "value": "%s free"
+    },
+    {
+      "name": "mp_35456c55",
+      "value": "Too many requests. Please try again later."
+    },
+    {
+      "name": "mp_35888510",
+      "value": "Unable to open this widget. Check account permissions or enable the profile again."
+    },
+    {
+      "name": "mp_363fa37e",
+      "value": "Add widgets"
+    },
+    {
+      "name": "mp_36bd217f",
+      "value": "This will continue when the server is ready. A timeout returns to the server list."
+    },
+    {
+      "name": "mp_36ce3ec0",
+      "value": "Pairing code generated. Pair the Home Screen page, then send a test notification."
+    },
+    {
+      "name": "mp_36ec2fad",
+      "value": "Quick access"
+    },
+    {
+      "name": "mp_3755f56f",
+      "value": "Delete"
+    },
+    {
+      "name": "mp_37dea08b",
+      "value": "Custom values are passed to the plugin unchanged."
+    },
+    {
+      "name": "mp_37eb4700",
+      "value": "Expires"
+    },
+    {
+      "name": "mp_38108eaa",
+      "value": "Refresh"
+    },
+    {
+      "name": "mp_38175011",
+      "value": "%s\nValid for ten minutes and one use. Paste only into your own notification page."
+    },
+    {
+      "name": "mp_381cf593",
+      "value": "Connection timed out. Choose a reachable server address or try again later."
+    },
+    {
+      "name": "mp_394d4c33",
+      "value": "Enter your authenticator verification code."
+    },
+    {
+      "name": "mp_3a105015",
+      "value": "Authorized"
+    },
+    {
+      "name": "mp_3aa6248d",
+      "value": "Check the network, then select the download again on the original page."
+    },
+    {
+      "name": "mp_3c606c95",
+      "value": "External"
+    },
+    {
+      "name": "mp_3c7eb36e",
+      "value": "Clear Local Cache"
+    },
+    {
+      "name": "mp_3d20ab8c",
+      "value": "View server overview, downloads, recent imports and subscriptions."
+    },
+    {
+      "name": "mp_3d313870",
+      "value": "Index & Traffic"
+    },
+    {
+      "name": "mp_3f00601d",
+      "value": "Enter a name to identify this server."
+    },
+    {
+      "name": "mp_3f2244c9",
+      "value": "File Manager"
+    },
+    {
+      "name": "mp_3f8d8bf6",
+      "value": "Member"
+    },
+    {
+      "name": "mp_3fc467df",
+      "value": "Leave blank to use the plugin’s rules."
+    },
+    {
+      "name": "mp_3fc78f9b",
+      "value": "Enable system notifications"
+    },
+    {
+      "name": "mp_40fc30c6",
+      "value": "Widget profile unavailable"
+    },
+    {
+      "name": "mp_410e8b9d",
+      "value": "Numeric weekdays follow the plugin’s rules. Choose weekday names to change them."
+    },
+    {
+      "name": "mp_422cc01a",
+      "value": "Enter a shorter display name without control characters."
+    },
+    {
+      "name": "mp_4304c8d4",
+      "value": "Execution uses the server and plugin time zones."
+    },
+    {
+      "name": "mp_43f6c2de",
+      "value": "Enable to select this server in system widgets."
+    },
+    {
+      "name": "mp_4562024d",
+      "value": "Apps"
+    },
+    {
+      "name": "mp_45b9874b",
+      "value": "Total imports"
+    },
+    {
+      "name": "mp_46fb4a2a",
+      "value": "Site Resources"
+    },
+    {
+      "name": "mp_47379809",
+      "value": "Avatar loaded"
+    },
+    {
+      "name": "mp_483f2e6e",
+      "value": "Presets"
+    },
+    {
+      "name": "mp_48fcdf28",
+      "value": "Search & Metadata Sources"
+    },
+    {
+      "name": "mp_4ae7f129",
+      "value": "Your session has expired. Please sign in again."
+    },
+    {
+      "name": "mp_4b81846f",
+      "value": "Server"
+    },
+    {
+      "name": "mp_4bd32a60",
+      "value": "Downloaders"
+    },
+    {
+      "name": "mp_4bd4cb49",
+      "value": "Use instance settings"
+    },
+    {
+      "name": "mp_4c0521ff",
+      "value": "Unable to load"
+    },
+    {
+      "name": "mp_4c83e11c",
+      "value": "Movies & TV"
+    },
+    {
+      "name": "mp_4c9426f3",
+      "value": "Used"
+    },
+    {
+      "name": "mp_4c97c6f9",
+      "value": "Unable to play"
+    },
+    {
+      "name": "mp_4caf3160",
+      "value": "The connection timed out. Retry or change the address."
+    },
+    {
+      "name": "mp_4cb5971f",
+      "value": "Picture in Picture"
+    },
+    {
+      "name": "mp_4d0b4688",
+      "value": "Cancel"
+    },
+    {
+      "name": "mp_4d5c89f2",
+      "value": "Widgets using this profile will stop displaying content."
+    },
+    {
+      "name": "mp_4f4e3344",
+      "value": "Back to parent menu"
+    },
+    {
+      "name": "mp_4f92dd99",
+      "value": "Default icon"
+    },
+    {
+      "name": "mp_4fab9865",
+      "value": "Check again"
+    },
+    {
+      "name": "mp_4fe5a423",
+      "value": "Appearance & Device"
+    },
+    {
+      "name": "mp_50d42057",
+      "value": "Pairing code copied. Paste it in the Home Screen notification page."
+    },
+    {
+      "name": "mp_513c1c63",
+      "value": "Expression"
+    },
+    {
+      "name": "mp_5156d0c2",
+      "value": "Unable to apply. Your changes are kept."
+    },
+    {
+      "name": "mp_51d80639",
+      "value": "Month"
+    },
+    {
+      "name": "mp_523e40a0",
+      "value": "Discover"
+    },
+    {
+      "name": "mp_5319af76",
+      "value": "Subscriptions"
+    },
+    {
+      "name": "mp_55a8b99f",
+      "value": "The service response could not be read. Check the backend version and address."
+    },
+    {
+      "name": "mp_57fce0c4",
+      "value": "Pending"
+    },
+    {
+      "name": "mp_58421bd3",
+      "value": "Picture in Picture is not ready. Wait for the video to start, then try again."
+    },
+    {
+      "name": "mp_58ce18ea",
+      "value": "Transfer & Directories"
+    },
+    {
+      "name": "mp_5982c44c",
+      "value": "Reload"
+    },
+    {
+      "name": "mp_5984ebc4",
+      "value": "Select or enter"
+    },
+    {
+      "name": "mp_5_31dad6cc",
+      "value": "Generate a 5-minute channel bind code"
+    },
+    {
+      "name": "mp_5a781bec",
+      "value": "Resume listening?"
+    },
+    {
+      "name": "mp_5b6bd8b2",
+      "value": "Secure storage is unavailable. Unlock your device and try again."
+    },
+    {
+      "name": "mp_5c8a9476",
+      "value": "This installation"
+    },
+    {
+      "name": "mp_5e8c6fba",
+      "value": "%s\nSaved credentials, sign-in status and web data for this server will be removed."
+    },
+    {
+      "name": "mp_5f83e7f6",
+      "value": "Basic"
+    },
+    {
+      "name": "mp_637471eb",
+      "value": "Administrator created. Please sign in."
+    },
+    {
+      "name": "mp_63f6267b",
+      "value": "Subscribe & Search"
+    },
+    {
+      "name": "mp_6403cfdd",
+      "value": "Sign in with a passkey"
+    },
+    {
+      "name": "mp_64f2b4a7",
+      "value": "Unable to load subtitles. Select another track or check the server connection."
+    },
+    {
+      "name": "mp_65a876f5",
+      "value": "Invalid notification server response."
+    },
+    {
+      "name": "mp_65ae053f",
+      "value": "Last updated"
+    },
+    {
+      "name": "mp_66c5aa72",
+      "value": "TV subscriptions"
+    },
+    {
+      "name": "mp_66efa37e",
+      "value": "Wait for the page to sign in and finish loading."
+    },
+    {
+      "name": "mp_67842d71",
+      "value": "Subtitles off"
+    },
+    {
+      "name": "mp_67a246a3",
+      "value": "Next page"
+    },
+    {
+      "name": "mp_68a38ff4",
+      "value": "This notification belongs to another instance or account. Switch to it to view the notification center."
+    },
+    {
+      "name": "mp_68e23f90",
+      "value": "Select values"
+    },
+    {
+      "name": "mp_690dc083",
+      "value": "Invalid passkey verification result. Try again."
+    },
+    {
+      "name": "mp_69aaa78b",
+      "value": "Clear Address"
+    },
+    {
+      "name": "mp_6_50_api_key_f3631cf2",
+      "value": "Use 6–50 characters with at least two of letters, numbers, or symbols. The API key is sent only to this service."
+    },
+    {
+      "name": "mp_6_e478600e",
+      "value": "Enter the 6-digit code from your authenticator."
+    },
+    {
+      "name": "mp_6b576e0f",
+      "value": "Enter your username and password."
+    },
+    {
+      "name": "mp_6ba4b7be",
+      "value": "Resume watching?"
+    },
+    {
+      "name": "mp_6c14bd7f",
+      "value": "Close"
+    },
+    {
+      "name": "mp_6f22a707",
+      "value": "Administrator"
+    },
+    {
+      "name": "mp_70322e1a",
+      "value": "Plugin icon loaded"
+    },
+    {
+      "name": "mp_70b20820",
+      "value": "Select"
+    },
+    {
+      "name": "mp_7185bdf9",
+      "value": "Push registration requested. Refresh shortly to check pairing status."
+    },
+    {
+      "name": "mp_7262b781",
+      "value": "The page will open when ready. You can also retry now or change the server address."
+    },
+    {
+      "name": "mp_7328deeb",
+      "value": "Connect"
+    },
+    {
+      "name": "mp_73f8f537",
+      "value": "Every hour"
+    },
+    {
+      "name": "mp_743aaf95",
+      "value": "Selected"
+    },
+    {
+      "name": "mp_75930b7d",
+      "value": "Theme & Appearance"
+    },
+    {
+      "name": "mp_75ae6a8a",
+      "value": "Display name"
+    },
+    {
+      "name": "mp_76b98808",
+      "value": "End"
+    },
+    {
+      "name": "mp_76fcd732",
+      "value": "Plugins"
+    },
+    {
+      "name": "mp_778fc8f9",
+      "value": "All"
+    },
+    {
+      "name": "mp_77a49f2c",
+      "value": "Fields"
+    },
+    {
+      "name": "mp_785b52eb",
+      "value": "Range"
+    },
+    {
+      "name": "mp_79b4a5df",
+      "value": "Poster unavailable"
+    },
+    {
+      "name": "mp_79cc871c",
+      "value": "Start"
+    },
+    {
+      "name": "mp_7a5c0fd3",
+      "value": "Playback progress"
+    },
+    {
+      "name": "mp_7a66c0d0",
+      "value": "Notifications"
+    },
+    {
+      "name": "mp_7d126146",
+      "value": "Delete Service?"
+    },
+    {
+      "name": "mp_7debf9cb",
+      "value": "Settings"
+    },
+    {
+      "name": "mp_7ea6ff3e",
+      "value": "Unable to load playback information. Check the library item and server connection."
+    },
+    {
+      "name": "mp_83689796",
+      "value": "Select at least one value within the range."
+    },
+    {
+      "name": "mp_838c3aed",
+      "value": "Loading lyrics…"
+    },
+    {
+      "name": "mp_83dc943e",
+      "value": "System overview"
+    },
+    {
+      "name": "mp_83e48d7c",
+      "value": "Current value (unlisted)"
+    },
+    {
+      "name": "mp_848aaab0",
+      "value": "Check this value"
+    },
+    {
+      "name": "mp_84c5f125",
+      "value": "Music subscriptions"
+    },
+    {
+      "name": "mp_8616e254",
+      "value": "Connection & Display"
+    },
+    {
+      "name": "mp_86e11829",
+      "value": "Server address"
+    },
+    {
+      "name": "mp_8921db5c",
+      "value": "Unable to connect to the notification server. Check your network and sign-in status."
+    },
+    {
+      "name": "mp_89e77dae",
+      "value": "Now playing"
+    },
+    {
+      "name": "mp_8b826b8b",
+      "value": "First-time Setup"
+    },
+    {
+      "name": "mp_8bfbb87b",
+      "value": "Current page while going back"
+    },
+    {
+      "name": "mp_8c4d505e",
+      "value": "No content"
+    },
+    {
+      "name": "mp_8de89067",
+      "value": "Notifications & AI"
+    },
+    {
+      "name": "mp_8f085bab",
+      "value": "Saved servers"
+    },
+    {
+      "name": "mp_901ea0e2",
+      "value": "Use default notification server"
+    },
+    {
+      "name": "mp_907c3945",
+      "value": "Clear"
+    },
+    {
+      "name": "mp_9203b76d",
+      "value": "Movie subscriptions"
+    },
+    {
+      "name": "mp_922c1189",
+      "value": "Channel Authorization"
+    },
+    {
+      "name": "mp_922c94aa",
+      "value": "Current Account"
+    },
+    {
+      "name": "mp_936694b4",
+      "value": "More playback options"
+    },
+    {
+      "name": "mp_93bbc0cb",
+      "value": "This account requires a verification method that is not yet available here."
+    },
+    {
+      "name": "mp_940c8865",
+      "value": "Interval"
+    },
+    {
+      "name": "mp_94d1041d",
+      "value": "Select sites"
+    },
+    {
+      "name": "mp_99f6904f",
+      "value": "Hour"
+    },
+    {
+      "name": "mp_9a051ee2",
+      "value": "Checking server connection…"
+    },
+    {
+      "name": "mp_9b5d7644",
+      "value": "Your media world, always connected."
+    },
+    {
+      "name": "mp_9c619be3",
+      "value": "Instance & Refresh"
+    },
+    {
+      "name": "mp_9ca32f98",
+      "value": "Saving…"
+    },
+    {
+      "name": "mp_9d745525",
+      "value": "Unable to restore the page. Check the connection and reopen. Unconfirmed actions will not be retried automatically."
+    },
+    {
+      "name": "mp_9f206633",
+      "value": "Update to a compatible frontend, then view this message in the notification center."
+    },
+    {
+      "name": "mp_9ff1f078",
+      "value": "Stay signed in"
+    },
+    {
+      "name": "mp_a05cd5bf",
+      "value": "Default avatar"
+    },
+    {
+      "name": "mp_a0e50002",
+      "value": "Total subscriptions"
+    },
+    {
+      "name": "mp_a0fb96d8",
+      "value": "Delete saved server?"
+    },
+    {
+      "name": "mp_a1aaf352",
+      "value": "Username"
+    },
+    {
+      "name": "mp_a3148a4e",
+      "value": "Sign in to manage your subscriptions and media."
+    },
+    {
+      "name": "mp_a3ccf702",
+      "value": "Source"
+    },
+    {
+      "name": "mp_a3ed811e",
+      "value": "Authenticator code"
+    },
+    {
+      "name": "mp_a4474dd6",
+      "value": "Account & Service"
+    },
+    {
+      "name": "mp_a5d9fdec",
+      "value": "Welcome back"
+    },
+    {
+      "name": "mp_a61b00ed",
+      "value": "Update pending"
+    },
+    {
+      "name": "mp_a690898d",
+      "value": "This signature uses Home Screen notifications"
+    },
+    {
+      "name": "mp_a7786512",
+      "value": "Specific values"
+    },
+    {
+      "name": "mp_a82c993d",
+      "value": "Mine"
+    },
+    {
+      "name": "mp_a858e8aa",
+      "value": "Discard unsaved changes?"
+    },
+    {
+      "name": "mp_a95436c3",
+      "value": "Last played at %s."
+    },
+    {
+      "name": "mp_aa9d83ef",
+      "value": "Floating AI Assistant"
+    },
+    {
+      "name": "mp_aaa5f2e9",
+      "value": "Subtitles"
+    },
+    {
+      "name": "mp_ab324996",
+      "value": "Unable to enable system notifications. Check the notification server and system settings."
+    },
+    {
+      "name": "mp_ab5b27de",
+      "value": "Remove local profile?"
+    },
+    {
+      "name": "mp_ac62bd0c",
+      "value": "This installation uses Home Screen notifications."
+    },
+    {
+      "name": "mp_acc35bb4",
+      "value": "Page resources failed to load. Check the connection and retry."
+    },
+    {
+      "name": "mp_acf014bf",
+      "value": "Progress"
+    },
+    {
+      "name": "mp_adf03240",
+      "value": "Not enabled"
+    },
+    {
+      "name": "mp_af908096",
+      "value": "Mode"
+    },
+    {
+      "name": "mp_afb3c40c",
+      "value": "Music"
+    },
+    {
+      "name": "mp_api_key_10faa9d8",
+      "value": "Regenerate API Key"
+    },
+    {
+      "name": "mp_api_key_3355d57f",
+      "value": "Please check the username, password, and API key."
+    },
+    {
+      "name": "mp_api_key_caddc83f",
+      "value": "Show API Key"
+    },
+    {
+      "name": "mp_api_key_f29959e6",
+      "value": "Copy API Key"
+    },
+    {
+      "name": "mp_api_key_f3d9423a",
+      "value": "Hide API Key"
+    },
+    {
+      "name": "mp_apns_2903775f",
+      "value": "APNs Alerts"
+    },
+    {
+      "name": "mp_apns_6a627c59",
+      "value": "APNs registration failed. Check signing capabilities or use Home Screen notifications."
+    },
+    {
+      "name": "mp_app_08c8a84f",
+      "value": "Unable to load the widget profile. Check it in the App"
+    },
+    {
+      "name": "mp_app_273ed3d3",
+      "value": "Check widgets in the App"
+    },
+    {
+      "name": "mp_app_30e2ed9a",
+      "value": "Refresh the widget profile in the App"
+    },
+    {
+      "name": "mp_app_62a8b709",
+      "value": "This App does not support the verification required by this instance. Check your account settings."
+    },
+    {
+      "name": "mp_app_667ee75e",
+      "value": "Choose a server enabled in the App and its read-only content."
+    },
+    {
+      "name": "mp_app_7c65e74c",
+      "value": "Open App"
+    },
+    {
+      "name": "mp_app_985402c4",
+      "value": "Enable widgets in the App, then touch and hold to select a server and content"
+    },
+    {
+      "name": "mp_app_99e1cfb0",
+      "value": "The page or App navigation is not ready. Check the network and update the instance frontend, then retry."
+    },
+    {
+      "name": "mp_app_9ed00266",
+      "value": "Enable again in the App"
+    },
+    {
+      "name": "mp_app_ba4a34d9",
+      "value": "This instance is not initialized. Create an administrator in a browser, then return to the App and check again."
+    },
+    {
+      "name": "mp_app_be9e79c6",
+      "value": "Data has expired. Open the App to refresh"
+    },
+    {
+      "name": "mp_app_e726a7ad",
+      "value": "The App navigation connection was interrupted. Update the instance frontend, then reopen."
+    },
+    {
+      "name": "mp_app_fa2776e2",
+      "value": "Update the instance's frontend before signing in with a passkey in the App."
+    },
+    {
+      "name": "mp_apple_apns_server_c371983a",
+      "value": "Free Apple personal signing does not support APNs. Home Screen notifications use the same private Server and need no developer account."
+    },
+    {
+      "name": "mp_apppush_52bb00c6",
+      "value": "Configure and enable the AppPush notification channel first."
+    },
+    {
+      "name": "mp_apppush_c2f6b265",
+      "value": "The notification server differs from the instance's AppPush settings. Match the addresses, then generate a new pairing code."
+    },
+    {
+      "name": "mp_apppush_e1861f52",
+      "value": "The instance AppPush channel uses %s. Use the same address or select Use instance settings before pairing."
+    },
+    {
+      "name": "mp_b2d4bcee",
+      "value": "Playback unavailable"
+    },
+    {
+      "name": "mp_b2e23403",
+      "value": "Current page"
+    },
+    {
+      "name": "mp_b30a6fdf",
+      "value": "Add server"
+    },
+    {
+      "name": "mp_b4573f61",
+      "value": "Last day"
+    },
+    {
+      "name": "mp_b4672d23",
+      "value": "Page status"
+    },
+    {
+      "name": "mp_b4d9b610",
+      "value": "Unable to connect"
+    },
+    {
+      "name": "mp_b5025e10",
+      "value": "Home Screen notifications"
+    },
+    {
+      "name": "mp_b50b0b30",
+      "value": "Credentials are sent only to this server. Saved credentials stay on this device. Verification codes are never saved."
+    },
+    {
+      "name": "mp_b6dd4c32",
+      "value": "All content displayed"
+    },
+    {
+      "name": "mp_b6fed9af",
+      "value": "Day"
+    },
+    {
+      "name": "mp_b74b22e5",
+      "value": "Presets"
+    },
+    {
+      "name": "mp_b755b683",
+      "value": "People"
+    },
+    {
+      "name": "mp_b7575d6f",
+      "value": "System notifications"
+    },
+    {
+      "name": "mp_b819becc",
+      "value": "Customize recommendations"
+    },
+    {
+      "name": "mp_b8d0b7f3",
+      "value": "Members"
+    },
+    {
+      "name": "mp_b9efdd4c",
+      "value": "No notification devices are paired with this account."
+    },
+    {
+      "name": "mp_ba3e98d2",
+      "value": "Unable to load. Unlock your device, check the connection and retry."
+    },
+    {
+      "name": "mp_baf84751",
+      "value": "Users"
+    },
+    {
+      "name": "mp_bb370d56",
+      "value": "Unable to load local lyrics."
+    },
+    {
+      "name": "mp_bbc7d362",
+      "value": "Connect to server"
+    },
+    {
+      "name": "mp_bcc3a869",
+      "value": "Video torrents"
+    },
+    {
+      "name": "mp_bd03b5c1",
+      "value": "Enabled. Only content allowed for the current account is displayed."
+    },
+    {
+      "name": "mp_bde0b46a",
+      "value": "Passwords are stored securely on this device only. Verification codes are never saved."
+    },
+    {
+      "name": "mp_be7f8395",
+      "value": "Remember credentials"
+    },
+    {
+      "name": "mp_c15ac3ec",
+      "value": "Select subtitles"
+    },
+    {
+      "name": "mp_c1f0f76d",
+      "value": "Calendar"
+    },
+    {
+      "name": "mp_c2e7e96e",
+      "value": "Edit schedule"
+    },
+    {
+      "name": "mp_c493338e",
+      "value": "Custom"
+    },
+    {
+      "name": "mp_c4ad2079",
+      "value": "Return to full screen"
+    },
+    {
+      "name": "mp_c4e4c1a7",
+      "value": "Settings saved"
+    },
+    {
+      "name": "mp_c5ca3950",
+      "value": "Torrents"
+    },
+    {
+      "name": "mp_c753c38b",
+      "value": "Reopen"
+    },
+    {
+      "name": "mp_c75c40a9",
+      "value": "Unsupported settings component"
+    },
+    {
+      "name": "mp_c773293d",
+      "value": "System notifications are disabled. Allow them in Settings."
+    },
+    {
+      "name": "mp_c839a8ff",
+      "value": "Password"
+    },
+    {
+      "name": "mp_c9704212",
+      "value": "Hide password"
+    },
+    {
+      "name": "mp_c9ca330f",
+      "value": "Library"
+    },
+    {
+      "name": "mp_c9eebe84",
+      "value": "The notification token is not paired yet. Check the server channel and enable again."
+    },
+    {
+      "name": "mp_ca00c78d",
+      "value": "Changing language reloads the current page and shares the setting with the web interface."
+    },
+    {
+      "name": "mp_cb042c78",
+      "value": "Match every value in this field"
+    },
+    {
+      "name": "mp_cb20077e",
+      "value": "Retry now"
+    },
+    {
+      "name": "mp_cbd05864",
+      "value": "Close player"
+    },
+    {
+      "name": "mp_cc19798b",
+      "value": "Workflows"
+    },
+    {
+      "name": "mp_cc35d36b",
+      "value": "Connection timed out. Check the network and server status, then retry."
+    },
+    {
+      "name": "mp_cd99b225",
+      "value": "Language"
+    },
+    {
+      "name": "mp_ce16e223",
+      "value": "Music torrents"
+    },
+    {
+      "name": "mp_ce20a22a",
+      "value": "Loading notification pairing…"
+    },
+    {
+      "name": "mp_ce52b3cf",
+      "value": "Recent imports"
+    },
+    {
+      "name": "mp_cf4f090b",
+      "value": "Rename"
+    },
+    {
+      "name": "mp_d04f51a0",
+      "value": "No matches. You can add the entered value."
+    },
+    {
+      "name": "mp_d0ff6b41",
+      "value": "Loading icon"
+    },
+    {
+      "name": "mp_d121eaef",
+      "value": "Tap to switch · Swipe left to delete"
+    },
+    {
+      "name": "mp_d171944c",
+      "value": "Send test notification"
+    },
+    {
+      "name": "mp_d19e8611",
+      "value": "Audio tracks"
+    },
+    {
+      "name": "mp_d1edda3e",
+      "value": "Enable current account"
+    },
+    {
+      "name": "mp_d2052a57",
+      "value": "This account does not have permission for this action."
+    },
+    {
+      "name": "mp_d2ee63ce",
+      "value": "The passwords do not match."
+    },
+    {
+      "name": "mp_d30fc804",
+      "value": "Touch and hold for actions"
+    },
+    {
+      "name": "mp_d3307f2c",
+      "value": "Some settings aren’t supported yet. Saving is disabled."
+    },
+    {
+      "name": "mp_d3d59c09",
+      "value": "Notification center"
+    },
+    {
+      "name": "mp_d3fe9d44",
+      "value": "The selected content is unavailable for this account"
+    },
+    {
+      "name": "mp_d42da9e2",
+      "value": "Server status"
+    },
+    {
+      "name": "mp_d438f926",
+      "value": "Select audio track"
+    },
+    {
+      "name": "mp_d470d7bb",
+      "value": "Your sign-in status changed. Reopen notification settings."
+    },
+    {
+      "name": "mp_d4cb2e28",
+      "value": "Change address"
+    },
+    {
+      "name": "mp_d4e9ca3d",
+      "value": "Active"
+    },
+    {
+      "name": "mp_d53f301f",
+      "value": "Full expression"
+    },
+    {
+      "name": "mp_d5bb6069",
+      "value": "Waiting for the connection and page resources to finish loading."
+    },
+    {
+      "name": "mp_d5d8edd1",
+      "value": "Language"
+    },
+    {
+      "name": "mp_d84b7c84",
+      "value": "Last day of each month"
+    },
+    {
+      "name": "mp_d91f9f56",
+      "value": "Too many items selected"
+    },
+    {
+      "name": "mp_d949ea44",
+      "value": "Dialog actions"
+    },
+    {
+      "name": "mp_d_1a05ef15",
+      "value": "%d notification devices are paired with this account."
+    },
+    {
+      "name": "mp_d_2c79c8ba",
+      "value": "Too many sign-in attempts. Try again in %d seconds."
+    },
+    {
+      "name": "mp_d_3038d0a3",
+      "value": "Item %d"
+    },
+    {
+      "name": "mp_d_d_88b091f2",
+      "value": "Submitted to %d/%d devices. Check system notifications."
+    },
+    {
+      "name": "mp_da065648",
+      "value": "Start over"
+    },
+    {
+      "name": "mp_dcc20da0",
+      "value": "Notifications with free signing"
+    },
+    {
+      "name": "mp_dd65cce4",
+      "value": "Unable to update saved servers. Try again."
+    },
+    {
+      "name": "mp_dd8303f2",
+      "value": "Actions menu"
+    },
+    {
+      "name": "mp_df16deba",
+      "value": "Transfer History"
+    },
+    {
+      "name": "mp_dns_daec2d0d",
+      "value": "Unable to resolve the server address. Check the hostname and DNS settings."
+    },
+    {
+      "name": "mp_e10994d9",
+      "value": "Unable to verify the passkey. Try again."
+    },
+    {
+      "name": "mp_e188ebca",
+      "value": "Starting value"
+    },
+    {
+      "name": "mp_e3526937",
+      "value": "Weekday"
+    },
+    {
+      "name": "mp_e39b02ad",
+      "value": "Directories & Scraping"
+    },
+    {
+      "name": "mp_e41d3674",
+      "value": "Fill"
+    },
+    {
+      "name": "mp_e487d5ce",
+      "value": "Clear Local Cache"
+    },
+    {
+      "name": "mp_e4aeceaa",
+      "value": "Add & Manage"
+    },
+    {
+      "name": "mp_e5d49dd2",
+      "value": "The authentication response is unsupported. Update the instance or check the server, then retry."
+    },
+    {
+      "name": "mp_e700d5fe",
+      "value": "Server & Account"
+    },
+    {
+      "name": "mp_e77643fa",
+      "value": "Retry Connection"
+    },
+    {
+      "name": "mp_e91365cf",
+      "value": "Free"
+    },
+    {
+      "name": "mp_e9429323",
+      "value": "Unable to remove saved credentials. Try again."
+    },
+    {
+      "name": "mp_e9663b94",
+      "value": "Roles"
+    },
+    {
+      "name": "mp_ea09a58c",
+      "value": "Remove local profile"
+    },
+    {
+      "name": "mp_ea3281a4",
+      "value": "The page has not finished restoring. Reopen it. Unconfirmed actions will not be retried automatically."
+    },
+    {
+      "name": "mp_ea8443d8",
+      "value": "Unpair this installation and paired web pages"
+    },
+    {
+      "name": "mp_eb88ff57",
+      "value": "Installed"
+    },
+    {
+      "name": "mp_ecdf2bcf",
+      "value": "The system blocked this connection. Check the server address and network restrictions."
+    },
+    {
+      "name": "mp_ed340e9b",
+      "value": "This account is inactive. Please contact an administrator."
+    },
+    {
+      "name": "mp_ed41aa6c",
+      "value": "Resume playback"
+    },
+    {
+      "name": "mp_ed5e4c3e",
+      "value": "Search “%s”"
+    },
+    {
+      "name": "mp_ee561675",
+      "value": "Subscriptions"
+    },
+    {
+      "name": "mp_ee56a53b",
+      "value": "Media Servers"
+    },
+    {
+      "name": "mp_ee87f6ec",
+      "value": "Server Channels"
+    },
+    {
+      "name": "mp_ef84e765",
+      "value": "Administrator"
+    },
+    {
+      "name": "mp_efd9aa2e",
+      "value": "Download status"
+    },
+    {
+      "name": "mp_f0409080",
+      "value": "Search"
+    },
+    {
+      "name": "mp_f0739f4f",
+      "value": "This instance requires a client certificate. Sign in with a browser."
+    },
+    {
+      "name": "mp_f12849f1",
+      "value": "Switch Server"
+    },
+    {
+      "name": "mp_f152f119",
+      "value": "Empty value"
+    },
+    {
+      "name": "mp_f28c38e5",
+      "value": "Unable to connect. Check the address, port and server status, then retry."
+    },
+    {
+      "name": "mp_f3ea6d34",
+      "value": "Actions"
+    },
+    {
+      "name": "mp_f40b79d7",
+      "value": "Sites"
+    },
+    {
+      "name": "mp_f526c899",
+      "value": "Confirm"
+    },
+    {
+      "name": "mp_f567539b",
+      "value": "Unknown artist"
+    },
+    {
+      "name": "mp_f5f4160a",
+      "value": "Home Screen Widgets"
+    },
+    {
+      "name": "mp_f60cb7b6",
+      "value": "Show password"
+    },
+    {
+      "name": "mp_f74efb4f",
+      "value": "Widgets"
+    },
+    {
+      "name": "mp_f79b3cea",
+      "value": "Sites & Rules"
+    },
+    {
+      "name": "mp_f7b2a6ee",
+      "value": "configured"
+    },
+    {
+      "name": "mp_f84589c8",
+      "value": "Some sign-in information could not be saved securely. You may need to enter it again next time."
+    },
+    {
+      "name": "mp_f8dede89",
+      "value": "The service returned a redirect. Check the full service address."
+    },
+    {
+      "name": "mp_f8ef7f2a",
+      "value": "Playback speed"
+    },
+    {
+      "name": "mp_f9e6afb1",
+      "value": "Notification server"
+    },
+    {
+      "name": "mp_fadf24db",
+      "value": "Save"
+    },
+    {
+      "name": "mp_fb1c7dc7",
+      "value": "Main navigation"
+    },
+    {
+      "name": "mp_fc58bba4",
+      "value": "Customize discovery"
+    },
+    {
+      "name": "mp_fcabadb2",
+      "value": "Loading…"
+    },
+    {
+      "name": "mp_fd099e4d",
+      "value": "This plugin has no settings"
+    },
+    {
+      "name": "mp_fd3b1706",
+      "value": "Unable to generate a secure key. Please try again."
+    },
+    {
+      "name": "mp_fd60ff58",
+      "value": "Notification Channels"
+    },
+    {
+      "name": "mp_fdad07e6",
+      "value": "Download %s, upload %s"
+    },
+    {
+      "name": "mp_fe33307a",
+      "value": "Media"
+    },
+    {
+      "name": "mp_fe84e2eb",
+      "value": "Video"
+    },
+    {
+      "name": "mp_fea82dd2",
+      "value": "Clear expression"
+    },
+    {
+      "name": "mp_ff2340b2",
+      "value": "Native notifications require permission"
+    },
+    {
+      "name": "mp_ff5acbda",
+      "value": "The action failed. Try again."
+    },
+    {
+      "name": "mp_ff8cad73",
+      "value": "Incorrect username, password or verification code."
+    },
+    {
+      "name": "mp_ffbc3e9f",
+      "value": "Create Administrator"
+    },
+    {
+      "name": "mp_http_https_5ce090ea",
+      "value": "HTTP and HTTPS are supported. Sign-in information is saved separately for each server."
+    },
+    {
+      "name": "mp_http_https_774a69d0",
+      "value": "Enter the full server address, including http:// or https://."
+    },
+    {
+      "name": "mp_https_27dd23e2",
+      "value": "Passkeys are unavailable on this connection or system. Use HTTPS and a supported system."
+    },
+    {
+      "name": "mp_https_8346b93a",
+      "value": "The server's HTTPS certificate is untrusted or expired. Fix the certificate and retry."
+    },
+    {
+      "name": "mp_https_apppush_ddee8bb6",
+      "value": "Enter an HTTPS address matching the instance's AppPush notification server."
+    },
+    {
+      "name": "mp_https_f56d307b",
+      "value": "Supports HTTPS, local networks, and deployment subpaths."
+    },
+    {
+      "name": "mp_https_movie_pilot_org_ap_1cc7b749",
+      "value": "The default is https://movie-pilot.org. When changing servers, use the same address in the instance's AppPush channel."
+    },
+    {
+      "name": "mp_https_tls_c53bebc2",
+      "value": "Unable to establish a secure HTTPS connection. Check the server's TLS settings."
+    },
+    {
+      "name": "mp_ipv6_local_ec409aad",
+      "value": "This IPv6 address includes a network interface identifier that web pages cannot use. Use a .local hostname or another reachable address."
+    },
+    {
+      "name": "mp_lrc_d90270cd",
+      "value": "No matching LRC lyrics"
+    },
+    {
+      "name": "mp_moviepilot_00c24418",
+      "value": "MoviePilot widgets"
+    },
+    {
+      "name": "mp_moviepilot_0d734971",
+      "value": "The notification server returned no account identity. Update the MoviePilot backend and retry."
+    },
+    {
+      "name": "mp_moviepilot_1313e380",
+      "value": "The network is unavailable. For local servers, check MoviePilot's Local Network permission in Settings."
+    },
+    {
+      "name": "mp_moviepilot_44bc8971",
+      "value": "Open MoviePilot"
+    },
+    {
+      "name": "mp_moviepilot_4d98d7a3",
+      "value": "Opening MoviePilot"
+    },
+    {
+      "name": "mp_moviepilot_548882e2",
+      "value": "Check that the item is still in the library and that MoviePilot and cloud storage are connected."
+    },
+    {
+      "name": "mp_moviepilot_579e1402",
+      "value": "Unable to open MoviePilot"
+    },
+    {
+      "name": "mp_moviepilot_87d8dff1",
+      "value": "Update MoviePilot and refresh the widget"
+    },
+    {
+      "name": "mp_moviepilot_99d3c551",
+      "value": "MoviePilot is preparing the page"
+    },
+    {
+      "name": "mp_moviepilot_a0cfe3e6",
+      "value": "MoviePilot status"
+    },
+    {
+      "name": "mp_moviepilot_a77d197d",
+      "value": "Waiting for MoviePilot"
+    },
+    {
+      "name": "mp_moviepilot_apppush_71c49051",
+      "value": "Add, enable and save an AppPush channel in MoviePilot Settings → Notifications. If already enabled, update the backend and retry."
+    },
+    {
+      "name": "mp_moviepilot_cd89aea8",
+      "value": "MoviePilot server address"
+    },
+    {
+      "name": "mp_moviepilot_d6f2bdb1",
+      "value": "You will need to sign in again to access this MoviePilot server."
+    },
+    {
+      "name": "mp_moviepilot_e7f15286",
+      "value": "This page is not supported yet. Update MoviePilot and retry."
+    },
+    {
+      "name": "mp_moviepilot_f5a7ce49",
+      "value": "Touch and hold the Home Screen, choose Edit → Add Widget and search for MoviePilot. You can also add widgets from Lock Screen customization or Today View. Edit a widget to select its server and content."
+    },
+    {
+      "name": "mp_push_notifications_serve_8bf6a5ef",
+      "value": "Enable after signing with Push Notifications capability and configuring the Server."
+    },
+    {
+      "name": "mp_safari_app_24c9c662",
+      "value": "Open the notification page in Safari and add it to the Home Screen. Open it there and enter the pairing code. Tap a notification to return to the App."
+    },
+    {
+      "name": "mp_web_7f1d362a",
+      "value": "This plugin uses a web interface. Its compatibility view is being migrated."
+    },
+    {
+      "name": "mp_web_aaedd1fc",
+      "value": "Configure proxy, concurrency and advanced system settings in Web UI."
+    },
+    {
+      "name": "mp_widget_163aec91",
+      "value": "Content"
+    },
+    {
+      "name": "mp_widget_273926ce",
+      "value": "Show media names"
+    },
+    {
+      "name": "mp_widget_30a71d31",
+      "value": "View download and upload speeds and read-only status on the Lock Screen."
+    },
+    {
+      "name": "mp_widget_3d20ab8c",
+      "value": "View the server overview, downloads, recent imports and subscriptions."
+    },
+    {
+      "name": "mp_widget_4b81846f",
+      "value": "Server"
+    },
+    {
+      "name": "mp_widget_5319af76",
+      "value": "Subscriptions"
+    },
+    {
+      "name": "mp_widget_66c5aa72",
+      "value": "TV subscriptions"
+    },
+    {
+      "name": "mp_widget_83dc943e",
+      "value": "System overview"
+    },
+    {
+      "name": "mp_widget_84c5f125",
+      "value": "Music subscriptions"
+    },
+    {
+      "name": "mp_widget_9203b76d",
+      "value": "Movie subscriptions"
+    },
+    {
+      "name": "mp_widget_app_667ee75e",
+      "value": "Choose a server enabled in the App and its read-only content."
+    },
+    {
+      "name": "mp_widget_ce52b3cf",
+      "value": "Recent imports"
+    },
+    {
+      "name": "mp_widget_efd9aa2e",
+      "value": "Download status"
+    },
+    {
+      "name": "mp_widget_moviepilot_00c24418",
+      "value": "MoviePilot widgets"
+    },
+    {
+      "name": "mp_widget_moviepilot_a0cfe3e6",
+      "value": "MoviePilot Status"
+    }
+  ]
+}

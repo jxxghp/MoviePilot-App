@@ -1,0 +1,6844 @@
+{
+  "oracle": "APScheduler CronTrigger.from_crontab; parsing only, no jobs executed",
+  "version": "3.11.3",
+  "source_sha256": {
+    "apscheduler.triggers.cron.expressions": "7cdde1781829e9211e167c2bd5b7dce817c13b4b1bc33c706b1bcabf7284b92a",
+    "apscheduler.triggers.cron.fields": "8ad524dd9439edaff6050b6cb173638c2de8802a02aedc6340d1568c24f744eb"
+  },
+  "cases": [
+    {
+      "unit": "minute",
+      "kind": "every",
+      "token": "*",
+      "expression": "* 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        0
+      ],
+      "token": "0",
+      "expression": "0 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        1
+      ],
+      "token": "1",
+      "expression": "1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        2
+      ],
+      "token": "2",
+      "expression": "2 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        3
+      ],
+      "token": "3",
+      "expression": "3 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        4
+      ],
+      "token": "4",
+      "expression": "4 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        5
+      ],
+      "token": "5",
+      "expression": "5 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        6
+      ],
+      "token": "6",
+      "expression": "6 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        7
+      ],
+      "token": "7",
+      "expression": "7 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        8
+      ],
+      "token": "8",
+      "expression": "8 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        9
+      ],
+      "token": "9",
+      "expression": "9 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        10
+      ],
+      "token": "10",
+      "expression": "10 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        11
+      ],
+      "token": "11",
+      "expression": "11 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        12
+      ],
+      "token": "12",
+      "expression": "12 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        13
+      ],
+      "token": "13",
+      "expression": "13 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        14
+      ],
+      "token": "14",
+      "expression": "14 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        15
+      ],
+      "token": "15",
+      "expression": "15 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        16
+      ],
+      "token": "16",
+      "expression": "16 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        17
+      ],
+      "token": "17",
+      "expression": "17 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        18
+      ],
+      "token": "18",
+      "expression": "18 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        19
+      ],
+      "token": "19",
+      "expression": "19 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        20
+      ],
+      "token": "20",
+      "expression": "20 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        21
+      ],
+      "token": "21",
+      "expression": "21 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        22
+      ],
+      "token": "22",
+      "expression": "22 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        23
+      ],
+      "token": "23",
+      "expression": "23 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        24
+      ],
+      "token": "24",
+      "expression": "24 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        25
+      ],
+      "token": "25",
+      "expression": "25 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        26
+      ],
+      "token": "26",
+      "expression": "26 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        27
+      ],
+      "token": "27",
+      "expression": "27 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        28
+      ],
+      "token": "28",
+      "expression": "28 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        29
+      ],
+      "token": "29",
+      "expression": "29 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        30
+      ],
+      "token": "30",
+      "expression": "30 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        31
+      ],
+      "token": "31",
+      "expression": "31 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        32
+      ],
+      "token": "32",
+      "expression": "32 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        33
+      ],
+      "token": "33",
+      "expression": "33 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        34
+      ],
+      "token": "34",
+      "expression": "34 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        35
+      ],
+      "token": "35",
+      "expression": "35 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        36
+      ],
+      "token": "36",
+      "expression": "36 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        37
+      ],
+      "token": "37",
+      "expression": "37 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        38
+      ],
+      "token": "38",
+      "expression": "38 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        39
+      ],
+      "token": "39",
+      "expression": "39 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        40
+      ],
+      "token": "40",
+      "expression": "40 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        41
+      ],
+      "token": "41",
+      "expression": "41 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        42
+      ],
+      "token": "42",
+      "expression": "42 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        43
+      ],
+      "token": "43",
+      "expression": "43 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        44
+      ],
+      "token": "44",
+      "expression": "44 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        45
+      ],
+      "token": "45",
+      "expression": "45 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        46
+      ],
+      "token": "46",
+      "expression": "46 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        47
+      ],
+      "token": "47",
+      "expression": "47 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        48
+      ],
+      "token": "48",
+      "expression": "48 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        49
+      ],
+      "token": "49",
+      "expression": "49 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        50
+      ],
+      "token": "50",
+      "expression": "50 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        51
+      ],
+      "token": "51",
+      "expression": "51 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        52
+      ],
+      "token": "52",
+      "expression": "52 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        53
+      ],
+      "token": "53",
+      "expression": "53 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        54
+      ],
+      "token": "54",
+      "expression": "54 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        55
+      ],
+      "token": "55",
+      "expression": "55 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        56
+      ],
+      "token": "56",
+      "expression": "56 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        57
+      ],
+      "token": "57",
+      "expression": "57 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        58
+      ],
+      "token": "58",
+      "expression": "58 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "values",
+      "values": [
+        59
+      ],
+      "token": "59",
+      "expression": "59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 0,
+      "last": 59,
+      "token": "0-59",
+      "expression": "0-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 1,
+      "last": 59,
+      "token": "1-59",
+      "expression": "1-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 2,
+      "last": 59,
+      "token": "2-59",
+      "expression": "2-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 3,
+      "last": 59,
+      "token": "3-59",
+      "expression": "3-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 4,
+      "last": 59,
+      "token": "4-59",
+      "expression": "4-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 5,
+      "last": 59,
+      "token": "5-59",
+      "expression": "5-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 6,
+      "last": 59,
+      "token": "6-59",
+      "expression": "6-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 7,
+      "last": 59,
+      "token": "7-59",
+      "expression": "7-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 8,
+      "last": 59,
+      "token": "8-59",
+      "expression": "8-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 9,
+      "last": 59,
+      "token": "9-59",
+      "expression": "9-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 10,
+      "last": 59,
+      "token": "10-59",
+      "expression": "10-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 11,
+      "last": 59,
+      "token": "11-59",
+      "expression": "11-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 12,
+      "last": 59,
+      "token": "12-59",
+      "expression": "12-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 13,
+      "last": 59,
+      "token": "13-59",
+      "expression": "13-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 14,
+      "last": 59,
+      "token": "14-59",
+      "expression": "14-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 15,
+      "last": 59,
+      "token": "15-59",
+      "expression": "15-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 16,
+      "last": 59,
+      "token": "16-59",
+      "expression": "16-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 17,
+      "last": 59,
+      "token": "17-59",
+      "expression": "17-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 18,
+      "last": 59,
+      "token": "18-59",
+      "expression": "18-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 19,
+      "last": 59,
+      "token": "19-59",
+      "expression": "19-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 20,
+      "last": 59,
+      "token": "20-59",
+      "expression": "20-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 21,
+      "last": 59,
+      "token": "21-59",
+      "expression": "21-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 22,
+      "last": 59,
+      "token": "22-59",
+      "expression": "22-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 23,
+      "last": 59,
+      "token": "23-59",
+      "expression": "23-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 24,
+      "last": 59,
+      "token": "24-59",
+      "expression": "24-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 25,
+      "last": 59,
+      "token": "25-59",
+      "expression": "25-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 26,
+      "last": 59,
+      "token": "26-59",
+      "expression": "26-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 27,
+      "last": 59,
+      "token": "27-59",
+      "expression": "27-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 28,
+      "last": 59,
+      "token": "28-59",
+      "expression": "28-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 29,
+      "last": 59,
+      "token": "29-59",
+      "expression": "29-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 30,
+      "last": 59,
+      "token": "30-59",
+      "expression": "30-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 31,
+      "last": 59,
+      "token": "31-59",
+      "expression": "31-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 32,
+      "last": 59,
+      "token": "32-59",
+      "expression": "32-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 33,
+      "last": 59,
+      "token": "33-59",
+      "expression": "33-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 34,
+      "last": 59,
+      "token": "34-59",
+      "expression": "34-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 35,
+      "last": 59,
+      "token": "35-59",
+      "expression": "35-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 36,
+      "last": 59,
+      "token": "36-59",
+      "expression": "36-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 37,
+      "last": 59,
+      "token": "37-59",
+      "expression": "37-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 38,
+      "last": 59,
+      "token": "38-59",
+      "expression": "38-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 39,
+      "last": 59,
+      "token": "39-59",
+      "expression": "39-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 40,
+      "last": 59,
+      "token": "40-59",
+      "expression": "40-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 41,
+      "last": 59,
+      "token": "41-59",
+      "expression": "41-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 42,
+      "last": 59,
+      "token": "42-59",
+      "expression": "42-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 43,
+      "last": 59,
+      "token": "43-59",
+      "expression": "43-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 44,
+      "last": 59,
+      "token": "44-59",
+      "expression": "44-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 45,
+      "last": 59,
+      "token": "45-59",
+      "expression": "45-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 46,
+      "last": 59,
+      "token": "46-59",
+      "expression": "46-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 47,
+      "last": 59,
+      "token": "47-59",
+      "expression": "47-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 48,
+      "last": 59,
+      "token": "48-59",
+      "expression": "48-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 49,
+      "last": 59,
+      "token": "49-59",
+      "expression": "49-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 50,
+      "last": 59,
+      "token": "50-59",
+      "expression": "50-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 51,
+      "last": 59,
+      "token": "51-59",
+      "expression": "51-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 52,
+      "last": 59,
+      "token": "52-59",
+      "expression": "52-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 53,
+      "last": 59,
+      "token": "53-59",
+      "expression": "53-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 54,
+      "last": 59,
+      "token": "54-59",
+      "expression": "54-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 55,
+      "last": 59,
+      "token": "55-59",
+      "expression": "55-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 56,
+      "last": 59,
+      "token": "56-59",
+      "expression": "56-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 57,
+      "last": 59,
+      "token": "57-59",
+      "expression": "57-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 58,
+      "last": 59,
+      "token": "58-59",
+      "expression": "58-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "range",
+      "first": 59,
+      "last": 59,
+      "token": "59-59",
+      "expression": "59-59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 1,
+      "token": "*/1",
+      "expression": "*/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 2,
+      "token": "*/2",
+      "expression": "*/2 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 3,
+      "token": "*/3",
+      "expression": "*/3 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 4,
+      "token": "*/4",
+      "expression": "*/4 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 5,
+      "token": "*/5",
+      "expression": "*/5 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 6,
+      "token": "*/6",
+      "expression": "*/6 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 7,
+      "token": "*/7",
+      "expression": "*/7 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 8,
+      "token": "*/8",
+      "expression": "*/8 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 9,
+      "token": "*/9",
+      "expression": "*/9 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 10,
+      "token": "*/10",
+      "expression": "*/10 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 11,
+      "token": "*/11",
+      "expression": "*/11 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 12,
+      "token": "*/12",
+      "expression": "*/12 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 13,
+      "token": "*/13",
+      "expression": "*/13 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 14,
+      "token": "*/14",
+      "expression": "*/14 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 15,
+      "token": "*/15",
+      "expression": "*/15 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 16,
+      "token": "*/16",
+      "expression": "*/16 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 17,
+      "token": "*/17",
+      "expression": "*/17 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 18,
+      "token": "*/18",
+      "expression": "*/18 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 19,
+      "token": "*/19",
+      "expression": "*/19 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 20,
+      "token": "*/20",
+      "expression": "*/20 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 21,
+      "token": "*/21",
+      "expression": "*/21 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 22,
+      "token": "*/22",
+      "expression": "*/22 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 23,
+      "token": "*/23",
+      "expression": "*/23 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 24,
+      "token": "*/24",
+      "expression": "*/24 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 25,
+      "token": "*/25",
+      "expression": "*/25 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 26,
+      "token": "*/26",
+      "expression": "*/26 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 27,
+      "token": "*/27",
+      "expression": "*/27 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 28,
+      "token": "*/28",
+      "expression": "*/28 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 29,
+      "token": "*/29",
+      "expression": "*/29 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 30,
+      "token": "*/30",
+      "expression": "*/30 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 31,
+      "token": "*/31",
+      "expression": "*/31 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 32,
+      "token": "*/32",
+      "expression": "*/32 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 33,
+      "token": "*/33",
+      "expression": "*/33 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 34,
+      "token": "*/34",
+      "expression": "*/34 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 35,
+      "token": "*/35",
+      "expression": "*/35 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 36,
+      "token": "*/36",
+      "expression": "*/36 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 37,
+      "token": "*/37",
+      "expression": "*/37 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 38,
+      "token": "*/38",
+      "expression": "*/38 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 39,
+      "token": "*/39",
+      "expression": "*/39 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 40,
+      "token": "*/40",
+      "expression": "*/40 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 41,
+      "token": "*/41",
+      "expression": "*/41 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 42,
+      "token": "*/42",
+      "expression": "*/42 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 43,
+      "token": "*/43",
+      "expression": "*/43 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 44,
+      "token": "*/44",
+      "expression": "*/44 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 45,
+      "token": "*/45",
+      "expression": "*/45 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 46,
+      "token": "*/46",
+      "expression": "*/46 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 47,
+      "token": "*/47",
+      "expression": "*/47 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 48,
+      "token": "*/48",
+      "expression": "*/48 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 49,
+      "token": "*/49",
+      "expression": "*/49 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 50,
+      "token": "*/50",
+      "expression": "*/50 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 51,
+      "token": "*/51",
+      "expression": "*/51 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 52,
+      "token": "*/52",
+      "expression": "*/52 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 53,
+      "token": "*/53",
+      "expression": "*/53 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 54,
+      "token": "*/54",
+      "expression": "*/54 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 55,
+      "token": "*/55",
+      "expression": "*/55 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 56,
+      "token": "*/56",
+      "expression": "*/56 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 57,
+      "token": "*/57",
+      "expression": "*/57 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 58,
+      "token": "*/58",
+      "expression": "*/58 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": null,
+      "every": 59,
+      "token": "*/59",
+      "expression": "*/59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 0,
+      "every": 1,
+      "token": "0/1",
+      "expression": "0/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 0,
+      "every": 59,
+      "token": "0/59",
+      "expression": "0/59 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 1,
+      "every": 1,
+      "token": "1/1",
+      "expression": "1/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 1,
+      "every": 58,
+      "token": "1/58",
+      "expression": "1/58 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 2,
+      "every": 1,
+      "token": "2/1",
+      "expression": "2/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 2,
+      "every": 57,
+      "token": "2/57",
+      "expression": "2/57 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 3,
+      "every": 1,
+      "token": "3/1",
+      "expression": "3/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 3,
+      "every": 56,
+      "token": "3/56",
+      "expression": "3/56 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 4,
+      "every": 1,
+      "token": "4/1",
+      "expression": "4/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 4,
+      "every": 55,
+      "token": "4/55",
+      "expression": "4/55 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 5,
+      "every": 1,
+      "token": "5/1",
+      "expression": "5/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 5,
+      "every": 54,
+      "token": "5/54",
+      "expression": "5/54 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 6,
+      "every": 1,
+      "token": "6/1",
+      "expression": "6/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 6,
+      "every": 53,
+      "token": "6/53",
+      "expression": "6/53 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 7,
+      "every": 1,
+      "token": "7/1",
+      "expression": "7/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 7,
+      "every": 52,
+      "token": "7/52",
+      "expression": "7/52 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 8,
+      "every": 1,
+      "token": "8/1",
+      "expression": "8/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 8,
+      "every": 51,
+      "token": "8/51",
+      "expression": "8/51 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 9,
+      "every": 1,
+      "token": "9/1",
+      "expression": "9/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 9,
+      "every": 50,
+      "token": "9/50",
+      "expression": "9/50 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 10,
+      "every": 1,
+      "token": "10/1",
+      "expression": "10/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 10,
+      "every": 49,
+      "token": "10/49",
+      "expression": "10/49 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 11,
+      "every": 1,
+      "token": "11/1",
+      "expression": "11/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 11,
+      "every": 48,
+      "token": "11/48",
+      "expression": "11/48 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 12,
+      "every": 1,
+      "token": "12/1",
+      "expression": "12/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 12,
+      "every": 47,
+      "token": "12/47",
+      "expression": "12/47 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 13,
+      "every": 1,
+      "token": "13/1",
+      "expression": "13/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 13,
+      "every": 46,
+      "token": "13/46",
+      "expression": "13/46 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 14,
+      "every": 1,
+      "token": "14/1",
+      "expression": "14/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 14,
+      "every": 45,
+      "token": "14/45",
+      "expression": "14/45 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 15,
+      "every": 1,
+      "token": "15/1",
+      "expression": "15/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 15,
+      "every": 44,
+      "token": "15/44",
+      "expression": "15/44 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 16,
+      "every": 1,
+      "token": "16/1",
+      "expression": "16/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 16,
+      "every": 43,
+      "token": "16/43",
+      "expression": "16/43 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 17,
+      "every": 1,
+      "token": "17/1",
+      "expression": "17/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 17,
+      "every": 42,
+      "token": "17/42",
+      "expression": "17/42 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 18,
+      "every": 1,
+      "token": "18/1",
+      "expression": "18/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 18,
+      "every": 41,
+      "token": "18/41",
+      "expression": "18/41 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 19,
+      "every": 1,
+      "token": "19/1",
+      "expression": "19/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 19,
+      "every": 40,
+      "token": "19/40",
+      "expression": "19/40 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 20,
+      "every": 1,
+      "token": "20/1",
+      "expression": "20/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 20,
+      "every": 39,
+      "token": "20/39",
+      "expression": "20/39 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 21,
+      "every": 1,
+      "token": "21/1",
+      "expression": "21/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 21,
+      "every": 38,
+      "token": "21/38",
+      "expression": "21/38 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 22,
+      "every": 1,
+      "token": "22/1",
+      "expression": "22/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 22,
+      "every": 37,
+      "token": "22/37",
+      "expression": "22/37 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 23,
+      "every": 1,
+      "token": "23/1",
+      "expression": "23/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 23,
+      "every": 36,
+      "token": "23/36",
+      "expression": "23/36 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 24,
+      "every": 1,
+      "token": "24/1",
+      "expression": "24/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 24,
+      "every": 35,
+      "token": "24/35",
+      "expression": "24/35 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 25,
+      "every": 1,
+      "token": "25/1",
+      "expression": "25/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 25,
+      "every": 34,
+      "token": "25/34",
+      "expression": "25/34 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 26,
+      "every": 1,
+      "token": "26/1",
+      "expression": "26/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 26,
+      "every": 33,
+      "token": "26/33",
+      "expression": "26/33 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 27,
+      "every": 1,
+      "token": "27/1",
+      "expression": "27/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 27,
+      "every": 32,
+      "token": "27/32",
+      "expression": "27/32 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 28,
+      "every": 1,
+      "token": "28/1",
+      "expression": "28/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 28,
+      "every": 31,
+      "token": "28/31",
+      "expression": "28/31 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 29,
+      "every": 1,
+      "token": "29/1",
+      "expression": "29/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 29,
+      "every": 30,
+      "token": "29/30",
+      "expression": "29/30 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 30,
+      "every": 1,
+      "token": "30/1",
+      "expression": "30/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 30,
+      "every": 29,
+      "token": "30/29",
+      "expression": "30/29 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 31,
+      "every": 1,
+      "token": "31/1",
+      "expression": "31/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 31,
+      "every": 28,
+      "token": "31/28",
+      "expression": "31/28 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 32,
+      "every": 1,
+      "token": "32/1",
+      "expression": "32/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 32,
+      "every": 27,
+      "token": "32/27",
+      "expression": "32/27 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 33,
+      "every": 1,
+      "token": "33/1",
+      "expression": "33/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 33,
+      "every": 26,
+      "token": "33/26",
+      "expression": "33/26 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 34,
+      "every": 1,
+      "token": "34/1",
+      "expression": "34/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 34,
+      "every": 25,
+      "token": "34/25",
+      "expression": "34/25 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 35,
+      "every": 1,
+      "token": "35/1",
+      "expression": "35/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 35,
+      "every": 24,
+      "token": "35/24",
+      "expression": "35/24 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 36,
+      "every": 1,
+      "token": "36/1",
+      "expression": "36/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 36,
+      "every": 23,
+      "token": "36/23",
+      "expression": "36/23 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 37,
+      "every": 1,
+      "token": "37/1",
+      "expression": "37/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 37,
+      "every": 22,
+      "token": "37/22",
+      "expression": "37/22 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 38,
+      "every": 1,
+      "token": "38/1",
+      "expression": "38/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 38,
+      "every": 21,
+      "token": "38/21",
+      "expression": "38/21 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 39,
+      "every": 1,
+      "token": "39/1",
+      "expression": "39/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 39,
+      "every": 20,
+      "token": "39/20",
+      "expression": "39/20 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 40,
+      "every": 1,
+      "token": "40/1",
+      "expression": "40/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 40,
+      "every": 19,
+      "token": "40/19",
+      "expression": "40/19 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 41,
+      "every": 1,
+      "token": "41/1",
+      "expression": "41/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 41,
+      "every": 18,
+      "token": "41/18",
+      "expression": "41/18 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 42,
+      "every": 1,
+      "token": "42/1",
+      "expression": "42/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 42,
+      "every": 17,
+      "token": "42/17",
+      "expression": "42/17 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 43,
+      "every": 1,
+      "token": "43/1",
+      "expression": "43/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 43,
+      "every": 16,
+      "token": "43/16",
+      "expression": "43/16 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 44,
+      "every": 1,
+      "token": "44/1",
+      "expression": "44/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 44,
+      "every": 15,
+      "token": "44/15",
+      "expression": "44/15 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 45,
+      "every": 1,
+      "token": "45/1",
+      "expression": "45/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 45,
+      "every": 14,
+      "token": "45/14",
+      "expression": "45/14 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 46,
+      "every": 1,
+      "token": "46/1",
+      "expression": "46/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 46,
+      "every": 13,
+      "token": "46/13",
+      "expression": "46/13 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 47,
+      "every": 1,
+      "token": "47/1",
+      "expression": "47/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 47,
+      "every": 12,
+      "token": "47/12",
+      "expression": "47/12 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 48,
+      "every": 1,
+      "token": "48/1",
+      "expression": "48/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 48,
+      "every": 11,
+      "token": "48/11",
+      "expression": "48/11 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 49,
+      "every": 1,
+      "token": "49/1",
+      "expression": "49/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 49,
+      "every": 10,
+      "token": "49/10",
+      "expression": "49/10 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 50,
+      "every": 1,
+      "token": "50/1",
+      "expression": "50/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 50,
+      "every": 9,
+      "token": "50/9",
+      "expression": "50/9 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 51,
+      "every": 1,
+      "token": "51/1",
+      "expression": "51/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 51,
+      "every": 8,
+      "token": "51/8",
+      "expression": "51/8 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 52,
+      "every": 1,
+      "token": "52/1",
+      "expression": "52/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 52,
+      "every": 7,
+      "token": "52/7",
+      "expression": "52/7 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 53,
+      "every": 1,
+      "token": "53/1",
+      "expression": "53/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 53,
+      "every": 6,
+      "token": "53/6",
+      "expression": "53/6 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 54,
+      "every": 1,
+      "token": "54/1",
+      "expression": "54/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 54,
+      "every": 5,
+      "token": "54/5",
+      "expression": "54/5 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 55,
+      "every": 1,
+      "token": "55/1",
+      "expression": "55/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 55,
+      "every": 4,
+      "token": "55/4",
+      "expression": "55/4 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 56,
+      "every": 1,
+      "token": "56/1",
+      "expression": "56/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 56,
+      "every": 3,
+      "token": "56/3",
+      "expression": "56/3 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 57,
+      "every": 1,
+      "token": "57/1",
+      "expression": "57/1 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 57,
+      "every": 2,
+      "token": "57/2",
+      "expression": "57/2 0 * * *"
+    },
+    {
+      "unit": "minute",
+      "kind": "step",
+      "start": 58,
+      "every": 1,
+      "token": "58/1",
+      "expression": "58/1 0 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "every",
+      "token": "*",
+      "expression": "0 * * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        0
+      ],
+      "token": "0",
+      "expression": "0 0 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        1
+      ],
+      "token": "1",
+      "expression": "0 1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        2
+      ],
+      "token": "2",
+      "expression": "0 2 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        3
+      ],
+      "token": "3",
+      "expression": "0 3 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        4
+      ],
+      "token": "4",
+      "expression": "0 4 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        5
+      ],
+      "token": "5",
+      "expression": "0 5 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        6
+      ],
+      "token": "6",
+      "expression": "0 6 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        7
+      ],
+      "token": "7",
+      "expression": "0 7 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        8
+      ],
+      "token": "8",
+      "expression": "0 8 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        9
+      ],
+      "token": "9",
+      "expression": "0 9 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        10
+      ],
+      "token": "10",
+      "expression": "0 10 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        11
+      ],
+      "token": "11",
+      "expression": "0 11 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        12
+      ],
+      "token": "12",
+      "expression": "0 12 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        13
+      ],
+      "token": "13",
+      "expression": "0 13 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        14
+      ],
+      "token": "14",
+      "expression": "0 14 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        15
+      ],
+      "token": "15",
+      "expression": "0 15 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        16
+      ],
+      "token": "16",
+      "expression": "0 16 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        17
+      ],
+      "token": "17",
+      "expression": "0 17 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        18
+      ],
+      "token": "18",
+      "expression": "0 18 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        19
+      ],
+      "token": "19",
+      "expression": "0 19 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        20
+      ],
+      "token": "20",
+      "expression": "0 20 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        21
+      ],
+      "token": "21",
+      "expression": "0 21 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        22
+      ],
+      "token": "22",
+      "expression": "0 22 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "values",
+      "values": [
+        23
+      ],
+      "token": "23",
+      "expression": "0 23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 0,
+      "last": 23,
+      "token": "0-23",
+      "expression": "0 0-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 1,
+      "last": 23,
+      "token": "1-23",
+      "expression": "0 1-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 2,
+      "last": 23,
+      "token": "2-23",
+      "expression": "0 2-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 3,
+      "last": 23,
+      "token": "3-23",
+      "expression": "0 3-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 4,
+      "last": 23,
+      "token": "4-23",
+      "expression": "0 4-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 5,
+      "last": 23,
+      "token": "5-23",
+      "expression": "0 5-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 6,
+      "last": 23,
+      "token": "6-23",
+      "expression": "0 6-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 7,
+      "last": 23,
+      "token": "7-23",
+      "expression": "0 7-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 8,
+      "last": 23,
+      "token": "8-23",
+      "expression": "0 8-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 9,
+      "last": 23,
+      "token": "9-23",
+      "expression": "0 9-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 10,
+      "last": 23,
+      "token": "10-23",
+      "expression": "0 10-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 11,
+      "last": 23,
+      "token": "11-23",
+      "expression": "0 11-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 12,
+      "last": 23,
+      "token": "12-23",
+      "expression": "0 12-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 13,
+      "last": 23,
+      "token": "13-23",
+      "expression": "0 13-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 14,
+      "last": 23,
+      "token": "14-23",
+      "expression": "0 14-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 15,
+      "last": 23,
+      "token": "15-23",
+      "expression": "0 15-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 16,
+      "last": 23,
+      "token": "16-23",
+      "expression": "0 16-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 17,
+      "last": 23,
+      "token": "17-23",
+      "expression": "0 17-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 18,
+      "last": 23,
+      "token": "18-23",
+      "expression": "0 18-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 19,
+      "last": 23,
+      "token": "19-23",
+      "expression": "0 19-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 20,
+      "last": 23,
+      "token": "20-23",
+      "expression": "0 20-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 21,
+      "last": 23,
+      "token": "21-23",
+      "expression": "0 21-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 22,
+      "last": 23,
+      "token": "22-23",
+      "expression": "0 22-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "range",
+      "first": 23,
+      "last": 23,
+      "token": "23-23",
+      "expression": "0 23-23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 1,
+      "token": "*/1",
+      "expression": "0 */1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 2,
+      "token": "*/2",
+      "expression": "0 */2 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 3,
+      "token": "*/3",
+      "expression": "0 */3 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 4,
+      "token": "*/4",
+      "expression": "0 */4 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 5,
+      "token": "*/5",
+      "expression": "0 */5 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 6,
+      "token": "*/6",
+      "expression": "0 */6 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 7,
+      "token": "*/7",
+      "expression": "0 */7 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 8,
+      "token": "*/8",
+      "expression": "0 */8 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 9,
+      "token": "*/9",
+      "expression": "0 */9 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 10,
+      "token": "*/10",
+      "expression": "0 */10 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 11,
+      "token": "*/11",
+      "expression": "0 */11 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 12,
+      "token": "*/12",
+      "expression": "0 */12 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 13,
+      "token": "*/13",
+      "expression": "0 */13 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 14,
+      "token": "*/14",
+      "expression": "0 */14 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 15,
+      "token": "*/15",
+      "expression": "0 */15 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 16,
+      "token": "*/16",
+      "expression": "0 */16 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 17,
+      "token": "*/17",
+      "expression": "0 */17 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 18,
+      "token": "*/18",
+      "expression": "0 */18 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 19,
+      "token": "*/19",
+      "expression": "0 */19 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 20,
+      "token": "*/20",
+      "expression": "0 */20 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 21,
+      "token": "*/21",
+      "expression": "0 */21 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 22,
+      "token": "*/22",
+      "expression": "0 */22 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": null,
+      "every": 23,
+      "token": "*/23",
+      "expression": "0 */23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 0,
+      "every": 1,
+      "token": "0/1",
+      "expression": "0 0/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 0,
+      "every": 23,
+      "token": "0/23",
+      "expression": "0 0/23 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 1,
+      "every": 1,
+      "token": "1/1",
+      "expression": "0 1/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 1,
+      "every": 22,
+      "token": "1/22",
+      "expression": "0 1/22 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 2,
+      "every": 1,
+      "token": "2/1",
+      "expression": "0 2/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 2,
+      "every": 21,
+      "token": "2/21",
+      "expression": "0 2/21 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 3,
+      "every": 1,
+      "token": "3/1",
+      "expression": "0 3/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 3,
+      "every": 20,
+      "token": "3/20",
+      "expression": "0 3/20 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 4,
+      "every": 1,
+      "token": "4/1",
+      "expression": "0 4/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 4,
+      "every": 19,
+      "token": "4/19",
+      "expression": "0 4/19 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 5,
+      "every": 1,
+      "token": "5/1",
+      "expression": "0 5/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 5,
+      "every": 18,
+      "token": "5/18",
+      "expression": "0 5/18 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 6,
+      "every": 1,
+      "token": "6/1",
+      "expression": "0 6/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 6,
+      "every": 17,
+      "token": "6/17",
+      "expression": "0 6/17 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 7,
+      "every": 1,
+      "token": "7/1",
+      "expression": "0 7/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 7,
+      "every": 16,
+      "token": "7/16",
+      "expression": "0 7/16 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 8,
+      "every": 1,
+      "token": "8/1",
+      "expression": "0 8/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 8,
+      "every": 15,
+      "token": "8/15",
+      "expression": "0 8/15 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 9,
+      "every": 1,
+      "token": "9/1",
+      "expression": "0 9/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 9,
+      "every": 14,
+      "token": "9/14",
+      "expression": "0 9/14 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 10,
+      "every": 1,
+      "token": "10/1",
+      "expression": "0 10/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 10,
+      "every": 13,
+      "token": "10/13",
+      "expression": "0 10/13 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 11,
+      "every": 1,
+      "token": "11/1",
+      "expression": "0 11/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 11,
+      "every": 12,
+      "token": "11/12",
+      "expression": "0 11/12 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 12,
+      "every": 1,
+      "token": "12/1",
+      "expression": "0 12/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 12,
+      "every": 11,
+      "token": "12/11",
+      "expression": "0 12/11 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 13,
+      "every": 1,
+      "token": "13/1",
+      "expression": "0 13/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 13,
+      "every": 10,
+      "token": "13/10",
+      "expression": "0 13/10 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 14,
+      "every": 1,
+      "token": "14/1",
+      "expression": "0 14/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 14,
+      "every": 9,
+      "token": "14/9",
+      "expression": "0 14/9 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 15,
+      "every": 1,
+      "token": "15/1",
+      "expression": "0 15/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 15,
+      "every": 8,
+      "token": "15/8",
+      "expression": "0 15/8 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 16,
+      "every": 1,
+      "token": "16/1",
+      "expression": "0 16/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 16,
+      "every": 7,
+      "token": "16/7",
+      "expression": "0 16/7 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 17,
+      "every": 1,
+      "token": "17/1",
+      "expression": "0 17/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 17,
+      "every": 6,
+      "token": "17/6",
+      "expression": "0 17/6 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 18,
+      "every": 1,
+      "token": "18/1",
+      "expression": "0 18/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 18,
+      "every": 5,
+      "token": "18/5",
+      "expression": "0 18/5 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 19,
+      "every": 1,
+      "token": "19/1",
+      "expression": "0 19/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 19,
+      "every": 4,
+      "token": "19/4",
+      "expression": "0 19/4 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 20,
+      "every": 1,
+      "token": "20/1",
+      "expression": "0 20/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 20,
+      "every": 3,
+      "token": "20/3",
+      "expression": "0 20/3 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 21,
+      "every": 1,
+      "token": "21/1",
+      "expression": "0 21/1 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 21,
+      "every": 2,
+      "token": "21/2",
+      "expression": "0 21/2 * * *"
+    },
+    {
+      "unit": "hour",
+      "kind": "step",
+      "start": 22,
+      "every": 1,
+      "token": "22/1",
+      "expression": "0 22/1 * * *"
+    },
+    {
+      "unit": "day",
+      "kind": "every",
+      "token": "*",
+      "expression": "0 0 * * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        1
+      ],
+      "token": "1",
+      "expression": "0 0 1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        2
+      ],
+      "token": "2",
+      "expression": "0 0 2 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        3
+      ],
+      "token": "3",
+      "expression": "0 0 3 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        4
+      ],
+      "token": "4",
+      "expression": "0 0 4 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        5
+      ],
+      "token": "5",
+      "expression": "0 0 5 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        6
+      ],
+      "token": "6",
+      "expression": "0 0 6 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        7
+      ],
+      "token": "7",
+      "expression": "0 0 7 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        8
+      ],
+      "token": "8",
+      "expression": "0 0 8 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        9
+      ],
+      "token": "9",
+      "expression": "0 0 9 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        10
+      ],
+      "token": "10",
+      "expression": "0 0 10 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        11
+      ],
+      "token": "11",
+      "expression": "0 0 11 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        12
+      ],
+      "token": "12",
+      "expression": "0 0 12 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        13
+      ],
+      "token": "13",
+      "expression": "0 0 13 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        14
+      ],
+      "token": "14",
+      "expression": "0 0 14 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        15
+      ],
+      "token": "15",
+      "expression": "0 0 15 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        16
+      ],
+      "token": "16",
+      "expression": "0 0 16 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        17
+      ],
+      "token": "17",
+      "expression": "0 0 17 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        18
+      ],
+      "token": "18",
+      "expression": "0 0 18 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        19
+      ],
+      "token": "19",
+      "expression": "0 0 19 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        20
+      ],
+      "token": "20",
+      "expression": "0 0 20 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        21
+      ],
+      "token": "21",
+      "expression": "0 0 21 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        22
+      ],
+      "token": "22",
+      "expression": "0 0 22 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        23
+      ],
+      "token": "23",
+      "expression": "0 0 23 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        24
+      ],
+      "token": "24",
+      "expression": "0 0 24 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        25
+      ],
+      "token": "25",
+      "expression": "0 0 25 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        26
+      ],
+      "token": "26",
+      "expression": "0 0 26 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        27
+      ],
+      "token": "27",
+      "expression": "0 0 27 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        28
+      ],
+      "token": "28",
+      "expression": "0 0 28 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        29
+      ],
+      "token": "29",
+      "expression": "0 0 29 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        30
+      ],
+      "token": "30",
+      "expression": "0 0 30 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "values",
+      "values": [
+        31
+      ],
+      "token": "31",
+      "expression": "0 0 31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 1,
+      "last": 31,
+      "token": "1-31",
+      "expression": "0 0 1-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 2,
+      "last": 31,
+      "token": "2-31",
+      "expression": "0 0 2-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 3,
+      "last": 31,
+      "token": "3-31",
+      "expression": "0 0 3-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 4,
+      "last": 31,
+      "token": "4-31",
+      "expression": "0 0 4-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 5,
+      "last": 31,
+      "token": "5-31",
+      "expression": "0 0 5-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 6,
+      "last": 31,
+      "token": "6-31",
+      "expression": "0 0 6-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 7,
+      "last": 31,
+      "token": "7-31",
+      "expression": "0 0 7-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 8,
+      "last": 31,
+      "token": "8-31",
+      "expression": "0 0 8-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 9,
+      "last": 31,
+      "token": "9-31",
+      "expression": "0 0 9-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 10,
+      "last": 31,
+      "token": "10-31",
+      "expression": "0 0 10-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 11,
+      "last": 31,
+      "token": "11-31",
+      "expression": "0 0 11-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 12,
+      "last": 31,
+      "token": "12-31",
+      "expression": "0 0 12-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 13,
+      "last": 31,
+      "token": "13-31",
+      "expression": "0 0 13-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 14,
+      "last": 31,
+      "token": "14-31",
+      "expression": "0 0 14-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 15,
+      "last": 31,
+      "token": "15-31",
+      "expression": "0 0 15-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 16,
+      "last": 31,
+      "token": "16-31",
+      "expression": "0 0 16-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 17,
+      "last": 31,
+      "token": "17-31",
+      "expression": "0 0 17-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 18,
+      "last": 31,
+      "token": "18-31",
+      "expression": "0 0 18-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 19,
+      "last": 31,
+      "token": "19-31",
+      "expression": "0 0 19-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 20,
+      "last": 31,
+      "token": "20-31",
+      "expression": "0 0 20-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 21,
+      "last": 31,
+      "token": "21-31",
+      "expression": "0 0 21-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 22,
+      "last": 31,
+      "token": "22-31",
+      "expression": "0 0 22-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 23,
+      "last": 31,
+      "token": "23-31",
+      "expression": "0 0 23-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 24,
+      "last": 31,
+      "token": "24-31",
+      "expression": "0 0 24-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 25,
+      "last": 31,
+      "token": "25-31",
+      "expression": "0 0 25-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 26,
+      "last": 31,
+      "token": "26-31",
+      "expression": "0 0 26-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 27,
+      "last": 31,
+      "token": "27-31",
+      "expression": "0 0 27-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 28,
+      "last": 31,
+      "token": "28-31",
+      "expression": "0 0 28-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 29,
+      "last": 31,
+      "token": "29-31",
+      "expression": "0 0 29-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 30,
+      "last": 31,
+      "token": "30-31",
+      "expression": "0 0 30-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "range",
+      "first": 31,
+      "last": 31,
+      "token": "31-31",
+      "expression": "0 0 31-31 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 1,
+      "token": "*/1",
+      "expression": "0 0 */1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 2,
+      "token": "*/2",
+      "expression": "0 0 */2 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 3,
+      "token": "*/3",
+      "expression": "0 0 */3 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 4,
+      "token": "*/4",
+      "expression": "0 0 */4 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 5,
+      "token": "*/5",
+      "expression": "0 0 */5 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 6,
+      "token": "*/6",
+      "expression": "0 0 */6 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 7,
+      "token": "*/7",
+      "expression": "0 0 */7 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 8,
+      "token": "*/8",
+      "expression": "0 0 */8 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 9,
+      "token": "*/9",
+      "expression": "0 0 */9 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 10,
+      "token": "*/10",
+      "expression": "0 0 */10 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 11,
+      "token": "*/11",
+      "expression": "0 0 */11 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 12,
+      "token": "*/12",
+      "expression": "0 0 */12 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 13,
+      "token": "*/13",
+      "expression": "0 0 */13 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 14,
+      "token": "*/14",
+      "expression": "0 0 */14 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 15,
+      "token": "*/15",
+      "expression": "0 0 */15 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 16,
+      "token": "*/16",
+      "expression": "0 0 */16 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 17,
+      "token": "*/17",
+      "expression": "0 0 */17 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 18,
+      "token": "*/18",
+      "expression": "0 0 */18 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 19,
+      "token": "*/19",
+      "expression": "0 0 */19 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 20,
+      "token": "*/20",
+      "expression": "0 0 */20 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 21,
+      "token": "*/21",
+      "expression": "0 0 */21 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 22,
+      "token": "*/22",
+      "expression": "0 0 */22 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 23,
+      "token": "*/23",
+      "expression": "0 0 */23 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 24,
+      "token": "*/24",
+      "expression": "0 0 */24 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 25,
+      "token": "*/25",
+      "expression": "0 0 */25 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 26,
+      "token": "*/26",
+      "expression": "0 0 */26 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 27,
+      "token": "*/27",
+      "expression": "0 0 */27 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 28,
+      "token": "*/28",
+      "expression": "0 0 */28 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 29,
+      "token": "*/29",
+      "expression": "0 0 */29 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": null,
+      "every": 30,
+      "token": "*/30",
+      "expression": "0 0 */30 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 1,
+      "every": 1,
+      "token": "1/1",
+      "expression": "0 0 1/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 1,
+      "every": 30,
+      "token": "1/30",
+      "expression": "0 0 1/30 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 2,
+      "every": 1,
+      "token": "2/1",
+      "expression": "0 0 2/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 2,
+      "every": 29,
+      "token": "2/29",
+      "expression": "0 0 2/29 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 3,
+      "every": 1,
+      "token": "3/1",
+      "expression": "0 0 3/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 3,
+      "every": 28,
+      "token": "3/28",
+      "expression": "0 0 3/28 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 4,
+      "every": 1,
+      "token": "4/1",
+      "expression": "0 0 4/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 4,
+      "every": 27,
+      "token": "4/27",
+      "expression": "0 0 4/27 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 5,
+      "every": 1,
+      "token": "5/1",
+      "expression": "0 0 5/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 5,
+      "every": 26,
+      "token": "5/26",
+      "expression": "0 0 5/26 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 6,
+      "every": 1,
+      "token": "6/1",
+      "expression": "0 0 6/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 6,
+      "every": 25,
+      "token": "6/25",
+      "expression": "0 0 6/25 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 7,
+      "every": 1,
+      "token": "7/1",
+      "expression": "0 0 7/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 7,
+      "every": 24,
+      "token": "7/24",
+      "expression": "0 0 7/24 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 8,
+      "every": 1,
+      "token": "8/1",
+      "expression": "0 0 8/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 8,
+      "every": 23,
+      "token": "8/23",
+      "expression": "0 0 8/23 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 9,
+      "every": 1,
+      "token": "9/1",
+      "expression": "0 0 9/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 9,
+      "every": 22,
+      "token": "9/22",
+      "expression": "0 0 9/22 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 10,
+      "every": 1,
+      "token": "10/1",
+      "expression": "0 0 10/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 10,
+      "every": 21,
+      "token": "10/21",
+      "expression": "0 0 10/21 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 11,
+      "every": 1,
+      "token": "11/1",
+      "expression": "0 0 11/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 11,
+      "every": 20,
+      "token": "11/20",
+      "expression": "0 0 11/20 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 12,
+      "every": 1,
+      "token": "12/1",
+      "expression": "0 0 12/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 12,
+      "every": 19,
+      "token": "12/19",
+      "expression": "0 0 12/19 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 13,
+      "every": 1,
+      "token": "13/1",
+      "expression": "0 0 13/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 13,
+      "every": 18,
+      "token": "13/18",
+      "expression": "0 0 13/18 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 14,
+      "every": 1,
+      "token": "14/1",
+      "expression": "0 0 14/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 14,
+      "every": 17,
+      "token": "14/17",
+      "expression": "0 0 14/17 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 15,
+      "every": 1,
+      "token": "15/1",
+      "expression": "0 0 15/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 15,
+      "every": 16,
+      "token": "15/16",
+      "expression": "0 0 15/16 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 16,
+      "every": 1,
+      "token": "16/1",
+      "expression": "0 0 16/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 16,
+      "every": 15,
+      "token": "16/15",
+      "expression": "0 0 16/15 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 17,
+      "every": 1,
+      "token": "17/1",
+      "expression": "0 0 17/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 17,
+      "every": 14,
+      "token": "17/14",
+      "expression": "0 0 17/14 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 18,
+      "every": 1,
+      "token": "18/1",
+      "expression": "0 0 18/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 18,
+      "every": 13,
+      "token": "18/13",
+      "expression": "0 0 18/13 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 19,
+      "every": 1,
+      "token": "19/1",
+      "expression": "0 0 19/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 19,
+      "every": 12,
+      "token": "19/12",
+      "expression": "0 0 19/12 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 20,
+      "every": 1,
+      "token": "20/1",
+      "expression": "0 0 20/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 20,
+      "every": 11,
+      "token": "20/11",
+      "expression": "0 0 20/11 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 21,
+      "every": 1,
+      "token": "21/1",
+      "expression": "0 0 21/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 21,
+      "every": 10,
+      "token": "21/10",
+      "expression": "0 0 21/10 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 22,
+      "every": 1,
+      "token": "22/1",
+      "expression": "0 0 22/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 22,
+      "every": 9,
+      "token": "22/9",
+      "expression": "0 0 22/9 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 23,
+      "every": 1,
+      "token": "23/1",
+      "expression": "0 0 23/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 23,
+      "every": 8,
+      "token": "23/8",
+      "expression": "0 0 23/8 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 24,
+      "every": 1,
+      "token": "24/1",
+      "expression": "0 0 24/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 24,
+      "every": 7,
+      "token": "24/7",
+      "expression": "0 0 24/7 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 25,
+      "every": 1,
+      "token": "25/1",
+      "expression": "0 0 25/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 25,
+      "every": 6,
+      "token": "25/6",
+      "expression": "0 0 25/6 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 26,
+      "every": 1,
+      "token": "26/1",
+      "expression": "0 0 26/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 26,
+      "every": 5,
+      "token": "26/5",
+      "expression": "0 0 26/5 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 27,
+      "every": 1,
+      "token": "27/1",
+      "expression": "0 0 27/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 27,
+      "every": 4,
+      "token": "27/4",
+      "expression": "0 0 27/4 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 28,
+      "every": 1,
+      "token": "28/1",
+      "expression": "0 0 28/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 28,
+      "every": 3,
+      "token": "28/3",
+      "expression": "0 0 28/3 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 29,
+      "every": 1,
+      "token": "29/1",
+      "expression": "0 0 29/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 29,
+      "every": 2,
+      "token": "29/2",
+      "expression": "0 0 29/2 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "step",
+      "start": 30,
+      "every": 1,
+      "token": "30/1",
+      "expression": "0 0 30/1 * *"
+    },
+    {
+      "unit": "day",
+      "kind": "lastDay",
+      "token": "last",
+      "expression": "0 0 last * *"
+    },
+    {
+      "unit": "month",
+      "kind": "every",
+      "token": "*",
+      "expression": "0 0 * * *"
+    },
+    {
+      "unit": "month",
+      "kind": "values",
+      "values": [
+        1
+      ],
+      "token": "1",
+      "expression": "0 0 * 1 *"
+    },
+    {
+      "unit": "month",
+      "kind": "values",
+      "values": [
+        2
+      ],
+      "token": "2",
+      "expression": "0 0 * 2 *"
+    },
+    {
+      "unit": "month",
+      "kind": "values",
+      "values": [
+        3
+      ],
+      "token": "3",
+      "expression": "0 0 * 3 *"
+    },
+    {
+      "unit": "month",
+      "kind": "values",
+      "values": [
+        4
+      ],
+      "token": "4",
+      "expression": "0 0 * 4 *"
+    },
+    {
+      "unit": "month",
+      "kind": "values",
+      "values": [
+        5
+      ],
+      "token": "5",
+      "expression": "0 0 * 5 *"
+    },
+    {
+      "unit": "month",
+      "kind": "values",
+      "values": [
+        6
+      ],
+      "token": "6",
+      "expression": "0 0 * 6 *"
+    },
+    {
+      "unit": "month",
+      "kind": "values",
+      "values": [
+        7
+      ],
+      "token": "7",
+      "expression": "0 0 * 7 *"
+    },
+    {
+      "unit": "month",
+      "kind": "values",
+      "values": [
+        8
+      ],
+      "token": "8",
+      "expression": "0 0 * 8 *"
+    },
+    {
+      "unit": "month",
+      "kind": "values",
+      "values": [
+        9
+      ],
+      "token": "9",
+      "expression": "0 0 * 9 *"
+    },
+    {
+      "unit": "month",
+      "kind": "values",
+      "values": [
+        10
+      ],
+      "token": "10",
+      "expression": "0 0 * 10 *"
+    },
+    {
+      "unit": "month",
+      "kind": "values",
+      "values": [
+        11
+      ],
+      "token": "11",
+      "expression": "0 0 * 11 *"
+    },
+    {
+      "unit": "month",
+      "kind": "values",
+      "values": [
+        12
+      ],
+      "token": "12",
+      "expression": "0 0 * 12 *"
+    },
+    {
+      "unit": "month",
+      "kind": "range",
+      "first": 1,
+      "last": 12,
+      "token": "1-12",
+      "expression": "0 0 * 1-12 *"
+    },
+    {
+      "unit": "month",
+      "kind": "range",
+      "first": 2,
+      "last": 12,
+      "token": "2-12",
+      "expression": "0 0 * 2-12 *"
+    },
+    {
+      "unit": "month",
+      "kind": "range",
+      "first": 3,
+      "last": 12,
+      "token": "3-12",
+      "expression": "0 0 * 3-12 *"
+    },
+    {
+      "unit": "month",
+      "kind": "range",
+      "first": 4,
+      "last": 12,
+      "token": "4-12",
+      "expression": "0 0 * 4-12 *"
+    },
+    {
+      "unit": "month",
+      "kind": "range",
+      "first": 5,
+      "last": 12,
+      "token": "5-12",
+      "expression": "0 0 * 5-12 *"
+    },
+    {
+      "unit": "month",
+      "kind": "range",
+      "first": 6,
+      "last": 12,
+      "token": "6-12",
+      "expression": "0 0 * 6-12 *"
+    },
+    {
+      "unit": "month",
+      "kind": "range",
+      "first": 7,
+      "last": 12,
+      "token": "7-12",
+      "expression": "0 0 * 7-12 *"
+    },
+    {
+      "unit": "month",
+      "kind": "range",
+      "first": 8,
+      "last": 12,
+      "token": "8-12",
+      "expression": "0 0 * 8-12 *"
+    },
+    {
+      "unit": "month",
+      "kind": "range",
+      "first": 9,
+      "last": 12,
+      "token": "9-12",
+      "expression": "0 0 * 9-12 *"
+    },
+    {
+      "unit": "month",
+      "kind": "range",
+      "first": 10,
+      "last": 12,
+      "token": "10-12",
+      "expression": "0 0 * 10-12 *"
+    },
+    {
+      "unit": "month",
+      "kind": "range",
+      "first": 11,
+      "last": 12,
+      "token": "11-12",
+      "expression": "0 0 * 11-12 *"
+    },
+    {
+      "unit": "month",
+      "kind": "range",
+      "first": 12,
+      "last": 12,
+      "token": "12-12",
+      "expression": "0 0 * 12-12 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": null,
+      "every": 1,
+      "token": "*/1",
+      "expression": "0 0 * */1 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": null,
+      "every": 2,
+      "token": "*/2",
+      "expression": "0 0 * */2 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": null,
+      "every": 3,
+      "token": "*/3",
+      "expression": "0 0 * */3 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": null,
+      "every": 4,
+      "token": "*/4",
+      "expression": "0 0 * */4 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": null,
+      "every": 5,
+      "token": "*/5",
+      "expression": "0 0 * */5 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": null,
+      "every": 6,
+      "token": "*/6",
+      "expression": "0 0 * */6 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": null,
+      "every": 7,
+      "token": "*/7",
+      "expression": "0 0 * */7 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": null,
+      "every": 8,
+      "token": "*/8",
+      "expression": "0 0 * */8 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": null,
+      "every": 9,
+      "token": "*/9",
+      "expression": "0 0 * */9 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": null,
+      "every": 10,
+      "token": "*/10",
+      "expression": "0 0 * */10 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": null,
+      "every": 11,
+      "token": "*/11",
+      "expression": "0 0 * */11 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 1,
+      "every": 1,
+      "token": "1/1",
+      "expression": "0 0 * 1/1 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 1,
+      "every": 11,
+      "token": "1/11",
+      "expression": "0 0 * 1/11 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 2,
+      "every": 1,
+      "token": "2/1",
+      "expression": "0 0 * 2/1 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 2,
+      "every": 10,
+      "token": "2/10",
+      "expression": "0 0 * 2/10 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 3,
+      "every": 1,
+      "token": "3/1",
+      "expression": "0 0 * 3/1 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 3,
+      "every": 9,
+      "token": "3/9",
+      "expression": "0 0 * 3/9 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 4,
+      "every": 1,
+      "token": "4/1",
+      "expression": "0 0 * 4/1 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 4,
+      "every": 8,
+      "token": "4/8",
+      "expression": "0 0 * 4/8 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 5,
+      "every": 1,
+      "token": "5/1",
+      "expression": "0 0 * 5/1 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 5,
+      "every": 7,
+      "token": "5/7",
+      "expression": "0 0 * 5/7 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 6,
+      "every": 1,
+      "token": "6/1",
+      "expression": "0 0 * 6/1 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 6,
+      "every": 6,
+      "token": "6/6",
+      "expression": "0 0 * 6/6 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 7,
+      "every": 1,
+      "token": "7/1",
+      "expression": "0 0 * 7/1 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 7,
+      "every": 5,
+      "token": "7/5",
+      "expression": "0 0 * 7/5 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 8,
+      "every": 1,
+      "token": "8/1",
+      "expression": "0 0 * 8/1 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 8,
+      "every": 4,
+      "token": "8/4",
+      "expression": "0 0 * 8/4 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 9,
+      "every": 1,
+      "token": "9/1",
+      "expression": "0 0 * 9/1 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 9,
+      "every": 3,
+      "token": "9/3",
+      "expression": "0 0 * 9/3 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 10,
+      "every": 1,
+      "token": "10/1",
+      "expression": "0 0 * 10/1 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 10,
+      "every": 2,
+      "token": "10/2",
+      "expression": "0 0 * 10/2 *"
+    },
+    {
+      "unit": "month",
+      "kind": "step",
+      "start": 11,
+      "every": 1,
+      "token": "11/1",
+      "expression": "0 0 * 11/1 *"
+    },
+    {
+      "unit": "weekday",
+      "kind": "every",
+      "token": "*",
+      "expression": "0 0 * * *"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0
+      ],
+      "token": "mon",
+      "expression": "0 0 * * mon"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1
+      ],
+      "token": "tue",
+      "expression": "0 0 * * tue"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2
+      ],
+      "token": "wed",
+      "expression": "0 0 * * wed"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        3
+      ],
+      "token": "thu",
+      "expression": "0 0 * * thu"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        4
+      ],
+      "token": "fri",
+      "expression": "0 0 * * fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        5
+      ],
+      "token": "sat",
+      "expression": "0 0 * * sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        6
+      ],
+      "token": "sun",
+      "expression": "0 0 * * sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "range",
+      "first": 0,
+      "last": 6,
+      "token": "mon-sun",
+      "expression": "0 0 * * mon-sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "range",
+      "first": 1,
+      "last": 6,
+      "token": "tue-sun",
+      "expression": "0 0 * * tue-sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "range",
+      "first": 2,
+      "last": 6,
+      "token": "wed-sun",
+      "expression": "0 0 * * wed-sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "range",
+      "first": 3,
+      "last": 6,
+      "token": "thu-sun",
+      "expression": "0 0 * * thu-sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "range",
+      "first": 4,
+      "last": 6,
+      "token": "fri-sun",
+      "expression": "0 0 * * fri-sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "range",
+      "first": 5,
+      "last": 6,
+      "token": "sat-sun",
+      "expression": "0 0 * * sat-sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "range",
+      "first": 6,
+      "last": 6,
+      "token": "sun-sun",
+      "expression": "0 0 * * sun-sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": null,
+      "every": 1,
+      "token": "mon,tue,wed,thu,fri,sat,sun",
+      "expression": "0 0 * * mon,tue,wed,thu,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": null,
+      "every": 2,
+      "token": "mon,wed,fri,sun",
+      "expression": "0 0 * * mon,wed,fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": null,
+      "every": 3,
+      "token": "mon,thu,sun",
+      "expression": "0 0 * * mon,thu,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": null,
+      "every": 4,
+      "token": "mon,fri",
+      "expression": "0 0 * * mon,fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": null,
+      "every": 5,
+      "token": "mon,sat",
+      "expression": "0 0 * * mon,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": null,
+      "every": 6,
+      "token": "mon,sun",
+      "expression": "0 0 * * mon,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": 0,
+      "every": 1,
+      "token": "mon,tue,wed,thu,fri,sat,sun",
+      "expression": "0 0 * * mon,tue,wed,thu,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": 0,
+      "every": 6,
+      "token": "mon,sun",
+      "expression": "0 0 * * mon,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": 1,
+      "every": 1,
+      "token": "tue,wed,thu,fri,sat,sun",
+      "expression": "0 0 * * tue,wed,thu,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": 1,
+      "every": 5,
+      "token": "tue,sun",
+      "expression": "0 0 * * tue,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": 2,
+      "every": 1,
+      "token": "wed,thu,fri,sat,sun",
+      "expression": "0 0 * * wed,thu,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": 2,
+      "every": 4,
+      "token": "wed,sun",
+      "expression": "0 0 * * wed,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": 3,
+      "every": 1,
+      "token": "thu,fri,sat,sun",
+      "expression": "0 0 * * thu,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": 3,
+      "every": 3,
+      "token": "thu,sun",
+      "expression": "0 0 * * thu,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": 4,
+      "every": 1,
+      "token": "fri,sat,sun",
+      "expression": "0 0 * * fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": 4,
+      "every": 2,
+      "token": "fri,sun",
+      "expression": "0 0 * * fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "step",
+      "start": 5,
+      "every": 1,
+      "token": "sat,sun",
+      "expression": "0 0 * * sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0
+      ],
+      "token": "mon",
+      "expression": "0 0 * * mon"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1
+      ],
+      "token": "tue",
+      "expression": "0 0 * * tue"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1
+      ],
+      "token": "mon,tue",
+      "expression": "0 0 * * mon,tue"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2
+      ],
+      "token": "wed",
+      "expression": "0 0 * * wed"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        2
+      ],
+      "token": "mon,wed",
+      "expression": "0 0 * * mon,wed"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        2
+      ],
+      "token": "tue,wed",
+      "expression": "0 0 * * tue,wed"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        2
+      ],
+      "token": "mon,tue,wed",
+      "expression": "0 0 * * mon,tue,wed"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        3
+      ],
+      "token": "thu",
+      "expression": "0 0 * * thu"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        3
+      ],
+      "token": "mon,thu",
+      "expression": "0 0 * * mon,thu"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        3
+      ],
+      "token": "tue,thu",
+      "expression": "0 0 * * tue,thu"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        3
+      ],
+      "token": "mon,tue,thu",
+      "expression": "0 0 * * mon,tue,thu"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2,
+        3
+      ],
+      "token": "wed,thu",
+      "expression": "0 0 * * wed,thu"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        2,
+        3
+      ],
+      "token": "mon,wed,thu",
+      "expression": "0 0 * * mon,wed,thu"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        2,
+        3
+      ],
+      "token": "tue,wed,thu",
+      "expression": "0 0 * * tue,wed,thu"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "token": "mon,tue,wed,thu",
+      "expression": "0 0 * * mon,tue,wed,thu"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        4
+      ],
+      "token": "fri",
+      "expression": "0 0 * * fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        4
+      ],
+      "token": "mon,fri",
+      "expression": "0 0 * * mon,fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        4
+      ],
+      "token": "tue,fri",
+      "expression": "0 0 * * tue,fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        4
+      ],
+      "token": "mon,tue,fri",
+      "expression": "0 0 * * mon,tue,fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2,
+        4
+      ],
+      "token": "wed,fri",
+      "expression": "0 0 * * wed,fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        2,
+        4
+      ],
+      "token": "mon,wed,fri",
+      "expression": "0 0 * * mon,wed,fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        2,
+        4
+      ],
+      "token": "tue,wed,fri",
+      "expression": "0 0 * * tue,wed,fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        2,
+        4
+      ],
+      "token": "mon,tue,wed,fri",
+      "expression": "0 0 * * mon,tue,wed,fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        3,
+        4
+      ],
+      "token": "thu,fri",
+      "expression": "0 0 * * thu,fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        3,
+        4
+      ],
+      "token": "mon,thu,fri",
+      "expression": "0 0 * * mon,thu,fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        3,
+        4
+      ],
+      "token": "tue,thu,fri",
+      "expression": "0 0 * * tue,thu,fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "token": "mon,tue,thu,fri",
+      "expression": "0 0 * * mon,tue,thu,fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2,
+        3,
+        4
+      ],
+      "token": "wed,thu,fri",
+      "expression": "0 0 * * wed,thu,fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        2,
+        3,
+        4
+      ],
+      "token": "mon,wed,thu,fri",
+      "expression": "0 0 * * mon,wed,thu,fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "token": "tue,wed,thu,fri",
+      "expression": "0 0 * * tue,wed,thu,fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "token": "mon,tue,wed,thu,fri",
+      "expression": "0 0 * * mon,tue,wed,thu,fri"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        5
+      ],
+      "token": "sat",
+      "expression": "0 0 * * sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        5
+      ],
+      "token": "mon,sat",
+      "expression": "0 0 * * mon,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        5
+      ],
+      "token": "tue,sat",
+      "expression": "0 0 * * tue,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        5
+      ],
+      "token": "mon,tue,sat",
+      "expression": "0 0 * * mon,tue,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2,
+        5
+      ],
+      "token": "wed,sat",
+      "expression": "0 0 * * wed,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        2,
+        5
+      ],
+      "token": "mon,wed,sat",
+      "expression": "0 0 * * mon,wed,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        2,
+        5
+      ],
+      "token": "tue,wed,sat",
+      "expression": "0 0 * * tue,wed,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        2,
+        5
+      ],
+      "token": "mon,tue,wed,sat",
+      "expression": "0 0 * * mon,tue,wed,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        3,
+        5
+      ],
+      "token": "thu,sat",
+      "expression": "0 0 * * thu,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        3,
+        5
+      ],
+      "token": "mon,thu,sat",
+      "expression": "0 0 * * mon,thu,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        3,
+        5
+      ],
+      "token": "tue,thu,sat",
+      "expression": "0 0 * * tue,thu,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        3,
+        5
+      ],
+      "token": "mon,tue,thu,sat",
+      "expression": "0 0 * * mon,tue,thu,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2,
+        3,
+        5
+      ],
+      "token": "wed,thu,sat",
+      "expression": "0 0 * * wed,thu,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        2,
+        3,
+        5
+      ],
+      "token": "mon,wed,thu,sat",
+      "expression": "0 0 * * mon,wed,thu,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        2,
+        3,
+        5
+      ],
+      "token": "tue,wed,thu,sat",
+      "expression": "0 0 * * tue,wed,thu,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        2,
+        3,
+        5
+      ],
+      "token": "mon,tue,wed,thu,sat",
+      "expression": "0 0 * * mon,tue,wed,thu,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        4,
+        5
+      ],
+      "token": "fri,sat",
+      "expression": "0 0 * * fri,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        4,
+        5
+      ],
+      "token": "mon,fri,sat",
+      "expression": "0 0 * * mon,fri,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        4,
+        5
+      ],
+      "token": "tue,fri,sat",
+      "expression": "0 0 * * tue,fri,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        4,
+        5
+      ],
+      "token": "mon,tue,fri,sat",
+      "expression": "0 0 * * mon,tue,fri,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2,
+        4,
+        5
+      ],
+      "token": "wed,fri,sat",
+      "expression": "0 0 * * wed,fri,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        2,
+        4,
+        5
+      ],
+      "token": "mon,wed,fri,sat",
+      "expression": "0 0 * * mon,wed,fri,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        2,
+        4,
+        5
+      ],
+      "token": "tue,wed,fri,sat",
+      "expression": "0 0 * * tue,wed,fri,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        2,
+        4,
+        5
+      ],
+      "token": "mon,tue,wed,fri,sat",
+      "expression": "0 0 * * mon,tue,wed,fri,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        3,
+        4,
+        5
+      ],
+      "token": "thu,fri,sat",
+      "expression": "0 0 * * thu,fri,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        3,
+        4,
+        5
+      ],
+      "token": "mon,thu,fri,sat",
+      "expression": "0 0 * * mon,thu,fri,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        3,
+        4,
+        5
+      ],
+      "token": "tue,thu,fri,sat",
+      "expression": "0 0 * * tue,thu,fri,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        3,
+        4,
+        5
+      ],
+      "token": "mon,tue,thu,fri,sat",
+      "expression": "0 0 * * mon,tue,thu,fri,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2,
+        3,
+        4,
+        5
+      ],
+      "token": "wed,thu,fri,sat",
+      "expression": "0 0 * * wed,thu,fri,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        2,
+        3,
+        4,
+        5
+      ],
+      "token": "mon,wed,thu,fri,sat",
+      "expression": "0 0 * * mon,wed,thu,fri,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "token": "tue,wed,thu,fri,sat",
+      "expression": "0 0 * * tue,wed,thu,fri,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "token": "mon,tue,wed,thu,fri,sat",
+      "expression": "0 0 * * mon,tue,wed,thu,fri,sat"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        6
+      ],
+      "token": "sun",
+      "expression": "0 0 * * sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        6
+      ],
+      "token": "mon,sun",
+      "expression": "0 0 * * mon,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        6
+      ],
+      "token": "tue,sun",
+      "expression": "0 0 * * tue,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        6
+      ],
+      "token": "mon,tue,sun",
+      "expression": "0 0 * * mon,tue,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2,
+        6
+      ],
+      "token": "wed,sun",
+      "expression": "0 0 * * wed,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        2,
+        6
+      ],
+      "token": "mon,wed,sun",
+      "expression": "0 0 * * mon,wed,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        2,
+        6
+      ],
+      "token": "tue,wed,sun",
+      "expression": "0 0 * * tue,wed,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        2,
+        6
+      ],
+      "token": "mon,tue,wed,sun",
+      "expression": "0 0 * * mon,tue,wed,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        3,
+        6
+      ],
+      "token": "thu,sun",
+      "expression": "0 0 * * thu,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        3,
+        6
+      ],
+      "token": "mon,thu,sun",
+      "expression": "0 0 * * mon,thu,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        3,
+        6
+      ],
+      "token": "tue,thu,sun",
+      "expression": "0 0 * * tue,thu,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        3,
+        6
+      ],
+      "token": "mon,tue,thu,sun",
+      "expression": "0 0 * * mon,tue,thu,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2,
+        3,
+        6
+      ],
+      "token": "wed,thu,sun",
+      "expression": "0 0 * * wed,thu,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        2,
+        3,
+        6
+      ],
+      "token": "mon,wed,thu,sun",
+      "expression": "0 0 * * mon,wed,thu,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        2,
+        3,
+        6
+      ],
+      "token": "tue,wed,thu,sun",
+      "expression": "0 0 * * tue,wed,thu,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        2,
+        3,
+        6
+      ],
+      "token": "mon,tue,wed,thu,sun",
+      "expression": "0 0 * * mon,tue,wed,thu,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        4,
+        6
+      ],
+      "token": "fri,sun",
+      "expression": "0 0 * * fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        4,
+        6
+      ],
+      "token": "mon,fri,sun",
+      "expression": "0 0 * * mon,fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        4,
+        6
+      ],
+      "token": "tue,fri,sun",
+      "expression": "0 0 * * tue,fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        4,
+        6
+      ],
+      "token": "mon,tue,fri,sun",
+      "expression": "0 0 * * mon,tue,fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2,
+        4,
+        6
+      ],
+      "token": "wed,fri,sun",
+      "expression": "0 0 * * wed,fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        2,
+        4,
+        6
+      ],
+      "token": "mon,wed,fri,sun",
+      "expression": "0 0 * * mon,wed,fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "token": "tue,wed,fri,sun",
+      "expression": "0 0 * * tue,wed,fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        2,
+        4,
+        6
+      ],
+      "token": "mon,tue,wed,fri,sun",
+      "expression": "0 0 * * mon,tue,wed,fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        3,
+        4,
+        6
+      ],
+      "token": "thu,fri,sun",
+      "expression": "0 0 * * thu,fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        3,
+        4,
+        6
+      ],
+      "token": "mon,thu,fri,sun",
+      "expression": "0 0 * * mon,thu,fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        3,
+        4,
+        6
+      ],
+      "token": "tue,thu,fri,sun",
+      "expression": "0 0 * * tue,thu,fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        3,
+        4,
+        6
+      ],
+      "token": "mon,tue,thu,fri,sun",
+      "expression": "0 0 * * mon,tue,thu,fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2,
+        3,
+        4,
+        6
+      ],
+      "token": "wed,thu,fri,sun",
+      "expression": "0 0 * * wed,thu,fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        2,
+        3,
+        4,
+        6
+      ],
+      "token": "mon,wed,thu,fri,sun",
+      "expression": "0 0 * * mon,wed,thu,fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        2,
+        3,
+        4,
+        6
+      ],
+      "token": "tue,wed,thu,fri,sun",
+      "expression": "0 0 * * tue,wed,thu,fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6
+      ],
+      "token": "mon,tue,wed,thu,fri,sun",
+      "expression": "0 0 * * mon,tue,wed,thu,fri,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        5,
+        6
+      ],
+      "token": "sat,sun",
+      "expression": "0 0 * * sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        5,
+        6
+      ],
+      "token": "mon,sat,sun",
+      "expression": "0 0 * * mon,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        5,
+        6
+      ],
+      "token": "tue,sat,sun",
+      "expression": "0 0 * * tue,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        5,
+        6
+      ],
+      "token": "mon,tue,sat,sun",
+      "expression": "0 0 * * mon,tue,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2,
+        5,
+        6
+      ],
+      "token": "wed,sat,sun",
+      "expression": "0 0 * * wed,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        2,
+        5,
+        6
+      ],
+      "token": "mon,wed,sat,sun",
+      "expression": "0 0 * * mon,wed,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        2,
+        5,
+        6
+      ],
+      "token": "tue,wed,sat,sun",
+      "expression": "0 0 * * tue,wed,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        2,
+        5,
+        6
+      ],
+      "token": "mon,tue,wed,sat,sun",
+      "expression": "0 0 * * mon,tue,wed,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        3,
+        5,
+        6
+      ],
+      "token": "thu,sat,sun",
+      "expression": "0 0 * * thu,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        3,
+        5,
+        6
+      ],
+      "token": "mon,thu,sat,sun",
+      "expression": "0 0 * * mon,thu,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        3,
+        5,
+        6
+      ],
+      "token": "tue,thu,sat,sun",
+      "expression": "0 0 * * tue,thu,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        3,
+        5,
+        6
+      ],
+      "token": "mon,tue,thu,sat,sun",
+      "expression": "0 0 * * mon,tue,thu,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2,
+        3,
+        5,
+        6
+      ],
+      "token": "wed,thu,sat,sun",
+      "expression": "0 0 * * wed,thu,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        2,
+        3,
+        5,
+        6
+      ],
+      "token": "mon,wed,thu,sat,sun",
+      "expression": "0 0 * * mon,wed,thu,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        2,
+        3,
+        5,
+        6
+      ],
+      "token": "tue,wed,thu,sat,sun",
+      "expression": "0 0 * * tue,wed,thu,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        6
+      ],
+      "token": "mon,tue,wed,thu,sat,sun",
+      "expression": "0 0 * * mon,tue,wed,thu,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        4,
+        5,
+        6
+      ],
+      "token": "fri,sat,sun",
+      "expression": "0 0 * * fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        4,
+        5,
+        6
+      ],
+      "token": "mon,fri,sat,sun",
+      "expression": "0 0 * * mon,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        4,
+        5,
+        6
+      ],
+      "token": "tue,fri,sat,sun",
+      "expression": "0 0 * * tue,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        4,
+        5,
+        6
+      ],
+      "token": "mon,tue,fri,sat,sun",
+      "expression": "0 0 * * mon,tue,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2,
+        4,
+        5,
+        6
+      ],
+      "token": "wed,fri,sat,sun",
+      "expression": "0 0 * * wed,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        2,
+        4,
+        5,
+        6
+      ],
+      "token": "mon,wed,fri,sat,sun",
+      "expression": "0 0 * * mon,wed,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        2,
+        4,
+        5,
+        6
+      ],
+      "token": "tue,wed,fri,sat,sun",
+      "expression": "0 0 * * tue,wed,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        2,
+        4,
+        5,
+        6
+      ],
+      "token": "mon,tue,wed,fri,sat,sun",
+      "expression": "0 0 * * mon,tue,wed,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "token": "thu,fri,sat,sun",
+      "expression": "0 0 * * thu,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        3,
+        4,
+        5,
+        6
+      ],
+      "token": "mon,thu,fri,sat,sun",
+      "expression": "0 0 * * mon,thu,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        3,
+        4,
+        5,
+        6
+      ],
+      "token": "tue,thu,fri,sat,sun",
+      "expression": "0 0 * * tue,thu,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        3,
+        4,
+        5,
+        6
+      ],
+      "token": "mon,tue,thu,fri,sat,sun",
+      "expression": "0 0 * * mon,tue,thu,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "token": "wed,thu,fri,sat,sun",
+      "expression": "0 0 * * wed,thu,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "token": "mon,wed,thu,fri,sat,sun",
+      "expression": "0 0 * * mon,wed,thu,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "token": "tue,wed,thu,fri,sat,sun",
+      "expression": "0 0 * * tue,wed,thu,fri,sat,sun"
+    },
+    {
+      "unit": "weekday",
+      "kind": "values",
+      "values": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "token": "mon,tue,wed,thu,fri,sat,sun",
+      "expression": "0 0 * * mon,tue,wed,thu,fri,sat,sun"
+    }
+  ]
+}
