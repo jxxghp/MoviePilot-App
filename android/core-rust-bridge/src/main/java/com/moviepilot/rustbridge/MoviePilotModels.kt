@@ -97,6 +97,10 @@ data class SubscribeItemDto(
     val date: String = "",
     val username: String = "",
     val description: String = "",
+    val startEpisode: Int? = null,
+    val downloader: String = "",
+    val episodeGroup: String = "",
+    val rawJson: String = "",
 )
 
 /** 正在下载任务条目。 */
@@ -210,6 +214,12 @@ data class SiteItemDto(
     val joinAt: String = "",
     val updatedDay: String = "",
     val iconUrl: String? = null,
+    val cookie: String = "",
+    val ua: String = "",
+    val rss: String = "",
+    val proxy: Boolean = false,
+    val render: Boolean = false,
+    val rawJson: String = "",
 )
 
 /** 系统配置项：下载器 / 媒体服务器 / 目录映射 / 存储 / 通知渠道 / 规则组。 */
@@ -220,8 +230,13 @@ data class ServiceConfigDto(
     val enabled: Boolean = true,
     val isDefault: Boolean = false,
     val host: String = "",
+    val username: String = "",
+    val password: String = "",
+    val apikey: String = "",
+    val playHost: String = "",
     val switchs: List<String> = emptyList(),
     val extraSummary: String = "",
+    val rawJson: String = "",
 )
 
 @Serializable
@@ -237,6 +252,7 @@ data class DirectoryConfigDto(
     val renaming: Boolean = true,
     val scraping: Boolean = true,
     val notify: Boolean = true,
+    val rawJson: String = "",
 )
 
 @Serializable
@@ -336,7 +352,62 @@ data class ScheduledServiceDto(
     val nextRun: String = "",
 )
 
-/** AI 智能助手对话消息。 */
+/** AI 智能助手结构化工具调用条目（支持分组折叠与运行/完成/出错状态）。 */
+@Serializable
+data class AgentToolEntryDto(
+    val id: String = "",
+    val toolName: String = "",
+    val message: String = "",
+    val structured: Boolean = true,
+    val status: String = "running", // "running" | "done" | "error"
+)
+
+/** AI 智能助手附件（图片 / 文件 / 语音，含上传引用与下载地址）。 */
+@Serializable
+data class AgentAttachmentDto(
+    val kind: String = "file", // "image" | "audio" | "file"
+    val ref: String = "",
+    val url: String = "",
+    val downloadUrl: String = "",
+    val name: String = "",
+    val mimeType: String = "",
+    val size: Long = 0L,
+    val localPath: String = "",
+)
+
+/** AI 智能助手交互选择按钮与卡片。 */
+@Serializable
+data class AgentChoiceButtonDto(
+    val label: String = "",
+    val callbackData: String = "",
+)
+
+@Serializable
+data class AgentChoiceCardDto(
+    val id: String = "",
+    val title: String = "",
+    val buttons: List<AgentChoiceButtonDto> = emptyList(),
+    val selectedLabel: String? = null,
+)
+
+/** AI 智能助手历史会话摘要。 */
+@Serializable
+data class AgentSessionSummaryDto(
+    val sessionId: String = "",
+    val title: String = "新对话",
+    val updatedAt: String = "",
+    val messageCount: Int = 0,
+    val isProcessing: Boolean = false,
+)
+
+/** AI 智能助手斜杠命令项。 */
+@Serializable
+data class AgentCommandDto(
+    val command: String = "",
+    val description: String = "",
+)
+
+/** AI 智能助手对话消息（全量对齐 iOS：工具分组 + 附件 + 交互卡片 + 保护模式）。 */
 @Serializable
 data class AgentChatMessageDto(
     val id: String,
@@ -345,8 +416,40 @@ data class AgentChatMessageDto(
     val thinkingText: String? = null,
     val thinkingSeconds: Int = 0,
     val toolCalls: List<String> = emptyList(),
+    val tools: List<AgentToolEntryDto> = emptyList(),
+    val attachments: List<AgentAttachmentDto> = emptyList(),
+    val choices: List<AgentChoiceCardDto> = emptyList(),
     val quickOptions: List<String> = emptyList(),
+    val isProtected: Boolean = false,
     val isStreaming: Boolean = false,
+)
+
+/** 手动整理预览条目与目标路径/历史匹配提示。 */
+@Serializable
+data class ManualTransferPreviewItemDto(
+    val src: String = "",
+    val dest: String = "",
+    val title: String = "",
+    val seasonEpisode: String = "",
+    val status: String = "",
+    val message: String = "",
+)
+
+@Serializable
+data class ManualTransferTargetHintDto(
+    val targetStorage: String = "",
+    val targetPath: String = "",
+    val transferType: String = "",
+    val overwriteMode: String = "",
+    val scrape: Boolean? = null,
+    val libraryTypeFolder: Boolean? = null,
+    val libraryCategoryFolder: Boolean? = null,
+)
+
+@Serializable
+data class ManualTransferHistoryHintDto(
+    val historyCount: Int = 0,
+    val reorganize: Boolean = false,
 )
 
 /** 资源搜索筛选结果组（经 Rust 9 维筛选与同规格分组）。 */

@@ -103,14 +103,16 @@ fun ResourceSearchScreen(
 
     var keyword by remember { mutableStateOf(initialKeyword) }
     var sites by remember { mutableStateOf<List<SiteItemDto>>(emptyList()) }
-    var browseSite by remember { mutableStateOf<SiteItemDto?>(null) }
-    var showSiteDropdown by remember { mutableStateOf(false) }
+    var selectedBrowseSiteIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var showSitePickerSheet by remember { mutableStateOf(false) }
 
     var rawItems by remember { mutableStateOf<List<ResourceItemDto>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
-    var sortBySeeders by remember { mutableStateOf(true) }
+    var sortMode by remember { mutableStateOf("seeders") } // seeders | size_desc | size_asc | group_count
+    var showSortMenu by remember { mutableStateOf(false) }
+    var showAllFiltersSheet by remember { mutableStateOf(false) }
 
-    var selectedSite by remember { mutableStateOf<String?>(null) }
+    var selectedSitesFilter by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedRes by remember { mutableStateOf<String?>(null) }
     var selectedPromo by remember { mutableStateOf<String?>(null) }
     var selectedEncode by remember { mutableStateOf<String?>(null) }
@@ -120,16 +122,25 @@ fun ResourceSearchScreen(
     var selectedGroupForDownload by remember { mutableStateOf<ResourceGroupDto?>(null) }
     var downloadToast by remember { mutableStateOf<String?>(null) }
 
-    fun triggerSearch() {
+    val sortLabels = remember {
+        listOf(
+            "seeders" to "做种最多",
+            "size_desc" to "体积最大",
+            "size_asc" to "体积最小",
+            "group_count" to "同源最多",
+        )
+    }
+
+    fun triggerSearch(targetIds: Set<Int> = selectedBrowseSiteIds) {
         scope.launch {
             isLoading = true
-            val fetched = repository.searchResources(keyword, browseSite?.id)
-            rawItems = if (fetched.isNotEmpty() || keyword.isNotBlank()) {
+            val idsList = targetIds.toList()
+            val fetched = repository.searchResources(keyword, idsList)
+            rawItems = if (fetched.isNotEmpty() || keyword.isNotBlank() || idsList.isNotEmpty()) {
                 fetched
             } else {
-                // 若最近搜索缓存为空且未选站点，自动浏览第一个已启用站点资源
                 val firstActive = sites.firstOrNull { it.isActive }
-                if (firstActive != null) repository.searchResources("", firstActive.id) else emptyList()
+                if (firstActive != null) repository.searchResources("", listOf(firstActive.id)) else emptyList()
             }
             isLoading = false
         }
@@ -137,20 +148,23 @@ fun ResourceSearchScreen(
 
     LaunchedEffect(Unit) {
         sites = repository.fetchSites()
-        val fetched = repository.searchResources(keyword, browseSite?.id)
+        val fetched = repository.searchResources(keyword, selectedBrowseSiteIds.toList())
         rawItems = if (fetched.isNotEmpty()) {
             fetched
         } else {
             val firstActive = sites.firstOrNull { it.isActive }
-            if (firstActive != null) repository.searchResources("", firstActive.id) else emptyList()
+            if (firstActive != null) repository.searchResources("", listOf(firstActive.id)) else emptyList()
         }
         isLoading = false
     }
 
-    val filterResult: ResourceFilterResultDto = remember(rawItems, selectedSite, selectedRes, selectedPromo, selectedEncode, selectedEdition, keyword) {
+    val filterResult: ResourceFilterResultDto = remember(rawItems, selectedSitesFilter, selectedRes, selectedPromo, selectedEncode, selectedEdition, keyword) {
         val criteria = buildString {
             append("{")
-            if (selectedSite != null) append("\"sites\":[\"$selectedSite\"],")
+            if (selectedSitesFilter.isNotEmpty()) {
+                val joined = selectedSitesFilter.joinToString(",") { "\"${it.replace("\"", "\\\"")}\"" }
+                append("\"sites\":[$joined],")
+            }
             if (selectedRes != null) append("\"resolutions\":[\"$selectedRes\"],")
             if (selectedPromo != null) append("\"promotions\":[\"$selectedPromo\"],")
             if (selectedEncode != null) append("\"video_encodes\":[\"$selectedEncode\"],")
@@ -161,28 +175,33 @@ fun ResourceSearchScreen(
         repository.filterResourcesWithRust(rawItems, criteria)
     }
 
-    val displayedGroups = remember(filterResult.groups, sortBySeeders) {
-        if (sortBySeeders) filterResult.groups.sortedByDescending { it.totalSeeders }
-        else filterResult.groups.sortedByDescending { it.primary.size }
+    val displayedGroups = remember(filterResult.groups, sortMode) {
+        when (sortMode) {
+            "size_desc" -> filterResult.groups.sortedByDescending { it.primary.size }
+            "size_asc" -> filterResult.groups.sortedBy { it.primary.size }
+            "group_count" -> filterResult.groups.sortedByDescending { it.items.size }
+            else -> filterResult.groups.sortedByDescending { it.totalSeeders }
+        }
     }
+
+    val activeFilterCount = selectedSitesFilter.size +
+        listOf(selectedRes, selectedPromo, selectedEncode, selectedEdition).count { it != null }
+    val browseSiteLabel = when (selectedBrowseSiteIds.size) {
+        0 -> "全站"
+        1 -> sites.firstOrNull { it.id == selectedBrowseSiteIds.first() }?.name ?: "1 个站点"
+        else -> "已选 ${selectedBrowseSiteIds.size} 站"
+    }
+    val currentSortLabel = sortLabels.firstOrNull { it.first == sortMode }?.second ?: "做种最多"
 
     Column(modifier = Modifier.fillMaxSize()) {
         NativeGlassTopBar(
             title = if (filterResult.filteredCount > 0) "站点资源 (${filterResult.filteredCount})" else "站点资源",
             onBack = onBack,
-            trailing = {
-                CinematicGlassCapsule {
-                    IconButton(onClick = { sortBySeeders = !sortBySeeders }, modifier = Modifier.size(38.dp)) {
-                        Icon(Icons.Rounded.SwapVert, contentDescription = "排序", tint = colors.textPrimary, modifier = Modifier.size(20.dp))
-                    }
-                    IconButton(onClick = { activeFilterDim = if (activeFilterDim == null) "all" else null }, modifier = Modifier.size(38.dp)) {
-                        Icon(Icons.Rounded.FilterList, contentDescription = "筛选", tint = colors.textPrimary, modifier = Modifier.size(20.dp))
-                    }
-                }
-            },
         )
 
-        // 搜索与全站浏览输入栏（1:1 复刻 iOS `[🔍 输入关键词，留空可浏...  [全站 v] [浏览]]`）
+        Spacer(Modifier.height(10.dp))
+
+        // 搜索与多选站点浏览输入栏
         CinematicPanel(padding = 8.dp, cornerRadius = 24.dp, showsShadow = false, modifier = Modifier.padding(horizontal = margin)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -191,7 +210,7 @@ fun ResourceSearchScreen(
             ) {
                 Icon(Icons.Rounded.Search, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
                 Box(modifier = Modifier.weight(1f)) {
-                    if (keyword.isEmpty()) Text("输入关键词，留空可浏...", color = colors.textMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (keyword.isEmpty()) Text("输入关键词，留空可浏览站点", color = colors.textMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     BasicTextField(
                         value = keyword,
                         onValueChange = { keyword = it },
@@ -201,64 +220,79 @@ fun ResourceSearchScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                Box {
-                    Row(
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(colors.chipFill)
-                            .border(0.6.dp, colors.chipBorder, CircleShape)
-                            .clickable { showSiteDropdown = true }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        Text(browseSite?.name ?: "全站", color = colors.textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
-                        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(15.dp))
-                    }
-                    DropdownMenu(expanded = showSiteDropdown, onDismissRequest = { showSiteDropdown = false }) {
-                        DropdownMenuItem(text = { Text("全站") }, onClick = { browseSite = null; showSiteDropdown = false })
-                        sites.filter { it.isActive }.take(20).forEach { s ->
-                            DropdownMenuItem(text = { Text(s.name) }, onClick = { browseSite = s; showSiteDropdown = false })
-                        }
-                    }
+                Row(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(if (selectedBrowseSiteIds.isNotEmpty()) colors.activeIndicator else colors.chipFill)
+                        .border(0.6.dp, if (selectedBrowseSiteIds.isNotEmpty()) colors.accent else colors.chipBorder, CircleShape)
+                        .clickable { showSitePickerSheet = true }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(browseSiteLabel, color = colors.textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                    Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "选择站点", tint = colors.textSecondary, modifier = Modifier.size(15.dp))
                 }
                 Box(
                     modifier = Modifier
                         .clip(CircleShape)
-                        .background(colors.chipFill)
-                        .border(0.7.dp, colors.chipBorder, CircleShape)
+                        .background(colors.accent)
                         .clickable { triggerSearch() }
                         .padding(horizontal = 14.dp, vertical = 6.dp),
                 ) {
-                    Text(if (keyword.isBlank()) "浏览" else "搜索", color = colors.textPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(if (keyword.isBlank()) "浏览" else "搜索", color = colors.primaryButtonFg, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
 
         Spacer(Modifier.height(10.dp))
 
-        // 9 维级联筛选胶囊条（1:1 复刻 iOS `[≡ 全部筛选] [站点] [分辨率] [字幕] [版本] [编码]`）
+        // 清晰的带文案排序 + 多维筛选胶囊行（点击「全部筛选」直出多维筛选面板）
         LazyRow(contentPadding = PaddingValues(horizontal = margin), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
-                val hasAny = selectedSite != null || selectedRes != null || selectedPromo != null || selectedEncode != null || selectedEdition != null
+                Box {
+                    NativeAdaptivePill(
+                        title = "排序 · $currentSortLabel",
+                        selected = sortMode != "seeders",
+                        icon = Icons.Rounded.SwapVert,
+                        onClick = { showSortMenu = true },
+                    )
+                    DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                        sortLabels.forEach { (key, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label, fontWeight = if (sortMode == key) FontWeight.Bold else FontWeight.Normal) },
+                                onClick = {
+                                    sortMode = key
+                                    showSortMenu = false
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            item {
                 NativeAdaptivePill(
-                    title = "全部筛选",
-                    selected = !hasAny,
+                    title = if (activeFilterCount > 0) "全部筛选 ($activeFilterCount)" else "全部筛选",
+                    selected = activeFilterCount > 0,
                     icon = Icons.Rounded.Tune,
-                    onClick = {
-                        selectedSite = null; selectedRes = null; selectedPromo = null; selectedEncode = null; selectedEdition = null
-                        activeFilterDim = null
-                    },
+                    onClick = { showAllFiltersSheet = true },
                 )
             }
-            item { NativeAdaptivePill(selectedSite ?: "站点", selected = selectedSite != null || activeFilterDim == "site", onClick = { activeFilterDim = if (activeFilterDim == "site") null else "site" }) }
+            item {
+                val label = when (selectedSitesFilter.size) {
+                    0 -> "结果站点"
+                    1 -> selectedSitesFilter.first()
+                    else -> "结果站点 (${selectedSitesFilter.size})"
+                }
+                NativeAdaptivePill(label, selected = selectedSitesFilter.isNotEmpty() || activeFilterDim == "site", onClick = { activeFilterDim = if (activeFilterDim == "site") null else "site" })
+            }
             item { NativeAdaptivePill(selectedRes ?: "分辨率", selected = selectedRes != null || activeFilterDim == "res", onClick = { activeFilterDim = if (activeFilterDim == "res") null else "res" }) }
             item { NativeAdaptivePill(selectedPromo ?: "促销", selected = selectedPromo != null || activeFilterDim == "promo", onClick = { activeFilterDim = if (activeFilterDim == "promo") null else "promo" }) }
             item { NativeAdaptivePill(selectedEdition ?: "版本", selected = selectedEdition != null || activeFilterDim == "edition", onClick = { activeFilterDim = if (activeFilterDim == "edition") null else "edition" }) }
             item { NativeAdaptivePill(selectedEncode ?: "编码", selected = selectedEncode != null || activeFilterDim == "encode", onClick = { activeFilterDim = if (activeFilterDim == "encode") null else "encode" }) }
         }
 
-        // 展开选中维度的级联选项
+        // 展开选中维度的级联选项（站点支持多选切换）
         if (activeFilterDim != null) {
             Spacer(Modifier.height(8.dp))
             val optionsList = when (activeFilterDim) {
@@ -267,27 +301,26 @@ fun ResourceSearchScreen(
                 "promo" -> filterResult.options.promotions
                 "edition" -> filterResult.options.editions
                 "encode" -> filterResult.options.videoEncodes
-                else -> filterResult.options.resolutions + filterResult.options.sites
+                else -> emptyList()
             }
             if (optionsList.isNotEmpty()) {
                 LazyRow(contentPadding = PaddingValues(horizontal = margin), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(optionsList) { opt ->
                         val isSel = when (activeFilterDim) {
-                            "site" -> selectedSite == opt
+                            "site" -> opt in selectedSitesFilter
                             "res" -> selectedRes == opt
                             "promo" -> selectedPromo == opt
                             "edition" -> selectedEdition == opt
                             "encode" -> selectedEncode == opt
-                            else -> selectedRes == opt || selectedSite == opt
+                            else -> false
                         }
                         NativeAdaptivePill(opt, selected = isSel, onClick = {
                             when (activeFilterDim) {
-                                "site" -> selectedSite = if (selectedSite == opt) null else opt
+                                "site" -> selectedSitesFilter = if (opt in selectedSitesFilter) selectedSitesFilter - opt else selectedSitesFilter + opt
                                 "res" -> selectedRes = if (selectedRes == opt) null else opt
                                 "promo" -> selectedPromo = if (selectedPromo == opt) null else opt
                                 "edition" -> selectedEdition = if (selectedEdition == opt) null else opt
                                 "encode" -> selectedEncode = if (selectedEncode == opt) null else opt
-                                else -> if (opt in filterResult.options.resolutions) selectedRes = opt else selectedSite = opt
                             }
                         })
                     }
@@ -437,15 +470,190 @@ fun ResourceSearchScreen(
                         downloadToast = "已推送至 $selectedDownloader（${group.primary.siteName}）"
                         selectedGroupForDownload = null
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.accent),
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.primaryButtonFg),
                     shape = CircleShape,
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                 ) {
                     Icon(Icons.Rounded.Download, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
-                    Text("开始下载", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("开始下载", fontWeight = FontWeight.SemiBold)
                 }
                 Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+
+    // 多选站点面板（支持全站 / 多选勾选站点后一键搜索或浏览）
+    if (showSitePickerSheet) {
+        val activeSites = remember(sites) { sites.filter { it.isActive } }
+        NativeGlassSheet(onDismissRequest = { showSitePickerSheet = false }) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text("选择搜索站点（支持多选）", color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (selectedBrowseSiteIds.isEmpty()) "当前：全站（留空自动遵循站点范围）"
+                            else "已选 ${selectedBrowseSiteIds.size} 个站点",
+                            color = colors.textSecondary,
+                            fontSize = 12.sp,
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        NativeAdaptivePill("全站", selected = selectedBrowseSiteIds.isEmpty(), onClick = { selectedBrowseSiteIds = emptySet() })
+                        NativeAdaptivePill("全选", selected = activeSites.isNotEmpty() && selectedBrowseSiteIds.size == activeSites.size, onClick = {
+                            selectedBrowseSiteIds = activeSites.map { it.id }.toSet()
+                        })
+                    }
+                }
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().height(340.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            activeSites.forEach { s ->
+                                val picked = s.id in selectedBrowseSiteIds
+                                NativeAdaptivePill(
+                                    title = s.name,
+                                    selected = picked,
+                                    onClick = {
+                                        selectedBrowseSiteIds = if (picked) selectedBrowseSiteIds - s.id else selectedBrowseSiteIds + s.id
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+                Button(
+                    onClick = {
+                        showSitePickerSheet = false
+                        triggerSearch(selectedBrowseSiteIds)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.primaryButtonFg),
+                    shape = CircleShape,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                ) {
+                    Text(if (keyword.isBlank()) "应用并浏览" else "应用并搜索", fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+
+    // 「全部筛选」多维筛选面板（结果站点多选 + 分辨率 + 促销 + 版本 + 视频编码）
+    if (showAllFiltersSheet) {
+        NativeGlassSheet(onDismissRequest = { showAllFiltersSheet = false }) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("全部筛选条件", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    NativeAdaptivePill(
+                        title = "清空全部",
+                        selected = false,
+                        onClick = {
+                            selectedSitesFilter = emptySet()
+                            selectedRes = null
+                            selectedPromo = null
+                            selectedEncode = null
+                            selectedEdition = null
+                        },
+                    )
+                }
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().height(380.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    if (filterResult.options.sites.isNotEmpty()) {
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("结果站点（可多选）", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    filterResult.options.sites.forEach { s ->
+                                        val picked = s in selectedSitesFilter
+                                        NativeAdaptivePill(s, selected = picked, onClick = {
+                                            selectedSitesFilter = if (picked) selectedSitesFilter - s else selectedSitesFilter + s
+                                        })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (filterResult.options.resolutions.isNotEmpty()) {
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("分辨率", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    filterResult.options.resolutions.forEach { opt ->
+                                        NativeAdaptivePill(opt, selected = selectedRes == opt, onClick = { selectedRes = if (selectedRes == opt) null else opt })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (filterResult.options.promotions.isNotEmpty()) {
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("促销优惠", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    filterResult.options.promotions.forEach { opt ->
+                                        NativeAdaptivePill(opt, selected = selectedPromo == opt, onClick = { selectedPromo = if (selectedPromo == opt) null else opt })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (filterResult.options.editions.isNotEmpty()) {
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("质量版本", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    filterResult.options.editions.forEach { opt ->
+                                        NativeAdaptivePill(opt, selected = selectedEdition == opt, onClick = { selectedEdition = if (selectedEdition == opt) null else opt })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (filterResult.options.videoEncodes.isNotEmpty()) {
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("视频编码", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    filterResult.options.videoEncodes.forEach { opt ->
+                                        NativeAdaptivePill(opt, selected = selectedEncode == opt, onClick = { selectedEncode = if (selectedEncode == opt) null else opt })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (filterResult.options.sites.isEmpty() && filterResult.options.resolutions.isEmpty()) {
+                        item {
+                            Text("当前暂无可筛选结果，请先输入关键词或选择站点浏览。", color = colors.textMuted, fontSize = 13.sp)
+                        }
+                    }
+                }
+                Button(
+                    onClick = { showAllFiltersSheet = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.primaryButtonFg),
+                    shape = CircleShape,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                ) {
+                    Text("查看 ${filterResult.filteredCount} 条结果", fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(16.dp))
             }
         }
     }

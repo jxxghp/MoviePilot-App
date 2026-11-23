@@ -17,7 +17,10 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import java.net.URLEncoder
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlin.math.roundToInt
 
 /** 登录请求结果（支持正常登录、MFA/OTP 二次挑战与错误提示）。 */
@@ -361,6 +364,12 @@ class MoviePilotRepository(context: Context) {
 
     suspend fun fetchDiscoverTrending(page: Int = 1): List<MediaCardItem> =
         fetchMediaList(listOf("recommend", "tmdb_trending"), listOf("page" to page.toString()))
+
+    suspend fun fetchDoubanShowing(page: Int = 1): List<MediaCardItem> =
+        fetchMediaList(listOf("recommend", "douban_showing"), listOf("page" to page.toString()))
+
+    suspend fun fetchDoubanTop250(page: Int = 1): List<MediaCardItem> =
+        fetchMediaList(listOf("recommend", "douban_top250"), listOf("page" to page.toString()))
 
     suspend fun fetchExplore(
         source: String,
@@ -724,6 +733,10 @@ class MoviePilotRepository(context: Context) {
                 date = obj.str("date") ?: "",
                 username = obj.str("username") ?: "",
                 description = obj.str("description") ?: "",
+                startEpisode = obj.int("start_episode"),
+                downloader = obj.str("downloader") ?: "",
+                episodeGroup = obj.str("episode_group") ?: "",
+                rawJson = obj.toString(),
             )
         }
     }
@@ -744,13 +757,38 @@ class MoviePilotRepository(context: Context) {
     }
 
     suspend fun createOrUpdateSubscription(item: SubscribeItemDto, isUpdate: Boolean = false): Boolean {
-        val sitesJson = item.sites.joinToString(",", "[", "]")
-        val groupsJson = item.filterGroups.joinToString(",", "[", "]") { "\"${esc(it)}\"" }
-        val payload = """{"id":${item.id},"name":"${esc(item.name)}","year":"${esc(item.year)}","type":"${esc(item.type)}","season":${item.season ?: "null"},"media_source":"${esc(item.mediaSource)}","media_id":"${esc(item.mediaId)}","quality":"${esc(item.quality)}","resolution":"${esc(item.resolution)}","effect":"${esc(item.effect)}","best_version":${if (item.bestVersion) 1 else 0},"sites":$sitesJson,"filter_groups":$groupsJson,"search_imdbid":${if (item.searchImdbId) 1 else 0},"search_interval":${item.searchInterval ?: "null"},"keyword":"${esc(item.keyword)}","save_path":"${esc(item.savePath)}","include":"${esc(item.include)}","exclude":"${esc(item.exclude)}","media_category":"${esc(item.mediaCategory)}","custom_words":"${esc(item.customWords)}"}"""
+        val baseMap = runCatching {
+            if (isUpdate && item.rawJson.isNotBlank()) json.parseToJsonElement(item.rawJson).asObj()?.toMutableMap() else null
+        }.getOrNull() ?: mutableMapOf()
+        if (item.id > 0) baseMap["id"] = JsonPrimitive(item.id)
+        baseMap["name"] = JsonPrimitive(item.name)
+        baseMap["year"] = JsonPrimitive(item.year)
+        baseMap["type"] = JsonPrimitive(item.type)
+        if (item.season != null) baseMap["season"] = JsonPrimitive(item.season) else baseMap.remove("season")
+        baseMap["media_source"] = JsonPrimitive(item.mediaSource)
+        if (item.mediaId.isNotBlank()) baseMap["media_id"] = JsonPrimitive(item.mediaId)
+        baseMap["total_episode"] = JsonPrimitive(item.totalEpisode)
+        if (item.startEpisode != null) baseMap["start_episode"] = JsonPrimitive(item.startEpisode) else baseMap.remove("start_episode")
+        baseMap["quality"] = JsonPrimitive(item.quality)
+        baseMap["resolution"] = JsonPrimitive(item.resolution)
+        baseMap["effect"] = JsonPrimitive(item.effect)
+        baseMap["best_version"] = JsonPrimitive(if (item.bestVersion) 1 else 0)
+        baseMap["sites"] = JsonArray(item.sites.map { JsonPrimitive(it) })
+        baseMap["filter_groups"] = JsonArray(item.filterGroups.map { JsonPrimitive(it) })
+        baseMap["search_imdbid"] = JsonPrimitive(if (item.searchImdbId) 1 else 0)
+        if (item.searchInterval != null) baseMap["search_interval"] = JsonPrimitive(item.searchInterval) else baseMap.remove("search_interval")
+        baseMap["keyword"] = JsonPrimitive(item.keyword)
+        baseMap["save_path"] = JsonPrimitive(item.savePath)
+        baseMap["downloader"] = JsonPrimitive(item.downloader)
+        baseMap["episode_group"] = JsonPrimitive(item.episodeGroup)
+        baseMap["include"] = JsonPrimitive(item.include)
+        baseMap["exclude"] = JsonPrimitive(item.exclude)
+        baseMap["media_category"] = JsonPrimitive(item.mediaCategory)
+        baseMap["custom_words"] = JsonPrimitive(item.customWords)
         val resp = authedRequest(
             segments = listOf("subscribe"),
             method = if (isUpdate) "PUT" else "POST",
-            body = payload,
+            body = JsonObject(baseMap).toString(),
             trailingSlash = true,
         ).getOrNull()
         return resp != null && resp.status in 200..299
@@ -763,20 +801,8 @@ class MoviePilotRepository(context: Context) {
 
     // ==================== 站点资源（Rust 9 维筛选分组） & 下载 ====================
 
-    suspend fun searchResources(keyword: String, siteId: Int? = null): List<ResourceItemDto> {
-        val resp = if (keyword.isBlank()) {
-            if (siteId != null) {
-                authedRequest(listOf("site", "resource", siteId.toString())).getOrNull()
-            } else {
-                authedRequest(listOf("search", "last")).getOrNull()
-            }
-        } else {
-            val q = mutableListOf("keyword" to keyword)
-            if (siteId != null) q += "sites" to siteId.toString()
-            authedRequest(listOf("search", "title"), query = q).getOrNull()
-        }
-        val arr = extractArray(resp?.body)
-        return arr.mapNotNull { el ->
+    suspend fun searchResources(keyword: String, siteIds: List<Int> = emptyList()): List<ResourceItemDto> {
+        fun parseItems(body: String?): List<ResourceItemDto> = extractArray(body).mapNotNull { el ->
             val obj = el.asObj() ?: return@mapNotNull null
             val torrent = obj["torrent_info"].asObj() ?: obj
             val meta = obj["meta_info"].asObj()
@@ -805,7 +831,26 @@ class MoviePilotRepository(context: Context) {
                 seasonEpisode = meta?.str("season_episode") ?: "",
             )
         }
+
+        if (keyword.isBlank()) {
+            return when {
+                siteIds.isEmpty() -> parseItems(authedRequest(listOf("search", "last")).getOrNull()?.body)
+                siteIds.size == 1 -> parseItems(authedRequest(listOf("site", "resource", siteIds.first().toString())).getOrNull()?.body)
+                else -> coroutineScope {
+                    siteIds.take(10).map { sid ->
+                        async { parseItems(authedRequest(listOf("site", "resource", sid.toString())).getOrNull()?.body) }
+                    }.flatMap { it.await() }
+                }
+            }
+        } else {
+            val q = mutableListOf("keyword" to keyword)
+            if (siteIds.isNotEmpty()) q += "sites" to siteIds.joinToString(",")
+            return parseItems(authedRequest(listOf("search", "title"), query = q).getOrNull()?.body)
+        }
     }
+
+    suspend fun searchResources(keyword: String, siteId: Int?): List<ResourceItemDto> =
+        searchResources(keyword, siteId?.let { listOf(it) } ?: emptyList())
 
     fun filterResourcesWithRust(items: List<ResourceItemDto>, criteriaJson: String = ""): ResourceFilterResultDto {
         val rawJson = json.encodeToString(kotlinx.serialization.builtins.ListSerializer(ResourceItemDto.serializer()), items)
@@ -1025,8 +1070,51 @@ class MoviePilotRepository(context: Context) {
                 joinAt = ud?.joinAt ?: "",
                 updatedDay = ud?.updatedDay ?: "",
                 iconUrl = siteIconCache[id],
+                cookie = obj.str("cookie") ?: "",
+                ua = obj.str("ua") ?: "",
+                rss = obj.str("rss") ?: "",
+                proxy = obj.bool("proxy") ?: false,
+                render = obj.bool("render") ?: false,
+                rawJson = obj.toString(),
             )
         }.sortedBy { it.pri }
+    }
+
+    /** 新增或编辑站点（`POST /api/v1/site/` 或 `PUT /api/v1/site/`，无损保留其余字段）。 */
+    suspend fun saveSite(site: SiteItemDto, isCreate: Boolean): Pair<Boolean, String> {
+        val baseMap = runCatching {
+            if (site.rawJson.isNotBlank()) json.parseToJsonElement(site.rawJson).asObj()?.toMutableMap() else null
+        }.getOrNull() ?: mutableMapOf()
+        if (!isCreate && site.id > 0) baseMap["id"] = JsonPrimitive(site.id)
+        baseMap["name"] = JsonPrimitive(site.name.trim())
+        baseMap["url"] = JsonPrimitive(site.url.trim())
+        val domainClean = site.domain.trim().ifBlank {
+            site.url.trim().substringAfter("://").substringBefore("/").substringBefore(":")
+        }
+        baseMap["domain"] = JsonPrimitive(domainClean)
+        baseMap["pri"] = JsonPrimitive(site.pri)
+        baseMap["is_active"] = JsonPrimitive(site.isActive)
+        baseMap["cookie"] = JsonPrimitive(site.cookie.trim())
+        baseMap["ua"] = JsonPrimitive(site.ua.trim())
+        baseMap["rss"] = JsonPrimitive(site.rss.trim())
+        baseMap["proxy"] = JsonPrimitive(site.proxy)
+        baseMap["render"] = JsonPrimitive(site.render)
+        val resp = authedRequest(
+            segments = listOf("site"),
+            method = if (isCreate) "POST" else "PUT",
+            body = JsonObject(baseMap).toString(),
+            trailingSlash = true,
+        ).getOrNull() ?: return false to "网络请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        val msg = obj?.str("message") ?: if (ok) (if (isCreate) "已新增站点" else "已保存站点配置") else "保存失败（HTTP ${resp.status}）"
+        return ok to msg
+    }
+
+    /** 删除站点（`DELETE /api/v1/site/{id}`）。 */
+    suspend fun deleteSite(siteId: Int): Boolean {
+        val resp = authedRequest(listOf("site", siteId.toString()), method = "DELETE").getOrNull()
+        return resp != null && resp.status in 200..299
     }
 
     suspend fun fetchSiteIcon(siteId: Int): String? {
@@ -1117,8 +1205,42 @@ class MoviePilotRepository(context: Context) {
                 enabled = obj.bool("enabled") ?: true,
                 isDefault = obj.bool("default") ?: false,
                 host = cfg?.str("host") ?: "",
+                username = cfg?.str("username") ?: "",
+                password = cfg?.str("password") ?: "",
+                rawJson = obj.toString(),
             )
         }
+    }
+
+    suspend fun saveDownloader(item: ServiceConfigDto, originalName: String? = null): Boolean {
+        val existing = fetchSettingValue("Downloaders").asArr()?.mapNotNull { it.asObj() }.orEmpty().toMutableList()
+        val matchIdx = originalName?.let { orig -> existing.indexOfFirst { it.str("name") == orig } } ?: -1
+        val baseMap = if (matchIdx >= 0) existing[matchIdx].toMutableMap() else mutableMapOf()
+        val cfgMap = (baseMap["config"].asObj() ?: JsonObject(emptyMap())).toMutableMap()
+        cfgMap["host"] = JsonPrimitive(item.host.trim())
+        if (item.username.isNotBlank() || cfgMap.containsKey("username")) cfgMap["username"] = JsonPrimitive(item.username.trim())
+        if (item.password.isNotBlank() || cfgMap.containsKey("password")) cfgMap["password"] = JsonPrimitive(item.password)
+        baseMap["name"] = JsonPrimitive(item.name.trim())
+        baseMap["type"] = JsonPrimitive(item.type.trim().ifBlank { "qbittorrent" })
+        baseMap["enabled"] = JsonPrimitive(item.enabled)
+        baseMap["default"] = JsonPrimitive(item.isDefault)
+        baseMap["config"] = JsonObject(cfgMap)
+        val updatedObj = JsonObject(baseMap)
+        if (item.isDefault) {
+            for (i in existing.indices) {
+                val m = existing[i].toMutableMap()
+                m["default"] = JsonPrimitive(false)
+                existing[i] = JsonObject(m)
+            }
+        }
+        if (matchIdx >= 0) existing[matchIdx] = updatedObj else existing.add(updatedObj)
+        return saveSettingValue("Downloaders", JsonArray(existing).toString())
+    }
+
+    suspend fun deleteDownloader(name: String): Boolean {
+        val remaining = fetchSettingValue("Downloaders").asArr()?.mapNotNull { it.asObj() }
+            ?.filterNot { it.str("name") == name } ?: return false
+        return saveSettingValue("Downloaders", JsonArray(remaining).toString())
     }
 
     suspend fun fetchMediaServers(): List<ServiceConfigDto> {
@@ -1131,8 +1253,39 @@ class MoviePilotRepository(context: Context) {
                 type = obj.str("type") ?: "emby",
                 enabled = obj.bool("enabled") ?: true,
                 host = cfg?.str("host") ?: "",
+                apikey = cfg?.str("apikey") ?: cfg?.str("token") ?: "",
+                playHost = cfg?.str("play_host") ?: "",
+                username = cfg?.str("username") ?: "",
+                rawJson = obj.toString(),
             )
         }
+    }
+
+    suspend fun saveMediaServer(item: ServiceConfigDto, originalName: String? = null): Boolean {
+        val existing = fetchSettingValue("MediaServers").asArr()?.mapNotNull { it.asObj() }.orEmpty().toMutableList()
+        val matchIdx = originalName?.let { orig -> existing.indexOfFirst { it.str("name") == orig } } ?: -1
+        val baseMap = if (matchIdx >= 0) existing[matchIdx].toMutableMap() else mutableMapOf()
+        val cfgMap = (baseMap["config"].asObj() ?: JsonObject(emptyMap())).toMutableMap()
+        cfgMap["host"] = JsonPrimitive(item.host.trim())
+        if (item.apikey.isNotBlank() || cfgMap.containsKey("apikey")) {
+            val keyField = if (item.type.equals("plex", ignoreCase = true) && !cfgMap.containsKey("apikey")) "token" else "apikey"
+            cfgMap[keyField] = JsonPrimitive(item.apikey.trim())
+        }
+        if (item.playHost.isNotBlank() || cfgMap.containsKey("play_host")) cfgMap["play_host"] = JsonPrimitive(item.playHost.trim())
+        if (item.username.isNotBlank() || cfgMap.containsKey("username")) cfgMap["username"] = JsonPrimitive(item.username.trim())
+        baseMap["name"] = JsonPrimitive(item.name.trim())
+        baseMap["type"] = JsonPrimitive(item.type.trim().ifBlank { "emby" })
+        baseMap["enabled"] = JsonPrimitive(item.enabled)
+        baseMap["config"] = JsonObject(cfgMap)
+        val updatedObj = JsonObject(baseMap)
+        if (matchIdx >= 0) existing[matchIdx] = updatedObj else existing.add(updatedObj)
+        return saveSettingValue("MediaServers", JsonArray(existing).toString())
+    }
+
+    suspend fun deleteMediaServer(name: String): Boolean {
+        val remaining = fetchSettingValue("MediaServers").asArr()?.mapNotNull { it.asObj() }
+            ?.filterNot { it.str("name") == name } ?: return false
+        return saveSettingValue("MediaServers", JsonArray(remaining).toString())
     }
 
     suspend fun fetchDirectories(): List<DirectoryConfigDto> {
@@ -1151,8 +1304,35 @@ class MoviePilotRepository(context: Context) {
                 renaming = obj.bool("renaming") ?: true,
                 scraping = obj.bool("scraping") ?: true,
                 notify = obj.bool("notify") ?: true,
+                rawJson = obj.toString(),
             )
         }
+    }
+
+    suspend fun saveDirectory(item: DirectoryConfigDto, originalName: String? = null): Boolean {
+        val existing = fetchSettingValue("Directories").asArr()?.mapNotNull { it.asObj() }.orEmpty().toMutableList()
+        val matchIdx = originalName?.let { orig -> existing.indexOfFirst { it.str("name") == orig } } ?: -1
+        val baseMap = if (matchIdx >= 0) existing[matchIdx].toMutableMap() else mutableMapOf()
+        baseMap["name"] = JsonPrimitive(item.name.trim())
+        baseMap["priority"] = JsonPrimitive(item.priority)
+        baseMap["storage"] = JsonPrimitive(item.storage.ifBlank { "local" })
+        baseMap["download_path"] = JsonPrimitive(item.downloadPath.trim())
+        baseMap["library_storage"] = JsonPrimitive(item.libraryStorage.ifBlank { "local" })
+        baseMap["library_path"] = JsonPrimitive(item.libraryPath.trim())
+        baseMap["transfer_type"] = JsonPrimitive(item.transferType.ifBlank { "copy" })
+        baseMap["monitor_type"] = JsonPrimitive(item.monitorType)
+        baseMap["renaming"] = JsonPrimitive(item.renaming)
+        baseMap["scraping"] = JsonPrimitive(item.scraping)
+        baseMap["notify"] = JsonPrimitive(item.notify)
+        val updatedObj = JsonObject(baseMap)
+        if (matchIdx >= 0) existing[matchIdx] = updatedObj else existing.add(updatedObj)
+        return saveSettingValue("Directories", JsonArray(existing).toString())
+    }
+
+    suspend fun deleteDirectory(name: String): Boolean {
+        val remaining = fetchSettingValue("Directories").asArr()?.mapNotNull { it.asObj() }
+            ?.filterNot { it.str("name") == name } ?: return false
+        return saveSettingValue("Directories", JsonArray(remaining).toString())
     }
 
     suspend fun fetchStorages(): List<StorageConfigDto> {
@@ -1612,11 +1792,273 @@ class MoviePilotRepository(context: Context) {
         return if (raw.startsWith("/")) "$base$raw" else "$base/$raw"
     }
 
-    fun streamAgentChat(prompt: String, sessionId: String = "android-default"): Flow<SseEventFfi>? {
+    // ==================== 手动整理（1:1 对齐 iOS target-path / history / preview / manual） ====================
+
+    suspend fun matchManualTransferTargetPath(payloadJson: String): ManualTransferTargetHintDto? {
+        val resp = authedRequest(
+            segments = listOf("transfer", "manual", "target-path"),
+            method = "POST",
+            body = payloadJson,
+        ).getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val data = extractObject(resp.body) ?: return null
+        return ManualTransferTargetHintDto(
+            targetStorage = data.str("target_storage") ?: data.str("library_storage") ?: "",
+            targetPath = data.str("target_path") ?: data.str("library_path") ?: "",
+            transferType = data.str("transfer_type") ?: "",
+            overwriteMode = data.str("overwrite_mode") ?: "",
+            scrape = data.bool("scrape"),
+            libraryTypeFolder = data.bool("library_type_folder"),
+            libraryCategoryFolder = data.bool("library_category_folder"),
+        )
+    }
+
+    suspend fun matchManualTransferHistory(payloadJson: String): ManualTransferHistoryHintDto? {
+        val resp = authedRequest(
+            segments = listOf("transfer", "manual", "history"),
+            method = "POST",
+            body = payloadJson,
+        ).getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val data = extractObject(resp.body) ?: return null
+        return ManualTransferHistoryHintDto(
+            historyCount = data.int("history_count") ?: data.int("count") ?: 0,
+            reorganize = data.bool("reorganize") ?: false,
+        )
+    }
+
+    suspend fun executeManualTransfer(
+        payloadJson: String,
+        preview: Boolean,
+        background: Boolean,
+    ): Triple<Boolean, String, List<ManualTransferPreviewItemDto>> {
+        val resp = authedRequest(
+            segments = listOf("transfer", "manual"),
+            method = "POST",
+            query = listOf("background" to (if (preview) "false" else background.toString())),
+            body = payloadJson,
+        ).getOrNull() ?: return Triple(false, "整理请求失败，请检查网络连接", emptyList())
+        val root = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val data = root?.get("data").asObj() ?: root
+        val ok = root?.bool("success") ?: (resp.status in 200..299)
+        val msg = root?.str("message")?.takeIf { it.isNotBlank() }
+            ?: data?.str("message")?.takeIf { it.isNotBlank() }
+            ?: if (ok) "整理任务已提交" else "整理失败（HTTP ${resp.status}）"
+        val items = (data?.get("items").asArr() ?: data?.get("preview_items").asArr() ?: JsonArray(emptyList()))
+            .mapNotNull { el ->
+                val o = el.asObj() ?: return@mapNotNull null
+                ManualTransferPreviewItemDto(
+                    src = o.str("src") ?: o.str("source") ?: o.str("src_path") ?: "",
+                    dest = o.str("dest") ?: o.str("target") ?: o.str("dest_path") ?: "",
+                    title = o.str("title") ?: o.str("name") ?: "",
+                    seasonEpisode = o.str("season_episode") ?: o.str("episodes") ?: "",
+                    status = o.str("status") ?: "",
+                    message = o.str("message") ?: o.str("errmsg") ?: "",
+                )
+            }
+        return Triple(ok, msg, items)
+    }
+
+    // ==================== AI 智能助手（全量对齐 iOS `/api/v1/message/agent/*`） ====================
+
+    suspend fun fetchAgentCommands(): List<AgentCommandDto> {
+        val resp = authedRequest(listOf("message", "agent", "commands")).getOrNull() ?: return emptyList()
+        return extractArray(resp.body).mapNotNull { el ->
+            val o = el.asObj() ?: return@mapNotNull null
+            val cmd = o.str("command") ?: o.str("name") ?: return@mapNotNull null
+            AgentCommandDto(command = cmd, description = o.str("description") ?: "")
+        }
+    }
+
+    suspend fun fetchAgentSessions(page: Int = 1, count: Int = 30): List<AgentSessionSummaryDto> {
+        val resp = authedRequest(
+            segments = listOf("message", "agent", "sessions"),
+            query = listOf("page" to page.toString(), "count" to count.toString()),
+        ).getOrNull() ?: return emptyList()
+        return extractArray(resp.body).mapNotNull { el ->
+            val o = el.asObj() ?: return@mapNotNull null
+            val sid = o.str("session_id") ?: o.str("id") ?: return@mapNotNull null
+            AgentSessionSummaryDto(
+                sessionId = sid,
+                title = o.str("title")?.takeIf { it.isNotBlank() } ?: "新对话",
+                updatedAt = o.str("updated_at") ?: o.str("created_at") ?: "",
+                messageCount = o.int("message_count") ?: 0,
+                isProcessing = o.bool("is_processing") ?: false,
+            )
+        }
+    }
+
+    suspend fun fetchAgentSessionDetail(sessionId: String): Pair<List<AgentChatMessageDto>, Boolean>? {
+        val resp = authedRequest(listOf("message", "agent", "sessions", sessionId)).getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val obj = extractObject(resp.body) ?: return null
+        val isProcessing = obj.bool("is_processing") ?: false
+        val rawMsgs = obj["messages"].asArr() ?: JsonArray(emptyList())
+        val parsed = rawMsgs.mapIndexedNotNull { idx, el ->
+            val m = el.asObj() ?: return@mapIndexedNotNull null
+            val role = m.str("role") ?: "assistant"
+            val content = m.str("content") ?: m.str("message") ?: ""
+            val tools = m["tools"].asArr()?.mapNotNull { tEl ->
+                val to = tEl.asObj() ?: return@mapNotNull null
+                AgentToolEntryDto(
+                    id = to.str("id") ?: "t-$idx",
+                    toolName = to.str("tool_name") ?: "",
+                    message = to.str("message") ?: to.str("tool_name") ?: "调用工具",
+                    structured = to.bool("structured") ?: true,
+                    status = to.str("status") ?: "done",
+                )
+            } ?: emptyList()
+            val attachments = m["attachments"].asArr()?.mapNotNull { aEl ->
+                val ao = aEl.asObj() ?: return@mapNotNull null
+                AgentAttachmentDto(
+                    kind = ao.str("kind") ?: "file",
+                    ref = ao.str("ref") ?: "",
+                    url = resolveImageUrl(ao.str("url")) ?: ao.str("url") ?: "",
+                    downloadUrl = resolveImageUrl(ao.str("download_url")) ?: ao.str("download_url") ?: "",
+                    name = ao.str("name") ?: "",
+                    mimeType = ao.str("mime_type") ?: "",
+                    size = ao.lng("size") ?: 0L,
+                    localPath = ao.str("local_path") ?: "",
+                )
+            } ?: emptyList()
+            val choices = m["choices"].asArr()?.mapNotNull { cEl ->
+                parseChoiceCard(cEl.asObj())
+            } ?: emptyList()
+            if (role != "user" && content.isBlank() && tools.isEmpty() && attachments.isEmpty() && choices.isEmpty()) {
+                return@mapIndexedNotNull null
+            }
+            AgentChatMessageDto(
+                id = m.str("id") ?: "msg-$idx-${System.currentTimeMillis()}",
+                role = role,
+                content = content,
+                tools = tools,
+                attachments = attachments,
+                choices = choices,
+                isProtected = m.bool("is_protected") ?: false,
+            )
+        }
+        return parsed to isProcessing
+    }
+
+    private fun parseChoiceCard(obj: JsonObject?): AgentChoiceCardDto? {
+        if (obj == null) return null
+        val buttons = obj["buttons"].asArr()?.flatMap { rowEl ->
+            when (rowEl) {
+                is JsonArray -> rowEl.mapNotNull { b ->
+                    val bo = b.asObj() ?: return@mapNotNull null
+                    AgentChoiceButtonDto(
+                        label = bo.str("label") ?: bo.str("text") ?: return@mapNotNull null,
+                        callbackData = bo.str("callback_data") ?: bo.str("data") ?: "",
+                    )
+                }
+                is JsonObject -> listOfNotNull(
+                    rowEl.str("label")?.let { AgentChoiceButtonDto(it, rowEl.str("callback_data") ?: "") },
+                )
+                else -> emptyList()
+            }
+        } ?: emptyList()
+        if (buttons.isEmpty()) return null
+        return AgentChoiceCardDto(
+            id = obj.str("id") ?: UUID.randomUUID().toString(),
+            title = obj.str("title") ?: obj.str("prompt") ?: "",
+            buttons = buttons,
+            selectedLabel = obj.str("selected_label"),
+        )
+    }
+
+    suspend fun deleteAgentSession(sessionId: String): Boolean {
+        val resp = authedRequest(listOf("message", "agent", "sessions", sessionId), method = "DELETE").getOrNull()
+        return resp != null && resp.status in 200..299
+    }
+
+    suspend fun stopAgentSession(sessionId: String): Boolean {
+        val resp = authedRequest(listOf("message", "agent", "sessions", sessionId, "stop"), method = "POST").getOrNull()
+        return resp != null && resp.status in 200..299
+    }
+
+    suspend fun saveAgentSessionDisplay(sessionId: String, title: String, messagesJson: String): Boolean {
+        val body = """{"title":"${esc(title.take(40))}","messages":$messagesJson}"""
+        val resp = authedRequest(
+            segments = listOf("message", "agent", "sessions", sessionId, "display"),
+            method = "PUT",
+            body = body,
+        ).getOrNull()
+        return resp != null && resp.status in 200..299
+    }
+
+    suspend fun uploadAgentAttachment(
+        sessionId: String,
+        fileName: String,
+        mimeType: String,
+        bytes: ByteArray,
+    ): AgentAttachmentDto? {
         val auth = _session.value as? SessionState.Authenticated ?: return null
-        val url = RustCoreBridge.buildEndpointUrl(auth.serverUrl, listOf("agent", "chat"))
-        val body = """{"message":"${esc(prompt)}","session_id":"${esc(sessionId)}"}"""
-        return transport.streamSse(url, auth.token, body)
+        val url = RustCoreBridge.buildEndpointUrl(auth.serverUrl, listOf("message", "agent", "upload"))
+        val resp = runCatching {
+            transport.uploadMultipart(
+                url = url,
+                token = auth.token,
+                fieldName = "file",
+                fileName = fileName,
+                mimeType = mimeType,
+                bytes = bytes,
+                formFields = mapOf("session_id" to sessionId),
+            )
+        }.getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val obj = extractObject(resp.body) ?: return null
+        val ref = obj.str("ref") ?: obj.str("url") ?: return null
+        val rawUrl = obj.str("url") ?: ""
+        val rawDl = obj.str("download_url") ?: rawUrl
+        val inferredKind = obj.str("kind")?.takeIf { it.isNotBlank() } ?: when {
+            mimeType.startsWith("image/") -> "image"
+            mimeType.startsWith("audio/") -> "audio"
+            else -> "file"
+        }
+        return AgentAttachmentDto(
+            kind = inferredKind,
+            ref = ref,
+            url = if (rawUrl.isNotBlank()) (resolveImageUrl(rawUrl) ?: rawUrl) else "",
+            downloadUrl = if (rawDl.isNotBlank()) (resolveImageUrl(rawDl) ?: rawDl) else "",
+            name = obj.str("name") ?: fileName,
+            mimeType = obj.str("mime_type") ?: mimeType,
+            size = obj.lng("size") ?: bytes.size.toLong(),
+            localPath = obj.str("local_path") ?: "",
+        )
+    }
+
+    suspend fun triggerAgentCallback(
+        sessionId: String,
+        callbackData: String,
+        originalMessageId: String,
+    ): Pair<String, String>? {
+        val body = """{"session_id":"${esc(sessionId)}","callback_data":"${esc(callbackData)}","original_message_id":"${esc(originalMessageId)}"}"""
+        val resp = authedRequest(
+            segments = listOf("message", "agent", "callback"),
+            method = "POST",
+            body = body,
+        ).getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val obj = extractObject(resp.body) ?: return null
+        val msg = obj.str("message").orEmpty()
+        val display = obj.str("display_message") ?: msg
+        return msg to display
+    }
+
+    fun streamAgentChatPayload(payloadJson: String): Flow<SseEventFfi>? {
+        val auth = _session.value as? SessionState.Authenticated ?: return null
+        val url = RustCoreBridge.buildEndpointUrl(auth.serverUrl, listOf("message", "agent", "stream"))
+        return transport.streamSse(
+            url = url,
+            token = auth.token,
+            bodyJson = payloadJson,
+            extraHeaders = mapOf("X-MoviePilot-Agent-Interaction" to "1"),
+        )
+    }
+
+    fun streamAgentChat(prompt: String, sessionId: String = "android-default"): Flow<SseEventFfi>? {
+        val body = """{"text":"${esc(prompt)}","display_text":"${esc(prompt)}","session_id":"${esc(sessionId)}","echo_user":true}"""
+        return streamAgentChatPayload(body)
     }
 
     // ==================== 100% JsonNull-Safe 解析工具 ====================

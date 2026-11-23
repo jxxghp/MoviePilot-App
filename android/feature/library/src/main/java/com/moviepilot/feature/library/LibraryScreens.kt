@@ -13,6 +13,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,14 +28,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.DriveFileMove
 import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
@@ -41,6 +47,7 @@ import androidx.compose.material.icons.rounded.Inbox
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Preview
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.UnfoldMore
@@ -50,9 +57,14 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -88,6 +100,9 @@ import com.moviepilot.designsystem.NativeGlassSheet
 import com.moviepilot.designsystem.NativeGlassTopBar
 import com.moviepilot.designsystem.NativeSegmentedControl
 import com.moviepilot.media.MediaPlaybackRequest
+import com.moviepilot.rustbridge.DirectoryConfigDto
+import com.moviepilot.rustbridge.ManualTransferPreviewItemDto
+import com.moviepilot.rustbridge.MediaCardItem
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.RustCoreBridge
 import com.moviepilot.rustbridge.StorageConfigDto
@@ -95,6 +110,8 @@ import com.moviepilot.rustbridge.StorageFileDto
 import com.moviepilot.rustbridge.TransferHistoryDto
 import com.moviepilot.rustbridge.TransferQueueItemDto
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 
 /**
@@ -383,7 +400,7 @@ fun FileManagerScreen(
                                         DropdownMenu(expanded = rowMenuExpanded, onDismissRequest = { rowMenuExpanded = false }) {
                                             if (playableKind != null) {
                                                 DropdownMenuItem(
-                                                    text = { Text("原生播放器打开") },
+                                                    text = { Text("播放媒体") },
                                                     leadingIcon = { Icon(Icons.Rounded.PlayArrow, contentDescription = null) },
                                                     onClick = {
                                                         rowMenuExpanded = false
@@ -422,43 +439,489 @@ fun FileManagerScreen(
     }
 
     actionTarget?.let { target ->
-        var transferMode by remember { mutableStateOf("硬链接") }
-        var destPath by remember { mutableStateOf("/video/movies") }
-        NativeGlassSheet(onDismissRequest = { actionTarget = null }) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text("手动整理与重命名", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text(target.name, color = colors.textSecondary, fontSize = 13.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("硬链接", "移动", "复制", "软链接").forEach { m ->
-                        NativeAdaptivePill(m, selected = transferMode == m, onClick = { transferMode = m })
+        ManualTransferSheet(
+            repository = repository,
+            fileItem = target,
+            historyLogId = null,
+            sourceStorageHint = activeStorage,
+            sourceTitleHint = target.name,
+            sourcePathHint = target.path,
+            initialStorages = storages,
+            onDismiss = { actionTarget = null },
+            onCompleted = { msg ->
+                actionTarget = null
+                scope.launch { snackbar?.showSnackbar(msg) }
+            },
+        )
+    }
+}
+
+/**
+ * 1:1 对齐 iOS `NativeManualTransferSheet` 的全量手动识别整理弹窗：
+ * - 自动匹配目标媒体库路径（`POST /api/v1/transfer/manual/target-path`）与历史记录（`POST /api/v1/transfer/manual/history`）
+ * - 支持全量参数：目标存储/路径、7 种整理方式、4 种覆盖策略、媒体类型/数据源/媒体搜索指定 ID、
+ *   剧集季/集/格式/偏移/分段/剧集组、音乐类型与匹配模式、三态刮削与分类目录、最小体积、重新整理、跳过已成功、后台执行
+ * - 支持「预览整理」查看目标路径映射与「立即整理」真实提交。
+ */
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+fun ManualTransferSheet(
+    repository: MoviePilotRepository,
+    fileItem: StorageFileDto?,
+    historyLogId: Int?,
+    sourceStorageHint: String,
+    sourceTitleHint: String,
+    sourcePathHint: String,
+    initialStorages: List<StorageConfigDto> = emptyList(),
+    onDismiss: () -> Unit,
+    onCompleted: (String) -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    val scope = rememberCoroutineScope()
+
+    var storages by remember { mutableStateOf(initialStorages) }
+    var libraryDirs by remember { mutableStateOf<List<DirectoryConfigDto>>(emptyList()) }
+    var targetStorage by remember { mutableStateOf(sourceStorageHint.ifBlank { "local" }) }
+    var targetPath by remember { mutableStateOf("") }
+    var matchedTargetHint by remember { mutableStateOf<String?>(null) }
+    var matchedHistoryCount by remember { mutableStateOf(0) }
+    var skipSuccess by remember { mutableStateOf(false) }
+    var reorganize by remember { mutableStateOf(false) }
+
+    var transferType by remember { mutableStateOf("") }
+    var overwriteMode by remember { mutableStateOf("never") }
+    var mediaType by remember { mutableStateOf("") }
+    var mediaSource by remember { mutableStateOf("") }
+    var mediaId by remember { mutableStateOf("") }
+    var selectedMediaTitle by remember { mutableStateOf<String?>(null) }
+    var seasonText by remember { mutableStateOf("") }
+    var episodeDetail by remember { mutableStateOf("") }
+    var episodeFormat by remember { mutableStateOf("") }
+    var episodeOffset by remember { mutableStateOf("") }
+    var episodePart by remember { mutableStateOf("") }
+    var episodeGroup by remember { mutableStateOf("") }
+    var musicType by remember { mutableStateOf("") }
+    var musicTrackMatch by remember { mutableStateOf("strict") }
+    var minFilesizeText by remember { mutableStateOf("0") }
+
+    // 三态选择：null = 自动（跟随目录配置），true = 开启，false = 关闭
+    var scrapeChoice by remember { mutableStateOf<Boolean?>(null) }
+    var typeFolderChoice by remember { mutableStateOf<Boolean?>(null) }
+    var categoryFolderChoice by remember { mutableStateOf<Boolean?>(null) }
+    var fromHistory by remember { mutableStateOf(historyLogId != null) }
+    var runInBackground by remember { mutableStateOf(true) }
+
+    var showAdvanced by remember { mutableStateOf(false) }
+    var showMediaSearch by remember { mutableStateOf(false) }
+    var mediaSearchQuery by remember { mutableStateOf(sourceTitleHint.substringBeforeLast('.').take(24)) }
+    var mediaSearchResults by remember { mutableStateOf<List<MediaCardItem>>(emptyList()) }
+    var isSearchingMedia by remember { mutableStateOf(false) }
+
+    var isPreviewing by remember { mutableStateOf(false) }
+    var isSubmitting by remember { mutableStateOf(false) }
+    var previewItems by remember { mutableStateOf<List<ManualTransferPreviewItemDto>>(emptyList()) }
+    var feedbackText by remember { mutableStateOf<String?>(null) }
+    var feedbackIsError by remember { mutableStateOf(false) }
+
+    fun buildPayloadJson(preview: Boolean, onlyForMatch: Boolean = false): String {
+        val map = linkedMapOf<String, kotlinx.serialization.json.JsonElement>()
+        if (fileItem != null) {
+            val fMap = linkedMapOf<String, kotlinx.serialization.json.JsonElement>(
+                "storage" to JsonPrimitive(fileItem.storage.ifBlank { sourceStorageHint }),
+                "type" to JsonPrimitive(fileItem.type),
+                "path" to JsonPrimitive(fileItem.path),
+                "name" to JsonPrimitive(fileItem.name),
+                "size" to JsonPrimitive(fileItem.size),
+            )
+            fileItem.extension?.takeIf { it.isNotBlank() }?.let { fMap["extension"] = JsonPrimitive(it) }
+            map["fileitem"] = JsonObject(fMap)
+        }
+        if (historyLogId != null) map["logid"] = JsonPrimitive(historyLogId)
+        if (targetStorage.isNotBlank()) map["target_storage"] = JsonPrimitive(targetStorage)
+        if (!onlyForMatch && targetPath.trim().isNotBlank()) map["target_path"] = JsonPrimitive(targetPath.trim())
+        if (mediaSource.isNotBlank()) map["media_source"] = JsonPrimitive(mediaSource)
+        if (mediaId.trim().isNotBlank()) map["media_id"] = JsonPrimitive(mediaId.trim())
+        if (mediaType == "音乐" && musicType.isNotBlank()) map["music_type"] = JsonPrimitive(musicType)
+        if (mediaType == "音乐" && musicType == "album") map["music_track_match"] = JsonPrimitive(musicTrackMatch)
+        if (mediaType.isNotBlank()) map["type_name"] = JsonPrimitive(mediaType)
+        seasonText.trim().toIntOrNull()?.let { map["season"] = JsonPrimitive(it) }
+        if (transferType.isNotBlank()) map["transfer_type"] = JsonPrimitive(transferType)
+        if (overwriteMode.isNotBlank()) map["overwrite_mode"] = JsonPrimitive(overwriteMode)
+        if (episodeFormat.trim().isNotBlank()) map["episode_format"] = JsonPrimitive(episodeFormat.trim())
+        if (episodeDetail.trim().isNotBlank()) map["episode_detail"] = JsonPrimitive(episodeDetail.trim())
+        if (episodePart.trim().isNotBlank()) map["episode_part"] = JsonPrimitive(episodePart.trim())
+        if (episodeOffset.trim().isNotBlank()) map["episode_offset"] = JsonPrimitive(episodeOffset.trim())
+        if (episodeGroup.trim().isNotBlank()) map["episode_group"] = JsonPrimitive(episodeGroup.trim())
+        map["min_filesize"] = JsonPrimitive((minFilesizeText.trim().toIntOrNull() ?: 0).coerceAtLeast(0))
+        scrapeChoice?.let { map["scrape"] = JsonPrimitive(it) }
+        typeFolderChoice?.let { map["library_type_folder"] = JsonPrimitive(it) }
+        categoryFolderChoice?.let { map["library_category_folder"] = JsonPrimitive(it) }
+        map["from_history"] = JsonPrimitive(fromHistory)
+        map["preview"] = JsonPrimitive(preview)
+        map["reorganize"] = JsonPrimitive(if (skipSuccess) false else reorganize)
+        map["skip_success"] = JsonPrimitive(skipSuccess)
+        return JsonObject(map).toString()
+    }
+
+    LaunchedEffect(Unit) {
+        if (storages.isEmpty()) storages = repository.fetchStorages()
+        libraryDirs = repository.fetchDirectories()
+        val matchPayload = buildPayloadJson(preview = false, onlyForMatch = true)
+        repository.matchManualTransferTargetPath(matchPayload)?.let { hint ->
+            if (hint.targetStorage.isNotBlank()) targetStorage = hint.targetStorage
+            if (hint.targetPath.isNotBlank()) {
+                matchedTargetHint = hint.targetPath
+                if (targetPath.isBlank()) targetPath = hint.targetPath
+            }
+            if (hint.transferType.isNotBlank() && transferType.isBlank()) transferType = hint.transferType
+            if (hint.overwriteMode.isNotBlank()) overwriteMode = hint.overwriteMode
+        }
+        repository.matchManualTransferHistory(matchPayload)?.let { h ->
+            matchedHistoryCount = h.historyCount
+            if (h.reorganize) reorganize = true
+        }
+    }
+
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = colors.textPrimary,
+        unfocusedTextColor = colors.textPrimary,
+        focusedBorderColor = colors.accent,
+        unfocusedBorderColor = colors.fieldBorder,
+    )
+    val storageNames = remember(storages) { (storages.map { it.type } + "local").distinct() }
+
+    NativeGlassSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("手动识别整理", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            CinematicPanel(padding = 12.dp, showsShadow = false) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(sourceTitleHint, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text("$sourceStorageHint · $sourcePathHint", color = colors.textMuted, fontSize = 11.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (matchedHistoryCount > 0) {
+                        NativeAdaptiveBadge("已匹配历史整理 $matchedHistoryCount 条", tint = colors.warning)
                     }
                 }
-                OutlinedTextField(
-                    value = destPath,
-                    onValueChange = { destPath = it },
-                    label = { Text("目标媒体库路径") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Button(
-                    onClick = {
-                        val name = target.name
-                        actionTarget = null
-                        scope.launch { snackbar?.showSnackbar("已提交「$name」至智能整理队列（$transferMode）") }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.accent),
-                    shape = CircleShape,
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                ) {
-                    Icon(Icons.AutoMirrored.Rounded.DriveFileMove, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("立即执行智能识别整理", color = Color.White, fontWeight = FontWeight.SemiBold)
-                }
-                Spacer(Modifier.height(24.dp))
             }
+
+            // 1. 目标存储与路径
+            Text("目标存储", color = colors.textSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                storageNames.forEach { st ->
+                    NativeAdaptivePill(st, selected = targetStorage == st, onClick = { targetStorage = st })
+                }
+            }
+            if (libraryDirs.isNotEmpty()) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    libraryDirs.filter { it.libraryPath.isNotBlank() }.take(6).forEach { dir ->
+                        NativeAdaptivePill(
+                            title = dir.name,
+                            selected = targetPath == dir.libraryPath,
+                            onClick = {
+                                targetStorage = dir.libraryStorage.ifBlank { targetStorage }
+                                targetPath = dir.libraryPath
+                            },
+                        )
+                    }
+                }
+            }
+            OutlinedTextField(
+                value = targetPath,
+                onValueChange = { targetPath = it },
+                label = { Text(matchedTargetHint?.let { "目标路径（自动匹配：$it）" } ?: "目标媒体库路径（留空按目录规则自动匹配）") },
+                singleLine = true,
+                colors = fieldColors,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            // 2. 整理方式 & 覆盖模式
+            Text("整理方式", color = colors.textSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "" to "自动",
+                    "link" to "硬链接",
+                    "softlink" to "软链接",
+                    "copy" to "复制",
+                    "move" to "移动",
+                    "rclone_copy" to "Rclone 复制",
+                    "rclone_move" to "Rclone 移动",
+                ).forEach { (k, lbl) ->
+                    NativeAdaptivePill(lbl, selected = transferType == k, onClick = { transferType = k })
+                }
+            }
+            Text("覆盖模式", color = colors.textSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "never" to "从不覆盖",
+                    "size" to "按大小覆盖",
+                    "always" to "总是覆盖",
+                    "latest" to "仅保留最新",
+                ).forEach { (k, lbl) ->
+                    NativeAdaptivePill(lbl, selected = overwriteMode == k, onClick = { overwriteMode = k })
+                }
+            }
+
+            // 3. 媒体识别与指定
+            HorizontalDivider(color = colors.divider)
+            Text("媒体识别", color = colors.textSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("" to "自动识别", "电影" to "电影", "电视剧" to "电视剧", "音乐" to "音乐").forEach { (k, lbl) ->
+                    NativeAdaptivePill(lbl, selected = mediaType == k, onClick = { mediaType = k })
+                }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "" to "自动源",
+                    "themoviedb" to "TheMovieDB",
+                    "douban" to "豆瓣",
+                    "bangumi" to "Bangumi",
+                    "musicbrainz" to "MusicBrainz",
+                ).forEach { (k, lbl) ->
+                    NativeAdaptivePill(lbl, selected = mediaSource == k, onClick = { mediaSource = k })
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = mediaId,
+                    onValueChange = { mediaId = it },
+                    label = { Text(selectedMediaTitle?.let { "媒体 ID（已选：$it）" } ?: "指定 TMDB / 豆瓣 / Bangumi ID（可选）") },
+                    singleLine = true,
+                    colors = fieldColors,
+                    modifier = Modifier.weight(1f),
+                )
+                NativeAdaptivePill(
+                    title = "搜索指定",
+                    selected = showMediaSearch,
+                    icon = Icons.Rounded.Search,
+                    onClick = { showMediaSearch = !showMediaSearch },
+                )
+            }
+            if (showMediaSearch) {
+                CinematicPanel(padding = 12.dp, showsShadow = false) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = mediaSearchQuery,
+                                onValueChange = { mediaSearchQuery = it },
+                                label = { Text("搜索片名匹配 ID") },
+                                singleLine = true,
+                                colors = fieldColors,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        isSearchingMedia = true
+                                        mediaSearchResults = repository.searchMedia(mediaSearchQuery, if (mediaType == "音乐") "music" else "media", 1).take(6)
+                                        isSearchingMedia = false
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.primaryButtonFg),
+                                shape = CircleShape,
+                            ) { Text("搜索", fontWeight = FontWeight.Bold) }
+                        }
+                        if (isSearchingMedia) {
+                            CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(20.dp))
+                        } else {
+                            mediaSearchResults.forEach { m ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(colors.chipFill)
+                                        .clickable {
+                                            mediaSource = m.source.ifBlank { "themoviedb" }
+                                            mediaId = m.tmdbId?.toString() ?: m.doubanId ?: m.mediaId ?: m.resolvedId
+                                            if (m.type.isNotBlank()) mediaType = m.type
+                                            selectedMediaTitle = "${m.title} (${m.year})"
+                                            showMediaSearch = false
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text("${m.title} (${m.year})", color = colors.textPrimary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                    NativeAdaptiveBadge(m.type.ifBlank { m.source }, tint = colors.accent)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 电视剧专属参数
+            if (mediaType == "电视剧" || mediaType.isBlank()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = seasonText, onValueChange = { seasonText = it.filter(Char::isDigit) }, label = { Text("季号 (如 1)") }, singleLine = true, colors = fieldColors, modifier = Modifier.weight(1f))
+                    OutlinedTextField(value = episodeDetail, onValueChange = { episodeDetail = it }, label = { Text("指定集数 (如 1-12)") }, singleLine = true, colors = fieldColors, modifier = Modifier.weight(1.4f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = episodeOffset, onValueChange = { episodeOffset = it }, label = { Text("集数偏移 (如 EP-12)") }, singleLine = true, colors = fieldColors, modifier = Modifier.weight(1f))
+                    OutlinedTextField(value = episodePart, onValueChange = { episodePart = it }, label = { Text("Part 分段 (如 part1)") }, singleLine = true, colors = fieldColors, modifier = Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = episodeFormat, onValueChange = { episodeFormat = it }, label = { Text("自定义集数格式") }, singleLine = true, colors = fieldColors, modifier = Modifier.weight(1f))
+                    OutlinedTextField(value = episodeGroup, onValueChange = { episodeGroup = it }, label = { Text("剧集组 ID") }, singleLine = true, colors = fieldColors, modifier = Modifier.weight(1f))
+                }
+            }
+
+            // 音乐专属参数
+            if (mediaType == "音乐") {
+                Text("音乐整理模式", color = colors.textSecondary, fontSize = 12.5.sp)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("" to "自动", "album" to "按专辑", "track" to "按单曲").forEach { (k, lbl) ->
+                        NativeAdaptivePill(lbl, selected = musicType == k, onClick = { musicType = k })
+                    }
+                }
+                if (musicType == "album") {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("strict" to "严格音轨匹配", "loose" to "宽松音轨匹配").forEach { (k, lbl) ->
+                            NativeAdaptivePill(lbl, selected = musicTrackMatch == k, onClick = { musicTrackMatch = k })
+                        }
+                    }
+                }
+            }
+
+            // 4. 更多高级参数（三态刮削/目录分类/最小体积/历史与后台选项）
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.chipFill)
+                    .clickable { showAdvanced = !showAdvanced }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("更多高级参数（刮削 / 分类子目录 / 历史策略）", color = colors.textPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                Icon(if (showAdvanced) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, contentDescription = null, tint = colors.textSecondary)
+            }
+            if (showAdvanced) {
+                CinematicPanel(padding = 14.dp, showsShadow = false) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        TriStateRow("刮削元数据", scrapeChoice) { scrapeChoice = it }
+                        TriStateRow("按类型分类子目录", typeFolderChoice) { typeFolderChoice = it }
+                        TriStateRow("按二级分类子目录", categoryFolderChoice) { categoryFolderChoice = it }
+                        OutlinedTextField(
+                            value = minFilesizeText,
+                            onValueChange = { minFilesizeText = it.filter(Char::isDigit) },
+                            label = { Text("最小文件大小 (MB，0 不限制)") },
+                            singleLine = true,
+                            colors = fieldColors,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("跳过已成功整理文件", color = colors.textPrimary, fontSize = 13.5.sp)
+                            Switch(checked = skipSuccess, onCheckedChange = { skipSuccess = it }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg))
+                        }
+                        if (!skipSuccess) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("覆盖历史记录重新整理", color = colors.textPrimary, fontSize = 13.5.sp)
+                                Switch(checked = reorganize, onCheckedChange = { reorganize = it }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg))
+                            }
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("提交至后台异步执行", color = colors.textPrimary, fontSize = 13.5.sp)
+                            Switch(checked = runInBackground, onCheckedChange = { runInBackground = it }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg))
+                        }
+                    }
+                }
+            }
+
+            // 预览结果列表
+            if (previewItems.isNotEmpty()) {
+                CinematicPanel(padding = 12.dp, showsShadow = false) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("整理预览（共 ${previewItems.size} 项）", color = colors.accent, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                        previewItems.take(8).forEach { pv ->
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(pv.title.ifBlank { pv.src.substringAfterLast('/') }, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (pv.dest.isNotBlank()) {
+                                    Text("→ ${pv.dest}", color = colors.success, fontSize = 11.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                } else if (pv.message.isNotBlank()) {
+                                    Text(pv.message, color = colors.warning, fontSize = 11.5.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            feedbackText?.let { fb ->
+                Text(fb, color = if (feedbackIsError) colors.danger else colors.success, fontSize = 12.5.sp)
+            }
+
+            // 双动作：预览整理 + 立即整理
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(
+                    enabled = !isPreviewing && !isSubmitting,
+                    onClick = {
+                        scope.launch {
+                            isPreviewing = true
+                            feedbackText = null
+                            val (ok, msg, items) = repository.executeManualTransfer(buildPayloadJson(preview = true), preview = true, background = false)
+                            previewItems = items
+                            if (!ok || items.isEmpty()) {
+                                feedbackIsError = !ok
+                                feedbackText = msg
+                            }
+                            isPreviewing = false
+                        }
+                    },
+                    shape = CircleShape,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                ) {
+                    Icon(Icons.Rounded.Preview, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (isPreviewing) "预览中..." else "预览整理", fontWeight = FontWeight.SemiBold)
+                }
+                Button(
+                    enabled = !isSubmitting && !isPreviewing,
+                    onClick = {
+                        scope.launch {
+                            isSubmitting = true
+                            feedbackText = null
+                            val (ok, msg, _) = repository.executeManualTransfer(buildPayloadJson(preview = false), preview = false, background = runInBackground)
+                            isSubmitting = false
+                            if (ok) {
+                                onCompleted(msg)
+                            } else {
+                                feedbackIsError = true
+                                feedbackText = msg
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.primaryButtonFg),
+                    shape = CircleShape,
+                    modifier = Modifier.weight(1.2f).height(48.dp),
+                ) {
+                    Icon(Icons.AutoMirrored.Rounded.DriveFileMove, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (isSubmitting) "提交中..." else "立即整理", fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(Modifier.height(18.dp))
+        }
+    }
+}
+
+@Composable
+private fun TriStateRow(label: String, value: Boolean?, onChange: (Boolean?) -> Unit) {
+    val colors = LocalMoviePilotColors.current
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = colors.textPrimary, fontSize = 13.5.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            NativeAdaptivePill("自动", selected = value == null, onClick = { onChange(null) })
+            NativeAdaptivePill("开启", selected = value == true, onClick = { onChange(true) })
+            NativeAdaptivePill("关闭", selected = value == false, onClick = { onChange(false) })
         }
     }
 }
@@ -494,6 +957,8 @@ fun TransferHistoryScreen(
 ) {
     val colors = LocalMoviePilotColors.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
+    val scope = rememberCoroutineScope()
+    val snackbar = LocalSnackbarHostState.current
     var search by remember { mutableStateOf(initialSearch) }
     var statusFilter by remember { mutableStateOf("全部") }
     var totalCount by remember { mutableStateOf(0) }
@@ -501,6 +966,7 @@ fun TransferHistoryScreen(
     var queueItems by remember { mutableStateOf<List<TransferQueueItemDto>>(emptyList()) }
     var showQueueSheet by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<TransferHistoryDto?>(null) }
+    var retransferTarget by remember { mutableStateOf<TransferHistoryDto?>(null) }
 
     LaunchedEffect(search) {
         val (total, fetched) = repository.fetchTransferHistory(search)
@@ -578,7 +1044,7 @@ fun TransferHistoryScreen(
                     cornerRadius = 22.dp,
                     showsShadow = false,
                     modifier = Modifier.combinedClickable(
-                        onClick = {},
+                        onClick = { retransferTarget = rec },
                         onLongClick = { deleteTarget = rec },
                     ),
                 ) {
@@ -679,6 +1145,27 @@ fun TransferHistoryScreen(
                 Spacer(Modifier.height(20.dp))
             }
         }
+    }
+
+    retransferTarget?.let { rec ->
+        ManualTransferSheet(
+            repository = repository,
+            fileItem = null,
+            historyLogId = rec.id,
+            sourceStorageHint = rec.srcStorage.ifBlank { "local" },
+            sourceTitleHint = rec.title.ifBlank { rec.src.substringAfterLast('/') },
+            sourcePathHint = rec.src,
+            onDismiss = { retransferTarget = null },
+            onCompleted = { msg ->
+                retransferTarget = null
+                scope.launch {
+                    val (total, fetched) = repository.fetchTransferHistory(search)
+                    totalCount = total
+                    records = fetched
+                    snackbar?.showSnackbar(msg)
+                }
+            },
+        )
     }
 
     deleteTarget?.let { rec ->

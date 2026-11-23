@@ -20,6 +20,9 @@ android {
 dependencies {
     implementation(project(":design-system"))
     implementation(project(":core-rust-bridge"))
+    implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.coil.compose)
+    implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)
 }

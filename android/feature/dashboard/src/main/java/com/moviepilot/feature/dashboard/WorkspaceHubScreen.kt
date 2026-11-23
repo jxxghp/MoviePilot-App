@@ -63,10 +63,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.moviepilot.designsystem.AdaptiveDeviceLayout
 import com.moviepilot.designsystem.CinematicPanel
+import com.moviepilot.designsystem.ExpressiveHeaderActionButton
+import com.moviepilot.designsystem.ExpressiveTintedScaffold
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeAdaptiveBadge
-import com.moviepilot.designsystem.NativeGlassTopBar
-import com.moviepilot.designsystem.NativeTopStatusBarProgressiveBlur
 import com.moviepilot.rustbridge.DashboardStatsDto
 import com.moviepilot.rustbridge.MediaServerLibraryDto
 import com.moviepilot.rustbridge.MoviePilotRepository
@@ -140,7 +140,17 @@ fun WorkspaceHubScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    ExpressiveTintedScaffold(
+        title = "更多",
+        subtitle = "资源、下载与自动化中心",
+        actions = {
+            ExpressiveHeaderActionButton(
+                icon = Icons.Rounded.Search,
+                contentDescription = "全局搜索",
+                onClick = onOpenSearch,
+            )
+        },
+    ) {
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
@@ -154,26 +164,9 @@ fun WorkspaceHubScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = margin, end = margin, bottom = 128.dp),
+                contentPadding = PaddingValues(start = margin, end = margin, top = 16.dp, bottom = 128.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                item {
-                    NativeGlassTopBar(
-                        title = "更多",
-                        showTopBlur = false,
-                        trailing = {
-                            IconButton(onClick = onOpenSearch, modifier = Modifier.size(48.dp)) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Search,
-                                    contentDescription = "全局搜索",
-                                    tint = colors.textPrimary,
-                                    modifier = Modifier.size(24.dp),
-                                )
-                            }
-                        },
-                    )
-                }
-
                 // 实时传输与任务状态总览卡
                 item {
                     CinematicPanel(
@@ -215,11 +208,11 @@ fun WorkspaceHubScreen(
                     }
                 }
 
-                // 分组 1：资源与媒体管理
+                // 分组 1：资源与媒体流转（站点 -> 下载 -> 文件 -> 整理 -> 媒体库，完整业务闭环）
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            "资源与文件管理",
+                            "资源与媒体流转",
                             color = colors.textSecondary,
                             style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier.padding(start = 4.dp),
@@ -227,78 +220,104 @@ fun WorkspaceHubScreen(
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             WorkspaceTileCard(
                                 title = "站点资源",
-                                subtitle = "9 维精准筛选",
+                                subtitle = "多站搜索与精细筛选",
                                 icon = Icons.Rounded.TravelExplore,
                                 accentTint = colors.info,
                                 onClick = onOpenResources,
                                 modifier = Modifier.weight(1f),
                             )
                             WorkspaceTileCard(
-                                title = "下载管理",
-                                subtitle = if (activeDownloads > 0) "$activeDownloads 个任务" else "队列与限速",
-                                icon = Icons.Rounded.DownloadForOffline,
+                                title = "站点管理",
+                                subtitle = if (sitesCount > 0) "$sitesCount 站点启用" else "流量趋势与连通测速",
+                                icon = Icons.Rounded.Language,
                                 accentTint = colors.success,
-                                onClick = onOpenDownloads,
+                                onClick = onOpenSites,
                                 modifier = Modifier.weight(1f),
                             )
                         }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             WorkspaceTileCard(
+                                title = "下载管理",
+                                subtitle = if (activeDownloads > 0) "$activeDownloads 个任务" else "队列与限速控制",
+                                icon = Icons.Rounded.DownloadForOffline,
+                                accentTint = colors.success,
+                                onClick = onOpenDownloads,
+                                modifier = Modifier.weight(1f),
+                            )
+                            WorkspaceTileCard(
                                 title = "文件管理",
-                                subtitle = "多存储与本机播放",
+                                subtitle = "多存储浏览与播放",
                                 icon = Icons.Rounded.Folder,
                                 accentTint = colors.warning,
                                 onClick = onOpenFiles,
                                 modifier = Modifier.weight(1f),
                             )
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             WorkspaceTileCard(
                                 title = "整理历史",
-                                subtitle = "识别记录与队列",
+                                subtitle = "识别入库与记录队列",
                                 icon = Icons.Rounded.History,
                                 accentTint = colors.brand,
                                 onClick = onOpenHistory,
                                 modifier = Modifier.weight(1f),
                             )
+                            if (libraries.isNotEmpty()) {
+                                WorkspaceTileCard(
+                                    title = "媒体库",
+                                    subtitle = "${libraries.size} 个媒体库浏览",
+                                    icon = Icons.Rounded.Folder,
+                                    accentTint = colors.accent,
+                                    onClick = { onOpenMediaLibrary(libraries.first()) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            } else {
+                                Spacer(Modifier.weight(1f))
+                            }
                         }
                     }
                 }
 
-                // 分组 2：自动化、站点与插件生态
+                // 分组 2：插件与工作流（纯粹的扩展能力与自动化编排）
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            "自动化与扩展生态",
+                            "插件与工作流",
                             color = colors.textSecondary,
                             style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier.padding(start = 4.dp),
                         )
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             WorkspaceTileCard(
-                                title = "工作流",
-                                subtitle = if (workflowsCount > 0) "$workflowsCount 个节点画布" else "画布与社区分享",
-                                icon = Icons.Rounded.Hub,
-                                accentTint = colors.accent,
-                                onClick = onOpenWorkflows,
-                                modifier = Modifier.weight(1f),
-                            )
-                            WorkspaceTileCard(
                                 title = "插件中心",
-                                subtitle = if (pluginsCount > 0) "已装 $pluginsCount 款" else "原生与 Vue 宿主",
+                                subtitle = if (pluginsCount > 0) "已装 $pluginsCount 款" else "插件市场与管理",
                                 icon = Icons.Rounded.Extension,
                                 accentTint = colors.cyan,
                                 onClick = onOpenPlugins,
                                 modifier = Modifier.weight(1f),
                             )
-                        }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             WorkspaceTileCard(
-                                title = "站点管理",
-                                subtitle = if (sitesCount > 0) "$sitesCount 站点启用" else "流量趋势与测速",
-                                icon = Icons.Rounded.Language,
-                                accentTint = colors.success,
-                                onClick = onOpenSites,
+                                title = "工作流",
+                                subtitle = if (workflowsCount > 0) "$workflowsCount 个编排画布" else "自动化流程编排",
+                                icon = Icons.Rounded.Hub,
+                                accentTint = colors.accent,
+                                onClick = onOpenWorkflows,
                                 modifier = Modifier.weight(1f),
                             )
+                        }
+                    }
+                }
+
+                // 分组 3：追剧与广场（独立于运维诊断，归类追更与社区分享）
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            "追剧与广场",
+                            color = colors.textSecondary,
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(start = 4.dp),
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             WorkspaceTileCard(
                                 title = "追剧日历",
                                 subtitle = "本周更新排期",
@@ -307,44 +326,40 @@ fun WorkspaceHubScreen(
                                 onClick = onOpenCalendar,
                                 modifier = Modifier.weight(1f),
                             )
+                            WorkspaceTileCard(
+                                title = "订阅广场",
+                                subtitle = "热门社区共享订阅",
+                                icon = Icons.Rounded.LocalFireDepartment,
+                                accentTint = colors.warning,
+                                onClick = onOpenSubscribeCommunity,
+                                modifier = Modifier.weight(1f),
+                            )
                         }
                     }
                 }
 
-                // 分组 3：发现广场与系统诊断工具
+                // 分组 4：系统诊断（纯粹的系统检查与运维工具，不混入社区内容）
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            "社区与系统诊断",
+                            "系统诊断",
                             color = colors.textSecondary,
                             style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier.padding(start = 4.dp),
                         )
                         CinematicPanel(padding = 12.dp, showsShadow = false) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (libraries.isNotEmpty()) {
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        DiagnosticQuickPill(
-                                            title = "媒体库浏览 (${libraries.size})",
-                                            icon = Icons.Rounded.Folder,
-                                            tint = colors.accent,
-                                            modifier = Modifier.weight(1f),
-                                        ) { onOpenMediaLibrary(libraries.first()) }
-                                        DiagnosticQuickPill("订阅广场", Icons.Rounded.LocalFireDepartment, colors.warning, Modifier.weight(1f), onOpenSubscribeCommunity)
-                                    }
-                                } else {
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        DiagnosticQuickPill("订阅广场", Icons.Rounded.LocalFireDepartment, colors.warning, Modifier.weight(1f), onOpenSubscribeCommunity)
-                                        DiagnosticQuickPill("系统健康", Icons.Rounded.Shield, colors.success, Modifier.weight(1f)) { onOpenDiagnosticTab("健康检查") }
-                                    }
-                                }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    DiagnosticQuickPill("实时日志", Icons.Rounded.Terminal, colors.info, Modifier.weight(1f)) { onOpenDiagnosticTab("实时日志") }
+                                    DiagnosticQuickPill("系统检查", Icons.Rounded.Shield, colors.success, Modifier.weight(1f)) { onOpenDiagnosticTab("健康检查") }
                                     DiagnosticQuickPill("定时服务", Icons.Rounded.Schedule, colors.pink, Modifier.weight(1f)) { onOpenDiagnosticTab("定时服务") }
                                 }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    DiagnosticQuickPill("识别与词表", Icons.Rounded.Book, colors.cyan, Modifier.weight(1f)) { onOpenDiagnosticTab("词表") }
-                                    DiagnosticQuickPill("网络测试", Icons.Rounded.Language, colors.brand, Modifier.weight(1f)) { onOpenDiagnosticTab("网络测试") }
+                                    DiagnosticQuickPill("实时日志", Icons.Rounded.Terminal, colors.info, Modifier.weight(1f)) { onOpenDiagnosticTab("实时日志") }
+                                    DiagnosticQuickPill("词表管理", Icons.Rounded.Book, colors.cyan, Modifier.weight(1f)) { onOpenDiagnosticTab("词表") }
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    DiagnosticQuickPill("名称识别", Icons.Rounded.Search, colors.brand, Modifier.weight(1f)) { onOpenDiagnosticTab("名称识别") }
+                                    DiagnosticQuickPill("网络测试", Icons.Rounded.Language, colors.warning, Modifier.weight(1f)) { onOpenDiagnosticTab("网络测试") }
                                 }
                             }
                         }
@@ -352,12 +367,6 @@ fun WorkspaceHubScreen(
                 }
             }
         }
-
-        NativeTopStatusBarProgressiveBlur(
-            visibilityProgress = topBlurAlpha,
-            blurSourceState = localHaze,
-            modifier = Modifier.align(Alignment.TopCenter),
-        )
     }
 }
 
@@ -373,7 +382,7 @@ private fun WorkspaceTileCard(
     val colors = LocalMoviePilotColors.current
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(colors.cardRadiusDp.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 0.dp,
         modifier = modifier.heightIn(min = 92.dp),

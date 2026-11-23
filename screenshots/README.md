@@ -2,53 +2,63 @@
 
 本图册按平台目录归档真机/模拟器运行验收截图：
 - `screenshots/ios/`：iOS 26 模拟器（iPhone 17）60 张黄金验收图
-- `screenshots/android/`：Android 15（API 35 ARM64 硬件 GPU 模拟器）20 张 **纯正 Material Design 3** 真实后端实测验收图
+- `screenshots/android/`：Android 15（API 35 ARM64 硬件 GPU 模拟器）34 张 **Material 3 Expressive** 真实后端实测验收图
 - `screenshots/harmony/`：HarmonyOS NEXT / HarmonyOS 7（已完成 HarmonyOS 原生交互与一多自适应重设计、HarmonyOS 7 `uiMaterial.ImmersiveMaterial` 动态光感与低版本自动回退、Vue 联邦协议接管，以及 Rust OHOS NAPI 动态库与 16 模块 `entry-default-unsigned.hap` 零报错编译及 `verify-hap.py` 校验；待 DevEco Studio Device Manager 下载 `HarmonyOS-7.0.1-B1` 系统镜像后补齐真机/模拟器截图）
 
 ---
 
-## Android（Jetpack Compose + 纯正 Material Design 3 + Rust UniFFI · API 35 实测验收）
+## Android（Jetpack Compose + Material 3 Expressive + Rust 核心 · API 35 实测验收）
 
-以下 20 张截图均采集自 Android 15（API 35，`MoviePilot_API35` ARM64 模拟器，Apple M4 Vulkan `gfxstream` 硬件加速）直连真实 MoviePilot V3 后端实例运行界面：
-- **纯正 Material Design 3 视觉体系**：不透明 Tonal Surface 色阶（`surface` → `surfaceContainerLow` → `surfaceContainer` → `surfaceContainerHigh`）、贴底标准 5 Tab `NavigationBar`（发现 · 探索 · 订阅 · 更多 · 我的）+ 宽屏 `NavigationRail`、支持 Android 12+ Material You 壁纸动态取色；
-- **标准 Android 交互层级**：一级平级页签使用 `PrimaryTabRow` + `HorizontalPager` 左右跟手滑动、二级页内章节使用 `SecondaryTabRow`、互斥模式选择使用 `SingleChoiceSegmentedButtonRow`、多维筛选使用 `FilterChip`；
-- **完整业务与插件生态**：发现/详情视差渐变溶解 + 顶部状态栏渐进模糊、Emby 媒体库实时浏览与直放、原生 Vuetify JSON 表单与数据页、以及 1:1 复刻 iOS `moviepilot.chrome` v1 协议的 Vue 模块联邦插件（零点击直开 + 标题栏/关闭按钮/原背景原生接管）。
+以下截图均采集自 Android 15（API 35，`MoviePilot_API35` ARM64 模拟器，Apple M4 Vulkan `gfxstream` 硬件加速）直连真实 MoviePilot V3 后端实例运行界面：
+- **Material 3 Expressive 视觉与导航体系**：默认圆角悬浮 5 Tab 胶囊底栏（选中态将图标与文字包裹在同一圆角胶囊内联合高亮）、染色顶栏配大圆角表面容器与大胶囊分页栏（支持自动滚动选中项入镜）、5 套深浅表现力色板 + Android 12+ Material You 壁纸取色 + AMOLED 纯黑模式 + 封面动态取色、以及完整 Android Adaptive Icon；
+- **全量 iOS 功能对齐**：发现 10 大模块 + 发现/我的双端自定义模块开关与排序、Emby 媒体库无遮挡封面与右上角数量角标、站点资源多选站点与多维筛选弹窗、全量订阅规则编辑器、全量手动识别整理（自动匹配目标路径与历史整理、预览/执行与三态开关）、站点/下载器/媒体服务器/目录完整增删改、词表 5 类动态提示与独立捷径入口；
+- **完整插件与 AI 智能助手生态**：原生 Vuetify 表单/数据页（过滤 `<style>` 原始样式并统一大胶囊分页）、Vue 模块联邦原生接管，以及接入真实 `/api/v1/message/agent/*` 接口的 AI 助手（历史会话读写切换删除、工具调用分组折叠卡片、Markdown 渲染、图文文件上传与语音录制）。
 
-### 核心导航、发现滚动、媒体库与详情
+### 桌面图标、核心导航、发现、媒体库与探索
 
-| 发现首页（贴底 5 Tab 导航） | 发现滚动（状态栏渐进模糊 + 媒体库） | Emby 媒体库实时浏览（753 部电影） |
+| Android 自适应图标 | 发现首页（圆角悬浮底栏） | 发现滚动（无遮挡媒体库 + 分类浏览） |
 | :---: | :---: | :---: |
-| ![Android发现首页](android/01-discover-top.png) | ![Android发现滚动](android/02-discover-scrolled-emby.png) | ![Android媒体库](android/03-emby-library.png) |
+| ![Android自适应图标](android/00-launcher-icon.png) | ![Android发现首页](android/01-discover-top.png) | ![Android发现滚动](android/02-discover-scrolled-emby.png) |
 
-| 媒体详情（沉浸主视觉） | 人物独立全屏详情页 | 探索片库（多源筛选网格） |
+| Emby 媒体库（大胶囊分页） | 媒体详情（沉浸主视觉） | 全局搜索（顶部热门标签） |
 | :---: | :---: | :---: |
-| ![Android媒体详情](android/04-media-detail.png) | ![Android人物详情](android/05-person-detail.png) | ![Android探索](android/06-explore.png) |
+| ![Android媒体库](android/03-emby-library.png) | ![Android媒体详情](android/04-media-detail.png) | ![Android全局搜索](android/06c-global-search.png) |
 
-### 订阅、更多工具中心与工作流（Material 3 页签与分段控件）
-
-| 订阅（PrimaryTabRow 滑动切换） | 订阅广场（SegmentedButton 切换） | 更多（实时速率与功能中心） |
+| 探索片库（多源筛选网格） | 音乐探索（斜切拼贴 + 自动滚动页签） | 人物独立全屏详情页 |
 | :---: | :---: | :---: |
-| ![Android订阅](android/07-subscribe-primary-tabs.png) | ![Android订阅广场](android/08-subscribe-community-segmented.png) | ![Android更多中心](android/09-workspace-hub.png) |
+| ![Android探索](android/06-explore.png) | ![Android音乐探索](android/06b-explore-music.png) | ![Android人物详情](android/05-person-detail.png) |
 
-| 工作流（PrimaryTabRow + M3 FAB） | 文件管理（本机 SAF 媒体直放） | 我的仪表盘 |
+### 订阅、更多工具中心、我的与设置
+
+| 订阅列表（简洁操作行） | 全量订阅编辑器 | 更多（4 组合理分区） |
 | :---: | :---: | :---: |
-| ![Android工作流](android/14-workflows-primary-tabs.png) | ![Android文件管理](android/15-file-manager.png) | ![Android仪表盘](android/16-dashboard.png) |
+| ![Android订阅](android/07-subscribe-primary-tabs.png) | ![Android订阅编辑](android/07b-subscribe-editor.png) | ![Android更多中心](android/09-workspace-hub.png) |
 
-### 插件中心（原生 Vuetify 表单/数据页 + Vue 模块联邦原生接管）
-
-| 插件中心（PrimaryTabRow） | 原生数据页（SecondaryTabRow） | 原生 Vuetify JSON 配置表单 |
+| 更多（追剧与系统诊断分组） | 我的仪表盘 | 自定义我的模块 |
 | :---: | :---: | :---: |
-| ![Android插件中心](android/10-plugins-primary-tabs.png) | ![Android插件数据页](android/11-plugin-vuetify-datapage.png) | ![Android插件原生表单](android/12-plugin-vuetify-json-form.png) |
+| ![Android更多下半部](android/09b-workspace-hub-bottom.png) | ![Android仪表盘](android/16-dashboard.png) | ![Android自定义我的模块](android/16b-dashboard-modules.png) |
 
-| Vue 模块联邦（零点击直开 + 接管顶栏/去背景） | 消息中心（全屏含真实配图） | 设置中心（Material 3 分组） |
+| 设置中心（精简分组） | 下载器新增与编辑 | 主题与外观（5 色板 + 导航形态） |
 | :---: | :---: | :---: |
-| ![AndroidVue联邦接管](android/13-plugin-vue-zero-tap.png) | ![Android消息中心](android/17-messages.png) | ![Android设置中心](android/18-settings.png) |
+| ![Android设置中心](android/18-settings.png) | ![Android下载器新增](android/18b-downloaders-add.png) | ![Android主题外观](android/19-appearance-segmented.png) |
 
-### 外观与播放设置（Material You + SegmentedButton）
+### 站点资源、词表、手动整理、AI 助手与插件生态
 
-| 主题与外观（Material You + 分段模式） | 播放偏好（清晰度与倍速分段选择） | |
+| 站点资源（明确排序与筛选标签） | 多选搜索站点弹窗 | 全部筛选条件弹窗 |
 | :---: | :---: | :---: |
-| ![Android主题外观](android/19-appearance-segmented.png) | ![Android播放偏好](android/20-playback-segmented.png) | |
+| ![Android站点资源](android/21-resources-search.png) | ![Android多选站点](android/21b-resources-sites-multiselect.png) | ![Android全部筛选](android/21c-resources-filter-sheet.png) |
+
+| 词表管理（分类动态示例与提示） | 全量手动识别整理（自动路径/历史匹配） | AI 智能助手（工具折叠卡 + Markdown） |
+| :---: | :---: | :---: |
+| ![Android词表](android/22-word-lists.png) | ![Android手动整理](android/23-manual-transfer.png) | ![Android智能助手](android/24-agent-chat.png) |
+
+| AI 历史会话（真实服务端读写） | 插件中心 | 插件数据页（大胶囊分页 + CSS 过滤） |
+| :---: | :---: | :---: |
+| ![Android历史会话](android/24b-agent-sessions.png) | ![Android插件中心](android/10-plugins-primary-tabs.png) | ![Android插件数据页](android/11-plugin-vuetify-datapage.png) |
+
+| 原生 Vuetify JSON 配置表单 | Vue 模块联邦（零点击直开） | 播放偏好 |
+| :---: | :---: | :---: |
+| ![Android插件原生表单](android/12-plugin-vuetify-json-form.png) | ![AndroidVue联邦接管](android/13-plugin-vue-zero-tap.png) | ![Android播放偏好](android/20-playback-segmented.png) |
 
 ---
 

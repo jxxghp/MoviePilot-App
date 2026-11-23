@@ -96,7 +96,14 @@ import coil.compose.AsyncImage
 import com.moviepilot.designsystem.AdaptiveDeviceLayout
 import com.moviepilot.designsystem.CinematicCircleButton
 import com.moviepilot.designsystem.CinematicPanel
-import com.moviepilot.designsystem.GeneratedDesignTokens
+import com.moviepilot.designsystem.ExpressiveCornerStyle
+import com.moviepilot.designsystem.ExpressiveHeaderActionButton
+import com.moviepilot.designsystem.ExpressiveMorphingPlayButton
+import com.moviepilot.designsystem.ExpressiveNavBarStyle
+import com.moviepilot.designsystem.ExpressivePalettes
+import com.moviepilot.designsystem.ExpressivePillTabRow
+import com.moviepilot.designsystem.ExpressiveTintedScaffold
+import com.moviepilot.designsystem.ExpressiveWavySlider
 import com.moviepilot.designsystem.LocalAppearanceStore
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.LocalSnackbarHostState
@@ -107,6 +114,7 @@ import com.moviepilot.designsystem.NativePrimaryTabBar
 import com.moviepilot.designsystem.NativeSecondaryTabBar
 import com.moviepilot.designsystem.NativeSegmentedControl
 import com.moviepilot.designsystem.NativeTopStatusBarProgressiveBlur
+import com.moviepilot.designsystem.contrastingForeground
 import com.moviepilot.pluginhost.IsolatedVuePluginWebView
 import com.moviepilot.pluginhost.NativePluginDataPageView
 import com.moviepilot.pluginhost.NativePluginFormRenderer
@@ -183,7 +191,11 @@ fun SettingsHubScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    ExpressiveTintedScaffold(
+        title = "设置",
+        subtitle = host.ifBlank { "MoviePilot 实例配置" },
+        onBack = onBack,
+    ) {
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
@@ -197,11 +209,9 @@ fun SettingsHubScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = margin, end = margin, bottom = 128.dp),
+                contentPadding = PaddingValues(start = margin, end = margin, top = 16.dp, bottom = 128.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                item { NativeGlassTopBar(title = "设置", onBack = onBack, showTopBlur = false) }
-
                 // 1. 顶部实例与真实存储进度条卡
                 item {
                     CinematicPanel(padding = 16.dp) {
@@ -272,7 +282,7 @@ fun SettingsHubScreen(
                     }
                 }
 
-                // 4. 外观、通知与扩展生态
+                // 4. 通知与个性化（插件入口统一收归于「更多」工作台，设置保持纯粹）
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("通知与个性化", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
@@ -281,14 +291,12 @@ fun SettingsHubScreen(
                                 SettingsRow(Icons.Outlined.Notifications, "通知渠道", "$notificationsCount 个已启用", onOpenNotifications)
                                 HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
                                 SettingsRow(Icons.Outlined.Palette, "外观与主题", appearance.summaryText, onOpenAppearance)
-                                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
-                                SettingsRow(Icons.Outlined.Extension, "插件中心", "市场 · 已安装 · 数据页", onOpenPlugins)
                             }
                         }
                     }
                 }
 
-                // 5. 账号与共享内核信息
+                // 5. 账号与版本信息
                 item {
                     CinematicPanel(padding = 0.dp, showsShadow = false) {
                         Column {
@@ -296,8 +304,8 @@ fun SettingsHubScreen(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
-                                Text("Rust 共享内核", color = colors.textSecondary, fontSize = 14.sp)
-                                NativeAdaptiveBadge("v$rustVersion · UniFFI", tint = colors.accent)
+                                Text("客户端版本", color = colors.textSecondary, fontSize = 14.sp)
+                                NativeAdaptiveBadge("v$rustVersion", tint = colors.accent)
                             }
                             HorizontalDivider(color = colors.divider)
                             Row(
@@ -316,12 +324,6 @@ fun SettingsHubScreen(
                 }
             }
         }
-
-        NativeTopStatusBarProgressiveBlur(
-            visibilityProgress = topBlurAlpha,
-            blurSourceState = localHaze,
-            modifier = Modifier.align(Alignment.TopCenter),
-        )
     }
 }
 
@@ -399,70 +401,168 @@ private fun SettingsRow(
 }
 
 /**
- * Android Material 3 主题与外观页：
- * 支持实时预览卡、Android 12+ Material You 壁纸动态取色开关、深浅/跟随系统模式、
- * 6 套渐变色板、强调色与 AGSL 动态流光。
+ * Android Material 3 Expressive 主题与外观中心：
+ * 交互式实时预览舞台（染色顶栏 + 胶囊页签 + 流动波浪进度条 + 形变主播放钮）、
+ * 深浅/跟随系统与 AMOLED 纯黑模式、5 套表现力主题色板、Android 12+ Material You 壁纸动态取色、
+ * 播放封面动态取色、界面圆角尺度与底部导航栏风格自定义。
  */
 @Composable
 fun AppearanceSettingsScreen(onBack: () -> Unit) {
     val colors = LocalMoviePilotColors.current
     val store = LocalAppearanceStore.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
-    val localHaze = remember { HazeState() }
+    var previewPlaying by remember { mutableStateOf(true) }
+    var previewProgress by remember { mutableStateOf(0.58f) }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            NativeGlassTopBar(title = "主题与外观", onBack = onBack)
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .hazeSource(localHaze),
-                contentPadding = PaddingValues(start = margin, end = margin, top = 6.dp, bottom = 52.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-            ) {
-                // 1. 实时预览卡
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("实时预览", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
-                        CinematicPanel(padding = 14.dp) {
-                            Box(
+    ExpressiveTintedScaffold(
+        title = "主题与外观",
+        subtitle = store.summaryText,
+        onBack = onBack,
+        actions = {
+            ExpressiveHeaderActionButton(
+                icon = Icons.Rounded.Refresh,
+                contentDescription = "恢复默认外观",
+                onClick = { store.resetToDefaults() },
+            )
+        },
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = margin, end = margin, top = 16.dp, bottom = 56.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            // 1. 实时表现力预览舞台（可点击测试形变主钮与流动波浪进度条）
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("实时预览", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(colors.sheetRadiusDp.dp))
+                            .background(colors.headerTint)
+                            .border(0.8.dp, colors.divider, RoundedCornerShape(colors.sheetRadiusDp.dp)),
+                    ) {
+                        Column {
+                            // 模拟染色顶栏 + 表现力胶囊页签
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Brush.linearGradient(colors.palette))
-                                    .border(0.8.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
-                                    .padding(14.dp),
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(38.dp)
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .background(colors.accent),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                                        }
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text("MoviePilot Material 3 主题", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                            Text(store.summaryText, color = colors.textSecondary, fontSize = 12.sp)
-                                        }
-                                        NativeAdaptiveBadge("活跃", tint = colors.accent, filled = true)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = "MoviePilot",
+                                        color = colors.headerTitle,
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                    )
+                                    NativeAdaptiveBadge(
+                                        text = if (store.dynamicColorEnabled) "Material You" else store.currentPreset.titleZh,
+                                        tint = colors.accent,
+                                        filled = true,
+                                    )
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .background(colors.accent)
+                                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                                    ) {
+                                        Text("发现", color = colors.primaryButtonFg, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Box(Modifier.weight(0.75f).height(6.dp).clip(CircleShape).background(colors.accent))
-                                        Box(Modifier.weight(0.25f).height(6.dp).clip(CircleShape).background(colors.chipFill))
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .background(if (colors.isDark) Color(0xFF0A1220).copy(alpha = 0.72f) else Color.White.copy(alpha = 0.75f))
+                                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                                    ) {
+                                        Text("媒体库", color = colors.headerTitle, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                     }
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .background(if (colors.isDark) Color(0xFF0A1220).copy(alpha = 0.72f) else Color.White.copy(alpha = 0.75f))
+                                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                                    ) {
+                                        Text("订阅", color = colors.headerTitle, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                            }
+
+                            // 模拟 28dp 圆角正文区 + 丝绒播控条预览
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(topStart = colors.sheetRadiusDp.dp, topEnd = colors.sheetRadiusDp.dp))
+                                    .background(colors.sheetSurface)
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(colors.cardRadiusDp.dp))
+                                        .background(colors.playerTint)
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            text = "正在播放 · 交互预览",
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                        ExpressiveWavySlider(
+                                            value = previewProgress,
+                                            onValueChange = { previewProgress = it },
+                                            onValueChangeFinished = {},
+                                            isPlaying = previewPlaying,
+                                            activeColor = colors.playerAccent,
+                                            inactiveColor = Color.White.copy(alpha = 0.28f),
+                                            modifier = Modifier.height(22.dp),
+                                        )
+                                    }
+                                    ExpressiveMorphingPlayButton(
+                                        isPlaying = previewPlaying,
+                                        onClick = { previewPlaying = !previewPlaying },
+                                        containerColor = colors.playerAccent,
+                                        contentColor = colors.playerOnAccent,
+                                        width = 50.dp,
+                                        height = 46.dp,
+                                        iconSize = 24.dp,
+                                    )
                                 }
                             }
                         }
                     }
                 }
+            }
 
-                // 2. Android 12+ Material You 系统壁纸动态取色
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    item {
+            // 2. 外观模式 + AMOLED 纯黑开关
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("显示模式", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
+                    val modes = listOf(
+                        Triple(NativeAppearanceMode.Dark, "深色", Icons.Rounded.DarkMode),
+                        Triple(NativeAppearanceMode.Light, "浅色", Icons.Rounded.LightMode),
+                        Triple(NativeAppearanceMode.System, "跟随系统", Icons.Rounded.Contrast),
+                    )
+                    val selectedIdx = modes.indexOfFirst { it.first == store.mode }.coerceAtLeast(0)
+                    NativeSegmentedControl(
+                        options = modes.map { it.second },
+                        selectedIndex = selectedIdx,
+                        onSelect = { idx -> store.updateMode(modes[idx].first) },
+                        icons = modes.map { it.third },
+                    )
+                    if (colors.isDark) {
                         CinematicPanel(padding = 16.dp) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -470,171 +570,189 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text("Material You 动态取色", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                                        NativeAdaptiveBadge("Android 12+", tint = colors.accent)
-                                    }
-                                    Text("跟随系统壁纸自动提取 Material 3 主题色与表面色阶", color = colors.textMuted, fontSize = 12.sp)
+                                    Text("AMOLED 纯黑模式", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                    Text("深色画布切换纯黑 #000000，极致对比与省电", color = colors.textMuted, fontSize = 12.sp)
                                 }
                                 Switch(
-                                    checked = store.dynamicColorEnabled,
-                                    onCheckedChange = { store.updateDynamicColorEnabled(it) },
-                                    colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
+                                    checked = store.pureBlackDark,
+                                    onCheckedChange = { store.updatePureBlackDark(it) },
+                                    colors = SwitchDefaults.colors(
+                                        checkedTrackColor = colors.accent,
+                                        checkedThumbColor = colors.primaryButtonFg,
+                                    ),
                                 )
                             }
                         }
                     }
                 }
+            }
 
-                // 3. 外观主题（Material 3 SingleChoiceSegmentedButtonRow 连接式分段选择）
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("外观模式", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
-                        val modes = listOf(
-                            Triple(NativeAppearanceMode.Dark, "深色", Icons.Rounded.DarkMode),
-                            Triple(NativeAppearanceMode.Light, "浅色", Icons.Rounded.LightMode),
-                            Triple(NativeAppearanceMode.System, "跟随系统", Icons.Rounded.Contrast),
-                        )
-                        val selectedIdx = modes.indexOfFirst { it.first == store.mode }.coerceAtLeast(0)
-                        NativeSegmentedControl(
-                            options = modes.map { it.second },
-                            selectedIndex = selectedIdx,
-                            onSelect = { idx -> store.updateMode(modes[idx].first) },
-                            icons = modes.map { it.third },
-                        )
-                    }
-                }
-
-                // 4. 背景过渡颜色 2×3 渐变实景色板卡
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("背景色板预设", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
-                        val presets = GeneratedDesignTokens.backgroundPresets
-                        presets.chunked(3).forEach { row ->
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                row.forEach { preset ->
-                                    val selected = !store.dynamicColorEnabled && store.backgroundPresetId == preset.id
-                                    val stops = if (colors.isDark) preset.darkStops else preset.lightStops
-                                    Column(
-                                        modifier = Modifier.weight(1f).clickable {
+            // 3. 精选 Material 3 Expressive 主题色板（5 套高辨识度双色调色板）
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("表现力主题色板", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
+                    ExpressivePalettes.all.chunked(2).forEach { row ->
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            row.forEach { preset ->
+                                val selected = !store.dynamicColorEnabled && store.paletteId == preset.id
+                                val tone = if (colors.isDark) preset.dark else preset.light
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(colors.cardRadiusDp.dp))
+                                        .background(if (selected) colors.activeIndicator else colors.surfaceContainerLow)
+                                        .border(
+                                            width = if (selected) 1.8.dp else 0.7.dp,
+                                            color = if (selected) colors.accent else colors.divider,
+                                            shape = RoundedCornerShape(colors.cardRadiusDp.dp),
+                                        )
+                                        .clickable {
                                             store.updateDynamicColorEnabled(false)
-                                            store.updateBackgroundPreset(preset.id)
-                                        },
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                            store.updatePalette(preset.id)
+                                        }
+                                        .padding(14.dp),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(62.dp)
-                                                .clip(RoundedCornerShape(14.dp))
-                                                .background(Brush.linearGradient(stops))
-                                                .border(
-                                                    width = if (selected) 2.dp else 0.7.dp,
-                                                    color = if (selected) colors.accent else Color.White.copy(alpha = 0.22f),
-                                                    shape = RoundedCornerShape(14.dp),
-                                                ),
-                                        ) {
+                                        // 四分色环徽章：染色顶栏 + 主色 + 播控丝绒 + 画布
+                                        Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                                drawArc(tone.headerTint, 180f, 180f, true)
+                                                drawArc(tone.primary, 0f, 110f, true)
+                                                drawArc(tone.playerTint, 110f, 70f, true)
+                                            }
                                             if (selected) {
                                                 Box(
                                                     modifier = Modifier
-                                                        .align(Alignment.TopEnd)
-                                                        .padding(6.dp)
-                                                        .size(18.dp)
+                                                        .size(20.dp)
                                                         .clip(CircleShape)
-                                                        .background(colors.accent),
+                                                        .background(tone.primary),
                                                     contentAlignment = Alignment.Center,
                                                 ) {
-                                                    Icon(Icons.Rounded.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+                                                    Icon(
+                                                        Icons.Rounded.Check,
+                                                        contentDescription = null,
+                                                        tint = tone.primary.contrastingForeground(),
+                                                        modifier = Modifier.size(13.dp),
+                                                    )
                                                 }
                                             }
                                         }
-                                        Text(
-                                            text = preset.titleZh,
-                                            color = if (selected) colors.textPrimary else colors.textSecondary,
-                                            fontSize = 12.sp,
-                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                        )
+                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(
+                                                text = preset.titleZh,
+                                                color = colors.textPrimary,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                            )
+                                            Text(
+                                                text = preset.subtitleZh,
+                                                color = colors.textSecondary,
+                                                fontSize = 11.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
                                     }
                                 }
                             }
+                            if (row.size == 1) {
+                                Spacer(Modifier.weight(1f))
+                            }
                         }
                     }
                 }
+            }
 
-                // 5. 起始/中间/结束过渡色
-                item {
-                    CinematicPanel(padding = 0.dp, showsShadow = false) {
+            // 4. 动态取色开关组（Material You 壁纸 + 播放封面自动着色）
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("动态配色引擎", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
+                    CinematicPanel(padding = 0.dp) {
                         Column {
-                            RainbowColorRow("起始过渡色", colors.palette.getOrElse(0) { Color(0xFF30334A) })
-                            HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
-                            RainbowColorRow("中间过渡色", colors.palette.getOrElse(1) { Color(0xFF4A3B57) })
-                            HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
-                            RainbowColorRow("结束过渡色", colors.palette.lastOrNull() ?: Color(0xFF242E40))
-                        }
-                    }
-                }
-
-                // 6. 强调色圆点 + AGSL 流光开关
-                item {
-                    CinematicPanel(padding = 16.dp) {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("主题强调色", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                GeneratedDesignTokens.accentPresets.filter { it.id != "custom" }.forEach { acc ->
-                                    val active = !store.dynamicColorEnabled && store.accentPresetId == acc.id
-                                    Box(
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .clip(CircleShape)
-                                            .background(acc.color)
-                                            .border(if (active) 3.dp else 1.dp, if (active) Color.White else Color.White.copy(alpha = 0.3f), CircleShape)
-                                            .clickable {
-                                                store.updateDynamicColorEnabled(false)
-                                                store.updateAccentPreset(acc.id)
-                                            },
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text("Material You 壁纸取色", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                            NativeAdaptiveBadge("Android 12+", tint = colors.accent)
+                                        }
+                                        Text("跟随系统壁纸自动生成表现力主题色", color = colors.textMuted, fontSize = 12.sp)
+                                    }
+                                    Switch(
+                                        checked = store.dynamicColorEnabled,
+                                        onCheckedChange = { store.updateDynamicColorEnabled(it) },
+                                        colors = SwitchDefaults.colors(
+                                            checkedTrackColor = colors.accent,
+                                            checkedThumbColor = colors.primaryButtonFg,
+                                        ),
                                     )
                                 }
+                                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
                             }
-                            HorizontalDivider(color = colors.divider)
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("AGSL GPU 动态流光", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                                    Text("Android 13+ 原生着色器 15fps 呼吸流动", color = colors.textMuted, fontSize = 12.sp)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text("播放封面动态取色", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                    Text("全屏播放与迷你条随封面自动着色", color = colors.textMuted, fontSize = 12.sp)
                                 }
                                 Switch(
-                                    checked = store.animateBackground,
-                                    onCheckedChange = { store.updateAnimateBackground(it) },
-                                    colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
+                                    checked = store.albumArtDynamicColor,
+                                    onCheckedChange = { store.updateAlbumArtDynamicColor(it) },
+                                    colors = SwitchDefaults.colors(
+                                        checkedTrackColor = colors.accent,
+                                        checkedThumbColor = colors.primaryButtonFg,
+                                    ),
                                 )
                             }
                         }
                     }
                 }
             }
-        }
-    }
-}
 
-@Composable
-private fun RainbowColorRow(title: String, currentColor: Color) {
-    val colors = LocalMoviePilotColors.current
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(title, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-        Box(modifier = Modifier.size(30.dp), contentAlignment = Alignment.Center) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                drawCircle(
-                    brush = Brush.sweepGradient(
-                        listOf(Color(0xFFFF4D4D), Color(0xFFFFD166), Color(0xFF06D6A0), Color(0xFF118AB2), Color(0xFF9B5DE5), Color(0xFFFF4D4D)),
-                    ),
-                    style = Stroke(width = 3.dp.toPx()),
-                )
+            // 5. 界面形状与导航栏样式自定义
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("形状与导航布局", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
+                    CinematicPanel(padding = 16.dp) {
+                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("卡片圆角尺度", color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                val cornerOptions = ExpressiveCornerStyle.entries
+                                NativeSegmentedControl(
+                                    options = cornerOptions.map { it.title },
+                                    selectedIndex = cornerOptions.indexOf(store.cornerStyle).coerceAtLeast(0),
+                                    onSelect = { idx -> store.updateCornerStyle(cornerOptions[idx]) },
+                                )
+                            }
+                            HorizontalDivider(color = colors.divider)
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("底部导航栏形态", color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                val navOptions = ExpressiveNavBarStyle.entries
+                                NativeSegmentedControl(
+                                    options = navOptions.map { it.title },
+                                    selectedIndex = navOptions.indexOf(store.navBarStyle).coerceAtLeast(0),
+                                    onSelect = { idx -> store.updateNavBarStyle(navOptions[idx]) },
+                                )
+                            }
+                        }
+                    }
+                }
             }
-            Box(Modifier.size(20.dp).clip(CircleShape).background(currentColor))
         }
     }
 }
@@ -676,46 +794,46 @@ fun PluginsCenterScreen(
         loadTab(false)
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        NativeGlassTopBar(
-            title = if (pagerState.currentPage == 0) "已安装插件 (${installedPlugins.size})" else "插件市场 (${marketPlugins.size})",
-            onBack = onBack,
-        )
-
-        // 搜索栏
-        CinematicPanel(padding = 12.dp, cornerRadius = 18.dp, showsShadow = false, modifier = Modifier.padding(horizontal = margin)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Rounded.Search, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
-                Box(modifier = Modifier.weight(1f)) {
-                    if (searchQuery.isEmpty()) Text("搜索插件名称、作者或标签", color = colors.textMuted, fontSize = 14.sp)
-                    BasicTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        singleLine = true,
-                        textStyle = TextStyle(color = colors.textPrimary, fontSize = 14.sp),
-                        cursorBrush = SolidColor(colors.accent),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(22.dp)) {
-                        Icon(Icons.Rounded.Close, contentDescription = "清除", tint = colors.textMuted, modifier = Modifier.size(16.dp))
+    ExpressiveTintedScaffold(
+        title = "插件中心",
+        onBack = onBack,
+        headerExtra = {
+            ExpressivePillTabRow(
+                tabs = listOf("已安装 (${installedPlugins.size})", "插件市场 (${marketPlugins.size})"),
+                selectedIndex = pagerState.currentPage,
+                onSelect = { idx -> scope.launch { pagerState.animateScrollToPage(idx) } },
+                onTintedHeader = true,
+            )
+        },
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Spacer(Modifier.height(14.dp))
+            // 搜索栏
+            CinematicPanel(padding = 12.dp, cornerRadius = 22.dp, showsShadow = false, modifier = Modifier.padding(horizontal = margin)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Rounded.Search, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (searchQuery.isEmpty()) Text("搜索插件名称、作者或标签", color = colors.textMuted, fontSize = 14.sp)
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            singleLine = true,
+                            textStyle = TextStyle(color = colors.textPrimary, fontSize = 14.sp),
+                            cursorBrush = SolidColor(colors.accent),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(22.dp)) {
+                            Icon(Icons.Rounded.Close, contentDescription = "清除", tint = colors.textMuted, modifier = Modifier.size(16.dp))
+                        }
                     }
                 }
             }
-        }
 
-        Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(12.dp))
 
-        NativePrimaryTabBar(
-            tabs = listOf("已安装 (${installedPlugins.size})", "插件市场 (${marketPlugins.size})"),
-            selectedIndex = pagerState.currentPage,
-            onSelect = { idx -> scope.launch { pagerState.animateScrollToPage(idx) } },
-        )
-
-        Spacer(Modifier.height(10.dp))
-
-        HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { pageIdx ->
+            HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { pageIdx ->
             val raw = if (pageIdx == 0) installedPlugins else marketPlugins
             val filtered = remember(raw, searchQuery) {
                 val q = searchQuery.trim().lowercase()
@@ -802,6 +920,7 @@ fun PluginsCenterScreen(
                     }
                 }
             }
+        }
         }
     }
 }
@@ -897,157 +1016,154 @@ fun PluginDetailScreen(
         plugin.name
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        NativeGlassTopBar(
-            title = resolvedTopTitle,
-            onBack = attemptLeave,
-            trailing = {
-                Box {
-                    androidx.compose.material3.IconButton(
-                        onClick = { showOverflowMenu = true },
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Icon(
-                            Icons.Rounded.MoreVert,
-                            contentDescription = "插件菜单",
-                            tint = colors.textPrimary,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = showOverflowMenu,
-                        onDismissRequest = { showOverflowMenu = false },
-                    ) {
-                        // Vue 模块联邦接管后的标题栏动作自动投影至原生顶栏菜单（1:1 对齐 iOS）
-                        if (openInVueWebView && vueChrome.actions.isNotEmpty()) {
-                            vueChrome.actions.forEach { act ->
-                                DropdownMenuItem(
-                                    text = { Text(act.title) },
-                                    enabled = act.enabled,
-                                    leadingIcon = {
-                                        Icon(
-                                            when {
-                                                act.icon?.contains("cog") == true || act.icon?.contains("tune") == true -> Icons.Rounded.Tune
-                                                act.icon?.contains("refresh") == true || act.icon?.contains("sync") == true -> Icons.Rounded.Refresh
-                                                else -> Icons.Rounded.Extension
-                                            },
-                                            contentDescription = null,
-                                        )
-                                    },
-                                    onClick = {
-                                        showOverflowMenu = false
-                                        vueChrome.invokeAction(act.id)
-                                    },
-                                )
-                            }
-                        }
-                        if (!detectedVuePlugin) {
+    ExpressiveTintedScaffold(
+        title = resolvedTopTitle,
+        onBack = attemptLeave,
+        actions = {
+            Box {
+                ExpressiveHeaderActionButton(
+                    icon = Icons.Rounded.MoreVert,
+                    contentDescription = "插件菜单",
+                    onClick = { showOverflowMenu = true },
+                )
+                DropdownMenu(
+                    expanded = showOverflowMenu,
+                    onDismissRequest = { showOverflowMenu = false },
+                ) {
+                    if (openInVueWebView && vueChrome.actions.isNotEmpty()) {
+                        vueChrome.actions.forEach { act ->
                             DropdownMenuItem(
-                                text = { Text(if (forceVueWebMode) "切换回原生渲染" else "网页样式查看（Vue 模块联邦）") },
+                                text = { Text(act.title) },
+                                enabled = act.enabled,
                                 leadingIcon = {
                                     Icon(
-                                        if (forceVueWebMode) Icons.Rounded.Tune else Icons.Rounded.Language,
+                                        when {
+                                            act.icon?.contains("cog") == true || act.icon?.contains("tune") == true -> Icons.Rounded.Tune
+                                            act.icon?.contains("refresh") == true || act.icon?.contains("sync") == true -> Icons.Rounded.Refresh
+                                            else -> Icons.Rounded.Extension
+                                        },
                                         contentDescription = null,
                                     )
                                 },
                                 onClick = {
                                     showOverflowMenu = false
-                                    forceVueWebMode = !forceVueWebMode
+                                    vueChrome.invokeAction(act.id)
                                 },
                             )
                         }
+                    }
+                    if (!detectedVuePlugin) {
                         DropdownMenuItem(
-                            text = { Text("刷新插件数据") },
-                            leadingIcon = { Icon(Icons.Rounded.Refresh, contentDescription = null) },
+                            text = { Text(if (forceVueWebMode) "标准视图查看" else "网页视图查看") },
+                            leadingIcon = {
+                                Icon(
+                                    if (forceVueWebMode) Icons.Rounded.Tune else Icons.Rounded.Language,
+                                    contentDescription = null,
+                                )
+                            },
                             onClick = {
                                 showOverflowMenu = false
-                                scope.launch { loadPluginResources() }
+                                forceVueWebMode = !forceVueWebMode
                             },
                         )
                     }
+                    DropdownMenuItem(
+                        text = { Text("刷新插件数据") },
+                        leadingIcon = { Icon(Icons.Rounded.Refresh, contentDescription = null) },
+                        onClick = {
+                            showOverflowMenu = false
+                            scope.launch { loadPluginResources() }
+                        },
+                    )
                 }
-            },
-        )
-
-        if (!isLoading && !openInVueWebView && hasDataPage) {
-            NativeSecondaryTabBar(
-                tabs = listOf("数据页", "参数配置"),
-                selectedIndex = pagerState.currentPage,
-                onSelect = { idx -> scope.launch { pagerState.animateScrollToPage(idx) } },
-            )
-        }
-
-        if (isLoading && !forceVueWebMode && !plugin.renderMode.equals("vue", ignoreCase = true)) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = colors.accent)
             }
-        } else if (openInVueWebView) {
-            // Vue 模块联邦插件：直接免登进入隔离兼容模式，并通过 moviepilot.chrome v1 协议接管标题栏、动作、关闭与原背景
-            IsolatedVuePluginWebView(
-                pluginId = plugin.id,
-                session = vueSession,
-                surface = if (currentIsConfigTab) VuePluginSurface.Config else VuePluginSurface.DataPage,
-                chromeController = vueChrome,
-                pluginHasPage = hasDataPage,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-            )
+        },
+        headerExtra = if (!isLoading && !openInVueWebView && hasDataPage) {
+            {
+                ExpressivePillTabRow(
+                    tabs = listOf("数据页", "参数配置"),
+                    selectedIndex = pagerState.currentPage,
+                    onSelect = { idx -> scope.launch { pagerState.animateScrollToPage(idx) } },
+                    scrollable = false,
+                    onTintedHeader = true,
+                )
+            }
         } else {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.weight(1f),
-            ) { idx ->
-                val isPageTab = hasDataPage && idx == 0
-                if (isPageTab) {
-                    val raw = pageJson
-                    if (raw.isNullOrBlank()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("该插件暂未返回数据页内容", color = colors.textSecondary, fontSize = 14.sp)
+            null
+        },
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (isLoading && !forceVueWebMode && !plugin.renderMode.equals("vue", ignoreCase = true)) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = colors.accent)
+                }
+            } else if (openInVueWebView) {
+                IsolatedVuePluginWebView(
+                    pluginId = plugin.id,
+                    session = vueSession,
+                    surface = if (currentIsConfigTab) VuePluginSurface.Config else VuePluginSurface.DataPage,
+                    chromeController = vueChrome,
+                    pluginHasPage = hasDataPage,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                )
+            } else {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.weight(1f),
+                ) { idx ->
+                    val isPageTab = hasDataPage && idx == 0
+                    if (isPageTab) {
+                        val raw = pageJson
+                        if (raw.isNullOrBlank()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("该插件暂未返回数据页内容", color = colors.textSecondary, fontSize = 14.sp)
+                            }
+                        } else if (raw.contains("\"render_mode\":\"vue\"") || raw.contains("\"render_mode\": \"vue\"")) {
+                            IsolatedVuePluginWebView(
+                                pluginId = plugin.id,
+                                session = vueSession,
+                                surface = VuePluginSurface.DataPage,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        } else {
+                            NativePluginDataPageView(
+                                rawPageJson = raw,
+                                resolveImageUrl = { repository.resolveImageUrl(it) },
+                                onTriggerAction = { api, method, params ->
+                                    val res = repository.triggerPluginAction(api, method, params)
+                                    scope.launch { snackbar?.showSnackbar(res.second) }
+                                    res
+                                },
+                                modifier = Modifier.fillMaxSize(),
+                            )
                         }
-                    } else if (raw.contains("\"render_mode\":\"vue\"") || raw.contains("\"render_mode\": \"vue\"")) {
-                        IsolatedVuePluginWebView(
-                            pluginId = plugin.id,
-                            session = vueSession,
-                            surface = VuePluginSurface.DataPage,
-                            modifier = Modifier.fillMaxSize(),
-                        )
                     } else {
-                        NativePluginDataPageView(
-                            rawPageJson = raw,
-                            resolveImageUrl = { repository.resolveImageUrl(it) },
+                        NativePluginFormRenderer(
+                            pluginId = plugin.id,
+                            pluginName = plugin.name,
+                            documentJson = formJson ?: samplePluginFormJson(plugin.name),
+                            vueSession = vueSession,
+                            onSaveFullModel = { fullModel ->
+                                scope.launch {
+                                    val ok = repository.savePluginFormModel(plugin.id, fullModel)
+                                    hasUnsavedChanges = false
+                                    snackbar?.showSnackbar(
+                                        if (ok) "已保存「${plugin.name}」插件配置"
+                                        else "保存「${plugin.name}」配置失败，请稍后重试",
+                                    )
+                                }
+                            },
                             onTriggerAction = { api, method, params ->
                                 val res = repository.triggerPluginAction(api, method, params)
                                 scope.launch { snackbar?.showSnackbar(res.second) }
                                 res
                             },
+                            onDirtyChanged = { hasUnsavedChanges = it },
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
-                } else {
-                    NativePluginFormRenderer(
-                        pluginId = plugin.id,
-                        pluginName = plugin.name,
-                        documentJson = formJson ?: samplePluginFormJson(plugin.name),
-                        vueSession = vueSession,
-                        onSaveFullModel = { fullModel ->
-                            scope.launch {
-                                val ok = repository.savePluginFormModel(plugin.id, fullModel)
-                                hasUnsavedChanges = false
-                                snackbar?.showSnackbar(
-                                    if (ok) "已无损保存「${plugin.name}」插件配置"
-                                    else "保存「${plugin.name}」配置失败，请稍后重试",
-                                )
-                            }
-                        },
-                        onTriggerAction = { api, method, params ->
-                            val res = repository.triggerPluginAction(api, method, params)
-                            scope.launch { snackbar?.showSnackbar(res.second) }
-                            res
-                        },
-                        onDirtyChanged = { hasUnsavedChanges = it },
-                        modifier = Modifier.fillMaxSize(),
-                    )
                 }
             }
         }

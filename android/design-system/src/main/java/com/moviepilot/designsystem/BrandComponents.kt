@@ -89,7 +89,7 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-/** 自适应高对比小角标（对齐 iOS `NativeAdaptiveBadge`）。 */
+/** 自适应高对比小角标（依据 Material 3 Expressive 亮度自动计算前景字色，浅粉彩自动配深墨字）。 */
 @Composable
 fun NativeAdaptiveBadge(
     text: String,
@@ -98,163 +98,80 @@ fun NativeAdaptiveBadge(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalMoviePilotColors.current
+    val resolvedTint = tint ?: MaterialTheme.colorScheme.primary
     val fg = when {
-        filled -> Color.White
+        filled -> resolvedTint.contrastingForeground()
         tint != null -> tint
         else -> colors.chipText
     }
     val bg = when {
-        filled && tint != null -> tint
-        tint != null -> tint.copy(alpha = 0.16f)
+        filled -> resolvedTint
+        tint != null -> tint.copy(alpha = if (colors.isDark) 0.18f else 0.14f)
         else -> colors.chipFill
     }
-    val border = tint?.copy(alpha = 0.30f) ?: colors.chipBorder
 
     Box(
         modifier = modifier
             .clip(CircleShape)
             .background(bg)
-            .border(0.6.dp, border, CircleShape)
-            .padding(horizontal = 9.dp, vertical = 3.dp),
+            .padding(horizontal = 10.dp, vertical = 3.5.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
             color = fg,
             fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Bold,
             maxLines = 1,
         )
     }
 }
 
 /**
- * Material Design 3 一级页面切换页签栏（`PrimaryTabRow` / `PrimaryScrollableTabRow`）：
- * - 专用于平级功能域与独立视图切换（如「已安装 / 插件市场」、「我的工作流 / 社区分享」、「全部 / 电影 / 电视剧 / 音乐」）；
- * - 配合 `HorizontalPager` 支持整屏左右跟手滑动，底部紫色圆角指示条 + 细分隔线，符合 Google Play / YouTube / Pixel 规范。
+ * Material 3 Expressive 一级页面切换页签栏：
+ * - 委托 `ExpressivePillTabRow` 绘制柔和主色激活胶囊 + 正下方迷你居中小横杠指示器，
+ *   配合 `HorizontalPager` 实现整屏丝滑滑动切换。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NativePrimaryTabBar(
     tabs: List<String>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     scrollable: Boolean = false,
+    onTintedHeader: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    if (tabs.isEmpty()) return
-    val safeIndex = selectedIndex.coerceIn(0, tabs.lastIndex)
-    val scheme = MaterialTheme.colorScheme
-    val content: @Composable () -> Unit = {
-        tabs.forEachIndexed { index, title ->
-            val selected = index == safeIndex
-            Tab(
-                selected = selected,
-                onClick = { onSelect(index) },
-                selectedContentColor = scheme.primary,
-                unselectedContentColor = scheme.onSurfaceVariant,
-                text = {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleSmall.copy(
-                            fontSize = 14.sp,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-            )
-        }
-    }
-    if (scrollable) {
-        PrimaryScrollableTabRow(
-            selectedTabIndex = safeIndex,
-            modifier = modifier.fillMaxWidth(),
-            containerColor = Color.Transparent,
-            contentColor = scheme.primary,
-            edgePadding = 16.dp,
-            indicator = {
-                TabRowDefaults.PrimaryIndicator(
-                    modifier = Modifier.tabIndicatorOffset(safeIndex, matchContentSize = true),
-                    width = Dp.Unspecified,
-                    height = 3.dp,
-                    color = scheme.primary,
-                )
-            },
-            divider = { HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.45f)) },
-            tabs = content,
-        )
-    } else {
-        PrimaryTabRow(
-            selectedTabIndex = safeIndex,
-            modifier = modifier.fillMaxWidth(),
-            containerColor = Color.Transparent,
-            contentColor = scheme.primary,
-            indicator = {
-                TabRowDefaults.PrimaryIndicator(
-                    modifier = Modifier.tabIndicatorOffset(safeIndex, matchContentSize = true),
-                    width = Dp.Unspecified,
-                    height = 3.dp,
-                    color = scheme.primary,
-                )
-            },
-            divider = { HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.45f)) },
-            tabs = content,
-        )
-    }
+    ExpressivePillTabRow(
+        tabs = tabs,
+        selectedIndex = selectedIndex,
+        onSelect = onSelect,
+        scrollable = scrollable,
+        onTintedHeader = onTintedHeader,
+        modifier = modifier,
+    )
 }
 
 /**
- * Material Design 3 二级页内章节页签栏（`SecondaryTabRow`）：
- * - 专用于二级详情页内部视图切换（如插件详情页的「数据页 / 参数配置」），满宽细下划线指示条与顶栏自然衔接。
+ * Material 3 Expressive 二级页内章节页签栏：
+ * 与一级页签视觉保持完全统一，采用高辨识度表现力大胶囊 + 居中短条指示器样式。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NativeSecondaryTabBar(
     tabs: List<String>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
+    scrollable: Boolean = false,
+    onTintedHeader: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    if (tabs.isEmpty()) return
-    val safeIndex = selectedIndex.coerceIn(0, tabs.lastIndex)
-    val scheme = MaterialTheme.colorScheme
-    SecondaryTabRow(
-        selectedTabIndex = safeIndex,
-        modifier = modifier.fillMaxWidth(),
-        containerColor = Color.Transparent,
-        contentColor = scheme.primary,
-        indicator = {
-            TabRowDefaults.SecondaryIndicator(
-                modifier = Modifier.tabIndicatorOffset(safeIndex, matchContentSize = false),
-                height = 2.5.dp,
-                color = scheme.primary,
-            )
-        },
-        divider = { HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.45f)) },
-    ) {
-        tabs.forEachIndexed { index, title ->
-            val selected = index == safeIndex
-            Tab(
-                selected = selected,
-                onClick = { onSelect(index) },
-                selectedContentColor = scheme.primary,
-                unselectedContentColor = scheme.onSurfaceVariant,
-                text = {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleSmall.copy(
-                            fontSize = 14.sp,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-            )
-        }
-    }
+    ExpressivePillTabRow(
+        tabs = tabs,
+        selectedIndex = selectedIndex,
+        onSelect = onSelect,
+        scrollable = scrollable,
+        onTintedHeader = onTintedHeader,
+        modifier = modifier,
+    )
 }
 
 /**
@@ -315,9 +232,8 @@ fun NativeSegmentedControl(
 }
 
 /**
- * Material Design 3 风格筛选与分类芯片（FilterChip 规范）：
- * - 采用 Material 3 标志性 `10.dp` 微圆角与 Tonal 选中容器色，配合原生 Ripple 与最小 48dp 无障碍触控区；
- * - 选中态且未传入自定义图标时可选展示轻巧勾选或高亮强调色，呈现纯正 Android Material 3 辨识度。
+ * Material 3 Expressive 筛选与属性芯片（全圆角胶囊）：
+ * - 激活态为高辨识度柔和主色或 `secondaryContainer`，未激活态为柔和实色表面胶囊，告别生硬方框。
  */
 @Composable
 fun NativeAdaptivePill(
@@ -329,33 +245,28 @@ fun NativeAdaptivePill(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalMoviePilotColors.current
-    val activeColor = tint ?: MaterialTheme.colorScheme.primary
-    val chipShape = RoundedCornerShape(10.dp)
-    val bgColor = if (selected) {
-        if (tint != null) tint.copy(alpha = if (colors.isDark) 0.28f else 0.16f)
-        else MaterialTheme.colorScheme.secondaryContainer
+    val scheme = MaterialTheme.colorScheme
+    val activeBg = if (tint != null) {
+        tint.copy(alpha = if (colors.isDark) 0.28f else 0.16f)
     } else {
-        colors.chipFill.copy(alpha = if (colors.isDark) 0.55f else 0.80f)
+        scheme.secondaryContainer
     }
-    val fgColor = if (selected) {
-        if (tint != null) (if (colors.isDark) Color.White else tint)
-        else MaterialTheme.colorScheme.onSecondaryContainer
+    val activeFg = if (tint != null) {
+        if (colors.isDark) tint else tint
     } else {
-        colors.chipText
+        scheme.onSecondaryContainer
     }
+    val bgColor = if (selected) activeBg else scheme.surfaceContainerLow
+    val fgColor = if (selected) activeFg else colors.textSecondary
+
     Row(
         modifier = modifier
             .minimumInteractiveComponentSize()
-            .heightIn(min = 36.dp)
-            .clip(chipShape)
-            .background(bgColor)
-            .border(
-                width = if (selected) 1.dp else 0.75.dp,
-                color = if (selected) activeColor.copy(alpha = 0.55f) else colors.chipBorder,
-                shape = chipShape,
-            )
+            .heightIn(min = 38.dp)
+            .clip(CircleShape)
+            .background(bgColor, CircleShape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 13.dp, vertical = 7.dp),
+            .padding(horizontal = 15.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -370,7 +281,7 @@ fun NativeAdaptivePill(
             Icon(
                 imageVector = Icons.Rounded.Check,
                 contentDescription = null,
-                tint = activeColor,
+                tint = fgColor,
                 modifier = Modifier.size(15.dp),
             )
         }
@@ -436,36 +347,30 @@ fun NativeGlassTopBar(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalMoviePilotColors.current
-    Box(modifier = modifier.fillMaxWidth()) {
-        if (showTopBlur) {
-            NativeTopStatusBarProgressiveBlur(
-                visibilityProgress = 1f,
-                extraHeight = 62.dp,
-            )
-        }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(
+                if (showTopBlur) colors.headerTint else Color.Transparent,
+            ),
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .heightIn(min = 64.dp)
-                .padding(horizontal = if (onBack != null) 8.dp else 18.dp, vertical = 6.dp),
+                .heightIn(min = 66.dp)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (onBack != null) {
-                IconButton(
+                ExpressiveHeaderActionButton(
+                    icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = "返回上一级",
                     onClick = onBack,
-                    modifier = Modifier.size(48.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                        contentDescription = "返回上一级",
-                        tint = colors.textPrimary,
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-                Spacer(Modifier.width(4.dp))
+                )
+                Spacer(Modifier.width(12.dp))
             } else if (centerTitle) {
-                Spacer(Modifier.width(48.dp))
+                Spacer(Modifier.width(44.dp))
             }
             Box(
                 modifier = Modifier.weight(1f),
@@ -473,8 +378,12 @@ fun NativeGlassTopBar(
             ) {
                 Text(
                     text = title,
-                    color = colors.textPrimary,
-                    style = if (centerTitle) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
+                    color = if (showTopBlur) colors.headerTitle else colors.textPrimary,
+                    style = if (centerTitle) {
+                        MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    } else {
+                        MaterialTheme.typography.headlineMedium.copy(fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -482,19 +391,18 @@ fun NativeGlassTopBar(
             if (trailing != null) {
                 Spacer(Modifier.width(8.dp))
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     content = trailing,
                 )
-                if (onBack != null) Spacer(Modifier.width(4.dp))
             } else if (centerTitle && onBack != null) {
-                Spacer(Modifier.width(48.dp))
+                Spacer(Modifier.width(44.dp))
             }
         }
     }
 }
 
-/** Android Material Design 3 单手可达右下角主动作 FAB（16dp Squircle，遵循 primaryContainer 规范）。 */
+/** Material 3 Expressive 单手可达主动作按钮（高对比柔和主色 + 表现力大圆角）。 */
 @Composable
 fun NativeGlassFab(
     icon: ImageVector,
@@ -502,8 +410,8 @@ fun NativeGlassFab(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val container = MaterialTheme.colorScheme.primaryContainer
-    val content = MaterialTheme.colorScheme.onPrimaryContainer
+    val container = MaterialTheme.colorScheme.primary
+    val content = MaterialTheme.colorScheme.onPrimary
     if (!label.isNullOrBlank()) {
         ExtendedFloatingActionButton(
             onClick = onClick,
@@ -520,7 +428,7 @@ fun NativeGlassFab(
                     style = MaterialTheme.typography.labelLarge,
                 )
             },
-            shape = RoundedCornerShape(16.dp),
+            shape = CircleShape,
             containerColor = container,
             contentColor = content,
             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
@@ -529,7 +437,7 @@ fun NativeGlassFab(
     } else {
         FloatingActionButton(
             onClick = onClick,
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(20.dp),
             containerColor = container,
             contentColor = content,
             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
@@ -647,7 +555,7 @@ fun NativePosterCard(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalMoviePilotColors.current
-    val shape = RoundedCornerShape(13.dp)
+    val shape = RoundedCornerShape((colors.cardRadiusDp - 4).coerceIn(12, 20).dp)
     Column(
         modifier = modifier.clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -657,15 +565,7 @@ fun NativePosterCard(
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
                 .clip(shape)
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            colors.accent.copy(alpha = 0.22f),
-                            Color(0xFF28203A),
-                        ),
-                    ),
-                )
-                .border(0.6.dp, Color.White.copy(alpha = 0.14f), shape),
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         ) {
             var imageFailed by remember(posterUrl) { mutableStateOf(false) }
             if (!posterUrl.isNullOrBlank() && !imageFailed) {

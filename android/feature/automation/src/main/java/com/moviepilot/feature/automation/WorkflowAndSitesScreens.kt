@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -41,13 +42,21 @@ import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.WifiTethering
 import androidx.compose.material.icons.rounded.ZoomIn
 import androidx.compose.material.icons.rounded.ZoomOut
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -83,6 +92,8 @@ import coil.compose.AsyncImage
 import com.moviepilot.designsystem.AdaptiveDeviceLayout
 import com.moviepilot.designsystem.CinematicCircleButton
 import com.moviepilot.designsystem.CinematicPanel
+import com.moviepilot.designsystem.ExpressivePillTabRow
+import com.moviepilot.designsystem.ExpressiveTintedScaffold
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.LocalSnackbarHostState
 import com.moviepilot.designsystem.NativeAdaptiveBadge
@@ -137,15 +148,19 @@ fun WorkflowsScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            NativeGlassTopBar(title = "工作流", onBack = onBack)
-            NativePrimaryTabBar(
-                tabs = listOf("我的工作流 (${workflows.size})", "社区分享 (${shares.size})"),
-                selectedIndex = pagerState.currentPage,
-                onSelect = { idx -> scope.launch { pagerState.animateScrollToPage(idx) } },
-            )
-            Spacer(Modifier.height(10.dp))
-            HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { pageIdx ->
+        ExpressiveTintedScaffold(
+            title = "工作流",
+            onBack = onBack,
+            headerExtra = {
+                ExpressivePillTabRow(
+                    tabs = listOf("我的工作流 (${workflows.size})", "社区分享 (${shares.size})"),
+                    selectedIndex = pagerState.currentPage,
+                    onSelect = { idx -> scope.launch { pagerState.animateScrollToPage(idx) } },
+                    onTintedHeader = true,
+                )
+            },
+        ) {
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { pageIdx ->
                 PullToRefreshBox(
                     isRefreshing = isRefreshing,
                     onRefresh = {
@@ -155,7 +170,7 @@ fun WorkflowsScreen(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     LazyColumn(
-                        contentPadding = PaddingValues(start = margin, end = margin, bottom = 96.dp),
+                        contentPadding = PaddingValues(start = margin, end = margin, top = 14.dp, bottom = 96.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
@@ -434,6 +449,9 @@ fun SitesScreen(
     var sites by remember { mutableStateOf<List<SiteItemDto>>(emptyList()) }
     var isRefreshing by remember { mutableStateOf(false) }
     var selectedSiteForData by remember { mutableStateOf<SiteItemDto?>(null) }
+    var editingSite by remember { mutableStateOf<SiteItemDto?>(null) }
+    var isCreatingSite by remember { mutableStateOf(false) }
+    var confirmDeleteSite by remember { mutableStateOf<SiteItemDto?>(null) }
     val loadedIcons = remember { mutableStateMapOf<Int, String>() }
 
     suspend fun loadSites() {
@@ -520,6 +538,15 @@ fun SitesScreen(
                                         }
                                         DropdownMenu(expanded = rowMenuOpen, onDismissRequest = { rowMenuOpen = false }) {
                                             DropdownMenuItem(
+                                                text = { Text("编辑站点配置") },
+                                                leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
+                                                onClick = {
+                                                    rowMenuOpen = false
+                                                    isCreatingSite = false
+                                                    editingSite = site
+                                                },
+                                            )
+                                            DropdownMenuItem(
                                                 text = { Text("查看 13 天流量趋势") },
                                                 leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ShowChart, contentDescription = null) },
                                                 onClick = {
@@ -536,6 +563,14 @@ fun SitesScreen(
                                                         val (ok, msg) = repository.testSiteConnection(site.id)
                                                         snackbar?.showSnackbar("站点「${site.name}」${if (ok) "连通正常" else "检测失败"}：$msg")
                                                     }
+                                                },
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("删除站点", color = colors.danger) },
+                                                leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = colors.danger) },
+                                                onClick = {
+                                                    rowMenuOpen = false
+                                                    confirmDeleteSite = site
                                                 },
                                             )
                                         }
@@ -590,13 +625,10 @@ fun SitesScreen(
 
         NativeGlassFab(
             icon = Icons.Rounded.Add,
-            label = "同步站点",
+            label = "新增站点",
             onClick = {
-                isRefreshing = true
-                scope.launch {
-                    loadSites()
-                    snackbar?.showSnackbar("已刷新 ${sites.size} 个站点最新状态与流量数据")
-                }
+                isCreatingSite = true
+                editingSite = SiteItemDto(pri = sites.size + 1, isActive = true)
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -611,6 +643,127 @@ fun SitesScreen(
             iconData = loadedIcons[site.id] ?: site.iconUrl,
             repository = repository,
             onDismiss = { selectedSiteForData = null },
+        )
+    }
+
+    editingSite?.let { current ->
+        var name by remember(current, isCreatingSite) { mutableStateOf(current.name) }
+        var url by remember(current, isCreatingSite) { mutableStateOf(current.url) }
+        var domain by remember(current, isCreatingSite) { mutableStateOf(current.domain) }
+        var priText by remember(current, isCreatingSite) { mutableStateOf(current.pri.toString()) }
+        var cookie by remember(current, isCreatingSite) { mutableStateOf(current.cookie) }
+        var ua by remember(current, isCreatingSite) { mutableStateOf(current.ua) }
+        var rss by remember(current, isCreatingSite) { mutableStateOf(current.rss) }
+        var isActive by remember(current, isCreatingSite) { mutableStateOf(current.isActive) }
+        var proxy by remember(current, isCreatingSite) { mutableStateOf(current.proxy) }
+        var render by remember(current, isCreatingSite) { mutableStateOf(current.render) }
+        var saving by remember { mutableStateOf(false) }
+        val fieldColors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = colors.textPrimary,
+            unfocusedTextColor = colors.textPrimary,
+            focusedBorderColor = colors.accent,
+            unfocusedBorderColor = colors.fieldBorder,
+        )
+
+        NativeGlassSheet(onDismissRequest = { editingSite = null }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(if (isCreatingSite) "新增站点" else "编辑站点", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("站点名称") }, singleLine = true, colors = fieldColors, modifier = Modifier.weight(1f))
+                    OutlinedTextField(value = priText, onValueChange = { priText = it.filter(Char::isDigit) }, label = { Text("优先级") }, singleLine = true, colors = fieldColors, modifier = Modifier.width(88.dp))
+                }
+                OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("站点地址（URL）") }, singleLine = true, colors = fieldColors, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = domain, onValueChange = { domain = it }, label = { Text("站点域名（留空自动提取）") }, singleLine = true, colors = fieldColors, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = rss, onValueChange = { rss = it }, label = { Text("RSS 订阅地址（可选）") }, singleLine = true, colors = fieldColors, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = cookie, onValueChange = { cookie = it }, label = { Text("站点 Cookie") }, minLines = 2, maxLines = 4, colors = fieldColors, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = ua, onValueChange = { ua = it }, label = { Text("User-Agent（可选）") }, singleLine = true, colors = fieldColors, modifier = Modifier.fillMaxWidth())
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("启用站点", color = colors.textPrimary, fontSize = 14.sp)
+                    Switch(checked = isActive, onCheckedChange = { isActive = it }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg))
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("使用代理访问", color = colors.textPrimary, fontSize = 14.sp)
+                    Switch(checked = proxy, onCheckedChange = { proxy = it }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg))
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("浏览器仿真渲染", color = colors.textPrimary, fontSize = 14.sp)
+                    Switch(checked = render, onCheckedChange = { render = it }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg))
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (!isCreatingSite && current.id > 0) {
+                        Button(
+                            onClick = { confirmDeleteSite = current },
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.danger.copy(alpha = 0.18f), contentColor = colors.danger),
+                            shape = CircleShape,
+                            modifier = Modifier.height(48.dp),
+                        ) {
+                            Icon(Icons.Rounded.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("删除", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Button(
+                        enabled = !saving && name.isNotBlank() && url.isNotBlank(),
+                        onClick = {
+                            saving = true
+                            scope.launch {
+                                val (ok, msg) = repository.saveSite(
+                                    site = current.copy(
+                                        name = name,
+                                        url = url,
+                                        domain = domain,
+                                        pri = priText.toIntOrNull() ?: current.pri,
+                                        cookie = cookie,
+                                        ua = ua,
+                                        rss = rss,
+                                        isActive = isActive,
+                                        proxy = proxy,
+                                        render = render,
+                                    ),
+                                    isCreate = isCreatingSite,
+                                )
+                                saving = false
+                                editingSite = null
+                                loadSites()
+                                snackbar?.showSnackbar(msg)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.primaryButtonFg),
+                        shape = CircleShape,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                    ) {
+                        Text(if (saving) "保存中..." else "保存站点", fontWeight = FontWeight.Bold)
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+            }
+        }
+    }
+
+    confirmDeleteSite?.let { target ->
+        AlertDialog(
+            onDismissRequest = { confirmDeleteSite = null },
+            title = { Text("确认删除站点") },
+            text = { Text("确定要删除站点「${target.name}」吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val deleting = target
+                    confirmDeleteSite = null
+                    editingSite = null
+                    scope.launch {
+                        val ok = repository.deleteSite(deleting.id)
+                        loadSites()
+                        snackbar?.showSnackbar(if (ok) "已删除站点「${deleting.name}」" else "删除失败")
+                    }
+                }) { Text("删除", color = colors.danger) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDeleteSite = null }) { Text("取消") } },
         )
     }
 }

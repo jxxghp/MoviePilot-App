@@ -1,5 +1,6 @@
 package com.moviepilot.feature.discover
 
+import android.content.Context
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -8,6 +9,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -33,9 +36,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.BookmarkAdd
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FolderSpecial
+import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -75,6 +81,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -86,6 +93,10 @@ import coil.compose.AsyncImage
 import com.moviepilot.designsystem.AdaptiveDeviceLayout
 import com.moviepilot.designsystem.CinematicGlassSurface
 import com.moviepilot.designsystem.CinematicPanel
+import com.moviepilot.designsystem.ExpressiveHeaderActionButton
+import com.moviepilot.designsystem.ExpressiveMixCollageHeader
+import com.moviepilot.designsystem.ExpressivePillTabRow
+import com.moviepilot.designsystem.ExpressiveTintedScaffold
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
@@ -110,14 +121,59 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
-/** 发现页可编排模块项。 */
+/** 发现页可编排模块项（1:1 对齐 iOS 10 大发现模块）。 */
 data class DiscoverModuleToggle(val id: String, val title: String, val enabled: Boolean)
 
+private fun defaultDiscoverModules(): List<DiscoverModuleToggle> = listOf(
+    DiscoverModuleToggle("continue", "继续观看", true),
+    DiscoverModuleToggle("movies", "热门电影", true),
+    DiscoverModuleToggle("tvs", "热门剧集", true),
+    DiscoverModuleToggle("trending", "本周趋势", true),
+    DiscoverModuleToggle("douban_music", "热门音乐", true),
+    DiscoverModuleToggle("douban_showing", "豆瓣热映", false),
+    DiscoverModuleToggle("douban_top250", "豆瓣 Top250", false),
+    DiscoverModuleToggle("latest", "最新入库", true),
+    DiscoverModuleToggle("libraries", "我的媒体库", true),
+    DiscoverModuleToggle("categories", "分类浏览", true),
+)
+
+private fun loadPersistedDiscoverModules(context: Context): List<DiscoverModuleToggle> {
+    val defaults = defaultDiscoverModules()
+    val raw = context.getSharedPreferences("mp_discover_modules_v3", Context.MODE_PRIVATE)
+        .getString("modules_spec", null)
+        ?.takeIf { it.isNotBlank() } ?: return defaults
+    val byId = defaults.associateBy { it.id }
+    val seen = LinkedHashSet<String>()
+    val result = mutableListOf<DiscoverModuleToggle>()
+    raw.split(",").forEach { token ->
+        val parts = token.split(":")
+        val id = parts.getOrNull(0)?.trim().orEmpty()
+        val def = byId[id] ?: return@forEach
+        if (seen.add(id)) {
+            val enabled = parts.getOrNull(1)?.equals("1") ?: def.enabled
+            result += def.copy(enabled = enabled)
+        }
+    }
+    defaults.forEach { def ->
+        if (seen.add(def.id)) result += def
+    }
+    return result
+}
+
+private fun savePersistedDiscoverModules(context: Context, list: List<DiscoverModuleToggle>) {
+    val encoded = list.joinToString(",") { "${it.id}:${if (it.enabled) "1" else "0"}" }
+    context.getSharedPreferences("mp_discover_modules_v3", Context.MODE_PRIVATE)
+        .edit()
+        .putString("modules_spec", encoded)
+        .apply()
+}
+
 /**
- * 发现首页（1:1 复刻 iOS 黄金截图 `native-v2-live-discover-phase-1..4.jpg`）：
- * - 全幅无遮挡沉浸主视觉轮播（异步补拉透明片名 Logo、TMDB 中文类型、发行日期与青绿 TheMovieDB 徽章）
- * - 继续观看 16:9 横幅进度卡（真实 Emby/Jellyfin/Plex 观看进度）
- * - 最近入库 / 热门电影 / 热门剧集 / 分类浏览与底部自定义模块编排弹窗
+ * 发现首页（完整覆盖 iOS 10 大发现模块，同时遵循 Android Material 3 Expressive 规范）：
+ * - 全幅无遮挡沉浸主视觉轮播（透明片名 Logo、TMDB 中文类型、发行日期与评分）
+ * - 继续观看 / 热门电影 / 热门剧集 / 本周趋势（16:9 宽幅横卡）/ 热门音乐（1:1 方卡）/
+ *   豆瓣热映 / 豆瓣 Top250 / 最新入库 / 我的媒体库（纯封面+右上角数据角标）/ 分类浏览
+ * - 支持自定义模块显隐与顺序编排并本地持久化。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -131,6 +187,7 @@ fun DiscoverScreen(
     onPlayMedia: (MediaPlaybackRequest) -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    val context = LocalContext.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val heroHeight = AdaptiveDeviceLayout.discoverHeroHeight()
     val posterWidth = AdaptiveDeviceLayout.discoverPosterWidth()
@@ -143,32 +200,35 @@ fun DiscoverScreen(
     var trending by remember { mutableStateOf<List<MediaCardItem>>(emptyList()) }
     var movies by remember { mutableStateOf<List<MediaCardItem>>(emptyList()) }
     var tvs by remember { mutableStateOf<List<MediaCardItem>>(emptyList()) }
+    var musicAlbums by remember { mutableStateOf<List<MusicAlbumDto>>(emptyList()) }
+    var doubanShowing by remember { mutableStateOf<List<MediaCardItem>>(emptyList()) }
+    var doubanTop250 by remember { mutableStateOf<List<MediaCardItem>>(emptyList()) }
     var continueItems by remember { mutableStateOf<List<ContinueWatchingItem>>(emptyList()) }
     var latestItems by remember { mutableStateOf<List<MediaCardItem>>(emptyList()) }
     var mediaLibraries by remember { mutableStateOf<List<MediaServerLibraryDto>>(emptyList()) }
+    var selectedAlbum by remember { mutableStateOf<MusicAlbumDto?>(null) }
     val heroLogos = remember { mutableStateMapOf<String, String>() }
     var showModulesSheet by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
 
     val modules = remember {
-        mutableStateListOf(
-            DiscoverModuleToggle("continue", "继续观看", true),
-            DiscoverModuleToggle("libraries", "我的媒体库", true),
-            DiscoverModuleToggle("movies", "热门电影", true),
-            DiscoverModuleToggle("tvs", "热门剧集", true),
-            DiscoverModuleToggle("latest", "最近入库", true),
-            DiscoverModuleToggle("categories", "分类浏览", true),
-        )
+        mutableStateListOf<DiscoverModuleToggle>().apply {
+            addAll(loadPersistedDiscoverModules(context))
+        }
     }
 
     suspend fun loadAll() {
         coroutineScope {
+            val enabledIds = modules.filter { it.enabled }.map { it.id }.toSet()
             val trendingDef = async { repository.fetchDiscoverTrending(1) }
             val moviesDef = async { repository.fetchExplore("tmdb_movies", 1) }
             val tvsDef = async { repository.fetchExplore("tmdb_tvs", 1) }
             val continueDef = async { repository.fetchContinueWatching() }
             val latestDef = async { repository.fetchMediaServerLatest() }
             val libsDef = async { repository.fetchMediaServerLibraries() }
+            val musicDef = if ("douban_music" in enabledIds) async { repository.fetchMusicFeed("douban", 1) } else null
+            val showingDef = if ("douban_showing" in enabledIds) async { repository.fetchDoubanShowing(1) } else null
+            val top250Def = if ("douban_top250" in enabledIds) async { repository.fetchDoubanTop250(1) } else null
 
             val fetchedTrending = trendingDef.await()
             trending = fetchedTrending
@@ -177,6 +237,9 @@ fun DiscoverScreen(
             continueItems = continueDef.await()
             latestItems = latestDef.await()
             mediaLibraries = libsDef.await()
+            musicDef?.await()?.let { musicAlbums = it }
+            showingDef?.await()?.let { doubanShowing = it }
+            top250Def?.await()?.let { doubanTop250 = it }
             isRefreshing = false
 
             // 异步并发补拉前 6 条 Hero 的透明片名 Logo（对齐 iOS `hydrateHeroLogos`）
@@ -192,6 +255,20 @@ fun DiscoverScreen(
     }
 
     LaunchedEffect(Unit) { loadAll() }
+
+    // 开启按需榜单（如豆瓣热映 / 豆瓣 Top250 / 热门音乐）时自动懒加载数据
+    val showingEnabled = modules.any { it.id == "douban_showing" && it.enabled }
+    val top250Enabled = modules.any { it.id == "douban_top250" && it.enabled }
+    val musicEnabled = modules.any { it.id == "douban_music" && it.enabled }
+    LaunchedEffect(showingEnabled) {
+        if (showingEnabled && doubanShowing.isEmpty()) doubanShowing = repository.fetchDoubanShowing(1)
+    }
+    LaunchedEffect(top250Enabled) {
+        if (top250Enabled && doubanTop250.isEmpty()) doubanTop250 = repository.fetchDoubanTop250(1)
+    }
+    LaunchedEffect(musicEnabled) {
+        if (musicEnabled && musicAlbums.isEmpty()) musicAlbums = repository.fetchMusicFeed("douban", 1)
+    }
 
     val heroItems = trending.take(6)
     val pagerState = rememberPagerState(pageCount = { heroItems.size.coerceAtLeast(1) })
@@ -331,9 +408,9 @@ fun DiscoverScreen(
                     contentPadding = PaddingValues(bottom = 132.dp),
                     verticalArrangement = Arrangement.spacedBy(22.dp),
                 ) {
-                    // 1. 前景主视觉轮播（透明背景，Logo 与信息随正文以 1.0x 自然上滚）
-                    if (heroItems.isNotEmpty()) {
-                        item {
+                    // 1. 前景主视觉轮播（始终作为 index 0 顶部锚点，避免异步模块加载后列表自动跳滚）
+                    item(key = "discover_hero") {
+                        if (heroItems.isNotEmpty()) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -469,179 +546,491 @@ fun DiscoverScreen(
                                     }
                                 }
                             }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(heroHeight),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(28.dp))
+                            }
                         }
                     }
 
-                    // 2. 继续观看（16:9 横幅进度卡，直连 `/api/v1/mediaserver/stream-info` 续播）
-                    if (modules.firstOrNull { it.id == "continue" }?.enabled == true && continueItems.isNotEmpty()) {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                NativeSectionHeader(
-                                    title = "继续观看",
-                                    modifier = Modifier.padding(horizontal = margin),
-                                )
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = margin),
-                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                ) {
-                                    items(continueItems) { cw ->
-                                        Column(
-                                            modifier = Modifier
-                                                .width(238.dp)
-                                                .clickable {
-                                                    scope.launch {
-                                                        val manifest = cw.id.takeIf { it.isNotBlank() }?.let { id ->
-                                                            repository.fetchVideoStreamInfo(id, cw.server)
+                    // 按用户编排顺序渲染全部 10 大发现模块
+                    modules.filter { it.enabled }.forEach { mod ->
+                        when (mod.id) {
+                            "continue" -> if (continueItems.isNotEmpty()) {
+                                item(key = "mod_continue") {
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        NativeSectionHeader(
+                                            title = "继续观看",
+                                            modifier = Modifier.padding(horizontal = margin),
+                                        )
+                                        LazyRow(
+                                            contentPadding = PaddingValues(horizontal = margin),
+                                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        ) {
+                                            items(continueItems) { cw ->
+                                                Column(
+                                                    modifier = Modifier
+                                                        .width(238.dp)
+                                                        .clickable {
+                                                            scope.launch {
+                                                                val manifest = cw.id.takeIf { it.isNotBlank() }?.let { id ->
+                                                                    repository.fetchVideoStreamInfo(id, cw.server)
+                                                                }
+                                                                if (manifest != null) {
+                                                                    onPlayMedia(
+                                                                        MediaPlaybackRequest(
+                                                                            url = manifest.contentUrl,
+                                                                            title = manifest.title.ifBlank { cw.title },
+                                                                            subtitle = cw.subtitle,
+                                                                            artworkUrl = cw.image,
+                                                                            isAudio = manifest.mediaType == "audio",
+                                                                            headers = manifest.headers,
+                                                                            itemId = manifest.itemId,
+                                                                            server = manifest.server,
+                                                                            resumePositionMs = manifest.resumePositionMs,
+                                                                            subtitles = manifest.subtitles.map {
+                                                                                SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
+                                                                            },
+                                                                        ),
+                                                                    )
+                                                                } else {
+                                                                    onOpenMedia(
+                                                                        MediaCardItem(
+                                                                            title = cw.title,
+                                                                            posterPath = cw.image,
+                                                                            backdropPath = cw.image,
+                                                                            inLibrary = true,
+                                                                        ),
+                                                                    )
+                                                                }
+                                                            }
+                                                        },
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .aspectRatio(16f / 9f)
+                                                            .clip(RoundedCornerShape(16.dp))
+                                                            .background(Brush.linearGradient(listOf(Color(0xFF473766), Color(0xFF282038))))
+                                                            .border(0.7.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(16.dp)),
+                                                    ) {
+                                                        if (!cw.image.isNullOrBlank()) {
+                                                            AsyncImage(
+                                                                model = cw.image,
+                                                                contentDescription = cw.title,
+                                                                contentScale = ContentScale.Crop,
+                                                                modifier = Modifier.fillMaxSize(),
+                                                            )
                                                         }
-                                                        if (manifest != null) {
-                                                            onPlayMedia(
-                                                                MediaPlaybackRequest(
-                                                                    url = manifest.contentUrl,
-                                                                    title = manifest.title.ifBlank { cw.title },
-                                                                    subtitle = cw.subtitle,
-                                                                    artworkUrl = cw.image,
-                                                                    isAudio = manifest.mediaType == "audio",
-                                                                    headers = manifest.headers,
-                                                                    itemId = manifest.itemId,
-                                                                    server = manifest.server,
-                                                                    resumePositionMs = manifest.resumePositionMs,
-                                                                    subtitles = manifest.subtitles.map {
-                                                                        SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
-                                                                    },
-                                                                ),
-                                                            )
-                                                        } else {
-                                                            onOpenMedia(
-                                                                MediaCardItem(
-                                                                    title = cw.title,
-                                                                    posterPath = cw.image,
-                                                                    backdropPath = cw.image,
-                                                                    inLibrary = true,
-                                                                ),
-                                                            )
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .fillMaxSize()
+                                                                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.65f)))),
+                                                        )
+                                                        Column(
+                                                            modifier = Modifier
+                                                                .align(Alignment.BottomStart)
+                                                                .fillMaxWidth()
+                                                                .padding(10.dp),
+                                                        ) {
+                                                            Text("看到 ${cw.percent}%", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                                            Spacer(Modifier.height(4.dp))
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .height(3.5.dp)
+                                                                    .clip(CircleShape)
+                                                                    .background(Color.White.copy(alpha = 0.25f)),
+                                                            ) {
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .fillMaxWidth((cw.percent / 100f).coerceIn(0.05f, 1f))
+                                                                        .height(3.5.dp)
+                                                                        .clip(CircleShape)
+                                                                        .background(Color.White),
+                                                                )
+                                                            }
                                                         }
                                                     }
-                                                },
-                                        ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(16f / 9f)
-                                            .clip(RoundedCornerShape(15.dp))
-                                            .background(Brush.linearGradient(listOf(Color(0xFF473766), Color(0xFF282038))))
-                                            .border(0.7.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(15.dp)),
-                                    ) {
-                                        if (!cw.image.isNullOrBlank()) {
-                                            AsyncImage(
-                                                model = cw.image,
-                                                contentDescription = cw.title,
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
+                                                    Spacer(Modifier.height(7.dp))
+                                                    Text(cw.title, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    if (cw.subtitle.isNotBlank()) {
+                                                        Text(cw.subtitle, color = colors.textMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    }
+                                                }
+                                            }
                                         }
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.65f)))),
+                                    }
+                                }
+                            }
+
+                            "movies" -> if (movies.isNotEmpty()) {
+                                item(key = "mod_movies") {
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        NativeSectionHeader(
+                                            title = "热门电影",
+                                            onClickMore = { onOpenExplore("tmdb_movies") },
+                                            modifier = Modifier.padding(horizontal = margin),
                                         )
-                                        Column(
-                                            modifier = Modifier
-                                                .align(Alignment.BottomStart)
-                                                .fillMaxWidth()
-                                                .padding(10.dp),
+                                        LazyRow(
+                                            contentPadding = PaddingValues(horizontal = margin),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                                         ) {
-                                            Text("看到 ${cw.percent}%", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                            Spacer(Modifier.height(4.dp))
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(3.5.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Color.White.copy(alpha = 0.25f)),
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth((cw.percent / 100f).coerceIn(0.05f, 1f))
-                                                        .height(3.5.dp)
-                                                        .clip(CircleShape)
-                                                        .background(Color.White),
+                                            items(movies) { item ->
+                                                NativePosterCard(
+                                                    title = item.title,
+                                                    year = item.year,
+                                                    posterUrl = item.posterPath,
+                                                    voteAverage = item.voteAverage,
+                                                    inLibrary = item.inLibrary,
+                                                    onClick = { onOpenMedia(item) },
+                                                    modifier = Modifier.width(posterWidth),
                                                 )
                                             }
                                         }
                                     }
-                                    Spacer(Modifier.height(7.dp))
-                                    Text(cw.title, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    if (cw.subtitle.isNotBlank()) {
-                                        Text(cw.subtitle, color = colors.textMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+
+                            "tvs" -> if (tvs.isNotEmpty()) {
+                                item(key = "mod_tvs") {
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        NativeSectionHeader(
+                                            title = "热门剧集",
+                                            onClickMore = { onOpenExplore("tmdb_tvs") },
+                                            modifier = Modifier.padding(horizontal = margin),
+                                        )
+                                        LazyRow(
+                                            contentPadding = PaddingValues(horizontal = margin),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        ) {
+                                            items(tvs) { item ->
+                                                NativePosterCard(
+                                                    title = item.title,
+                                                    year = item.year,
+                                                    posterUrl = item.posterPath,
+                                                    voteAverage = item.voteAverage,
+                                                    inLibrary = item.inLibrary,
+                                                    onClick = { onOpenMedia(item) },
+                                                    modifier = Modifier.width(posterWidth),
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        }
-                    }
-                }
-            }
 
-            // 2.5 我的媒体库（真实 Emby / Jellyfin / Plex 媒体库横栏，点击直达原生媒体库浏览页）
-            if (modules.firstOrNull { it.id == "libraries" }?.enabled == true && mediaLibraries.isNotEmpty()) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        NativeSectionHeader(
-                            title = "我的媒体库",
-                            subtitle = mediaLibraries.firstOrNull()?.server,
-                            onClickMore = { onOpenMediaLibrary(mediaLibraries.first()) },
-                            modifier = Modifier.padding(horizontal = margin),
-                        )
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = margin),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            items(mediaLibraries, key = { "${it.server}_${it.id}" }) { lib ->
-                                Column(
-                                    modifier = Modifier
-                                        .width(174.dp)
-                                        .clickable { onOpenMediaLibrary(lib) },
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(16f / 9f)
-                                            .clip(RoundedCornerShape(15.dp))
-                                            .background(Brush.linearGradient(listOf(colors.accent.copy(alpha = 0.34f), Color(0xFF282138))))
-                                            .border(0.7.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(15.dp)),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        if (!lib.imageUrl.isNullOrBlank()) {
-                                            AsyncImage(
-                                                model = lib.imageUrl,
-                                                contentDescription = lib.name,
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.12f), Color.Black.copy(alpha = 0.68f)))),
-                                            )
-                                        } else {
-                                            Icon(
-                                                Icons.Rounded.FolderSpecial,
-                                                contentDescription = null,
-                                                tint = Color.White.copy(alpha = 0.68f),
-                                                modifier = Modifier.size(30.dp),
-                                            )
-                                        }
-                                        Column(
-                                            modifier = Modifier
-                                                .align(Alignment.BottomStart)
-                                                .padding(10.dp),
+                            "trending" -> if (trending.isNotEmpty()) {
+                                item(key = "mod_trending") {
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        NativeSectionHeader(
+                                            title = "本周趋势",
+                                            onClickMore = { onOpenExplore("tmdb_movies") },
+                                            modifier = Modifier.padding(horizontal = margin),
+                                        )
+                                        LazyRow(
+                                            contentPadding = PaddingValues(horizontal = margin),
+                                            horizontalArrangement = Arrangement.spacedBy(14.dp),
                                         ) {
-                                            Text(lib.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            val meta = listOfNotNull(
-                                                lib.server.ifBlank { null },
-                                                lib.itemCount?.let { "$it 项" },
-                                            ).joinToString(" · ")
-                                            if (meta.isNotBlank()) {
-                                                Text(meta, color = Color.White.copy(alpha = 0.78f), fontSize = 11.sp, maxLines = 1)
+                                            items(trending, key = { "tr_${it.resolvedId}" }) { item ->
+                                                Column(
+                                                    modifier = Modifier
+                                                        .width(238.dp)
+                                                        .clickable { onOpenMedia(item) },
+                                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .aspectRatio(16f / 9f)
+                                                            .clip(RoundedCornerShape(16.dp))
+                                                            .background(colors.surfaceContainerHigh)
+                                                            .border(0.6.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(16.dp)),
+                                                    ) {
+                                                        val img = item.backdropPath ?: item.posterPath
+                                                        if (!img.isNullOrBlank()) {
+                                                            AsyncImage(
+                                                                model = img,
+                                                                contentDescription = item.title,
+                                                                contentScale = ContentScale.Crop,
+                                                                modifier = Modifier.fillMaxSize(),
+                                                            )
+                                                        }
+                                                        if (item.voteAverage > 0.0) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .align(Alignment.TopEnd)
+                                                                    .padding(8.dp)
+                                                                    .clip(CircleShape)
+                                                                    .background(Color.Black.copy(alpha = 0.62f))
+                                                                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                                                            ) {
+                                                                Text(
+                                                                    String.format("%.1f", item.voteAverage),
+                                                                    color = Color.White,
+                                                                    fontSize = 11.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                    Text(item.title, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    val sub = listOfNotNull(item.year.takeIf { it.isNotBlank() }, item.type.takeIf { it.isNotBlank() }).joinToString(" · ")
+                                                    if (sub.isNotBlank()) {
+                                                        Text(sub, color = colors.textMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            "douban_music" -> if (musicAlbums.isNotEmpty()) {
+                                item(key = "mod_music") {
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        NativeSectionHeader(
+                                            title = "热门音乐",
+                                            onClickMore = { onOpenExplore("music") },
+                                            modifier = Modifier.padding(horizontal = margin),
+                                        )
+                                        LazyRow(
+                                            contentPadding = PaddingValues(horizontal = margin),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        ) {
+                                            items(musicAlbums, key = { "dm_${it.id}_${it.title}" }) { album ->
+                                                val side = posterWidth + 14.dp
+                                                Column(
+                                                    modifier = Modifier
+                                                        .width(side)
+                                                        .clickable { selectedAlbum = album },
+                                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(side)
+                                                            .clip(RoundedCornerShape(16.dp))
+                                                            .background(colors.surfaceContainerHigh)
+                                                            .border(0.6.dp, colors.divider, RoundedCornerShape(16.dp)),
+                                                        contentAlignment = Alignment.Center,
+                                                    ) {
+                                                        Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = colors.accent, modifier = Modifier.size(34.dp))
+                                                        if (!album.coverUrl.isNullOrBlank()) {
+                                                            AsyncImage(
+                                                                model = album.coverUrl,
+                                                                contentDescription = album.title,
+                                                                contentScale = ContentScale.Crop,
+                                                                modifier = Modifier.fillMaxSize(),
+                                                            )
+                                                        }
+                                                    }
+                                                    Text(album.title, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    val caption = listOfNotNull(album.artist.takeIf { it.isNotBlank() }, album.year.takeIf { it.isNotBlank() }).joinToString(" · ")
+                                                    if (caption.isNotBlank()) {
+                                                        Text(caption, color = colors.textMuted, fontSize = 11.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            "douban_showing" -> if (doubanShowing.isNotEmpty()) {
+                                item(key = "mod_douban_showing") {
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        NativeSectionHeader(
+                                            title = "豆瓣热映",
+                                            onClickMore = { onOpenExplore("douban_movies") },
+                                            modifier = Modifier.padding(horizontal = margin),
+                                        )
+                                        LazyRow(
+                                            contentPadding = PaddingValues(horizontal = margin),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        ) {
+                                            items(doubanShowing) { item ->
+                                                NativePosterCard(
+                                                    title = item.title,
+                                                    year = item.year,
+                                                    posterUrl = item.posterPath,
+                                                    voteAverage = item.voteAverage,
+                                                    inLibrary = item.inLibrary,
+                                                    onClick = { onOpenMedia(item) },
+                                                    modifier = Modifier.width(posterWidth),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            "douban_top250" -> if (doubanTop250.isNotEmpty()) {
+                                item(key = "mod_douban_top250") {
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        NativeSectionHeader(
+                                            title = "豆瓣 Top250",
+                                            onClickMore = { onOpenExplore("douban_movies") },
+                                            modifier = Modifier.padding(horizontal = margin),
+                                        )
+                                        LazyRow(
+                                            contentPadding = PaddingValues(horizontal = margin),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        ) {
+                                            items(doubanTop250) { item ->
+                                                NativePosterCard(
+                                                    title = item.title,
+                                                    year = item.year,
+                                                    posterUrl = item.posterPath,
+                                                    voteAverage = item.voteAverage,
+                                                    inLibrary = item.inLibrary,
+                                                    onClick = { onOpenMedia(item) },
+                                                    modifier = Modifier.width(posterWidth),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            "latest" -> if (latestItems.isNotEmpty()) {
+                                item(key = "mod_latest") {
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        NativeSectionHeader(
+                                            title = "最新入库",
+                                            modifier = Modifier.padding(horizontal = margin),
+                                        )
+                                        LazyRow(
+                                            contentPadding = PaddingValues(horizontal = margin),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        ) {
+                                            items(latestItems) { item ->
+                                                NativePosterCard(
+                                                    title = item.title,
+                                                    year = item.year,
+                                                    posterUrl = item.posterPath,
+                                                    voteAverage = 0.0,
+                                                    inLibrary = true,
+                                                    onClick = { onOpenMedia(item) },
+                                                    modifier = Modifier.width(posterWidth),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            "libraries" -> if (mediaLibraries.isNotEmpty()) {
+                                item(key = "mod_libraries") {
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        NativeSectionHeader(
+                                            title = "我的媒体库",
+                                            subtitle = mediaLibraries.firstOrNull()?.server,
+                                            onClickMore = { onOpenMediaLibrary(mediaLibraries.first()) },
+                                            modifier = Modifier.padding(horizontal = margin),
+                                        )
+                                        LazyRow(
+                                            contentPadding = PaddingValues(horizontal = margin),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        ) {
+                                            items(mediaLibraries, key = { "${it.server}_${it.id}" }) { lib ->
+                                                // 纯净封面呈现（不叠标题遮罩避免挡住封面自带文字），右上角以轻透角标展示入库数量
+                                                Box(
+                                                    modifier = Modifier
+                                                        .width(204.dp)
+                                                        .aspectRatio(16f / 9f)
+                                                        .clip(RoundedCornerShape(18.dp))
+                                                        .background(colors.surfaceContainerHigh)
+                                                        .border(0.7.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(18.dp))
+                                                        .clickable { onOpenMediaLibrary(lib) },
+                                                    contentAlignment = Alignment.Center,
+                                                ) {
+                                                    if (!lib.imageUrl.isNullOrBlank()) {
+                                                        AsyncImage(
+                                                            model = lib.imageUrl,
+                                                            contentDescription = lib.name,
+                                                            contentScale = ContentScale.Crop,
+                                                            modifier = Modifier.fillMaxSize(),
+                                                        )
+                                                    } else {
+                                                        Column(
+                                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                                                        ) {
+                                                            Icon(
+                                                                Icons.Rounded.FolderSpecial,
+                                                                contentDescription = lib.name,
+                                                                tint = colors.accent,
+                                                                modifier = Modifier.size(28.dp),
+                                                            )
+                                                            Text(
+                                                                lib.name,
+                                                                color = colors.textPrimary,
+                                                                fontSize = 13.sp,
+                                                                fontWeight = FontWeight.SemiBold,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis,
+                                                            )
+                                                        }
+                                                    }
+                                                    val count = lib.itemCount?.takeIf { it >= 0 }
+                                                    if (count != null) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .align(Alignment.TopEnd)
+                                                                .padding(8.dp)
+                                                                .clip(CircleShape)
+                                                                .background(Color.Black.copy(alpha = 0.56f))
+                                                                .border(0.6.dp, Color.White.copy(alpha = 0.24f), CircleShape)
+                                                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                                                        ) {
+                                                            Text(
+                                                                text = String.format("%,d", count),
+                                                                color = Color.White,
+                                                                fontSize = 11.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            "categories" -> {
+                                item(key = "mod_categories") {
+                                    val categoryEntries = listOf(
+                                        Triple("TMDB 电影", "tmdb_movies", movies.firstOrNull()?.posterPath),
+                                        Triple("TMDB 剧集", "tmdb_tvs", tvs.firstOrNull()?.posterPath),
+                                        Triple("豆瓣片库", "douban_movies", movies.getOrNull(1)?.posterPath),
+                                        Triple("Bangumi 番剧", "bangumi", tvs.getOrNull(1)?.posterPath),
+                                        Triple("音乐探索", "music", musicAlbums.firstOrNull()?.coverUrl ?: movies.getOrNull(2)?.posterPath),
+                                    )
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                        modifier = Modifier.padding(horizontal = margin),
+                                    ) {
+                                        NativeSectionHeader(title = "分类浏览")
+                                        categoryEntries.chunked(2).forEach { row ->
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            ) {
+                                                row.forEach { (title, sourceKey, poster) ->
+                                                    CategoryPosterTile(
+                                                        title = title,
+                                                        posterUrl = poster,
+                                                        modifier = Modifier.weight(1f),
+                                                        onClick = { onOpenExplore(sourceKey) },
+                                                    )
+                                                }
+                                                if (row.size == 1) Spacer(Modifier.weight(1f))
                                             }
                                         }
                                     }
@@ -649,120 +1038,6 @@ fun DiscoverScreen(
                             }
                         }
                     }
-                }
-            }
-
-            // 3. 热门电影横向栏
-            if (modules.firstOrNull { it.id == "movies" }?.enabled == true && movies.isNotEmpty()) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        NativeSectionHeader(
-                            title = "热门电影",
-                            onClickMore = { onOpenExplore("tmdb_movies") },
-                            modifier = Modifier.padding(horizontal = margin),
-                        )
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = margin),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            items(movies) { item ->
-                                NativePosterCard(
-                                    title = item.title,
-                                    year = item.year,
-                                    posterUrl = item.posterPath,
-                                    voteAverage = item.voteAverage,
-                                    inLibrary = item.inLibrary,
-                                    onClick = { onOpenMedia(item) },
-                                    modifier = Modifier.width(posterWidth),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 4. 热门剧集横向栏
-            if (modules.firstOrNull { it.id == "tvs" }?.enabled == true && tvs.isNotEmpty()) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        NativeSectionHeader(
-                            title = "热门剧集",
-                            onClickMore = { onOpenExplore("tmdb_tvs") },
-                            modifier = Modifier.padding(horizontal = margin),
-                        )
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = margin),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            items(tvs) { item ->
-                                NativePosterCard(
-                                    title = item.title,
-                                    year = item.year,
-                                    posterUrl = item.posterPath,
-                                    voteAverage = item.voteAverage,
-                                    inLibrary = item.inLibrary,
-                                    onClick = { onOpenMedia(item) },
-                                    modifier = Modifier.width(posterWidth),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 5. 最近入库横向栏（来自媒体服务器 Emby/Jellyfin/Plex）
-            if (modules.firstOrNull { it.id == "latest" }?.enabled == true && latestItems.isNotEmpty()) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        NativeSectionHeader(
-                            title = "最近入库",
-                            modifier = Modifier.padding(horizontal = margin),
-                        )
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = margin),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            items(latestItems) { item ->
-                                NativePosterCard(
-                                    title = item.title,
-                                    year = item.year,
-                                    posterUrl = item.posterPath,
-                                    voteAverage = 0.0,
-                                    inLibrary = true,
-                                    onClick = { onOpenMedia(item) },
-                                    modifier = Modifier.width(posterWidth),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 6. 分类浏览与音乐发现入口
-            if (modules.firstOrNull { it.id == "categories" }?.enabled == true) {
-                item {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.padding(horizontal = margin),
-                    ) {
-                        NativeSectionHeader(title = "分类浏览")
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            CategoryTile("豆瓣高分电影", "logo_douban", Modifier.weight(1f)) { onOpenExplore("douban_movies") }
-                            CategoryTile("Bangumi 番剧", "logo_bangumi", Modifier.weight(1f)) { onOpenExplore("bangumi") }
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            CategoryTile("TMDB 剧集库", "logo_tmdb", Modifier.weight(1f)) { onOpenExplore("tmdb_tvs") }
-                            CategoryTile("音乐发现", "logo_musicbrainz", Modifier.weight(1f)) { onOpenExplore("music") }
-                        }
-                    }
-                }
-            }
 
                     // 7. 底部自定义发现模块入口（对齐 iOS discover-phase-4，不破坏顶部 Hero 构图）
                     item {
@@ -818,51 +1093,232 @@ fun DiscoverScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("发现模块编排", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("控制发现首页各模块显隐状态", color = colors.textSecondary, fontSize = 13.sp)
-                modules.forEachIndexed { idx, mod ->
-                    CinematicPanel(padding = 12.dp) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text(mod.title, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                            Switch(
-                                checked = mod.enabled,
-                                onCheckedChange = { modules[idx] = mod.copy(enabled = it) },
-                                colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
-                            )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text("编辑发现模块", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("开关显隐并调整首页模块展示顺序", color = colors.textSecondary, fontSize = 12.5.sp)
+                    }
+                    NativeAdaptivePill(
+                        title = "恢复默认",
+                        selected = false,
+                        onClick = {
+                            modules.clear()
+                            modules.addAll(defaultDiscoverModules())
+                            savePersistedDiscoverModules(context, modules)
+                        },
+                    )
+                }
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(420.dp),
+                ) {
+                    items(modules.size, key = { modules[it].id }) { idx ->
+                        val mod = modules[idx]
+                        CinematicPanel(padding = 12.dp, showsShadow = false) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    mod.title,
+                                    color = colors.textPrimary,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                IconButton(
+                                    onClick = {
+                                        if (idx > 0) {
+                                            val item = modules.removeAt(idx)
+                                            modules.add(idx - 1, item)
+                                            savePersistedDiscoverModules(context, modules)
+                                        }
+                                    },
+                                    enabled = idx > 0,
+                                    modifier = Modifier.size(32.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.ArrowUpward,
+                                        contentDescription = "上移",
+                                        tint = if (idx > 0) colors.textSecondary else colors.textMuted.copy(alpha = 0.35f),
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        if (idx < modules.lastIndex) {
+                                            val item = modules.removeAt(idx)
+                                            modules.add(idx + 1, item)
+                                            savePersistedDiscoverModules(context, modules)
+                                        }
+                                    },
+                                    enabled = idx < modules.lastIndex,
+                                    modifier = Modifier.size(32.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.ArrowDownward,
+                                        contentDescription = "下移",
+                                        tint = if (idx < modules.lastIndex) colors.textSecondary else colors.textMuted.copy(alpha = 0.35f),
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                                Switch(
+                                    checked = mod.enabled,
+                                    onCheckedChange = { checked ->
+                                        modules[idx] = mod.copy(enabled = checked)
+                                        savePersistedDiscoverModules(context, modules)
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedTrackColor = colors.accent,
+                                        checkedThumbColor = colors.primaryButtonFg,
+                                    ),
+                                )
+                            }
                         }
                     }
                 }
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+
+    // 发现页点击「热门音乐」方卡后的专辑详情与试听弹层
+    selectedAlbum?.let { album ->
+        var subMsg by remember(album.id) { mutableStateOf<String?>(null) }
+        NativeGlassSheet(onDismissRequest = { selectedAlbum = null }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(176.dp)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(colors.surfaceContainerHigh),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = colors.accent, modifier = Modifier.size(52.dp))
+                    if (!album.coverUrl.isNullOrBlank()) {
+                        AsyncImage(model = album.coverUrl, contentDescription = album.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    }
+                }
+                Text(album.title, color = colors.textPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Text(
+                    listOfNotNull(album.artist.ifBlank { null }, album.year.ifBlank { null }).joinToString(" · "),
+                    color = colors.textSecondary,
+                    fontSize = 13.5.sp,
+                )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                val ok = repository.createOrUpdateSubscription(
+                                    SubscribeItemDto(name = album.title, year = album.year, type = "音乐", mediaSource = album.source, mediaId = album.id),
+                                )
+                                subMsg = if (ok) "已添加音乐专辑订阅" else "订阅请求已提交"
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.surfaceContainerHigh, contentColor = colors.textPrimary),
+                        shape = CircleShape,
+                        modifier = Modifier.weight(1f).height(46.dp),
+                    ) {
+                        Icon(Icons.Rounded.BookmarkAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("订阅专辑", fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                val manifest = repository.fetchMusicStreamInfo(album.title, album.artist.ifBlank { null }, album.title)
+                                if (manifest != null) {
+                                    val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
+                                    selectedAlbum = null
+                                    onPlayMedia(
+                                        MediaPlaybackRequest(
+                                            url = manifest.contentUrl,
+                                            title = manifest.title.ifBlank { album.title },
+                                            subtitle = album.artist,
+                                            artworkUrl = album.coverUrl,
+                                            isAudio = true,
+                                            lyricsLrc = lrc,
+                                            headers = manifest.headers,
+                                            itemId = manifest.itemId,
+                                            server = manifest.server,
+                                        ),
+                                    )
+                                } else {
+                                    subMsg = "当前媒体服务器未匹配到该专辑可播放音轨"
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.primaryButtonFg),
+                        shape = CircleShape,
+                        modifier = Modifier.weight(1f).height(46.dp),
+                    ) {
+                        Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("媒体库直放", fontWeight = FontWeight.Bold)
+                    }
+                }
+                subMsg?.let { Text(it, color = colors.success, fontSize = 13.sp) }
+                Spacer(Modifier.height(18.dp))
             }
         }
     }
 }
 
 @Composable
-private fun CategoryTile(
+private fun CategoryPosterTile(
     title: String,
-    logo: String,
+    posterUrl: String?,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
     CinematicPanel(
-        padding = 14.dp,
-        cornerRadius = 20.dp,
+        padding = 10.dp,
         modifier = modifier.clickable(onClick = onClick),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            NativeBrandDrawable(drawableName = logo, size = 34.dp, cornerRadius = 9.dp)
-            Text(title, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(colors.surfaceContainerHigh),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Rounded.LocalFireDepartment, contentDescription = null, tint = colors.accent, modifier = Modifier.size(20.dp))
+                if (!posterUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = posterUrl,
+                        contentDescription = title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+            Text(
+                title,
+                color = colors.textPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
@@ -906,7 +1362,8 @@ fun ExploreScreen(
     val doubanTags = listOf("全部", "华语", "欧美", "韩国", "日本", "动作", "喜剧", "科幻", "悬疑")
     val musicFeeds = listOf("douban" to "豆瓣音乐", "weekly" to "本周榜单", "popular" to "热门专辑", "latest" to "近期新发")
 
-    var activeSource by remember(initialSource) { mutableStateOf(initialSource) }
+    var activeSource by remember { mutableStateOf(initialSource) }
+    LaunchedEffect(initialSource) { activeSource = initialSource }
     var activeSort by remember { mutableStateOf("热门") }
     var activeGenre by remember { mutableStateOf("全部类型") }
     var activeLang by remember { mutableStateOf("全部语言") }
@@ -948,59 +1405,42 @@ fun ExploreScreen(
         reloadCurrent(showMainLoader = true)
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize().hazeSource(localHaze)) {
-            NativeGlassTopBar(
-                title = "探索",
-                showTopBlur = false,
-                trailing = {
-                    IconButton(onClick = onOpenSearch, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Rounded.Search, contentDescription = "全局搜索", tint = colors.textPrimary, modifier = Modifier.size(24.dp))
-                    }
-                },
+    val activeSourceIdx = sources.indexOfFirst { it.id == activeSource }.coerceAtLeast(0)
+    ExpressiveTintedScaffold(
+        title = "探索",
+        actions = {
+            ExpressiveHeaderActionButton(
+                icon = Icons.Rounded.Search,
+                contentDescription = "全局搜索",
+                onClick = onOpenSearch,
             )
-
-        // 6 大品牌来源横向小卡片
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = margin),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            items(sources) { src ->
-                val selected = src.id == activeSource
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(if (selected) colors.accent.copy(alpha = 0.24f) else colors.chipFill)
-                        .border(
-                            width = if (selected) 1.2.dp else 0.7.dp,
-                            color = if (selected) colors.accent else colors.chipBorder,
-                            shape = RoundedCornerShape(18.dp),
-                        )
-                        .clickable { activeSource = src.id }
-                        .padding(horizontal = 12.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(9.dp),
-                ) {
-                    NativeBrandDrawable(drawableName = src.logo, size = 30.dp, cornerRadius = 8.dp)
-                    Column {
-                        Text(src.brand, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text(src.sub, color = if (selected) colors.accent else colors.textSecondary, fontSize = 11.sp)
-                    }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
+        },
+        headerExtra = {
+            ExpressivePillTabRow(
+                tabs = sources.map { if (it.id == "music") "音乐" else "${it.brand} ${it.sub}" },
+                selectedIndex = activeSourceIdx,
+                onSelect = { idx -> activeSource = sources[idx].id },
+                scrollable = true,
+                onTintedHeader = true,
+            )
+        },
+    ) {
+        Column(modifier = Modifier.fillMaxSize().hazeSource(localHaze)) {
+            Spacer(Modifier.height(12.dp))
 
         if (activeSource == "music") {
-            // Material Design 3 音乐榜单页签栏
-            val musicIdx = musicFeeds.indexOfFirst { it.first == activeMusicFeed }.coerceAtLeast(0)
-            NativePrimaryTabBar(
-                tabs = musicFeeds.map { it.second },
-                selectedIndex = musicIdx,
-                onSelect = { idx -> activeMusicFeed = musicFeeds[idx].first },
-                scrollable = musicFeeds.size > 4,
-            )
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = margin),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(musicFeeds) { (key, label) ->
+                    NativeAdaptivePill(
+                        title = label,
+                        selected = key == activeMusicFeed,
+                        onClick = { activeMusicFeed = key },
+                    )
+                }
+            }
             Spacer(Modifier.height(10.dp))
             if (isLoading && musicAlbums.isEmpty()) {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -1014,6 +1454,17 @@ fun ExploreScreen(
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                     modifier = Modifier.weight(1f),
                 ) {
+                    if (musicAlbums.isNotEmpty()) {
+                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                            ExpressiveMixCollageHeader(
+                                headline = "精选音乐",
+                                subtitle = "今日热门榜单与无损专辑推荐",
+                                artworkUrls = musicAlbums.take(3).map { it.coverUrl },
+                                onPlayClick = { selectedAlbum = musicAlbums.first() },
+                                modifier = Modifier.padding(top = 6.dp, bottom = 10.dp),
+                            )
+                        }
+                    }
                     items(musicAlbums, key = { it.id + it.title }) { album ->
                         CinematicPanel(
                             padding = 10.dp,
@@ -1139,15 +1590,9 @@ fun ExploreScreen(
             }
         }
         }
-        NativeTopStatusBarProgressiveBlur(
-            visibilityProgress = 0.85f,
-            extraHeight = 14.dp,
-            blurSourceState = localHaze,
-            modifier = Modifier.align(Alignment.TopCenter),
-        )
     }
 
-    // 音乐专辑详情与订阅/试听弹窗（对齐 iOS `native-v2-live-music-album.jpg`）
+    // 音乐专辑详情与订阅/试听弹窗
     selectedAlbum?.let { album ->
         var subMsg by remember(album.id) { mutableStateOf<String?>(null) }
         NativeGlassSheet(onDismissRequest = { selectedAlbum = null }) {
@@ -1186,7 +1631,10 @@ fun ExploreScreen(
                                 subMsg = if (ok) "已添加音乐专辑订阅" else "订阅请求已提交"
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = colors.surfaceContainerHigh,
+                            contentColor = colors.textPrimary,
+                        ),
                         shape = CircleShape,
                         modifier = Modifier.weight(1f).height(46.dp),
                     ) {
@@ -1223,7 +1671,7 @@ fun ExploreScreen(
                                 }
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = Color.White),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.primaryButtonFg),
                         shape = CircleShape,
                         modifier = Modifier.weight(1f).height(46.dp),
                     ) {
@@ -1245,9 +1693,10 @@ fun ExploreScreen(
 }
 
 /**
- * 全局搜索页（1:1 复刻 iOS `native-v2-live-search.jpg`）：
- * 顶部玻璃搜索框 + 5 类分类胶囊（媒体 / 媒体库 / 人物 / 音乐 / 合集）+ 热门快捷词 + 严格“仅媒体库直放”策略。
+ * 全局搜索页（Material 3 Expressive 染色顶栏 + 分类胶囊页签 + 28dp 圆角内容区）：
+ * 顶部大胶囊搜索框 + 搜索前紧贴输入框展示「热门搜索」推荐词流（避免放在空白页底部）+ 严格“仅媒体库直放”策略。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GlobalSearchScreen(
     repository: MoviePilotRepository,
@@ -1276,7 +1725,7 @@ fun GlobalSearchScreen(
         "music" to "音乐",
         "collection" to "合集",
     )
-    val quickTags = listOf("奥德赛", "钢铁侠", "超感神探", "庆余年", "星际穿越")
+    val quickTags = listOf("奥德赛", "钢铁侠", "超感神探", "庆余年", "星际穿越", "沙丘", "三体")
 
     LaunchedEffect(query, kind) {
         if (query.isNotBlank()) {
@@ -1288,155 +1737,184 @@ fun GlobalSearchScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        NativeGlassTopBar(title = "全局搜索", onBack = onBack)
+    val kindIdx = kinds.indexOfFirst { it.first == kind }.coerceAtLeast(0)
 
-        CinematicPanel(padding = 12.dp, cornerRadius = 22.dp, modifier = Modifier.padding(horizontal = margin)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(Icons.Rounded.Search, contentDescription = null, tint = colors.textSecondary)
-                Box(modifier = Modifier.weight(1f)) {
-                    if (query.isEmpty()) Text("搜索电影、剧集、媒体库、人物或音乐...", color = colors.textMuted, fontSize = 15.sp)
-                    BasicTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        singleLine = true,
-                        textStyle = TextStyle(color = colors.textPrimary, fontSize = 15.sp),
-                        cursorBrush = SolidColor(colors.accent),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = { query = "" }, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Rounded.Close, contentDescription = "清除", tint = colors.textMuted, modifier = Modifier.size(16.dp))
+    ExpressiveTintedScaffold(
+        title = "全局搜索",
+        onBack = onBack,
+        headerExtra = {
+            ExpressivePillTabRow(
+                tabs = kinds.map { it.second },
+                selectedIndex = kindIdx,
+                onSelect = { idx -> kind = kinds[idx].first },
+                scrollable = true,
+                onTintedHeader = true,
+            )
+        },
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Spacer(Modifier.height(14.dp))
+            CinematicPanel(padding = 13.dp, cornerRadius = 24.dp, modifier = Modifier.padding(horizontal = margin)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Icon(Icons.Rounded.Search, contentDescription = null, tint = colors.textSecondary)
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (query.isEmpty()) Text("搜索电影、剧集、媒体库、人物或音乐...", color = colors.textMuted, fontSize = 15.sp)
+                        BasicTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            singleLine = true,
+                            textStyle = TextStyle(color = colors.textPrimary, fontSize = 15.sp),
+                            cursorBrush = SolidColor(colors.accent),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { query = "" }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Rounded.Close, contentDescription = "清除", tint = colors.textMuted, modifier = Modifier.size(16.dp))
+                        }
                     }
                 }
             }
-        }
 
-        Spacer(Modifier.height(6.dp))
-        val kindIdx = kinds.indexOfFirst { it.first == kind }.coerceAtLeast(0)
-        NativePrimaryTabBar(
-            tabs = kinds.map { it.second },
-            selectedIndex = kindIdx,
-            onSelect = { idx -> kind = kinds[idx].first },
-            scrollable = kinds.size > 4,
-        )
-
-        Spacer(Modifier.height(12.dp))
-        if (isSearching) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = colors.accent)
-            }
-        } else if (results.isEmpty()) {
-            Column(
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = margin),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Icon(Icons.Rounded.Search, contentDescription = null, tint = colors.textMuted.copy(alpha = 0.55f), modifier = Modifier.size(44.dp))
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    text = if (query.isBlank()) "输入片名、演员或关键词开始搜索" else "未找到与「$query」匹配的内容",
-                    color = colors.textMuted,
-                    fontSize = 14.sp,
-                )
-                if (query.isBlank()) {
-                    Spacer(Modifier.height(18.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(quickTags) { kw ->
+            Spacer(Modifier.height(14.dp))
+            if (isSearching) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = colors.accent)
+                }
+            } else if (query.isBlank()) {
+                // 搜索前紧贴搜索框顶部排布「热门搜索」建议词流，自然清爽
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = margin),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(Icons.Rounded.LocalFireDepartment, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                        Text("热门搜索", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        quickTags.forEach { kw ->
                             NativeAdaptivePill(kw, selected = false, onClick = { query = kw })
                         }
                     }
+                    Text(
+                        text = "切换上方分类胶囊可精准检索媒体库、演职员、音乐与合集",
+                        color = colors.textMuted,
+                        fontSize = 12.5.sp,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
                 }
-            }
-        } else if (kind == "person") {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(columns),
-                contentPadding = PaddingValues(start = margin, end = margin, bottom = 128.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.weight(1f),
-            ) {
-                items(results) { item ->
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable {
-                            onOpenPerson(
-                                com.moviepilot.rustbridge.MediaPersonDto(
-                                    id = item.mediaId ?: item.tmdbId?.toString() ?: item.resolvedId,
-                                    name = item.title,
-                                    profilePath = item.posterPath,
-                                    source = item.source,
-                                ),
-                            )
-                        },
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(86.dp)
-                                .clip(CircleShape)
-                                .background(colors.chipFill)
-                                .border(0.8.dp, colors.chipBorder, CircleShape),
-                            contentAlignment = Alignment.Center,
+            } else if (results.isEmpty()) {
+                Column(
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = margin),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(Icons.Rounded.Search, contentDescription = null, tint = colors.textMuted.copy(alpha = 0.55f), modifier = Modifier.size(44.dp))
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = "未找到与「$query」匹配的内容",
+                        color = colors.textMuted,
+                        fontSize = 14.sp,
+                    )
+                }
+            } else if (kind == "person") {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(columns),
+                    contentPadding = PaddingValues(start = margin, end = margin, bottom = 128.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    items(results) { item ->
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.clickable {
+                                onOpenPerson(
+                                    com.moviepilot.rustbridge.MediaPersonDto(
+                                        id = item.mediaId ?: item.tmdbId?.toString() ?: item.resolvedId,
+                                        name = item.title,
+                                        profilePath = item.posterPath,
+                                        source = item.source,
+                                    ),
+                                )
+                            },
                         ) {
-                            Icon(Icons.Rounded.Person, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(34.dp))
-                            if (!item.posterPath.isNullOrBlank()) {
-                                AsyncImage(model = item.posterPath, contentDescription = item.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                            Box(
+                                modifier = Modifier
+                                    .size(86.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.chipFill)
+                                    .border(0.8.dp, colors.chipBorder, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(Icons.Rounded.Person, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(34.dp))
+                                if (!item.posterPath.isNullOrBlank()) {
+                                    AsyncImage(model = item.posterPath, contentDescription = item.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                }
                             }
+                            Spacer(Modifier.height(6.dp))
+                            Text(item.title, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        Spacer(Modifier.height(6.dp))
-                        Text(item.title, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
-            }
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(columns),
-                contentPadding = PaddingValues(start = margin, end = margin, bottom = 128.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.weight(1f),
-            ) {
-                items(results) { item ->
-                    NativePosterCard(
-                        title = item.title,
-                        year = item.year,
-                        posterUrl = item.posterPath,
-                        voteAverage = item.voteAverage,
-                        inLibrary = item.inLibrary || kind == "library",
-                        onClick = {
-                            if (kind == "library") {
-                                scope.launch {
-                                    playError = null
-                                    val itemId = item.mediaId ?: item.tmdbId?.toString().orEmpty()
-                                    val manifest = if (itemId.isNotBlank()) repository.fetchVideoStreamInfo(itemId, null) else null
-                                    if (manifest != null) {
-                                        val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
-                                        onPlayLibraryItem(
-                                            MediaPlaybackRequest(
-                                                url = manifest.contentUrl,
-                                                title = manifest.title.ifBlank { item.title },
-                                                artworkUrl = item.posterPath,
-                                                isAudio = manifest.mediaType == "audio",
-                                                lyricsLrc = lrc,
-                                                headers = manifest.headers,
-                                                itemId = manifest.itemId,
-                                                server = manifest.server,
-                                                resumePositionMs = manifest.resumePositionMs,
-                                                subtitles = manifest.subtitles.map {
-                                                    SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
-                                                },
-                                            ),
-                                        )
-                                    } else {
-                                        onOpenMedia(item)
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(columns),
+                    contentPadding = PaddingValues(start = margin, end = margin, bottom = 128.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    items(results) { item ->
+                        NativePosterCard(
+                            title = item.title,
+                            year = item.year,
+                            posterUrl = item.posterPath,
+                            voteAverage = item.voteAverage,
+                            inLibrary = item.inLibrary || kind == "library",
+                            onClick = {
+                                if (kind == "library") {
+                                    scope.launch {
+                                        playError = null
+                                        val itemId = item.mediaId ?: item.tmdbId?.toString().orEmpty()
+                                        val manifest = if (itemId.isNotBlank()) repository.fetchVideoStreamInfo(itemId, null) else null
+                                        if (manifest != null) {
+                                            val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
+                                            onPlayLibraryItem(
+                                                MediaPlaybackRequest(
+                                                    url = manifest.contentUrl,
+                                                    title = manifest.title.ifBlank { item.title },
+                                                    artworkUrl = item.posterPath,
+                                                    isAudio = manifest.mediaType == "audio",
+                                                    lyricsLrc = lrc,
+                                                    headers = manifest.headers,
+                                                    itemId = manifest.itemId,
+                                                    server = manifest.server,
+                                                    resumePositionMs = manifest.resumePositionMs,
+                                                    subtitles = manifest.subtitles.map {
+                                                        SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
+                                                    },
+                                                ),
+                                            )
+                                        } else {
+                                            onOpenMedia(item)
+                                        }
                                     }
+                                } else {
+                                    onOpenMedia(item)
                                 }
-                            } else {
-                                onOpenMedia(item)
-                            }
-                        },
-                    )
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -1463,17 +1941,17 @@ fun MusicDiscoveryScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        NativeGlassTopBar(title = "音乐发现", onBack = onBack)
-        tip?.let { msg ->
-            Text(msg, color = colors.warning, fontSize = 12.sp, modifier = Modifier.padding(horizontal = margin, vertical = 4.dp))
-        }
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(cols),
-            contentPadding = PaddingValues(start = margin, end = margin, top = 8.dp, bottom = 128.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
+    ExpressiveTintedScaffold(title = "音乐发现", onBack = onBack) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            tip?.let { msg ->
+                Text(msg, color = colors.warning, fontSize = 12.sp, modifier = Modifier.padding(horizontal = margin, vertical = 8.dp))
+            }
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(cols),
+                contentPadding = PaddingValues(start = margin, end = margin, top = 16.dp, bottom = 128.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
             items(albums) { album ->
                 CinematicPanel(
                     padding = 12.dp,
@@ -1522,6 +2000,7 @@ fun MusicDiscoveryScreen(
                     }
                 }
             }
+        }
         }
     }
 }

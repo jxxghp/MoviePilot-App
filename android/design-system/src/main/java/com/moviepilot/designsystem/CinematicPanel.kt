@@ -53,14 +53,19 @@ val LocalHazeState = compositionLocalOf<HazeState?> { null }
 fun CinematicPanel(
     modifier: Modifier = Modifier,
     padding: Dp = GeneratedDesignTokens.PANEL_PADDING_DP.dp,
-    cornerRadius: Dp = 16.dp,
+    cornerRadius: Dp = Dp.Unspecified,
     elevatedBlur: Boolean = false,
     showsShadow: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
-    val m3Radius = cornerRadius.coerceIn(12.dp, 20.dp)
-    val shape = RoundedCornerShape(m3Radius)
+    val resolvedRadius = if (cornerRadius == Dp.Unspecified) {
+        colors.cardRadiusDp.dp
+    } else {
+        // 尊重用户所选 Material 3 Expressive 圆角尺度，同时保留显式小胶囊/大圆角语义
+        ((cornerRadius.value + colors.cardRadiusDp) / 2f).coerceIn(12f, 26f).dp
+    }
+    val shape = RoundedCornerShape(resolvedRadius)
     val containerColor = if (elevatedBlur) {
         MaterialTheme.colorScheme.surfaceContainerHigh
     } else {

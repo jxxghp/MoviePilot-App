@@ -4,14 +4,22 @@ import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Color as AndroidColor
+import android.graphics.drawable.BitmapDrawable
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.util.Rational
 import android.view.ViewGroup
 import androidx.annotation.OptIn
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -21,6 +29,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,28 +45,36 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ClosedCaption
+import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
+import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RepeatOne
+import androidx.compose.material.icons.rounded.Replay10
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -69,6 +86,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -95,11 +113,21 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import coil.ImageLoader
 import coil.compose.AsyncImage
-import com.moviepilot.designsystem.CinematicGlassSurface
+import coil.request.ImageRequest
+import coil.request.SuccessResult
+import com.moviepilot.designsystem.ExpressiveDockAction
+import com.moviepilot.designsystem.ExpressiveGroupedActionDock
+import com.moviepilot.designsystem.ExpressiveMorphingPlayButton
+import com.moviepilot.designsystem.ExpressiveSplitIconPair
+import com.moviepilot.designsystem.ExpressiveWavySlider
+import com.moviepilot.designsystem.LocalAppearanceStore
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeGlassSheet
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 /** 播放器外挂字幕描述项。 */
@@ -199,6 +227,105 @@ fun buildConfiguredExoPlayer(context: Context, request: MediaPlaybackRequest): E
         }
 }
 
+@Immutable
+private data class PlayerExpressivePalette(
+    val canvas: Color,
+    val accent: Color,
+    val onAccent: Color,
+    val dock: Color,
+    val buttonBg: Color,
+)
+
+/**
+ * 播放封面动态取色引擎（纯 Kotlin 零额外依赖）：
+ * 从当前播放封面采样主色相，合成深丝绒底色 + 柔和粉彩高光主色 + 沉入式胶囊坞色，平滑过渡切换。
+ */
+@Composable
+private fun rememberArtworkPlayerPalette(artworkUrl: String?): PlayerExpressivePalette {
+    val colors = LocalMoviePilotColors.current
+    val store = LocalAppearanceStore.current
+    val context = LocalContext.current
+    val fallback = remember(colors) {
+        PlayerExpressivePalette(
+            canvas = colors.playerTint,
+            accent = colors.playerAccent,
+            onAccent = colors.playerOnAccent,
+            dock = colors.playerDock,
+            buttonBg = colors.playerButtonBg,
+        )
+    }
+    var extracted by remember(artworkUrl, fallback, store.albumArtDynamicColor) {
+        mutableStateOf(fallback)
+    }
+
+    LaunchedEffect(artworkUrl, store.albumArtDynamicColor) {
+        if (!store.albumArtDynamicColor || artworkUrl.isNullOrBlank()) {
+            extracted = fallback
+            return@LaunchedEffect
+        }
+        val derived = withContext(Dispatchers.IO) {
+            runCatching {
+                val loader = ImageLoader(context)
+                val req = ImageRequest.Builder(context)
+                    .data(artworkUrl)
+                    .size(48)
+                    .allowHardware(false)
+                    .build()
+                val res = loader.execute(req) as? SuccessResult ?: return@runCatching null
+                val bmp = (res.drawable as? BitmapDrawable)?.bitmap ?: return@runCatching null
+                derivePaletteFromBitmap(bmp)
+            }.getOrNull()
+        }
+        extracted = derived ?: fallback
+    }
+
+    val animCanvas by animateColorAsState(extracted.canvas, tween(420), label = "playerCanvas")
+    val animAccent by animateColorAsState(extracted.accent, tween(420), label = "playerAccent")
+    val animOnAccent by animateColorAsState(extracted.onAccent, tween(420), label = "playerOnAccent")
+    val animDock by animateColorAsState(extracted.dock, tween(420), label = "playerDock")
+    val animBtn by animateColorAsState(extracted.buttonBg, tween(420), label = "playerBtn")
+    return PlayerExpressivePalette(animCanvas, animAccent, animOnAccent, animDock, animBtn)
+}
+
+private fun derivePaletteFromBitmap(bitmap: Bitmap): PlayerExpressivePalette? {
+    val hsv = FloatArray(3)
+    var bestHue = -1f
+    var bestScore = 0f
+    val stepX = (bitmap.width / 12).coerceAtLeast(1)
+    val stepY = (bitmap.height / 12).coerceAtLeast(1)
+    var y = 0
+    while (y < bitmap.height) {
+        var x = 0
+        while (x < bitmap.width) {
+            val px = bitmap.getPixel(x, y)
+            if (AndroidColor.alpha(px) > 180) {
+                AndroidColor.colorToHSV(px, hsv)
+                val sat = hsv[1]
+                val v = hsv[2]
+                // 优先挑选色彩鲜明、明暗适中的主色相
+                val score = sat * (1f - abs(v - 0.55f))
+                if (sat > 0.22f && v > 0.16f && v < 0.94f && score > bestScore) {
+                    bestScore = score
+                    bestHue = hsv[0]
+                }
+            }
+            x += stepX
+        }
+        y += stepY
+    }
+    if (bestHue < 0f) return null
+    fun hsvColor(h: Float, s: Float, v: Float): Color =
+        Color(AndroidColor.HSVToColor(floatArrayOf(h, s.coerceIn(0f, 1f), v.coerceIn(0f, 1f))))
+
+    return PlayerExpressivePalette(
+        canvas = hsvColor(bestHue, 0.58f, 0.34f),
+        accent = hsvColor(bestHue, 0.22f, 0.94f),
+        onAccent = hsvColor(bestHue, 0.72f, 0.28f),
+        dock = hsvColor(bestHue, 0.66f, 0.22f),
+        buttonBg = hsvColor(bestHue, 0.48f, 0.43f),
+    )
+}
+
 private data class ResolvedTrackChoice(
     val label: String,
     val group: Tracks.Group?,
@@ -207,14 +334,12 @@ private data class ResolvedTrackChoice(
 )
 
 /**
- * 原生 Media3 全格式音视频播放器（1:1 对齐 iOS 播控规范 + Android 原生手势与轨道能力）：
- * - 完整支持同源 Bearer/Cookie 鉴权流、`content://`/`file://` 本机文件与外挂字幕加载；
- * - 真实 ExoPlayer 音轨/字幕轨道枚举与切换弹窗（支持关闭字幕、选择内嵌/外挂字幕与多声道音轨）；
- * - Android 原生手势：左半屏上下滑调亮度、右半屏上下滑调音量、左右滑快进快退、双击暂停/播放；
- * - 右上角仅保留画中画（PiP）纯图标；锁定/解锁居中靠右且仅横屏显示；
- * - 进度条下方左（字幕/音轨）右（填充模式/倍速）全纯图标；
- * - 音乐模式支持多行 LRC 同步滚动歌词、队列上下首切歌、最小化至底部悬浮迷你条后台连续播放；
- * - 自动回传播放进度至 `/api/v1/mediaserver/progress`。
+ * Material 3 Expressive 原生音视频播放器：
+ * - **音频模式**：封面动态丝绒着色全屏画布、左上圆形下拉收起键 + 右上连体歌词/队列双钮、
+ *   28dp 大圆角专辑主视觉、实时流动正弦波浪进度条（ExpressiveWavySlider）、形变方圆主播放键（播放呈 Squircle，暂停弹回正圆）、
+ *   以及底部沉入式连体播控胶囊坞（随机 / 循环 / 倍速）；
+ * - **视频模式**：全屏 Media3 ExoPlayer 硬件渲染、亮度/音量/进度手势与双击播控、右上画中画、横屏专属锁屏键，
+ *   并同步采用波浪进度条、形变播控键与底部连体字幕/音轨/画面/倍速胶囊坞。
  */
 @OptIn(UnstableApi::class)
 @kotlin.OptIn(ExperimentalMaterial3Api::class)
@@ -229,6 +354,7 @@ fun NativeMediaPlayerOverlay(
 ) {
     val context = LocalContext.current
     val colors = LocalMoviePilotColors.current
+    val playerPalette = rememberArtworkPlayerPalette(request.artworkUrl)
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     val ownsPlayer = sharedPlayer == null
@@ -243,6 +369,10 @@ fun NativeMediaPlayerOverlay(
     var isLocked by remember { mutableStateOf(false) }
     var speedIndex by remember { mutableIntStateOf(1) }
     var resizeModeIndex by remember { mutableIntStateOf(0) }
+    var shuffleEnabled by remember { mutableStateOf(false) }
+    var repeatMode by remember { mutableIntStateOf(Player.REPEAT_MODE_OFF) }
+    var showLyricsView by remember { mutableStateOf(false) }
+    var showQueueSheet by remember { mutableStateOf(false) }
     var showSubtitleSheet by remember { mutableStateOf(false) }
     var showAudioTrackSheet by remember { mutableStateOf(false) }
     var hudMessage by remember { mutableStateOf<String?>(null) }
@@ -257,7 +387,6 @@ fun NativeMediaPlayerOverlay(
     val lrcLines = remember(request.lyricsLrc) { parseLrcLyrics(request.lyricsLrc) }
     val lrcListState = rememberLazyListState()
 
-    // 监听轨道变化以实时更新真实字幕/音轨列表
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
@@ -288,7 +417,6 @@ fun NativeMediaPlayerOverlay(
         }
     }
 
-    // 实时同步进度并每 10 秒上报媒体服务器进度
     LaunchedEffect(exoPlayer) {
         var tick = 0
         while (true) {
@@ -303,7 +431,6 @@ fun NativeMediaPlayerOverlay(
         }
     }
 
-    // 自动清除手势/切换 HUD 提示
     LaunchedEffect(hudMessage) {
         if (hudMessage != null) {
             delay(1400)
@@ -311,17 +438,15 @@ fun NativeMediaPlayerOverlay(
         }
     }
 
-    // 同步滚动 LRC 歌词到当前行
     val activeLrcIdx = remember(positionMs, lrcLines) {
         lrcLines.indexOfLast { it.timeMs <= positionMs }.coerceAtLeast(0)
     }
-    LaunchedEffect(activeLrcIdx, lrcLines.size) {
-        if (request.isAudio && lrcLines.isNotEmpty()) {
+    LaunchedEffect(activeLrcIdx, lrcLines.size, showLyricsView) {
+        if (request.isAudio && showLyricsView && lrcLines.isNotEmpty()) {
             lrcListState.animateScrollToItem((activeLrcIdx - 2).coerceAtLeast(0))
         }
     }
 
-    // 解析真实内嵌/外挂字幕与音轨选项
     val subtitleChoices = remember(tracksVersion, exoPlayer) {
         val list = mutableListOf<ResolvedTrackChoice>()
         val tracks = exoPlayer.currentTracks
@@ -356,6 +481,435 @@ fun NativeMediaPlayerOverlay(
         list
     }
 
+    val progress = (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+    var draggingProgress by remember { mutableFloatStateOf(-1f) }
+    val displayPositionMs = if (draggingProgress >= 0f) (draggingProgress * durationMs).toLong() else positionMs
+
+    if (request.isAudio) {
+        // ═══════════════════════════════════════════════════════════════
+        // Material 3 Expressive 音频全屏播放页（波浪进度条、形变播控键与连体胶囊坞）
+        // ═══════════════════════════════════════════════════════════════
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(playerPalette.canvas),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                // 1. 顶栏：左侧圆形下拉收起键 + 居中「正在播放」+ 右上角连体双圆钮（歌词 + 队列）
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Surface(
+                        onClick = {
+                            if (onMinimizeToMiniBar != null) onMinimizeToMiniBar() else onClose()
+                        },
+                        shape = CircleShape,
+                        color = playerPalette.dock,
+                        modifier = Modifier.size(44.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Rounded.KeyboardArrowDown,
+                                contentDescription = "收起至迷你播放条",
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp),
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "正在播放",
+                        color = Color.White.copy(alpha = 0.92f),
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+
+                    ExpressiveSplitIconPair(
+                        firstIcon = Icons.Rounded.Lyrics,
+                        firstDesc = "同步歌词",
+                        firstActive = showLyricsView,
+                        onFirstClick = { showLyricsView = !showLyricsView },
+                        secondIcon = Icons.AutoMirrored.Rounded.QueueMusic,
+                        secondDesc = "播放队列",
+                        secondActive = showQueueSheet,
+                        onSecondClick = { showQueueSheet = true },
+                        containerColor = playerPalette.dock,
+                        activeContainerColor = playerPalette.accent,
+                        contentColor = Color.White.copy(alpha = 0.90f),
+                        activeContentColor = playerPalette.onAccent,
+                    )
+                }
+
+                Spacer(Modifier.height(22.dp))
+
+                // 2. 中央舞台：28dp 大圆角专辑主视觉 ↔ 交互式同步歌词视图
+                AnimatedContent(
+                    targetState = showLyricsView,
+                    transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(180)) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    label = "audioPlayerStage",
+                ) { lyricsMode ->
+                    if (!lyricsMode) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.84f)
+                                    .aspectRatio(1f)
+                                    .shadow(
+                                        elevation = 18.dp,
+                                        shape = RoundedCornerShape(28.dp),
+                                        ambientColor = Color.Black.copy(alpha = 0.45f),
+                                        spotColor = Color.Black.copy(alpha = 0.45f),
+                                    )
+                                    .clip(RoundedCornerShape(28.dp))
+                                    .background(playerPalette.buttonBg),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (!request.artworkUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = request.artworkUrl,
+                                        contentDescription = request.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Rounded.MusicNote,
+                                        contentDescription = null,
+                                        tint = playerPalette.accent,
+                                        modifier = Modifier.size(84.dp),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(26.dp))
+                            Text(
+                                text = request.title,
+                                color = Color.White,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                            )
+                            if (request.subtitle.isNotBlank()) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    text = request.subtitle,
+                                    color = Color.White.copy(alpha = 0.72f),
+                                    fontSize = 15.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(54.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(playerPalette.buttonBg),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (!request.artworkUrl.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = request.artworkUrl,
+                                            contentDescription = request.title,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    } else {
+                                        Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = playerPalette.accent)
+                                    }
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(request.title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (request.subtitle.isNotBlank()) {
+                                        Text(request.subtitle, color = Color.White.copy(alpha = 0.72f), fontSize = 13.sp, maxLines = 1)
+                                    }
+                                }
+                            }
+                            if (lrcLines.isNotEmpty()) {
+                                LazyColumn(
+                                    state = lrcListState,
+                                    modifier = Modifier.fillMaxWidth().weight(1f),
+                                    contentPadding = PaddingValues(vertical = 24.dp),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                                    horizontalAlignment = Alignment.Start,
+                                ) {
+                                    itemsIndexed(lrcLines) { idx, line ->
+                                        val active = idx == activeLrcIdx
+                                        Text(
+                                            text = line.text,
+                                            color = if (active) Color.White else Color.White.copy(alpha = 0.42f),
+                                            fontSize = if (active) 21.sp else 16.sp,
+                                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                                            lineHeight = 28.sp,
+                                            modifier = Modifier.clickable { exoPlayer.seekTo(line.timeMs) },
+                                        )
+                                    }
+                                }
+                            } else {
+                                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                                    Text("当前曲目暂未附带同步歌词", color = Color.White.copy(alpha = 0.60f), fontSize = 15.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+
+                // 3. 流动正弦波浪进度条 + 时间戳
+                ExpressiveWavySlider(
+                    value = if (draggingProgress >= 0f) draggingProgress else progress,
+                    onValueChange = { draggingProgress = it },
+                    onValueChangeFinished = {
+                        if (draggingProgress >= 0f) {
+                            exoPlayer.seekTo((draggingProgress * durationMs).toLong())
+                            draggingProgress = -1f
+                        }
+                    },
+                    isPlaying = isPlaying,
+                    activeColor = playerPalette.accent,
+                    inactiveColor = Color.White.copy(alpha = 0.24f),
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
+                    Text(formatDurationMs(durationMs), color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
+                }
+
+                Spacer(Modifier.height(22.dp))
+
+                // 4. 三联主播控：大圆上一首 + 形变方圆暂停/播放主按钮 + 大圆下一首
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Surface(
+                        onClick = {
+                            if (request.queue.size > 1 && onSwitchRequest != null) {
+                                val prevIdx = (request.queueIndex - 1 + request.queue.size) % request.queue.size
+                                onSwitchRequest(request.queue[prevIdx].copy(queue = request.queue, queueIndex = prevIdx))
+                            } else {
+                                exoPlayer.seekTo((exoPlayer.currentPosition - 15_000L).coerceAtLeast(0L))
+                                hudMessage = "快退 15 秒"
+                            }
+                        },
+                        shape = CircleShape,
+                        color = playerPalette.buttonBg,
+                        modifier = Modifier.size(72.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (request.queue.size > 1) Icons.Rounded.SkipPrevious else Icons.Rounded.Replay10,
+                                contentDescription = "上一首",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp),
+                            )
+                        }
+                    }
+
+                    ExpressiveMorphingPlayButton(
+                        isPlaying = isPlaying,
+                        onClick = {
+                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                        },
+                        containerColor = playerPalette.accent,
+                        contentColor = playerPalette.onAccent,
+                        width = 88.dp,
+                        height = 78.dp,
+                        iconSize = 36.dp,
+                    )
+
+                    Surface(
+                        onClick = {
+                            if (request.queue.size > 1 && onSwitchRequest != null) {
+                                val nextIdx = (request.queueIndex + 1) % request.queue.size
+                                onSwitchRequest(request.queue[nextIdx].copy(queue = request.queue, queueIndex = nextIdx))
+                            } else {
+                                exoPlayer.seekTo((exoPlayer.currentPosition + 15_000L).coerceAtMost(durationMs))
+                                hudMessage = "快进 15 秒"
+                            }
+                        },
+                        shape = CircleShape,
+                        color = playerPalette.buttonBg,
+                        modifier = Modifier.size(72.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (request.queue.size > 1) Icons.Rounded.SkipNext else Icons.Rounded.Forward10,
+                                contentDescription = "下一首",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp),
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(24.dp))
+
+                // 5. 底部沉入式连体胶囊坞（随机 / 循环 / 倍速）
+                ExpressiveGroupedActionDock(
+                    actions = listOf(
+                        ExpressiveDockAction(
+                            icon = Icons.Rounded.Shuffle,
+                            contentDescription = "随机播放",
+                            active = shuffleEnabled,
+                            onClick = {
+                                shuffleEnabled = !shuffleEnabled
+                                exoPlayer.shuffleModeEnabled = shuffleEnabled
+                                hudMessage = if (shuffleEnabled) "已开启随机播放" else "已关闭随机播放"
+                            },
+                        ),
+                        ExpressiveDockAction(
+                            icon = if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                            contentDescription = "循环模式",
+                            active = repeatMode != Player.REPEAT_MODE_OFF,
+                            onClick = {
+                                repeatMode = when (repeatMode) {
+                                    Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                                    Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                                    else -> Player.REPEAT_MODE_OFF
+                                }
+                                exoPlayer.repeatMode = repeatMode
+                                hudMessage = when (repeatMode) {
+                                    Player.REPEAT_MODE_ALL -> "列表循环"
+                                    Player.REPEAT_MODE_ONE -> "单曲循环"
+                                    else -> "顺序播放"
+                                }
+                            },
+                        ),
+                        ExpressiveDockAction(
+                            icon = Icons.Rounded.Speed,
+                            contentDescription = "播放倍速",
+                            active = speedIndex != 1,
+                            onClick = {
+                                speedIndex = (speedIndex + 1) % speeds.size
+                                val spd = speeds[speedIndex]
+                                exoPlayer.playbackParameters = PlaybackParameters(spd)
+                                hudMessage = "倍速：${spd}x"
+                            },
+                        ),
+                    ),
+                    dockColor = playerPalette.dock,
+                    buttonColor = playerPalette.buttonBg.copy(alpha = 0.55f),
+                    activeButtonColor = playerPalette.accent,
+                    iconColor = Color.White.copy(alpha = 0.88f),
+                    activeIconColor = playerPalette.onAccent,
+                    modifier = Modifier.fillMaxWidth(0.84f),
+                )
+
+                Spacer(Modifier.height(8.dp))
+            }
+
+            hudMessage?.let { msg ->
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(top = 66.dp)
+                        .clip(CircleShape)
+                        .background(playerPalette.dock.copy(alpha = 0.92f))
+                        .padding(horizontal = 16.dp, vertical = 7.dp),
+                ) {
+                    Text(msg, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+
+        if (showQueueSheet) {
+            NativeGlassSheet(onDismissRequest = { showQueueSheet = false }) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        text = "播放队列 (${request.queue.size.coerceAtLeast(1)})",
+                        color = colors.textPrimary,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    val list = if (request.queue.isNotEmpty()) request.queue else listOf(request)
+                    LazyColumn(
+                        modifier = Modifier.height(320.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        itemsIndexed(list) { idx, track ->
+                            val current = idx == request.queueIndex || track.url == request.url
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(if (current) colors.activeIndicator else colors.surfaceContainerLow)
+                                    .clickable {
+                                        onSwitchRequest?.invoke(track.copy(queue = list, queueIndex = idx))
+                                        showQueueSheet = false
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Text(
+                                    text = "${idx + 1}",
+                                    color = if (current) colors.accent else colors.textMuted,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(track.title, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (track.subtitle.isNotBlank()) {
+                                        Text(track.subtitle, color = colors.textSecondary, fontSize = 12.sp, maxLines = 1)
+                                    }
+                                }
+                                if (current) {
+                                    Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                }
+            }
+        }
+        return
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Material 3 Expressive 全屏视频播放器（保留完整手势/PiP/横屏锁屏 + 波浪条/形变键/胶囊坞）
+    // ═══════════════════════════════════════════════════════════════
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
     var dragSeekDeltaMs by remember { mutableLongStateOf(0L) }
 
@@ -380,10 +934,10 @@ fun NativeMediaPlayerOverlay(
                 )
             }
             .then(
-                if (!request.isAudio && !isLocked) {
+                if (!isLocked) {
                     Modifier.pointerInput(Unit) {
                         var startX = 0f
-                        var mode = 0 // 1=brightness, 2=volume, 3=seek
+                        var mode = 0
                         detectDragGestures(
                             onDragStart = { offset ->
                                 startX = offset.x
@@ -451,117 +1005,32 @@ fun NativeMediaPlayerOverlay(
                 },
             ),
     ) {
-        if (!request.isAudio) {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        useController = false
-                        player = exoPlayer
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                        )
-                    }
-                },
-                update = { pv ->
-                    if (pv.player !== exoPlayer) pv.player = exoPlayer
-                    pv.resizeMode = resizeModes[resizeModeIndex].first
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            // 音频全屏封面 + 多行同步滚动 LRC 歌词
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors.palette.ifEmpty { listOf(Color(0xFF30334A), Color(0xFF242E40)) },
-                        ),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(horizontal = 28.dp, vertical = 72.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(if (lrcLines.isNotEmpty()) 176.dp else 224.dp)
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(Color.White.copy(alpha = 0.12f))
-                            .border(0.8.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(24.dp)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (!request.artworkUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = request.artworkUrl,
-                                contentDescription = request.title,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        } else {
-                            Icon(
-                                Icons.Rounded.MusicNote,
-                                contentDescription = null,
-                                tint = colors.accent,
-                                modifier = Modifier.size(68.dp),
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(18.dp))
-                    Text(
-                        text = request.title,
-                        color = Color.White,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+        AndroidView(
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    useController = false
+                    player = exoPlayer
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
                     )
-                    if (request.subtitle.isNotBlank()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(request.subtitle, color = Color.White.copy(alpha = 0.72f), fontSize = 14.sp, maxLines = 1)
-                    }
-                    if (lrcLines.isNotEmpty()) {
-                        Spacer(Modifier.height(16.dp))
-                        LazyColumn(
-                            state = lrcListState,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(180.dp),
-                            contentPadding = PaddingValues(vertical = 24.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            itemsIndexed(lrcLines) { idx, line ->
-                                val active = idx == activeLrcIdx
-                                Text(
-                                    text = line.text,
-                                    color = if (active) Color.White else Color.White.copy(alpha = 0.42f),
-                                    fontSize = if (active) 16.sp else 13.sp,
-                                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.clickable { exoPlayer.seekTo(line.timeMs) },
-                                )
-                            }
-                        }
-                    }
                 }
-            }
-        }
+            },
+            update = { pv ->
+                if (pv.player !== exoPlayer) pv.player = exoPlayer
+                pv.resizeMode = resizeModes[resizeModeIndex].first
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
 
-        // 手势/切换瞬时浮标 HUD
         hudMessage?.let { msg ->
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
-                    .padding(top = 64.dp)
+                    .padding(top = 66.dp)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.68f))
+                    .background(Color.Black.copy(alpha = 0.72f))
                     .padding(horizontal = 16.dp, vertical = 7.dp),
             ) {
                 Text(msg, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -570,37 +1039,46 @@ fun NativeMediaPlayerOverlay(
 
         // 横屏锁定/解锁纯图标按钮（居中靠右，严格仅横屏显示）
         if (isLandscape && controlsVisible) {
-            IconButton(
+            Surface(
                 onClick = { isLocked = !isLocked },
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.56f),
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .padding(end = 20.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.45f)),
+                    .size(48.dp),
             ) {
-                Icon(
-                    imageVector = if (isLocked) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
-                    contentDescription = if (isLocked) "解锁屏幕" else "锁定屏幕",
-                    tint = Color.White,
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = if (isLocked) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
+                        contentDescription = if (isLocked) "解锁屏幕" else "锁定屏幕",
+                        tint = Color.White,
+                    )
+                }
             }
         }
 
         if (controlsVisible && !isLocked) {
-            // 顶部极简条：左侧返回 + 标题；右上角仅保留画中画（PiP）纯图标按钮
+            // 顶部栏：圆形返回 + 标题 + 右上角画中画圆钮
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
-                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.65f), Color.Transparent)))
+                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.72f), Color.Transparent)))
                     .statusBarsPadding()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                IconButton(onClick = {
-                    if (request.isAudio && onMinimizeToMiniBar != null) onMinimizeToMiniBar() else onClose()
-                }) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = Color.White)
+                Surface(
+                    onClick = onClose,
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.45f),
+                    modifier = Modifier.size(42.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = Color.White)
+                    }
                 }
                 Text(
                     text = request.title,
@@ -611,84 +1089,84 @@ fun NativeMediaPlayerOverlay(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = {
-                    val activity = context as? Activity
-                    if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        val params = PictureInPictureParams.Builder()
-                            .setAspectRatio(Rational(16, 9))
-                            .build()
-                        activity.enterPictureInPictureMode(params)
+                Surface(
+                    onClick = {
+                        val activity = context as? Activity
+                        if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            val params = PictureInPictureParams.Builder()
+                                .setAspectRatio(Rational(16, 9))
+                                .build()
+                            activity.enterPictureInPictureMode(params)
+                        }
+                    },
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.45f),
+                    modifier = Modifier.size(42.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.PictureInPictureAlt, contentDescription = "画中画", tint = Color.White)
                     }
-                }) {
-                    Icon(Icons.Rounded.PictureInPictureAlt, contentDescription = "画中画", tint = Color.White)
                 }
             }
 
-            // 中央播放/暂停（音频或队列支持上一首/下一首）
+            // 中央 Expressive 形变播放/暂停 + 快退/快进圆钮
             Row(
                 modifier = Modifier.align(Alignment.Center),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                if (request.queue.size > 1 && onSwitchRequest != null) {
-                    IconButton(
-                        onClick = {
-                            val prevIdx = (request.queueIndex - 1 + request.queue.size) % request.queue.size
-                            onSwitchRequest(request.queue[prevIdx].copy(queue = request.queue, queueIndex = prevIdx))
-                        },
-                        modifier = Modifier.size(48.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.42f)),
-                    ) {
-                        Icon(Icons.Rounded.SkipPrevious, contentDescription = "上一首", tint = Color.White, modifier = Modifier.size(28.dp))
+                Surface(
+                    onClick = {
+                        exoPlayer.seekTo((exoPlayer.currentPosition - 10_000L).coerceAtLeast(0L))
+                        hudMessage = "-10s"
+                    },
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.48f),
+                    modifier = Modifier.size(54.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Replay10, contentDescription = "快退10秒", tint = Color.White, modifier = Modifier.size(26.dp))
                     }
                 }
-                IconButton(
+
+                ExpressiveMorphingPlayButton(
+                    isPlaying = isPlaying,
                     onClick = {
                         if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
                     },
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.48f)),
+                    containerColor = colors.accent,
+                    contentColor = colors.primaryButtonFg,
+                    width = 76.dp,
+                    height = 68.dp,
+                    iconSize = 34.dp,
+                )
+
+                Surface(
+                    onClick = {
+                        exoPlayer.seekTo((exoPlayer.currentPosition + 10_000L).coerceAtMost(durationMs))
+                        hudMessage = "+10s"
+                    },
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.48f),
+                    modifier = Modifier.size(54.dp),
                 ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = if (isPlaying) "暂停" else "播放",
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp),
-                    )
-                }
-                if (request.queue.size > 1 && onSwitchRequest != null) {
-                    IconButton(
-                        onClick = {
-                            val nextIdx = (request.queueIndex + 1) % request.queue.size
-                            onSwitchRequest(request.queue[nextIdx].copy(queue = request.queue, queueIndex = nextIdx))
-                        },
-                        modifier = Modifier.size(48.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.42f)),
-                    ) {
-                        Icon(Icons.Rounded.SkipNext, contentDescription = "下一首", tint = Color.White, modifier = Modifier.size(28.dp))
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Forward10, contentDescription = "快进10秒", tint = Color.White, modifier = Modifier.size(26.dp))
                     }
                 }
             }
 
-            // 底部进度条 + 左（字幕/音轨）右（填充模式/倍速）全纯图标
+            // 底部波浪进度条 + 连体播控胶囊坞（字幕 / 音轨 / 填充 / 倍速）
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.74f))))
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.80f))))
                     .navigationBarsPadding()
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                val progress = (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-                var draggingProgress by remember { mutableFloatStateOf(-1f) }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(formatDurationMs(if (draggingProgress >= 0f) (draggingProgress * durationMs).toLong() else positionMs), color = Color.White.copy(alpha = 0.85f), fontSize = 11.sp)
-                    Text(formatDurationMs(durationMs), color = Color.White.copy(alpha = 0.65f), fontSize = 11.sp)
-                }
-                Slider(
+                ExpressiveWavySlider(
                     value = if (draggingProgress >= 0f) draggingProgress else progress,
                     onValueChange = { draggingProgress = it },
                     onValueChangeFinished = {
@@ -697,57 +1175,63 @@ fun NativeMediaPlayerOverlay(
                             draggingProgress = -1f
                         }
                     },
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
-                        activeTrackColor = colors.accent,
-                        inactiveTrackColor = Color.White.copy(alpha = 0.30f),
-                    ),
+                    isPlaying = isPlaying,
+                    activeColor = colors.accent,
+                    inactiveColor = Color.White.copy(alpha = 0.28f),
                 )
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // 左侧纯图标：字幕（真实轨道选择器）、音轨（真实轨道选择器）
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        IconButton(onClick = { showSubtitleSheet = true }) {
-                            Icon(
-                                Icons.Rounded.ClosedCaption,
-                                contentDescription = "字幕",
-                                tint = if (subtitleChoices.any { it.group != null && it.selected }) colors.accent else Color.White.copy(alpha = 0.82f),
-                            )
-                        }
-                        IconButton(onClick = { showAudioTrackSheet = true }) {
-                            Icon(
-                                Icons.Rounded.GraphicEq,
-                                contentDescription = "音轨",
-                                tint = Color.White,
-                            )
-                        }
-                    }
-                    // 右侧纯图标：填充模式、倍速
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        IconButton(onClick = {
-                            resizeModeIndex = (resizeModeIndex + 1) % resizeModes.size
-                            hudMessage = "画面：${resizeModes[resizeModeIndex].second}"
-                        }) {
-                            Icon(Icons.Rounded.AspectRatio, contentDescription = "画面填充", tint = Color.White)
-                        }
-                        IconButton(onClick = {
-                            speedIndex = (speedIndex + 1) % speeds.size
-                            val spd = speeds[speedIndex]
-                            exoPlayer.playbackParameters = PlaybackParameters(spd)
-                            hudMessage = "倍速：${spd}x"
-                        }) {
-                            Icon(Icons.Rounded.Speed, contentDescription = "播放倍速", tint = Color.White)
-                        }
-                    }
+                    Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.86f), fontSize = 12.sp)
+                    Text(formatDurationMs(durationMs), color = Color.White.copy(alpha = 0.68f), fontSize = 12.sp)
                 }
+                ExpressiveGroupedActionDock(
+                    actions = listOf(
+                        ExpressiveDockAction(
+                            icon = Icons.Rounded.ClosedCaption,
+                            contentDescription = "字幕",
+                            active = subtitleChoices.any { it.group != null && it.selected },
+                            onClick = { showSubtitleSheet = true },
+                        ),
+                        ExpressiveDockAction(
+                            icon = Icons.Rounded.GraphicEq,
+                            contentDescription = "音轨",
+                            active = false,
+                            onClick = { showAudioTrackSheet = true },
+                        ),
+                        ExpressiveDockAction(
+                            icon = Icons.Rounded.AspectRatio,
+                            contentDescription = "画面填充",
+                            active = resizeModeIndex != 0,
+                            onClick = {
+                                resizeModeIndex = (resizeModeIndex + 1) % resizeModes.size
+                                hudMessage = "画面：${resizeModes[resizeModeIndex].second}"
+                            },
+                        ),
+                        ExpressiveDockAction(
+                            icon = Icons.Rounded.Speed,
+                            contentDescription = "播放倍速",
+                            active = speedIndex != 1,
+                            onClick = {
+                                speedIndex = (speedIndex + 1) % speeds.size
+                                val spd = speeds[speedIndex]
+                                exoPlayer.playbackParameters = PlaybackParameters(spd)
+                                hudMessage = "倍速：${spd}x"
+                            },
+                        ),
+                    ),
+                    dockColor = Color(0xCC12151E),
+                    buttonColor = Color.White.copy(alpha = 0.12f),
+                    activeButtonColor = colors.accent,
+                    iconColor = Color.White,
+                    activeIconColor = colors.primaryButtonFg,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
 
-    // 真实字幕轨道选择弹窗
     if (showSubtitleSheet) {
         NativeGlassSheet(onDismissRequest = { showSubtitleSheet = false }) {
             Column(
@@ -759,8 +1243,8 @@ fun NativeMediaPlayerOverlay(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(if (choice.selected) colors.accent.copy(alpha = 0.20f) else colors.chipFill)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (choice.selected) colors.activeIndicator else colors.surfaceContainerLow)
                             .clickable {
                                 val builder = exoPlayer.trackSelectionParameters.buildUpon()
                                 if (choice.group == null) {
@@ -789,7 +1273,6 @@ fun NativeMediaPlayerOverlay(
         }
     }
 
-    // 真实音轨选择弹窗
     if (showAudioTrackSheet) {
         NativeGlassSheet(onDismissRequest = { showAudioTrackSheet = false }) {
             Column(
@@ -804,8 +1287,8 @@ fun NativeMediaPlayerOverlay(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(if (choice.selected) colors.accent.copy(alpha = 0.20f) else colors.chipFill)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (choice.selected) colors.activeIndicator else colors.surfaceContainerLow)
                                 .clickable {
                                     choice.group?.let { grp ->
                                         exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
@@ -834,7 +1317,10 @@ fun NativeMediaPlayerOverlay(
     }
 }
 
-/** 停靠于 4+1 底栏上方的原生悬浮玻璃迷你音乐条（直连同一 ExoPlayer 后台无缝续播）。 */
+/**
+ * 底部悬浮动态着色迷你播控条：
+ * 随封面自动丝绒着色圆角卡片 + 左侧圆形专辑封面 + 柔和主色圆形播放/暂停键 + 同色系下一首圆钮。
+ */
 @Composable
 fun FloatingMiniMusicBar(
     request: MediaPlaybackRequest,
@@ -845,25 +1331,29 @@ fun FloatingMiniMusicBar(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val colors = LocalMoviePilotColors.current
-    CinematicGlassSurface(
-        shape = RoundedCornerShape(22.dp),
+    val playerPalette = rememberArtworkPlayerPalette(request.artworkUrl)
+    val shape = RoundedCornerShape(22.dp)
+    Surface(
+        onClick = onExpand,
+        shape = shape,
+        color = playerPalette.canvas,
+        shadowElevation = 10.dp,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 18.dp)
-            .clickable(onClick = onExpand),
+            .padding(horizontal = 14.dp),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(colors.accent.copy(alpha = 0.25f)),
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(playerPalette.buttonBg),
                 contentAlignment = Alignment.Center,
             ) {
                 if (!request.artworkUrl.isNullOrBlank()) {
@@ -874,43 +1364,67 @@ fun FloatingMiniMusicBar(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = colors.accent)
+                    Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = playerPalette.accent)
                 }
             }
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(
                     text = request.title,
-                    color = colors.textPrimary,
+                    color = Color.White,
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (request.subtitle.isNotBlank()) {
                     Text(
                         text = request.subtitle,
-                        color = colors.textSecondary,
-                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = 0.74f),
+                        fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
-            IconButton(onClick = onTogglePlay) {
-                Icon(
-                    if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = "播放或暂停",
-                    tint = colors.textPrimary,
-                )
-            }
-            if (request.queue.size > 1) {
-                IconButton(onClick = onNext) {
-                    Icon(Icons.Rounded.SkipNext, contentDescription = "下一首", tint = colors.textPrimary)
+            Surface(
+                onClick = onTogglePlay,
+                shape = CircleShape,
+                color = playerPalette.accent,
+                contentColor = playerPalette.onAccent,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = "播放或暂停",
+                        tint = playerPalette.onAccent,
+                        modifier = Modifier.size(22.dp),
+                    )
                 }
             }
-            IconButton(onClick = onClose) {
-                Icon(Icons.Rounded.Close, contentDescription = "关闭", tint = colors.textMuted)
+            Surface(
+                onClick = onNext,
+                shape = CircleShape,
+                color = playerPalette.buttonBg,
+                contentColor = Color.White,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.SkipNext,
+                        contentDescription = "下一首",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+            IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
+                Icon(
+                    Icons.Rounded.Close,
+                    contentDescription = "关闭",
+                    tint = Color.White.copy(alpha = 0.65f),
+                    modifier = Modifier.size(18.dp),
+                )
             }
         }
     }

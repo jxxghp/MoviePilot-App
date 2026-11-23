@@ -449,7 +449,7 @@ fun NativePluginFormRenderer(
                 onDirtyChanged?.invoke(false)
                 onSaveFullModel(merged)
             },
-            colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = Color.White),
+            colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.primaryButtonFg),
             shape = RoundedCornerShape(24.dp),
             modifier = Modifier.fillMaxWidth().height(50.dp),
         ) {
@@ -556,6 +556,8 @@ private fun RenderVuetifyNode(
     val colors = LocalMoviePilotColors.current
     val obj = element.safeObj() ?: return
     val comp = obj.safeStr("component") ?: return
+    val compLower = comp.lowercase()
+    if (compLower in setOf("style", "script", "link", "meta", "vdialogclosebtn")) return
     val props = obj["props"].safeObj() ?: JsonObject(emptyMap())
     val events = obj["events"].safeObj()
     val children = obj["content"].safeArr() ?: JsonArray(emptyList())
@@ -880,6 +882,8 @@ private fun collectAllText(arr: JsonArray): String {
     val parts = mutableListOf<String>()
     arr.forEach { el ->
         val o = el.safeObj() ?: return@forEach
+        val compLower = o.safeStr("component")?.lowercase().orEmpty()
+        if (compLower in setOf("style", "script", "link", "meta")) return@forEach
         o.safeStr("text")?.takeIf { it.isNotBlank() }?.let { parts += it }
         o["content"].safeArr()?.let {
             val nested = collectAllText(it)

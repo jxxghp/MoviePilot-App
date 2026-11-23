@@ -491,13 +491,13 @@ fun MediaDetailScreen(
                                             }
                                         }
                                     },
-                                    colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = Color.White),
+                                    colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.primaryButtonFg),
                                     shape = CircleShape,
                                     modifier = Modifier.fillMaxWidth().height(46.dp),
                                 ) {
                                     Icon(Icons.Rounded.PlayArrow, contentDescription = null)
                                     Spacer(Modifier.width(6.dp))
-                                    Text("立即原生播放", fontWeight = FontWeight.SemiBold)
+                                    Text("立即播放", fontWeight = FontWeight.SemiBold)
                                 }
                             }
 

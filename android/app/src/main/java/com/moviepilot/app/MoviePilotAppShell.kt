@@ -606,14 +606,20 @@ fun MoviePilotRootShell(
                     )
                 }
 
-                // 一级主 Tab 右下角 AI 助手入口（贴底导航栏上方，与底栏/搜索零热区冲突）
+                // 一级主 Tab 右下角 AI 助手入口（自动避让底部导航栏与悬浮迷你播控条）
                 if (isTopLevelTab) {
+                    val mascotBottom = when {
+                        isWideCanvas && bgAudioRequest != null -> 96.dp
+                        isWideCanvas -> 24.dp
+                        bgAudioRequest != null -> 168.dp
+                        else -> 96.dp
+                    }
                     FloatingAgentMascot(
                         onClick = { pushRoute(AppRoute.Agent()) },
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .navigationBarsPadding()
-                            .padding(end = 16.dp, bottom = if (isWideCanvas) 24.dp else 96.dp),
+                            .padding(end = 16.dp, bottom = mascotBottom),
                     )
                 }
 
@@ -666,9 +672,9 @@ fun MoviePilotRootShell(
             ) { data ->
                 Snackbar(
                     snackbarData = data,
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = if (colors.isDark) Color(0xEE2B243D) else Color(0xF5211C2E),
-                    contentColor = Color.White,
+                    shape = RoundedCornerShape(18.dp),
+                    containerColor = colors.surfaceContainerHigh,
+                    contentColor = colors.textPrimary,
                     actionColor = colors.accent,
                 )
             }

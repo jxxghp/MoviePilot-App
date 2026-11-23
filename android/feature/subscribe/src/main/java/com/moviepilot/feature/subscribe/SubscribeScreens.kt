@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -86,6 +88,9 @@ import com.moviepilot.designsystem.AdaptiveDeviceLayout
 import com.moviepilot.designsystem.CinematicGlassCapsule
 import com.moviepilot.designsystem.CinematicGlassSurface
 import com.moviepilot.designsystem.CinematicPanel
+import com.moviepilot.designsystem.ExpressiveHeaderActionButton
+import com.moviepilot.designsystem.ExpressivePillTabRow
+import com.moviepilot.designsystem.ExpressiveTintedScaffold
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.LocalSnackbarHostState
 import com.moviepilot.designsystem.NativeAdaptiveBadge
@@ -161,28 +166,31 @@ fun SubscriptionsScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        NativeGlassTopBar(
-            title = if (onBack == null) "订阅" else "我的订阅",
-            onBack = onBack,
-            trailing = {
-                IconButton(onClick = onOpenSearch, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Rounded.Search, contentDescription = "全局搜索", tint = colors.textPrimary, modifier = Modifier.size(22.dp))
-                }
-                IconButton(onClick = onOpenCalendar, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Rounded.CalendarMonth, contentDescription = "追剧日历", tint = colors.textPrimary, modifier = Modifier.size(22.dp))
-                }
-            },
-        )
-
-        // Material Design 3 一级页签栏：无缝滑动切换「我的订阅」与「订阅广场」
-        NativePrimaryTabBar(
-            tabs = listOf("我的订阅 (${items.size})", "订阅广场"),
-            selectedIndex = rootPagerState.currentPage,
-            onSelect = { idx -> scope.launch { rootPagerState.animateScrollToPage(idx) } },
-        )
-
-        HorizontalPager(state = rootPagerState, modifier = Modifier.weight(1f)) { rootIdx ->
+    ExpressiveTintedScaffold(
+        title = if (onBack == null) "订阅" else "我的订阅",
+        onBack = onBack,
+        actions = {
+            ExpressiveHeaderActionButton(
+                icon = Icons.Rounded.Search,
+                contentDescription = "全局搜索",
+                onClick = onOpenSearch,
+            )
+            ExpressiveHeaderActionButton(
+                icon = Icons.Rounded.CalendarMonth,
+                contentDescription = "追剧日历",
+                onClick = onOpenCalendar,
+            )
+        },
+        headerExtra = {
+            ExpressivePillTabRow(
+                tabs = listOf("我的订阅 (${items.size})", "订阅广场"),
+                selectedIndex = rootPagerState.currentPage,
+                onSelect = { idx -> scope.launch { rootPagerState.animateScrollToPage(idx) } },
+                onTintedHeader = true,
+            )
+        },
+    ) {
+        HorizontalPager(state = rootPagerState, modifier = Modifier.fillMaxSize()) { rootIdx ->
             if (rootIdx == 1) {
                 SubscribeCommunityContent(
                     repository = repository,
@@ -239,7 +247,6 @@ fun SubscriptionsScreen(
                         val progress = remember(sub.totalEpisode, sub.lackEpisode) {
                             RustCoreBridge.subscribeProgress(sub.totalEpisode, sub.lackEpisode)
                         }
-                        var menuOpen by remember { mutableStateOf(false) }
 
                         CinematicPanel(
                             padding = 14.dp,
@@ -290,49 +297,16 @@ fun SubscriptionsScreen(
                                             overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.weight(1f),
                                         )
-                                        Spacer(Modifier.width(6.dp))
+                                        Spacer(Modifier.width(8.dp))
                                         NativeAdaptiveBadge(
                                             text = if (sub.state == "S") "已暂停" else "订阅中",
                                             tint = if (sub.state == "S") colors.warning else colors.success,
                                         )
-                                        Box {
-                                            IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(30.dp)) {
-                                                Icon(Icons.Rounded.MoreVert, contentDescription = "订阅选项", tint = colors.textMuted, modifier = Modifier.size(18.dp))
-                                            }
-                                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                                DropdownMenuItem(
-                                                    text = { Text(if (sub.state == "S") "恢复订阅" else "暂停订阅") },
-                                                    leadingIcon = {
-                                                        Icon(if (sub.state == "S") Icons.Rounded.PlayArrow else Icons.Rounded.Pause, contentDescription = null)
-                                                    },
-                                                    onClick = {
-                                                        menuOpen = false
-                                                        toggleSubWithUndo(sub)
-                                                    },
-                                                )
-                                                DropdownMenuItem(
-                                                    text = { Text("编辑过滤与洗版规则") },
-                                                    leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
-                                                    onClick = {
-                                                        menuOpen = false
-                                                        editingItem = sub
-                                                    },
-                                                )
-                                                DropdownMenuItem(
-                                                    text = { Text("删除订阅", color = colors.danger) },
-                                                    leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = colors.danger) },
-                                                    onClick = {
-                                                        menuOpen = false
-                                                        confirmDeleteItem = sub
-                                                    },
-                                                )
-                                            }
-                                        }
                                     }
 
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Text(
-                                            text = listOfNotNull(sub.year.takeIf(String::isNotBlank), sub.type).joinToString("  "),
+                                            text = listOfNotNull(sub.year.takeIf(String::isNotBlank), sub.type).joinToString(" · "),
                                             color = colors.textSecondary,
                                             fontSize = 13.sp,
                                         )
@@ -363,13 +337,39 @@ fun SubscriptionsScreen(
                                         }
                                     }
 
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
                                         NativeAdaptivePill(
                                             title = if (sub.state == "S") "恢复" else "暂停",
                                             selected = false,
                                             icon = if (sub.state == "S") Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
                                             onClick = { toggleSubWithUndo(sub) },
                                         )
+                                        NativeAdaptivePill(
+                                            title = "编辑",
+                                            selected = false,
+                                            icon = Icons.Rounded.Edit,
+                                            onClick = { editingItem = sub },
+                                        )
+                                        Spacer(Modifier.weight(1f))
+                                        Box(
+                                            modifier = Modifier
+                                                .size(34.dp)
+                                                .clip(CircleShape)
+                                                .background(colors.danger.copy(alpha = if (colors.isDark) 0.16f else 0.11f))
+                                                .clickable { confirmDeleteItem = sub },
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.Delete,
+                                                contentDescription = "删除订阅",
+                                                tint = colors.danger,
+                                                modifier = Modifier.size(17.dp),
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -386,6 +386,7 @@ fun SubscriptionsScreen(
     editingItem?.let { current ->
         SubscribeEditorSheet(
             item = current,
+            repository = repository,
             onDismiss = { editingItem = null },
             onDelete = {
                 editingItem = null
@@ -393,10 +394,10 @@ fun SubscriptionsScreen(
             },
             onSave = { updated ->
                 scope.launch {
-                    repository.createOrUpdateSubscription(updated, isUpdate = true)
+                    val ok = repository.createOrUpdateSubscription(updated, isUpdate = true)
                     items = items.map { if (it.id == current.id) updated else it }
                     editingItem = null
-                    snackbar?.showSnackbar("已保存「${updated.name}」订阅配置")
+                    snackbar?.showSnackbar(if (ok) "已保存「${updated.name}」订阅配置" else "保存失败，请重试")
                 }
             },
         )
@@ -427,27 +428,52 @@ fun SubscriptionsScreen(
     }
 }
 
-/** 1:1 复刻 iOS `NativeSubscribeEditorSheet`（画质与洗版 / 站点与优先级规则 / 过滤与识别规则）。 */
-@OptIn(ExperimentalMaterial3Api::class)
+/** 全量订阅编辑弹窗（1:1 对齐 iOS：基础集数 / 画质洗版 / 下载保存 / 多选站点与规则组 / 过滤识别规则）。 */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun SubscribeEditorSheet(
     item: SubscribeItemDto,
+    repository: MoviePilotRepository,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
     onSave: (SubscribeItemDto) -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    var seasonText by remember(item) { mutableStateOf(item.season?.toString().orEmpty()) }
+    var totalEpText by remember(item) { mutableStateOf(if (item.totalEpisode > 0) item.totalEpisode.toString() else "") }
+    var startEpText by remember(item) { mutableStateOf(item.startEpisode?.toString().orEmpty()) }
+    var episodeGroup by remember(item) { mutableStateOf(item.episodeGroup) }
+
     var quality by remember(item) { mutableStateOf(item.quality.ifBlank { "全部" }) }
     var resolution by remember(item) { mutableStateOf(item.resolution.ifBlank { "全部" }) }
     var effect by remember(item) { mutableStateOf(item.effect.ifBlank { "全部" }) }
     var bestVersion by remember(item) { mutableStateOf(item.bestVersion) }
+
+    var downloader by remember(item) { mutableStateOf(item.downloader.ifBlank { "默认" }) }
+    var savePath by remember(item) { mutableStateOf(item.savePath) }
+
+    var selectedSiteIds by remember(item) { mutableStateOf(item.sites.toSet()) }
+    var selectedFilterGroups by remember(item) { mutableStateOf(item.filterGroups.toSet()) }
+    var showSitesPicker by remember { mutableStateOf(false) }
+    var showGroupsPicker by remember { mutableStateOf(false) }
     var searchImdbId by remember(item) { mutableStateOf(item.searchImdbId) }
     var intervalHours by remember(item) { mutableIntStateOf(item.searchInterval ?: 0) }
+
     var keyword by remember(item) { mutableStateOf(item.keyword) }
     var includeWord by remember(item) { mutableStateOf(item.include) }
     var excludeWord by remember(item) { mutableStateOf(item.exclude) }
     var mediaCategory by remember(item) { mutableStateOf(item.mediaCategory) }
     var customWords by remember(item) { mutableStateOf(item.customWords) }
+
+    var allSites by remember { mutableStateOf<List<com.moviepilot.rustbridge.SiteItemDto>>(emptyList()) }
+    var allRuleGroups by remember { mutableStateOf<List<String>>(emptyList()) }
+    var allDownloaders by remember { mutableStateOf<List<String>>(emptyList()) }
+
+    LaunchedEffect(Unit) {
+        allSites = repository.fetchSites().filter { it.isActive }
+        allRuleGroups = repository.fetchSubscribeSearchSettings().filterRuleGroups.map { it.name }.filter { it.isNotBlank() }
+        allDownloaders = repository.fetchDownloaders().filter { it.enabled }.map { it.name }
+    }
 
     NativeGlassSheet(onDismissRequest = onDismiss) {
         Column(
@@ -480,10 +506,18 @@ private fun SubscribeEditorSheet(
                     onClick = {
                         onSave(
                             item.copy(
+                                season = seasonText.trim().toIntOrNull() ?: item.season,
+                                totalEpisode = totalEpText.trim().toIntOrNull() ?: item.totalEpisode,
+                                startEpisode = startEpText.trim().toIntOrNull(),
+                                episodeGroup = episodeGroup.trim(),
                                 quality = if (quality == "全部") "" else quality,
                                 resolution = if (resolution == "全部") "" else resolution,
                                 effect = if (effect == "全部") "" else effect,
                                 bestVersion = bestVersion,
+                                downloader = if (downloader == "默认") "" else downloader,
+                                savePath = savePath.trim(),
+                                sites = selectedSiteIds.toList().sorted(),
+                                filterGroups = selectedFilterGroups.toList(),
                                 searchImdbId = searchImdbId,
                                 searchInterval = intervalHours.takeIf { it > 0 },
                                 keyword = keyword,
@@ -495,6 +529,22 @@ private fun SubscribeEditorSheet(
                         )
                     },
                 )
+            }
+
+            // 分组 0：剧集季集与剧集组（电视剧显示）
+            if (item.type == "电视剧") {
+                Text("季集设置", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
+                CinematicPanel(padding = 0.dp, showsShadow = false) {
+                    Column {
+                        EditorInlineInputRow("订阅季号", seasonText, "如 1") { seasonText = it.filter(Char::isDigit) }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        EditorInlineInputRow("总集数", totalEpText, "留空自动获取") { totalEpText = it.filter(Char::isDigit) }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        EditorInlineInputRow("开始集数", startEpText, "从第几集开始追更") { startEpText = it.filter(Char::isDigit) }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        EditorInlineInputRow("剧集组 ID", episodeGroup, "可选 TMDB 剧集组") { episodeGroup = it }
+                    }
+                }
             }
 
             // 分组 1：画质与洗版
@@ -513,18 +563,84 @@ private fun SubscribeEditorSheet(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text("自动洗版", color = colors.textPrimary, fontSize = 15.sp)
-                        Switch(checked = bestVersion, onCheckedChange = { bestVersion = it }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent))
+                        Switch(checked = bestVersion, onCheckedChange = { bestVersion = it }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg))
                     }
                 }
             }
 
-            // 分组 2：站点与优先级规则
+            // 分组 2：下载器与保存路径
+            Text("下载与保存", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
+            CinematicPanel(padding = 0.dp, showsShadow = false) {
+                Column {
+                    EditorPickerRow("下载器", downloader, listOf("默认") + allDownloaders) { downloader = it }
+                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                    EditorInlineInputRow("保存路径", savePath, "留空遵循目录配置") { savePath = it }
+                }
+            }
+
+            // 分组 3：站点与优先级规则（支持真实展开多选！）
             Text("站点与优先级规则", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
             CinematicPanel(padding = 0.dp, showsShadow = false) {
                 Column {
-                    EditorInfoRow("订阅站点", if (item.sites.isEmpty()) "跟随系统设置" else "已选 ${item.sites.size} 站")
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showSitesPicker = !showSitesPicker }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("订阅站点", color = colors.textPrimary, fontSize = 15.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (selectedSiteIds.isEmpty()) "跟随系统设置" else "已选 ${selectedSiteIds.size} 站", color = colors.accent, fontSize = 14.sp)
+                            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    if (showSitesPicker && allSites.isNotEmpty()) {
+                        FlowRow(
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            NativeAdaptivePill("跟随系统", selected = selectedSiteIds.isEmpty(), onClick = { selectedSiteIds = emptySet() })
+                            allSites.forEach { s ->
+                                val picked = s.id in selectedSiteIds
+                                NativeAdaptivePill(s.name, selected = picked, onClick = {
+                                    selectedSiteIds = if (picked) selectedSiteIds - s.id else selectedSiteIds + s.id
+                                })
+                            }
+                        }
+                    }
                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
-                    EditorInfoRow("优先级规则组", if (item.filterGroups.isEmpty()) "跟随系统设置" else "已选 ${item.filterGroups.size} 组")
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showGroupsPicker = !showGroupsPicker }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("优先级规则组", color = colors.textPrimary, fontSize = 15.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (selectedFilterGroups.isEmpty()) "跟随系统设置" else "已选 ${selectedFilterGroups.size} 组", color = colors.accent, fontSize = 14.sp)
+                            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    if (showGroupsPicker && allRuleGroups.isNotEmpty()) {
+                        FlowRow(
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            NativeAdaptivePill("跟随系统", selected = selectedFilterGroups.isEmpty(), onClick = { selectedFilterGroups = emptySet() })
+                            allRuleGroups.forEach { g ->
+                                val picked = g in selectedFilterGroups
+                                NativeAdaptivePill(g, selected = picked, onClick = {
+                                    selectedFilterGroups = if (picked) selectedFilterGroups - g else selectedFilterGroups + g
+                                })
+                            }
+                        }
+                    }
                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -532,7 +648,7 @@ private fun SubscribeEditorSheet(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text("使用 IMDB ID 精确搜索", color = colors.textPrimary, fontSize = 15.sp)
-                        Switch(checked = searchImdbId, onCheckedChange = { searchImdbId = it }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent))
+                        Switch(checked = searchImdbId, onCheckedChange = { searchImdbId = it }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg))
                     }
                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
                     Row(
@@ -563,7 +679,7 @@ private fun SubscribeEditorSheet(
                 }
             }
 
-            // 分组 3：过滤与识别规则
+            // 分组 4：过滤与识别规则
             Text("过滤与识别规则", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
             CinematicPanel(padding = 0.dp, showsShadow = false) {
                 Column {

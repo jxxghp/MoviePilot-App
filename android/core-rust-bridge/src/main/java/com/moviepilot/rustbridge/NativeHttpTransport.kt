@@ -213,11 +213,47 @@ class NativeHttpTransport(
         }
     }
 
+    /** 执行 Multipart 文件/图片/语音上传请求。 */
+    suspend fun uploadMultipart(
+        url: String,
+        token: String?,
+        fieldName: String,
+        fileName: String,
+        mimeType: String,
+        bytes: ByteArray,
+        formFields: Map<String, String> = emptyMap(),
+    ): NativeHttpResponse = withContext(Dispatchers.IO) {
+        val bodyBuilder = okhttp3.MultipartBody.Builder()
+            .setType(okhttp3.MultipartBody.FORM)
+        formFields.forEach { (k, v) -> bodyBuilder.addFormDataPart(k, v) }
+        bodyBuilder.addFormDataPart(
+            fieldName,
+            fileName,
+            bytes.toRequestBody(mimeType.toMediaType()),
+        )
+        val reqBuilder = Request.Builder()
+            .url(url)
+            .post(bodyBuilder.build())
+        if (!token.isNullOrBlank()) {
+            reqBuilder.header("Authorization", "Bearer $token")
+        }
+        client().newBuilder().readTimeout(60, TimeUnit.SECONDS).writeTimeout(60, TimeUnit.SECONDS).build()
+            .newCall(reqBuilder.build()).execute().use { resp ->
+                val headersMap = resp.headers.names().associateWith { resp.headers[it].orEmpty() }
+                NativeHttpResponse(
+                    status = resp.code,
+                    body = resp.body?.string().orEmpty(),
+                    headers = headersMap,
+                )
+            }
+    }
+
     /** 建立 SSE 流式通道，逐块喂入 Rust `NativeSseParser` 并以 Kotlin `Flow` 向下游分发事件帧。 */
     fun streamSse(
         url: String,
         token: String?,
         bodyJson: String? = null,
+        extraHeaders: Map<String, String> = emptyMap(),
     ): Flow<SseEventFfi> = flow {
         val reqBuilder = Request.Builder()
             .url(url)
@@ -225,6 +261,7 @@ class NativeHttpTransport(
         if (!token.isNullOrBlank()) {
             reqBuilder.header("Authorization", "Bearer $token")
         }
+        extraHeaders.forEach { (k, v) -> reqBuilder.header(k, v) }
         if (bodyJson != null) {
             reqBuilder.post(bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
         } else {

@@ -60,11 +60,11 @@ import coil.compose.AsyncImage
 import com.moviepilot.designsystem.AdaptiveDeviceLayout
 import com.moviepilot.designsystem.CinematicGlassSurface
 import com.moviepilot.designsystem.CinematicPanel
+import com.moviepilot.designsystem.ExpressivePillTabRow
+import com.moviepilot.designsystem.ExpressiveTintedScaffold
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
-import com.moviepilot.designsystem.NativeGlassTopBar
-import com.moviepilot.designsystem.NativeTopStatusBarProgressiveBlur
 import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.rustbridge.MediaCardItem
@@ -73,8 +73,6 @@ import com.moviepilot.rustbridge.MediaServerClientDto
 import com.moviepilot.rustbridge.MediaServerFilterOptionsDto
 import com.moviepilot.rustbridge.MediaServerLibraryDto
 import com.moviepilot.rustbridge.MoviePilotRepository
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -100,7 +98,6 @@ fun MediaServerLibraryScreen(
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val columns = AdaptiveDeviceLayout.posterGridColumns()
     val scope = rememberCoroutineScope()
-    val localHaze = remember { HazeState() }
 
     var activeServer by remember(initialLibrary) { mutableStateOf(initialLibrary.server) }
     var activeLibraryId by remember(initialLibrary) { mutableStateOf(initialLibrary.id) }
@@ -188,16 +185,42 @@ fun MediaServerLibraryScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    val activeLibIdx = libraries.indexOfFirst { it.id == activeLibraryId }.coerceAtLeast(0)
+
+    ExpressiveTintedScaffold(
+        title = activeLibraryName,
+        subtitle = activeServer.takeIf { it.isNotBlank() },
+        onBack = onBack,
+        headerExtra = if (libraries.isNotEmpty()) {
+            {
+                ExpressivePillTabRow(
+                    tabs = libraries.map { it.name },
+                    selectedIndex = activeLibIdx,
+                    onSelect = { idx ->
+                        val lib = libraries.getOrNull(idx) ?: return@ExpressivePillTabRow
+                        if (lib.id != activeLibraryId) {
+                            activeLibraryId = lib.id
+                            activeLibraryName = lib.name
+                            activeLibraryType = lib.type
+                            selectedGenre = ""
+                            selectedYear = null
+                        }
+                    },
+                    scrollable = true,
+                    onTintedHeader = true,
+                )
+            }
+        } else {
+            null
+        },
+    ) {
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
                 isRefreshing = true
                 scope.launch { reload(showSpinner = false) }
             },
-            modifier = Modifier
-                .fillMaxSize()
-                .hazeSource(localHaze),
+            modifier = Modifier.fillMaxSize(),
         ) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
@@ -205,52 +228,35 @@ fun MediaServerLibraryScreen(
                 contentPadding = PaddingValues(
                     start = margin,
                     end = margin,
-                    top = 98.dp,
+                    top = 16.dp,
                     bottom = 42.dp,
                 ),
                 horizontalArrangement = Arrangement.spacedBy(11.dp),
                 verticalArrangement = Arrangement.spacedBy(15.dp),
             ) {
-                // 1. 服务器与媒体库横向切换栏
-                if (clients.size > 1 || libraries.size > 1) {
+                // 1. 多服务器切换栏（仅在存在多个服务器时展示）
+                if (clients.size > 1) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (clients.size > 1) {
-                                items(clients) { cli ->
-                                    NativeAdaptivePill(
-                                        title = cli.name,
-                                        icon = Icons.Rounded.Dns,
-                                        selected = cli.name == activeServer,
-                                        onClick = {
-                                            if (cli.name != activeServer) {
-                                                activeServer = cli.name
-                                                activeLibraryId = ""
-                                                selectedGenre = ""
-                                                selectedYear = null
-                                                scope.launch {
-                                                    libraries = repository.fetchMediaServerLibraries(cli.name)
-                                                    libraries.firstOrNull()?.let { first ->
-                                                        activeLibraryId = first.id
-                                                        activeLibraryName = first.name
-                                                        activeLibraryType = first.type
-                                                    }
-                                                }
-                                            }
-                                        },
-                                    )
-                                }
-                            }
-                            items(libraries) { lib ->
+                            items(clients) { cli ->
                                 NativeAdaptivePill(
-                                    title = lib.name,
-                                    selected = lib.id == activeLibraryId,
+                                    title = cli.name,
+                                    icon = Icons.Rounded.Dns,
+                                    selected = cli.name == activeServer,
                                     onClick = {
-                                        if (lib.id != activeLibraryId) {
-                                            activeLibraryId = lib.id
-                                            activeLibraryName = lib.name
-                                            activeLibraryType = lib.type
+                                        if (cli.name != activeServer) {
+                                            activeServer = cli.name
+                                            activeLibraryId = ""
                                             selectedGenre = ""
                                             selectedYear = null
+                                            scope.launch {
+                                                libraries = repository.fetchMediaServerLibraries(cli.name)
+                                                libraries.firstOrNull()?.let { first ->
+                                                    activeLibraryId = first.id
+                                                    activeLibraryName = first.name
+                                                    activeLibraryType = first.type
+                                                }
+                                            }
                                         }
                                     },
                                 )
@@ -507,7 +513,7 @@ fun MediaServerLibraryScreen(
                                             .background(colors.accent)
                                             .padding(horizontal = 6.dp, vertical = 2.dp),
                                     ) {
-                                        Text("${entry.unplayedCount}", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        Text("${entry.unplayedCount}", color = colors.primaryButtonFg, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                                 Box(
@@ -546,20 +552,6 @@ fun MediaServerLibraryScreen(
                     }
                 }
             }
-        }
-
-        // 顶部状态栏渐进模糊 + 磨砂返回导航栏（彻底防止滚动内容与状态栏重叠）
-        Box(modifier = Modifier.align(Alignment.TopCenter)) {
-            NativeTopStatusBarProgressiveBlur(
-                visibilityProgress = 1f,
-                extraHeight = 62.dp,
-                blurSourceState = localHaze,
-            )
-            NativeGlassTopBar(
-                title = activeLibraryName,
-                onBack = onBack,
-                showTopBlur = false,
-            )
         }
     }
 }
