@@ -268,13 +268,17 @@ private struct NativeDiscoverLegacyScrollProbe: ViewModifier {
   }
 }
 
-/// iOS 26 启用系统顶部软滚动边缘，旧系统保留干净原生行为。
+/// iOS 26 启用系统顶部软滚动边缘，旧系统保留干净原生行为；支持按滚动状态按需开关。
 struct NativeSoftTopScrollEdge: ViewModifier {
-  /// 顶部滚动内容在状态栏附近自然柔化，避免文字与状态栏硬碰撞。
+  var isActive: Bool = true
+
+  /// 顶部滚动内容在状态栏附近自然柔化，避免文字与状态栏硬碰撞；关闭时保持顶部海报完全无遮挡。
   @ViewBuilder
   func body(content: Content) -> some View {
     if #available(iOS 26, *) {
-      content.scrollEdgeEffectStyle(.soft, for: .top)
+      content
+        .scrollEdgeEffectStyle(.soft, for: .top)
+        .scrollEdgeEffectHidden(!isActive, for: .top)
     } else {
       content
     }
@@ -475,10 +479,12 @@ struct NativeDiscoverPage: View {
         .scrollIndicators(.hidden)
         .refreshable { await onRefresh?() }
         .modifier(NativeDiscoverScrollClipping())
-        .modifier(NativeSoftTopScrollEdge())
+        .modifier(NativeSoftTopScrollEdge(isActive: eased > 0.01))
         .ignoresSafeArea(edges: .top)
         .modifier(NativeDiscoverScrollObservation(offset: $scrollOffset))
-        topSafeAreaVeil(progress: eased, height: max(viewport.safeAreaInsets.top, 48) + 42)
+        if eased > 0.005 {
+          topSafeAreaVeil(progress: eased, height: max(viewport.safeAreaInsets.top, 48) + 42)
+        }
       }
     }
     .nativeTrackContainerWidth($containerWidth)
@@ -610,19 +616,7 @@ struct NativeDiscoverPage: View {
         .frame(width: width, height: backdropHeight)
         .clipped()
         .blur(radius: blurRadius, opaque: false)
-      // 浅色模式顶部轻微柔化，避免深色剧照遮挡黑色状态栏文字。
-      if isLight {
-        VStack {
-          LinearGradient(
-            colors: [fadeBase.opacity(0.62), fadeBase.opacity(0.22), .clear],
-            startPoint: .top, endPoint: .bottom
-          )
-          .frame(height: 112)
-          Spacer(minLength: 0)
-        }
-        .frame(width: width, height: backdropHeight)
-      }
-      // 底部多段平滑融底：深色下压暗托起白字，浅色下柔化融底托起深色文字。
+      // 仅底部多段平滑融底：默认首屏顶部保持 100% 无遮挡，仅在向上滚动后呈现顶部渐变模糊。
       LinearGradient(
         stops: isLight
           ? [
