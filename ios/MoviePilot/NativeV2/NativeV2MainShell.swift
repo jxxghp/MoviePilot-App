@@ -2200,7 +2200,9 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         synopsis: item.overview ?? "",
         rating: item.voteAverage.flatMap { $0 > 0 ? String(format: "%.1f", $0) : nil },
         backdropReference: item.backdropPath ?? item.posterPath,
-        logoReference: item.logoPath
+        logoReference: item.logoPath,
+        logoLanguage: item.logoLanguage,
+        originalLanguage: item.originalLanguage
       )
     }
     discovery = NativeDiscoverContent(
@@ -2213,6 +2215,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
 
     // 异步补拉主视觉透明标题 Logo 与风格摘要，不阻塞发现首屏呈现。
     Task {
+      await NativeMediaLanguageStore.shared.refresh(using: session, force: forceRefresh)
       await enrichFeaturedLogos(
         generation: generation, items: featuredItems, identities: identities)
     }
@@ -2239,23 +2242,38 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         let detail = try await session.request(
           endpoint, as: NativeDiscoverAPIItem.self, requiring: .init(category: .discovery)
         ).value
-        if let logo = detail.logoPath, !logo.isEmpty {
-          let current = updated[index]
-          let genreText = detail.genreNames.prefix(3).joined(separator: " ")
-          let dateText = detail.releaseDate?.isEmpty == false ? detail.releaseDate : detail.year
-          let richSubtitle = [genreText, dateText].compactMap { $0 }.filter { !$0.isEmpty }
-            .joined(separator: " · ")
-          updated[index] = NativeDiscoverFeature(
-            id: current.id,
-            title: current.title,
-            subtitle: richSubtitle.isEmpty ? current.subtitle : richSubtitle,
-            synopsis: current.synopsis.isEmpty ? (detail.overview ?? "") : current.synopsis,
-            rating: current.rating,
-            backdropReference: current.backdropReference ?? detail.backdropPath,
-            logoReference: logo
-          )
+        let preferredMediaLanguage = NativeMediaLanguageStore.shared.preferredMediaLanguage(
+          for: session)
+        let logoDecision = NativeMediaLogoLanguagePolicy.metadataDecision(
+          logoLanguage: detail.logoLanguage,
+          preferredMediaLanguage: preferredMediaLanguage
+        )
+        let acceptedLogo: String? =
+          if let logo = detail.logoPath, !logo.isEmpty, logoDecision != .confirmedMismatch {
+            logo
+          } else {
+            nil
+          }
+        let current = updated[index]
+        let genreText = detail.genreNames.prefix(3).joined(separator: " ")
+        let dateText = detail.releaseDate?.isEmpty == false ? detail.releaseDate : detail.year
+        let richSubtitle = [genreText, dateText].compactMap { $0 }.filter { !$0.isEmpty }
+          .joined(separator: " · ")
+        let nextFeature = NativeDiscoverFeature(
+          id: current.id,
+          title: current.title,
+          subtitle: richSubtitle.isEmpty ? current.subtitle : richSubtitle,
+          synopsis: current.synopsis.isEmpty ? (detail.overview ?? "") : current.synopsis,
+          rating: current.rating,
+          backdropReference: current.backdropReference ?? detail.backdropPath,
+          logoReference: acceptedLogo,
+          logoLanguage: acceptedLogo != nil ? detail.logoLanguage : nil,
+          originalLanguage: detail.originalLanguage ?? current.originalLanguage
+        )
+        if nextFeature != current {
+          updated[index] = nextFeature
           changed = true
-          // 首个或任一主视觉拿到 Logo 后立即刷新，不等其余精选条目全部串行返回。
+          // 首个或任一主视觉拿到中文 Logo 或补充元数据后立即刷新，不等其余精选条目全部串行返回。
           discovery = NativeDiscoverContent(
             featuredItems: updated,
             rails: discovery.rails,
@@ -3431,6 +3449,8 @@ private struct NativeDiscoverAPIItem: Decodable, Sendable {
   let posterPath: String?
   let backdropPath: String?
   let logoPath: String?
+  let logoLanguage: String?
+  let originalLanguage: String?
   let overview: String?
   let voteAverage: Double?
   let genres: [MediaNamedTag]?
@@ -3453,6 +3473,8 @@ private struct NativeDiscoverAPIItem: Decodable, Sendable {
     case posterPath = "poster_path"
     case backdropPath = "backdrop_path"
     case logoPath = "logo_path"
+    case logoLanguage = "logo_language"
+    case originalLanguage = "original_language"
     case voteAverage = "vote_average"
   }
 }

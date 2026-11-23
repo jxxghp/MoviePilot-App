@@ -268,19 +268,24 @@ struct NativeMediaDetailPage: View {
           reference: logoRef,
           fallbackTitle: titleText,
           isAccessibilitySize: dynamicTypeSize.isAccessibilitySize,
+          logoLanguage: detail.logoLanguage,
+          originalLanguage: detail.originalLanguage,
           maxWidth: isWide ? 340 : 284,
           maxHeight: isWide ? 104 : 88,
+          isWide: isWide,
           textAlignment: .center,
           fallbackColor: isLight ? Color.primary : Color.white
         )
         .accessibilityIdentifier("native-media-detail-title")
       } else {
-        Text(titleText)
-          .font(.system(.largeTitle, design: .serif).weight(.bold))
-          .foregroundStyle(isLight ? Color.primary : Color.white)
-          .multilineTextAlignment(.center)
-          .shadow(color: isLight ? .clear : .black.opacity(0.45), radius: 10, y: 3)
-          .accessibilityIdentifier("native-media-detail-title")
+        NativeHeroPosterTitleView(
+          title: titleText,
+          isAccessibilitySize: dynamicTypeSize.isAccessibilitySize,
+          isWide: isWide,
+          textAlignment: .center,
+          color: isLight ? Color.primary : Color.white
+        )
+        .accessibilityIdentifier("native-media-detail-title")
       }
       if let tagline = detail.tagline?.trimmingCharacters(in: .whitespacesAndNewlines),
         !tagline.isEmpty

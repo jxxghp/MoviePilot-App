@@ -1,5 +1,9 @@
+import MoviePilotAPI
+import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
+import Vision
+import os
 
 /// 发现页展示 API 投影的主视觉、海报分区、继续观看与媒体库分类，不持有身份或网络状态。
 struct NativeDiscoverContent {
@@ -51,11 +55,14 @@ struct NativeDiscoverFeature: Identifiable, Hashable {
   let rating: String?
   let backdropReference: String?
   let logoReference: String?
+  let logoLanguage: String?
+  let originalLanguage: String?
 
   /// 图片引用不在此处请求或解释成任意 URL，图像边界交由认证宿主处理。
   init(
     id: String, title: String, subtitle: String, synopsis: String,
-    rating: String? = nil, backdropReference: String? = nil, logoReference: String? = nil
+    rating: String? = nil, backdropReference: String? = nil, logoReference: String? = nil,
+    logoLanguage: String? = nil, originalLanguage: String? = nil
   ) {
     self.id = id
     self.title = title
@@ -64,6 +71,8 @@ struct NativeDiscoverFeature: Identifiable, Hashable {
     self.rating = rating
     self.backdropReference = backdropReference
     self.logoReference = logoReference
+    self.logoLanguage = logoLanguage
+    self.originalLanguage = originalLanguage
   }
 }
 
@@ -735,23 +744,30 @@ struct NativeDiscoverPage: View {
     .accessibilityIdentifier("native-discover-feature-\(item.id)")
   }
 
-  /// 海报前景优先展示后端透明媒体标题 Logo，无 Logo 时以电影感大字标题自然降级，下方紧凑排布类型、简介与多维评分标。
+  /// 海报前景优先展示后端中文透明媒体标题 Logo，无中文 Logo 时以海报级大字标题自然降级，下方紧凑排布类型、简介与多维评分标。
   private func featureInformation(_ item: NativeDiscoverFeature) -> some View {
     let isLight = colorScheme == .light
+    let isWide = containerWidth >= 680
     return VStack(alignment: .center, spacing: 8) {
       if let logoRef = item.logoReference, !logoRef.isEmpty {
         NativeDiscoverLogoBanner(
           session: session,
           reference: logoRef,
           fallbackTitle: item.title,
-          isAccessibilitySize: dynamicTypeSize.isAccessibilitySize
+          isAccessibilitySize: dynamicTypeSize.isAccessibilitySize,
+          logoLanguage: item.logoLanguage,
+          originalLanguage: item.originalLanguage,
+          isWide: isWide,
+          fallbackColor: isLight ? Color.primary : Color.white
         )
       } else {
-        Text(item.title)
-          .font(.system(.largeTitle, design: .serif).weight(.bold))
-          .tracking(item.title.count <= 6 ? 4 : 1)
-          .shadow(color: isLight ? .clear : .black.opacity(0.45), radius: 10, y: 3)
-          .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+        NativeHeroPosterTitleView(
+          title: item.title,
+          isAccessibilitySize: dynamicTypeSize.isAccessibilitySize,
+          isWide: isWide,
+          textAlignment: .center,
+          color: isLight ? Color.primary : Color.white
+        )
       }
       if !item.subtitle.isEmpty {
         Text(item.subtitle)
@@ -1480,7 +1496,136 @@ private struct NativeDiscoverArtworkPlaceholder: View {
   }
 }
 
-/// 主视觉与详情页共用透明标题 Logo 视图：经当前实例图片代理无底色加载透明标题图，缺图或加载中平滑降级为电影感大字标题。
+/// 缓存当前实例的媒体元数据语言设置（后端 `TMDB_LOCALE`），无服务端值时平滑回退到当前 App 语言。
+@MainActor
+final class NativeMediaLanguageStore: ObservableObject {
+  static let shared = NativeMediaLanguageStore()
+
+  @Published private var localesByInstance: [UUID: String] = [:]
+  private var inFlightInstances: Set<UUID> = []
+
+  private init() {}
+
+  /// 当前实例生效的媒体语言代码（优先服务端 `TMDB_LOCALE`，否则回退 App 语言）。
+  func preferredMediaLanguage(for session: NativeSession) -> String {
+    if let configured = localesByInstance[session.scope.instanceID],
+      !configured.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      return configured
+    }
+    return AppLanguage.current.rawValue
+  }
+
+  /// 更新指定实例的媒体语言缓存（供系统设置保存或刷新后即时生效）。
+  func update(_ locale: String?, for instanceID: UUID) {
+    let trimmed = locale?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if trimmed.isEmpty {
+      localesByInstance.removeValue(forKey: instanceID)
+    } else if localesByInstance[instanceID] != trimmed {
+      localesByInstance[instanceID] = trimmed
+    }
+  }
+
+  /// 从后端静默同步当前实例的 `TMDB_LOCALE`：优先所有用户可读的 `/system/global/user`，旧版后端下管理员再回退 `/system/env`。
+  func refresh(using session: NativeSession, force: Bool = false) async {
+    let instanceID = session.scope.instanceID
+    if !force, localesByInstance[instanceID] != nil { return }
+    guard inFlightInstances.insert(instanceID).inserted else { return }
+    defer { inFlightInstances.remove(instanceID) }
+
+    struct LocalePayload: Decodable, Sendable {
+      let tmdbLocale: String?
+      private enum CodingKeys: String, CodingKey {
+        case tmdbLocale = "TMDB_LOCALE"
+      }
+    }
+    struct LocaleEnvelope: Decodable, Sendable {
+      let data: LocalePayload?
+      let tmdbLocale: String?
+      private enum CodingKeys: String, CodingKey {
+        case data
+        case tmdbLocale = "TMDB_LOCALE"
+      }
+      var resolvedLocale: String? {
+        let nested = data?.tmdbLocale?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let nested, !nested.isEmpty { return nested }
+        let direct = tmdbLocale?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return direct?.isEmpty == false ? direct : nil
+      }
+    }
+
+    if let endpoint = try? APIEndpoint(path: ["system", "global", "user"]),
+      let response = try? await session.request(
+        endpoint, as: LocaleEnvelope.self, requiring: .init(category: .discovery)
+      ).value,
+      let locale = response.resolvedLocale
+    {
+      update(locale, for: instanceID)
+      return
+    }
+
+    if session.user.isSuperuser,
+      let endpoint = try? APIEndpoint(path: ["system", "env"]),
+      let response = try? await session.request(endpoint, as: LocaleEnvelope.self).value,
+      let locale = response.resolvedLocale
+    {
+      update(locale, for: instanceID)
+    }
+  }
+}
+
+/// 海报级大字标题：当作品没有匹配当前媒体语言设置的透明 Logo 时，在发现页、媒体详情与媒体库详情提供统一电影感大字片名。
+@MainActor
+struct NativeHeroPosterTitleView: View {
+  let title: String
+  let isAccessibilitySize: Bool
+  var isWide: Bool = false
+  var textAlignment: TextAlignment = .center
+  var color: Color? = nil
+
+  @Environment(\.colorScheme) private var colorScheme
+
+  var body: some View {
+    let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    let count = trimmed.count
+    let isLight = colorScheme == .light
+    let resolvedColor = color ?? (isLight ? Color.primary : Color.white)
+    let pointSize: CGFloat =
+      if count <= 4 {
+        isWide ? 48 : 42
+      } else if count <= 8 {
+        isWide ? 42 : 36
+      } else {
+        isWide ? 35 : 30
+      }
+    let tracking: CGFloat =
+      if count <= 4 {
+        5
+      } else if count <= 8 {
+        2.5
+      } else {
+        1
+      }
+
+    Text(trimmed.isEmpty ? title : trimmed)
+      .font(
+        isAccessibilitySize
+          ? .system(.largeTitle, design: .serif).weight(.bold)
+          : .system(size: pointSize, weight: count <= 4 ? .heavy : .bold, design: .serif)
+      )
+      .tracking(isAccessibilitySize ? 1 : tracking)
+      .foregroundStyle(resolvedColor)
+      .multilineTextAlignment(textAlignment)
+      .lineSpacing(3)
+      .lineLimit(isAccessibilitySize ? nil : 2)
+      .minimumScaleFactor(isAccessibilitySize ? 1.0 : 0.74)
+      .shadow(color: isLight ? .clear : .black.opacity(0.68), radius: 14, y: 4)
+      .shadow(color: isLight ? .clear : .black.opacity(0.32), radius: 4, y: 1)
+      .fixedSize(horizontal: false, vertical: true)
+  }
+}
+
+/// 主视觉与详情页共用透明标题 Logo 视图：仅当 Logo 语言适配当前用户的媒体语言设置时展示图片，否则回退为海报级大字标题。
 @MainActor
 struct NativeDiscoverLogoBanner: View {
   nonisolated private static let publicLogoHosts: Set<String> = [
@@ -1495,20 +1640,45 @@ struct NativeDiscoverLogoBanner: View {
     config.timeoutIntervalForResource = 15
     return URLSession(configuration: config)
   }()
+  nonisolated private static let languageVerdictCache = OSAllocatedUnfairLock<[String: Bool]>(
+    initialState: [:])
 
   let session: NativeSession
   let reference: String
   let fallbackTitle: String
   let isAccessibilitySize: Bool
+  var logoLanguage: String? = nil
+  var originalLanguage: String? = nil
   var maxWidth: CGFloat = 278
   var maxHeight: CGFloat = 76
+  var isWide: Bool = false
   var textAlignment: TextAlignment = .center
   var fallbackColor: Color? = nil
+  @ObservedObject private var mediaLanguageStore = NativeMediaLanguageStore.shared
   @State private var logoImage: UIImage?
 
   var body: some View {
+    let preferredLanguage = mediaLanguageStore.preferredMediaLanguage(for: session)
+    let decision = NativeMediaLogoLanguagePolicy.metadataDecision(
+      logoLanguage: logoLanguage,
+      preferredMediaLanguage: preferredLanguage
+    )
     let key = logoCacheKey
-    let resolved = logoImage ?? NativeMediaArtworkCache.shared.memoryImage(for: key)
+    let verdictKey =
+      "\(key)|\(NativeMediaLogoLanguagePolicy.baseLanguageCode(preferredLanguage) ?? preferredLanguage)"
+    let cachedVerdict = Self.languageVerdictCache.withLock { $0[verdictKey] }
+    let resolved: UIImage? = {
+      switch decision {
+      case .confirmedMismatch:
+        return nil
+      case .confirmedMatch:
+        return logoImage ?? NativeMediaArtworkCache.shared.memoryImage(for: key)
+      case .needsImageVerification:
+        guard cachedVerdict == true else { return nil }
+        return logoImage ?? NativeMediaArtworkCache.shared.memoryImage(for: key)
+      }
+    }()
+
     return Group {
       if let resolved {
         Image(uiImage: resolved)
@@ -1518,62 +1688,206 @@ struct NativeDiscoverLogoBanner: View {
           .shadow(color: .black.opacity(0.55), radius: 12, y: 4)
           .accessibilityLabel(fallbackTitle)
       } else {
-        Text(fallbackTitle)
-          .font(.system(.largeTitle, design: .serif).weight(.bold))
-          .tracking(fallbackTitle.count <= 6 ? 4 : 1)
-          .foregroundStyle(fallbackColor ?? Color.primary)
-          .multilineTextAlignment(textAlignment)
-          .shadow(color: .black.opacity(0.45), radius: 10, y: 3)
-          .lineLimit(isAccessibilitySize ? nil : 2)
+        NativeHeroPosterTitleView(
+          title: fallbackTitle,
+          isAccessibilitySize: isAccessibilitySize,
+          isWide: isWide,
+          textAlignment: textAlignment,
+          color: fallbackColor
+        )
       }
     }
-    .task(id: key) {
-      if let cached = NativeMediaArtworkCache.shared.memoryImage(for: key) {
-        logoImage = cached
+    .task(id: "\(logoTaskKey)|\(preferredLanguage)") {
+      await mediaLanguageStore.refresh(using: session)
+      let activeLanguage = mediaLanguageStore.preferredMediaLanguage(for: session)
+      let currentDecision = NativeMediaLogoLanguagePolicy.metadataDecision(
+        logoLanguage: logoLanguage,
+        preferredMediaLanguage: activeLanguage
+      )
+      if currentDecision == .confirmedMismatch {
+        logoImage = nil
         return
       }
-      let scopeDir = NativeMediaArtworkCache.scopeDirectoryName(for: session)
-      if let disk = await NativeMediaArtworkCache.shared.diskImage(
-        for: key, scopeDir: scopeDir, limit: 640)
+      let activeVerdictKey =
+        "\(key)|\(NativeMediaLogoLanguagePolicy.baseLanguageCode(activeLanguage) ?? activeLanguage)"
+      if currentDecision == .needsImageVerification,
+        let cached = Self.languageVerdictCache.withLock({ $0[activeVerdictKey] }), !cached
       {
-        guard !Task.isCancelled else { return }
-        logoImage = disk
+        logoImage = nil
         return
       }
-      let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
-      let normalized: String
-      if trimmed.hasPrefix("/") {
-        normalized = "https://image.tmdb.org/t/p/w500" + trimmed
+
+      let candidate: UIImage?
+      if let cached = NativeMediaArtworkCache.shared.memoryImage(for: key) {
+        candidate = cached
       } else {
-        normalized = trimmed
-      }
-      guard let url = URL(string: normalized) else { return }
-      let decoded = await NativeMediaArtworkCache.shared.fetchAndCache(
-        key: key, scopeDir: scopeDir, limit: 640
-      ) {
-        if let response = try? await session.requestImage(url, maximumWidth: 640),
-          !response.data.isEmpty
+        let scopeDir = NativeMediaArtworkCache.scopeDirectoryName(for: session)
+        if let disk = await NativeMediaArtworkCache.shared.diskImage(
+          for: key, scopeDir: scopeDir, limit: 640)
         {
-          return response.data
+          candidate = disk
+        } else {
+          let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+          let normalized: String
+          if trimmed.hasPrefix("/") {
+            normalized = "https://image.tmdb.org/t/p/w500" + trimmed
+          } else {
+            normalized = trimmed
+          }
+          guard let url = URL(string: normalized) else { return }
+          candidate = await NativeMediaArtworkCache.shared.fetchAndCache(
+            key: key, scopeDir: scopeDir, limit: 640
+          ) {
+            if let response = try? await session.requestImage(url, maximumWidth: 640),
+              !response.data.isEmpty
+            {
+              return response.data
+            }
+            guard url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(),
+              Self.publicLogoHosts.contains(host)
+            else { throw URLError(.badURL) }
+            var req = URLRequest(url: url)
+            req.httpShouldHandleCookies = false
+            let (data, response) = try await Self.publicLogoSession.data(for: req)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              !data.isEmpty, data.count <= 4 * 1024 * 1024
+            else { throw URLError(.badServerResponse) }
+            return data
+          }
         }
-        guard url.scheme?.lowercased() == "https",
-          let host = url.host?.lowercased(),
-          Self.publicLogoHosts.contains(host)
-        else { throw URLError(.badURL) }
-        var req = URLRequest(url: url)
-        req.httpShouldHandleCookies = false
-        let (data, response) = try await Self.publicLogoSession.data(for: req)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-          !data.isEmpty, data.count <= 4 * 1024 * 1024
-        else { throw URLError(.badServerResponse) }
-        return data
       }
-      guard !Task.isCancelled, let decoded else { return }
-      logoImage = decoded
+
+      guard !Task.isCancelled, let candidate else { return }
+
+      if currentDecision == .confirmedMatch {
+        logoImage = candidate
+        return
+      }
+
+      if let cached = Self.languageVerdictCache.withLock({ $0[activeVerdictKey] }) {
+        logoImage = cached ? candidate : nil
+        return
+      }
+
+      guard let cgImage = candidate.cgImage else { return }
+      let origLang = originalLanguage
+      let accepted = await Task.detached(priority: .userInitiated) {
+        Self.verifyLogoMatchesMediaLanguage(
+          cgImage: cgImage,
+          preferredMediaLanguage: activeLanguage,
+          originalLanguage: origLang
+        )
+      }.value
+      Self.languageVerdictCache.withLock { $0[activeVerdictKey] = accepted }
+      guard !Task.isCancelled else { return }
+      logoImage = accepted ? candidate : nil
     }
   }
 
   private var logoCacheKey: String {
     "hero-logo|\(session.scope.instanceID.uuidString)|\(session.scope.userID)|\(reference)"
+  }
+
+  private var logoTaskKey: String {
+    "\(logoCacheKey)|\(logoLanguage ?? "")|\(originalLanguage ?? "")"
+  }
+
+  /// 将透明 PNG Logo 叠放在高对比纯色底上做本地 Vision 文字识别，兼容旧版未返回 `logo_language` 的后端。
+  nonisolated private static func verifyLogoMatchesMediaLanguage(
+    cgImage: CGImage,
+    preferredMediaLanguage: String,
+    originalLanguage: String?
+  ) -> Bool {
+    let targetImage = compositeOnContrastingBackground(cgImage) ?? cgImage
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .accurate
+    request.recognitionLanguages = ["zh-Hans", "zh-Hant", "en-US", "ja-JP", "ko-KR"]
+    request.usesLanguageCorrection = false
+    let handler = VNImageRequestHandler(cgImage: targetImage, options: [:])
+    do {
+      try handler.perform([request])
+    } catch {
+      return NativeMediaLogoLanguagePolicy.matches(
+        logoLanguage: originalLanguage,
+        preferredMediaLanguage: preferredMediaLanguage
+      )
+    }
+    let recognized = (request.results ?? [])
+      .compactMap { $0.topCandidates(1).first?.string }
+      .joined(separator: " ")
+    return NativeMediaLogoLanguagePolicy.evaluateRecognizedText(
+      recognized,
+      preferredMediaLanguage: preferredMediaLanguage,
+      originalLanguage: originalLanguage
+    )
+  }
+
+  /// 采样不透明像素亮度并铺设反色纯底，防止白字透明 Logo 在默认白底上丢失轮廓。
+  nonisolated private static func compositeOnContrastingBackground(_ cgImage: CGImage) -> CGImage? {
+    let sampleSize = 48
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+    var samplePixels = [UInt8](repeating: 0, count: sampleSize * sampleSize * 4)
+    guard
+      let sampleCtx = CGContext(
+        data: &samplePixels,
+        width: sampleSize,
+        height: sampleSize,
+        bitsPerComponent: 8,
+        bytesPerRow: sampleSize * 4,
+        space: colorSpace,
+        bitmapInfo: bitmapInfo
+      )
+    else { return nil }
+    sampleCtx.clear(CGRect(x: 0, y: 0, width: sampleSize, height: sampleSize))
+    sampleCtx.draw(cgImage, in: CGRect(x: 0, y: 0, width: sampleSize, height: sampleSize))
+
+    var luminanceSum = 0.0
+    var opaqueCount = 0
+    for idx in stride(from: 0, to: samplePixels.count, by: 4) {
+      let alpha = Double(samplePixels[idx + 3])
+      if alpha > 40 {
+        let scale = 255.0 / alpha
+        let r = min(255.0, Double(samplePixels[idx]) * scale) / 255.0
+        let g = min(255.0, Double(samplePixels[idx + 1]) * scale) / 255.0
+        let b = min(255.0, Double(samplePixels[idx + 2]) * scale) / 255.0
+        luminanceSum += 0.299 * r + 0.587 * g + 0.114 * b
+        opaqueCount += 1
+      }
+    }
+    let useDarkBackground = opaqueCount == 0 || (luminanceSum / Double(opaqueCount)) > 0.45
+
+    let maxDim: CGFloat = 640
+    let srcW = CGFloat(cgImage.width)
+    let srcH = CGFloat(cgImage.height)
+    let ratio = min(1.0, maxDim / max(srcW, srcH, 1))
+    let drawW = max(1, Int((srcW * ratio).rounded()))
+    let drawH = max(1, Int((srcH * ratio).rounded()))
+    let pad = 20
+    let outW = drawW + pad * 2
+    let outH = drawH + pad * 2
+
+    guard
+      let outCtx = CGContext(
+        data: nil,
+        width: outW,
+        height: outH,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+      )
+    else { return nil }
+
+    if useDarkBackground {
+      outCtx.setFillColor(red: 0.04, green: 0.04, blue: 0.06, alpha: 1.0)
+    } else {
+      outCtx.setFillColor(red: 0.96, green: 0.96, blue: 0.98, alpha: 1.0)
+    }
+    outCtx.fill(CGRect(x: 0, y: 0, width: outW, height: outH))
+    outCtx.interpolationQuality = .high
+    outCtx.draw(cgImage, in: CGRect(x: pad, y: pad, width: drawW, height: drawH))
+    return outCtx.makeImage()
   }
 }

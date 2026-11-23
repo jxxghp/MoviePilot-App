@@ -15,7 +15,7 @@ struct NativeMediaServerDetailPage: View {
   let fallbackPoster: String?
 
   @State private var detail: MediaServerItemDetailDTO?
-  @State private var fetchedLogoURL: String?
+  @State private var fetchedLogo: MediaServerLogoCacheEntry?
   @State private var seasons: [MediaServerBrowseItemDTO] = []
   @State private var episodes: [MediaServerBrowseItemDTO] = []
   @State private var collectionItems: [MediaServerBrowseItemDTO] = []
@@ -57,7 +57,13 @@ struct NativeMediaServerDetailPage: View {
     self.fallbackPoster = fallbackPoster
   }
 
-  private static var mediaLogoCache: [String: String] = [:]
+  private struct MediaServerLogoCacheEntry: Sendable {
+    let url: String
+    let logoLanguage: String?
+    let originalLanguage: String?
+  }
+
+  private static var mediaLogoCache: [String: MediaServerLogoCacheEntry] = [:]
 
   private var canSubscribe: Bool { session.user.allows(.init(category: .subscribe)) }
   private var canSearchResources: Bool { session.user.allows(.init(category: .search)) }
@@ -310,9 +316,10 @@ struct NativeMediaServerDetailPage: View {
   ) -> some View {
     let isLight = colorScheme == .light
     let titleText = heroDisplayTitle(detail)
-    let logoRef =
-      (detail.logo?.isEmpty == false ? detail.logo : nil)
-      ?? (fetchedLogoURL?.isEmpty == false ? fetchedLogoURL : nil)
+    let directLogo = detail.logo?.isEmpty == false ? detail.logo : nil
+    let logoRef = directLogo ?? (fetchedLogo?.url.isEmpty == false ? fetchedLogo?.url : nil)
+    let logoLanguage = directLogo != nil ? detail.logoLanguage : fetchedLogo?.logoLanguage
+    let originalLanguage = fetchedLogo?.originalLanguage
     return VStack(alignment: .center, spacing: 10) {
       Spacer(minLength: 0)
 
@@ -322,20 +329,24 @@ struct NativeMediaServerDetailPage: View {
           reference: logoRef,
           fallbackTitle: titleText,
           isAccessibilitySize: dynamicTypeSize.isAccessibilitySize,
+          logoLanguage: logoLanguage,
+          originalLanguage: originalLanguage,
           maxWidth: isWide ? 340 : 284,
           maxHeight: isWide ? 104 : 88,
+          isWide: isWide,
           textAlignment: .center,
           fallbackColor: isLight ? Color.primary : Color.white
         )
         .accessibilityIdentifier("native-mediaserver-detail-title")
       } else {
-        Text(titleText)
-          .font(.system(.largeTitle, design: .serif).weight(.bold))
-          .foregroundStyle(isLight ? Color.primary : Color.white)
-          .multilineTextAlignment(.center)
-          .shadow(color: isLight ? .clear : .black.opacity(0.45), radius: 10, y: 3)
-          .fixedSize(horizontal: false, vertical: true)
-          .accessibilityIdentifier("native-mediaserver-detail-title")
+        NativeHeroPosterTitleView(
+          title: titleText,
+          isAccessibilitySize: dynamicTypeSize.isAccessibilitySize,
+          isWide: isWide,
+          textAlignment: .center,
+          color: isLight ? Color.primary : Color.white
+        )
+        .accessibilityIdentifier("native-mediaserver-detail-title")
       }
 
       let meta = metadataLineParts(detail)
@@ -1696,7 +1707,7 @@ struct NativeMediaServerDetailPage: View {
   private func loadAll() async {
     isLoading = true
     loadFailed = false
-    fetchedLogoURL = nil
+    fetchedLogo = nil
     var query = [URLQueryItem(name: "itemid", value: itemID)]
     if let server, !server.isEmpty {
       query.append(URLQueryItem(name: "server", value: server))
@@ -1731,22 +1742,27 @@ struct NativeMediaServerDetailPage: View {
     }
   }
 
-  /// 媒体库详情未直接返回 Logo 时，利用外部媒体源编号静默拉取透明标题 Logo 并按身份缓存。
+  /// 媒体库详情未直接返回 Logo 时，利用外部媒体源编号静默拉取透明标题 Logo 并按身份缓存（携带语言元数据供中文准入过滤）。
   private func loadLogoIfNeeded(for loaded: MediaServerItemDetailDTO) async {
     if let direct = loaded.logo?.trimmingCharacters(in: .whitespacesAndNewlines), !direct.isEmpty {
-      fetchedLogoURL = direct
+      fetchedLogo = MediaServerLogoCacheEntry(
+        url: direct, logoLanguage: loaded.logoLanguage, originalLanguage: nil)
       return
     }
     guard let ext = loaded.resolvedExternalIdentity else { return }
     let cacheKey = "\(session.scope.instanceID.uuidString)|\(ext.source)|\(ext.mediaID)|\(ext.type)"
     if let cached = Self.mediaLogoCache[cacheKey] {
-      fetchedLogoURL = cached
+      fetchedLogo = cached
       return
     }
     struct LogoProbe: Decodable, Sendable {
       let logoPath: String?
+      let logoLanguage: String?
+      let originalLanguage: String?
       private enum CodingKeys: String, CodingKey {
         case logoPath = "logo_path"
+        case logoLanguage = "logo_language"
+        case originalLanguage = "original_language"
       }
     }
     guard
@@ -1763,8 +1779,13 @@ struct NativeMediaServerDetailPage: View {
         probe.logoPath, source: ext.source, tmdbSize: "w500"),
       !resolved.isEmpty
     else { return }
-    Self.mediaLogoCache[cacheKey] = resolved
-    fetchedLogoURL = resolved
+    let entry = MediaServerLogoCacheEntry(
+      url: resolved,
+      logoLanguage: probe.logoLanguage,
+      originalLanguage: probe.originalLanguage
+    )
+    Self.mediaLogoCache[cacheKey] = entry
+    fetchedLogo = entry
   }
 
   private func loadHierarchyChildren(for loaded: MediaServerItemDetailDTO) async {

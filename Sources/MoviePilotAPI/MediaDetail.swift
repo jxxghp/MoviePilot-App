@@ -378,6 +378,7 @@ public struct MediaDetailPayload: Decodable, Equatable, Sendable {
   public let type: String?
   public let title: String?
   public let originalTitle: String?
+  public let originalLanguage: String?
   public let year: String?
   public let releaseDate: String?
   public let runtime: Int?
@@ -389,6 +390,7 @@ public struct MediaDetailPayload: Decodable, Equatable, Sendable {
   public let posterPath: String?
   public let backdropPath: String?
   public let logoPath: String?
+  public let logoLanguage: String?
   public let overview: String?
   public let voteAverage: Double?
   public let genres: [MediaNamedTag]?
@@ -447,6 +449,7 @@ public struct MediaDetailPayload: Decodable, Equatable, Sendable {
     let rawOriginalTitle = try? container.decodeIfPresent(String.self, forKey: .originalTitle)
     let rawOriginalName = try? container.decodeIfPresent(String.self, forKey: .originalName)
     self.originalTitle = Self.firstNonEmpty(rawOriginalTitle, rawOriginalName)
+    self.originalLanguage = try? container.decodeIfPresent(String.self, forKey: .originalLanguage)
 
     self.year = MediaDetailDecoding.flexibleScalarString(container, forKey: .year)
 
@@ -473,6 +476,7 @@ public struct MediaDetailPayload: Decodable, Equatable, Sendable {
     self.posterPath = try? container.decodeIfPresent(String.self, forKey: .posterPath)
     self.backdropPath = try? container.decodeIfPresent(String.self, forKey: .backdropPath)
     self.logoPath = try? container.decodeIfPresent(String.self, forKey: .logoPath)
+    self.logoLanguage = try? container.decodeIfPresent(String.self, forKey: .logoLanguage)
     self.overview = try? container.decodeIfPresent(String.self, forKey: .overview)
     self.voteAverage = MediaDetailDecoding.flexibleDouble(container, forKey: .voteAverage)
     self.genres = MediaDetailDecoding.lossyArray(
@@ -533,6 +537,7 @@ public struct MediaDetailPayload: Decodable, Equatable, Sendable {
     case title
     case originalTitle = "original_title"
     case originalName = "original_name"
+    case originalLanguage = "original_language"
     case year
     case releaseDate = "release_date"
     case firstAirDate = "first_air_date"
@@ -546,6 +551,7 @@ public struct MediaDetailPayload: Decodable, Equatable, Sendable {
     case posterPath = "poster_path"
     case backdropPath = "backdrop_path"
     case logoPath = "logo_path"
+    case logoLanguage = "logo_language"
     case overview
     case voteAverage = "vote_average"
     case genres
