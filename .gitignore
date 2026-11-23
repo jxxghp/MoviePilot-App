@@ -29,3 +29,5 @@ harmony/.hvigor/
 harmony/**/build/
 harmony/**/oh_modules/
 ios/Frameworks/MoviePilotRustCore.xcframework/
+android/core-rust-bridge/src/main/jniLibs/
+harmony/commons/core_rust_bridge/libs/
