@@ -17,15 +17,16 @@ import {
 } from '@moviepilot/design_system';
 
 /**
- * 鸿蒙「更多」工作台一级主页面（替代 iOS 隐藏式二次点击 4+1 浮层）：
- * - 遵循 HarmonyOS 左侧大标题 + 右侧动态光感搜索圆钮规范；
- * - 实时聚合下载器吞吐状态卡片、2 列（手机）/ 4 列（折叠屏展开/平板）响应式工具矩阵与系统诊断快捷入口；
- * - 全部交互卡片启用 `CinematicPanel({ interactive: true })`，在 HarmonyOS 7 自动呈现官方动态光感形变反馈，低版本平滑回退。
+ * 鸿蒙「更多」工作台一级主页面（严格按 4 大清晰业务域归类，告别混乱分组）：
+ * 1. 资源与媒体流转（站点资源 / 站点管理 / 下载管理 / 文件管理 / 整理历史 / 媒体库）
+ * 2. 插件与工作流（插件中心 / 工作流）
+ * 3. 追剧与广场（追剧日历 / 订阅广场）
+ * 4. 系统诊断（系统检查 / 定时服务 / 实时日志 / 词表管理 / 名称识别 / 网络测试，点击直达单功能页）
  */
 @Component
 export struct HarmonyMoreHubPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
-  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_BREAKPOINT) breakpoint: string = 'sm';
   @State private stats: MpDashboardStats = {
     movieCount: 0, tvCount: 0, episodeCount: 0, userCount: 0,
@@ -34,6 +35,10 @@ export struct HarmonyMoreHubPage {
     memoryPercent: 0, memoryUsedBytes: 0, transferCounts: [], scheduleCount: 0
   };
   @State private activeDownloads: number = 0;
+  @State private activeSites: number = 0;
+  @State private installedPlugins: number = 0;
+  @State private librariesCount: number = 0;
+  @State private workflowsCount: number = 0;
   onSelectRoute: (routeId: string) => void = () => {};
   onOpenSearch: () => void = () => {};
 
@@ -46,14 +51,31 @@ export struct HarmonyMoreHubPage {
     try {
       const res = await Promise.all([
         repo.fetchDashboardStats(),
-        repo.fetchDownloads()
+        repo.fetchDownloads(),
+        repo.fetchSites(),
+        repo.fetchPlugins('installed'),
+        repo.fetchMediaServerLibraries(),
+        repo.fetchWorkflows()
       ]);
       this.stats = res[0];
       const tasks: MpDownloadTask[] = res[1];
       this.activeDownloads = tasks.length;
+      this.activeSites = res[2].filter((s) => s.isActive).length;
+      this.installedPlugins = res[3].length;
+      this.librariesCount = res[4].length;
+      this.workflowsCount = res[5].length;
     } catch {
       // keep existing state
     }
+  }
+
+  private liveSubtitle(item: MoreToolItem): string {
+    if (item.id === 'sites' && this.activeSites > 0) { return `${this.activeSites} 站点启用`; }
+    if (item.id === 'downloads') { return `${this.activeDownloads} 个任务`; }
+    if (item.id === 'media_library' && this.librariesCount > 0) { return `${this.librariesCount} 个媒体库浏览`; }
+    if (item.id === 'plugins' && this.installedPlugins > 0) { return `已装 ${this.installedPlugins} 款`; }
+    if (item.id === 'workflows' && this.workflowsCount > 0) { return `${this.workflowsCount} 个自动化编排`; }
+    return item.subtitle;
   }
 
   private gridTemplate(): string {
@@ -66,7 +88,7 @@ export struct HarmonyMoreHubPage {
   toolGridSection(title: string, items: MoreToolItem[]) {
     Column({ space: 10 }) {
       Text(title)
-        .fontSize(15)
+        .fontSize(14)
         .fontWeight(FontWeight.Medium)
         .fontColor(mpSecondaryText(this.isDark))
         .width('100%')
@@ -77,20 +99,15 @@ export struct HarmonyMoreHubPage {
             Column() {
               CinematicPanel({ panelPadding: 14, cornerRadius: 18, interactive: true }) {
                 Column({ space: 10 }) {
-                  Row() {
-                    Stack() {
-                      SymbolGlyph($r(item.symbolName))
-                        .fontSize(20)
-                        .fontColor([item.tintHex])
-                    }
-                    .width(38)
-                    .height(38)
-                    .borderRadius(12)
-                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-
-                    Blank()
-                    Text('›').fontSize(18).fontColor(mpSecondaryText(this.isDark))
-                  }.width('100%')
+                  Stack() {
+                    SymbolGlyph($r(item.symbolName))
+                      .fontSize(20)
+                      .fontColor([item.tintHex])
+                  }
+                  .width(40)
+                  .height(40)
+                  .borderRadius(20)
+                  .backgroundColor(HarmonyAppearanceStore.withAlpha(item.tintHex, this.isDark ? '28' : '1A'))
 
                   Column({ space: 3 }) {
                     Text(item.title)
@@ -98,8 +115,8 @@ export struct HarmonyMoreHubPage {
                       .fontWeight(FontWeight.Bold)
                       .fontColor(mpPrimaryText(this.isDark))
                       .maxLines(1)
-                    Text(item.subtitle)
-                      .fontSize(11)
+                    Text(this.liveSubtitle(item))
+                      .fontSize(11.5)
                       .fontColor(mpSecondaryText(this.isDark))
                       .maxLines(1)
                       .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -107,10 +124,11 @@ export struct HarmonyMoreHubPage {
                   .alignItems(HorizontalAlign.Start)
                   .width('100%')
                 }
+                .alignItems(HorizontalAlign.Start)
               }
             }
             .width('100%')
-            .accessibilityText(`${item.title}，${item.subtitle}`)
+            .accessibilityText(`${item.title}，${this.liveSubtitle(item)}`)
             .onClick(() => this.onSelectRoute(item.id))
           }
         }, (item: MoreToolItem) => item.id)
@@ -127,7 +145,7 @@ export struct HarmonyMoreHubPage {
     Column() {
       HarmonyPageHeader({
         title: '更多',
-        subtitle: '资源、下载、存储与自动化工作台',
+        subtitle: '资源、下载与自动化中心',
         primarySymbol: 'sys.symbol.magnifyingglass',
         primaryAccessibility: '全局搜索',
         onPrimaryClick: () => this.onOpenSearch()
@@ -135,86 +153,102 @@ export struct HarmonyMoreHubPage {
 
       Scroll() {
         Column({ space: 18 }) {
-          // 实时下载器状态速览卡
+          // 实时运行概览卡
           Column() {
             CinematicPanel({ panelPadding: 16, cornerRadius: 20, interactive: true }) {
-              Row({ space: 12 }) {
-                Stack() {
-                  SymbolGlyph($r('sys.symbol.arrow_down_circle'))
-                    .fontSize(24)
-                    .fontColor(['#52C41A'])
-                }
-                .width(44)
-                .height(44)
-                .borderRadius(14)
-                .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+              Column({ space: 12 }) {
+                Row() {
+                  Text('实时运行概览')
+                    .fontSize(16)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(mpPrimaryText(this.isDark))
+                    .layoutWeight(1)
+                  NativeAdaptiveBadge({
+                    text: this.activeDownloads > 0 ? `${this.activeDownloads} 任务活跃` : '空闲',
+                    tintHex: this.activeDownloads > 0 ? '#34C759' : this.accentHex
+                  })
+                }.width('100%')
 
-                Column({ space: 4 }) {
+                Row({ space: 10 }) {
                   Row({ space: 8 }) {
-                    Text('下载与传输通道')
-                      .fontSize(15)
-                      .fontWeight(FontWeight.Bold)
-                      .fontColor(mpPrimaryText(this.isDark))
-                    NativeAdaptiveBadge({
-                      text: this.activeDownloads > 0 ? `${this.activeDownloads} 进行中` : '空闲',
-                      tintHex: this.activeDownloads > 0 ? '#52C41A' : this.accentHex
-                    })
+                    SymbolGlyph($r('sys.symbol.arrow_down')).fontSize(16).fontColor(['#34C759'])
+                    Column({ space: 2 }) {
+                      Text('下载速度').fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                      Text(formatSpeed(this.stats.downloadSpeed))
+                        .fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                    }.alignItems(HorizontalAlign.Start)
                   }
-                  Text(`↓ ${formatSpeed(this.stats.downloadSpeed)}  ·  ↑ ${formatSpeed(this.stats.uploadSpeed)}  ·  ${this.stats.scheduleCount} 项定时任务`)
-                    .fontSize(12)
-                    .fontColor(mpSecondaryText(this.isDark))
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                }
-                .alignItems(HorizontalAlign.Start)
-                .layoutWeight(1)
+                  .layoutWeight(1)
+                  .padding(12)
+                  .borderRadius(14)
+                  .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
 
-                Text('›').fontSize(20).fontColor(mpSecondaryText(this.isDark))
+                  Row({ space: 8 }) {
+                    SymbolGlyph($r('sys.symbol.arrow_up')).fontSize(16).fontColor([this.accentHex])
+                    Column({ space: 2 }) {
+                      Text('上传速度').fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                      Text(formatSpeed(this.stats.uploadSpeed))
+                        .fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                    }.alignItems(HorizontalAlign.Start)
+                  }
+                  .layoutWeight(1)
+                  .padding(12)
+                  .borderRadius(14)
+                  .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                }.width('100%')
               }
-              .width('100%')
             }
           }
           .width('100%')
           .onClick(() => this.onSelectRoute('downloads'))
 
-          this.toolGridSection('媒体与资源', MORE_TOOL_ITEMS.filter((i: MoreToolItem) => i.group === 0))
-          this.toolGridSection('生态与自动化', MORE_TOOL_ITEMS.filter((i: MoreToolItem) => i.group === 1))
+          // 1. 资源与媒体流转
+          this.toolGridSection('资源与媒体流转', MORE_TOOL_ITEMS.filter((i: MoreToolItem) => i.group === 0))
+          // 2. 插件与工作流
+          this.toolGridSection('插件与工作流', MORE_TOOL_ITEMS.filter((i: MoreToolItem) => i.group === 1))
+          // 3. 追剧与广场
+          this.toolGridSection('追剧与广场', MORE_TOOL_ITEMS.filter((i: MoreToolItem) => i.group === 2))
 
-          // 系统诊断与定时服务快捷入口
-          Column() {
-            CinematicPanel({ panelPadding: 15, cornerRadius: 18, interactive: true }) {
-              Row({ space: 12 }) {
-                Stack() {
-                  SymbolGlyph($r('sys.symbol.bolt'))
-                    .fontSize(20)
-                    .fontColor([this.accentHex])
-                }
-                .width(38)
-                .height(38)
-                .borderRadius(12)
-                .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+          // 4. 系统诊断（6 项独立捷径直达）
+          Column({ space: 10 }) {
+            Text('系统诊断')
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(mpSecondaryText(this.isDark))
+              .width('100%')
 
-                Column({ space: 2 }) {
-                  Text('捷径与系统诊断')
-                    .fontSize(15)
-                    .fontWeight(FontWeight.Bold)
-                    .fontColor(mpPrimaryText(this.isDark))
-                  Text('查看全部定时任务状态与服务端实时日志')
-                    .fontSize(12)
-                    .fontColor(mpSecondaryText(this.isDark))
-                }
-                .alignItems(HorizontalAlign.Start)
-                .layoutWeight(1)
-
-                Text('›').fontSize(20).fontColor(mpSecondaryText(this.isDark))
+            CinematicPanel({ panelPadding: 12, cornerRadius: 20 }) {
+              Grid() {
+                ForEach(MORE_TOOL_ITEMS.filter((i: MoreToolItem) => i.group === 3), (item: MoreToolItem) => {
+                  GridItem() {
+                    Row({ space: 8 }) {
+                      SymbolGlyph($r(item.symbolName))
+                        .fontSize(17)
+                        .fontColor([item.tintHex])
+                      Text(item.title)
+                        .fontSize(13.5)
+                        .fontWeight(FontWeight.Medium)
+                        .fontColor(mpPrimaryText(this.isDark))
+                        .maxLines(1)
+                    }
+                    .width('100%')
+                    .padding({ left: 12, right: 12, top: 12, bottom: 12 })
+                    .borderRadius(14)
+                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                    .hoverEffect(HoverEffect.Highlight)
+                    .onClick(() => this.onSelectRoute(item.id))
+                  }
+                }, (item: MoreToolItem) => item.id)
               }
+              .columnsTemplate('1fr 1fr')
+              .columnsGap(10)
+              .rowsGap(10)
               .width('100%')
             }
           }
           .width('100%')
-          .onClick(() => this.onSelectRoute('diagnostics'))
         }
-        .padding({ left: 16, right: 16, top: 6, bottom: 124 })
+        .padding({ left: 16, right: 16, top: 6, bottom: 128 })
       }
       .scrollBar(BarState.Off)
       .layoutWeight(1)

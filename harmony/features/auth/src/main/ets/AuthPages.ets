@@ -18,7 +18,7 @@ import {
 @Component
 export struct HarmonyServerConnectionPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
-  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @Prop savedServers: SavedServerEntry[] = [];
   @State private address: string = '';
   @State private errorText: string = '';
@@ -134,7 +134,7 @@ export struct HarmonyServerConnectionPage {
 @Component
 export struct HarmonyLoginPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
-  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @Prop serverUrl: string = '';
   @State private username: string = '';
   @State private password: string = '';
@@ -142,7 +142,7 @@ export struct HarmonyLoginPage {
   @State private showOtp: boolean = false;
   @State private keepLogin: boolean = true;
   @State private rememberCreds: boolean = false;
-  @State private notice: string = '密码仅在本机 HUKS 安全保存，验证码不会保存。';
+  @State private notice: string = '密码仅在本机加密安全保存，验证码不会保存。';
   @State private isError: boolean = false;
   @State private loading: boolean = false;
   onSwitchServer: () => void = () => {};

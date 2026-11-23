@@ -1,4 +1,4 @@
-import { UIAbility, Want, AbilityConstant, Configuration, ConfigurationConstant } from '@kit.AbilityKit';
+import { UIAbility, Want, AbilityConstant, Configuration, ConfigurationConstant, common } from '@kit.AbilityKit';
 import { display, window } from '@kit.ArkUI';
 import { HarmonyAdaptiveLayout, HarmonyAppearanceStore } from '@moviepilot/design_system';
 import { RustCoreBridge } from '@moviepilot/core_rust_bridge';
@@ -10,9 +10,35 @@ import { RustCoreBridge } from '@moviepilot/core_rust_bridge';
  * - 跟随系统深浅色配置更新，拦截并分发 `moviepilot://` 深度链接与音视频文件直放请求。
  */
 export default class EntryAbility extends UIAbility {
+  private static mainWin: window.Window | null = null;
+  private static appCtx: common.UIAbilityContext | null = null;
+
+  static syncWindowAppearance(isDark: boolean): void {
+    try {
+      if (EntryAbility.mainWin) {
+        const contentColor = isDark ? '#FFFFFF' : '#182431';
+        EntryAbility.mainWin.setWindowSystemBarProperties({
+          statusBarColor: '#00000000',
+          statusBarContentColor: contentColor,
+          navigationBarColor: '#00000000',
+          navigationBarContentColor: contentColor
+        });
+      }
+      if (EntryAbility.appCtx) {
+        EntryAbility.appCtx.getApplicationContext().setColorMode(
+          isDark ? ConfigurationConstant.ColorMode.COLOR_MODE_DARK : ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT
+        );
+      }
+    } catch {
+      // ignore system bar sync error on unsupported targets
+    }
+  }
+
   onCreate(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
     HarmonyAppearanceStore.initDefaults();
+    EntryAbility.appCtx = this.context;
     this.syncSystemColorMode(this.context.config.colorMode);
+    EntryAbility.syncWindowAppearance(AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_IS_DARK) ?? true);
     this.handleIncomingWant(want);
   }
 
@@ -48,28 +74,43 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
-    windowStage.getMainWindow((err, win) => {
-      if (!err && win) {
-        try {
-          win.setWindowLayoutFullScreen(true);
-          const avoid = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
-          AppStorage.setOrCreate('mp_top_avoid_px', avoid.topRect.height);
-          AppStorage.setOrCreate('mp_bottom_avoid_px', avoid.bottomRect.height);
-          const props = win.getWindowProperties();
-          if (props && props.windowRect && props.windowRect.width > 0) {
-            this.updateBreakpointFromPx(props.windowRect.width);
-          }
-          win.on('windowSizeChange', (size: window.Size) => {
-            if (size && size.width > 0) {
-              this.updateBreakpointFromPx(size.width);
-            }
-          });
-        } catch {
-          // ignore avoid area or listener setup failure
-        }
+    try {
+      const syncWin = windowStage.getMainWindowSync();
+      if (syncWin) {
+        EntryAbility.mainWin = syncWin;
+        syncWin.setWindowLayoutFullScreen(true).catch(() => {});
+        EntryAbility.syncWindowAppearance(AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_IS_DARK) ?? true);
       }
+    } catch {
+      // fallback to async main window
+    }
+    windowStage.loadContent('pages/Index', () => {
+      windowStage.getMainWindow((err, win) => {
+        if (!err && win) {
+          EntryAbility.mainWin = win;
+          try {
+            win.setWindowLayoutFullScreen(true).then(() => {
+              EntryAbility.syncWindowAppearance(AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_IS_DARK) ?? true);
+            }).catch(() => {});
+            EntryAbility.syncWindowAppearance(AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_IS_DARK) ?? true);
+            const avoid = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
+            AppStorage.setOrCreate('mp_top_avoid_px', avoid.topRect.height);
+            AppStorage.setOrCreate('mp_bottom_avoid_px', avoid.bottomRect.height);
+            const props = win.getWindowProperties();
+            if (props && props.windowRect && props.windowRect.width > 0) {
+              this.updateBreakpointFromPx(props.windowRect.width);
+            }
+            win.on('windowSizeChange', (size: window.Size) => {
+              if (size && size.width > 0) {
+                this.updateBreakpointFromPx(size.width);
+              }
+            });
+          } catch {
+            // ignore avoid area or listener setup failure
+          }
+        }
+      });
     });
-    windowStage.loadContent('pages/Index', () => {});
   }
 
   private handleIncomingWant(want: Want): void {

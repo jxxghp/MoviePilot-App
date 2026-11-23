@@ -1,6 +1,7 @@
 import { curves, uiMaterial } from '@kit.ArkUI';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { hdsEffect } from '@kit.UIDesignKit';
+import { HarmonyAppearanceStore } from '../store/AppearanceStore';
 
 /**
  * 鸿蒙动态光感与系统材质运行层级：
@@ -14,63 +15,71 @@ export type HarmonyLightTier = 'harmonyos7_immersive' | 'harmonyos6_hds_light' |
 export type HarmonySurfaceRole = 'card' | 'bar' | 'overlay' | 'pill';
 
 /**
- * 鸿蒙语义动效 Token（遵循 OpenHarmony UX 公开参考时长与曲线语义）：
- * - 来源：OpenHarmony UX 动效参考时长与 ArkUI 曲线默认（H2/H4）。
+ * 鸿蒙语义动效 Token（遵循 OpenHarmony UX 公开参考时长与曲线语义）。
  */
 export class HarmonyMotionTokens {
-  /** 简单色彩/高亮反馈（约 100ms）。 */
   static readonly DURATION_INSTANT: number = 100;
-  /** 短交互按压/开关（约 150ms）。 */
   static readonly DURATION_SHORT: number = 150;
-  /** 局部页签/列表状态变化（约 200ms）。 */
   static readonly DURATION_LOCAL: number = 200;
-  /** 完整弹层或页面层级切换（约 300ms）。 */
   static readonly DURATION_FULL: number = 300;
 
-  /** 标准曲线：视线内状态切换（Tab/Segment/Switch）。 */
   static readonly CURVE_STANDARD: Curve = Curve.FastOutSlowIn;
-  /** 减速曲线：元素进入视线并平稳落定。 */
   static readonly CURVE_DECELERATE: Curve = Curve.EaseOut;
-  /** 加速曲线：元素快速退出视线。 */
   static readonly CURVE_ACCELERATE: Curve = Curve.EaseIn;
 
-  /** 跟手弹性曲线（ArkUI 默认参数）。 */
   static followSpring(): ICurve {
     return curves.responsiveSpringMotion();
   }
 
-  /** 离手回稳与速度衔接弹性曲线（ArkUI 默认参数）。 */
   static settleSpring(): ICurve {
     return curves.springMotion();
   }
 }
 
 /**
- * 鸿蒙语义色彩表（HarmonyOS NEXT / HarmonyOS 7 冷静中性画布与分层表面，不照搬 iOS 紫色渐变雾）。
+ * 鸿蒙语义色彩表（按当前鸿蒙色板动态解析，冷静清晰、层级分明，不强制照搬 iOS 紫雾色系）。
  */
 export class HarmonyThemeColors {
-  static canvas(isDark: boolean): string {
-    return isDark ? '#FF0D0D11' : '#FFF1F3F5';
+  static canvas(isDark: boolean, paletteId: string = 'harmony_blue', pureBlack: boolean = false): string {
+    if (isDark && pureBlack) {
+      return '#FF000000';
+    }
+    const p = HarmonyAppearanceStore.paletteById(paletteId);
+    return isDark ? p.canvasDark : p.canvasLight;
   }
 
-  static card(isDark: boolean): string {
-    return isDark ? '#FF1B1B22' : '#FFFFFFFF';
+  static headerTint(isDark: boolean, paletteId: string = 'harmony_blue'): string {
+    const p = HarmonyAppearanceStore.paletteById(paletteId);
+    return isDark ? p.headerTintDark : p.headerTintLight;
+  }
+
+  static card(isDark: boolean, paletteId: string = 'harmony_blue'): string {
+    const p = HarmonyAppearanceStore.paletteById(paletteId);
+    return isDark ? p.cardDark : p.cardLight;
   }
 
   static cardElevated(isDark: boolean): string {
-    return isDark ? '#FF252430' : '#FFFFFFFF';
+    return isDark ? '#FF1F2633' : '#FFFFFFFF';
   }
 
   static barFallback(isDark: boolean): string {
-    return isDark ? '#E61A1A22' : '#EBF7F8FA';
+    return isDark ? '#E6171D28' : '#ECF9FBFE';
   }
 
   static overlayFallback(isDark: boolean): string {
-    return isDark ? '#F01D1C26' : '#F5FFFFFF';
+    return isDark ? '#F5151A24' : '#F8FFFFFF';
+  }
+
+  static pillFallback(isDark: boolean): string {
+    return isDark ? '#CC1D2534' : '#E6FFFFFF';
   }
 
   static chipFill(isDark: boolean): string {
-    return isDark ? '#FF24232E' : '#FFE6E8EC';
+    return isDark ? '#FF1F2532' : '#FFE5E9F0';
+  }
+
+  static softDangerBg(isDark: boolean): string {
+    return isDark ? '#2EE84855' : '#1CE84855';
   }
 
   static borderSubtle(isDark: boolean): string {
@@ -78,7 +87,7 @@ export class HarmonyThemeColors {
   }
 
   static divider(isDark: boolean): string {
-    return isDark ? '#1AFFFFFF' : '#14000000';
+    return isDark ? '#18FFFFFF' : '#12000000';
   }
 
   static primaryText(isDark: boolean): string {
@@ -151,11 +160,11 @@ export class HarmonyDynamicLight {
     }
     try {
       const lvl = uiMaterial.getGlobalMaterialLevel();
-      if (lvl === uiMaterial.MaterialLevel.EXQUISITE) { return '旗舰级光感 (EXQUISITE)'; }
-      if (lvl === uiMaterial.MaterialLevel.GENTLE) { return '均衡光感 (GENTLE)'; }
-      return '流畅光感 (SMOOTH)';
+      if (lvl === uiMaterial.MaterialLevel.EXQUISITE) { return '旗舰光感'; }
+      if (lvl === uiMaterial.MaterialLevel.GENTLE) { return '均衡光感'; }
+      return '流畅光感';
     } catch {
-      return '自适应光感';
+      return '动态光感';
     }
   }
 
@@ -165,7 +174,7 @@ export class HarmonyDynamicLight {
       return `HarmonyOS 7 动态光感 · ${HarmonyDynamicLight.materialLevelLabel()}`;
     }
     if (tier === 'harmonyos6_hds_light') {
-      return 'HarmonyOS 6 HDS 点光源光感（自动适配）';
+      return 'HarmonyOS 6 点光源光感（自动适配）';
     }
     return `标准分层质感（API ${HarmonyDynamicLight.sdkApiVersion()} 自动回退）`;
   }
@@ -189,7 +198,7 @@ export class HarmonySurfaceModifier implements AttributeModifier<CommonAttribute
     isDark: boolean,
     role: HarmonySurfaceRole = 'card',
     cornerRadius: number = 16,
-    accentHex: string = '#9E7AF5',
+    accentHex: string = '#317AF7',
     interactive: boolean = false,
     dynamicLightEnabled: boolean = true
   ) {
@@ -203,6 +212,9 @@ export class HarmonySurfaceModifier implements AttributeModifier<CommonAttribute
 
   applyNormalAttribute(instance: CommonAttribute): void {
     const tier = this.dynamicLightEnabled ? HarmonyDynamicLight.currentTier() : 'legacy_fallback';
+    // 先铺设清晰可见的鸿蒙分级表面底色、毛玻璃与精致高光描边，确保模拟器与各 GPU 档位均清晰可读
+    this.applyFallbackSurface(instance);
+
     if (tier === 'harmonyos7_immersive') {
       try {
         const immersiveStyle = this.resolveImmersiveStyle();
@@ -210,20 +222,19 @@ export class HarmonySurfaceModifier implements AttributeModifier<CommonAttribute
         const material = new uiMaterial.ImmersiveMaterial({
           style: immersiveStyle,
           materialColor: tintColor,
-          colorInvert: this.role === 'bar' || this.role === 'pill',
-          applyShadow: this.role !== 'pill',
+          colorInvert: false,
+          applyShadow: this.role === 'bar' || this.role === 'overlay',
           interactive: this.interactive,
           lightEffect: this.interactive ? { color: this.accentHex } : null
         });
         instance.systemMaterial(material);
         return;
       } catch {
-        // 运行时动态光感构造异常时立即安全降级
+        // 运行时动态光感构造异常时保留上方分层质感
       }
     }
 
     // HarmonyOS 6（API 20-25）点光源受光回退
-    this.applyFallbackSurface(instance);
     if (tier === 'harmonyos6_hds_light' && (this.interactive || this.role === 'bar')) {
       try {
         const fx = new hdsEffect.HdsEffectBuilder()
@@ -250,72 +261,84 @@ export class HarmonySurfaceModifier implements AttributeModifier<CommonAttribute
 
   private resolveImmersiveStyle(): uiMaterial.ImmersiveStyle {
     if (this.role === 'bar') {
-      return uiMaterial.ImmersiveStyle.THIN;
+      return uiMaterial.ImmersiveStyle.THICK;
     }
     if (this.role === 'overlay') {
       return uiMaterial.ImmersiveStyle.THICK;
     }
     if (this.role === 'pill') {
-      return uiMaterial.ImmersiveStyle.ULTRA_THIN;
+      return uiMaterial.ImmersiveStyle.REGULAR;
     }
     return uiMaterial.ImmersiveStyle.REGULAR;
   }
 
-  private resolveImmersiveTint(): ResourceColor | undefined {
-    if (this.role === 'card') {
-      return this.isDark ? '#B81B1B22' : '#D9FFFFFF';
+  private resolveImmersiveTint(): ResourceColor {
+    if (this.role === 'bar') {
+      return this.isDark ? '#E0171D28' : '#EBF9FBFE';
+    }
+    if (this.role === 'pill') {
+      return this.isDark ? '#CC1E2635' : '#E8FFFFFF';
     }
     if (this.role === 'overlay') {
-      return this.isDark ? '#D01D1C26' : '#E8FFFFFF';
+      return this.isDark ? '#E8151A24' : '#F4FFFFFF';
     }
-    return undefined;
+    return this.isDark ? '#DB161C27' : '#F6FFFFFF';
   }
 
   private applyFallbackSurface(instance: CommonAttribute): void {
     if (this.role === 'bar') {
       instance.backgroundColor(HarmonyThemeColors.barFallback(this.isDark));
-      instance.backgroundBlurStyle(BlurStyle.COMPONENT_THIN, {
+      instance.backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK, {
         colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT,
         adaptiveColor: AdaptiveColor.DEFAULT
       });
       instance.border({
-        width: 0.6,
-        color: HarmonyThemeColors.borderSubtle(this.isDark),
+        width: 0.8,
+        color: this.isDark ? '#2BFFFFFF' : '#22000000',
         radius: this.cornerRadius
       });
       instance.shadow({
-        radius: this.isDark ? 14 : 10,
-        color: this.isDark ? '#30000000' : '#14000000',
-        offsetY: 4
+        radius: this.isDark ? 20 : 16,
+        color: this.isDark ? '#55000000' : '#1E000000',
+        offsetY: 6
       });
       return;
     }
     if (this.role === 'overlay') {
       instance.backgroundColor(HarmonyThemeColors.overlayFallback(this.isDark));
-      instance.backgroundBlurStyle(BlurStyle.COMPONENT_REGULAR, {
+      instance.backgroundBlurStyle(BlurStyle.COMPONENT_THICK, {
         colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT,
         adaptiveColor: AdaptiveColor.DEFAULT
       });
       instance.border({
-        width: 0.6,
-        color: HarmonyThemeColors.borderSubtle(this.isDark),
+        width: 0.7,
+        color: this.isDark ? '#24FFFFFF' : '#18000000',
         radius: this.cornerRadius
       });
       return;
     }
     if (this.role === 'pill') {
-      instance.backgroundColor(HarmonyThemeColors.chipFill(this.isDark));
+      instance.backgroundColor(HarmonyThemeColors.pillFallback(this.isDark));
+      instance.backgroundBlurStyle(BlurStyle.COMPONENT_THICK, {
+        colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT,
+        adaptiveColor: AdaptiveColor.DEFAULT
+      });
       instance.border({
-        width: 0.6,
-        color: HarmonyThemeColors.borderSubtle(this.isDark),
+        width: 0.7,
+        color: this.isDark ? '#28FFFFFF' : '#1A000000',
         radius: this.cornerRadius
+      });
+      instance.shadow({
+        radius: this.isDark ? 10 : 8,
+        color: this.isDark ? '#32000000' : '#14000000',
+        offsetY: 3
       });
       return;
     }
-    // 普通内容卡片：低版本采用纯正不透明分层表面色 + 柔和阴影，避免浑浊半透明
-    instance.backgroundColor(HarmonyThemeColors.card(this.isDark));
+    const paletteId = AppStorage.get<string>(HarmonyAppearanceStore.KEY_PALETTE_ID) ?? 'harmony_blue';
+    instance.backgroundColor(HarmonyThemeColors.card(this.isDark, paletteId));
     instance.border({
-      width: 0.5,
+      width: 0.6,
       color: HarmonyThemeColors.borderSubtle(this.isDark),
       radius: this.cornerRadius
     });

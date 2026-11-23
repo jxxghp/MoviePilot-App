@@ -18,7 +18,12 @@ import {
   MoviePilotRepository
 } from '@moviepilot/core_rust_bridge';
 import { HarmonyServerConnectionPage, HarmonyLoginPage } from '@moviepilot/auth';
-import { HarmonyDiscoverPage, HarmonyExplorePage, HarmonyGlobalSearchPage } from '@moviepilot/discover';
+import {
+  HarmonyDiscoverPage,
+  HarmonyMediaServerLibraryPage,
+  HarmonyExplorePage,
+  HarmonyGlobalSearchPage
+} from '@moviepilot/discover';
 import { HarmonyMediaDetailPage, HarmonyPersonDetailPage } from '@moviepilot/media';
 import { HarmonySubscriptionsPage } from '@moviepilot/subscribe';
 import { HarmonyResourceSearchPage, HarmonyDownloadsPage } from '@moviepilot/download';
@@ -28,17 +33,23 @@ import { HarmonyWorkflowCanvasPage, HarmonySitesPage } from '@moviepilot/automat
 import { HarmonyAgentChatPage } from '@moviepilot/agent';
 import { HarmonySettingsHubPage, HarmonyPluginsPage } from '@moviepilot/settings';
 
+import EntryAbility from '../entryability/EntryAbility';
+
 /**
  * MoviePilot HarmonyOS NEXT / HarmonyOS 7 主入口页面：
- * - 遵循鸿蒙一多设计规范：手机端（`sm`）采用 5 大对等动态光感底栏（发现 · 探索 · 订阅 · 更多 · 我的），
- *   折叠屏展开/平板/2in1（`md`/`lg`）自动切换为左侧竖向导航栏，彻底告别隐藏式二次点击 4+1 菜单；
- * - 完整路由栈与系统侧滑返回（`onBackPress`）支持；
- * - HarmonyOS 7 自动启用官方 `uiMaterial.ImmersiveMaterial` 动态光感，低版本系统平滑自动回退。
+ * - 手机端采用底部悬浮一体式动态光感导航栏（发现 · 探索 · 订阅 · 更多 · 我的），折叠屏展开/平板自动切换左侧导航栏；
+ * - 完整路由栈支持全部一级/二级业务页、独立媒体库浏览与 6 项独立单用途系统诊断页；
+ * - HarmonyOS 7 自动启用 `uiMaterial.ImmersiveMaterial` 动态光感，低版本系统平滑自动回退。
  */
 @Entry
 @Component
 struct Index {
+  @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) @Watch('onDarkChanged') isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_BREAKPOINT) breakpoint: string = 'sm';
+
+  private onDarkChanged(): void {
+    EntryAbility.syncWindowAppearance(this.isDark);
+  }
   @State private authStage: string = 'connect'; // 'connect' | 'login' | 'main'
   @State private serverUrl: string = '';
   @State private userName: string = 'admin';
@@ -48,6 +59,9 @@ struct Index {
   @State private selectedTab: HarmonyMainTab = 'discover';
   @State private routeStack: string[] = [];
   @State private exploreSource: string = 'tmdb_movies';
+  @State private activeLibraryId: string = '';
+  @State private activeLibraryServer: string = '';
+  @State private resourceSearchKeyword: string = '';
   @State private selectedMedia: MpMediaItem | null = null;
   @State private selectedPerson: MpCastMember | null = null;
   @State private activePlayer: HarmonyPlaybackRequest | null = null;
@@ -107,6 +121,15 @@ struct Index {
     return this.breakpoint === 'md' || this.breakpoint === 'lg';
   }
 
+  private diagSectionFromRoute(route: string): string {
+    if (route === 'diag_check') { return 'check'; }
+    if (route === 'diag_logs') { return 'logs'; }
+    if (route === 'diag_words') { return 'words'; }
+    if (route === 'diag_recognize') { return 'recognize'; }
+    if (route === 'diag_network') { return 'network'; }
+    return 'schedulers';
+  }
+
   @Builder
   mainContentBuilder() {
     if (this.currentRoute() === 'tab') {
@@ -121,6 +144,11 @@ struct Index {
             this.switchTab('explore');
           },
           onOpenSearch: () => this.pushRoute('search'),
+          onOpenLibrary: (libId: string, srv: string) => {
+            this.activeLibraryId = libId;
+            this.activeLibraryServer = srv;
+            this.pushRoute('media_library');
+          },
           onPlayMedia: (req: HarmonyPlaybackRequest) => this.playMedia(req)
         })
       } else if (this.selectedTab === 'explore') {
@@ -135,7 +163,9 @@ struct Index {
       } else if (this.selectedTab === 'subscribe') {
         HarmonySubscriptionsPage({
           showBack: false,
+          initialMode: 'mine',
           onOpenSearch: () => this.pushRoute('search'),
+          onOpenCalendar: () => this.pushRoute('calendar'),
           onOpenMedia: (it: MpMediaItem) => {
             this.selectedMedia = it;
             this.pushRoute('detail');
@@ -143,17 +173,40 @@ struct Index {
         })
       } else if (this.selectedTab === 'more') {
         HarmonyMoreHubPage({
-          onSelectRoute: (routeId: string) => this.pushRoute(routeId),
+          onSelectRoute: (routeId: string) => {
+            if (routeId === 'media_library') {
+              this.activeLibraryId = '';
+              this.activeLibraryServer = '';
+            }
+            if (routeId === 'resources') {
+              this.resourceSearchKeyword = '';
+            }
+            this.pushRoute(routeId);
+          },
           onOpenSearch: () => this.pushRoute('search')
         })
       } else {
         HarmonyDashboardPage({
           userName: this.userName,
           serverUrl: this.serverUrl,
-          onOpenShortcuts: () => this.pushRoute('diagnostics'),
-          onOpenSettings: () => this.pushRoute('settings')
+          onOpenShortcutRoute: (routeId: string) => this.pushRoute(routeId),
+          onOpenSettings: () => this.pushRoute('settings'),
+          onOpenMedia: (it: MpMediaItem) => {
+            this.selectedMedia = it;
+            this.pushRoute('detail');
+          }
         })
       }
+    } else if (this.currentRoute() === 'media_library') {
+      HarmonyMediaServerLibraryPage({
+        initialLibraryId: this.activeLibraryId,
+        initialServerName: this.activeLibraryServer,
+        onBack: () => this.popRoute(),
+        onOpenMedia: (it: MpMediaItem) => {
+          this.selectedMedia = it;
+          this.pushRoute('detail');
+        }
+      })
     } else if (this.currentRoute() === 'search') {
       HarmonyGlobalSearchPage({
         onBack: () => this.popRoute(),
@@ -166,7 +219,10 @@ struct Index {
       HarmonyMediaDetailPage({
         item: this.selectedMedia,
         onBack: () => this.popRoute(),
-        onSearchResource: () => this.pushRoute('resources'),
+        onSearchResource: (kw: string) => {
+          this.resourceSearchKeyword = kw;
+          this.pushRoute('resources');
+        },
         onOpenPerson: (person: MpCastMember) => {
           this.selectedPerson = person;
           this.pushRoute('person');
@@ -182,10 +238,11 @@ struct Index {
           this.pushRoute('detail');
         }
       })
-    } else if (this.currentRoute() === 'calendar') {
+    } else if (this.currentRoute() === 'calendar' || this.currentRoute() === 'subscribe_square') {
       HarmonySubscriptionsPage({
         showBack: true,
-        initialTitle: '追剧日历',
+        initialTitle: this.currentRoute() === 'calendar' ? '追剧日历' : '订阅广场',
+        initialMode: this.currentRoute() === 'calendar' ? 'calendar' : 'square',
         onBack: () => this.popRoute(),
         onOpenMedia: (it: MpMediaItem) => {
           this.selectedMedia = it;
@@ -193,7 +250,10 @@ struct Index {
         }
       })
     } else if (this.currentRoute() === 'resources') {
-      HarmonyResourceSearchPage({ onBack: () => this.popRoute() })
+      HarmonyResourceSearchPage({
+        initialKeyword: this.resourceSearchKeyword,
+        onBack: () => this.popRoute()
+      })
     } else if (this.currentRoute() === 'downloads') {
       HarmonyDownloadsPage({ onBack: () => this.popRoute() })
     } else if (this.currentRoute() === 'files' || this.currentRoute() === 'history') {
@@ -206,8 +266,11 @@ struct Index {
       HarmonyWorkflowCanvasPage({ onBack: () => this.popRoute() })
     } else if (this.currentRoute() === 'sites') {
       HarmonySitesPage({ onBack: () => this.popRoute() })
-    } else if (this.currentRoute() === 'diagnostics') {
-      HarmonyDiagnosticsPage({ onBack: () => this.popRoute() })
+    } else if (this.currentRoute().startsWith('diag_') || this.currentRoute() === 'diagnostics') {
+      HarmonyDiagnosticsPage({
+        initialSection: this.diagSectionFromRoute(this.currentRoute()),
+        onBack: () => this.popRoute()
+      })
     } else if (this.currentRoute() === 'agent') {
       HarmonyAgentChatPage({ onBack: () => this.popRoute() })
     } else if (this.currentRoute() === 'plugins') {
@@ -224,7 +287,6 @@ struct Index {
         userName: this.userName,
         onBack: () => this.popRoute(),
         onOpenSites: () => this.pushRoute('sites'),
-        onOpenPlugins: () => this.pushRoute('plugins'),
         onLogout: () => this.handleLogout()
       })
     }
@@ -266,7 +328,6 @@ struct Index {
           }
         })
       } else if (this.isWideLayout()) {
-        // 折叠屏展开 / 平板 / 2in1：左侧竖向导航栏 + 右侧主内容区
         Row() {
           HarmonySideNavRail({
             selectedTab: this.selectedTab,
@@ -303,7 +364,6 @@ struct Index {
         .width('100%')
         .height('100%')
       } else {
-        // 手机紧凑窗口：主内容区 + 一级页面动态光感 5 页签底栏
         Stack({ alignContent: Alignment.Bottom }) {
           this.mainContentBuilder()
 
@@ -311,7 +371,7 @@ struct Index {
             FloatingAiMascotButton({
               onTap: () => this.pushRoute('agent')
             })
-              .position({ right: 16, bottom: 92 })
+              .position({ right: 16, bottom: 96 })
 
             Column({ space: 8 }) {
               if (this.miniMusic) {
@@ -334,6 +394,7 @@ struct Index {
         }
         .width('100%')
         .height('100%')
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
       }
 
       if (this.activePlayer) {
@@ -349,5 +410,6 @@ struct Index {
     }
     .width('100%')
     .height('100%')
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 }

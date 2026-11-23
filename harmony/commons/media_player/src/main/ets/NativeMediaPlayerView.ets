@@ -81,7 +81,7 @@ export struct NativeMediaPlayerView {
           Stack() {
             SymbolGlyph($r('sys.symbol.music'))
               .fontSize(64)
-              .fontColor(['#9E7AF5'])
+              .fontColor(['#317AF7'])
           }
           .width(200)
           .height(200)
@@ -93,7 +93,7 @@ export struct NativeMediaPlayerView {
         .width('100%')
         .height('100%')
         .justifyContent(FlexAlign.Center)
-        .linearGradient({ angle: 160, colors: [['#30334A', 0], ['#57384A', 0.6], ['#242E40', 1]] })
+        .linearGradient({ angle: 160, colors: [['#13203A', 0], ['#1D3461', 0.55], ['#0B0E14', 1]] })
       }
 
       // 横屏锁屏按钮（严格仅横屏显示，居中靠右）
@@ -157,14 +157,14 @@ export struct NativeMediaPlayerView {
           // 底部进度条 + 左（字幕、音轨）右（填充模式、倍速）全纯图标
           Column({ space: 8 }) {
             Slider({ value: this.progress, min: 0, max: 100 })
-              .selectedColor('#9E7AF5')
+              .selectedColor('#317AF7')
               .trackColor('#44FFFFFF')
               .onChange((val: number) => { this.progress = val; })
             Row() {
               Row({ space: 18 }) {
                 SymbolGlyph($r('sys.symbol.AI_subtitles'))
                   .fontSize(20)
-                  .fontColor([this.subtitleEnabled ? '#9E7AF5' : Color.White])
+                  .fontColor([this.subtitleEnabled ? '#317AF7' : Color.White])
                   .onClick(() => { this.subtitleEnabled = !this.subtitleEnabled; })
                 SymbolGlyph($r('sys.symbol.waveform'))
                   .fontSize(20)
@@ -208,9 +208,9 @@ export struct FloatingMiniMusicBar {
   build() {
     Row({ space: 10 }) {
       Stack() {
-        SymbolGlyph($r('sys.symbol.music')).fontSize(20).fontColor(['#9E7AF5'])
+        SymbolGlyph($r('sys.symbol.music')).fontSize(20).fontColor(['#317AF7'])
       }
-      .width(38).height(38).borderRadius(10).backgroundColor('#339E7AF5')
+      .width(38).height(38).borderRadius(10).backgroundColor('#33317AF7')
       Column({ space: 2 }) {
         Text(this.request.title).fontSize(13).fontWeight(FontWeight.Medium).fontColor(Color.White).maxLines(1)
         Text(this.request.subtitle).fontSize(11).fontColor('#A8FFFFFF').maxLines(1)

@@ -8,13 +8,19 @@ export {
 
 export {
   NativeRcpTransport,
-  NativeHttpResponse
+  NativeHttpResponse,
+  SseEventChunk
 } from './src/main/ets/network/NativeRcpTransport';
 
 export {
   NativeHuksStore,
   SavedServerEntry
 } from './src/main/ets/security/NativeHuksStore';
+
+export {
+  MpImageLoader,
+  MpRemoteImage
+} from './src/main/ets/components/MpRemoteImage';
 
 export {
   MoviePilotRepository,
@@ -40,6 +46,25 @@ export {
   MpPersonDetail,
   MpSchedulerItem,
   MpSimpleSettingItem,
+  MpMusicAlbum,
+  MpServiceConfig,
+  MpDirectoryConfig,
+  MpStorageConfig,
+  MpFilterRuleGroup,
+  MpVideoStreamInfo,
+  MpManualTransferTargetHint,
+  MpManualTransferHistoryHint,
+  MpManualTransferPreviewItem,
+  MpManualTransferResult,
+  MpAgentCommand,
+  MpAgentSessionSummary,
+  MpAgentToolEntry,
+  MpAgentAttachment,
+  MpAgentChoiceButton,
+  MpAgentChoiceCard,
+  MpAgentChatMessage,
+  MpNetworkCheckItem,
+  MpRecognizeResult,
   formatByteSize,
   formatSpeed
 } from './src/main/ets/api/MoviePilotRepository';

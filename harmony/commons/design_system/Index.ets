@@ -7,7 +7,12 @@ export {
 
 export {
   HarmonyAppearanceStore,
-  HarmonyAppearanceMode
+  HarmonyAppearanceMode,
+  HarmonyPalettePreset,
+  HARMONY_PALETTES,
+  CustomModulePref,
+  DEFAULT_DISCOVER_MODULES,
+  DEFAULT_DASHBOARD_MODULES
 } from './src/main/ets/store/AppearanceStore';
 
 export {
@@ -36,8 +41,10 @@ export {
   NativeTopStatusBarBlur,
   NativeBackHeader,
   HarmonyPageHeader,
+  HarmonyPillTabBar,
   HarmonyUnderlineTabBar,
   HarmonySegmentedSwitch,
+  HarmonySheetHeader,
   HarmonyBottomNavBar,
   HarmonySideNavRail,
   FloatingAiMascotButton,

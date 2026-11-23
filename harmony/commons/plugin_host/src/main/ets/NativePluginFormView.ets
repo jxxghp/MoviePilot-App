@@ -151,6 +151,11 @@ function parseSelectItems(rawItems: Object | null | undefined): PluginSelectOpti
   return out;
 }
 
+function isNonVisualPluginTag(comp: string): boolean {
+  const lower = comp.trim().toLowerCase();
+  return lower === 'style' || lower === 'script' || lower === 'link' || lower === 'meta' || lower === 'vdialogclosebtn';
+}
+
 function extractFallbackFormFields(nodes: Object[], out: PluginFieldPlan[]): void {
   const fieldKinds: string[] = [
     'VSwitch', 'VCheckbox', 'VCronField', 'VSelect', 'VAutocomplete',
@@ -160,6 +165,7 @@ function extractFallbackFormFields(nodes: Object[], out: PluginFieldPlan[]): voi
     const node = asObj(nodes[i]);
     if (!node) { continue; }
     const comp = readStr(node, 'component');
+    if (isNonVisualPluginTag(comp)) { continue; }
     const props = asObj(node['props']);
     const text = typeof node['text'] === 'string' ? (node['text'] as string) : '';
     if (comp.length > 0 && fieldKinds.includes(comp)) {
@@ -190,6 +196,7 @@ function extractDataBlocks(nodes: Object[], out: PluginDataBlock[]): void {
     const node = asObj(nodes[i]);
     if (!node) { continue; }
     const comp = readStr(node, 'component');
+    if (isNonVisualPluginTag(comp)) { continue; }
     const props = asObj(node['props']);
     const text = typeof node['text'] === 'string' ? (node['text'] as string) : '';
     if (comp === 'VAlert') {
@@ -203,13 +210,14 @@ function extractDataBlocks(nodes: Object[], out: PluginDataBlock[]): void {
           tone: readStr(props, 'type', 'info')
         });
       }
-    } else if (comp === 'VChip' || comp === 'VCardTitle' || comp === 'VCardSubtitle' || comp === 'VCardText' || comp === 'span' || comp === 'p' || comp === 'div') {
-      if (text.trim().length > 0) {
+    } else if (comp === 'VChip' || comp === 'VCardTitle' || comp === 'VCardSubtitle' || comp === 'VCardText' || comp === 'span' || comp === 'p' || comp === 'div' || comp === 'h1' || comp === 'h2' || comp === 'h3' || comp === 'h4') {
+      const trimmed = text.trim();
+      if (trimmed.length > 0 && !trimmed.startsWith('.') && !trimmed.includes('{display:') && !trimmed.includes('!important')) {
         out.push({
           id: `b_${out.length}`,
-          kind: comp === 'VChip' ? 'chip' : (comp === 'VCardTitle' ? 'heading' : 'text'),
-          title: comp === 'VCardTitle' ? text.trim() : '',
-          body: text.trim(),
+          kind: comp === 'VChip' ? 'chip' : ((comp === 'VCardTitle' || comp.startsWith('h')) ? 'heading' : 'text'),
+          title: (comp === 'VCardTitle' || comp.startsWith('h')) ? trimmed : '',
+          body: trimmed,
           tone: readStr(props, 'color', 'default')
         });
       }
@@ -236,7 +244,7 @@ function jsEscape(raw: string): string {
 @Component
 export struct NativePluginDataPageView {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
-  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @Prop pluginId: string = '';
   @Prop documentJson: string = '{}';
   @Prop serverUrl: string = '';
@@ -310,6 +318,7 @@ export struct NativePluginDataPageView {
         }
         .padding({ left: 16, right: 16, top: 8, bottom: 28 })
       }
+      .align(Alignment.Top)
       .scrollBar(BarState.Off)
       .width('100%')
       .height('100%')
@@ -326,7 +335,7 @@ export struct NativePluginDataPageView {
 @Component
 export struct IsolatedVuePluginWebView {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
-  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @Prop pluginId: string = '';
   @Prop serverUrl: string = '';
   @Prop authToken: string = '';
@@ -856,7 +865,7 @@ if(!window.MoviePilotNative&&window.__mpHarmonyChromeHost){
 @Component
 export struct NativePluginHostView {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
-  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @Prop pluginName: string = '';
   @Prop documentJson: string = '{}';
   @Prop serverUrl: string = '';
@@ -1123,6 +1132,7 @@ export struct NativePluginHostView {
         }
         .padding({ left: 16, right: 16, top: 10, bottom: 28 })
       }
+      .align(Alignment.Top)
       .scrollBar(BarState.Off)
       .width('100%')
       .height('100%')

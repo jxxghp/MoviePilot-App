@@ -1,5 +1,80 @@
+import { image } from '@kit.ImageKit';
 import { RustCoreBridge, MedalPalette, MpCommunityMedal } from '@moviepilot/core_rust_bridge';
 import { CinematicPanel, NativeAdaptiveBadge, mpPrimaryText, mpSecondaryText, HarmonyAppearanceStore } from '@moviepilot/design_system';
+
+const medalAssetCache: Map<string, image.PixelMap> = new Map<string, image.PixelMap>();
+
+/**
+ * 从主包 `rawfile/community_medals/` 安全解码雕塑级勋章贴图（跨 HAR 模块可靠访问主包资源）。
+ */
+@Component
+struct MedalRawfileImage {
+  @Prop @Watch('onAssetChanged') assetName: string = '';
+  @Prop imgSize: number = 62;
+  @Prop imgOpacity: number = 1.0;
+  @Prop shadowRadius: number = 10;
+  @Prop shadowOffsetY: number = 5;
+  @Prop shadowColor: string = '#45000000';
+  @State private pm: image.PixelMap | null = null;
+
+  aboutToAppear(): void {
+    this.loadRawfile();
+  }
+
+  onAssetChanged(): void {
+    this.loadRawfile();
+  }
+
+  private loadRawfile(): void {
+    const key = (this.assetName ?? '').trim();
+    if (!key) { return; }
+    const hit = medalAssetCache.get(key);
+    if (hit) {
+      this.pm = hit;
+      return;
+    }
+    try {
+      const ctx = this.getUIContext().getHostContext();
+      if (!ctx || !ctx.resourceManager) { return; }
+      ctx.resourceManager.getRawFileContent(`community_medals/${key}`).then(async (bytes: Uint8Array) => {
+        try {
+          const copyBuf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+          const src = image.createImageSource(copyBuf);
+          const decoded = await src.createPixelMap();
+          try { src.release(); } catch { /* ignore */ }
+          if (decoded) {
+            medalAssetCache.set(key, decoded);
+            if (this.assetName === key) {
+              this.pm = decoded;
+            }
+          }
+        } catch {
+          // ignore decode error
+        }
+      }).catch(() => {});
+    } catch {
+      // ignore host context error
+    }
+  }
+
+  build() {
+    if (this.pm) {
+      Image(this.pm)
+        .width(this.imgSize)
+        .height(this.imgSize)
+        .objectFit(ImageFit.Contain)
+        .opacity(this.imgOpacity)
+        .shadow({ radius: this.shadowRadius, color: this.shadowColor, offsetY: this.shadowOffsetY })
+    } else {
+      Column()
+        .width(this.imgSize)
+        .height(this.imgSize)
+        .borderRadius(this.imgSize / 2)
+        .backgroundColor('#18FFFFFF')
+        .opacity(this.imgOpacity)
+    }
+  }
+}
 
 /**
  * 鸿蒙原生 3D 社区勋章与真实背面金属三遍凹雕组件：
@@ -101,18 +176,24 @@ export struct CommunityMedal3DComponent {
         // 3D 透视旋转勋章主体
         Stack({ alignContent: Alignment.Center }) {
           if (!this.isShowingBack()) {
-            Image($rawfile(`community_medals/${this.frontAsset}`))
-              .width(236)
-              .height(236)
-              .objectFit(ImageFit.Contain)
-              .shadow({ radius: 22, color: '#66000000', offsetY: 12 })
+            MedalRawfileImage({
+              assetName: this.frontAsset,
+              imgSize: 236,
+              imgOpacity: 1.0,
+              shadowRadius: 22,
+              shadowOffsetY: 12,
+              shadowColor: '#66000000'
+            })
           } else {
             Stack({ alignContent: Alignment.Center }) {
-              Image($rawfile(`community_medals/${this.backAsset}`))
-                .width(236)
-                .height(236)
-                .objectFit(ImageFit.Contain)
-                .shadow({ radius: 22, color: '#66000000', offsetY: 12 })
+              MedalRawfileImage({
+                assetName: this.backAsset,
+                imgSize: 236,
+                imgOpacity: 1.0,
+                shadowRadius: 22,
+                shadowOffsetY: 12,
+                shadowColor: '#66000000'
+              })
               Canvas(this.backCanvasCtx)
                 .width(240)
                 .height(240)
@@ -162,7 +243,7 @@ export struct CommunityMedal3DComponent {
 @Component
 export struct NativeCommunityMedalsWidget {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
-  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @Prop githubLogin: string = 'MoviePilot';
   @Prop earnedCount: number = 0;
   @Prop totalCount: number = 7;
@@ -192,12 +273,14 @@ export struct NativeCommunityMedalsWidget {
           ForEach(this.medals, (medal: MpCommunityMedal) => {
             GridItem() {
               Column({ space: 4 }) {
-                Image($rawfile(`community_medals/${medal.badgeAsset}`))
-                  .width(62)
-                  .height(62)
-                  .objectFit(ImageFit.Contain)
-                  .opacity(medal.earned ? 1.0 : 0.32)
-                  .shadow({ radius: 10, color: '#45000000', offsetY: 5 })
+                MedalRawfileImage({
+                  assetName: medal.badgeAsset,
+                  imgSize: 62,
+                  imgOpacity: medal.earned ? 1.0 : 0.32,
+                  shadowRadius: 10,
+                  shadowOffsetY: 5,
+                  shadowColor: '#45000000'
+                })
                 Text(medal.title)
                   .fontSize(10)
                   .fontWeight(FontWeight.Medium)

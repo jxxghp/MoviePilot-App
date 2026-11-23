@@ -3,7 +3,8 @@ import {
   MpMediaItem,
   MpCastMember,
   MpSeasonInfo,
-  MpPersonDetail
+  MpPersonDetail,
+  MpRemoteImage
 } from '@moviepilot/core_rust_bridge';
 import {
   CinematicPanel,
@@ -73,10 +74,12 @@ export struct HarmonyMediaDetailPage {
           // 全幅主视觉
           Stack({ alignContent: Alignment.BottomStart }) {
             if (this.item.backdropUrl || this.item.posterUrl) {
-              Image(this.item.backdropUrl || this.item.posterUrl)
-                .width('100%')
-                .height(380)
-                .objectFit(ImageFit.Cover)
+              MpRemoteImage({
+                src: this.item.backdropUrl || this.item.posterUrl,
+                imgWidth: '100%',
+                imgHeight: 380,
+                placeholderColor: HarmonyThemeColors.card(this.isDark)
+              })
             } else {
               Column()
                 .width('100%')
@@ -115,24 +118,62 @@ export struct HarmonyMediaDetailPage {
             .padding(20)
           }
 
-          // 操作按钮（主操作品牌强调色 + 动态光感次操作）
-          Row({ space: 10 }) {
-            Button(this.subscribed ? '已订阅 ✓' : '添加订阅')
-              .layoutWeight(1)
-              .height(48)
-              .borderRadius(24)
-              .backgroundColor(this.subscribed ? '#52C41A' : this.accentHex)
-              .fontColor(Color.White)
-              .fontWeight(FontWeight.Medium)
-              .onClick(() => this.triggerSubscribe())
-            Button('搜索资源')
-              .layoutWeight(1)
-              .height(48)
-              .borderRadius(24)
-              .backgroundColor(Color.Transparent)
-              .fontColor(mpPrimaryText(this.isDark))
-              .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 24, this.accentHex, true, this.dynamicLight))
-              .onClick(() => this.onSearchResource(this.item.title))
+          // 操作按钮（已入库时提供「立即播放」+ 订阅/搜索资源）
+          Column({ space: 10 }) {
+            if (this.item.inLibrary || this.item.playUrl.length > 0) {
+              Button('立即播放')
+                .width('100%')
+                .height(48)
+                .borderRadius(24)
+                .backgroundColor(this.accentHex)
+                .fontColor(Color.White)
+                .fontWeight(FontWeight.Bold)
+                .onClick(async () => {
+                  try {
+                    const manifest = await MoviePilotRepository.shared().fetchVideoStreamInfo(this.item.id, this.item.serverName);
+                    if (manifest && manifest.contentUrl.length > 0) {
+                      this.onPlayMedia({
+                        url: manifest.contentUrl,
+                        title: manifest.title || this.item.title,
+                        subtitle: this.item.subtitle || this.item.year,
+                        isAudio: manifest.mediaType === 'audio'
+                      });
+                      return;
+                    }
+                  } catch {
+                    // fallback to item.playUrl
+                  }
+                  if (this.item.playUrl.length > 0) {
+                    this.onPlayMedia({
+                      url: this.item.playUrl,
+                      title: this.item.title,
+                      subtitle: this.item.year,
+                      isAudio: false
+                    });
+                  } else {
+                    this.statusMsg = '暂未获取到媒体服务器直连播放地址';
+                  }
+                })
+            }
+
+            Row({ space: 10 }) {
+              Button(this.subscribed ? '已订阅 ✓' : '添加订阅')
+                .layoutWeight(1)
+                .height(46)
+                .borderRadius(23)
+                .backgroundColor(this.subscribed ? '#34C759' : (this.item.inLibrary ? HarmonyThemeColors.chipFill(this.isDark) : this.accentHex))
+                .fontColor(this.subscribed || !this.item.inLibrary ? Color.White : mpPrimaryText(this.isDark))
+                .fontWeight(FontWeight.Medium)
+                .onClick(() => this.triggerSubscribe())
+              Button('搜索资源')
+                .layoutWeight(1)
+                .height(46)
+                .borderRadius(23)
+                .backgroundColor(Color.Transparent)
+                .fontColor(mpPrimaryText(this.isDark))
+                .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 23, this.accentHex, true, this.dynamicLight))
+                .onClick(() => this.onSearchResource(this.item.title))
+            }
           }
           .padding({ left: 16, right: 16 })
 
@@ -170,12 +211,13 @@ export struct HarmonyMediaDetailPage {
                 Row({ space: 12 }) {
                   ForEach(this.seasons, (s: MpSeasonInfo) => {
                     Column({ space: 6 }) {
-                      Image(s.posterUrl || this.item.posterUrl)
-                        .width(108)
-                        .height(156)
-                        .borderRadius(12)
-                        .objectFit(ImageFit.Cover)
-                        .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                      MpRemoteImage({
+                        src: s.posterUrl || this.item.posterUrl,
+                        imgWidth: 108,
+                        imgHeight: 156,
+                        imgRadius: 12,
+                        placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                      })
                       Text(s.name).fontSize(13).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark)).maxLines(1).width(108)
                       Text(`共 ${s.episodeCount} 集`).fontSize(11).fontColor(mpSecondaryText(this.isDark)).width(108)
                     }
@@ -204,12 +246,13 @@ export struct HarmonyMediaDetailPage {
                   ForEach(this.cast, (c: MpCastMember) => {
                     Column({ space: 5 }) {
                       if (c.profileUrl.length > 0) {
-                        Image(c.profileUrl)
-                          .width(66)
-                          .height(66)
-                          .borderRadius(33)
-                          .objectFit(ImageFit.Cover)
-                          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                        MpRemoteImage({
+                          src: c.profileUrl,
+                          imgWidth: 66,
+                          imgHeight: 66,
+                          imgRadius: 33,
+                          placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                        })
                       } else {
                         Text(c.name.substring(0, 1))
                           .width(66)
@@ -327,12 +370,13 @@ export struct HarmonyPersonDetailPage {
           CinematicPanel({ panelPadding: 16, cornerRadius: 20 }) {
             Row({ space: 14 }) {
               if ((this.detail && this.detail.profileUrl.length > 0) || this.person.profileUrl.length > 0) {
-                Image(this.detail && this.detail.profileUrl.length > 0 ? this.detail.profileUrl : this.person.profileUrl)
-                  .width(76)
-                  .height(76)
-                  .borderRadius(38)
-                  .objectFit(ImageFit.Cover)
-                  .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                MpRemoteImage({
+                  src: this.detail && this.detail.profileUrl.length > 0 ? this.detail.profileUrl : this.person.profileUrl,
+                  imgWidth: 76,
+                  imgHeight: 76,
+                  imgRadius: 38,
+                  placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                })
               } else {
                 Text((this.person.name || '演').substring(0, 1))
                   .width(76).height(76).borderRadius(38).textAlign(TextAlign.Center)
@@ -378,12 +422,13 @@ export struct HarmonyPersonDetailPage {
                 GridItem() {
                   Column({ space: 5 }) {
                     if (it.posterUrl.length > 0) {
-                      Image(it.posterUrl)
-                        .width('100%')
-                        .aspectRatio(0.67)
-                        .borderRadius(12)
-                        .objectFit(ImageFit.Cover)
-                        .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                      MpRemoteImage({
+                        src: it.posterUrl,
+                        imgWidth: '100%',
+                        imgAspectRatio: 0.67,
+                        imgRadius: 12,
+                        placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                      })
                     } else {
                       Column()
                         .width('100%')

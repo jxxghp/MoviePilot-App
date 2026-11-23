@@ -3,7 +3,78 @@
 本图册按平台目录归档真机/模拟器运行验收截图：
 - `screenshots/ios/`：iOS 26 模拟器（iPhone 17）60 张黄金验收图
 - `screenshots/android/`：Android 15（API 35 ARM64 硬件 GPU 模拟器）34 张 **Material 3 Expressive** 真实后端实测验收图
-- `screenshots/harmony/`：HarmonyOS NEXT / HarmonyOS 7（已完成 HarmonyOS 原生交互与一多自适应重设计、HarmonyOS 7 `uiMaterial.ImmersiveMaterial` 动态光感与低版本自动回退、Vue 联邦协议接管，以及 Rust OHOS NAPI 动态库与 16 模块 `entry-default-unsigned.hap` 零报错编译及 `verify-hap.py` 校验；待 DevEco Studio Device Manager 下载 `HarmonyOS-7.0.1-B1` 系统镜像后补齐真机/模拟器截图）
+- `screenshots/harmony/`：HarmonyOS 7（API 26，`Mate 90 Pro` ARM64 模拟器）40 张 **HarmonyOS 7 动态光感（`uiMaterial.ImmersiveMaterial` · 旗舰光感）** 真实后端实测验收图
+
+---
+
+## HarmonyOS 7（ArkUI + 动态光感 + Rust 核心 · Mate 90 Pro API 26 实测验收）
+
+以下全部 40 张截图采集自 HarmonyOS 7.0.0（API 26，`Mate 90 Pro` 模拟器）直连真实 MoviePilot V3 后端实例运行界面：
+- **鸿蒙专属视觉与动态光感体系**：沿用 iOS 级空间节奏的圆角悬浮一体式 5 Tab 导航栏（图标与文字联合胶囊高亮）、顶部左右悬浮动态光感圆形按钮、以及 `.bindSheet` 半模态弹窗；色彩与主题完全遵循 HarmonyOS 风格（5 套鸿蒙色板，默认 **鸿蒙智蓝 `#317AF7` / `#0A59F7`**，支持 **AMOLED 纯黑**、**HarmonyOS 7 `uiMaterial.ImmersiveMaterial` 动态光感** 及 HarmonyOS 6 点光源 / HarmonyOS 5 分层材质自动回退）；
+- **全量 iOS 1:1 功能与交互纠偏拉齐**：带 Cookie 鉴权的 `MpRemoteImage` 缓存加载器、全屏边到边沉浸式 Hero、发现 10 大模块 + 发现/我的双端自定义模块开关排序、Emby 媒体库无遮挡封面 + 右上角数量角标 + 独立大胶囊分页浏览、全局搜索顶部热搜、简洁订阅卡片 + 全量订阅编辑器、4 组清晰业务域「更多」中心、独立单用途系统诊断与 5 类动态提示词表、站点资源多选站点与多维筛选、站点/下载器/媒体服务器/目录完整增删改、全量手动识别整理（自动匹配目标路径与历史记录）、7/7 雕塑级 3D 社区勋章与背面凹雕；
+- **完整插件与 AI 智能助手生态**：插件中心与详情统一大胶囊分页（`数据页` / `参数配置`）、自动过滤 `<style>` 原始样式、Vue 模块联邦接管，以及直连真实 `/api/v1/message/agent/*` 的 AI 智能助手（30 条真实历史会话切换与删除、24 项工具调用分组折叠卡、Markdown 渲染、图文/文件/录音上传与斜杠命令）。
+
+### 桌面图标、连接登录、发现、媒体库与探索
+
+| HarmonyOS 桌面图标 | 连接服务 | 账号登录 |
+| :---: | :---: | :---: |
+| ![HarmonyOS桌面图标](harmony/00-launcher-icon.jpg) | ![HarmonyOS连接服务](harmony/01-connect.jpg) | ![HarmonyOS账号登录](harmony/02-login.jpg) |
+
+| 发现首页（全屏 Hero + 悬浮动态光感底栏） | 发现滚动（热门电影 + 剧集 + 磨砂顶栏） | 无遮挡 Emby 媒体库 + 分类浏览 |
+| :---: | :---: | :---: |
+| ![HarmonyOS发现首页](harmony/03-discover-hero.jpg) | ![HarmonyOS发现滚动](harmony/04-discover-shelves.jpg) | ![HarmonyOS媒体库与分类](harmony/05-discover-libraries-categories.jpg) |
+
+| 编辑发现模块（10 模块开关排序） | Emby 媒体库独立浏览（大胶囊分页） | 全局搜索（顶部热搜词） |
+| :---: | :---: | :---: |
+| ![HarmonyOS编辑发现模块](harmony/06-discover-customize.jpg) | ![HarmonyOS媒体库浏览](harmony/07-media-library-browser.jpg) | ![HarmonyOS全局搜索](harmony/08-global-search.jpg) |
+
+| 探索片库（多源筛选网格） | 音乐探索（1:1 专辑封面网格） | 媒体详情（沉浸主视觉） |
+| :---: | :---: | :---: |
+| ![HarmonyOS探索片库](harmony/09-explore-movies.jpg) | ![HarmonyOS音乐探索](harmony/10-explore-music.jpg) | ![HarmonyOS媒体详情](harmony/11-media-detail.jpg) |
+
+### 订阅、更多工具中心、站点资源、文件与手动整理
+
+| 订阅列表（简洁操作行） | 全量订阅编辑器 | 更多中心（资源与媒体流转） |
+| :---: | :---: | :---: |
+| ![HarmonyOS订阅列表](harmony/12-subscribe-list.jpg) | ![HarmonyOS订阅编辑](harmony/13-subscribe-editor.jpg) | ![HarmonyOS更多上半部](harmony/14-more-hub-top.jpg) |
+
+| 更多中心（插件、追剧与系统诊断） | 站点资源（明确排序与全部筛选） | 站点资源多维筛选弹窗 |
+| :---: | :---: | :---: |
+| ![HarmonyOS更多下半部](harmony/15-more-hub-lower.jpg) | ![HarmonyOS站点资源](harmony/16-site-resources.jpg) | ![HarmonyOS站点筛选](harmony/17-site-resources-filter.jpg) |
+
+| 站点资源多选搜索站点 | 站点管理（新增/编辑/流量比） | 多存储文件管理 |
+| :---: | :---: | :---: |
+| ![HarmonyOS多选站点](harmony/18-site-resources-sites.jpg) | ![HarmonyOS站点管理](harmony/19-sites-management.jpg) | ![HarmonyOS文件管理](harmony/20-file-manager.jpg) |
+
+| 整理历史 | 全量手动识别整理（自动匹配路径与历史） | 插件中心（大胶囊分页） |
+| :---: | :---: | :---: |
+| ![HarmonyOS整理历史](harmony/21-transfer-history.jpg) | ![HarmonyOS手动整理](harmony/22-manual-transfer.jpg) | ![HarmonyOS插件中心](harmony/23-plugins-center.jpg) |
+
+| 插件配置表单（原生渲染） | 插件数据页（大胶囊切换 + CSS 过滤） | |
+| :---: | :---: | :---: |
+| ![HarmonyOS插件配置](harmony/24-plugin-config-form.jpg) | ![HarmonyOS插件数据页](harmony/25-plugin-data-page.jpg) | |
+
+### 我的仪表盘、3D 勋章、捷径词表、设置与 AI 智能助手
+
+| 我的仪表盘（实时统计 + 存储环） | 社区勋章（7/7 解锁）+ 内存占用 | 3D 雕塑社区勋章检视 |
+| :---: | :---: | :---: |
+| ![HarmonyOS仪表盘](harmony/26-dashboard-top.jpg) | ![HarmonyOS勋章与内存](harmony/27-dashboard-medals-memory.jpg) | ![HarmonyOS3D勋章](harmony/28-dashboard-3d-medal.jpg) |
+
+| ⚡ 快捷工具弹窗 | 编辑我的模块（8 模块开关排序） | 词表管理（识别词动态提示） |
+| :---: | :---: | :---: |
+| ![HarmonyOS快捷工具](harmony/29-dashboard-shortcuts.jpg) | ![HarmonyOS编辑我的模块](harmony/30-dashboard-customize.jpg) | ![HarmonyOS词表识别词](harmony/31-words-identify.jpg) |
+
+| 词表管理（制作组动态示例切换） | 设置中心（实时计数 + 鸿蒙分组） | 主题与外观（5 套鸿蒙色板 + 旗舰光感） |
+| :---: | :---: | :---: |
+| ![HarmonyOS词表制作组](harmony/32-words-release-group.jpg) | ![HarmonyOS设置中心](harmony/33-settings-hub.jpg) | ![HarmonyOS主题外观](harmony/34-harmony-theme-studio.jpg) |
+
+| 下载器配置列表 | 下载器编辑与删除 | AI 智能助手（24 项工具折叠卡 + Markdown） |
+| :---: | :---: | :---: |
+| ![HarmonyOS下载器列表](harmony/35-downloaders-list.jpg) | ![HarmonyOS下载器编辑](harmony/36-downloader-editor.jpg) | ![HarmonyOS智能助手](harmony/37-agent-chat.jpg) |
+
+| AI 历史会话（30 条真实会话） | AI 附件与斜杠命令弹窗 | |
+| :---: | :---: | :---: |
+| ![HarmonyOSAI历史会话](harmony/38-agent-history-sessions.jpg) | ![HarmonyOSAI附件命令](harmony/39-agent-attach-commands.jpg) | |
 
 ---
 

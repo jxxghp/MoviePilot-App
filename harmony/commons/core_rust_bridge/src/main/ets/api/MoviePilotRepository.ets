@@ -1,5 +1,5 @@
 import { RustCoreBridge } from '../bridge/RustCoreBridge';
-import { NativeRcpTransport, NativeHttpResponse } from '../network/NativeRcpTransport';
+import { NativeRcpTransport, NativeHttpResponse, SseEventChunk } from '../network/NativeRcpTransport';
 
 export interface MpLoginResult {
   success: boolean;
@@ -103,6 +103,19 @@ export interface MpSubscribeItem {
   savePath: string;
   quality: string;
   resolution: string;
+  effect?: string;
+  bestVersion?: boolean;
+  startEpisode?: number;
+  episodeGroup?: string;
+  downloader?: string;
+  sites?: number[];
+  filterGroups?: string[];
+  include?: string;
+  exclude?: string;
+  customWords?: string;
+  searchImdbid?: boolean;
+  interval?: number;
+  rawJson?: string;
 }
 
 export interface MpSiteItem {
@@ -118,6 +131,13 @@ export interface MpSiteItem {
   seedingSizeBytes: number;
   bonus: number;
   iconDataUri: string;
+  priority?: number;
+  rss?: string;
+  cookie?: string;
+  ua?: string;
+  proxy?: boolean;
+  render?: boolean;
+  rawJson?: string;
 }
 
 export interface MpResourceItem {
@@ -133,6 +153,9 @@ export interface MpResourceItem {
   volumeFactor: string;
   enclosure: string;
   pageUrl: string;
+  siteId?: number;
+  pubdate?: string;
+  rawJson?: string;
 }
 
 export interface MpDownloadTask {
@@ -221,6 +244,7 @@ export interface MpMediaServerLibrary {
   type: string;
   serverName: string;
   imageUrl: string;
+  itemCount?: number;
 }
 
 export interface MpSubscribeShareItem {
@@ -259,6 +283,161 @@ export interface MpSimpleSettingItem {
   type: string;
   enabled: boolean;
   detail: string;
+}
+
+export interface MpMusicAlbum {
+  id: string;
+  title: string;
+  artist: string;
+  year: string;
+  coverUrl: string;
+  rating: number;
+  source: string;
+}
+
+export interface MpServiceConfig {
+  name: string;
+  type: string;
+  host: string;
+  username: string;
+  password: string;
+  apikey: string;
+  playHost: string;
+  enabled: boolean;
+  isDefault: boolean;
+  rawJson: string;
+}
+
+export interface MpDirectoryConfig {
+  name: string;
+  priority: number;
+  storage: string;
+  downloadPath: string;
+  libraryStorage: string;
+  libraryPath: string;
+  transferType: string;
+  monitorType: string;
+  renaming: boolean;
+  scraping: boolean;
+  notify: boolean;
+  rawJson: string;
+}
+
+export interface MpStorageConfig {
+  name: string;
+  type: string;
+}
+
+export interface MpFilterRuleGroup {
+  name: string;
+  ruleString: string;
+}
+
+export interface MpVideoStreamInfo {
+  itemId: string;
+  server: string;
+  title: string;
+  contentUrl: string;
+  mediaType: string;
+  resumePositionMs: number;
+}
+
+export interface MpManualTransferTargetHint {
+  targetStorage: string;
+  targetPath: string;
+  transferType: string;
+  overwriteMode: string;
+}
+
+export interface MpManualTransferHistoryHint {
+  historyCount: number;
+  reorganize: boolean;
+}
+
+export interface MpManualTransferPreviewItem {
+  src: string;
+  dest: string;
+  title: string;
+  status: string;
+}
+
+export interface MpManualTransferResult {
+  success: boolean;
+  message: string;
+  previewItems: MpManualTransferPreviewItem[];
+}
+
+export interface MpAgentCommand {
+  command: string;
+  description: string;
+}
+
+export interface MpAgentSessionSummary {
+  sessionId: string;
+  title: string;
+  messageCount: number;
+  updatedAt: string;
+}
+
+export interface MpAgentToolEntry {
+  id: string;
+  name: string;
+  status: string;
+  summary: string;
+  detail: string;
+}
+
+export interface MpAgentAttachment {
+  id: string;
+  name: string;
+  kind: string;
+  mimeType: string;
+  url: string;
+  sizeBytes: number;
+}
+
+export interface MpAgentChoiceButton {
+  label: string;
+  value: string;
+  callbackData: string;
+}
+
+export interface MpAgentChoiceCard {
+  title: string;
+  prompt: string;
+  buttons: MpAgentChoiceButton[];
+}
+
+export interface MpAgentChatMessage {
+  id: string;
+  role: string;
+  content: string;
+  tools: MpAgentToolEntry[];
+  attachments: MpAgentAttachment[];
+  choices: MpAgentChoiceCard[];
+  timestamp: string;
+}
+
+export interface MpNetworkCheckItem {
+  name: string;
+  ok: boolean;
+  latencyMs: number;
+  detail: string;
+}
+
+export interface MpRecognizeResult {
+  title: string;
+  enTitle: string;
+  year: string;
+  type: string;
+  season: string;
+  episode: string;
+  resolution: string;
+  videoEncode: string;
+  releaseGroup: string;
+  tmdbId: string;
+  posterUrl: string;
+  overview: string;
 }
 
 interface SubscribeCreateBody {
@@ -407,25 +586,26 @@ export class MoviePilotRepository {
   /** 将 TMDB/豆瓣/Bangumi/媒体服务器/本地相对路径解析为可靠可加载图片 URL（自动走 MoviePilot 图片代理）。 */
   resolveImageUrl(rawPath: string, useCookies: boolean = false): string {
     const clean = rawPath.trim();
-    if (!clean) { return ''; }
+    if (!clean || clean.toLowerCase() === 'null' || clean.toLowerCase() === 'none') { return ''; }
     if (clean.startsWith('data:image/')) { return clean; }
     if (!this.baseUrl) { return clean; }
     if (clean.startsWith(this.baseUrl)) { return clean; }
     if (clean.startsWith('/api/')) {
       return `${this.baseUrl}${clean}`;
     }
-    const cookieFlag = useCookies ? '1' : '0';
-    if (clean.startsWith('/')) {
-      const tmdbFull = `https://image.tmdb.org/t/p/w500${clean}`;
-      return `${this.baseUrl}/api/v1/system/img/${cookieFlag}?imgurl=${encodeURIComponent(tmdbFull)}`;
+    const normalized = clean.replace('image.tmdb.org/t/p/original/', 'image.tmdb.org/t/p/w780/');
+    const cookieQuery = useCookies ? '&use_cookies=true' : '';
+    if (normalized.startsWith('/')) {
+      const tmdbFull = `https://image.tmdb.org/t/p/w500${normalized}`;
+      return `${this.baseUrl}/api/v1/system/img/0?imgurl=${encodeURIComponent(tmdbFull)}&cache=true${cookieQuery}`;
     }
-    if (clean.startsWith('http://') || clean.startsWith('https://')) {
-      if (clean.includes('127.0.0.1') || clean.includes('localhost')) {
-        return clean;
+    if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+      if (normalized.includes('127.0.0.1') || normalized.includes('localhost')) {
+        return normalized;
       }
-      return `${this.baseUrl}/api/v1/system/img/${cookieFlag}?imgurl=${encodeURIComponent(clean)}`;
+      return `${this.baseUrl}/api/v1/system/img/0?imgurl=${encodeURIComponent(normalized)}&cache=true${cookieQuery}`;
     }
-    return `${this.baseUrl}/${clean}`;
+    return `${this.baseUrl}/${normalized}`;
   }
 
   async get(segments: string[], query: Record<string, string> = {}, trailingSlash: boolean = false): Promise<NativeHttpResponse> {
@@ -438,9 +618,19 @@ export class MoviePilotRepository {
     return this.transport.execute(url, 'POST', this.token, payload, 'application/json');
   }
 
+  async postJsonQuery(segments: string[], query: Record<string, string>, payload: string, trailingSlash: boolean = false): Promise<NativeHttpResponse> {
+    const url = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, segments, query, trailingSlash);
+    return this.transport.execute(url, 'POST', this.token, payload, 'application/json');
+  }
+
   async putJson(segments: string[], payload: string, trailingSlash: boolean = false): Promise<NativeHttpResponse> {
     const url = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, segments, {}, trailingSlash);
     return this.transport.execute(url, 'PUT', this.token, payload, 'application/json');
+  }
+
+  async deleteReq(segments: string[], query: Record<string, string> = {}, trailingSlash: boolean = false): Promise<NativeHttpResponse> {
+    const url = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, segments, query, trailingSlash);
+    return this.transport.execute(url, 'DELETE', this.token);
   }
 
   /** 登录并预热当前用户头像与服务端 Session Cookie。 */
@@ -555,31 +745,71 @@ export class MoviePilotRepository {
     return out;
   }
 
+  private cachedMediaServers: string[] = [];
+
+  async fetchMediaServerClients(): Promise<string[]> {
+    if (this.cachedMediaServers.length > 0) {
+      return this.cachedMediaServers;
+    }
+    const resp = await this.get(['mediaserver', 'clients']);
+    const out: string[] = [];
+    if (resp.status === 200) {
+      const arr = unwrapArray(parseJsonSafe(resp.body));
+      for (let i = 0; i < arr.length; i++) {
+        const r = asRec(arr[i]);
+        const name = strVal(r, 'name');
+        if (name.length > 0) { out.push(name); }
+      }
+    }
+    if (out.length === 0) {
+      const cfg = await this.fetchMediaServers();
+      for (let i = 0; i < cfg.length; i++) {
+        if (cfg[i].enabled && cfg[i].name.length > 0) {
+          out.push(cfg[i].name);
+        }
+      }
+    }
+    this.cachedMediaServers = out;
+    return out;
+  }
+
   async fetchContinueWatching(): Promise<MpMediaItem[]> {
-    const resp = await this.get(['mediaserver', 'playing']);
-    if (resp.status !== 200) { return []; }
-    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const servers = await this.fetchMediaServerClients();
     const out: MpMediaItem[] = [];
-    for (let i = 0; i < arr.length; i++) {
-      const it = this.parseMediaItem(arr[i], 'mediaserver');
-      if (it) {
-        it.inLibrary = true;
-        out.push(it);
+    for (let s = 0; s < servers.length; s++) {
+      const q: Record<string, string> = {};
+      q['server'] = servers[s];
+      const resp = await this.get(['mediaserver', 'playing'], q);
+      if (resp.status !== 200) { continue; }
+      const arr = unwrapArray(parseJsonSafe(resp.body));
+      for (let i = 0; i < arr.length; i++) {
+        const it = this.parseMediaItem(arr[i], 'mediaserver');
+        if (it) {
+          it.inLibrary = true;
+          if (!it.serverName) { it.serverName = servers[s]; }
+          out.push(it);
+        }
       }
     }
     return out;
   }
 
   async fetchRecentlyAdded(): Promise<MpMediaItem[]> {
-    const resp = await this.get(['mediaserver', 'latest']);
-    if (resp.status !== 200) { return []; }
-    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const servers = await this.fetchMediaServerClients();
     const out: MpMediaItem[] = [];
-    for (let i = 0; i < arr.length; i++) {
-      const it = this.parseMediaItem(arr[i], 'mediaserver');
-      if (it) {
-        it.inLibrary = true;
-        out.push(it);
+    for (let s = 0; s < servers.length; s++) {
+      const q: Record<string, string> = {};
+      q['server'] = servers[s];
+      const resp = await this.get(['mediaserver', 'latest'], q);
+      if (resp.status !== 200) { continue; }
+      const arr = unwrapArray(parseJsonSafe(resp.body));
+      for (let i = 0; i < arr.length; i++) {
+        const it = this.parseMediaItem(arr[i], 'mediaserver');
+        if (it) {
+          it.inLibrary = true;
+          if (!it.serverName) { it.serverName = servers[s]; }
+          out.push(it);
+        }
       }
     }
     return out;
@@ -720,11 +950,19 @@ export class MoviePilotRepository {
       stats.downloadSize = numVal(dl, 'download_size');
       stats.uploadSize = numVal(dl, 'upload_size');
     }
-    const mem = parseJsonSafe(results[3].body);
-    if (Array.isArray(mem) && (mem as Object[]).length >= 2) {
-      const mArr = mem as Object[];
+    const memParsed = parseJsonSafe(results[3].body);
+    if (Array.isArray(memParsed) && (memParsed as Object[]).length >= 2) {
+      const mArr = memParsed as Object[];
       stats.memoryUsedBytes = Number(mArr[0]) || 0;
       stats.memoryPercent = Number(mArr[1]) || 0;
+    } else {
+      const memObj = unwrapObject(memParsed);
+      if (memObj) {
+        stats.memoryUsedBytes = numVal(memObj, 'used', numVal(memObj, 'memory_used', 0));
+        const total = numVal(memObj, 'total', 0);
+        const pct = numVal(memObj, 'usage', total > 0 ? (stats.memoryUsedBytes / total) * 100 : 0);
+        stats.memoryPercent = pct;
+      }
     }
     const tr = unwrapArray(parseJsonSafe(results[4].body));
     const counts: number[] = [];
@@ -745,7 +983,10 @@ export class MoviePilotRepository {
     const root = unwrapObject(parseJsonSafe(resp.body));
     if (!root) { return out; }
     const userRec = asRec(root['user']);
-    if (userRec) {
+    const topLogin = strVal(root, 'login');
+    if (topLogin.length > 0) {
+      out.githubLogin = topLogin;
+    } else if (userRec) {
       out.githubLogin = strVal(userRec, 'login', out.githubLogin);
     }
     const rawMedals = asArr(root['medals']);
@@ -753,8 +994,13 @@ export class MoviePilotRepository {
     for (let i = 0; i < rawMedals.length; i++) {
       const m = asRec(rawMedals[i]);
       if (!m) { continue; }
-      const id = strVal(m, 'id');
-      const earned = boolVal(m, 'earned', false);
+      const id = strVal(m, 'key') || strVal(m, 'id') || strVal(m, 'code');
+      if (!id) { continue; }
+      const hasAt = strVal(m, 'at').length > 0 || strVal(m, 'earned_at').length > 0;
+      const basis = strVal(m, 'basis');
+      const earned = m['earned'] !== undefined
+        ? boolVal(m, 'earned', false)
+        : (hasAt || basis === 'reached' || basis === 'recognized');
       const tier = Math.max(1, Math.min(4, numVal(m, 'tier', 1)));
       const isTiered = id === 'code' || id === 'plugin';
       const frontAsset = isTiered ? `${id}-front-t${tier}.webp` : `${id}-front.webp`;
@@ -770,7 +1016,7 @@ export class MoviePilotRepository {
       titleMap['pioneer'] = '社区先驱';
       const title = strVal(m, 'name') || strVal(m, 'title') || (titleMap[id] ?? id);
       const sub = strVal(m, 'description') || strVal(m, 'tier_label') || (isTiered ? `Tier ${tier}` : '荣耀勋章');
-      const dateStr = strVal(m, 'earned_at') || strVal(m, 'date') || '2026-11';
+      const dateStr = strVal(m, 'at') || strVal(m, 'earned_at') || strVal(m, 'date') || '2026-11';
       medals.push({
         id: id,
         title: title,
@@ -799,6 +1045,18 @@ export class MoviePilotRepository {
     for (let i = 0; i < arr.length; i++) {
       const r = asRec(arr[i]);
       if (!r) { continue; }
+      const rawSites = asArr(r['sites']);
+      const siteIds: number[] = [];
+      for (let j = 0; j < rawSites.length; j++) {
+        const sid = Number(rawSites[j]);
+        if (Number.isFinite(sid) && sid > 0) { siteIds.push(sid); }
+      }
+      const rawGroups = asArr(r['filter_groups']);
+      const groups: string[] = [];
+      for (let j = 0; j < rawGroups.length; j++) {
+        const g = String(rawGroups[j] ?? '').trim();
+        if (g.length > 0) { groups.push(g); }
+      }
       out.push({
         id: numVal(r, 'id'),
         name: strVal(r, 'name'),
@@ -814,7 +1072,20 @@ export class MoviePilotRepository {
         description: strVal(r, 'description'),
         savePath: strVal(r, 'save_path'),
         quality: strVal(r, 'quality'),
-        resolution: strVal(r, 'resolution')
+        resolution: strVal(r, 'resolution'),
+        effect: strVal(r, 'effect'),
+        bestVersion: boolVal(r, 'best_version', false),
+        startEpisode: numVal(r, 'start_episode', 0),
+        episodeGroup: strVal(r, 'episode_group'),
+        downloader: strVal(r, 'downloader'),
+        sites: siteIds,
+        filterGroups: groups,
+        include: strVal(r, 'include'),
+        exclude: strVal(r, 'exclude'),
+        customWords: strVal(r, 'custom_words'),
+        searchImdbid: boolVal(r, 'search_imdbid', false),
+        interval: numVal(r, 'interval', 0),
+        rawJson: JSON.stringify(r)
       });
     }
     return out;
@@ -860,7 +1131,14 @@ export class MoviePilotRepository {
         seeding: numVal(ud, 'seeding', 0),
         seedingSizeBytes: numVal(ud, 'seeding_size', 0),
         bonus: numVal(ud, 'bonus', 0),
-        iconDataUri: ''
+        iconDataUri: '',
+        priority: numVal(r, 'pri', i + 1),
+        rss: strVal(r, 'rss'),
+        cookie: strVal(r, 'cookie'),
+        ua: strVal(r, 'ua'),
+        proxy: boolVal(r, 'proxy', false),
+        render: boolVal(r, 'render', false),
+        rawJson: JSON.stringify(r)
       });
     }
     return out;
@@ -888,7 +1166,10 @@ export class MoviePilotRepository {
         videoEncode: strVal(mi, 'video_encode'),
         volumeFactor: strVal(ti, 'volume_factor'),
         enclosure: strVal(ti, 'enclosure'),
-        pageUrl: strVal(ti, 'page_url')
+        pageUrl: strVal(ti, 'page_url'),
+        siteId: Math.round(numVal(ti, 'site', 0)),
+        pubdate: strVal(ti, 'pubdate'),
+        rawJson: JSON.stringify(r)
       });
     }
     return out;
@@ -1034,22 +1315,32 @@ export class MoviePilotRepository {
   }
 
   async fetchMediaServerLibraries(): Promise<MpMediaServerLibrary[]> {
-    const resp = await this.get(['mediaserver', 'library']);
-    if (resp.status !== 200) { return []; }
-    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const servers = await this.fetchMediaServerClients();
     const out: MpMediaServerLibrary[] = [];
-    for (let i = 0; i < arr.length; i++) {
-      const r = asRec(arr[i]);
-      if (!r) { continue; }
-      const useCookies = boolVal(r, 'use_cookies', false);
-      const rawImg = strVal(r, 'image') || strVal(r, 'poster') || strVal(r, 'thumb');
-      out.push({
-        id: strVal(r, 'id', String(i)),
-        name: strVal(r, 'name', '媒体库'),
-        type: strVal(r, 'type', 'movie'),
-        serverName: strVal(r, 'server'),
-        imageUrl: this.resolveImageUrl(rawImg, useCookies)
-      });
+    for (let s = 0; s < servers.length; s++) {
+      const q: Record<string, string> = {};
+      q['server'] = servers[s];
+      const resp = await this.get(['mediaserver', 'library'], q);
+      if (resp.status !== 200) { continue; }
+      const arr = unwrapArray(parseJsonSafe(resp.body));
+      for (let i = 0; i < arr.length; i++) {
+        const r = asRec(arr[i]);
+        if (!r) { continue; }
+        const useCookies = boolVal(r, 'use_cookies', false);
+        const imgList = asArr(r['image_list']);
+        const firstImg = imgList.length > 0 ? String(imgList[0] ?? '') : '';
+        const rawImg = strVal(r, 'image') || firstImg || strVal(r, 'poster') || strVal(r, 'thumb');
+        const rawCount = r['item_count'] ?? r['count'] ?? r['total'];
+        const parsedCount = rawCount !== undefined && rawCount !== null ? Number(rawCount) : -1;
+        out.push({
+          id: strVal(r, 'item_id') || strVal(r, 'id', String(i)),
+          name: strVal(r, 'name', '媒体库'),
+          type: strVal(r, 'type', 'movie'),
+          serverName: servers[s],
+          imageUrl: this.resolveImageUrl(rawImg, useCookies),
+          itemCount: Number.isFinite(parsedCount) && parsedCount >= 0 ? Math.round(parsedCount) : undefined
+        });
+      }
     }
     return out;
   }
@@ -1235,5 +1526,775 @@ export class MoviePilotRepository {
       });
     }
     return out;
+  }
+
+  /** 豆瓣正在热映与 Top250。 */
+  async fetchDoubanShowing(page: number = 1): Promise<MpMediaItem[]> {
+    return this.fetchRecommend('douban_showing', page);
+  }
+
+  async fetchDoubanTop250(page: number = 1): Promise<MpMediaItem[]> {
+    return this.fetchRecommend('douban_movie_top250', page);
+  }
+
+  /** 音乐榜单与专辑流（`douban` / `weekly` / `hot` / `new`）。 */
+  async fetchMusicFeed(feed: string = 'douban', page: number = 1): Promise<MpMusicAlbum[]> {
+    const q: Record<string, string> = {};
+    q['page'] = String(page);
+    let segs: string[] = ['recommend', 'music_douban'];
+    if (feed === 'weekly') {
+      segs = ['recommend', 'music_weekly'];
+    } else if (feed === 'hot') {
+      segs = ['music', 'explore'];
+      q['media_source'] = 'musicbrainz';
+      q['sort'] = 'popular';
+    } else if (feed === 'new') {
+      segs = ['music', 'explore'];
+      q['media_source'] = 'musicbrainz';
+      q['sort'] = 'latest';
+    }
+    const resp = await this.get(segs, q);
+    if (resp.status !== 200) { return []; }
+    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const out: MpMusicAlbum[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const r = asRec(arr[i]);
+      if (!r) { continue; }
+      const artistsArr = asArr(r['artists']);
+      const firstArtist = artistsArr.length > 0 ? String(artistsArr[0] ?? '') : '';
+      out.push({
+        id: strVal(r, 'media_id') || strVal(r, 'id') || strVal(r, 'douban_id') || `music_${i}`,
+        title: strVal(r, 'title') || strVal(r, 'name'),
+        artist: strVal(r, 'artist') || firstArtist || strVal(r, 'singer') || strVal(r, 'subtitle'),
+        year: strVal(r, 'year'),
+        coverUrl: this.resolveImageUrl(strVal(r, 'poster_path') || strVal(r, 'cover') || strVal(r, 'image')),
+        rating: numVal(r, 'vote_average', numVal(r, 'rating', 0)),
+        source: feed
+      });
+    }
+    return out;
+  }
+
+  /** 媒体库精细浏览（支持关键字、排序与类型过滤）。 */
+  async fetchMediaServerBrowseFiltered(
+    serverName: string,
+    libraryId: string,
+    keyword: string = '',
+    sortBy: string = 'DateCreated',
+    genre: string = '',
+    page: number = 1
+  ): Promise<MpMediaItem[]> {
+    const q: Record<string, string> = {};
+    if (serverName.length > 0) { q['server'] = serverName; }
+    if (libraryId.length > 0) { q['library_id'] = libraryId; }
+    if (keyword.trim().length > 0) { q['keyword'] = keyword.trim(); }
+    if (sortBy.length > 0) { q['sort_by'] = sortBy; }
+    if (genre.length > 0) { q['genre'] = genre; }
+    q['page'] = String(page);
+    q['count'] = '48';
+    const resp = await this.get(['mediaserver', 'browse'], q);
+    if (resp.status !== 200) { return []; }
+    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const out: MpMediaItem[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const it = this.parseMediaItem(arr[i], 'mediaserver');
+      if (it) {
+        it.inLibrary = true;
+        out.push(it);
+      }
+    }
+    return out;
+  }
+
+  /** 查询媒体播放流地址。 */
+  async fetchVideoStreamInfo(itemId: string, server: string = ''): Promise<MpVideoStreamInfo | null> {
+    if (!itemId) { return null; }
+    const q: Record<string, string> = {};
+    if (server.length > 0) { q['server'] = server; }
+    const resp = await this.get(['mediaserver', 'play', itemId], q);
+    if (resp.status !== 200) { return null; }
+    const r = unwrapObject(parseJsonSafe(resp.body));
+    if (!r) { return null; }
+    const rawUrl = strVal(r, 'url') || strVal(r, 'stream_url') || strVal(r, 'content_url');
+    if (!rawUrl) { return null; }
+    const fullUrl = rawUrl.startsWith('http://') || rawUrl.startsWith('https://')
+      ? rawUrl
+      : `${this.baseUrl}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`;
+    return {
+      itemId: strVal(r, 'item_id', itemId),
+      server: strVal(r, 'server', server),
+      title: strVal(r, 'title'),
+      contentUrl: fullUrl,
+      mediaType: strVal(r, 'media_type', 'video'),
+      resumePositionMs: Math.round(numVal(r, 'resume_position_ms', 0))
+    };
+  }
+
+  /** 无损保存/更新订阅规则（保留未编辑服务端字段）。 */
+  async saveSubscription(sub: MpSubscribeItem): Promise<boolean> {
+    let payloadObj: Record<string, Object> = {};
+    if (sub.rawJson && sub.rawJson.length > 2) {
+      const parsed = asRec(parseJsonSafe(sub.rawJson));
+      if (parsed) { payloadObj = parsed; }
+    }
+    payloadObj['id'] = sub.id;
+    payloadObj['name'] = sub.name;
+    payloadObj['year'] = sub.year;
+    payloadObj['type'] = sub.type;
+    payloadObj['state'] = sub.state;
+    payloadObj['quality'] = sub.quality;
+    payloadObj['resolution'] = sub.resolution;
+    payloadObj['effect'] = sub.effect ?? '';
+    payloadObj['best_version'] = sub.bestVersion ? 1 : 0;
+    payloadObj['save_path'] = sub.savePath;
+    if (sub.season > 0) { payloadObj['season'] = sub.season; }
+    if (sub.totalEpisode > 0) { payloadObj['total_episode'] = sub.totalEpisode; }
+    if ((sub.startEpisode ?? 0) > 0) { payloadObj['start_episode'] = sub.startEpisode ?? 0; }
+    if (sub.episodeGroup !== undefined) { payloadObj['episode_group'] = sub.episodeGroup; }
+    if (sub.downloader !== undefined) { payloadObj['downloader'] = sub.downloader; }
+    if (sub.sites !== undefined) { payloadObj['sites'] = sub.sites; }
+    if (sub.filterGroups !== undefined) { payloadObj['filter_groups'] = sub.filterGroups; }
+    if (sub.include !== undefined) { payloadObj['include'] = sub.include; }
+    if (sub.exclude !== undefined) { payloadObj['exclude'] = sub.exclude; }
+    if (sub.customWords !== undefined) { payloadObj['custom_words'] = sub.customWords; }
+    if (sub.searchImdbid !== undefined) { payloadObj['search_imdbid'] = sub.searchImdbid ? 1 : 0; }
+    if ((sub.interval ?? 0) > 0) { payloadObj['interval'] = sub.interval ?? 0; }
+    const resp = await this.putJson(['subscribe'], JSON.stringify(payloadObj), true);
+    return resp.status >= 200 && resp.status < 300;
+  }
+
+  /** 删除指定订阅。 */
+  async deleteSubscribe(subId: number): Promise<boolean> {
+    const resp = await this.deleteReq(['subscribe', String(subId)]);
+    return resp.status >= 200 && resp.status < 300;
+  }
+
+  /** 获取用户优先级规则组列表。 */
+  async fetchFilterRuleGroups(): Promise<MpFilterRuleGroup[]> {
+    const resp = await this.get(['system', 'setting', 'UserFilterRuleGroups']);
+    if (resp.status !== 200) { return []; }
+    const root = unwrapObject(parseJsonSafe(resp.body));
+    const arr = root ? asArr(root['value']) : [];
+    const out: MpFilterRuleGroup[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const r = asRec(arr[i]);
+      if (!r) { continue; }
+      const name = strVal(r, 'name');
+      if (name.length > 0) {
+        out.push({ name: name, ruleString: strVal(r, 'rule_string') });
+      }
+    }
+    return out;
+  }
+
+  /** 多站点资源搜索（支持关键词 + 多选站点 ID；留空返回最近搜索结果或站点浏览）。 */
+  async searchSiteResources(keyword: string, siteIds: number[] = []): Promise<MpResourceItem[]> {
+    const q: Record<string, string> = {};
+    if (keyword.trim().length > 0) { q['keyword'] = keyword.trim(); }
+    if (siteIds.length > 0) { q['sites'] = siteIds.join(','); }
+    let resp: NativeHttpResponse;
+    if (keyword.trim().length > 0) {
+      resp = await this.get(['search', 'title'], q);
+    } else if (siteIds.length === 1) {
+      resp = await this.get(['site', 'resource', String(siteIds[0])]);
+    } else {
+      resp = await this.get(['search', 'last']);
+    }
+    if (resp.status !== 200) { return []; }
+    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const out: MpResourceItem[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const r = asRec(arr[i]);
+      if (!r) { continue; }
+      const ti = asRec(r['torrent_info']) ?? r;
+      const mi = asRec(r['meta_info']);
+      const sid = Math.round(numVal(ti, 'site', 0));
+      if (siteIds.length > 1 && sid > 0 && !siteIds.includes(sid)) { continue; }
+      out.push({
+        title: strVal(ti, 'title') || strVal(r, 'title'),
+        description: strVal(ti, 'description'),
+        siteName: strVal(ti, 'site_name', '未知站点'),
+        sizeBytes: Math.round(numVal(ti, 'size', 0)),
+        seeders: Math.round(numVal(ti, 'seeders', 0)),
+        peers: Math.round(numVal(ti, 'peers', 0)),
+        resolution: strVal(mi, 'resource_pix') || strVal(ti, 'resource_pix'),
+        resourceType: strVal(mi, 'resource_type') || strVal(ti, 'resource_type'),
+        videoEncode: strVal(mi, 'video_encode'),
+        volumeFactor: strVal(ti, 'volume_factor'),
+        enclosure: strVal(ti, 'enclosure'),
+        pageUrl: strVal(ti, 'page_url'),
+        siteId: sid,
+        pubdate: strVal(ti, 'pubdate'),
+        rawJson: JSON.stringify(r)
+      });
+    }
+    return out;
+  }
+
+  /** 推送资源种子到指定下载器。 */
+  async pushDownload(item: MpResourceItem, downloader: string = '', savePath: string = ''): Promise<boolean> {
+    const bodyObj: Record<string, Object> = {};
+    if (item.rawJson && item.rawJson.length > 2) {
+      const rawRec = asRec(parseJsonSafe(item.rawJson));
+      if (rawRec) {
+        bodyObj['torrent_in'] = rawRec['torrent_info'] ?? rawRec;
+        if (rawRec['media_info']) { bodyObj['media_in'] = rawRec['media_info']; }
+      }
+    }
+    if (!bodyObj['torrent_in']) {
+      const tInfo: Record<string, Object> = {};
+      tInfo['title'] = item.title;
+      tInfo['enclosure'] = item.enclosure;
+      tInfo['page_url'] = item.pageUrl;
+      tInfo['size'] = item.sizeBytes;
+      tInfo['site_name'] = item.siteName;
+      bodyObj['torrent_in'] = tInfo;
+    }
+    if (downloader.length > 0) { bodyObj['downloader'] = downloader; }
+    if (savePath.trim().length > 0) { bodyObj['save_path'] = savePath.trim(); }
+    const resp = await this.postJson(['download', 'add'], JSON.stringify(bodyObj));
+    return resp.status >= 200 && resp.status < 300;
+  }
+
+  /** 暂停或恢复下载任务。 */
+  async toggleDownloadTask(hash: string, downloader: string, pause: boolean): Promise<boolean> {
+    const q: Record<string, string> = {};
+    if (downloader.length > 0) { q['name'] = downloader; }
+    const seg = pause ? ['download', 'stop', hash] : ['download', 'start', hash];
+    const resp = await this.get(seg, q);
+    return resp.status >= 200 && resp.status < 300;
+  }
+
+  /** 删除下载任务。 */
+  async deleteDownloadTask(hash: string, downloader: string): Promise<boolean> {
+    const q: Record<string, string> = {};
+    if (downloader.length > 0) { q['name'] = downloader; }
+    const resp = await this.deleteReq(['download', hash], q);
+    return resp.status >= 200 && resp.status < 300;
+  }
+
+  /** 新增或编辑站点（无损保留原字段）。 */
+  async saveSite(site: MpSiteItem, isCreate: boolean): Promise<boolean> {
+    let obj: Record<string, Object> = {};
+    if (!isCreate && site.rawJson && site.rawJson.length > 2) {
+      const parsed = asRec(parseJsonSafe(site.rawJson));
+      if (parsed) { obj = parsed; }
+    }
+    if (!isCreate && site.id > 0) { obj['id'] = site.id; }
+    obj['name'] = site.name.trim();
+    obj['url'] = site.url.trim();
+    const cleanDomain = site.domain.trim() || site.url.trim().replace(/^https?:\/\//, '').split('/')[0];
+    obj['domain'] = cleanDomain;
+    obj['pri'] = site.priority ?? 1;
+    obj['rss'] = site.rss ?? '';
+    obj['cookie'] = site.cookie ?? '';
+    obj['ua'] = site.ua ?? '';
+    obj['is_active'] = site.isActive;
+    obj['proxy'] = site.proxy ? 1 : 0;
+    obj['render'] = site.render ? 1 : 0;
+    const resp = isCreate
+      ? await this.postJson(['site'], JSON.stringify(obj), true)
+      : await this.putJson(['site'], JSON.stringify(obj), true);
+    return resp.status >= 200 && resp.status < 300;
+  }
+
+  async deleteSite(siteId: number): Promise<boolean> {
+    const resp = await this.deleteReq(['site', String(siteId)]);
+    return resp.status >= 200 && resp.status < 300;
+  }
+
+  async testSiteConnectivity(siteId: number): Promise<string> {
+    const resp = await this.get(['site', 'test', String(siteId)]);
+    const root = asRec(parseJsonSafe(resp.body));
+    const ok = boolVal(root, 'success', resp.status === 200);
+    const msg = strVal(root, 'message');
+    return ok ? (msg || '连通正常') : (msg || '连接失败');
+  }
+
+  /** 读取并无损维护系统数组配置（Downloaders / MediaServers / Directories）。 */
+  private async fetchRawSettingArray(key: string): Promise<Record<string, Object>[]> {
+    const resp = await this.get(['system', 'setting', key]);
+    if (resp.status !== 200) { return []; }
+    const root = unwrapObject(parseJsonSafe(resp.body));
+    const arr = root ? asArr(root['value']) : [];
+    const out: Record<string, Object>[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const r = asRec(arr[i]);
+      if (r) { out.push(r); }
+    }
+    return out;
+  }
+
+  private async saveRawSettingArray(key: string, items: Record<string, Object>[]): Promise<boolean> {
+    const resp = await this.postJson(['system', 'setting', key], JSON.stringify(items));
+    return resp.status >= 200 && resp.status < 300;
+  }
+
+  async fetchDownloaders(): Promise<MpServiceConfig[]> {
+    const raw = await this.fetchRawSettingArray('Downloaders');
+    return raw.map((r: Record<string, Object>): MpServiceConfig => {
+      const cfg = asRec(r['config']);
+      return {
+        name: strVal(r, 'name'),
+        type: strVal(r, 'type', 'qbittorrent'),
+        host: strVal(cfg, 'host'),
+        username: strVal(cfg, 'username'),
+        password: strVal(cfg, 'password'),
+        apikey: '',
+        playHost: '',
+        enabled: boolVal(r, 'enabled', true),
+        isDefault: boolVal(r, 'default', false),
+        rawJson: JSON.stringify(r)
+      };
+    });
+  }
+
+  async saveDownloader(item: MpServiceConfig, originalName: string | null): Promise<boolean> {
+    const list = await this.fetchRawSettingArray('Downloaders');
+    let obj: Record<string, Object> = {};
+    if (item.rawJson.length > 2) {
+      const p = asRec(parseJsonSafe(item.rawJson));
+      if (p) { obj = p; }
+    }
+    const cfg = asRec(obj['config']) ?? {};
+    cfg['host'] = item.host.trim();
+    cfg['username'] = item.username.trim();
+    cfg['password'] = item.password;
+    obj['name'] = item.name.trim();
+    obj['type'] = item.type;
+    obj['enabled'] = item.enabled;
+    obj['default'] = item.isDefault;
+    obj['config'] = cfg;
+
+    const next: Record<string, Object>[] = [];
+    let replaced = false;
+    for (let i = 0; i < list.length; i++) {
+      const cur = list[i];
+      if (item.isDefault) { cur['default'] = false; }
+      if (originalName !== null && strVal(cur, 'name') === originalName) {
+        next.push(obj);
+        replaced = true;
+      } else {
+        next.push(cur);
+      }
+    }
+    if (!replaced) { next.push(obj); }
+    return this.saveRawSettingArray('Downloaders', next);
+  }
+
+  async deleteDownloader(name: string): Promise<boolean> {
+    const list = await this.fetchRawSettingArray('Downloaders');
+    const next = list.filter((r: Record<string, Object>) => strVal(r, 'name') !== name);
+    return this.saveRawSettingArray('Downloaders', next);
+  }
+
+  async fetchMediaServers(): Promise<MpServiceConfig[]> {
+    const raw = await this.fetchRawSettingArray('MediaServers');
+    return raw.map((r: Record<string, Object>): MpServiceConfig => {
+      const cfg = asRec(r['config']);
+      return {
+        name: strVal(r, 'name'),
+        type: strVal(r, 'type', 'emby'),
+        host: strVal(cfg, 'host'),
+        username: strVal(cfg, 'username'),
+        password: strVal(cfg, 'password'),
+        apikey: strVal(cfg, 'apikey') || strVal(cfg, 'token'),
+        playHost: strVal(cfg, 'play_host'),
+        enabled: boolVal(r, 'enabled', true),
+        isDefault: false,
+        rawJson: JSON.stringify(r)
+      };
+    });
+  }
+
+  async saveMediaServer(item: MpServiceConfig, originalName: string | null): Promise<boolean> {
+    const list = await this.fetchRawSettingArray('MediaServers');
+    let obj: Record<string, Object> = {};
+    if (item.rawJson.length > 2) {
+      const p = asRec(parseJsonSafe(item.rawJson));
+      if (p) { obj = p; }
+    }
+    const cfg = asRec(obj['config']) ?? {};
+    cfg['host'] = item.host.trim();
+    if (item.type.toLowerCase() === 'plex') {
+      cfg['token'] = item.apikey.trim();
+    } else {
+      cfg['apikey'] = item.apikey.trim();
+    }
+    cfg['play_host'] = item.playHost.trim();
+    obj['name'] = item.name.trim();
+    obj['type'] = item.type;
+    obj['enabled'] = item.enabled;
+    obj['config'] = cfg;
+
+    const next: Record<string, Object>[] = [];
+    let replaced = false;
+    for (let i = 0; i < list.length; i++) {
+      if (originalName !== null && strVal(list[i], 'name') === originalName) {
+        next.push(obj);
+        replaced = true;
+      } else {
+        next.push(list[i]);
+      }
+    }
+    if (!replaced) { next.push(obj); }
+    return this.saveRawSettingArray('MediaServers', next);
+  }
+
+  async deleteMediaServer(name: string): Promise<boolean> {
+    const list = await this.fetchRawSettingArray('MediaServers');
+    const next = list.filter((r: Record<string, Object>) => strVal(r, 'name') !== name);
+    return this.saveRawSettingArray('MediaServers', next);
+  }
+
+  async fetchDirectories(): Promise<MpDirectoryConfig[]> {
+    const raw = await this.fetchRawSettingArray('Directories');
+    return raw.map((r: Record<string, Object>, i: number): MpDirectoryConfig => ({
+      name: strVal(r, 'name', `目录 ${i + 1}`),
+      priority: Math.round(numVal(r, 'priority', i + 1)),
+      storage: strVal(r, 'storage', 'local'),
+      downloadPath: strVal(r, 'download_path'),
+      libraryStorage: strVal(r, 'library_storage', 'local'),
+      libraryPath: strVal(r, 'library_path'),
+      transferType: strVal(r, 'transfer_type', 'link'),
+      monitorType: strVal(r, 'monitor_type', 'downloader'),
+      renaming: boolVal(r, 'renaming', true),
+      scraping: boolVal(r, 'scraping', true),
+      notify: boolVal(r, 'notify', true),
+      rawJson: JSON.stringify(r)
+    }));
+  }
+
+  async saveDirectory(item: MpDirectoryConfig, originalName: string | null): Promise<boolean> {
+    const list = await this.fetchRawSettingArray('Directories');
+    let obj: Record<string, Object> = {};
+    if (item.rawJson.length > 2) {
+      const p = asRec(parseJsonSafe(item.rawJson));
+      if (p) { obj = p; }
+    }
+    obj['name'] = item.name.trim();
+    obj['priority'] = item.priority;
+    obj['storage'] = item.storage;
+    obj['download_path'] = item.downloadPath.trim();
+    obj['library_storage'] = item.libraryStorage;
+    obj['library_path'] = item.libraryPath.trim();
+    obj['transfer_type'] = item.transferType;
+    obj['monitor_type'] = item.monitorType;
+    obj['renaming'] = item.renaming;
+    obj['scraping'] = item.scraping;
+    obj['notify'] = item.notify;
+
+    const next: Record<string, Object>[] = [];
+    let replaced = false;
+    for (let i = 0; i < list.length; i++) {
+      if (originalName !== null && strVal(list[i], 'name') === originalName) {
+        next.push(obj);
+        replaced = true;
+      } else {
+        next.push(list[i]);
+      }
+    }
+    if (!replaced) { next.push(obj); }
+    return this.saveRawSettingArray('Directories', next);
+  }
+
+  async deleteDirectory(name: string): Promise<boolean> {
+    const list = await this.fetchRawSettingArray('Directories');
+    const next = list.filter((r: Record<string, Object>) => strVal(r, 'name') !== name);
+    return this.saveRawSettingArray('Directories', next);
+  }
+
+  async fetchStorages(): Promise<MpStorageConfig[]> {
+    const raw = await this.fetchRawSettingArray('Storages');
+    const out: MpStorageConfig[] = [];
+    for (let i = 0; i < raw.length; i++) {
+      const t = strVal(raw[i], 'type');
+      const n = strVal(raw[i], 'name') || t;
+      if (t.length > 0) { out.push({ name: n, type: t }); }
+    }
+    if (out.length === 0) {
+      out.push({ name: '本地存储', type: 'local' });
+    }
+    return out;
+  }
+
+  /** 词表类系统设置读写（兼容字符串数组与多行文本）。 */
+  async fetchSystemSettingText(key: string): Promise<string> {
+    const resp = await this.get(['system', 'setting', key]);
+    if (resp.status !== 200) { return ''; }
+    const root = unwrapObject(parseJsonSafe(resp.body));
+    const val = root ? root['value'] : undefined;
+    if (Array.isArray(val)) {
+      return (val as Object[]).map((v: Object) => String(v ?? '')).filter((s: string) => s.length > 0).join('\n');
+    }
+    if (typeof val === 'string') { return val; }
+    return '';
+  }
+
+  async saveSystemSettingText(key: string, multiLineText: string, asArray: boolean = true): Promise<boolean> {
+    const lines = multiLineText.split('\n').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+    const payload = asArray ? JSON.stringify(lines) : JSON.stringify(multiLineText);
+    const resp = await this.postJson(['system', 'setting', key], payload);
+    return resp.status >= 200 && resp.status < 300;
+  }
+
+  /** 手动触发定时任务。 */
+  async runScheduler(jobId: string): Promise<boolean> {
+    const q: Record<string, string> = {};
+    q['jobid'] = jobId;
+    const resp = await this.get(['system', 'runscheduler'], q);
+    return resp.status >= 200 && resp.status < 300;
+  }
+
+  /** 在线识别种子/文件名。 */
+  async recognizeTitle(title: string, subtitle: string = ''): Promise<MpRecognizeResult | null> {
+    const q: Record<string, string> = {};
+    q['title'] = title.trim();
+    if (subtitle.trim().length > 0) { q['subtitle'] = subtitle.trim(); }
+    const resp = await this.get(['media', 'recognize'], q);
+    if (resp.status !== 200) { return null; }
+    const root = unwrapObject(parseJsonSafe(resp.body));
+    if (!root) { return null; }
+    const meta = asRec(root['meta_info']);
+    const media = asRec(root['media_info']);
+    return {
+      title: strVal(media, 'title') || strVal(meta, 'cn_name') || strVal(meta, 'name'),
+      enTitle: strVal(media, 'en_title') || strVal(meta, 'en_name'),
+      year: strVal(media, 'year') || strVal(meta, 'year'),
+      type: strVal(media, 'type') || strVal(meta, 'type', '未知'),
+      season: strVal(meta, 'season'),
+      episode: strVal(meta, 'episode'),
+      resolution: strVal(meta, 'resource_pix'),
+      videoEncode: strVal(meta, 'video_encode'),
+      releaseGroup: strVal(meta, 'resource_team'),
+      tmdbId: strVal(media, 'tmdb_id'),
+      posterUrl: this.resolveImageUrl(strVal(media, 'poster_path')),
+      overview: strVal(media, 'overview')
+    };
+  }
+
+  /** 网络连通性检测（多目标并发测试）。 */
+  async testNetworkConnectivity(): Promise<MpNetworkCheckItem[]> {
+    const targets: string[][] = [
+      ['TheMovieDB API', 'https://api.themoviedb.org'],
+      ['TheMovieDB 图片', 'https://image.tmdb.org'],
+      ['豆瓣', 'https://movie.douban.com'],
+      ['GitHub', 'https://github.com'],
+      ['Fanart', 'https://webservice.fanart.tv']
+    ];
+    const results: MpNetworkCheckItem[] = [];
+    for (let i = 0; i < targets.length; i++) {
+      const tName = targets[i][0];
+      const tUrl = targets[i][1];
+      const q: Record<string, string> = {};
+      q['url'] = tUrl;
+      const start = Date.now();
+      try {
+        const resp = await this.get(['system', 'nettest'], q);
+        const root = asRec(parseJsonSafe(resp.body));
+        const ok = boolVal(root, 'success', resp.status === 200);
+        const dataRec = asRec(root ? root['data'] : undefined);
+        const ms = Math.round(numVal(dataRec, 'time', Date.now() - start));
+        results.push({ name: tName, ok: ok, latencyMs: ms, detail: strVal(root, 'message') || (ok ? '连通正常' : '超时或不可达') });
+      } catch {
+        results.push({ name: tName, ok: false, latencyMs: Date.now() - start, detail: '请求异常' });
+      }
+    }
+    return results;
+  }
+
+  /** 手动识别整理：自动匹配目标路径。 */
+  async matchManualTransferTargetPath(payloadJson: string): Promise<MpManualTransferTargetHint | null> {
+    const resp = await this.postJson(['transfer', 'manual', 'target-path'], payloadJson);
+    if (resp.status !== 200) { return null; }
+    const r = unwrapObject(parseJsonSafe(resp.body));
+    if (!r) { return null; }
+    return {
+      targetStorage: strVal(r, 'target_storage'),
+      targetPath: strVal(r, 'target_path'),
+      transferType: strVal(r, 'transfer_type'),
+      overwriteMode: strVal(r, 'overwrite_mode')
+    };
+  }
+
+  /** 手动识别整理：匹配历史整理记录。 */
+  async matchManualTransferHistory(payloadJson: string): Promise<MpManualTransferHistoryHint | null> {
+    const resp = await this.postJson(['transfer', 'manual', 'history'], payloadJson);
+    if (resp.status !== 200) { return null; }
+    const r = unwrapObject(parseJsonSafe(resp.body));
+    if (!r) { return null; }
+    return {
+      historyCount: Math.round(numVal(r, 'history_count', numVal(r, 'count', 0))),
+      reorganize: boolVal(r, 'reorganize', false)
+    };
+  }
+
+  /** 手动识别整理：执行预览或提交整理。 */
+  async executeManualTransfer(payloadJson: string, background: boolean = true): Promise<MpManualTransferResult> {
+    const q: Record<string, string> = {};
+    q['background'] = background ? 'true' : 'false';
+    const resp = await this.postJsonQuery(['transfer', 'manual'], q, payloadJson);
+    const root = asRec(parseJsonSafe(resp.body));
+    const ok = boolVal(root, 'success', resp.status >= 200 && resp.status < 300);
+    const msg = strVal(root, 'message') || (ok ? '整理任务已提交' : '整理请求失败');
+    const previewItems: MpManualTransferPreviewItem[] = [];
+    const dataNode = root ? root['data'] : undefined;
+    const dataRec = asRec(dataNode);
+    const rawList = Array.isArray(dataNode)
+      ? (dataNode as Object[])
+      : (dataRec ? (asArr(dataRec['items']).length > 0 ? asArr(dataRec['items']) : asArr(dataRec['preview'])) : []);
+    for (let i = 0; i < rawList.length; i++) {
+      const it = asRec(rawList[i]);
+      if (!it) { continue; }
+      previewItems.push({
+        src: strVal(it, 'src') || strVal(it, 'source'),
+        dest: strVal(it, 'dest') || strVal(it, 'target'),
+        title: strVal(it, 'title') || strVal(it, 'name'),
+        status: strVal(it, 'status', '就绪')
+      });
+    }
+    return { success: ok, message: msg, previewItems: previewItems };
+  }
+
+  /** AI 智能助手：拉取斜杠命令清单。 */
+  async fetchAgentCommands(): Promise<MpAgentCommand[]> {
+    const resp = await this.get(['message', 'agent', 'commands']);
+    if (resp.status !== 200) { return []; }
+    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const out: MpAgentCommand[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const r = asRec(arr[i]);
+      if (!r) { continue; }
+      const cmd = strVal(r, 'command') || strVal(r, 'name');
+      if (cmd.length > 0) {
+        out.push({ command: cmd.startsWith('/') ? cmd : `/${cmd}`, description: strVal(r, 'description') });
+      }
+    }
+    return out;
+  }
+
+  /** AI 智能助手：获取服务端真实历史会话列表。 */
+  async fetchAgentSessions(): Promise<MpAgentSessionSummary[]> {
+    const resp = await this.get(['message', 'agent', 'sessions']);
+    if (resp.status !== 200) { return []; }
+    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const out: MpAgentSessionSummary[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const r = asRec(arr[i]);
+      if (!r) { continue; }
+      const sid = strVal(r, 'session_id') || strVal(r, 'id');
+      if (sid.length > 0) {
+        out.push({
+          sessionId: sid,
+          title: strVal(r, 'title') || strVal(r, 'preview') || '新对话',
+          messageCount: Math.round(numVal(r, 'message_count', numVal(r, 'count', 0))),
+          updatedAt: strVal(r, 'updated_at') || strVal(r, 'last_time')
+        });
+      }
+    }
+    return out;
+  }
+
+  /** AI 智能助手：拉取单条会话完整历史（含工具调用分组与附件）。 */
+  async fetchAgentSessionDetail(sessionId: string): Promise<MpAgentChatMessage[]> {
+    const resp = await this.get(['message', 'agent', 'sessions', sessionId]);
+    if (resp.status !== 200) { return []; }
+    const root = unwrapObject(parseJsonSafe(resp.body));
+    const rawMsgs = root
+      ? (asArr(root['display_messages']).length > 0 ? asArr(root['display_messages']) : asArr(root['messages']))
+      : unwrapArray(parseJsonSafe(resp.body));
+    const out: MpAgentChatMessage[] = [];
+    for (let i = 0; i < rawMsgs.length; i++) {
+      const r = asRec(rawMsgs[i]);
+      if (!r) { continue; }
+      const role = strVal(r, 'role', 'assistant').toLowerCase();
+      const tools: MpAgentToolEntry[] = [];
+      const rawTools = asArr(r['tools']).length > 0 ? asArr(r['tools']) : asArr(r['tool_calls']);
+      for (let j = 0; j < rawTools.length; j++) {
+        const t = asRec(rawTools[j]);
+        if (!t) { continue; }
+        tools.push({
+          id: strVal(t, 'id', `t_${i}_${j}`),
+          name: strVal(t, 'name') || strVal(t, 'tool_name', '工具调用'),
+          status: strVal(t, 'status', 'done'),
+          summary: strVal(t, 'summary') || strVal(t, 'title'),
+          detail: strVal(t, 'result') || strVal(t, 'output') || strVal(t, 'arguments')
+        });
+      }
+      const atts: MpAgentAttachment[] = [];
+      const rawAtts = asArr(r['attachments']).concat(asArr(r['images'])).concat(asArr(r['files']));
+      for (let j = 0; j < rawAtts.length; j++) {
+        const a = asRec(rawAtts[j]);
+        if (!a) { continue; }
+        const mime = strVal(a, 'mime_type') || strVal(a, 'content_type');
+        const kind = strVal(a, 'kind') || (mime.startsWith('image/') ? 'image' : (mime.startsWith('audio/') ? 'audio' : 'file'));
+        atts.push({
+          id: strVal(a, 'id', `att_${i}_${j}`),
+          name: strVal(a, 'name') || strVal(a, 'filename', '附件'),
+          kind: kind,
+          mimeType: mime,
+          url: this.resolveImageUrl(strVal(a, 'url') || strVal(a, 'path')),
+          sizeBytes: Math.round(numVal(a, 'size', 0))
+        });
+      }
+      out.push({
+        id: strVal(r, 'id', `m_${i}`),
+        role: role === 'human' ? 'user' : role,
+        content: strVal(r, 'content') || strVal(r, 'text'),
+        tools: tools,
+        attachments: atts,
+        choices: [],
+        timestamp: strVal(r, 'timestamp') || strVal(r, 'created_at')
+      });
+    }
+    return out;
+  }
+
+  async deleteAgentSession(sessionId: string): Promise<boolean> {
+    const resp = await this.deleteReq(['message', 'agent', 'sessions', sessionId]);
+    return resp.status >= 200 && resp.status < 300;
+  }
+
+  async stopAgentSession(sessionId: string): Promise<boolean> {
+    const resp = await this.postJson(['message', 'agent', 'sessions', sessionId, 'stop'], '{}');
+    return resp.status >= 200 && resp.status < 300;
+  }
+
+  async saveAgentSessionDisplay(sessionId: string, payloadJson: string): Promise<boolean> {
+    const resp = await this.putJson(['message', 'agent', 'sessions', sessionId, 'display'], payloadJson);
+    return resp.status >= 200 && resp.status < 300;
+  }
+
+  async uploadAgentAttachment(bytes: Uint8Array, fileName: string, mimeType: string): Promise<MpAgentAttachment | null> {
+    const url = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, ['message', 'agent', 'upload']);
+    const resp = await this.transport.uploadMultipart(url, this.token, 'file', fileName, mimeType, bytes);
+    if (resp.status < 200 || resp.status >= 300) { return null; }
+    const r = unwrapObject(parseJsonSafe(resp.body));
+    if (!r) { return null; }
+    const kind = mimeType.startsWith('image/') ? 'image' : (mimeType.startsWith('audio/') ? 'audio' : 'file');
+    return {
+      id: strVal(r, 'id') || strVal(r, 'file_id', `up_${Date.now()}`),
+      name: strVal(r, 'name') || strVal(r, 'filename', fileName),
+      kind: kind,
+      mimeType: mimeType,
+      url: this.resolveImageUrl(strVal(r, 'url') || strVal(r, 'path')),
+      sizeBytes: bytes.length
+    };
+  }
+
+  async triggerAgentCallback(payloadJson: string): Promise<boolean> {
+    const resp = await this.postJson(['message', 'agent', 'callback'], payloadJson);
+    return resp.status >= 200 && resp.status < 300;
+  }
+
+  async streamAgentChatPayload(payloadJson: string, onEvent: (ev: SseEventChunk) => void): Promise<number> {
+    const url = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, ['message', 'agent', 'stream']);
+    return this.transport.streamSsePost(
+      url,
+      this.token,
+      payloadJson,
+      { 'X-MoviePilot-Agent-Interaction': '1' },
+      onEvent
+    );
   }
 }

@@ -3,14 +3,21 @@ import {
   MoviePilotRepository,
   MpStorageFile,
   MpTransferHistoryItem,
+  MpStorageConfig,
+  MpDirectoryConfig,
+  MpMediaItem,
+  MpManualTransferPreviewItem,
+  MpRemoteImage,
   formatByteSize
 } from '@moviepilot/core_rust_bridge';
 import {
   CinematicPanel,
   NativeAdaptiveBadge,
+  NativeAdaptivePill,
   NativeBackHeader,
-  HarmonyUnderlineTabBar,
+  HarmonyPillTabBar,
   HarmonySegmentedSwitch,
+  HarmonySheetHeader,
   HarmonyThemeColors,
   HarmonyAppearanceStore,
   mpPrimaryText,
@@ -18,29 +25,125 @@ import {
 } from '@moviepilot/design_system';
 import { HarmonyPlaybackRequest } from '@moviepilot/media_player';
 
+const TRANSFER_MODES: string[][] = [
+  ['', '自动'],
+  ['link', '硬链接'],
+  ['softlink', '软链接'],
+  ['copy', '复制'],
+  ['move', '移动'],
+  ['rclone_copy', 'Rclone 复制'],
+  ['rclone_move', 'Rclone 移动']
+];
+
+const OVERWRITE_MODES: string[][] = [
+  ['never', '从不覆盖'],
+  ['size', '按大小覆盖'],
+  ['always', '总是覆盖'],
+  ['latest', '仅保留最新']
+];
+
+const MEDIA_TYPES: string[][] = [
+  ['', '自动识别'],
+  ['电影', '电影'],
+  ['电视剧', '电视剧'],
+  ['音乐', '音乐']
+];
+
+const MEDIA_SOURCES: string[][] = [
+  ['', '默认数据源'],
+  ['themoviedb', 'TheMovieDB'],
+  ['douban', '豆瓣'],
+  ['bangumi', 'Bangumi']
+];
+
 /**
- * 鸿蒙多存储文件管理与整理历史页：
- * - 使用规范下划线页签栏切换「文件管理 / 整理历史」；
- * - 整理历史使用鸿蒙互斥分段控制器过滤「全部 / 成功 / 失败」；
- * - 支持直接点击音视频文件拉起鸿蒙原生 `AVPlayer` 播放。
+ * 鸿蒙多存储文件管理、整理历史与 1:1 对齐 iOS 的全量「手动识别整理」页：
+ * - 文件管理支持全部已挂载存储切换、目录浏览、播放音视频与单文件/目录发起手动整理；
+ * - 整理历史点击任意记录即可进入手动重整理（自动命中 `target-path` 与 `history` 接口）；
+ * - 手动整理完整覆盖 iOS 全部字段与「预览整理 / 立即整理」真实提交。
  */
 @Component
 export struct HarmonyLibraryPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
-  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @Prop initialMode: string = 'files';
   @State private activeTabIdx: number = 0; // 0: 文件管理, 1: 整理历史
   @State private historyFilterIdx: number = 0; // 0: 全部, 1: 成功, 2: 失败
+  @State private storages: MpStorageConfig[] = [{ name: '本地存储', type: 'local' }];
+  @State private activeStorage: string = 'local';
   @State private currentPath: string = '/';
   @State private files: MpStorageFile[] = [];
   @State private history: MpTransferHistoryItem[] = [];
+  @State private historyQuery: string = '';
   @State private loading: boolean = true;
+  @State private notice: string = '';
+
+  // 手动识别整理全量弹窗状态
+  @State private showTransferSheet: boolean = false;
+  @State private mtFile: MpStorageFile | null = null;
+  @State private mtLogId: number | null = null;
+  @State private mtSrcStorage: string = 'local';
+  @State private mtSrcTitle: string = '';
+  @State private mtSrcPath: string = '';
+  @State private mtDirectories: MpDirectoryConfig[] = [];
+  @State private mtTargetStorage: string = 'local';
+  @State private mtTargetPath: string = '';
+  @State private mtMatchedPathHint: string = '';
+  @State private mtMatchedHistoryCount: number = 0;
+  @State private mtTransferType: string = '';
+  @State private mtOverwriteMode: string = 'never';
+  @State private mtMediaType: string = '';
+  @State private mtMediaSource: string = '';
+  @State private mtMediaId: string = '';
+  @State private mtSelectedMediaTitle: string = '';
+  @State private mtSeason: string = '';
+  @State private mtEpDetail: string = '';
+  @State private mtEpFormat: string = '';
+  @State private mtEpOffset: string = '';
+  @State private mtEpPart: string = '';
+  @State private mtEpGroup: string = '';
+  @State private mtMusicType: string = '';
+  @State private mtMusicMatch: string = 'strict';
+  @State private mtMinFilesize: string = '0';
+  @State private mtScrape: number = 0; // 0: 自动, 1: 开启, 2: 关闭
+  @State private mtTypeFolder: number = 0;
+  @State private mtCatFolder: number = 0;
+  @State private mtReorganize: boolean = false;
+  @State private mtSkipSuccess: boolean = false;
+  @State private mtFromHistory: boolean = false;
+  @State private mtBackground: boolean = true;
+  @State private mtShowAdvanced: boolean = false;
+  @State private mtShowSearch: boolean = false;
+  @State private mtSearchQuery: string = '';
+  @State private mtSearchResults: MpMediaItem[] = [];
+  @State private mtSearching: boolean = false;
+  @State private mtPreviewItems: MpManualTransferPreviewItem[] = [];
+  @State private mtPreviewing: boolean = false;
+  @State private mtSubmitting: boolean = false;
+  @State private mtFeedback: string = '';
+  @State private mtFeedbackErr: boolean = false;
+
   onBack: () => void = () => {};
   onPlayMedia: (req: HarmonyPlaybackRequest) => void = () => {};
 
   aboutToAppear(): void {
     this.activeTabIdx = this.initialMode === 'history' ? 1 : 0;
-    this.loadData();
+    this.initAndLoad();
+  }
+
+  private async initAndLoad(): Promise<void> {
+    try {
+      const sts = await MoviePilotRepository.shared().fetchStorages();
+      if (sts.length > 0) {
+        this.storages = sts;
+        if (!sts.some((s: MpStorageConfig) => s.type === this.activeStorage)) {
+          this.activeStorage = sts[0].type;
+        }
+      }
+    } catch {
+      // keep default local
+    }
+    await this.loadData();
   }
 
   private async loadData(): Promise<void> {
@@ -48,9 +151,9 @@ export struct HarmonyLibraryPage {
     const repo = MoviePilotRepository.shared();
     try {
       if (this.activeTabIdx === 0) {
-        this.files = await repo.fetchStorageFiles('local', this.currentPath);
+        this.files = await repo.fetchStorageFiles(this.activeStorage, this.currentPath);
       } else {
-        this.history = await repo.fetchTransferHistory(1, 30);
+        this.history = await repo.fetchTransferHistory(1, 50);
       }
     } catch {
       // ignore
@@ -59,13 +162,489 @@ export struct HarmonyLibraryPage {
   }
 
   private filteredHistory(): MpTransferHistoryItem[] {
-    if (this.historyFilterIdx === 1) {
-      return this.history.filter((h: MpTransferHistoryItem) => h.status);
+    const q = this.historyQuery.trim().toLowerCase();
+    return this.history.filter((h: MpTransferHistoryItem) => {
+      if (this.historyFilterIdx === 1 && !h.status) { return false; }
+      if (this.historyFilterIdx === 2 && h.status) { return false; }
+      if (q.length > 0 && !(`${h.title} ${h.src} ${h.dest}`.toLowerCase().includes(q))) { return false; }
+      return true;
+    });
+  }
+
+  private buildManualPayload(preview: boolean, onlyMatch: boolean = false): string {
+    const map: Record<string, Object> = {};
+    if (this.mtFile) {
+      const fObj: Record<string, Object> = {};
+      fObj['storage'] = this.mtFile.storage || this.mtSrcStorage;
+      fObj['type'] = this.mtFile.type;
+      fObj['path'] = this.mtFile.path;
+      fObj['name'] = this.mtFile.name;
+      fObj['size'] = this.mtFile.sizeBytes;
+      if (this.mtFile.extension.length > 0) { fObj['extension'] = this.mtFile.extension; }
+      map['fileitem'] = fObj;
     }
-    if (this.historyFilterIdx === 2) {
-      return this.history.filter((h: MpTransferHistoryItem) => !h.status);
+    if (this.mtLogId !== null) { map['logid'] = this.mtLogId; }
+    if (this.mtTargetStorage.length > 0) { map['target_storage'] = this.mtTargetStorage; }
+    if (!onlyMatch && this.mtTargetPath.trim().length > 0) { map['target_path'] = this.mtTargetPath.trim(); }
+    if (this.mtMediaSource.length > 0) { map['media_source'] = this.mtMediaSource; }
+    if (this.mtMediaId.trim().length > 0) { map['media_id'] = this.mtMediaId.trim(); }
+    if (this.mtMediaType.length > 0) { map['type_name'] = this.mtMediaType; }
+    if (this.mtMediaType === '音乐' && this.mtMusicType.length > 0) { map['music_type'] = this.mtMusicType; }
+    if (this.mtMediaType === '音乐' && this.mtMusicType === 'album') { map['music_track_match'] = this.mtMusicMatch; }
+    const sn = Number(this.mtSeason);
+    if (this.mtSeason.trim().length > 0 && Number.isFinite(sn)) { map['season'] = Math.round(sn); }
+    if (this.mtTransferType.length > 0) { map['transfer_type'] = this.mtTransferType; }
+    if (this.mtOverwriteMode.length > 0) { map['overwrite_mode'] = this.mtOverwriteMode; }
+    if (this.mtEpFormat.trim().length > 0) { map['episode_format'] = this.mtEpFormat.trim(); }
+    if (this.mtEpDetail.trim().length > 0) { map['episode_detail'] = this.mtEpDetail.trim(); }
+    if (this.mtEpPart.trim().length > 0) { map['episode_part'] = this.mtEpPart.trim(); }
+    if (this.mtEpOffset.trim().length > 0) { map['episode_offset'] = this.mtEpOffset.trim(); }
+    if (this.mtEpGroup.trim().length > 0) { map['episode_group'] = this.mtEpGroup.trim(); }
+    map['min_filesize'] = Math.max(0, Math.round(Number(this.mtMinFilesize) || 0));
+    if (this.mtScrape !== 0) { map['scrape'] = this.mtScrape === 1; }
+    if (this.mtTypeFolder !== 0) { map['library_type_folder'] = this.mtTypeFolder === 1; }
+    if (this.mtCatFolder !== 0) { map['library_category_folder'] = this.mtCatFolder === 1; }
+    map['from_history'] = this.mtFromHistory;
+    map['preview'] = preview;
+    map['reorganize'] = this.mtSkipSuccess ? false : this.mtReorganize;
+    map['skip_success'] = this.mtSkipSuccess;
+    return JSON.stringify(map);
+  }
+
+  private async openManualTransfer(
+    file: MpStorageFile | null,
+    logId: number | null,
+    srcStorage: string,
+    srcTitle: string,
+    srcPath: string
+  ): Promise<void> {
+    this.mtFile = file;
+    this.mtLogId = logId;
+    this.mtSrcStorage = srcStorage || 'local';
+    this.mtSrcTitle = srcTitle;
+    this.mtSrcPath = srcPath;
+    this.mtTargetStorage = srcStorage || 'local';
+    this.mtTargetPath = '';
+    this.mtMatchedPathHint = '';
+    this.mtMatchedHistoryCount = 0;
+    this.mtTransferType = '';
+    this.mtOverwriteMode = 'never';
+    this.mtMediaType = '';
+    this.mtMediaSource = '';
+    this.mtMediaId = '';
+    this.mtSelectedMediaTitle = '';
+    this.mtSeason = '';
+    this.mtEpDetail = '';
+    this.mtEpFormat = '';
+    this.mtEpOffset = '';
+    this.mtEpPart = '';
+    this.mtEpGroup = '';
+    this.mtMusicType = '';
+    this.mtMusicMatch = 'strict';
+    this.mtMinFilesize = '0';
+    this.mtScrape = 0;
+    this.mtTypeFolder = 0;
+    this.mtCatFolder = 0;
+    this.mtReorganize = false;
+    this.mtSkipSuccess = false;
+    this.mtFromHistory = logId !== null;
+    this.mtBackground = true;
+    this.mtShowAdvanced = false;
+    this.mtShowSearch = false;
+    this.mtSearchQuery = srcTitle.split('.')[0].substring(0, 24);
+    this.mtSearchResults = [];
+    this.mtPreviewItems = [];
+    this.mtFeedback = '';
+    this.mtFeedbackErr = false;
+    this.showTransferSheet = true;
+
+    const repo = MoviePilotRepository.shared();
+    try {
+      this.mtDirectories = await repo.fetchDirectories();
+      const matchPayload = this.buildManualPayload(false, true);
+      const res = await Promise.all([
+        repo.matchManualTransferTargetPath(matchPayload),
+        repo.matchManualTransferHistory(matchPayload)
+      ]);
+      if (res[0]) {
+        if (res[0].targetStorage.length > 0) { this.mtTargetStorage = res[0].targetStorage; }
+        if (res[0].targetPath.length > 0) {
+          this.mtMatchedPathHint = res[0].targetPath;
+          this.mtTargetPath = res[0].targetPath;
+        }
+        if (res[0].transferType.length > 0) { this.mtTransferType = res[0].transferType; }
+        if (res[0].overwriteMode.length > 0) { this.mtOverwriteMode = res[0].overwriteMode; }
+      }
+      if (res[1]) {
+        this.mtMatchedHistoryCount = res[1].historyCount;
+        if (res[1].reorganize) { this.mtReorganize = true; }
+      }
+    } catch {
+      // keep manual defaults
     }
-    return this.history;
+  }
+
+  private triStateLabel(state: number): string {
+    if (state === 1) { return '开启'; }
+    if (state === 2) { return '关闭'; }
+    return '自动';
+  }
+
+  @Builder
+  manualTransferSheetBuilder() {
+    Column({ space: 12 }) {
+      HarmonySheetHeader({
+        title: '手动识别整理',
+        cancelText: '关闭',
+        onCancel: () => { this.showTransferSheet = false; }
+      })
+
+      Scroll() {
+        Column({ space: 12 }) {
+          // 源信息卡片
+          CinematicPanel({ panelPadding: 13, cornerRadius: 16 }) {
+            Column({ space: 4 }) {
+              Text(this.mtSrcTitle).fontSize(14.5).fontWeight(FontWeight.Bold)
+                .fontColor(mpPrimaryText(this.isDark)).maxLines(2).width('100%')
+              Text(`${this.mtSrcStorage} · ${this.mtSrcPath}`).fontSize(11.5)
+                .fontColor(mpSecondaryText(this.isDark)).maxLines(2).width('100%')
+              if (this.mtMatchedHistoryCount > 0) {
+                NativeAdaptiveBadge({ text: `已匹配历史整理 ${this.mtMatchedHistoryCount} 条`, tintHex: '#F29B38' })
+              }
+            }.alignItems(HorizontalAlign.Start)
+          }
+
+          // 1. 目标存储与路径
+          Text('目标存储').fontSize(12.5).fontWeight(FontWeight.Medium).fontColor(mpSecondaryText(this.isDark)).width('100%')
+          Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
+            ForEach(this.storages, (st: MpStorageConfig) => {
+              NativeAdaptivePill({
+                title: st.type,
+                selected: this.mtTargetStorage === st.type,
+                onTap: () => { this.mtTargetStorage = st.type; }
+              })
+            }, (st: MpStorageConfig) => `mt_st_${st.type}`)
+          }.width('100%')
+
+          if (this.mtDirectories.length > 0) {
+            Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
+              ForEach(this.mtDirectories, (d: MpDirectoryConfig) => {
+                if (d.libraryPath.length > 0) {
+                  NativeAdaptivePill({
+                    title: d.name,
+                    selected: this.mtTargetPath === d.libraryPath,
+                    onTap: () => {
+                      this.mtTargetStorage = d.libraryStorage || this.mtTargetStorage;
+                      this.mtTargetPath = d.libraryPath;
+                    }
+                  })
+                }
+              }, (d: MpDirectoryConfig) => `mt_dir_${d.name}`)
+            }.width('100%')
+          }
+
+          Text(this.mtMatchedPathHint.length > 0 ? `目标路径（自动匹配：${this.mtMatchedPathHint}）` : '目标路径（留空自动匹配）')
+            .fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
+          TextInput({ placeholder: '/video/', text: this.mtTargetPath })
+            .fontColor(mpPrimaryText(this.isDark)).placeholderColor(mpSecondaryText(this.isDark))
+            .backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(12)
+            .onChange((v: string) => { this.mtTargetPath = v; })
+
+          // 2. 整理方式 & 覆盖模式
+          Text('整理方式').fontSize(12.5).fontWeight(FontWeight.Medium).fontColor(mpSecondaryText(this.isDark)).width('100%')
+          Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
+            ForEach(TRANSFER_MODES, (m: string[]) => {
+              NativeAdaptivePill({
+                title: m[1],
+                selected: this.mtTransferType === m[0],
+                onTap: () => { this.mtTransferType = m[0]; }
+              })
+            }, (m: string[]) => `tm_${m[0]}`)
+          }.width('100%')
+
+          Text('覆盖模式').fontSize(12.5).fontWeight(FontWeight.Medium).fontColor(mpSecondaryText(this.isDark)).width('100%')
+          Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
+            ForEach(OVERWRITE_MODES, (m: string[]) => {
+              NativeAdaptivePill({
+                title: m[1],
+                selected: this.mtOverwriteMode === m[0],
+                onTap: () => { this.mtOverwriteMode = m[0]; }
+              })
+            }, (m: string[]) => `om_${m[0]}`)
+          }.width('100%')
+
+          // 3. 媒体识别与在线检索指定 ID
+          Text('媒体识别').fontSize(12.5).fontWeight(FontWeight.Medium).fontColor(mpSecondaryText(this.isDark)).width('100%')
+          Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
+            ForEach(MEDIA_TYPES, (m: string[]) => {
+              NativeAdaptivePill({
+                title: m[1],
+                selected: this.mtMediaType === m[0],
+                onTap: () => { this.mtMediaType = m[0]; }
+              })
+            }, (m: string[]) => `mty_${m[0]}`)
+          }.width('100%')
+
+          Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
+            ForEach(MEDIA_SOURCES, (s: string[]) => {
+              NativeAdaptivePill({
+                title: s[1],
+                selected: this.mtMediaSource === s[0],
+                onTap: () => { this.mtMediaSource = s[0]; }
+              })
+            }, (s: string[]) => `msrc_${s[0]}`)
+          }.width('100%')
+
+          Row({ space: 8 }) {
+            TextInput({ placeholder: '指定媒体 ID（留空自动识别）', text: this.mtMediaId })
+              .layoutWeight(1)
+              .fontColor(mpPrimaryText(this.isDark)).placeholderColor(mpSecondaryText(this.isDark))
+              .backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(12)
+              .onChange((v: string) => { this.mtMediaId = v; })
+            Button(this.mtShowSearch ? '收起搜索' : '在线搜片')
+              .height(40).padding({ left: 12, right: 12 }).borderRadius(14).fontSize(12.5)
+              .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '2C' : '1A'))
+              .fontColor(this.accentHex)
+              .onClick(() => { this.mtShowSearch = !this.mtShowSearch; })
+          }.width('100%')
+
+          if (this.mtSelectedMediaTitle.length > 0) {
+            Text(`已指定媒体：${this.mtSelectedMediaTitle} (${this.mtMediaId})`)
+              .fontSize(12).fontColor('#34C759').width('100%')
+          }
+
+          if (this.mtShowSearch) {
+            CinematicPanel({ panelPadding: 12, cornerRadius: 16 }) {
+              Column({ space: 8 }) {
+                Row({ space: 8 }) {
+                  TextInput({ placeholder: '输入片名检索 TMDB / 豆瓣 ID…', text: this.mtSearchQuery })
+                    .layoutWeight(1)
+                    .fontColor(mpPrimaryText(this.isDark)).placeholderColor(mpSecondaryText(this.isDark))
+                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(10)
+                    .onChange((v: string) => { this.mtSearchQuery = v; })
+                  Button(this.mtSearching ? '…' : '搜索')
+                    .height(38).borderRadius(12).backgroundColor(this.accentHex).fontColor(Color.White).fontSize(12.5)
+                    .onClick(async () => {
+                      if (this.mtSearchQuery.trim().length === 0) { return; }
+                      this.mtSearching = true;
+                      this.mtSearchResults = (await MoviePilotRepository.shared().searchMedia(this.mtSearchQuery, 'media')).slice(0, 6);
+                      this.mtSearching = false;
+                    })
+                }.width('100%')
+
+                ForEach(this.mtSearchResults, (m: MpMediaItem) => {
+                  Row({ space: 10 }) {
+                    if (m.posterUrl.length > 0) {
+                      MpRemoteImage({
+                        src: m.posterUrl,
+                        imgWidth: 36,
+                        imgHeight: 52,
+                        imgRadius: 6,
+                        placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                      })
+                    }
+                    Column({ space: 2 }) {
+                      Text(m.title).fontSize(13).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).maxLines(1)
+                      Text(`${m.type}${m.year ? ' · ' + m.year : ''} · ID: ${m.tmdbId || m.doubanId || m.id}`)
+                        .fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                    }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                    Text('选用').fontSize(12).fontColor(this.accentHex).fontWeight(FontWeight.Bold)
+                  }
+                  .width('100%').padding({ top: 4, bottom: 4 })
+                  .onClick(() => {
+                    this.mtMediaId = m.tmdbId || m.doubanId || m.id;
+                    this.mtMediaSource = m.tmdbId ? 'themoviedb' : (m.doubanId ? 'douban' : this.mtMediaSource);
+                    if (m.type === '电影' || m.type === '电视剧') { this.mtMediaType = m.type; }
+                    this.mtSelectedMediaTitle = m.title;
+                    this.mtShowSearch = false;
+                  })
+                }, (m: MpMediaItem) => `mts_${m.id}`)
+              }
+            }
+          }
+
+          // 4. 剧集 / 音乐专属参数
+          if (this.mtMediaType === '电视剧') {
+            CinematicPanel({ panelPadding: 12, cornerRadius: 16 }) {
+              Column({ space: 8 }) {
+                Text('剧集精细参数').fontSize(13).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
+                Row({ space: 8 }) {
+                  TextInput({ placeholder: '季数 (如 1)', text: this.mtSeason }).type(InputType.Number).layoutWeight(1)
+                    .fontColor(mpPrimaryText(this.isDark)).backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(10)
+                    .onChange((v: string) => { this.mtSeason = v; })
+                  TextInput({ placeholder: '指定集 (如 1,2-5)', text: this.mtEpDetail }).layoutWeight(1)
+                    .fontColor(mpPrimaryText(this.isDark)).backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(10)
+                    .onChange((v: string) => { this.mtEpDetail = v; })
+                }.width('100%')
+                Row({ space: 8 }) {
+                  TextInput({ placeholder: '集匹配格式 (如 {ep})', text: this.mtEpFormat }).layoutWeight(1)
+                    .fontColor(mpPrimaryText(this.isDark)).backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(10)
+                    .onChange((v: string) => { this.mtEpFormat = v; })
+                  TextInput({ placeholder: '集偏移 (如 EP+12)', text: this.mtEpOffset }).layoutWeight(1)
+                    .fontColor(mpPrimaryText(this.isDark)).backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(10)
+                    .onChange((v: string) => { this.mtEpOffset = v; })
+                }.width('100%')
+                Row({ space: 8 }) {
+                  TextInput({ placeholder: '分段 (如 part1)', text: this.mtEpPart }).layoutWeight(1)
+                    .fontColor(mpPrimaryText(this.isDark)).backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(10)
+                    .onChange((v: string) => { this.mtEpPart = v; })
+                  TextInput({ placeholder: '剧集组 ID', text: this.mtEpGroup }).layoutWeight(1)
+                    .fontColor(mpPrimaryText(this.isDark)).backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(10)
+                    .onChange((v: string) => { this.mtEpGroup = v; })
+                }.width('100%')
+              }
+            }
+          } else if (this.mtMediaType === '音乐') {
+            CinematicPanel({ panelPadding: 12, cornerRadius: 16 }) {
+              Column({ space: 8 }) {
+                Text('音乐整理参数').fontSize(13).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
+                Row({ space: 8 }) {
+                  NativeAdaptivePill({ title: '自动', selected: this.mtMusicType === '', onTap: () => { this.mtMusicType = ''; } })
+                  NativeAdaptivePill({ title: '专辑', selected: this.mtMusicType === 'album', onTap: () => { this.mtMusicType = 'album'; } })
+                  NativeAdaptivePill({ title: '单曲', selected: this.mtMusicType === 'track', onTap: () => { this.mtMusicType = 'track'; } })
+                }.width('100%')
+                if (this.mtMusicType === 'album') {
+                  Row({ space: 8 }) {
+                    NativeAdaptivePill({ title: '严格曲目匹配', selected: this.mtMusicMatch === 'strict', onTap: () => { this.mtMusicMatch = 'strict'; } })
+                    NativeAdaptivePill({ title: '宽松匹配', selected: this.mtMusicMatch === 'loose', onTap: () => { this.mtMusicMatch = 'loose'; } })
+                  }.width('100%')
+                }
+              }
+            }
+          }
+
+          // 5. 高级三态开关与策略折叠区
+          Row() {
+            Text('高级选项（刮削、分类目录、体积与重整理）')
+              .fontSize(13.5).fontWeight(FontWeight.Medium).fontColor(this.accentHex).layoutWeight(1)
+            SymbolGlyph($r(this.mtShowAdvanced ? 'sys.symbol.chevron_up' : 'sys.symbol.chevron_down'))
+              .fontSize(16).fontColor([this.accentHex])
+          }
+          .width('100%').padding({ top: 6, bottom: 4 })
+          .onClick(() => { this.mtShowAdvanced = !this.mtShowAdvanced; })
+
+          if (this.mtShowAdvanced) {
+            CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
+              Column({ space: 10 }) {
+                Row() {
+                  Text('自动刮削元数据').fontSize(13.5).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                  NativeAdaptivePill({
+                    title: this.triStateLabel(this.mtScrape),
+                    selected: this.mtScrape !== 0,
+                    onTap: () => { this.mtScrape = (this.mtScrape + 1) % 3; }
+                  })
+                }.width('100%')
+                Row() {
+                  Text('按媒体类型分类目录').fontSize(13.5).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                  NativeAdaptivePill({
+                    title: this.triStateLabel(this.mtTypeFolder),
+                    selected: this.mtTypeFolder !== 0,
+                    onTap: () => { this.mtTypeFolder = (this.mtTypeFolder + 1) % 3; }
+                  })
+                }.width('100%')
+                Row() {
+                  Text('按二级分类创建目录').fontSize(13.5).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                  NativeAdaptivePill({
+                    title: this.triStateLabel(this.mtCatFolder),
+                    selected: this.mtCatFolder !== 0,
+                    onTap: () => { this.mtCatFolder = (this.mtCatFolder + 1) % 3; }
+                  })
+                }.width('100%')
+
+                Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+                Row({ space: 8 }) {
+                  Text('最小文件体积 (MB)').fontSize(13.5).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                  TextInput({ placeholder: '0', text: this.mtMinFilesize })
+                    .type(InputType.Number).width(92)
+                    .fontColor(mpPrimaryText(this.isDark)).backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(10)
+                    .onChange((v: string) => { this.mtMinFilesize = v; })
+                }.width('100%')
+
+                Row() {
+                  Text('跳过已成功整理文件').fontSize(13.5).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                  Toggle({ type: ToggleType.Switch, isOn: this.mtSkipSuccess })
+                    .selectedColor(this.accentHex).onChange((v: boolean) => { this.mtSkipSuccess = v; })
+                }.width('100%')
+                Row() {
+                  Text('重新整理已有历史记录').fontSize(13.5).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                  Toggle({ type: ToggleType.Switch, isOn: this.mtReorganize })
+                    .selectedColor(this.accentHex).onChange((v: boolean) => { this.mtReorganize = v; })
+                }.width('100%')
+                Row() {
+                  Text('提交至后台队列执行').fontSize(13.5).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                  Toggle({ type: ToggleType.Switch, isOn: this.mtBackground })
+                    .selectedColor(this.accentHex).onChange((v: boolean) => { this.mtBackground = v; })
+                }.width('100%')
+              }
+            }
+          }
+
+          // 反馈与预览结果
+          if (this.mtFeedback.length > 0) {
+            Text(this.mtFeedback)
+              .fontSize(12.5)
+              .fontColor(this.mtFeedbackErr ? '#E84855' : '#34C759')
+              .width('100%')
+          }
+
+          if (this.mtPreviewItems.length > 0) {
+            CinematicPanel({ panelPadding: 12, cornerRadius: 16 }) {
+              Column({ space: 8 }) {
+                Text(`整理路径预览 (${this.mtPreviewItems.length})`)
+                  .fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(this.accentHex).width('100%')
+                ForEach(this.mtPreviewItems.slice(0, 12), (pv: MpManualTransferPreviewItem, idx: number) => {
+                  Column({ space: 2 }) {
+                    if (pv.title.length > 0) {
+                      Text(pv.title).fontSize(12.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark)).width('100%')
+                    }
+                    Text(`→ ${pv.dest || pv.src}`).fontSize(11).fontColor('#34C759').maxLines(2).width('100%')
+                  }.width('100%')
+                }, (_pv: MpManualTransferPreviewItem, idx: number) => `pv_${idx}`)
+              }
+            }
+          }
+        }.padding({ bottom: 16 })
+      }.scrollBar(BarState.Off).layoutWeight(1)
+
+      // 底部操作按钮：预览整理 + 立即整理
+      Row({ space: 10 }) {
+        Button(this.mtPreviewing ? '预览中…' : '预览整理')
+          .layoutWeight(1).height(46).borderRadius(23)
+          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+          .fontColor(mpPrimaryText(this.isDark)).fontWeight(FontWeight.Medium)
+          .enabled(!this.mtPreviewing && !this.mtSubmitting)
+          .onClick(async () => {
+            this.mtPreviewing = true;
+            this.mtFeedback = '';
+            const res = await MoviePilotRepository.shared().executeManualTransfer(this.buildManualPayload(true), false);
+            this.mtPreviewing = false;
+            this.mtPreviewItems = res.previewItems;
+            this.mtFeedback = res.previewItems.length > 0 ? `已生成 ${res.previewItems.length} 条目标路径预览` : res.message;
+            this.mtFeedbackErr = !res.success;
+          })
+
+        Button(this.mtSubmitting ? '提交中…' : '立即整理')
+          .layoutWeight(1).height(46).borderRadius(23)
+          .backgroundColor(this.accentHex)
+          .fontColor(Color.White).fontWeight(FontWeight.Bold)
+          .enabled(!this.mtPreviewing && !this.mtSubmitting)
+          .onClick(async () => {
+            this.mtSubmitting = true;
+            this.mtFeedback = '';
+            const res = await MoviePilotRepository.shared().executeManualTransfer(this.buildManualPayload(false), this.mtBackground);
+            this.mtSubmitting = false;
+            if (res.success) {
+              this.showTransferSheet = false;
+              this.notice = res.message || '手动整理任务已提交';
+              if (this.activeTabIdx === 1) { await this.loadData(); }
+            } else {
+              this.mtFeedback = res.message;
+              this.mtFeedbackErr = true;
+            }
+          })
+      }.width('100%')
+    }.padding(20).width('100%').height('100%')
   }
 
   build() {
@@ -78,7 +657,7 @@ export struct HarmonyLibraryPage {
         onTrailingClick: () => this.loadData()
       })
 
-      HarmonyUnderlineTabBar({
+      HarmonyPillTabBar({
         tabs: ['文件管理', '整理历史'],
         selectedIndex: this.activeTabIdx,
         onSelect: (idx: number) => {
@@ -87,20 +666,35 @@ export struct HarmonyLibraryPage {
         }
       })
 
+      if (this.notice.length > 0) {
+        Text(this.notice).fontSize(12).fontColor('#34C759').padding({ left: 16, right: 16 }).width('100%')
+      }
+
       if (this.activeTabIdx === 0) {
+        // 多存储切换胶囊行
+        Scroll() {
+          Row({ space: 8 }) {
+            ForEach(this.storages, (st: MpStorageConfig) => {
+              NativeAdaptivePill({
+                title: st.name,
+                selected: this.activeStorage === st.type,
+                onTap: () => {
+                  this.activeStorage = st.type;
+                  this.currentPath = '/';
+                  this.loadData();
+                }
+              })
+            }, (st: MpStorageConfig) => `lib_st_${st.type}`)
+          }.padding({ left: 16, right: 16 })
+        }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
+
         Row({ space: 8 }) {
-          NativeAdaptiveBadge({ text: '本地存储', tintHex: '#FAAD14', filled: true })
           Text(this.currentPath)
-            .fontSize(12)
-            .fontColor(mpSecondaryText(this.isDark))
-            .layoutWeight(1)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .fontSize(12).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           if (this.currentPath !== '/') {
             Text('返回上级')
-              .fontSize(12)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(this.accentHex)
+              .fontSize(12.5).fontWeight(FontWeight.Bold).fontColor(this.accentHex)
               .onClick(() => {
                 const parts = this.currentPath.split('/').filter((p: string) => p.length > 0);
                 parts.pop();
@@ -108,27 +702,28 @@ export struct HarmonyLibraryPage {
                 this.loadData();
               })
           }
-        }
-        .width('100%')
-        .padding({ left: 16, right: 16 })
+        }.width('100%').padding({ left: 16, right: 16 })
       } else {
+        Row() {
+          TextInput({ placeholder: '搜索片名或路径…', text: this.historyQuery })
+            .width('100%')
+            .fontColor(mpPrimaryText(this.isDark)).placeholderColor(mpSecondaryText(this.isDark))
+            .backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(16)
+            .onChange((v: string) => { this.historyQuery = v; })
+        }.padding({ left: 16, right: 16 })
+
         Column() {
           HarmonySegmentedSwitch({
             options: ['全部', '成功', '失败'],
             selectedIndex: this.historyFilterIdx,
             onSelect: (idx: number) => { this.historyFilterIdx = idx; }
           })
-        }
-        .padding({ left: 16, right: 16 })
+        }.padding({ left: 16, right: 16 })
       }
 
       if (this.loading) {
-        Column() {
-          LoadingProgress().width(32).height(32).color(this.accentHex)
-        }
-        .width('100%')
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Center)
+        Column() { LoadingProgress().width(32).height(32).color(this.accentHex) }
+          .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
       } else {
         Scroll() {
           Column({ space: 10 }) {
@@ -136,28 +731,41 @@ export struct HarmonyLibraryPage {
               ForEach(this.files, (f: MpStorageFile) => {
                 Column() {
                   CinematicPanel({ panelPadding: 13, cornerRadius: 16, interactive: true }) {
-                    Row({ space: 12 }) {
+                    Row({ space: 10 }) {
                       SymbolGlyph($r(f.type === 'dir' ? 'sys.symbol.folder_fill' : 'sys.symbol.doc_text'))
                         .fontSize(22)
-                        .fontColor([f.type === 'dir' ? this.accentHex : '#6EA8FE'])
+                        .fontColor([f.type === 'dir' ? '#F29B38' : this.accentHex])
                       Column({ space: 3 }) {
                         Text(f.name)
-                          .fontSize(14)
-                          .fontWeight(FontWeight.Medium)
-                          .fontColor(mpPrimaryText(this.isDark))
-                          .maxLines(1)
-                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          .fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                         Text(f.type === 'dir' ? '目录' : formatByteSize(f.sizeBytes))
-                          .fontSize(11)
-                          .fontColor(mpSecondaryText(this.isDark))
+                          .fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+
+                      if (f.type !== 'dir' && RustCoreBridge.detectPlayableMediaKind(f.name).length > 0) {
+                        NativeAdaptivePill({
+                          title: '播放媒体',
+                          selected: false,
+                          onTap: () => {
+                            const kind = RustCoreBridge.detectPlayableMediaKind(f.name);
+                            const repo = MoviePilotRepository.shared();
+                            const streamUrl = `${repo.baseUrl}/api/v1/storage/download?path=${encodeURIComponent(f.path)}&storage=${encodeURIComponent(f.storage)}&token=${encodeURIComponent(repo.token)}`;
+                            this.onPlayMedia({
+                              url: streamUrl,
+                              title: f.name,
+                              subtitle: `${f.storage} · ${formatByteSize(f.sizeBytes)}`,
+                              isAudio: kind === 'audio'
+                            });
+                          }
+                        })
                       }
-                      .layoutWeight(1)
-                      .alignItems(HorizontalAlign.Start)
-                      if (f.type === 'dir') {
-                        Text('›').fontSize(18).fontColor(mpSecondaryText(this.isDark))
-                      } else if (RustCoreBridge.detectPlayableMediaKind(f.name).length > 0) {
-                        NativeAdaptiveBadge({ text: '直放', tintHex: '#52C41A' })
-                      }
+
+                      NativeAdaptivePill({
+                        title: '整理',
+                        selected: false,
+                        onTap: () => this.openManualTransfer(f, null, this.activeStorage, f.name, f.path)
+                      })
                     }.width('100%')
                   }
                 }
@@ -167,65 +775,57 @@ export struct HarmonyLibraryPage {
                     this.currentPath = f.path.endsWith('/') ? f.path : f.path + '/';
                     this.loadData();
                   } else {
-                    const kind = RustCoreBridge.detectPlayableMediaKind(f.name);
-                    if (kind.length > 0) {
-                      const repo = MoviePilotRepository.shared();
-                      const streamUrl = `${repo.baseUrl}/api/v1/storage/download?path=${encodeURIComponent(f.path)}&storage=${encodeURIComponent(f.storage)}&token=${encodeURIComponent(repo.token)}`;
-                      this.onPlayMedia({
-                        url: streamUrl,
-                        title: f.name,
-                        subtitle: `${f.storage} · ${formatByteSize(f.sizeBytes)}`,
-                        isAudio: kind === 'audio'
-                      });
-                    }
+                    this.openManualTransfer(f, null, this.activeStorage, f.name, f.path);
                   }
                 })
               }, (f: MpStorageFile) => `${f.storage}_${f.path}`)
             } else {
               ForEach(this.filteredHistory(), (h: MpTransferHistoryItem) => {
-                CinematicPanel({ panelPadding: 13, cornerRadius: 16 }) {
-                  Row({ space: 12 }) {
-                    if (h.posterUrl.length > 0) {
-                      Image(h.posterUrl)
-                        .width(56)
-                        .height(82)
-                        .borderRadius(9)
-                        .objectFit(ImageFit.Cover)
-                        .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-                    }
-                    Column({ space: 5 }) {
-                      Row() {
-                        Text(`${h.title}${h.seasons ? ' ' + h.seasons : ''}${h.episodes ? h.episodes : ''}`)
-                          .fontSize(14)
-                          .fontWeight(FontWeight.Bold)
-                          .fontColor(mpPrimaryText(this.isDark))
-                          .maxLines(1)
-                          .textOverflow({ overflow: TextOverflow.Ellipsis })
-                          .layoutWeight(1)
-                        NativeAdaptiveBadge({
-                          text: h.status ? h.mode : '失败',
-                          tintHex: h.status ? '#52C41A' : '#FF5C6C'
+                Column() {
+                  CinematicPanel({ panelPadding: 13, cornerRadius: 18, interactive: true }) {
+                    Row({ space: 12 }) {
+                      if (h.posterUrl.length > 0) {
+                        MpRemoteImage({
+                          src: h.posterUrl,
+                          imgWidth: 58,
+                          imgHeight: 84,
+                          imgRadius: 10,
+                          placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
                         })
-                      }.width('100%')
-                      Text(`○ ${h.srcStorage}：${h.src}`).fontSize(11).fontColor(mpSecondaryText(this.isDark)).maxLines(1).width('100%')
-                      Text(`● ${h.destStorage}：${h.dest}`).fontSize(11).fontColor('#6EA8FE').maxLines(1).width('100%')
-                      if (h.date.length > 0) {
-                        Text(h.date).fontSize(10).fontColor(mpSecondaryText(this.isDark)).width('100%')
                       }
-                    }
-                    .layoutWeight(1)
-                    .alignItems(HorizontalAlign.Start)
-                  }.width('100%')
+                      Column({ space: 5 }) {
+                        Row({ space: 6 }) {
+                          Text(`${h.title}${h.seasons ? ' ' + h.seasons : ''}${h.episodes ? h.episodes : ''}`)
+                            .fontSize(14.5).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+                          NativeAdaptiveBadge({
+                            text: h.status ? '成功' : '失败',
+                            tintHex: h.status ? '#34C759' : '#E84855'
+                          })
+                        }.width('100%')
+
+                        Text(`${h.mode} · ${h.date}`).fontSize(11).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                        Text(`○ ${h.srcStorage}：${h.src}`).fontSize(11).fontColor(mpSecondaryText(this.isDark)).maxLines(1).width('100%')
+                        Text(`● ${h.destStorage}：${h.dest}`).fontSize(11).fontColor(this.accentHex).maxLines(1).width('100%')
+                      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                    }.width('100%')
+                  }
                 }
+                .width('100%')
+                .onClick(() => this.openManualTransfer(null, h.id, h.srcStorage, h.title, h.src))
               }, (h: MpTransferHistoryItem) => String(h.id))
             }
-          }
-          .padding({ left: 16, right: 16, bottom: 40 })
-        }
-        .scrollBar(BarState.Off)
-        .layoutWeight(1)
+          }.padding({ left: 16, right: 16, bottom: 40 })
+        }.scrollBar(BarState.Off).layoutWeight(1)
       }
     }
+    .bindSheet($$this.showTransferSheet, this.manualTransferSheetBuilder(), {
+      detents: [SheetSize.LARGE],
+      blurStyle: BlurStyle.COMPONENT_REGULAR,
+      dragBar: true,
+        showClose: false,
+      backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
+    })
     .width('100%')
     .height('100%')
   }
