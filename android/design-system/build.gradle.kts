@@ -32,6 +32,8 @@ dependencies {
     api(libs.androidx.compose.material.icons)
     api(libs.androidx.window)
     api(libs.coil.compose)
+    api(libs.haze)
+    api(libs.androidx.activity.compose)
     api(libs.androidx.lifecycle.runtime.compose)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

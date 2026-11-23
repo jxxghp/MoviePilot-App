@@ -15,11 +15,10 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.roundToInt
 
 /** 登录请求结果（支持正常登录、MFA/OTP 二次挑战与错误提示）。 */
 sealed interface LoginOutcome {
@@ -43,10 +42,12 @@ sealed interface SessionState {
 /**
  * MoviePilot V3 全业务仓库：
  * - 所有 URL 构造、JWT 过期校验、401/403 判别、RBAC 权限计算与 9 维站点资源筛选均通过 RustCoreBridge；
- * - 底层传输通过 Android 原生 OkHttp（ADR-01），凭据通过 Android Keystore（ADR-02）。
+ * - 底层传输通过 Android 原生 OkHttp（ADR-01 + 资源 CookieJar），凭据通过 Android Keystore（ADR-02）；
+ * - 所有 JSON 字段访问均采用 JsonNull 免疫扩展（asObj / asArr / asPrim），杜绝后端空字段引发崩溃。
  */
 class MoviePilotRepository(context: Context) {
-    val secretStore = NativeSecretStore(context)
+    private val appContext = context.applicationContext
+    val secretStore = NativeSecretStore(appContext)
     val transport = NativeHttpTransport(allowSelfSignedTls = { secretStore.allowSelfSignedTls })
     val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
 
@@ -55,6 +56,11 @@ class MoviePilotRepository(context: Context) {
 
     private val _savedServers = MutableStateFlow(secretStore.loadServers())
     val savedServers: StateFlow<List<SavedServerEntry>> = _savedServers.asStateFlow()
+
+    private val siteIconCache = ConcurrentHashMap<Int, String>()
+    private val mediaLogoCache = ConcurrentHashMap<String, String>()
+    @Volatile
+    private var resourceCookiePrimed = false
 
     init {
         restoreSessionIfPossible()
@@ -85,6 +91,40 @@ class MoviePilotRepository(context: Context) {
         _session.value = SessionState.NeedsLogin(activeUrl)
     }
 
+    /** 恢复会话后异步刷新 `/user/current`（拿真实头像与权限）并预热短效资源 Cookie（保证图片代理首屏即命中）。 */
+    suspend fun hydrateAuthenticatedSession() {
+        val auth = _session.value as? SessionState.Authenticated ?: return
+        primeResourceCookie()
+        val meResp = authedRequest(listOf("user", "current")).getOrNull() ?: return
+        if (meResp.status in 200..299) {
+            val dataObj = extractObject(meResp.body) ?: return
+            val isSu = dataObj.bool("is_superuser") ?: auth.identity.isSuperuser
+            val refreshed = auth.identity.copy(
+                id = dataObj.int("id") ?: auth.identity.id,
+                name = dataObj.str("name") ?: auth.identity.name,
+                email = dataObj.str("email") ?: auth.identity.email,
+                isSuperuser = isSu,
+                isActive = dataObj.bool("is_active") ?: true,
+                isOtp = dataObj.bool("is_otp") ?: false,
+                avatar = dataObj.str("avatar") ?: auth.identity.avatar,
+            )
+            val perms = RustCoreBridge.evaluatePermissions(
+                dataObj["permissions"]?.toString() ?: "{}",
+                isSu,
+            )
+            _session.value = auth.copy(identity = refreshed, permissions = perms)
+        }
+    }
+
+    /** 触发 `/api/v1/media/source` 换取 MoviePilot 短效同源图片代理 Cookie（与 iOS `APIClient.requestImage` 一致）。 */
+    suspend fun primeResourceCookie() {
+        if (resourceCookiePrimed) return
+        val resp = authedRequest(listOf("media", "source")).getOrNull()
+        if (resp != null && resp.status in 200..299) {
+            resourceCookiePrimed = true
+        }
+    }
+
     /** 校验并连接 MoviePilot 服务地址，持久化至已保存服务列表。 */
     fun connectServer(rawUrl: String): Result<String> {
         val normalized = RustCoreBridge.normalizeAddress(rawUrl)
@@ -107,6 +147,7 @@ class MoviePilotRepository(context: Context) {
     /** 切换到指定历史实例。 */
     fun selectSavedServer(entry: SavedServerEntry) {
         secretStore.setActiveServerUrl(entry.url)
+        resourceCookiePrimed = false
         val existingToken = secretStore.loadToken(entry.url)
         if (!existingToken.isNullOrBlank() && !RustCoreBridge.decodeJwt(existingToken).isExpired) {
             val claims = RustCoreBridge.decodeJwt(existingToken)
@@ -121,12 +162,10 @@ class MoviePilotRepository(context: Context) {
         }
     }
 
-    /** 返回连接服务页（可切换或新增实例）。 */
     fun openServerConnection() {
         _session.value = SessionState.Unconnected
     }
 
-    /** 忘记指定历史实例并清除其 Keystore 凭据。 */
     fun forgetServer(url: String) {
         secretStore.forgetServer(url)
         _savedServers.value = secretStore.loadServers()
@@ -162,9 +201,9 @@ class MoviePilotRepository(context: Context) {
             )
         }.getOrElse { return LoginOutcome.Failure("无法连接到服务：${it.message ?: "网络异常"}") }
 
-        val root = runCatching { json.parseToJsonElement(resp.body).jsonObject }.getOrNull()
+        val root = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
         if (resp.status == 401) {
-            val mfa = root?.get("data")?.jsonObject?.get("mfa_methods")?.jsonArray
+            val mfa = root?.get("data").asObj()?.get("mfa_methods").asArr()
             if (mfa != null && mfa.isNotEmpty()) {
                 return LoginOutcome.OtpRequired("该账号已启用动态口令（OTP），请输入 6 位验证码")
             }
@@ -175,17 +214,16 @@ class MoviePilotRepository(context: Context) {
             return LoginOutcome.Failure("登录失败（HTTP ${resp.status}）")
         }
 
-        val token = root.str("access_token") ?: root["data"]?.jsonObject?.str("access_token")
+        val token = root.str("access_token") ?: root["data"].asObj()?.str("access_token")
         if (token.isNullOrBlank()) {
             return LoginOutcome.Failure("服务端未返回有效访问令牌")
         }
 
-        val superUser = root["super_user"]?.jsonPrimitive?.booleanOrNull ?: true
+        val superUser = root.bool("super_user") ?: true
         val userName = root.str("user_name") ?: username.trim()
         val avatar = root.str("avatar")
         val permsJson = root["permissions"]?.toString() ?: "{}"
 
-        // 拉取完整 /user/current 以获取权威权限与头像
         val identityResp = runCatching {
             val meUrl = RustCoreBridge.buildEndpointUrl(serverUrl, listOf("user", "current"))
             transport.execute(url = meUrl, method = "GET", token = token)
@@ -195,15 +233,16 @@ class MoviePilotRepository(context: Context) {
         var permissions = RustCoreBridge.evaluatePermissions(permsJson, superUser)
 
         if (identityResp != null && identityResp.status == 200) {
-            val meRoot = runCatching { json.parseToJsonElement(identityResp.body).jsonObject }.getOrNull()
-            val dataObj = meRoot?.get("data")?.jsonObject ?: meRoot
+            val dataObj = extractObject(identityResp.body)
             if (dataObj != null) {
-                val isSu = dataObj["is_superuser"]?.jsonPrimitive?.booleanOrNull ?: superUser
+                val isSu = dataObj.bool("is_superuser") ?: superUser
                 identity = UserIdentity(
-                    id = dataObj["id"]?.jsonPrimitive?.intOrNull ?: 0,
+                    id = dataObj.int("id") ?: 0,
                     name = dataObj.str("name") ?: userName,
                     email = dataObj.str("email") ?: "",
                     isSuperuser = isSu,
+                    isActive = dataObj.bool("is_active") ?: true,
+                    isOtp = dataObj.bool("is_otp") ?: false,
                     avatar = dataObj.str("avatar") ?: avatar,
                 )
                 permissions = RustCoreBridge.evaluatePermissions(
@@ -229,12 +268,15 @@ class MoviePilotRepository(context: Context) {
             ),
         )
         _savedServers.value = secretStore.loadServers()
+        resourceCookiePrimed = false
         _session.value = SessionState.Authenticated(serverUrl, token, identity, permissions)
+        primeResourceCookie()
         return LoginOutcome.Success(identity)
     }
 
-    /** 主动登出或 401 自动失效清理。 */
     fun logout(notice: String? = null) {
+        transport.clearCookies()
+        resourceCookiePrimed = false
         val current = _session.value
         val url = when (current) {
             is SessionState.Authenticated -> current.serverUrl
@@ -259,7 +301,21 @@ class MoviePilotRepository(context: Context) {
     ): Result<NativeHttpResponse> {
         val auth = _session.value as? SessionState.Authenticated
             ?: return Result.failure(IllegalStateException("未登录"))
-        val url = RustCoreBridge.buildEndpointUrl(auth.serverUrl, segments, query, trailingSlash)
+        val url = if (segments.any { seg -> seg.any { it.code > 127 } }) {
+            // 含中文路径段（如 `/tmdb/credits/{id}/电视剧`）直接进行单次 UTF-8 百分号编码，避免双重转义
+            val base = auth.serverUrl.trimEnd('/')
+            val encodedPath = segments.joinToString("/") { seg ->
+                URLEncoder.encode(seg, "UTF-8").replace("+", "%20")
+            }
+            val qs = if (query.isEmpty()) "" else "?" + query.joinToString("&") { (k, v) ->
+                "${URLEncoder.encode(k, "UTF-8")}=${URLEncoder.encode(v, "UTF-8")}"
+            }
+            "$base/api/v1/$encodedPath${if (trailingSlash) "/" else ""}$qs"
+        } else {
+            runCatching {
+                RustCoreBridge.buildEndpointUrl(auth.serverUrl, segments, query, trailingSlash)
+            }.getOrElse { return Result.failure(it) }
+        }
         val resp = runCatching {
             transport.execute(url = url, method = method, token = auth.token, body = body)
         }.getOrElse { return Result.failure(it) }
@@ -271,29 +327,87 @@ class MoviePilotRepository(context: Context) {
         return Result.success(resp)
     }
 
-    /** 解析图片绝对地址（兼容相对路径、反代子路径与 TMDB 短路径）。 */
-    fun resolveImageUrl(raw: String?): String? {
+    /**
+     * 解析图片绝对地址并统一经 MoviePilot V3 服务端图片代理转发：
+     * - `data:image/...` 原样返回（由 Coil Base64DataUriFetcher 解码）；
+     * - TMDB / 豆瓣 / Bangumi / Emby 等外链经 `${serverUrl}/api/v1/system/img/0?imgurl=...&cache=true` 秒开；
+     * - 相对 `/api/...` 自动拼接当前服务器前缀。
+     */
+    fun resolveImageUrl(raw: String?, maxWidth: Int? = null, useCookies: Boolean = false): String? {
         if (raw.isNullOrBlank()) return null
-        if (raw.startsWith("http://") || raw.startsWith("https://")) return raw
-        if (raw.startsWith("/")) {
-            val auth = _session.value as? SessionState.Authenticated
-            if (raw.startsWith("/api/") && auth != null) {
-                return "${auth.serverUrl}$raw"
-            }
-            return "https://image.tmdb.org/t/p/w500$raw"
+        val trimmed = raw.trim()
+        if (trimmed.equals("null", ignoreCase = true) || trimmed.equals("none", ignoreCase = true)) return null
+        if (trimmed.startsWith("data:image/")) return trimmed
+        val auth = _session.value as? SessionState.Authenticated
+        if (trimmed.startsWith("/api/")) {
+            return if (auth != null) "${auth.serverUrl.trimEnd('/')}$trimmed" else trimmed
         }
-        return raw
+        val normalized = trimmed.replace("image.tmdb.org/t/p/original/", "image.tmdb.org/t/p/w780/")
+        val absolute = when {
+            normalized.startsWith("http://") || normalized.startsWith("https://") -> normalized
+            normalized.startsWith("/") -> "https://image.tmdb.org/t/p/w500$normalized"
+            else -> return null
+        }
+        if (auth == null) return absolute
+        val base = auth.serverUrl.trimEnd('/')
+        if (absolute.startsWith("$base/api/")) return absolute
+        val encoded = URLEncoder.encode(absolute, "UTF-8")
+        val widthQuery = if (maxWidth != null) "&maxWidth=$maxWidth" else ""
+        val cookieQuery = if (useCookies) "&use_cookies=true" else ""
+        return "$base/api/v1/system/img/0?imgurl=$encoded&cache=true$widthQuery$cookieQuery"
     }
 
-    // ==================== 发现 / 探索 / 搜索 / 详情 ====================
+    // ==================== 发现 / 探索 / 搜索 / 详情 / 音乐 ====================
 
     suspend fun fetchDiscoverTrending(page: Int = 1): List<MediaCardItem> =
         fetchMediaList(listOf("recommend", "tmdb_trending"), listOf("page" to page.toString()))
 
-    suspend fun fetchExplore(source: String, page: Int = 1, genre: String? = null, sort: String? = null): List<MediaCardItem> {
+    suspend fun fetchExplore(
+        source: String,
+        page: Int = 1,
+        genre: String? = null,
+        sort: String? = null,
+        language: String? = null,
+        doubanTag: String? = null,
+        bangumiCat: String? = null,
+    ): List<MediaCardItem> {
         val query = mutableListOf("page" to page.toString())
-        if (!genre.isNullOrBlank() && genre != "全部类型") query += "with_genres" to genre
-        if (!sort.isNullOrBlank()) query += "sort_by" to sort
+        when (source) {
+            "tmdb_movies", "tmdb_tvs" -> {
+                val mappedSort = when (sort) {
+                    "最新" -> if (source == "tmdb_tvs") "first_air_date.desc" else "release_date.desc"
+                    "高分" -> "vote_average.desc"
+                    else -> "popularity.desc"
+                }
+                query += "sort_by" to mappedSort
+                val genreId = TMDB_GENRE_LABEL_TO_ID[genre]
+                if (!genreId.isNullOrBlank()) query += "with_genres" to genreId
+                val langCode = TMDB_LANG_LABEL_TO_CODE[language]
+                if (!langCode.isNullOrBlank()) query += "with_original_language" to langCode
+            }
+            "douban_movies", "douban_tvs" -> {
+                val mappedSort = when (sort) {
+                    "最新" -> "R"
+                    "高分" -> "S"
+                    else -> "U"
+                }
+                query += "sort" to mappedSort
+                if (!doubanTag.isNullOrBlank() && doubanTag != "全部") {
+                    query += "tags" to doubanTag
+                }
+            }
+            "bangumi" -> {
+                query += "type" to "2"
+                query += "count" to "30"
+                val mappedSort = when (sort) {
+                    "高分" -> "rank"
+                    "最新" -> "date"
+                    else -> "heat"
+                }
+                query += "sort" to mappedSort
+                if (!bangumiCat.isNullOrBlank()) query += "cat" to bangumiCat
+            }
+        }
         return fetchMediaList(listOf("discover", source), query)
     }
 
@@ -305,21 +419,205 @@ class MoviePilotRepository(context: Context) {
         )
     }
 
+    /** 拉取 `/api/v1/media/{id}?media_source=...&type_name=...` 完整媒体详情（含透明片名 Logo、时长、分季、分级等）。 */
+    suspend fun fetchMediaDetail(item: MediaCardItem): MediaCardItem? {
+        val lookupId = item.tmdbId?.toString()
+            ?: item.doubanId?.takeIf { it.isNotBlank() }
+            ?: item.bangumiId?.toString()
+            ?: item.mediaId?.takeIf { it.isNotBlank() }
+            ?: return null
+        val src = when {
+            item.source.isNotBlank() -> item.source
+            item.tmdbId != null -> "themoviedb"
+            item.doubanId != null -> "douban"
+            item.bangumiId != null -> "bangumi"
+            else -> "themoviedb"
+        }
+        val resp = authedRequest(
+            segments = listOf("media", lookupId),
+            query = listOf("media_source" to src, "type_name" to item.type.ifBlank { "电影" }),
+        ).getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val obj = extractObject(resp.body) ?: return null
+        val parsed = parseMediaCard(obj) ?: return null
+        if (!parsed.logoPath.isNullOrBlank()) {
+            mediaLogoCache["$src:$lookupId"] = parsed.logoPath
+        }
+        return parsed
+    }
+
+    /** 为发现页 Hero 异步补拉透明片名 Logo（带内存缓存，与 iOS `hydrateHeroLogos` 一致）。 */
+    suspend fun fetchHeroLogo(item: MediaCardItem): String? {
+        if (!item.logoPath.isNullOrBlank()) return item.logoPath
+        val lookupId = item.tmdbId?.toString() ?: item.mediaId ?: return null
+        val key = "${item.source}:$lookupId"
+        mediaLogoCache[key]?.let { return it }
+        return fetchMediaDetail(item)?.logoPath
+    }
+
+    /** 拉取影视演职员列表（自动路由 TMDB / 豆瓣 / Bangumi）。 */
+    suspend fun fetchMediaCredits(item: MediaCardItem): List<MediaPersonDto> {
+        val typeName = item.type.ifBlank { "电影" }
+        val segs = when {
+            item.source.contains("douban", true) && !item.doubanId.isNullOrBlank() ->
+                listOf("douban", "credits", item.doubanId, typeName)
+            item.source.contains("bangumi", true) && item.bangumiId != null ->
+                listOf("bangumi", "credits", item.bangumiId.toString())
+            item.tmdbId != null ->
+                listOf("tmdb", "credits", item.tmdbId.toString(), typeName)
+            !item.doubanId.isNullOrBlank() ->
+                listOf("douban", "credits", item.doubanId, typeName)
+            !item.mediaId.isNullOrBlank() ->
+                listOf("tmdb", "credits", item.mediaId, typeName)
+            else -> return emptyList()
+        }
+        val resp = authedRequest(segs).getOrNull() ?: return emptyList()
+        return extractArray(resp.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            val name = obj.str("name") ?: obj.str("title") ?: return@mapNotNull null
+            MediaPersonDto(
+                id = obj.str("id") ?: "",
+                name = name,
+                character = obj.str("character") ?: obj.str("roles") ?: obj.str("job") ?: "",
+                department = obj.str("known_for_department") ?: "",
+                profilePath = resolveImageUrl(obj.str("profile_path") ?: obj.str("avatar") ?: obj.str("image"), maxWidth = 300),
+                source = if (segs.first() == "douban") "douban" else "themoviedb",
+            )
+        }
+    }
+
+    /** 拉取电视剧分季列表（`/api/v1/tmdb/seasons/{tmdb_id}`）。 */
+    suspend fun fetchMediaSeasons(tmdbId: Int): List<MediaSeasonDto> {
+        val resp = authedRequest(listOf("tmdb", "seasons", tmdbId.toString())).getOrNull() ?: return emptyList()
+        return extractArray(resp.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            val num = obj.int("season_number") ?: return@mapNotNull null
+            if (num <= 0) return@mapNotNull null
+            MediaSeasonDto(
+                seasonNumber = num,
+                name = obj.str("name") ?: "第 $num 季",
+                overview = obj.str("overview") ?: "",
+                airDate = obj.str("air_date") ?: "",
+                episodeCount = obj.int("episode_count") ?: 0,
+                posterPath = resolveImageUrl(obj.str("poster_path"), maxWidth = 320),
+                voteAverage = obj.dbl("vote_average") ?: 0.0,
+            )
+        }
+    }
+
+    /** 拉取电视剧单季分集列表（`/api/v1/tmdb/{tmdb_id}/{season}`）。 */
+    suspend fun fetchSeasonEpisodes(tmdbId: Int, seasonNumber: Int): List<MediaEpisodeDto> {
+        val resp = authedRequest(listOf("tmdb", tmdbId.toString(), seasonNumber.toString())).getOrNull() ?: return emptyList()
+        return extractArray(resp.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            MediaEpisodeDto(
+                episodeNumber = obj.int("episode_number") ?: return@mapNotNull null,
+                name = obj.str("name") ?: "",
+                overview = obj.str("overview") ?: "",
+                airDate = obj.str("air_date") ?: "",
+                runtime = obj.int("runtime"),
+                stillPath = resolveImageUrl(obj.str("still_path"), maxWidth = 500),
+                voteAverage = obj.dbl("vote_average") ?: 0.0,
+            )
+        }
+    }
+
+    /** 拉取人物详情与代表作。 */
+    suspend fun fetchPersonDetail(person: MediaPersonDto): Pair<MediaPersonDto, List<MediaCardItem>> {
+        val prefix = if (person.source == "douban") "douban" else "tmdb"
+        if (person.id.isBlank()) return person to emptyList()
+        val detailObj = extractObject(authedRequest(listOf(prefix, "person", person.id)).getOrNull()?.body)
+        val enriched = if (detailObj != null) {
+            person.copy(
+                name = detailObj.str("name") ?: person.name,
+                biography = detailObj.str("biography") ?: detailObj.str("summary") ?: person.biography,
+                birthday = detailObj.str("birthday") ?: person.birthday,
+                placeOfBirth = detailObj.str("place_of_birth") ?: person.placeOfBirth,
+                department = detailObj.str("known_for_department") ?: person.department,
+                profilePath = resolveImageUrl(detailObj.str("profile_path") ?: detailObj.str("avatar"), maxWidth = 400) ?: person.profilePath,
+            )
+        } else person
+        val credits = fetchMediaList(listOf(prefix, "person", "credits", person.id), listOf("page" to "1"))
+        return enriched to credits
+    }
+
+    /** 拉取音乐发现四大榜单（豆瓣音乐 / 本周榜单 / 热门专辑 / 近期新发）。 */
+    suspend fun fetchMusicFeed(feed: String, page: Int = 1): List<MusicAlbumDto> {
+        val resp = when (feed) {
+            "weekly" -> authedRequest(listOf("recommend", "music_weekly"), query = listOf("page" to page.toString()))
+            "popular" -> authedRequest(
+                listOf("music", "explore"),
+                query = listOf("media_source" to "musicbrainz", "sort" to "popular", "page" to page.toString()),
+            )
+            "latest" -> authedRequest(
+                listOf("music", "explore"),
+                query = listOf("media_source" to "musicbrainz", "sort" to "latest", "page" to page.toString()),
+            )
+            else -> authedRequest(listOf("recommend", "music_douban"), query = listOf("page" to page.toString()))
+        }.getOrNull() ?: return emptyList()
+        return extractArray(resp.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            val title = obj.str("title") ?: obj.str("name") ?: return@mapNotNull null
+            MusicAlbumDto(
+                id = obj.str("media_id") ?: obj.str("douban_id") ?: obj.str("id") ?: title,
+                title = title,
+                artist = obj.str("artist") ?: obj.str("author") ?: obj.str("subtitle") ?: obj.str("original_title") ?: "",
+                year = obj.str("year") ?: obj.str("release_date")?.take(4) ?: "",
+                coverUrl = resolveImageUrl(obj.str("poster_path") ?: obj.str("cover") ?: obj.str("image"), maxWidth = 500),
+                source = obj.str("media_source") ?: "douban",
+                voteAverage = obj.dbl("vote_average") ?: 0.0,
+                overview = obj.str("overview") ?: "",
+            )
+        }
+    }
+
+    /** 拉取已启用媒体服务器的真实「继续观看」列表（精确还原小数进度百分比）。 */
     suspend fun fetchContinueWatching(): List<ContinueWatchingItem> {
-        val resp = authedRequest(listOf("mediaserver", "playing")).getOrNull()
-        val arr = extractArray(resp?.body)
-        if (arr.isNotEmpty()) {
-            return arr.mapNotNull { el ->
-                val obj = el as? JsonObject ?: return@mapNotNull null
-                ContinueWatchingItem(
+        val servers = fetchMediaServers().filter { it.enabled }.map { it.name }.ifEmpty { listOf("Emby", "Jellyfin", "Plex") }
+        val result = mutableListOf<ContinueWatchingItem>()
+        for (srv in servers) {
+            val resp = authedRequest(listOf("mediaserver", "playing"), query = listOf("server" to srv)).getOrNull()
+            val arr = extractArray(resp?.body)
+            arr.forEach { el ->
+                val obj = el.asObj() ?: return@forEach
+                result += ContinueWatchingItem(
                     id = obj.str("id") ?: obj.str("item_id") ?: "",
                     title = obj.str("title") ?: obj.str("name") ?: "",
                     subtitle = obj.str("subtitle") ?: obj.str("episode_title") ?: "",
-                    image = resolveImageUrl(obj.str("image") ?: obj.str("backdrop_path")),
-                    percent = obj["percent"]?.jsonPrimitive?.intOrNull ?: 35,
-                    server = obj.str("server") ?: "Emby",
+                    image = resolveImageUrl(obj.str("image") ?: obj.str("backdrop_path"), maxWidth = 720),
+                    percent = (obj.dbl("percent") ?: 0.0).roundToInt().coerceIn(0, 100),
+                    server = obj.str("server") ?: srv,
                     type = obj.str("type") ?: "电视剧",
+                    link = obj.str("link"),
                 )
+            }
+            if (result.isNotEmpty()) break
+        }
+        return result
+    }
+
+    /** 拉取媒体服务器「最近入库」列表（用于发现页与仪表盘最近入库卡片）。 */
+    suspend fun fetchMediaServerLatest(): List<MediaCardItem> {
+        val servers = fetchMediaServers().filter { it.enabled }.map { it.name }.ifEmpty { listOf("Emby", "Jellyfin", "Plex") }
+        for (srv in servers) {
+            val resp = authedRequest(listOf("mediaserver", "latest"), query = listOf("server" to srv)).getOrNull()
+            val arr = extractArray(resp?.body)
+            if (arr.isNotEmpty()) {
+                return arr.mapNotNull { el ->
+                    val obj = el.asObj() ?: return@mapNotNull null
+                    val title = obj.str("title") ?: return@mapNotNull null
+                    MediaCardItem(
+                        title = title,
+                        year = obj.str("year") ?: obj.str("subtitle")?.take(4) ?: "",
+                        type = obj.str("type") ?: "电影",
+                        overview = obj.str("subtitle") ?: "",
+                        posterPath = resolveImageUrl(obj.str("image"), maxWidth = 450),
+                        backdropPath = resolveImageUrl(obj.str("image"), maxWidth = 900),
+                        mediaId = obj.str("item_id") ?: obj.str("id"),
+                        source = obj.str("server") ?: srv,
+                        inLibrary = true,
+                    )
+                }
             }
         }
         return emptyList()
@@ -332,25 +630,60 @@ class MoviePilotRepository(context: Context) {
     }
 
     private fun parseMediaCard(el: JsonElement): MediaCardItem? {
-        val obj = el as? JsonObject ?: return null
+        val obj = el.asObj() ?: return null
         val title = obj.str("title") ?: obj.str("name") ?: return null
+        val explicitGenres = obj["genres"].asArr()?.mapNotNull { g ->
+            when (g) {
+                is JsonPrimitive -> g.content.takeIf { it != "null" && it.isNotBlank() }
+                is JsonObject -> g.str("name")
+                else -> null
+            }
+        }.orEmpty()
+        val mappedGenreIds = obj["genre_ids"].asArr()?.mapNotNull { gid ->
+            gid.asPrim()?.intOrNull?.let { TMDB_GENRE_ID_TO_ZH[it] }
+        }.orEmpty()
+        val genres = explicitGenres.ifEmpty { mappedGenreIds }
+
+        val tmdbId = obj.int("tmdb_id")
+        val mediaId = obj.str("media_id") ?: obj.str("id")
+        val src = obj.str("source") ?: obj.str("media_source") ?: "themoviedb"
+        val cachedLogo = mediaLogoCache["$src:${tmdbId ?: mediaId}"]
+
         return MediaCardItem(
             title = title,
-            year = obj.str("year") ?: obj.str("release_date")?.take(4) ?: "",
+            year = obj.str("year") ?: obj.str("release_date")?.take(4) ?: obj.str("first_air_date")?.take(4) ?: "",
             type = obj.str("type") ?: "电影",
             overview = obj.str("overview") ?: obj.str("description") ?: "",
-            posterPath = resolveImageUrl(obj.str("poster_path") ?: obj.str("poster") ?: obj.str("image")),
-            backdropPath = resolveImageUrl(obj.str("backdrop_path") ?: obj.str("backdrop")),
-            voteAverage = obj["vote_average"]?.jsonPrimitive?.doubleOrNull
-                ?: obj["vote"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
-            source = obj.str("source") ?: obj.str("media_source") ?: "themoviedb",
-            tmdbId = obj["tmdb_id"]?.jsonPrimitive?.intOrNull,
+            posterPath = resolveImageUrl(obj.str("poster_path") ?: obj.str("poster") ?: obj.str("image"), maxWidth = 500),
+            backdropPath = resolveImageUrl(obj.str("backdrop_path") ?: obj.str("backdrop"), maxWidth = 1080),
+            voteAverage = obj.dbl("vote_average") ?: obj.dbl("vote") ?: 0.0,
+            source = src,
+            tmdbId = tmdbId,
             doubanId = obj.str("douban_id"),
-            bangumiId = obj["bangumi_id"]?.jsonPrimitive?.intOrNull,
-            mediaId = obj.str("media_id") ?: obj.str("id"),
-            logoPath = resolveImageUrl(obj.str("logo_path")),
-            inLibrary = obj["in_library"]?.jsonPrimitive?.booleanOrNull ?: false,
+            bangumiId = obj.int("bangumi_id"),
+            mediaId = mediaId,
+            logoPath = resolveImageUrl(obj.str("logo_path"), maxWidth = 720) ?: cachedLogo,
+            genres = genres,
+            runtime = obj.int("runtime"),
+            numberOfSeasons = obj.int("number_of_seasons"),
+            contentRating = obj.str("content_rating"),
+            releaseDate = obj.str("release_date") ?: obj.str("first_air_date"),
+            inLibrary = obj.bool("in_library") ?: false,
+            popularityCount = obj.int("count") ?: 0,
+            shareUser = obj.str("share_user"),
+            shareComment = obj.str("share_comment"),
         )
+    }
+
+    // ==================== 社区勋章 ====================
+
+    /** 获取 `/api/v1/github/community` 原始 JSON（供 `:core-medal3d` 直接解码 `CommunityProfile`）。 */
+    suspend fun fetchCommunityProfileJson(refresh: Boolean = false): String? {
+        val query = if (refresh) listOf("refresh" to "true") else emptyList()
+        val resp = authedRequest(listOf("github", "community"), query = query).getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val obj = extractObject(resp.body) ?: return null
+        return obj.toString()
     }
 
     // ==================== 订阅 / 日历 / 社区 ====================
@@ -359,33 +692,61 @@ class MoviePilotRepository(context: Context) {
         val resp = authedRequest(listOf("subscribe"), trailingSlash = true).getOrNull() ?: return emptyList()
         if (resp.status !in 200..299) return emptyList()
         return extractArray(resp.body).mapNotNull { el ->
-            val obj = el as? JsonObject ?: return@mapNotNull null
+            val obj = el.asObj() ?: return@mapNotNull null
             SubscribeItemDto(
-                id = obj["id"]?.jsonPrimitive?.intOrNull ?: 0,
+                id = obj.int("id") ?: 0,
                 name = obj.str("name") ?: return@mapNotNull null,
                 year = obj.str("year") ?: "",
                 type = obj.str("type") ?: "电影",
-                season = obj["season"]?.jsonPrimitive?.intOrNull,
-                poster = resolveImageUrl(obj.str("poster")),
-                backdrop = resolveImageUrl(obj.str("backdrop")),
-                vote = obj["vote"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                season = obj.int("season"),
+                poster = resolveImageUrl(obj.str("poster"), maxWidth = 400),
+                backdrop = resolveImageUrl(obj.str("backdrop"), maxWidth = 900),
+                vote = obj.dbl("vote") ?: 0.0,
                 state = obj.str("state") ?: "R",
-                totalEpisode = obj["total_episode"]?.jsonPrimitive?.intOrNull ?: 0,
-                lackEpisode = obj["lack_episode"]?.jsonPrimitive?.intOrNull ?: 0,
+                totalEpisode = obj.int("total_episode") ?: 0,
+                lackEpisode = obj.int("lack_episode") ?: 0,
                 mediaSource = obj.str("media_source") ?: "themoviedb",
                 mediaId = obj.str("media_id") ?: "",
                 quality = obj.str("quality") ?: "",
                 resolution = obj.str("resolution") ?: "",
                 effect = obj.str("effect") ?: "",
+                bestVersion = (obj.int("best_version") ?: 0) == 1 || obj.bool("best_version") == true,
+                sites = obj["sites"].asArr()?.mapNotNull { it.asPrim()?.intOrNull } ?: emptyList(),
+                filterGroups = obj["filter_groups"].asArr()?.mapNotNull { it.asPrim()?.content?.takeIf { s -> s != "null" } } ?: emptyList(),
+                searchImdbId = (obj.int("search_imdbid") ?: 0) == 1 || obj.bool("search_imdbid") == true,
+                searchInterval = obj.int("search_interval"),
+                keyword = obj.str("keyword") ?: "",
                 savePath = obj.str("save_path") ?: "",
                 include = obj.str("include") ?: "",
                 exclude = obj.str("exclude") ?: "",
+                mediaCategory = obj.str("media_category") ?: "",
+                customWords = obj.str("custom_words") ?: "",
+                date = obj.str("date") ?: "",
+                username = obj.str("username") ?: "",
+                description = obj.str("description") ?: "",
             )
         }
     }
 
+    suspend fun fetchSubscribePopular(stype: String = "电影", page: Int = 1): List<MediaCardItem> =
+        fetchMediaList(listOf("subscribe", "popular"), listOf("stype" to stype, "page" to page.toString()))
+
+    suspend fun fetchSubscribeShares(page: Int = 1): List<MediaCardItem> =
+        fetchMediaList(listOf("subscribe", "shares"), listOf("page" to page.toString()))
+
+    suspend fun toggleSubscriptionState(id: Int, targetState: String): Boolean {
+        val resp = authedRequest(
+            segments = listOf("subscribe", "status", id.toString()),
+            method = "PUT",
+            query = listOf("state" to targetState),
+        ).getOrNull()
+        return resp != null && resp.status in 200..299
+    }
+
     suspend fun createOrUpdateSubscription(item: SubscribeItemDto, isUpdate: Boolean = false): Boolean {
-        val payload = """{"id":${item.id},"name":"${esc(item.name)}","year":"${esc(item.year)}","type":"${esc(item.type)}","season":${item.season ?: "null"},"media_source":"${esc(item.mediaSource)}","media_id":"${esc(item.mediaId)}","quality":"${esc(item.quality)}","resolution":"${esc(item.resolution)}","effect":"${esc(item.effect)}","save_path":"${esc(item.savePath)}","include":"${esc(item.include)}","exclude":"${esc(item.exclude)}"}"""
+        val sitesJson = item.sites.joinToString(",", "[", "]")
+        val groupsJson = item.filterGroups.joinToString(",", "[", "]") { "\"${esc(it)}\"" }
+        val payload = """{"id":${item.id},"name":"${esc(item.name)}","year":"${esc(item.year)}","type":"${esc(item.type)}","season":${item.season ?: "null"},"media_source":"${esc(item.mediaSource)}","media_id":"${esc(item.mediaId)}","quality":"${esc(item.quality)}","resolution":"${esc(item.resolution)}","effect":"${esc(item.effect)}","best_version":${if (item.bestVersion) 1 else 0},"sites":$sitesJson,"filter_groups":$groupsJson,"search_imdbid":${if (item.searchImdbId) 1 else 0},"search_interval":${item.searchInterval ?: "null"},"keyword":"${esc(item.keyword)}","save_path":"${esc(item.savePath)}","include":"${esc(item.include)}","exclude":"${esc(item.exclude)}","media_category":"${esc(item.mediaCategory)}","custom_words":"${esc(item.customWords)}"}"""
         val resp = authedRequest(
             segments = listOf("subscribe"),
             method = if (isUpdate) "PUT" else "POST",
@@ -402,42 +763,50 @@ class MoviePilotRepository(context: Context) {
 
     // ==================== 站点资源（Rust 9 维筛选分组） & 下载 ====================
 
-    suspend fun searchResources(keyword: String): List<ResourceItemDto> {
-        val resp = authedRequest(
-            segments = listOf("search", "title"),
-            query = if (keyword.isBlank()) emptyList() else listOf("keyword" to keyword),
-        ).getOrNull()
-        val arr = extractArray(resp?.body)
-        if (arr.isNotEmpty()) {
-            return arr.mapNotNull { el ->
-                val obj = el as? JsonObject ?: return@mapNotNull null
-                val torrent = obj["torrent_info"]?.jsonObject ?: obj
-                val meta = obj["meta_info"]?.jsonObject
-                ResourceItemDto(
-                    id = torrent.str("id") ?: torrent.str("enclosure") ?: torrent.str("title") ?: "",
-                    title = torrent.str("title") ?: return@mapNotNull null,
-                    siteName = torrent.str("site_name") ?: "站点",
-                    size = torrent["size"]?.jsonPrimitive?.longOrNull ?: 0L,
-                    seeders = torrent["seeders"]?.jsonPrimitive?.intOrNull ?: 0,
-                    peers = torrent["peers"]?.jsonPrimitive?.intOrNull ?: 0,
-                    resourcePix = meta?.str("resource_pix") ?: torrent.str("resource_pix") ?: "2160p",
-                    resourceType = meta?.str("resource_type") ?: torrent.str("resource_type") ?: "WEB-DL",
-                    videoEncode = meta?.str("video_encode") ?: torrent.str("video_encode") ?: "HEVC",
-                    audioEncode = meta?.str("audio_encode") ?: torrent.str("audio_encode") ?: "AAC",
-                    resourceTeam = meta?.str("resource_team") ?: torrent.str("resource_team") ?: "",
-                    edition = meta?.str("edition") ?: torrent.str("edition") ?: "WEB-DL",
-                    downloadvolumefactor = torrent["downloadvolumefactor"]?.jsonPrimitive?.doubleOrNull ?: 1.0,
-                    uploadvolumefactor = torrent["uploadvolumefactor"]?.jsonPrimitive?.doubleOrNull ?: 1.0,
-                    labels = torrent["labels"]?.jsonArray?.mapNotNull { it.jsonPrimitive.content } ?: emptyList(),
-                    description = torrent.str("description") ?: "",
-                    enclosure = torrent.str("enclosure") ?: "",
-                )
+    suspend fun searchResources(keyword: String, siteId: Int? = null): List<ResourceItemDto> {
+        val resp = if (keyword.isBlank()) {
+            if (siteId != null) {
+                authedRequest(listOf("site", "resource", siteId.toString())).getOrNull()
+            } else {
+                authedRequest(listOf("search", "last")).getOrNull()
             }
+        } else {
+            val q = mutableListOf("keyword" to keyword)
+            if (siteId != null) q += "sites" to siteId.toString()
+            authedRequest(listOf("search", "title"), query = q).getOrNull()
         }
-        return emptyList()
+        val arr = extractArray(resp?.body)
+        return arr.mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            val torrent = obj["torrent_info"].asObj() ?: obj
+            val meta = obj["meta_info"].asObj()
+            val media = obj["media_info"].asObj()
+            ResourceItemDto(
+                id = torrent.str("id") ?: torrent.str("enclosure") ?: torrent.str("title") ?: "",
+                title = torrent.str("title") ?: return@mapNotNull null,
+                siteName = torrent.str("site_name") ?: "站点",
+                size = torrent.lng("size") ?: (torrent.dbl("size") ?: 0.0).toLong(),
+                seeders = torrent.int("seeders") ?: 0,
+                peers = torrent.int("peers") ?: 0,
+                resourcePix = meta?.str("resource_pix") ?: torrent.str("resource_pix") ?: "",
+                resourceType = meta?.str("resource_type") ?: torrent.str("resource_type") ?: "",
+                videoEncode = meta?.str("video_encode") ?: torrent.str("video_encode") ?: "",
+                audioEncode = meta?.str("audio_encode") ?: torrent.str("audio_encode") ?: "",
+                resourceTeam = meta?.str("resource_team") ?: torrent.str("resource_team") ?: "",
+                edition = meta?.str("edition") ?: torrent.str("edition") ?: "",
+                downloadvolumefactor = torrent.dbl("downloadvolumefactor") ?: 1.0,
+                uploadvolumefactor = torrent.dbl("uploadvolumefactor") ?: 1.0,
+                labels = torrent["labels"].asArr()?.mapNotNull { it.asPrim()?.content?.takeIf { s -> s != "null" } } ?: emptyList(),
+                description = torrent.str("description") ?: "",
+                enclosure = torrent.str("enclosure") ?: "",
+                mediaTitle = media?.str("title") ?: meta?.str("cn_name") ?: meta?.str("en_name") ?: "",
+                mediaYear = media?.str("year") ?: meta?.str("year") ?: "",
+                mediaType = media?.str("type") ?: meta?.str("type") ?: "",
+                seasonEpisode = meta?.str("season_episode") ?: "",
+            )
+        }
     }
 
-    /** 将原始资源列表交由 Rust `filter_and_group_resources` 完成 9 维级联筛选与同规格合并。 */
     fun filterResourcesWithRust(items: List<ResourceItemDto>, criteriaJson: String = ""): ResourceFilterResultDto {
         val rawJson = json.encodeToString(kotlinx.serialization.builtins.ListSerializer(ResourceItemDto.serializer()), items)
         val outJson = RustCoreBridge.filterResources(rawJson, criteriaJson)
@@ -448,8 +817,8 @@ class MoviePilotRepository(context: Context) {
     suspend fun fetchDownloads(): List<DownloadTaskDto> {
         val resp = authedRequest(listOf("download"), trailingSlash = true).getOrNull() ?: return emptyList()
         return extractArray(resp.body).mapNotNull { el ->
-            val obj = el as? JsonObject ?: return@mapNotNull null
-            val media = obj["media"]?.jsonObject
+            val obj = el.asObj() ?: return@mapNotNull null
+            val media = obj["media"].asObj()
             DownloadTaskDto(
                 hash = obj.str("hash") ?: "",
                 downloader = obj.str("downloader") ?: "qBittorrent",
@@ -458,139 +827,435 @@ class MoviePilotRepository(context: Context) {
                 year = obj.str("year") ?: "",
                 seasonEpisode = obj.str("season_episode") ?: "",
                 siteName = obj.str("site_name") ?: "",
-                size = obj["size"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
-                progress = obj["progress"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                size = obj.dbl("size") ?: 0.0,
+                progress = obj.dbl("progress") ?: 0.0,
                 state = obj.str("state") ?: "downloading",
                 upspeed = obj.str("upspeed") ?: "0 B/s",
                 dlspeed = obj.str("dlspeed") ?: "0 B/s",
                 leftTime = obj.str("left_time") ?: "",
-                poster = resolveImageUrl(media?.str("poster") ?: media?.str("backdrop")),
+                poster = resolveImageUrl(media?.str("poster") ?: media?.str("backdrop"), maxWidth = 360),
             )
         }
     }
 
-    // ==================== 文件 / 整理历史 ====================
+    // ==================== 文件 / 整理历史 / 队列 ====================
 
     suspend fun fetchFiles(storage: String = "local", path: String = "/"): List<StorageFileDto> {
         val body = """{"storage":"${esc(storage)}","path":"${esc(path)}","type":"dir"}"""
         val resp = authedRequest(listOf("storage", "list"), method = "POST", body = body).getOrNull()
         return extractArray(resp?.body).mapNotNull { el ->
-            val obj = el as? JsonObject ?: return@mapNotNull null
+            val obj = el.asObj() ?: return@mapNotNull null
             StorageFileDto(
                 storage = obj.str("storage") ?: storage,
                 type = obj.str("type") ?: "file",
                 path = obj.str("path") ?: "",
                 name = obj.str("name") ?: return@mapNotNull null,
                 extension = obj.str("extension"),
-                size = obj["size"]?.jsonPrimitive?.longOrNull ?: 0L,
+                size = obj.lng("size") ?: 0L,
                 modifyTime = obj.str("modify_time") ?: "",
             )
         }
     }
 
-    suspend fun fetchTransferHistory(search: String = ""): List<TransferHistoryDto> {
+    suspend fun fetchTransferHistory(search: String = ""): Pair<Int, List<TransferHistoryDto>> {
         val query = if (search.isBlank()) listOf("page" to "1", "count" to "50") else listOf("title" to search, "page" to "1", "count" to "50")
-        val resp = authedRequest(listOf("history", "transfer"), query = query).getOrNull()
-        return extractArray(resp?.body).mapNotNull { el ->
-            val obj = el as? JsonObject ?: return@mapNotNull null
+        val resp = authedRequest(listOf("history", "transfer"), query = query).getOrNull() ?: return 0 to emptyList()
+        val dataObj = extractObject(resp.body)
+        val total = dataObj?.int("total") ?: 0
+        val list = extractArray(resp.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            val srcFile = obj["src_fileitem"].asObj()
+            val destFile = obj["dest_fileitem"].asObj()
             TransferHistoryDto(
-                id = obj["id"]?.jsonPrimitive?.intOrNull ?: 0,
+                id = obj.int("id") ?: 0,
                 title = obj.str("title") ?: return@mapNotNull null,
                 type = obj.str("type") ?: "电影",
                 year = obj.str("year") ?: "",
                 seasons = obj.str("seasons") ?: "",
                 episodes = obj.str("episodes") ?: "",
-                status = obj["status"]?.jsonPrimitive?.booleanOrNull ?: true,
+                status = obj.bool("status") ?: true,
                 mode = obj.str("mode") ?: "copy",
                 date = obj.str("date") ?: "",
                 errmsg = obj.str("errmsg"),
                 src = obj.str("src") ?: "",
                 dest = obj.str("dest") ?: "",
-                image = resolveImageUrl(obj.str("image")),
+                srcStorage = srcFile?.str("storage") ?: "local",
+                destStorage = destFile?.str("storage") ?: "local",
+                sizeBytes = srcFile?.lng("size") ?: 0L,
+                image = resolveImageUrl(obj.str("image"), maxWidth = 320),
+            )
+        }
+        return (if (total > 0) total else list.size) to list
+    }
+
+    suspend fun fetchTransferQueue(): List<TransferQueueItemDto> {
+        val resp = authedRequest(listOf("transfer", "queue")).getOrNull() ?: return emptyList()
+        return extractArray(resp.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            val fileitem = obj["fileitem"].asObj()
+            val media = obj["media"].asObj()
+            TransferQueueItemDto(
+                title = media?.str("title") ?: fileitem?.str("name") ?: obj.str("title") ?: return@mapNotNull null,
+                src = fileitem?.str("path") ?: obj.str("src") ?: "",
+                dest = obj.str("target") ?: obj.str("dest") ?: "",
+                state = obj.str("state") ?: "等待整理",
+                size = fileitem?.lng("size") ?: 0L,
             )
         }
     }
 
-    // ==================== 仪表盘 / 站点 / 工作流 / 插件 / 消息 ====================
+    // ==================== 仪表盘 / 定时服务 / 插件图表 / 系统日志 ====================
 
     suspend fun fetchDashboardStats(): DashboardStatsDto {
-        val statResp = authedRequest(listOf("dashboard", "statistic")).getOrNull()
-        val storageResp = authedRequest(listOf("dashboard", "storage")).getOrNull()
-        val dlResp = authedRequest(listOf("dashboard", "downloader")).getOrNull()
+        val statObj = extractObject(authedRequest(listOf("dashboard", "statistic")).getOrNull()?.body)
+        val storageObj = extractObject(authedRequest(listOf("dashboard", "storage")).getOrNull()?.body)
+        val dlObj = extractObject(authedRequest(listOf("dashboard", "downloader")).getOrNull()?.body)
+        val transferArr = extractArray(authedRequest(listOf("dashboard", "transfer")).getOrNull()?.body)
+        val cpuResp = authedRequest(listOf("dashboard", "cpu")).getOrNull()?.body
+        val memObj = extractObject(authedRequest(listOf("dashboard", "memory")).getOrNull()?.body)
 
-        val statObj = extractObject(statResp?.body)
-        val storageObj = extractObject(storageResp?.body)
-        val dlObj = extractObject(dlResp?.body)
+        val cpuVal = runCatching {
+            val root = json.parseToJsonElement(cpuResp ?: "{}")
+            when (root) {
+                is JsonPrimitive -> root.doubleOrNull
+                is JsonObject -> root["data"].asPrim()?.doubleOrNull
+                else -> null
+            }
+        }.getOrNull() ?: 0.0
+
+        val memUsage = memObj?.dbl("usage")
+            ?: memObj?.let {
+                val u = it.dbl("used") ?: 0.0
+                val t = it.dbl("total") ?: 1.0
+                if (t > 0) u / t * 100.0 else 0.0
+            } ?: 0.0
+
+        val days = transferArr.mapNotNull { it.asPrim()?.intOrNull }
 
         return DashboardStatsDto(
-            movieCount = statObj?.get("movie_count")?.jsonPrimitive?.intOrNull ?: 0,
-            tvCount = statObj?.get("tv_count")?.jsonPrimitive?.intOrNull ?: 0,
-            episodeCount = statObj?.get("episode_count")?.jsonPrimitive?.intOrNull,
-            musicCount = statObj?.get("music_count")?.jsonPrimitive?.intOrNull ?: 0,
-            movieCountMonth = statObj?.get("movie_count_month")?.jsonPrimitive?.intOrNull ?: 0,
-            tvCountMonth = statObj?.get("tv_count_month")?.jsonPrimitive?.intOrNull ?: 0,
-            episodeCountMonth = statObj?.get("episode_count_month")?.jsonPrimitive?.intOrNull ?: 0,
-            musicCountMonth = statObj?.get("music_count_month")?.jsonPrimitive?.intOrNull ?: 0,
-            usedBytes = storageObj?.get("used_storage")?.jsonPrimitive?.doubleOrNull ?: 0.0,
-            totalBytes = storageObj?.get("total_storage")?.jsonPrimitive?.doubleOrNull ?: 0.0,
-            downloadSpeed = dlObj?.get("download_speed")?.jsonPrimitive?.doubleOrNull ?: 0.0,
-            uploadSpeed = dlObj?.get("upload_speed")?.jsonPrimitive?.doubleOrNull ?: 0.0,
-            totalDownloadBytes = dlObj?.get("download_size")?.jsonPrimitive?.doubleOrNull ?: 0.0,
+            movieCount = statObj?.int("movie_count") ?: 0,
+            tvCount = statObj?.int("tv_count") ?: 0,
+            episodeCount = statObj?.int("episode_count"),
+            musicCount = statObj?.int("music_count") ?: 0,
+            movieCountMonth = statObj?.int("movie_count_month") ?: 0,
+            tvCountMonth = statObj?.int("tv_count_month") ?: 0,
+            episodeCountMonth = statObj?.int("episode_count_month") ?: 0,
+            musicCountMonth = statObj?.int("music_count_month") ?: 0,
+            usedBytes = storageObj?.dbl("used_storage") ?: 0.0,
+            totalBytes = storageObj?.dbl("total_storage") ?: 0.0,
+            downloadSpeed = dlObj?.dbl("download_speed") ?: 0.0,
+            uploadSpeed = dlObj?.dbl("upload_speed") ?: 0.0,
+            totalDownloadBytes = dlObj?.dbl("download_size") ?: 0.0,
+            cpuPercent = cpuVal,
+            memoryPercent = memUsage,
+            transfer7Days = days,
         )
     }
 
-    suspend fun fetchSites(): List<SiteItemDto> {
-        val resp = authedRequest(listOf("site"), trailingSlash = true).getOrNull()
+    suspend fun fetchScheduledServices(): List<ScheduledServiceDto> {
+        val resp = authedRequest(listOf("dashboard", "schedule")).getOrNull()
         return extractArray(resp?.body).mapNotNull { el ->
-            val obj = el as? JsonObject ?: return@mapNotNull null
-            SiteItemDto(
-                id = obj["id"]?.jsonPrimitive?.intOrNull ?: 0,
-                name = obj.str("name") ?: return@mapNotNull null,
-                domain = obj.str("domain") ?: "",
-                url = obj.str("url") ?: "",
-                pri = obj["pri"]?.jsonPrimitive?.intOrNull ?: 0,
-                isActive = obj["is_active"]?.jsonPrimitive?.booleanOrNull ?: true,
-                uploadBytes = obj["upload"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
-                downloadBytes = obj["download"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
-                ratio = obj["ratio"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
-                seedingCount = obj["seeding"]?.jsonPrimitive?.intOrNull ?: 0,
+            val obj = el.asObj() ?: return@mapNotNull null
+            ScheduledServiceDto(
+                id = obj.str("id") ?: return@mapNotNull null,
+                name = obj.str("name") ?: "",
+                provider = obj.str("provider") ?: "",
+                status = obj.str("status") ?: "等待",
+                nextRun = obj.str("next_run") ?: "",
             )
         }
     }
+
+    suspend fun fetchPluginDashboardMetas(): List<PluginDashboardMetaDto> {
+        val resp = authedRequest(listOf("plugin", "dashboard", "meta")).getOrNull()
+        return extractArray(resp?.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            PluginDashboardMetaDto(
+                id = obj.str("id") ?: return@mapNotNull null,
+                key = obj.str("key") ?: "",
+                name = obj.str("name") ?: "",
+            )
+        }
+    }
+
+    suspend fun fetchPluginDashboardWidgetJson(id: String, key: String): String? {
+        val segs = if (key.isNotBlank()) listOf("plugin", "dashboard", id, key) else listOf("plugin", "dashboard", id)
+        val resp = authedRequest(segs).getOrNull() ?: return null
+        return if (resp.status in 200..299) resp.body else null
+    }
+
+    suspend fun fetchSystemLogs(length: Int = 80): List<String> {
+        val resp = authedRequest(listOf("system", "logging"), query = listOf("length" to length.toString())).getOrNull()
+            ?: return emptyList()
+        if (resp.status !in 200..299) return emptyList()
+        return resp.body.lines().filter { it.isNotBlank() }.takeLast(length)
+    }
+
+    // ==================== 站点管理 + 实时流量聚合 + 单站历史趋势 + 图标 ====================
+
+    suspend fun fetchSites(): List<SiteItemDto> {
+        val siteResp = authedRequest(listOf("site"), trailingSlash = true).getOrNull()
+        val udResp = authedRequest(listOf("site", "userdata", "latest")).getOrNull()
+        val udMap = mutableMapOf<String, SiteUserDataPointDto>()
+        extractArray(udResp?.body).forEach { el ->
+            val obj = el.asObj() ?: return@forEach
+            val domain = obj.str("domain") ?: return@forEach
+            udMap[domain.lowercase()] = parseSiteUserDataPoint(obj)
+        }
+        return extractArray(siteResp?.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            val id = obj.int("id") ?: 0
+            val domain = obj.str("domain") ?: ""
+            val ud = udMap[domain.lowercase()]
+            SiteItemDto(
+                id = id,
+                name = obj.str("name") ?: return@mapNotNull null,
+                domain = domain,
+                url = obj.str("url") ?: "",
+                pri = obj.int("pri") ?: 0,
+                isActive = obj.bool("is_active") ?: true,
+                uploadBytes = ud?.uploadBytes ?: obj.dbl("upload") ?: 0.0,
+                downloadBytes = ud?.downloadBytes ?: obj.dbl("download") ?: 0.0,
+                ratio = ud?.ratio ?: obj.dbl("ratio") ?: 0.0,
+                seedingCount = ud?.seedingCount ?: obj.int("seeding") ?: 0,
+                seedingSizeBytes = ud?.seedingSizeBytes ?: 0.0,
+                bonus = ud?.bonus ?: 0.0,
+                userLevel = ud?.userLevel ?: "",
+                username = ud?.username ?: "",
+                joinAt = ud?.joinAt ?: "",
+                updatedDay = ud?.updatedDay ?: "",
+                iconUrl = siteIconCache[id],
+            )
+        }.sortedBy { it.pri }
+    }
+
+    suspend fun fetchSiteIcon(siteId: Int): String? {
+        siteIconCache[siteId]?.let { return it }
+        val resp = authedRequest(listOf("site", "icon", siteId.toString())).getOrNull() ?: return null
+        val icon = extractObject(resp.body)?.str("icon") ?: return null
+        siteIconCache[siteId] = icon
+        return icon
+    }
+
+    suspend fun fetchSiteUserDataHistory(siteId: Int): List<SiteUserDataPointDto> {
+        val resp = authedRequest(listOf("site", "userdata", siteId.toString())).getOrNull()
+        return extractArray(resp?.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            parseSiteUserDataPoint(obj)
+        }
+    }
+
+    suspend fun testSiteConnection(siteId: Int): Pair<Boolean, String> {
+        val resp = authedRequest(listOf("site", "test", siteId.toString())).getOrNull()
+            ?: return false to "请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        val msg = obj?.str("message") ?: if (ok) "连通正常" else "连接失败"
+        return ok to msg
+    }
+
+    private fun parseSiteUserDataPoint(obj: JsonObject) = SiteUserDataPointDto(
+        domain = obj.str("domain") ?: "",
+        name = obj.str("name") ?: "",
+        username = obj.str("username") ?: "",
+        userLevel = obj.str("user_level") ?: "",
+        joinAt = obj.str("join_at") ?: "",
+        uploadBytes = obj.dbl("upload") ?: 0.0,
+        downloadBytes = obj.dbl("download") ?: 0.0,
+        ratio = obj.dbl("ratio") ?: 0.0,
+        seedingCount = obj.int("seeding") ?: 0,
+        seedingSizeBytes = obj.dbl("seeding_size") ?: 0.0,
+        bonus = obj.dbl("bonus") ?: 0.0,
+        updatedDay = obj.str("updated_day") ?: "",
+        updatedTime = obj.str("updated_time") ?: "",
+    )
+
+    // ==================== 用户管理 ====================
+
+    suspend fun fetchUsers(): List<UserIdentity> {
+        val resp = authedRequest(listOf("user"), trailingSlash = true).getOrNull()
+        return extractArray(resp?.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            UserIdentity(
+                id = obj.int("id") ?: 0,
+                name = obj.str("name") ?: return@mapNotNull null,
+                email = obj.str("email") ?: "",
+                isSuperuser = obj.bool("is_superuser") ?: false,
+                isActive = obj.bool("is_active") ?: true,
+                isOtp = obj.bool("is_otp") ?: false,
+                avatar = resolveImageUrl(obj.str("avatar")),
+            )
+        }
+    }
+
+    // ==================== 全量系统设置模块 ====================
+
+    private suspend fun fetchSettingValue(key: String): JsonElement? {
+        val resp = authedRequest(listOf("system", "setting", key)).getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val obj = extractObject(resp.body) ?: return null
+        return obj["value"] ?: obj
+    }
+
+    suspend fun saveSettingValue(key: String, rawValueJson: String): Boolean {
+        val resp = authedRequest(
+            segments = listOf("system", "setting", key),
+            method = "POST",
+            body = rawValueJson,
+        ).getOrNull()
+        return resp != null && resp.status in 200..299
+    }
+
+    suspend fun fetchDownloaders(): List<ServiceConfigDto> {
+        val arr = fetchSettingValue("Downloaders").asArr() ?: return emptyList()
+        return arr.mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            val cfg = obj["config"].asObj()
+            ServiceConfigDto(
+                name = obj.str("name") ?: return@mapNotNull null,
+                type = obj.str("type") ?: "qbittorrent",
+                enabled = obj.bool("enabled") ?: true,
+                isDefault = obj.bool("default") ?: false,
+                host = cfg?.str("host") ?: "",
+            )
+        }
+    }
+
+    suspend fun fetchMediaServers(): List<ServiceConfigDto> {
+        val arr = fetchSettingValue("MediaServers").asArr() ?: return emptyList()
+        return arr.mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            val cfg = obj["config"].asObj()
+            ServiceConfigDto(
+                name = obj.str("name") ?: return@mapNotNull null,
+                type = obj.str("type") ?: "emby",
+                enabled = obj.bool("enabled") ?: true,
+                host = cfg?.str("host") ?: "",
+            )
+        }
+    }
+
+    suspend fun fetchDirectories(): List<DirectoryConfigDto> {
+        val arr = fetchSettingValue("Directories").asArr() ?: return emptyList()
+        return arr.mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            DirectoryConfigDto(
+                name = obj.str("name") ?: "默认目录",
+                priority = obj.int("priority") ?: 1,
+                storage = obj.str("storage") ?: "local",
+                downloadPath = obj.str("download_path") ?: "",
+                libraryStorage = obj.str("library_storage") ?: "local",
+                libraryPath = obj.str("library_path") ?: "",
+                transferType = obj.str("transfer_type") ?: "copy",
+                monitorType = obj.str("monitor_type") ?: "",
+                renaming = obj.bool("renaming") ?: true,
+                scraping = obj.bool("scraping") ?: true,
+                notify = obj.bool("notify") ?: true,
+            )
+        }
+    }
+
+    suspend fun fetchStorages(): List<StorageConfigDto> {
+        val arr = fetchSettingValue("Storages").asArr() ?: return emptyList()
+        return arr.mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            StorageConfigDto(
+                name = obj.str("name") ?: return@mapNotNull null,
+                type = obj.str("type") ?: "local",
+            )
+        }
+    }
+
+    suspend fun fetchNotificationChannels(): List<ServiceConfigDto> {
+        val arr = fetchSettingValue("Notifications").asArr() ?: return emptyList()
+        return arr.mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            ServiceConfigDto(
+                name = obj.str("name") ?: return@mapNotNull null,
+                type = obj.str("type") ?: "",
+                enabled = obj.bool("enabled") ?: true,
+                switchs = obj["switchs"].asArr()?.mapNotNull { it.asPrim()?.content?.takeIf { s -> s != "null" } } ?: emptyList(),
+            )
+        }
+    }
+
+    suspend fun fetchSearchSources(): Set<String> {
+        val el = fetchSettingValue("SEARCH_SOURCE") ?: return setOf("themoviedb")
+        return when (el) {
+            is JsonPrimitive -> el.content.split(",").map { it.trim().lowercase() }.filter { it.isNotBlank() && it != "null" }.toSet()
+            is JsonArray -> el.mapNotNull { it.asPrim()?.content?.trim()?.lowercase()?.takeIf { s -> s.isNotBlank() && s != "null" } }.toSet()
+            else -> setOf("themoviedb")
+        }
+    }
+
+    suspend fun fetchSubscribeSearchSettings(): SubscribeSearchSettingsDto {
+        val rss = fetchSettingValue("RssSites").asArr()?.mapNotNull { it.asPrim()?.intOrNull } ?: emptyList()
+        val idx = fetchSettingValue("IndexerSites").asArr()?.mapNotNull { it.asPrim()?.intOrNull } ?: emptyList()
+        val mode = fetchSettingValue("SUBSCRIBE_MODE").asPrim()?.content?.takeIf { it != "null" } ?: "spider"
+        val groups = fetchSettingValue("UserFilterRuleGroups").asArr()?.mapNotNull { el ->
+            val o = el.asObj() ?: return@mapNotNull null
+            FilterRuleGroupDto(o.str("name") ?: return@mapNotNull null, o.str("rule_string") ?: "")
+        } ?: emptyList()
+        return SubscribeSearchSettingsDto(rss, idx, mode, groups)
+    }
+
+    suspend fun fetchCustomWordList(settingKey: String): List<String> {
+        val arr = fetchSettingValue(settingKey).asArr() ?: return emptyList()
+        return arr.mapNotNull { it.asPrim()?.content?.takeIf { s -> s != "null" } }
+    }
+
+    // ==================== 工作流 / 插件 / 消息 / Agent ====================
 
     suspend fun fetchWorkflows(): List<WorkflowItemDto> {
         val resp = authedRequest(listOf("workflow"), trailingSlash = true).getOrNull()
         return extractArray(resp?.body).mapNotNull { el ->
-            val obj = el as? JsonObject ?: return@mapNotNull null
-            val actions = obj["actions"]?.jsonArray?.mapIndexedNotNull { idx, a ->
-                val ao = a as? JsonObject ?: return@mapIndexedNotNull null
-                val pos = ao["position"]?.jsonObject
+            val obj = el.asObj() ?: return@mapNotNull null
+            val actions = obj["actions"].asArr()?.mapIndexedNotNull { idx, a ->
+                val ao = a.asObj() ?: return@mapIndexedNotNull null
+                val pos = ao["position"].asObj()
                 WorkflowActionDto(
                     id = ao.str("id") ?: "act-$idx",
                     type = ao.str("type") ?: "Action",
                     name = ao.str("name") ?: "动作节点",
                     description = ao.str("description") ?: "",
-                    x = pos?.get("x")?.jsonPrimitive?.doubleOrNull?.toFloat() ?: (idx * 240f + 40f),
-                    y = pos?.get("y")?.jsonPrimitive?.doubleOrNull?.toFloat() ?: (idx * 120f + 60f),
-                    paramCount = ao["data"]?.jsonObject?.size ?: 0,
+                    x = pos?.dbl("x")?.toFloat() ?: (idx * 240f + 40f),
+                    y = pos?.dbl("y")?.toFloat() ?: (idx * 120f + 60f),
+                    paramCount = ao["data"].asObj()?.size ?: 0,
                 )
             } ?: emptyList()
-            val flows = obj["flows"]?.jsonArray?.mapNotNull { f ->
-                val fo = f as? JsonObject ?: return@mapNotNull null
+            val flows = obj["flows"].asArr()?.mapNotNull { f ->
+                val fo = f.asObj() ?: return@mapNotNull null
                 WorkflowFlowEdgeDto(
                     source = fo.str("source") ?: return@mapNotNull null,
                     target = fo.str("target") ?: return@mapNotNull null,
                 )
             } ?: emptyList()
             WorkflowItemDto(
-                id = obj["id"]?.jsonPrimitive?.intOrNull ?: 0,
+                id = obj.int("id") ?: 0,
                 name = obj.str("name") ?: return@mapNotNull null,
                 description = obj.str("description") ?: "",
                 timer = obj.str("timer") ?: "",
                 state = obj.str("state") ?: "P",
-                runCount = obj["run_count"]?.jsonPrimitive?.intOrNull ?: 0,
+                runCount = obj.int("run_count") ?: 0,
                 actions = actions,
                 flows = flows,
+            )
+        }
+    }
+
+    suspend fun fetchWorkflowShares(page: Int = 1): List<WorkflowShareDto> {
+        val resp = authedRequest(listOf("workflow", "shares"), query = listOf("page" to page.toString(), "count" to "20")).getOrNull()
+        return extractArray(resp?.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            WorkflowShareDto(
+                id = obj.int("id") ?: 0,
+                name = obj.str("name") ?: obj.str("share_title") ?: return@mapNotNull null,
+                description = obj.str("description") ?: "",
+                shareTitle = obj.str("share_title") ?: obj.str("name") ?: "",
+                shareComment = obj.str("share_comment") ?: "",
+                shareUser = obj.str("share_user") ?: "",
+                count = obj.int("count") ?: 0,
+                date = obj.str("date") ?: "",
             )
         }
     }
@@ -603,7 +1268,9 @@ class MoviePilotRepository(context: Context) {
             trailingSlash = true,
         ).getOrNull()
         return extractArray(resp?.body).mapNotNull { el ->
-            val obj = el as? JsonObject ?: return@mapNotNull null
+            val obj = el.asObj() ?: return@mapNotNull null
+            val labelRaw = obj.str("plugin_label").orEmpty()
+            val labels = labelRaw.split(",", "，", " ").map { it.trim() }.filter { it.isNotBlank() }
             PluginItemDto(
                 id = obj.str("id") ?: return@mapNotNull null,
                 name = obj.str("plugin_name") ?: obj.str("id") ?: "",
@@ -611,16 +1278,23 @@ class MoviePilotRepository(context: Context) {
                 version = obj.str("plugin_version") ?: "1.0.0",
                 author = obj.str("plugin_author") ?: "",
                 icon = resolveImageUrl(obj.str("plugin_icon")),
-                installed = obj["installed"]?.jsonPrimitive?.booleanOrNull ?: installedOnly,
-                state = obj["state"]?.jsonPrimitive?.booleanOrNull ?: false,
-                hasPage = obj["has_page"]?.jsonPrimitive?.booleanOrNull ?: false,
+                labels = labels,
+                installed = obj.bool("installed") ?: installedOnly,
+                state = obj.bool("state") ?: false,
+                hasPage = obj.bool("has_page") ?: false,
+                hasUpdate = obj.bool("has_update") ?: false,
                 renderMode = obj.str("render_mode") ?: "vuetify",
             )
-        }
+        }.distinctBy { it.id }
     }
 
     suspend fun fetchPluginFormJson(pluginId: String): String? {
         val resp = authedRequest(listOf("plugin", "form", pluginId)).getOrNull() ?: return null
+        return if (resp.status in 200..299) resp.body else null
+    }
+
+    suspend fun fetchPluginPageJson(pluginId: String): String? {
+        val resp = authedRequest(listOf("plugin", "page", pluginId)).getOrNull() ?: return null
         return if (resp.status in 200..299) resp.body else null
     }
 
@@ -633,22 +1307,311 @@ class MoviePilotRepository(context: Context) {
         return resp != null && resp.status in 200..299
     }
 
-    suspend fun fetchMessages(): List<SystemMessageDto> {
-        val resp = authedRequest(listOf("message", "web"), query = listOf("page" to "1", "size" to "30")).getOrNull()
+    suspend fun fetchMessages(page: Int = 1, size: Int = 30): List<SystemMessageDto> {
+        val resp = authedRequest(
+            listOf("message", "web"),
+            query = listOf("page" to page.toString(), "size" to size.toString()),
+        ).getOrNull()
         return extractArray(resp?.body).mapNotNull { el ->
-            val obj = el as? JsonObject ?: return@mapNotNull null
+            val obj = el.asObj() ?: return@mapNotNull null
+            val rawImg = obj.str("image")?.takeIf { it.isNotBlank() }
+                ?: obj.str("poster")?.takeIf { it.isNotBlank() }
             SystemMessageDto(
-                id = obj.str("id") ?: obj.str("reg_time") ?: "",
+                id = obj.str("id") ?: obj.str("reg_time") ?: "${obj.str("title")}_${obj.str("date")}",
                 title = obj.str("title") ?: "系统消息",
                 text = obj.str("text") ?: obj.str("content") ?: "",
                 date = obj.str("reg_time") ?: obj.str("date") ?: "",
                 category = obj.str("mtype") ?: "系统",
-                image = resolveImageUrl(obj.str("image")),
+                image = resolveImageUrl(rawImg),
             )
         }
     }
 
-    /** 发起 AI 智能助手 SSE 流式对话（经 OkHttp + Rust NativeSseParser 解析）。 */
+    /** 媒体服务器客户端列表（`GET /api/v1/mediaserver/clients`）。 */
+    suspend fun fetchMediaServerClients(): List<MediaServerClientDto> {
+        val resp = authedRequest(listOf("mediaserver", "clients")).getOrNull()
+        return extractArray(resp?.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            val name = obj.str("name") ?: return@mapNotNull null
+            MediaServerClientDto(name = name, type = obj.str("type").orEmpty())
+        }
+    }
+
+    /** 媒体服务器媒体库列表（`GET /api/v1/mediaserver/library?server=...`；未指定 server 时自动遍历已配置服务器聚合）。 */
+    suspend fun fetchMediaServerLibraries(server: String? = null): List<MediaServerLibraryDto> {
+        val targetServers = if (!server.isNullOrBlank()) {
+            listOf(server to "")
+        } else {
+            val clients = fetchMediaServerClients().map { it.name to it.type }
+            clients.ifEmpty {
+                fetchMediaServers().filter { it.enabled }.map { it.name to it.type }
+            }
+        }
+        val result = mutableListOf<MediaServerLibraryDto>()
+        for ((srvName, srvType) in targetServers) {
+            val resp = authedRequest(
+                listOf("mediaserver", "library"),
+                query = listOf("server" to srvName),
+            ).getOrNull()
+            extractArray(resp?.body).forEach { el ->
+                val obj = el.asObj() ?: return@forEach
+                val libId = obj.str("item_id") ?: obj.str("id") ?: return@forEach
+                val rawImg = obj.str("image")
+                    ?: obj["image_list"].asArr()?.firstOrNull()?.asPrim()?.content
+                result += MediaServerLibraryDto(
+                    id = libId,
+                    name = obj.str("name") ?: "媒体库",
+                    type = obj.str("type").orEmpty(),
+                    itemCount = obj.int("item_count")?.takeIf { it >= 0 },
+                    server = srvName,
+                    serverType = obj.str("server_type")?.takeIf { it.isNotBlank() } ?: srvType,
+                    imageUrl = resolveImageUrl(rawImg, maxWidth = 640),
+                    link = obj.str("link"),
+                )
+            }
+        }
+        return result
+    }
+
+    /** 媒体服务器筛选候选项（`GET /api/v1/mediaserver/filters`）。 */
+    suspend fun fetchMediaServerFilters(server: String, libraryId: String? = null): MediaServerFilterOptionsDto {
+        val q = buildList {
+            if (server.isNotBlank()) add("server" to server)
+            if (!libraryId.isNullOrBlank()) add("library_id" to libraryId)
+        }
+        val resp = authedRequest(listOf("mediaserver", "filters"), query = q).getOrNull()
+        val obj = extractObject(resp?.body) ?: return MediaServerFilterOptionsDto()
+        val genres = obj["genres"].asArr()?.mapNotNull { it.asPrim()?.content?.takeIf { s -> s.isNotBlank() && s != "null" } }.orEmpty()
+        val years = obj["years"].asArr()?.mapNotNull { it.asPrim()?.intOrNull }.orEmpty().sortedDescending()
+        return MediaServerFilterOptionsDto(genres = genres, years = years)
+    }
+
+    /** 媒体服务器分页浏览（`GET /api/v1/mediaserver/browse`）。 */
+    suspend fun fetchMediaServerBrowse(
+        server: String,
+        libraryId: String? = null,
+        sortBy: String = "date_created",
+        sortOrder: String = "desc",
+        genre: String = "",
+        year: Int? = null,
+        playedFilter: String = "all",
+        keyword: String = "",
+        startIndex: Int = 0,
+        limit: Int = 30,
+        itemType: String? = null,
+    ): MediaServerBrowsePageDto {
+        val q = buildList {
+            if (server.isNotBlank()) add("server" to server)
+            add("sort_by" to sortBy)
+            add("sort_order" to sortOrder)
+            add("start_index" to startIndex.toString())
+            add("limit" to limit.toString())
+            if (!libraryId.isNullOrBlank()) add("library_id" to libraryId)
+            if (!itemType.isNullOrBlank()) add("item_type" to itemType)
+            if (genre.isNotBlank()) add("genre" to genre)
+            if (year != null) add("year" to year.toString())
+            if (playedFilter != "all") add("played_filter" to playedFilter)
+            if (keyword.isNotBlank()) add("keyword" to keyword)
+        }
+        val resp = authedRequest(listOf("mediaserver", "browse"), query = q).getOrNull()
+        val root = extractObject(resp?.body) ?: return MediaServerBrowsePageDto()
+        val rawItems = root["items"].asArr() ?: extractArray(resp?.body)
+        val total = root.int("total_count") ?: root.int("total") ?: rawItems.size
+        val hasMore = root.bool("has_more") ?: (startIndex + rawItems.size < total)
+        val items = rawItems.mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            val itemId = obj.str("item_id") ?: obj.str("id") ?: return@mapNotNull null
+            val rawImg = obj.str("poster")
+                ?: obj.str("thumb")
+                ?: obj.str("image")
+                ?: obj.str("poster_path")
+                ?: obj.str("backdrop")
+                ?: obj.str("backdrop_path")
+            val useCookies = obj.bool("use_cookies") == true
+            MediaServerBrowseItemDto(
+                itemId = itemId,
+                title = obj.str("title") ?: obj.str("name") ?: "未命名条目",
+                subtitle = obj.str("subtitle") ?: obj.str("artist") ?: obj.str("album").orEmpty(),
+                type = obj.str("item_type") ?: obj.str("type").orEmpty(),
+                year = obj.str("year").orEmpty(),
+                imageUrl = resolveImageUrl(rawImg, maxWidth = 480, useCookies = useCookies),
+                server = obj.str("server") ?: server,
+                serverType = obj.str("server_type").orEmpty(),
+                played = obj.bool("is_played") ?: obj.bool("played") ?: false,
+                userRating = obj.dbl("rating") ?: obj.dbl("vote_average") ?: obj.dbl("community_rating") ?: 0.0,
+                unplayedCount = obj.int("unplayed_count"),
+                tmdbId = obj.int("tmdbid") ?: obj.int("tmdb_id"),
+                mediaId = obj.str("media_id"),
+            )
+        }
+        return MediaServerBrowsePageDto(items = items, totalCount = total, hasMore = hasMore)
+    }
+
+    /** 拉取媒体服务器真实直放流与外挂字幕清单（`GET /api/v1/mediaserver/stream-info`）。 */
+    suspend fun fetchVideoStreamInfo(
+        itemId: String,
+        server: String? = null,
+        mediaSourceId: String? = null,
+    ): MediaPlaybackManifestDto? {
+        val auth = _session.value as? SessionState.Authenticated ?: return null
+        val q = buildList {
+            add("itemid" to itemId)
+            if (!server.isNullOrBlank()) add("server" to server)
+            if (!mediaSourceId.isNullOrBlank()) add("media_source_id" to mediaSourceId)
+        }
+        val resp = authedRequest(listOf("mediaserver", "stream-info"), query = q).getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val obj = extractObject(resp.body) ?: return null
+        val rawUrl = obj.str("content_url")?.takeIf { it.isNotBlank() } ?: return null
+        val contentUrl = resolveSameOriginUrl(auth.serverUrl, rawUrl)
+        val subs = obj["subtitles"].asArr().orEmpty().mapNotNull { el ->
+            val so = el.asObj() ?: return@mapNotNull null
+            val su = so.str("url")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            MediaStreamSubtitleDto(
+                subtitleId = so.str("subtitle_id") ?: so.str("id").orEmpty(),
+                title = so.str("title") ?: so.str("display_title") ?: so.str("language") ?: "外挂字幕",
+                language = so.str("language").orEmpty(),
+                url = resolveSameOriginUrl(auth.serverUrl, su),
+            )
+        }
+        val lyricsUrl = obj.str("lyrics_url")?.takeIf { it.isNotBlank() }?.let { resolveSameOriginUrl(auth.serverUrl, it) }
+        return MediaPlaybackManifestDto(
+            itemId = obj.str("item_id") ?: itemId,
+            server = obj.str("server") ?: server.orEmpty(),
+            mediaType = obj.str("media_type") ?: "video",
+            title = obj.str("title").orEmpty(),
+            contentUrl = contentUrl,
+            subtitles = subs,
+            lyricsUrl = lyricsUrl,
+            durationMs = obj.lng("duration_ms") ?: ((obj.dbl("duration") ?: 0.0) * 1000.0).toLong(),
+            resumePositionMs = obj.lng("position_ms") ?: obj.lng("resume_position_ms") ?: 0L,
+            headers = buildPlaybackHeaders(contentUrl),
+        )
+    }
+
+    /** 拉取音乐曲目媒体服务器音频流与同步 LRC 歌词（`POST /api/v1/mediaserver/stream-info/music`）。 */
+    suspend fun fetchMusicStreamInfo(
+        title: String,
+        artist: String? = null,
+        album: String? = null,
+    ): MediaPlaybackManifestDto? {
+        val auth = _session.value as? SessionState.Authenticated ?: return null
+        val parts = mutableListOf("\"title\":\"${esc(title)}\"")
+        if (!artist.isNullOrBlank()) parts += "\"artist\":\"${esc(artist)}\""
+        if (!album.isNullOrBlank()) parts += "\"album\":\"${esc(album)}\""
+        val resp = authedRequest(
+            segments = listOf("mediaserver", "stream-info", "music"),
+            method = "POST",
+            body = "{${parts.joinToString(",")}}",
+        ).getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val obj = extractObject(resp.body) ?: return null
+        val rawUrl = obj.str("content_url")?.takeIf { it.isNotBlank() } ?: return null
+        val contentUrl = resolveSameOriginUrl(auth.serverUrl, rawUrl)
+        val lyricsUrl = obj.str("lyrics_url")?.takeIf { it.isNotBlank() }?.let { resolveSameOriginUrl(auth.serverUrl, it) }
+        return MediaPlaybackManifestDto(
+            itemId = obj.str("item_id").orEmpty(),
+            server = obj.str("server").orEmpty(),
+            mediaType = "audio",
+            title = obj.str("title") ?: title,
+            contentUrl = contentUrl,
+            lyricsUrl = lyricsUrl,
+            durationMs = obj.lng("duration_ms") ?: 0L,
+            headers = buildPlaybackHeaders(contentUrl),
+        )
+    }
+
+    /** 下载同源 LRC 歌词或字幕文本（附带 Bearer 令牌与资源 Cookie）。 */
+    suspend fun downloadSameOriginText(url: String): String? {
+        val auth = _session.value as? SessionState.Authenticated ?: return null
+        if (!RustCoreBridge.containsUrl(auth.serverUrl, url)) return null
+        val resp = runCatching {
+            transport.execute(url = url, method = "GET", token = auth.token)
+        }.getOrNull() ?: return null
+        return if (resp.status in 200..299 && resp.body.isNotBlank()) resp.body else null
+    }
+
+    /** 下载本地或云盘存储文件至应用受管缓存目录供 ExoPlayer 无缝直放（对齐 iOS `loadStorageFileManifest`）。 */
+    suspend fun downloadStorageFileToCache(
+        storage: String,
+        path: String,
+        destFile: java.io.File,
+    ): java.io.File? {
+        val auth = _session.value as? SessionState.Authenticated ?: return null
+        val url = RustCoreBridge.buildEndpointUrl(auth.serverUrl, listOf("storage", "download"))
+        val fileName = path.substringAfterLast('/').ifBlank { destFile.name }
+        val ext = fileName.substringAfterLast('.', "")
+        val payload = """{"storage":"${esc(storage)}","type":"file","path":"${esc(path)}","name":"${esc(fileName)}","extension":"${esc(ext)}"}"""
+        val ok = runCatching {
+            transport.downloadToFile(url = url, method = "POST", token = auth.token, body = payload, destFile = destFile)
+        }.getOrDefault(false)
+        return if (ok) destFile else null
+    }
+
+    /** 回传当前播放位置与状态到媒体服务器（`POST /api/v1/mediaserver/progress`）。 */
+    suspend fun reportMediaPlaybackProgress(
+        itemId: String,
+        server: String,
+        positionMs: Long,
+        durationMs: Long,
+        isPaused: Boolean,
+        state: String,
+    ) {
+        if (itemId.isBlank() || server.isBlank() || itemId.startsWith("file.")) return
+        val body = """{"item_id":"${esc(itemId)}","server":"${esc(server)}","position_ms":${positionMs.coerceAtLeast(0L)},"duration_ms":${durationMs.coerceAtLeast(0L)},"is_paused":$isPaused,"state":"${esc(state)}"}"""
+        runCatching {
+            authedRequest(listOf("mediaserver", "progress"), method = "POST", body = body)
+        }
+    }
+
+    /** 执行插件页面/表单按钮声明的同源 API 动作（对齐 iOS `triggerPluginAction`）。 */
+    suspend fun triggerPluginAction(api: String, method: String = "GET", paramsJson: String? = null): Pair<Boolean, String> {
+        val auth = _session.value as? SessionState.Authenticated ?: return false to "未登录"
+        val cleanApi = api.trim()
+        val targetUrl = when {
+            cleanApi.startsWith("http://") || cleanApi.startsWith("https://") -> {
+                if (!RustCoreBridge.containsUrl(auth.serverUrl, cleanApi)) return false to "仅允许调用当前实例同源接口"
+                cleanApi
+            }
+            cleanApi.startsWith("/api/") -> "${auth.serverUrl.trimEnd('/')}$cleanApi"
+            cleanApi.startsWith("/") -> "${auth.serverUrl.trimEnd('/')}/api/v1$cleanApi"
+            else -> "${auth.serverUrl.trimEnd('/')}/api/v1/$cleanApi"
+        }
+        val resp = runCatching {
+            transport.execute(
+                url = targetUrl,
+                method = method.uppercase(),
+                token = auth.token,
+                body = if (method.uppercase() in listOf("POST", "PUT", "PATCH")) paramsJson ?: "{}" else null,
+            )
+        }.getOrNull() ?: return false to "请求失败"
+        val msg = extractObject(resp.body)?.str("message") ?: if (resp.status in 200..299) "操作已执行" else "操作失败 (HTTP ${resp.status})"
+        return (resp.status in 200..299) to msg
+    }
+
+    /** 返回当前同源鉴权头（Authorization + Cookie），专供 Media3 播放请求复用。 */
+    fun buildPlaybackHeaders(targetUrl: String): Map<String, String> {
+        val auth = _session.value as? SessionState.Authenticated ?: return emptyMap()
+        if (!RustCoreBridge.containsUrl(auth.serverUrl, targetUrl)) return emptyMap()
+        val map = mutableMapOf<String, String>()
+        if (auth.token.isNotBlank()) map["Authorization"] = "Bearer ${auth.token}"
+        val cookie = transport.exportCookieHeader(targetUrl)
+        if (cookie.isNotBlank()) map["Cookie"] = cookie
+        return map
+    }
+
+    /** 导出同源 Cookie 条目，专供 Vue 模块联邦插件隔离 WebView 写入 `CookieManager`。 */
+    fun exportOriginCookieEntries(): List<String> {
+        val auth = _session.value as? SessionState.Authenticated ?: return emptyList()
+        return transport.exportSetCookieEntries(auth.serverUrl)
+    }
+
+    private fun resolveSameOriginUrl(serverUrl: String, raw: String): String {
+        if (raw.startsWith("http://") || raw.startsWith("https://")) return raw
+        val base = serverUrl.trimEnd('/')
+        return if (raw.startsWith("/")) "$base$raw" else "$base/$raw"
+    }
+
     fun streamAgentChat(prompt: String, sessionId: String = "android-default"): Flow<SseEventFfi>? {
         val auth = _session.value as? SessionState.Authenticated ?: return null
         val url = RustCoreBridge.buildEndpointUrl(auth.serverUrl, listOf("agent", "chat"))
@@ -656,7 +1619,7 @@ class MoviePilotRepository(context: Context) {
         return transport.streamSse(url, auth.token, body)
     }
 
-    // ==================== JSON 解析工具 ====================
+    // ==================== 100% JsonNull-Safe 解析工具 ====================
 
     private fun extractArray(body: String?): List<JsonElement> {
         if (body.isNullOrBlank()) return emptyList()
@@ -667,8 +1630,8 @@ class MoviePilotRepository(context: Context) {
                 val data = root["data"]
                 when (data) {
                     is JsonArray -> data
-                    is JsonObject -> data["list"]?.jsonArray ?: data["items"]?.jsonArray ?: emptyList()
-                    else -> root["list"]?.jsonArray ?: root["items"]?.jsonArray ?: emptyList()
+                    is JsonObject -> data["list"].asArr() ?: data["items"].asArr() ?: emptyList()
+                    else -> root["list"].asArr() ?: root["items"].asArr() ?: emptyList()
                 }
             }
             else -> emptyList()
@@ -677,15 +1640,45 @@ class MoviePilotRepository(context: Context) {
 
     private fun extractObject(body: String?): JsonObject? {
         if (body.isNullOrBlank()) return null
-        val root = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull() ?: return null
-        return root["data"]?.jsonObject ?: root
+        val root = runCatching { json.parseToJsonElement(body).asObj() }.getOrNull() ?: return null
+        return root["data"].asObj() ?: root
     }
 
+    private fun JsonElement?.asObj(): JsonObject? = this as? JsonObject
+    private fun JsonElement?.asArr(): JsonArray? = this as? JsonArray
+    private fun JsonElement?.asPrim(): JsonPrimitive? = this as? JsonPrimitive
+
     private fun JsonObject.str(key: String): String? {
-        val prim = this[key] as? JsonPrimitive ?: return null
+        val prim = this[key].asPrim() ?: return null
         return if (prim.content == "null") null else prim.content
     }
 
+    private fun JsonObject.int(key: String): Int? = this[key].asPrim()?.intOrNull
+    private fun JsonObject.lng(key: String): Long? = this[key].asPrim()?.longOrNull
+    private fun JsonObject.dbl(key: String): Double? = this[key].asPrim()?.doubleOrNull
+    private fun JsonObject.bool(key: String): Boolean? = this[key].asPrim()?.booleanOrNull
+
     private fun esc(s: String): String =
         s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+
+    companion object {
+        private val TMDB_GENRE_ID_TO_ZH = mapOf(
+            28 to "动作", 12 to "冒险", 16 to "动画", 35 to "喜剧", 80 to "犯罪",
+            99 to "纪录", 18 to "剧情", 10751 to "家庭", 14 to "奇幻", 36 to "历史",
+            27 to "恐怖", 10402 to "音乐", 9648 to "悬疑", 10749 to "爱情", 878 to "科幻",
+            10770 to "电视电影", 53 to "惊悚", 10752 to "战争", 37 to "西部",
+            10759 to "动作冒险", 10762 to "儿童", 10763 to "新闻", 10764 to "真人秀",
+            10765 to "科幻奇幻", 10766 to "肥皂剧", 10767 to "脱口秀", 10768 to "战争政治",
+        )
+
+        private val TMDB_GENRE_LABEL_TO_ID = mapOf(
+            "动作" to "28", "科幻" to "878", "动画" to "16",
+            "喜剧" to "35", "剧情" to "18", "悬疑" to "9648",
+            "犯罪" to "80", "奇幻" to "14", "冒险" to "12",
+        )
+
+        private val TMDB_LANG_LABEL_TO_CODE = mapOf(
+            "华语" to "zh", "英语" to "en", "日语" to "ja", "韩语" to "ko",
+        )
+    }
 }

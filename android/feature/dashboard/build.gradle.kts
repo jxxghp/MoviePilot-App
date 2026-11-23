@@ -20,6 +20,9 @@ android {
 dependencies {
     implementation(project(":design-system"))
     implementation(project(":core-rust-bridge"))
+    implementation(project(":core-medal3d"))
+    implementation(project(":core-plugin-host"))
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)
 }

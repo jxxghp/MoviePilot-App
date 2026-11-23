@@ -1,243 +1,254 @@
 package com.moviepilot.designsystem
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
+import android.content.res.Configuration
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AccountTree
 import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Explore
-import androidx.compose.material.icons.outlined.Extension
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.TravelExplore
-import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 
-/** 四大主导航标签页枚举。 */
+/**
+ * Android Material Design 3 顶级 5 大对等导航目标（方案 A）：
+ * 发现 · 探索 · 订阅 · 更多 · 我的（设置位于「我的」顶栏右上角，全局搜索位于各影音页顶栏右上角）。
+ */
 enum class MainTab(val id: String, val label: String) {
     Discover("discover", "发现"),
     Explore("explore", "探索"),
+    Subscribe("subscribe", "订阅"),
+    Workspace("workspace", "更多"),
     Dashboard("dashboard", "我的"),
-    Settings("settings", "设置"),
 }
 
-/** 重复点击底栏主图标弹出的 8 项快捷功能入口（严格对齐 iOS 黄金截图顺序与分组）。 */
-enum class OverflowMenuDestination(
-    val id: String,
-    val title: String,
-    val icon: ImageVector,
-    val group: Int,
+/** 品牌特色带闪星的圆角电视屏图标，用于「发现」主导航。 */
+@Composable
+private fun DiscoverTvSparkleIcon(
+    tint: Color,
+    cutoutColor: Color,
+    modifier: Modifier = Modifier,
 ) {
-    Subscriptions("subscriptions", "我的订阅", Icons.Outlined.BookmarkBorder, 0),
-    Calendar("calendar", "订阅日历", Icons.Outlined.CalendarMonth, 0),
-    Resources("resources", "站点资源", Icons.Outlined.TravelExplore, 0),
-    Downloads("downloads", "下载", Icons.Outlined.Download, 0),
-    Files("files", "文件管理", Icons.Outlined.Folder, 1),
-    History("history", "整理历史", Icons.Outlined.History, 1),
-    Workflows("workflows", "工作流", Icons.Outlined.AccountTree, 1),
-    Plugins("plugins", "插件", Icons.Outlined.Extension, 1),
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.06f, h * 0.14f),
+            size = Size(w * 0.88f, h * 0.62f),
+            cornerRadius = CornerRadius(w * 0.15f, w * 0.15f),
+        )
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.30f, h * 0.83f),
+            size = Size(w * 0.40f, h * 0.09f),
+            cornerRadius = CornerRadius(w * 0.05f, w * 0.05f),
+        )
+        fun drawStar(cx: Float, cy: Float, r: Float) {
+            val inner = r * 0.28f
+            val p = Path().apply {
+                moveTo(cx, cy - r)
+                quadraticTo(cx + inner, cy - inner, cx + r, cy)
+                quadraticTo(cx + inner, cy + inner, cx, cy + r)
+                quadraticTo(cx - inner, cy + inner, cx - r, cy)
+                quadraticTo(cx - inner, cy - inner, cx, cy - r)
+                close()
+            }
+            drawPath(p, color = cutoutColor)
+        }
+        drawStar(w * 0.56f, h * 0.47f, w * 0.18f)
+        drawStar(w * 0.34f, h * 0.33f, w * 0.08f)
+    }
+}
+
+@Composable
+private fun MainTabIcon(
+    tab: MainTab,
+    active: Boolean,
+    tint: Color,
+    userAvatarUrl: String?,
+    userInitial: String,
+) {
+    val colors = LocalMoviePilotColors.current
+    when (tab) {
+        MainTab.Discover -> {
+            DiscoverTvSparkleIcon(
+                tint = tint,
+                cutoutColor = if (colors.isDark) colors.surfaceContainerHigh else Color(0xFFF6F2FC),
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        MainTab.Explore -> {
+            Icon(
+                imageVector = if (active) Icons.Rounded.Explore else Icons.Outlined.Explore,
+                contentDescription = tab.label,
+                tint = tint,
+                modifier = Modifier.size(23.dp),
+            )
+        }
+        MainTab.Subscribe -> {
+            Icon(
+                imageVector = if (active) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
+                contentDescription = tab.label,
+                tint = tint,
+                modifier = Modifier.size(23.dp),
+            )
+        }
+        MainTab.Workspace -> {
+            Icon(
+                imageVector = if (active) Icons.Rounded.MoreHoriz else Icons.Outlined.MoreHoriz,
+                contentDescription = tab.label,
+                tint = tint,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+        MainTab.Dashboard -> {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .border(
+                        width = if (active) 1.8.dp else 0.9.dp,
+                        color = if (active) MaterialTheme.colorScheme.primary else colors.chipBorder,
+                        shape = CircleShape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (!userAvatarUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = userAvatarUrl,
+                        contentDescription = tab.label,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(24.dp).clip(CircleShape),
+                    )
+                } else {
+                    Text(
+                        text = userInitial.take(1).uppercase(),
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+    }
 }
 
 /**
- * 4+1 原生悬浮玻璃底部导航栏（像素级对齐 iOS Liquid Glass 布局）：
- * - 左侧悬浮胶囊容纳 4 主 Tab（发现 / 探索 / 我的头像 / 设置），选中态带弹性发光椭圆底托；
- * - 右侧分离式 `+1` 独立玻璃圆钮（默认全局搜索，子页可动态切换为主操作图标）；
- * - 重复点击当前主 Tab 弹出 8 项高透玻璃快捷菜单。
+ * Android Material Design 3 标准全宽贴底 5 Tab 导航栏（NavigationBar 规范）：
+ * - 手机端采用边缘到边缘贴底 `NavigationBar`，配 64×32dp 激活胶囊指示器、Filled/Outlined 图标切换、原生 Ripple 与触觉反馈；
+ * - 底层融合 Haze GPU 轻微磨砂与 Material 3 `surfaceContainer` 色调，既保留通透现代感又完全贴合 Android 肌肉记忆；
+ * - 取消 iOS 的 `+1` 独立搜索球与重复点击隐藏菜单，所有 5 大核心模块显性直达。
  */
 @Composable
-fun FloatingFourPlusOneNavBar(
+fun MoviePilotBottomNavigationBar(
     selectedTab: MainTab,
     onTabClick: (MainTab) -> Unit,
-    plusOneIcon: ImageVector = Icons.Rounded.Search,
-    plusOneContentDescription: String = "全局搜索",
-    onPlusOneClick: () -> Unit,
     userAvatarUrl: String? = null,
     userInitial: String = "M",
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalMoviePilotColors.current
-    Row(
+    val haptic = LocalHapticFeedback.current
+    val barBg = MaterialTheme.colorScheme.surfaceContainer
+
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 18.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .background(barBg),
     ) {
-        // 4 主 Tab 悬浮玻璃胶囊
-        CinematicGlassSurface(
-            shape = RoundedCornerShape(32.dp),
-            modifier = Modifier
-                .weight(1f)
-                .height(64.dp),
+        HorizontalDivider(
+            thickness = 0.5.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+        )
+        NavigationBar(
+            containerColor = barBg,
+            tonalElevation = 0.dp,
+            windowInsets = WindowInsets.navigationBars,
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight()
-                    .padding(horizontal = 6.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                MainTab.entries.forEach { tab ->
-                    val active = tab == selectedTab
-                    val pillPadding by animateDpAsState(
-                        targetValue = if (active) 4.dp else 0.dp,
-                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                        label = "tabPill",
-                    )
-                    val tint = if (active) colors.accent else colors.textPrimary.copy(alpha = 0.85f)
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(26.dp))
-                            .background(
-                                if (active) {
-                                    if (colors.isDark) Color.White.copy(alpha = 0.14f)
-                                    else colors.accent.copy(alpha = 0.14f)
-                                } else {
-                                    Color.Transparent
-                                },
-                            )
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                            ) { onTabClick(tab) }
-                            .padding(horizontal = pillPadding),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                        ) {
-                            if (tab == MainTab.Dashboard) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(26.dp)
-                                        .clip(CircleShape)
-                                        .background(colors.accent.copy(alpha = 0.35f))
-                                        .border(
-                                            width = if (active) 1.5.dp else 0.8.dp,
-                                            color = if (active) colors.accent else Color.White.copy(alpha = 0.4f),
-                                            shape = CircleShape,
-                                        ),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    if (!userAvatarUrl.isNullOrBlank()) {
-                                        AsyncImage(
-                                            model = userAvatarUrl,
-                                            contentDescription = tab.label,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.size(26.dp).clip(CircleShape),
-                                        )
-                                    } else {
-                                        Text(
-                                            text = userInitial.take(1).uppercase(),
-                                            color = Color.White,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                        )
-                                    }
-                                }
-                            } else {
-                                val icon = when (tab) {
-                                    MainTab.Discover -> Icons.Rounded.AutoAwesome
-                                    MainTab.Explore -> if (active) Icons.Rounded.Explore else Icons.Outlined.Explore
-                                    MainTab.Settings -> if (active) Icons.Rounded.Settings else Icons.Outlined.Settings
-                                    MainTab.Dashboard -> Icons.Outlined.Person
-                                }
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = tab.label,
-                                    tint = tint,
-                                    modifier = Modifier.size(23.dp),
-                                )
-                            }
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                text = tab.label,
-                                color = tint,
-                                fontSize = 10.sp,
-                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Clip,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // 右侧分离式 +1 独立玻璃圆钮
-        CinematicGlassSurface(
-            shape = CircleShape,
-            modifier = Modifier
-                .size(62.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onPlusOneClick,
-                ),
-        ) {
-            Box(
-                modifier = Modifier.size(62.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = plusOneIcon,
-                    contentDescription = plusOneContentDescription,
-                    tint = colors.textPrimary,
-                    modifier = Modifier.size(25.dp),
+            MainTab.entries.forEach { tab ->
+                val active = tab == selectedTab
+                NavigationBarItem(
+                    selected = active,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onTabClick(tab)
+                    },
+                    icon = {
+                        MainTabIcon(
+                            tab = tab,
+                            active = active,
+                            tint = if (active) MaterialTheme.colorScheme.onSecondaryContainer else colors.textSecondary,
+                            userAvatarUrl = userAvatarUrl,
+                            userInitial = userInitial,
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = tab.label,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Clip,
+                        )
+                    },
+                    alwaysShowLabel = true,
+                    colors = NavigationBarItemDefaults.colors(
+                        indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
+                        selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        selectedTextColor = colors.textPrimary,
+                        unselectedIconColor = colors.textSecondary,
+                        unselectedTextColor = colors.textSecondary,
+                    ),
                 )
             }
         }
@@ -245,158 +256,86 @@ fun FloatingFourPlusOneNavBar(
 }
 
 /**
- * 重复点击底栏主图标弹出的 8 项玻璃快捷菜单（像素级复刻 `native-v2-live-overflow-menu.jpg`）：
- * 顶部用户头像 + 角色绿点，两段各 4 项清晰分组，弹簧展开动画。
+ * Android Material Design 3 宽屏 / 折叠屏展开 / 平板侧边导航栏（NavigationRail 规范）：
+ * 当窗口宽度 >= 680dp 时自动替换底部 NavigationBar，顶置 Material 3 搜索 FAB。
  */
 @Composable
-fun FloatingOverflowMenuPopover(
-    visible: Boolean,
-    userName: String,
-    isSuperuser: Boolean,
-    userAvatarUrl: String?,
-    onSelect: (OverflowMenuDestination) -> Unit,
-    onDismiss: () -> Unit,
+fun FloatingNavigationRail(
+    selectedTab: MainTab,
+    onTabClick: (MainTab) -> Unit,
+    onSearchClick: () -> Unit,
+    userAvatarUrl: String? = null,
+    userInitial: String = "M",
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalMoviePilotColors.current
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn() + scaleIn(
-            initialScale = 0.86f,
-            transformOrigin = TransformOrigin(0.25f, 1f),
-            animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMedium),
-        ),
-        exit = fadeOut() + scaleOut(
-            targetScale = 0.90f,
-            transformOrigin = TransformOrigin(0.25f, 1f),
-        ),
-        modifier = modifier,
-    ) {
-        CinematicGlassSurface(
-            shape = RoundedCornerShape(GeneratedDesignTokens.PANEL_CORNER_RADIUS_DP.dp),
-            blurRadiusPx = 34f,
-            darkScrimAlpha = 0.93f,
-            lightScrimAlpha = 0.96f,
-            modifier = Modifier.width(236.dp),
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 14.dp),
+    val haptic = LocalHapticFeedback.current
+    NavigationRail(
+        modifier = modifier
+            .fillMaxHeight()
+            .statusBarsPadding()
+            .navigationBarsPadding(),
+        containerColor = colors.surfaceContainerLow.copy(alpha = if (colors.isDark) 0.90f else 0.95f),
+        header = {
+            Spacer(Modifier.height(12.dp))
+            FloatingActionButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSearchClick()
+                },
+                shape = RoundedCornerShape(16.dp),
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp),
             ) {
-                // 头部用户信息
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(colors.accent.copy(alpha = 0.35f))
-                            .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (!userAvatarUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = userAvatarUrl,
-                                contentDescription = userName,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.size(40.dp).clip(CircleShape),
-                            )
-                        } else {
-                            Text(
-                                text = userName.take(1).uppercase().ifBlank { "A" },
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                            )
-                        }
-                    }
-                    Column {
-                        Text(
-                            text = userName.ifBlank { "admin" },
-                            color = colors.textPrimary,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(colors.success),
-                            )
-                            Text(
-                                text = if (isSuperuser) "超级管理员" else "普通成员",
-                                color = colors.textSecondary,
-                                fontSize = 12.sp,
-                            )
-                        }
-                    }
-                }
-
-                HorizontalDivider(
-                    color = colors.divider,
-                    modifier = Modifier.padding(vertical = 10.dp),
-                )
-
-                // 上半组 4 项：订阅 / 日历 / 站点资源 / 下载
-                OverflowMenuDestination.entries.filter { it.group == 0 }.forEach { dest ->
-                    OverflowMenuRow(dest = dest, onClick = {
-                        onDismiss()
-                        onSelect(dest)
-                    })
-                }
-
-                HorizontalDivider(
-                    color = colors.divider,
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
-
-                // 下半组 4 项：文件管理 / 整理历史 / 工作流 / 插件
-                OverflowMenuDestination.entries.filter { it.group == 1 }.forEach { dest ->
-                    OverflowMenuRow(dest = dest, onClick = {
-                        onDismiss()
-                        onSelect(dest)
-                    })
-                }
+                Icon(Icons.Rounded.Search, contentDescription = "全局搜索")
             }
+            Spacer(Modifier.height(12.dp))
+        },
+    ) {
+        MainTab.entries.forEach { tab ->
+            val active = tab == selectedTab
+            NavigationRailItem(
+                selected = active,
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onTabClick(tab)
+                },
+                icon = {
+                    MainTabIcon(
+                        tab = tab,
+                        active = active,
+                        tint = if (active) MaterialTheme.colorScheme.onSecondaryContainer else colors.textSecondary,
+                        userAvatarUrl = userAvatarUrl,
+                        userInitial = userInitial,
+                    )
+                },
+                label = {
+                    Text(
+                        text = tab.label,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                },
+                colors = NavigationRailItemDefaults.colors(
+                    indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
+                    selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    selectedTextColor = colors.textPrimary,
+                    unselectedIconColor = colors.textSecondary,
+                    unselectedTextColor = colors.textSecondary,
+                ),
+            )
         }
     }
 }
 
+@Preview(name = "BottomNav Dark", uiMode = Configuration.UI_MODE_NIGHT_YES, showBackground = true)
+@Preview(name = "BottomNav Light", uiMode = Configuration.UI_MODE_NIGHT_NO, showBackground = true)
 @Composable
-private fun OverflowMenuRow(
-    dest: OverflowMenuDestination,
-    onClick: () -> Unit,
-) {
-    val colors = LocalMoviePilotColors.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Icon(
-            imageVector = dest.icon,
-            contentDescription = dest.title,
-            tint = colors.textPrimary,
-            modifier = Modifier.size(20.dp),
-        )
-        Text(
-            text = dest.title,
-            color = colors.textPrimary,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
+private fun PreviewMoviePilotBottomNav() {
+    MoviePilotTheme(appearanceStore = NativeAppearanceStore(null)) {
+        MoviePilotBottomNavigationBar(
+            selectedTab = MainTab.Discover,
+            onTabClick = {},
         )
     }
 }

@@ -2,46 +2,53 @@
 
 本图册按平台目录归档真机/模拟器运行验收截图：
 - `screenshots/ios/`：iOS 26 模拟器（iPhone 17）60 张黄金验收图
-- `screenshots/android/`：Android 15（API 35 ARM64 硬件 GPU 模拟器）17 张真机链路实测验收图
-- `screenshots/harmony/`：HarmonyOS NEXT 模拟器验收图（待 DevEco Studio 与鸿蒙模拟器就绪后补齐）
-
-特别说明：UI设计风格参考了 [Rex iOS App](https://rexnow.tv)。
+- `screenshots/android/`：Android 15（API 35 ARM64 硬件 GPU 模拟器）20 张 **纯正 Material Design 3** 真实后端实测验收图
+- `screenshots/harmony/`：HarmonyOS NEXT / HarmonyOS 7（已完成 HarmonyOS 原生交互与一多自适应重设计、HarmonyOS 7 `uiMaterial.ImmersiveMaterial` 动态光感与低版本自动回退、Vue 联邦协议接管，以及 Rust OHOS NAPI 动态库与 16 模块 `entry-default-unsigned.hap` 零报错编译及 `verify-hap.py` 校验；待 DevEco Studio Device Manager 下载 `HarmonyOS-7.0.1-B1` 系统镜像后补齐真机/模拟器截图）
 
 ---
 
-## Android（Jetpack Compose + AGSL + Rust UniFFI · API 35 实测验收）
+## Android（Jetpack Compose + 纯正 Material Design 3 + Rust UniFFI · API 35 实测验收）
 
-以下 17 张截图均采集自 Android 15（API 35，`MoviePilot_API35` ARM64 模拟器，Apple M4 Vulkan `gfxstream` 硬件加速）真实运行界面，直连本地 MoviePilot V3 夹具实例并调用原生 `libmoviepilot_core.so`（884 KB），全程零崩溃（`AndroidRuntime:E` = 0）。
+以下 20 张截图均采集自 Android 15（API 35，`MoviePilot_API35` ARM64 模拟器，Apple M4 Vulkan `gfxstream` 硬件加速）直连真实 MoviePilot V3 后端实例运行界面：
+- **纯正 Material Design 3 视觉体系**：不透明 Tonal Surface 色阶（`surface` → `surfaceContainerLow` → `surfaceContainer` → `surfaceContainerHigh`）、贴底标准 5 Tab `NavigationBar`（发现 · 探索 · 订阅 · 更多 · 我的）+ 宽屏 `NavigationRail`、支持 Android 12+ Material You 壁纸动态取色；
+- **标准 Android 交互层级**：一级平级页签使用 `PrimaryTabRow` + `HorizontalPager` 左右跟手滑动、二级页内章节使用 `SecondaryTabRow`、互斥模式选择使用 `SingleChoiceSegmentedButtonRow`、多维筛选使用 `FilterChip`；
+- **完整业务与插件生态**：发现/详情视差渐变溶解 + 顶部状态栏渐进模糊、Emby 媒体库实时浏览与直放、原生 Vuetify JSON 表单与数据页、以及 1:1 复刻 iOS `moviepilot.chrome` v1 协议的 Vue 模块联邦插件（零点击直开 + 标题栏/关闭按钮/原背景原生接管）。
 
-### 连接服务、登录与主导航体验
+### 核心导航、发现滚动、媒体库与详情
 
-| 连接服务（AGSL 流光背景） | 登录页 | 发现首页（无接缝主视觉融合） |
+| 发现首页（贴底 5 Tab 导航） | 发现滚动（状态栏渐进模糊 + 媒体库） | Emby 媒体库实时浏览（753 部电影） |
 | :---: | :---: | :---: |
-| ![Android连接服务](android/01-connection.png) | ![Android登录](android/02-login.png) | ![Android发现首页](android/03-discover-dark.png) |
+| ![Android发现首页](android/01-discover-top.png) | ![Android发现滚动](android/02-discover-scrolled-emby.png) | ![Android媒体库](android/03-emby-library.png) |
 
-| 探索片库（多源筛选网格） | 重复点击底栏 8 项玻璃溢出菜单 | 我的仪表盘（深色模式） |
+| 媒体详情（沉浸主视觉） | 人物独立全屏详情页 | 探索片库（多源筛选网格） |
 | :---: | :---: | :---: |
-| ![Android探索](android/04-explore-dark.png) | ![Android溢出菜单](android/05-overflow-menu.png) | ![Android仪表盘深色](android/06-dashboard-dark.png) |
+| ![Android媒体详情](android/04-media-detail.png) | ![Android人物详情](android/05-person-detail.png) | ![Android探索](android/06-explore.png) |
 
-### 设置中心、订阅、资源筛选与站点
+### 订阅、更多工具中心与工作流（Material 3 页签与分段控件）
 
-| 设置主中心（Rust 内核标识） | 我的订阅 | 站点资源（Rust 9 维筛选 + 同规格折叠） |
+| 订阅（PrimaryTabRow 滑动切换） | 订阅广场（SegmentedButton 切换） | 更多（实时速率与功能中心） |
 | :---: | :---: | :---: |
-| ![Android设置中心](android/07-settings-hub-dark.png) | ![Android订阅](android/08-subscriptions.png) | ![Android站点资源](android/09-resources-rust9dim.png) |
+| ![Android订阅](android/07-subscribe-primary-tabs.png) | ![Android订阅广场](android/08-subscribe-community-segmented.png) | ![Android更多中心](android/09-workspace-hub.png) |
 
-| 站点管理（双向绿/玫红流量条） | 纯原生工作流节点画布 | AI 智能助手（Rust Markdown AST） |
+| 工作流（PrimaryTabRow + M3 FAB） | 文件管理（本机 SAF 媒体直放） | 我的仪表盘 |
 | :---: | :---: | :---: |
-| ![Android站点管理](android/10-sites-traffic.png) | ![Android工作流画布](android/11-workflow-canvas.png) | ![Android智能助手](android/12-agent-chat.png) |
+| ![Android工作流](android/14-workflows-primary-tabs.png) | ![Android文件管理](android/15-file-manager.png) | ![Android仪表盘](android/16-dashboard.png) |
 
-### 插件生态、浅色模式与 3D 社区勋章
+### 插件中心（原生 Vuetify 表单/数据页 + Vue 模块联邦原生接管）
 
-| 插件中心 | 动态插件表单（Window Blur 实测） | 我的仪表盘（浅色模式 + 暗色状态栏） |
+| 插件中心（PrimaryTabRow） | 原生数据页（SecondaryTabRow） | 原生 Vuetify JSON 配置表单 |
 | :---: | :---: | :---: |
-| ![Android插件中心](android/13-plugins-installed.png) | ![Android插件表单弹层](android/16-plugin-form-sheet.png) | ![Android仪表盘浅色](android/14-dashboard-light.png) |
+| ![Android插件中心](android/10-plugins-primary-tabs.png) | ![Android插件数据页](android/11-plugin-vuetify-datapage.png) | ![Android插件原生表单](android/12-plugin-vuetify-json-form.png) |
 
-| 3D 社区勋章（正面浮雕与陈列墙） | 3D 社区勋章（180° 背面三遍凹雕铭文） | |
+| Vue 模块联邦（零点击直开 + 接管顶栏/去背景） | 消息中心（全屏含真实配图） | 设置中心（Material 3 分组） |
 | :---: | :---: | :---: |
-| ![Android3D勋章正面](android/15-medals-3d.png) | ![Android3D勋章背面凹雕](android/17-medal-3d-back-engraving.png) | |
+| ![AndroidVue联邦接管](android/13-plugin-vue-zero-tap.png) | ![Android消息中心](android/17-messages.png) | ![Android设置中心](android/18-settings.png) |
+
+### 外观与播放设置（Material You + SegmentedButton）
+
+| 主题与外观（Material You + 分段模式） | 播放偏好（清晰度与倍速分段选择） | |
+| :---: | :---: | :---: |
+| ![Android主题外观](android/19-appearance-segmented.png) | ![Android播放偏好](android/20-playback-segmented.png) | |
 
 ---
 

@@ -1,7 +1,15 @@
 package com.moviepilot.designsystem
 
 import android.content.Context
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -11,6 +19,102 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+
+/** Material Design 3 标准排版体系（依据 mobile-android-design 规范统一字号、字重与行高）。 */
+val MoviePilotTypography = Typography(
+    displayLarge = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Bold,
+        fontSize = 36.sp,
+        lineHeight = 44.sp,
+        letterSpacing = (-0.25).sp,
+    ),
+    headlineLarge = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Bold,
+        fontSize = 28.sp,
+        lineHeight = 36.sp,
+    ),
+    headlineMedium = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Bold,
+        fontSize = 24.sp,
+        lineHeight = 32.sp,
+    ),
+    headlineSmall = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 20.sp,
+        lineHeight = 28.sp,
+    ),
+    titleLarge = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Bold,
+        fontSize = 21.sp,
+        lineHeight = 28.sp,
+    ),
+    titleMedium = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 16.sp,
+        lineHeight = 22.sp,
+        letterSpacing = 0.15.sp,
+    ),
+    titleSmall = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Medium,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        letterSpacing = 0.1.sp,
+    ),
+    bodyLarge = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Normal,
+        fontSize = 16.sp,
+        lineHeight = 24.sp,
+        letterSpacing = 0.15.sp,
+    ),
+    bodyMedium = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Normal,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        letterSpacing = 0.25.sp,
+    ),
+    bodySmall = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.4.sp,
+    ),
+    labelLarge = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        letterSpacing = 0.1.sp,
+    ),
+    labelMedium = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Medium,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.5.sp,
+    ),
+    labelSmall = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Medium,
+        fontSize = 11.sp,
+        lineHeight = 14.sp,
+        letterSpacing = 0.5.sp,
+    ),
+)
 
 /** 外观模式枚举：深色、浅色与跟随系统。 */
 enum class NativeAppearanceMode(val id: String, val title: String) {
@@ -25,7 +129,8 @@ enum class NativeAppearanceMode(val id: String, val title: String) {
 }
 
 /**
- * 全局原生外观状态存储：驱动 6 套深浅渐变色板、6 套强调色、自定义三色渐变及动态流光开关，
+ * 全局原生外观状态存储：驱动 Material 3 视觉体系、Android 12+ Material You 壁纸动态取色、
+ * 6 套深浅渐变色板、6 套强调色、自定义三色渐变及动态流光开关，
  * 100% 消费由 `tools/sync-tokens.py` 生成的 `GeneratedDesignTokens`。
  */
 @Stable
@@ -73,7 +178,11 @@ class NativeAppearanceStore(context: Context? = null) {
     )
         private set
 
-    var animateBackground by mutableStateOf(prefs?.getBoolean("animate_bg", true) ?: true)
+    var animateBackground by mutableStateOf(prefs?.getBoolean("animate_bg", false) ?: false)
+        private set
+
+    /** Android 12+ Material You 系统壁纸动态取色开关。 */
+    var dynamicColorEnabled by mutableStateOf(prefs?.getBoolean("dynamic_color", false) ?: false)
         private set
 
     fun updateMode(newMode: NativeAppearanceMode) {
@@ -109,11 +218,17 @@ class NativeAppearanceStore(context: Context? = null) {
         prefs?.edit()?.putBoolean("animate_bg", enabled)?.apply()
     }
 
+    fun updateDynamicColorEnabled(enabled: Boolean) {
+        dynamicColorEnabled = enabled
+        prefs?.edit()?.putBoolean("dynamic_color", enabled)?.apply()
+    }
+
     fun resetToDefaults() {
         updateMode(NativeAppearanceMode.Dark)
         updateBackgroundPreset(GeneratedDesignTokens.DEFAULT_BACKGROUND_PRESET)
         updateAccentPreset(GeneratedDesignTokens.DEFAULT_ACCENT_PRESET)
         updateAnimateBackground(true)
+        updateDynamicColorEnabled(false)
     }
 
     /** 当前生效的主题强调色。 */
@@ -141,6 +256,9 @@ class NativeAppearanceStore(context: Context? = null) {
     /** 设置项副标题概要文案。 */
     val summaryText: String
         get() {
+            if (dynamicColorEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                return "${mode.title} · Material You 动态取色"
+            }
             val presetTitle = GeneratedDesignTokens.backgroundPresets
                 .firstOrNull { it.id == backgroundPresetId }?.titleZh ?: "星夜紫玫"
             return "${mode.title} · $presetTitle"
@@ -156,7 +274,7 @@ class NativeAppearanceStore(context: Context? = null) {
     }
 }
 
-/** 解析后的当前深浅色运行时颜色表，供所有 Compose 组件零分配读取。 */
+/** 解析后的当前深浅色运行时颜色表，融合 Material 3 Tonal Color System，供所有 Compose 组件零分配读取。 */
 @Immutable
 data class MoviePilotColors(
     val isDark: Boolean,
@@ -182,6 +300,10 @@ data class MoviePilotColors(
     val primaryButtonBg: Color,
     val primaryButtonFg: Color,
     val solidSurface: Color,
+    val surfaceContainerLow: Color,
+    val surfaceContainer: Color,
+    val surfaceContainerHigh: Color,
+    val activeIndicator: Color,
 )
 
 val LocalAppearanceStore = compositionLocalOf { NativeAppearanceStore(null) }
@@ -189,51 +311,142 @@ val LocalMoviePilotColors = compositionLocalOf {
     resolveMoviePilotColors(isDark = true, store = NativeAppearanceStore(null))
 }
 
-fun resolveMoviePilotColors(isDark: Boolean, store: NativeAppearanceStore): MoviePilotColors {
+fun resolveMoviePilotColors(
+    isDark: Boolean,
+    store: NativeAppearanceStore,
+    dynamicScheme: ColorScheme? = null,
+): MoviePilotColors {
     val s = GeneratedDesignTokens.Semantic
+    val resolvedAccent = dynamicScheme?.primary ?: store.accentColor
+    val rawPresetStops = store.backgroundPalette(isDark)
+    // Material 3 Tonal Neutral Surface Ramp：以低饱和中性暗/浅面为基底，融入约 5% 主题种子色倾向（遵循 HCT Neutral/NeutralVariant 体系）
+    val seed = rawPresetStops.getOrElse(1) { resolvedAccent }
+    fun tintNeutral(base: Color, amount: Float): Color = Color(
+        red = base.red * (1f - amount) + seed.red * amount,
+        green = base.green * (1f - amount) + seed.green * amount,
+        blue = base.blue * (1f - amount) + seed.blue * amount,
+        alpha = 1f,
+    )
+    val baseBg = dynamicScheme?.background ?: tintNeutral(if (isDark) Color(0xFF121116) else Color(0xFFFCF8FF), if (isDark) 0.05f else 0.03f)
+    val surfLow = dynamicScheme?.surfaceContainerLow ?: tintNeutral(if (isDark) Color(0xFF1A1920) else Color(0xFFF5F1FA), if (isDark) 0.07f else 0.04f)
+    val surfMid = dynamicScheme?.surfaceContainer ?: tintNeutral(if (isDark) Color(0xFF211F28) else Color(0xFFEFEAF6), if (isDark) 0.09f else 0.05f)
+    val surfHigh = dynamicScheme?.surfaceContainerHigh ?: tintNeutral(if (isDark) Color(0xFF2B2834) else Color(0xFFE8E2F1), if (isDark) 0.11f else 0.06f)
+
+    val resolvedPalette = if (dynamicScheme != null) {
+        listOf(baseBg, surfLow, surfMid, baseBg)
+    } else {
+        listOf(baseBg, surfLow, surfMid, baseBg)
+    }
     return MoviePilotColors(
         isDark = isDark,
-        accent = store.accentColor,
-        palette = store.backgroundPalette(isDark),
-        textPrimary = if (isDark) Color(0xFFF6F3FF) else Color(0xFF1C1A24),
-        textSecondary = if (isDark) Color(0xB8FFFFFF) else Color(0xB31C1A24),
-        textMuted = if (isDark) Color(0x80FFFFFF) else Color(0x852E2A3B),
+        accent = resolvedAccent,
+        palette = resolvedPalette,
+        textPrimary = dynamicScheme?.onSurface ?: if (isDark) Color(0xFFE6E1E9) else Color(0xFF1C1B1F),
+        textSecondary = dynamicScheme?.onSurfaceVariant ?: if (isDark) Color(0xFFCAC4D0) else Color(0xFF49454F),
+        textMuted = dynamicScheme?.outline ?: if (isDark) Color(0xFF938F99) else Color(0xFF79747E),
         success = s.success.resolve(isDark),
         warning = s.warning.resolve(isDark),
-        danger = s.danger.resolve(isDark),
+        danger = dynamicScheme?.error ?: s.danger.resolve(isDark),
         info = s.info.resolve(isDark),
-        brand = s.brand.resolve(isDark),
-        pink = s.pink.resolve(isDark),
+        brand = dynamicScheme?.tertiary ?: s.brand.resolve(isDark),
+        pink = dynamicScheme?.secondary ?: s.pink.resolve(isDark),
         cyan = s.cyan.resolve(isDark),
-        chipFill = s.chipFill.resolve(isDark),
-        chipBorder = s.chipBorder.resolve(isDark),
-        chipText = s.chipText.resolve(isDark),
-        badgeFill = s.badgeFill.resolve(isDark),
-        fieldFill = s.fieldFill.resolve(isDark),
-        fieldBorder = s.fieldBorder.resolve(isDark),
-        divider = s.divider.resolve(isDark),
-        primaryButtonBg = s.primaryButtonBackground.resolve(isDark),
-        primaryButtonFg = s.primaryButtonForeground.resolve(isDark),
-        solidSurface = s.solidSurface.resolve(isDark),
+        chipFill = surfHigh,
+        chipBorder = dynamicScheme?.outlineVariant ?: if (isDark) Color(0xFF49454F) else Color(0xFFCAC4D0),
+        chipText = dynamicScheme?.onSurface ?: if (isDark) Color(0xFFE6E1E9) else Color(0xFF1C1B1F),
+        badgeFill = dynamicScheme?.secondaryContainer ?: resolvedAccent.copy(alpha = if (isDark) 0.22f else 0.14f),
+        fieldFill = dynamicScheme?.surfaceContainerHighest ?: surfHigh,
+        fieldBorder = dynamicScheme?.outlineVariant ?: if (isDark) Color(0xFF49454F) else Color(0xFFCAC4D0),
+        divider = (dynamicScheme?.outlineVariant ?: if (isDark) Color(0xFF3A3742) else Color(0xFFE0DBE6)).copy(alpha = 0.72f),
+        primaryButtonBg = resolvedAccent,
+        primaryButtonFg = dynamicScheme?.onPrimary ?: Color.White,
+        solidSurface = baseBg,
+        surfaceContainerLow = surfLow,
+        surfaceContainer = surfMid,
+        surfaceContainerHigh = surfHigh,
+        activeIndicator = dynamicScheme?.secondaryContainer ?: resolvedAccent.copy(alpha = if (isDark) 0.28f else 0.16f),
     )
 }
 
-/** MoviePilot Android 原生主题包装器：统一注入深浅色解析与设计 Token。 */
+/** MoviePilot Android Material 3 原生主题包装器：融合动态取色与 Material 3 ColorScheme。 */
 @Composable
 fun MoviePilotTheme(
     appearanceStore: NativeAppearanceStore,
     content: @Composable () -> Unit,
 ) {
+    val context = LocalContext.current
     val systemDark = isSystemInDarkTheme()
     val isDark = when (appearanceStore.mode) {
         NativeAppearanceMode.Dark -> true
         NativeAppearanceMode.Light -> false
         NativeAppearanceMode.System -> systemDark
     }
-    val colors = resolveMoviePilotColors(isDark = isDark, store = appearanceStore)
-    CompositionLocalProvider(
-        LocalAppearanceStore provides appearanceStore,
-        LocalMoviePilotColors provides colors,
-        content = content,
+    val dynamicScheme = if (appearanceStore.dynamicColorEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    } else {
+        null
+    }
+    val colors = resolveMoviePilotColors(
+        isDark = isDark,
+        store = appearanceStore,
+        dynamicScheme = dynamicScheme,
     )
+    val materialScheme = dynamicScheme ?: if (isDark) {
+        darkColorScheme(
+            primary = colors.accent,
+            onPrimary = Color.White,
+            primaryContainer = colors.accent.copy(alpha = 0.28f),
+            onPrimaryContainer = Color(0xFFF4EEFF),
+            secondary = colors.pink,
+            secondaryContainer = colors.activeIndicator,
+            onSecondaryContainer = Color(0xFFF4EEFF),
+            tertiary = colors.brand,
+            background = colors.palette.firstOrNull() ?: Color(0xFF171324),
+            onBackground = colors.textPrimary,
+            surface = colors.solidSurface,
+            onSurface = colors.textPrimary,
+            surfaceVariant = colors.surfaceContainer,
+            onSurfaceVariant = colors.textSecondary,
+            surfaceContainerLow = colors.surfaceContainerLow,
+            surfaceContainer = colors.surfaceContainer,
+            surfaceContainerHigh = colors.surfaceContainerHigh,
+            outline = colors.fieldBorder,
+            outlineVariant = colors.divider,
+            error = colors.danger,
+        )
+    } else {
+        lightColorScheme(
+            primary = colors.accent,
+            onPrimary = Color.White,
+            primaryContainer = colors.accent.copy(alpha = 0.16f),
+            onPrimaryContainer = Color(0xFF21163A),
+            secondary = colors.pink,
+            secondaryContainer = colors.activeIndicator,
+            onSecondaryContainer = Color(0xFF21163A),
+            tertiary = colors.brand,
+            background = colors.palette.firstOrNull() ?: Color(0xFFF5F1FC),
+            onBackground = colors.textPrimary,
+            surface = colors.solidSurface,
+            onSurface = colors.textPrimary,
+            surfaceVariant = colors.surfaceContainer,
+            onSurfaceVariant = colors.textSecondary,
+            surfaceContainerLow = colors.surfaceContainerLow,
+            surfaceContainer = colors.surfaceContainer,
+            surfaceContainerHigh = colors.surfaceContainerHigh,
+            outline = colors.fieldBorder,
+            outlineVariant = colors.divider,
+            error = colors.danger,
+        )
+    }
+
+    MaterialTheme(
+        colorScheme = materialScheme,
+        typography = MoviePilotTypography,
+    ) {
+        CompositionLocalProvider(
+            LocalAppearanceStore provides appearanceStore,
+            LocalMoviePilotColors provides colors,
+            content = content,
+        )
+    }
 }

@@ -2,6 +2,7 @@ package com.moviepilot.app
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -12,6 +13,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import coil.Coil
+import coil.ImageLoader
+import coil.decode.DataSource
+import coil.decode.ImageSource
+import coil.fetch.FetchResult
+import coil.fetch.Fetcher
+import coil.fetch.SourceResult
+import coil.request.Options
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.MoviePilotTheme
 import com.moviepilot.designsystem.NativeAppearanceMode
@@ -19,6 +28,8 @@ import com.moviepilot.designsystem.NativeAppearanceStore
 import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.RustCoreBridge
+import com.moviepilot.rustbridge.SessionState
+import okio.Buffer
 
 /**
  * MoviePilot Android 主入口 Activity：
@@ -40,6 +51,31 @@ class MainActivity : ComponentActivity() {
 
         AndroidPushProvider.ensureChannels(this)
         repository = MoviePilotRepository(applicationContext)
+        // 为 Coil 注入同源鉴权、Cookie 复用 OkHttpClient 与 data:image Base64 解码器，秒开全部海报、用户头像与站点图标
+        Coil.setImageLoader(
+            ImageLoader.Builder(applicationContext)
+                .okHttpClient {
+                    repository.transport.buildImageClient(
+                        serverUrlProvider = { (repository.session.value as? SessionState.Authenticated)?.serverUrl },
+                        tokenProvider = { (repository.session.value as? SessionState.Authenticated)?.token },
+                    )
+                }
+                .components {
+                    add(
+                        Fetcher.Factory<android.net.Uri> { data, options, _ ->
+                            val raw = data.toString()
+                            if (raw.startsWith("data:image/")) Base64DataUriFetcher(raw, options) else null
+                        },
+                    )
+                    add(
+                        Fetcher.Factory<String> { data, options, _ ->
+                            if (data.startsWith("data:image/")) Base64DataUriFetcher(data, options) else null
+                        },
+                    )
+                }
+                .crossfade(true)
+                .build(),
+        )
         appearanceStore = NativeAppearanceStore(applicationContext)
         handleIntent(intent)
 
@@ -90,5 +126,24 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+}
+
+/** 支持 `data:image/...;base64,...` 内联头像与 PT 站点 Favicon 直接由 Coil 渲染。 */
+private class Base64DataUriFetcher(
+    private val dataUri: String,
+    private val options: Options,
+) : Fetcher {
+    override suspend fun fetch(): FetchResult {
+        val commaIdx = dataUri.indexOf(',')
+        val header = if (commaIdx > 0) dataUri.substring(5, commaIdx) else "image/png"
+        val mime = header.substringBefore(';').ifBlank { "image/png" }
+        val payload = if (commaIdx > 0) dataUri.substring(commaIdx + 1) else ""
+        val bytes = Base64.decode(payload, Base64.DEFAULT)
+        return SourceResult(
+            source = ImageSource(Buffer().write(bytes), options.context),
+            mimeType = mime,
+            dataSource = DataSource.MEMORY,
+        )
     }
 }

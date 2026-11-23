@@ -11,6 +11,8 @@ data class UserIdentity(
     val name: String = "",
     val email: String = "",
     @SerialName("is_superuser") val isSuperuser: Boolean = false,
+    @SerialName("is_active") val isActive: Boolean = true,
+    @SerialName("is_otp") val isOtp: Boolean = false,
     val avatar: String? = null,
     val permissions: Map<String, JsonElement> = emptyMap(),
 )
@@ -33,9 +35,16 @@ data class MediaCardItem(
     @SerialName("media_id") val mediaId: String? = null,
     @SerialName("logo_path") val logoPath: String? = null,
     val genres: List<String> = emptyList(),
+    val runtime: Int? = null,
+    val numberOfSeasons: Int? = null,
+    val contentRating: String? = null,
+    val releaseDate: String? = null,
     val inLibrary: Boolean = false,
     val progressPercent: Int? = null,
     val subtitle: String? = null,
+    val popularityCount: Int = 0,
+    val shareUser: String? = null,
+    val shareComment: String? = null,
 ) {
     /** 稳定业务标识。 */
     val resolvedId: String
@@ -52,9 +61,10 @@ data class ContinueWatchingItem(
     val percent: Int = 0,
     val server: String = "",
     val type: String = "电视剧",
+    val link: String? = null,
 )
 
-/** 订阅条目。 */
+/** 完整订阅条目（覆盖 iOS 订阅列表 + 订阅编辑 Sheet 全部字段）。 */
 @Serializable
 data class SubscribeItemDto(
     val id: Int = 0,
@@ -73,10 +83,20 @@ data class SubscribeItemDto(
     val quality: String = "",
     val resolution: String = "",
     val effect: String = "",
+    val bestVersion: Boolean = false,
     val sites: List<Int> = emptyList(),
+    val filterGroups: List<String> = emptyList(),
+    val searchImdbId: Boolean = false,
+    val searchInterval: Int? = null,
+    val keyword: String = "",
     val savePath: String = "",
     val include: String = "",
     val exclude: String = "",
+    val mediaCategory: String = "",
+    val customWords: String = "",
+    val date: String = "",
+    val username: String = "",
+    val description: String = "",
 )
 
 /** 正在下载任务条目。 */
@@ -113,6 +133,9 @@ data class TransferHistoryDto(
     val errmsg: String? = null,
     val src: String = "",
     val dest: String = "",
+    val srcStorage: String = "local",
+    val destStorage: String = "local",
+    val sizeBytes: Long = 0L,
     val image: String? = null,
 )
 
@@ -144,12 +167,30 @@ data class DashboardStatsDto(
     val downloadSpeed: Double = 0.0,
     val uploadSpeed: Double = 0.0,
     val totalDownloadBytes: Double = 0.0,
-    val cpuPercent: Double = 18.0,
-    val memoryPercent: Double = 46.0,
-    val transfer7Days: List<Int> = listOf(4, 7, 12, 9, 15, 6, 11),
+    val cpuPercent: Double = 0.0,
+    val memoryPercent: Double = 0.0,
+    val transfer7Days: List<Int> = emptyList(),
 )
 
-/** 站点管理条目（含上下行流量与分享率）。 */
+/** 站点单日/实时流量统计记录（用于站点列表 + 站点数据详情页 13 天历史面积图）。 */
+@Serializable
+data class SiteUserDataPointDto(
+    val domain: String = "",
+    val name: String = "",
+    val username: String = "",
+    val userLevel: String = "",
+    val joinAt: String = "",
+    val uploadBytes: Double = 0.0,
+    val downloadBytes: Double = 0.0,
+    val ratio: Double = 0.0,
+    val seedingCount: Int = 0,
+    val seedingSizeBytes: Double = 0.0,
+    val bonus: Double = 0.0,
+    val updatedDay: String = "",
+    val updatedTime: String = "",
+)
+
+/** 站点管理条目（含关联的实时上下行流量、分享率、做种数、魔力值与真实站点图标）。 */
 @Serializable
 data class SiteItemDto(
     val id: Int = 0,
@@ -162,7 +203,69 @@ data class SiteItemDto(
     val downloadBytes: Double = 0.0,
     val ratio: Double = 0.0,
     val seedingCount: Int = 0,
+    val seedingSizeBytes: Double = 0.0,
+    val bonus: Double = 0.0,
+    val userLevel: String = "",
+    val username: String = "",
+    val joinAt: String = "",
+    val updatedDay: String = "",
     val iconUrl: String? = null,
+)
+
+/** 系统配置项：下载器 / 媒体服务器 / 目录映射 / 存储 / 通知渠道 / 规则组。 */
+@Serializable
+data class ServiceConfigDto(
+    val name: String = "",
+    val type: String = "",
+    val enabled: Boolean = true,
+    val isDefault: Boolean = false,
+    val host: String = "",
+    val switchs: List<String> = emptyList(),
+    val extraSummary: String = "",
+)
+
+@Serializable
+data class DirectoryConfigDto(
+    val name: String = "",
+    val priority: Int = 1,
+    val storage: String = "local",
+    val downloadPath: String = "",
+    val libraryStorage: String = "local",
+    val libraryPath: String = "",
+    val transferType: String = "copy",
+    val monitorType: String = "",
+    val renaming: Boolean = true,
+    val scraping: Boolean = true,
+    val notify: Boolean = true,
+)
+
+@Serializable
+data class StorageConfigDto(
+    val name: String = "",
+    val type: String = "local",
+)
+
+@Serializable
+data class FilterRuleGroupDto(
+    val name: String = "",
+    val ruleString: String = "",
+)
+
+/** 订阅与搜索系统设置聚合状态。 */
+@Serializable
+data class SubscribeSearchSettingsDto(
+    val rssSiteIds: List<Int> = emptyList(),
+    val indexerSiteIds: List<Int> = emptyList(),
+    val subscribeMode: String = "spider",
+    val filterRuleGroups: List<FilterRuleGroupDto> = emptyList(),
+)
+
+/** 插件仪表盘元信息。 */
+@Serializable
+data class PluginDashboardMetaDto(
+    val id: String = "",
+    val key: String = "",
+    val name: String = "",
 )
 
 /** 工作流与节点定义。 */
@@ -204,9 +307,11 @@ data class PluginItemDto(
     @SerialName("plugin_version") val version: String = "1.0.0",
     @SerialName("plugin_author") val author: String = "",
     @SerialName("plugin_icon") val icon: String? = null,
+    val labels: List<String> = emptyList(),
     val installed: Boolean = false,
     val state: Boolean = false,
     @SerialName("has_page") val hasPage: Boolean = false,
+    @SerialName("has_update") val hasUpdate: Boolean = false,
     @SerialName("render_mode") val renderMode: String = "vuetify",
 )
 
@@ -264,6 +369,10 @@ data class ResourceItemDto(
     val labels: List<String> = emptyList(),
     val description: String = "",
     val enclosure: String = "",
+    val mediaTitle: String = "",
+    val mediaYear: String = "",
+    val mediaType: String = "",
+    val seasonEpisode: String = "",
 )
 
 @Serializable
@@ -295,15 +404,153 @@ data class ResourceFilterResultDto(
     val groups: List<ResourceGroupDto> = emptyList(),
 )
 
-/** 社区勋章档案条目。 */
+/** 影视演职员 / 人物条目。 */
 @Serializable
-data class CommunityMedalDto(
-    val key: String,
-    val name: String,
-    val description: String,
-    val category: String,
-    val unlocked: Boolean,
-    val assetBaseName: String,
-    val earnedDate: String = "",
-    val detailFact: String = "",
+data class MediaPersonDto(
+    val id: String = "",
+    val name: String = "",
+    val character: String = "",
+    val department: String = "",
+    val profilePath: String? = null,
+    val biography: String = "",
+    val birthday: String = "",
+    val placeOfBirth: String = "",
+    val source: String = "themoviedb",
+)
+
+/** 电视剧分季信息。 */
+@Serializable
+data class MediaSeasonDto(
+    val seasonNumber: Int = 1,
+    val name: String = "",
+    val overview: String = "",
+    val airDate: String = "",
+    val episodeCount: Int = 0,
+    val posterPath: String? = null,
+    val voteAverage: Double = 0.0,
+)
+
+/** 电视剧单集信息。 */
+@Serializable
+data class MediaEpisodeDto(
+    val episodeNumber: Int = 1,
+    val name: String = "",
+    val overview: String = "",
+    val airDate: String = "",
+    val runtime: Int? = null,
+    val stillPath: String? = null,
+    val voteAverage: Double = 0.0,
+)
+
+/** 音乐专辑 / 榜单条目。 */
+@Serializable
+data class MusicAlbumDto(
+    val id: String = "",
+    val title: String = "",
+    val artist: String = "",
+    val year: String = "",
+    val coverUrl: String? = null,
+    val source: String = "douban",
+    val voteAverage: Double = 0.0,
+    val overview: String = "",
+)
+
+/** 社区工作流分享条目。 */
+@Serializable
+data class WorkflowShareDto(
+    val id: Int = 0,
+    val name: String = "",
+    val description: String = "",
+    val shareTitle: String = "",
+    val shareComment: String = "",
+    val shareUser: String = "",
+    val count: Int = 0,
+    val date: String = "",
+)
+
+/** 整理队列任务条目。 */
+@Serializable
+data class TransferQueueItemDto(
+    val title: String = "",
+    val src: String = "",
+    val dest: String = "",
+    val state: String = "",
+    val size: Long = 0L,
+)
+
+/** 媒体服务器客户端摘要（对应 `GET /api/v1/mediaserver/clients`）。 */
+@Serializable
+data class MediaServerClientDto(
+    val name: String = "",
+    val type: String = "",
+)
+
+/** 媒体服务器媒体库条目（对应 `GET /api/v1/mediaserver/library`）。 */
+@Serializable
+data class MediaServerLibraryDto(
+    val id: String = "",
+    val name: String = "",
+    val type: String = "",
+    val itemCount: Int? = null,
+    val server: String = "",
+    val serverType: String = "",
+    val imageUrl: String? = null,
+    val link: String? = null,
+)
+
+/** 媒体服务器浏览网格条目（对应 `GET /api/v1/mediaserver/browse`）。 */
+@Serializable
+data class MediaServerBrowseItemDto(
+    val itemId: String = "",
+    val title: String = "",
+    val subtitle: String = "",
+    val type: String = "",
+    val year: String = "",
+    val imageUrl: String? = null,
+    val server: String = "",
+    val serverType: String = "",
+    val played: Boolean = false,
+    val userRating: Double = 0.0,
+    val unplayedCount: Int? = null,
+    val tmdbId: Int? = null,
+    val mediaId: String? = null,
+)
+
+/** 媒体服务器筛选候选项（对应 `GET /api/v1/mediaserver/filters`）。 */
+@Serializable
+data class MediaServerFilterOptionsDto(
+    val genres: List<String> = emptyList(),
+    val years: List<Int> = emptyList(),
+)
+
+/** 媒体服务器分页浏览结果。 */
+@Serializable
+data class MediaServerBrowsePageDto(
+    val items: List<MediaServerBrowseItemDto> = emptyList(),
+    val totalCount: Int = 0,
+    val hasMore: Boolean = false,
+)
+
+/** 原生播放器外挂字幕项。 */
+@Serializable
+data class MediaStreamSubtitleDto(
+    val subtitleId: String = "",
+    val title: String = "",
+    val language: String = "",
+    val url: String = "",
+)
+
+/** 媒体服务器/音乐播放流清单（对应 `GET /api/v1/mediaserver/stream-info` 与 `/stream-info/music`）。 */
+@Serializable
+data class MediaPlaybackManifestDto(
+    val itemId: String = "",
+    val server: String = "",
+    val mediaType: String = "video",
+    val title: String = "",
+    val contentUrl: String = "",
+    val subtitles: List<MediaStreamSubtitleDto> = emptyList(),
+    val lyricsUrl: String? = null,
+    val durationMs: Long = 0L,
+    val resumePositionMs: Long = 0L,
+    val headers: Map<String, String> = emptyMap(),
 )
