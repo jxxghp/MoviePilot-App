@@ -13,17 +13,26 @@ pub enum PluginRenderMode {
     Vue,
 }
 
-/// 原始插件 UI 节点。
+fn deserialize_null_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    T: Default + Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+/// 原始插件 UI 节点（兼容 Python 插件中 `props: null`、`content: null` 及省略 `component` 的文本节点）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PluginNode {
+    #[serde(default, deserialize_with = "deserialize_null_default")]
     pub component: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_default")]
     pub props: Map<String, Value>,
     #[serde(default)]
     pub text: Option<Value>,
     #[serde(default)]
     pub html: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_default")]
     pub content: Vec<PluginNode>,
 }
 
@@ -104,9 +113,17 @@ impl PluginUiDecoder {
         "a",
     ];
 
-    /// 解析插件 `get_form` 或 `get_page` 响应并生成扁平化 `NativeFormPlan`。
+    /// 解析插件 `get_form` 或 `get_page` 响应并生成扁平化 `NativeFormPlan`（自动解包 V3 `{success, data}` 信封）。
     pub fn plan(document: &Value) -> NativeFormPlan {
-        let render_mode = match document
+        let doc = if document.get("conf").is_none() && document.get("page").is_none() {
+            document
+                .get("data")
+                .filter(|v| v.is_object())
+                .unwrap_or(document)
+        } else {
+            document
+        };
+        let render_mode = match doc
             .get("render_mode")
             .and_then(|v| v.as_str())
             .unwrap_or("vuetify")
@@ -116,14 +133,14 @@ impl PluginUiDecoder {
             "vue" => PluginRenderMode::Vue,
             _ => PluginRenderMode::Vuetify,
         };
-        let model = document
+        let model = doc
             .get("model")
             .cloned()
             .unwrap_or_else(|| Value::Object(Map::new()));
 
-        let nodes_val = document
+        let nodes_val = doc
             .get("conf")
-            .or_else(|| document.get("page"))
+            .or_else(|| doc.get("page"))
             .cloned()
             .unwrap_or(Value::Array(Vec::new()));
         let nodes: Vec<PluginNode> = serde_json::from_value(nodes_val).unwrap_or_default();
@@ -299,5 +316,47 @@ mod tests {
         let merged = PluginFormDraft::apply_patch(&orig, &patch);
         assert_eq!(merged["enabled"], Value::Bool(true));
         assert_eq!(merged["future"]["integer"].as_i64(), Some(9007199254740993));
+    }
+
+    #[test]
+    fn unwraps_v3_envelope_and_handles_null_props_and_content() {
+        let wrapped_vuetify: Value = serde_json::from_str(
+            r#"{
+                "success": true,
+                "message": "",
+                "data": {
+                    "render_mode": "vuetify",
+                    "conf": [
+                        {
+                            "component": "VForm",
+                            "props": null,
+                            "content": [
+                                {
+                                    "component": "VSwitch",
+                                    "props": {"model": "enabled", "label": "启用插件"},
+                                    "content": null
+                                }
+                            ]
+                        }
+                    ],
+                    "model": {"enabled": true}
+                }
+            }"#,
+        )
+        .unwrap();
+        let plan = PluginUiDecoder::plan(&wrapped_vuetify);
+        assert_eq!(plan.render_mode, PluginRenderMode::Vuetify);
+        assert_eq!(plan.fields.len(), 1);
+        assert_eq!(plan.fields[0].component, "VSwitch");
+        assert_eq!(plan.fields[0].model_key.as_deref(), Some("enabled"));
+        assert_eq!(plan.model["enabled"], Value::Bool(true));
+
+        let wrapped_vue: Value = serde_json::from_str(
+            r#"{"success":true,"message":"","data":{"render_mode":"vue","conf":[],"model":{"enabled":false}}}"#,
+        )
+        .unwrap();
+        let vue_plan = PluginUiDecoder::plan(&wrapped_vue);
+        assert_eq!(vue_plan.render_mode, PluginRenderMode::Vue);
+        assert!(vue_plan.fields.is_empty());
     }
 }
