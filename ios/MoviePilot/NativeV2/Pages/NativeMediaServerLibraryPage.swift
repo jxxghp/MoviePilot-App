@@ -529,63 +529,65 @@ struct NativeMediaServerLibraryPage: View {
     let aspectRatio: CGFloat =
       isMusicLibrary || item.kind == .musicAlbum || item.kind == .audio ? 1.0 : (2.0 / 3.0)
     return VStack(alignment: .leading, spacing: 6) {
-      ZStack(alignment: .bottom) {
-        NativeMediaArtwork(
-          session: session,
-          reference: item.poster ?? item.thumb ?? item.backdrop,
-          role: .poster,
-          maximumWidth: 360
-        )
-        .frame(maxWidth: .infinity)
-        .aspectRatio(aspectRatio, contentMode: .fill)
-        .clipped()
+      Color.clear
+        .aspectRatio(aspectRatio, contentMode: .fit)
+        .overlay {
+          ZStack(alignment: .bottom) {
+            NativeMediaArtwork(
+              session: session,
+              reference: item.poster ?? item.thumb ?? item.backdrop,
+              role: .poster,
+              maximumWidth: 360
+            )
 
-        if let progress = item.progressFraction, progress > 0.01, item.played != true {
-          GeometryReader { bar in
-            ZStack(alignment: .leading) {
-              Capsule().fill(.black.opacity(0.45))
-              Capsule()
-                .fill(appearance.accentColor)
-                .frame(width: max(6, bar.size.width * progress))
+            if let progress = item.progressFraction, progress > 0.01, item.played != true {
+              GeometryReader { bar in
+                ZStack(alignment: .leading) {
+                  Capsule().fill(.black.opacity(0.45))
+                  Capsule()
+                    .fill(appearance.accentColor)
+                    .frame(width: max(6, bar.size.width * progress))
+                }
+              }
+              .frame(height: 3.5)
+              .padding(.horizontal, 6)
+              .padding(.bottom, 6)
             }
           }
-          .frame(height: 3.5)
-          .padding(.horizontal, 6)
-          .padding(.bottom, 6)
         }
-      }
-      .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-      .overlay(alignment: .topLeading) {
-        if item.kind == .boxSet {
-          Text("合集")
-            .font(.caption2.weight(.bold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2.5)
-            .background(appearance.accentColor.opacity(0.88), in: Capsule())
-            .padding(6)
+        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(alignment: .topLeading) {
+          if item.kind == .boxSet {
+            Text("合集")
+              .font(.caption2.weight(.bold))
+              .foregroundStyle(.white)
+              .padding(.horizontal, 6)
+              .padding(.vertical, 2.5)
+              .background(appearance.accentColor.opacity(0.88), in: Capsule())
+              .padding(6)
+          }
         }
-      }
-      .overlay(alignment: .topTrailing) {
-        if item.played == true {
-          Image(systemName: "checkmark.circle.fill")
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(.white, NativeTheme.success)
-            .padding(6)
-        } else if let rating = item.rating, rating > 0 {
-          Text(String(format: "%.1f", rating))
-            .font(.caption2.weight(.bold).monospacedDigit())
-            .foregroundStyle(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2.5)
-            .background(.black.opacity(0.62), in: Capsule())
-            .padding(6)
+        .overlay(alignment: .topTrailing) {
+          if item.played == true {
+            Image(systemName: "checkmark.circle.fill")
+              .font(.system(size: 16, weight: .semibold))
+              .foregroundStyle(.white, NativeTheme.success)
+              .padding(6)
+          } else if let rating = item.rating, rating > 0 {
+            Text(String(format: "%.1f", rating))
+              .font(.caption2.weight(.bold).monospacedDigit())
+              .foregroundStyle(.white)
+              .padding(.horizontal, 6)
+              .padding(.vertical, 2.5)
+              .background(.black.opacity(0.62), in: Capsule())
+              .padding(6)
+          }
         }
-      }
-      .overlay {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-          .strokeBorder(.white.opacity(colorScheme == .light ? 0.20 : 0.12), lineWidth: 0.6)
-      }
+        .overlay {
+          RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(.white.opacity(colorScheme == .light ? 0.20 : 0.12), lineWidth: 0.6)
+        }
 
       Text(item.title)
         .font(.caption.weight(.semibold))
@@ -599,6 +601,8 @@ struct NativeMediaServerLibraryPage: View {
           .foregroundStyle(.primary.opacity(0.60))
           .lineLimit(1)
       }
+
+      Spacer(minLength: 0)
     }
   }
 

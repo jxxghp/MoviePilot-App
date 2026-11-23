@@ -858,36 +858,38 @@ struct NativeMediaServerDetailPage: View {
             )
           } label: {
             VStack(alignment: .leading, spacing: 6) {
-              NativeMediaArtwork(
-                session: session,
-                reference: child.poster ?? child.thumb ?? child.backdrop,
-                role: .poster,
-                maximumWidth: 320
-              )
-              .frame(maxWidth: .infinity)
-              .aspectRatio(2.0 / 3.0, contentMode: .fill)
-              .clipped()
-              .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-              .overlay(alignment: .topTrailing) {
-                if child.played == true {
-                  Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white, NativeTheme.success)
-                    .padding(6)
-                } else if let rating = child.rating, rating > 0 {
-                  Text(String(format: "%.1f", rating))
-                    .font(.caption2.weight(.bold).monospacedDigit())
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2.5)
-                    .background(.black.opacity(0.62), in: Capsule())
-                    .padding(6)
+              Color.clear
+                .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                .overlay {
+                  NativeMediaArtwork(
+                    session: session,
+                    reference: child.poster ?? child.thumb ?? child.backdrop,
+                    role: .poster,
+                    maximumWidth: 320
+                  )
                 }
-              }
-              .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                  .strokeBorder(.white.opacity(0.14), lineWidth: 0.6)
-              }
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(alignment: .topTrailing) {
+                  if child.played == true {
+                    Image(systemName: "checkmark.circle.fill")
+                      .font(.system(size: 16, weight: .semibold))
+                      .foregroundStyle(.white, NativeTheme.success)
+                      .padding(6)
+                  } else if let rating = child.rating, rating > 0 {
+                    Text(String(format: "%.1f", rating))
+                      .font(.caption2.weight(.bold).monospacedDigit())
+                      .foregroundStyle(.white)
+                      .padding(.horizontal, 6)
+                      .padding(.vertical, 2.5)
+                      .background(.black.opacity(0.62), in: Capsule())
+                      .padding(6)
+                  }
+                }
+                .overlay {
+                  RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(.white.opacity(0.14), lineWidth: 0.6)
+                }
 
               Text(child.title)
                 .font(.caption.weight(.semibold))
@@ -901,6 +903,8 @@ struct NativeMediaServerDetailPage: View {
                   .foregroundStyle(.primary.opacity(0.60))
                   .lineLimit(1)
               }
+
+              Spacer(minLength: 0)
             }
           }
           .buttonStyle(.plain)
