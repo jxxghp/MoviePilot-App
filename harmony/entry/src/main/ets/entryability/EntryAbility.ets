@@ -210,11 +210,24 @@ export default class EntryAbility extends UIAbility {
 
   private handleIncomingWant(want: Want): void {
     let rawTarget = want.uri ?? '';
-    if (rawTarget.length === 0 && want.parameters && want.parameters['uri'] !== undefined) {
-      rawTarget = String(want.parameters['uri']);
+    if (rawTarget.length === 0 && want.parameters) {
+      if (want.parameters['uri'] !== undefined) {
+        rawTarget = String(want.parameters['uri']);
+      } else if (want.parameters['route'] !== undefined) {
+        rawTarget = String(want.parameters['route']);
+      }
     }
     if (!rawTarget) { return; }
-    if (rawTarget.startsWith('moviepilot://')) {
+    if (rawTarget.startsWith('moviepilot-app://notification')) {
+      const originMatch = /[?&]origin=([^&]+)/i.exec(rawTarget);
+      const decodedOrigin = originMatch ? decodeURIComponent(originMatch[1]) : '';
+      AppStorage.setOrCreate('mp_pending_deeplink_origin', decodedOrigin);
+      AppStorage.setOrCreate('mp_pending_deeplink', RustCoreBridge.parseDeepLinkJson(rawTarget));
+    } else if (rawTarget.startsWith('moviepilot://') || rawTarget.startsWith('/')) {
+      const originParam = want.parameters && want.parameters['origin'] !== undefined
+        ? String(want.parameters['origin'])
+        : '';
+      AppStorage.setOrCreate('mp_pending_deeplink_origin', originParam);
       AppStorage.setOrCreate('mp_pending_deeplink', RustCoreBridge.parseDeepLinkJson(rawTarget));
     } else if (RustCoreBridge.detectPlayableMediaKind(rawTarget, true).length > 0) {
       AppStorage.setOrCreate('mp_pending_media_uri', rawTarget);

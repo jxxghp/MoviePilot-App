@@ -1486,23 +1486,126 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     settingsPath = [destination]
   }
 
+  /// 判断目标路由是否需要在宿主根控制器上弹出模态面板。
+  private static func requiresRootSheetPresentation(_ target: AppDeepLink) -> Bool {
+    switch target {
+    case .messages, .agent, .shortcuts:
+      true
+    default:
+      false
+    }
+  }
+
+  /// 查找当前前台窗口中仍挂载着模态控制器的根视图控制器，避免新模态弹出被 UIKit 拒绝丢弃。
+  private static func activeRootViewControllerWithPresentedModal(
+    dismissAllForSheetTarget: Bool
+  ) -> UIViewController? {
+    for scene in UIApplication.shared.connectedScenes {
+      guard let windowScene = scene as? UIWindowScene else { continue }
+      for window in windowScene.windows where !window.isHidden {
+        guard let rootVC = window.rootViewController,
+          let presented = rootVC.presentedViewController
+        else { continue }
+        if !dismissAllForSheetTarget,
+          let player = presented as? MediaPlaybackViewController,
+          !player.isSessionBound
+        {
+          continue
+        }
+        return rootVC
+      }
+    }
+    return nil
+  }
+
+  /// 若顶层已打开子页面弹窗（如推送设置页、订阅编辑页等），先无动画收起待窗口空闲后再执行目标路由；无弹窗时零延迟同步执行。
+  private func runAfterModalDismissal(
+    for target: AppDeepLink,
+    action: @escaping @MainActor () -> Void
+  ) {
+    let needsSheet = Self.requiresRootSheetPresentation(target)
+    guard
+      let rootVC = Self.activeRootViewControllerWithPresentedModal(
+        dismissAllForSheetTarget: needsSheet)
+    else {
+      action()
+      return
+    }
+    if let presented = rootVC.presentedViewController, !presented.isBeingDismissed {
+      rootVC.dismiss(animated: false) {
+        Task { @MainActor in
+          await waitUntilRootModalCleared(dismissAllForSheetTarget: needsSheet, attemptsLeft: 15)
+          action()
+        }
+      }
+    } else {
+      Task { @MainActor in
+        await waitUntilRootModalCleared(dismissAllForSheetTarget: needsSheet, attemptsLeft: 15)
+        action()
+      }
+    }
+  }
+
+  /// 等待根控制器上正在退场的 UIKit 模态完全释放。
+  private func waitUntilRootModalCleared(
+    dismissAllForSheetTarget: Bool,
+    attemptsLeft: Int
+  ) async {
+    var remaining = attemptsLeft
+    while remaining > 0 {
+      guard
+        let rootVC = Self.activeRootViewControllerWithPresentedModal(
+          dismissAllForSheetTarget: dismissAllForSheetTarget)
+      else { return }
+      if let presented = rootVC.presentedViewController, !presented.isBeingDismissed {
+        rootVC.dismiss(animated: false)
+      }
+      remaining -= 1
+      try? await Task.sleep(for: .milliseconds(25))
+    }
+  }
+
   /// 消费来自 APNs 通知、桌面小组件、主屏幕快捷方式与 `moviepilot://` 联动链接的受限路由意图，严格遵循当前账号权限门禁。
   private func consumeSystemRouteIfNeeded() {
     guard let target = routeHub.consumeTarget() else { return }
     showsOverflowMenu = false
+    if target != .discover {
+      launchSplashTimedOut = true
+    }
+    if target == .messages {
+      NativePageDataCache.shared.remove("messages|list", session: session)
+      if showsMessagesSheet {
+        NativeMediaPlaybackLauncher.shared.dismissFullScreenPlayerIfNeeded(animated: false)
+        for scene in UIApplication.shared.connectedScenes {
+          guard let windowScene = scene as? UIWindowScene else { continue }
+          for window in windowScene.windows where !window.isHidden {
+            if let messagesSheetVC = window.rootViewController?.presentedViewController,
+              messagesSheetVC.presentedViewController != nil
+            {
+              messagesSheetVC.dismiss(animated: false)
+            }
+          }
+        }
+        return
+      }
+    }
     showsMessagesSheet = false
     showsAgentSheet = false
     showsShortcutsSheet = false
     showsModuleSheet = false
-    if target != .discover {
-      launchSplashTimedOut = true
-    }
     switch target {
     case .playMediaServerItem, .playStorageFile, .playExternalURL, .playLocalFile:
       break
     default:
       NativeMediaPlaybackLauncher.shared.dismissFullScreenPlayerIfNeeded(animated: false)
     }
+    runAfterModalDismissal(for: target) {
+      applySystemRouteTarget(target)
+    }
+  }
+
+  /// 在窗口无遮挡模态后应用具体的原生标签、导航栈或模态路由。
+  private func applySystemRouteTarget(_ target: AppDeepLink) {
     switch target {
     case .discover:
       guard canDiscover else {

@@ -246,7 +246,16 @@ struct AppDeepLinkTests {
     #expect(AppDeepLink(url: URL(string: "moviepilot://unknown/feature")!) == nil)
     #expect(AppDeepLink(url: URL(fileURLWithPath: "/Users/demo/Documents/notes.pdf")) == nil)
 
-    // 通知内部路由严禁解析出任何播放指令。
+    // 通知内部路由兼容 APNs `/?shotcut=message` 与 Vue Hash 写法，且严禁解析出任何播放指令。
+    #expect(AppDeepLink(route: "/?shotcut=message") == .messages)
+    #expect(AppDeepLink(route: "/?shortcut=messages") == .messages)
+    #expect(AppDeepLink(route: "/#/?shotcut=message") == .messages)
+    #expect(AppDeepLink(route: "/#/history?search=S01") == .history(search: "S01"))
+    #expect(AppDeepLink(route: "/#/site") == .sites)
+    #expect(
+      AppDeepLink(url: URL(string: "moviepilot://open?path=%2F%3Fshotcut%3Dmessage")!) == .messages)
+    #expect(AppDeepLink(route: "/?shotcut=recognition") == .diagnostics("rule_test"))
+    #expect(AppDeepLink(route: "/?shotcut=unknown") == nil)
     #expect(AppDeepLink(route: "/subscribe/movie") == .subscriptions(category: "movie"))
     #expect(AppDeepLink(route: "/play?url=https://media.example.com/a.mp4") == nil)
     #expect(AppDeepLink(route: "/play?itemid=123") == nil)

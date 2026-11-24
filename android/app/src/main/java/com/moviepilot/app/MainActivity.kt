@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var appearanceStore: NativeAppearanceStore
 
     private var pendingDeepLink by mutableStateOf<String?>(null)
+    private var pendingDeepLinkOrigin by mutableStateOf<String?>(null)
     private var pendingExternalMedia by mutableStateOf<MediaPlaybackRequest?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -107,8 +108,12 @@ class MainActivity : ComponentActivity() {
                 MoviePilotRootShell(
                     repository = repository,
                     incomingDeepLink = pendingDeepLink,
+                    incomingDeepLinkOrigin = pendingDeepLinkOrigin,
                     incomingExternalMedia = pendingExternalMedia,
-                    onConsumeDeepLink = { pendingDeepLink = null },
+                    onConsumeDeepLink = {
+                        pendingDeepLink = null
+                        pendingDeepLinkOrigin = null
+                    },
                     onConsumeExternalMedia = { pendingExternalMedia = null },
                 )
             }
@@ -126,9 +131,26 @@ class MainActivity : ComponentActivity() {
         intent.getStringExtra("appearance_mode")?.let { modeId ->
             appearanceStore.updateMode(NativeAppearanceMode.fromId(modeId))
         }
+        val extraRoute = (
+            intent.getStringExtra(AndroidPushProvider.EXTRA_NOTIFICATION_ROUTE)
+                ?: intent.getStringExtra("route")
+            )?.trim()
+        if (!extraRoute.isNullOrEmpty() && extraRoute.startsWith("/")) {
+            pendingDeepLinkOrigin = intent.getStringExtra(AndroidPushProvider.EXTRA_NOTIFICATION_ORIGIN)
+                ?: intent.getStringExtra("origin")
+            pendingDeepLink = extraRoute
+            return
+        }
         val uri = intent.data ?: return
         when (uri.scheme?.lowercase()) {
-            "moviepilot" -> pendingDeepLink = uri.toString()
+            "moviepilot" -> {
+                pendingDeepLinkOrigin = null
+                pendingDeepLink = uri.toString()
+            }
+            "moviepilot-app" -> {
+                pendingDeepLinkOrigin = AndroidPushProvider.extractNotificationOrigin(uri.toString())
+                pendingDeepLink = uri.toString()
+            }
             "content", "file" -> {
                 val path = uri.toString()
                 val isAudio = intent.type?.startsWith("audio/") == true ||

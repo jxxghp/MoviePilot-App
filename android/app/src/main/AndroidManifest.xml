@@ -33,12 +33,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- moviepilot:// 全量跨应用深度链接与联动播放（经 Rust AppDeepLink::parse 解析） -->
+            <!-- moviepilot:// 全量跨应用深度链接与 moviepilot-app://notification 通知交接（经 Rust AppDeepLink::parse 解析） -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="moviepilot" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="notification"
+                    android:scheme="moviepilot-app" />
             </intent-filter>
 
             <!-- 系统文件管理器与分享菜单直接用 MoviePilot 原生播放音视频（未登录也可播放） -->

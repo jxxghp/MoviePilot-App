@@ -87,7 +87,10 @@ struct NotificationTests {
       URLQueryItem(name: "route", value: "/?shotcut=message"),
       URLQueryItem(name: "owner", value: String(repeating: "a", count: 32)),
     ]
-    #expect(NotificationIntent(url: try #require(parts.url))?.route == "/?shotcut=message")
+    let handoffURL = try #require(parts.url)
+    let parsedIntent = try #require(NotificationIntent(url: handoffURL))
+    #expect(parsedIntent.route == "/?shotcut=message")
+    #expect(AppDeepLink(route: parsedIntent.route) == .messages)
     parts.queryItems?.append(URLQueryItem(name: "owner", value: String(repeating: "b", count: 32)))
     #expect(NotificationIntent(url: try #require(parts.url)) == nil)
   }

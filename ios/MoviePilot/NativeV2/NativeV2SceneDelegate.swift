@@ -3,6 +3,7 @@ import MoviePilotCore
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import UserNotifications
 
 /// 独立原生窗口只承载 SwiftUI；系统深链、`moviepilot://` 联动路径、系统音视频文件打开、小组件与快捷项全部经由原生路由中枢与原生播放器处理。
 @MainActor
@@ -37,6 +38,13 @@ final class NativeV2SceneDelegate: UIResponder, UIWindowSceneDelegate {
         Self.applyWindowAppearance(
           mode: mode, to: window, hostingView: window.rootViewController?.view)
       }
+    if let response = connectionOptions.notificationResponse,
+      response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+      let intent = NotificationService.intent(from: response.notification.request.content.userInfo)
+    {
+      NotificationService.shared.receive(
+        intent, notificationID: response.notification.request.identifier)
+    }
     if let item = connectionOptions.shortcutItem {
       _ = receiveHomeShortcut(item)
     }
@@ -55,7 +63,6 @@ final class NativeV2SceneDelegate: UIResponder, UIWindowSceneDelegate {
       model.start()
     }
     window.rootViewController = hosting
-    NotificationService.shared.attachNative(nil)
     window.makeKeyAndVisible()
     DispatchQueue.main.async {
       NativeMediaPlaybackLauncher.shared.presentPendingExternalPlaybackIfNeeded()

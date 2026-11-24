@@ -46,6 +46,7 @@
             "actions": ["ohos.want.action.viewData"],
             "uris": [
               { "scheme": "moviepilot" },
+              { "scheme": "moviepilot-app", "host": "notification" },
               { "scheme": "file", "type": "video/*" },
               { "scheme": "file", "type": "audio/*" }
             ]

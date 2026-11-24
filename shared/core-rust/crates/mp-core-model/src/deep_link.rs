@@ -127,25 +127,179 @@ pub enum AppDeepLink {
 }
 
 impl AppDeepLink {
-    /// 解析 `moviepilot://` URL 或 Web 路径；严格白名单校验，非法链接返回 `None`。
+    /// 判断解析结果是否允许作为推送通知的内部导航目标（严禁在通知点击时拉起音视频播放）。
+    pub fn is_allowed_for_notification(&self) -> bool {
+        !matches!(
+            self,
+            Self::PlayDirect { .. }
+                | Self::PlayMediaServerItem { .. }
+                | Self::PlayStorageFile { .. }
+        )
+    }
+
+    /// 规范化站内相对路径：拒绝跨站 `//`、反斜杠与危险协议，兼容 Vue Hash 路由前缀（`/#/...`、`/#?...`）。
+    fn normalize_web_route(raw: &str) -> Option<String> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty()
+            || trimmed.len() > 2048
+            || trimmed.starts_with("//")
+            || trimmed.contains('\\')
+            || trimmed.to_ascii_lowercase().starts_with("javascript:")
+            || trimmed.chars().any(char::is_control)
+        {
+            return None;
+        }
+        let with_slash = if trimmed.starts_with('/') {
+            trimmed.to_string()
+        } else {
+            format!("/{trimmed}")
+        };
+        let normalized = if let Some(rest) = with_slash.strip_prefix("/#/") {
+            format!("/{rest}")
+        } else if let Some(rest) = with_slash.strip_prefix("/#?") {
+            format!("/?{rest}")
+        } else if with_slash == "/#" {
+            "/".to_string()
+        } else {
+            with_slash
+        };
+        let path_prefix = normalized.split('?').next().unwrap_or(&normalized);
+        if path_prefix.starts_with("//") || path_prefix.contains("://") || normalized.contains('#')
+        {
+            return None;
+        }
+        Some(normalized)
+    }
+
+    /// 解析规范化后的站内相对路径并合并可选外层查询参数。
+    fn parse_relative_route(
+        raw_route: &str,
+        outer_query: Option<&HashMap<String, String>>,
+    ) -> Option<Self> {
+        let normalized = Self::normalize_web_route(raw_route)?;
+        let inner_url = Url::parse(&format!(
+            "moviepilot://host/{}",
+            normalized.trim_start_matches('/')
+        ))
+        .ok()?;
+        let mut segments = Vec::new();
+        if let Some(iter) = inner_url.path_segments() {
+            for seg in iter.filter(|s| !s.is_empty()) {
+                let decoded = Self::urlencoding_decode(seg);
+                if decoded == "."
+                    || decoded == ".."
+                    || decoded.contains('/')
+                    || decoded.contains('\\')
+                {
+                    return None;
+                }
+                segments.push(decoded);
+            }
+        }
+        let mut query: HashMap<String, String> = inner_url
+            .query_pairs()
+            .map(|(k, v)| (k.to_ascii_lowercase(), v.into_owned()))
+            .collect();
+        if let Some(outer) = outer_query {
+            for (k, v) in outer {
+                if k == "path" || k == "route" {
+                    continue;
+                }
+                query.entry(k.clone()).or_insert_with(|| v.clone());
+            }
+        }
+        Self::route_segments(&segments, &query)
+    }
+
+    /// 解析主屏幕/Web 通知交接链接 `moviepilot-app://notification?origin=...&route=...&owner=...`。
+    fn parse_notification_handoff(parsed: &Url) -> Option<Self> {
+        if !parsed
+            .host_str()
+            .is_some_and(|h| h.eq_ignore_ascii_case("notification"))
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.port().is_some()
+            || parsed.fragment().is_some()
+            || !matches!(parsed.path(), "" | "/")
+        {
+            return None;
+        }
+        let mut origin: Option<String> = None;
+        let mut route: Option<String> = None;
+        let mut owner: Option<String> = None;
+        let mut count = 0usize;
+        for (k, v) in parsed.query_pairs() {
+            count += 1;
+            match k.as_ref() {
+                "origin" if origin.is_none() => origin = Some(v.into_owned()),
+                "route" if route.is_none() => route = Some(v.into_owned()),
+                "owner" if owner.is_none() => owner = Some(v.into_owned()),
+                _ => return None,
+            }
+        }
+        if count != 3 {
+            return None;
+        }
+        let origin_str = origin?;
+        let origin_url = Url::parse(&origin_str).ok()?;
+        if !matches!(origin_url.scheme(), "http" | "https")
+            || origin_url.host_str().unwrap_or_default().is_empty()
+            || !origin_url.username().is_empty()
+            || origin_url.password().is_some()
+            || origin_url.query().is_some()
+            || origin_url.fragment().is_some()
+        {
+            return None;
+        }
+        let owner_str = owner?;
+        if !(16..=64).contains(&owner_str.len())
+            || !owner_str
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        {
+            return None;
+        }
+        let route_str = route?;
+        if !route_str.starts_with('/') {
+            return None;
+        }
+        let target = Self::parse_relative_route(&route_str, None)?;
+        target.is_allowed_for_notification().then_some(target)
+    }
+
+    /// 解析 `moviepilot://`、`moviepilot-app://notification` 或站内 Web 路径；严格白名单校验，非法链接返回 `None`。
     pub fn parse(raw: &str) -> Option<Self> {
         let trimmed = raw.trim();
-        if trimmed.is_empty() {
+        if trimmed.is_empty() || trimmed.len() > 4096 {
             return None;
         }
         if trimmed.starts_with('/') {
-            let synthetic = format!("moviepilot://open{}", trimmed);
-            return Self::parse(&synthetic);
+            let target = Self::parse_relative_route(trimmed, None)?;
+            return target.is_allowed_for_notification().then_some(target);
         }
         let parsed = Url::parse(trimmed).ok()?;
+        if parsed.scheme().eq_ignore_ascii_case("moviepilot-app") {
+            return Self::parse_notification_handoff(&parsed);
+        }
         if parsed.scheme().eq_ignore_ascii_case("moviepilot") {
+            if !parsed.username().is_empty()
+                || parsed.password().is_some()
+                || parsed.port().is_some()
+                || parsed.fragment().is_some_and(|f| !f.is_empty())
+                || parsed.path().contains('\\')
+            {
+                return None;
+            }
             let mut query: HashMap<String, String> = parsed
                 .query_pairs()
                 .map(|(k, v)| (k.to_ascii_lowercase(), v.into_owned()))
                 .collect();
 
             let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
-            let mut segments: Vec<String> = parsed
+            if host == "widget" || host == "passkey" {
+                return None;
+            }
+            let segments: Vec<String> = parsed
                 .path_segments()
                 .map(|iter| {
                     iter.filter(|s| !s.is_empty())
@@ -153,27 +307,21 @@ impl AppDeepLink {
                         .collect()
                 })
                 .unwrap_or_default();
-
-            // 兼容 moviepilot://open?path=/subscribe/movie
-            if host == "open"
-                && segments.is_empty()
-                && let Some(inner_path) = query.remove("path")
+            if segments
+                .iter()
+                .any(|s| s == "." || s == ".." || s.contains('\\'))
             {
-                let inner_url = Url::parse(&format!(
-                    "moviepilot://host/{}",
-                    inner_path.trim_start_matches('/')
-                ))
-                .ok()?;
-                segments = inner_url
-                    .path_segments()
-                    .map(|it| it.filter(|s| !s.is_empty()).map(str::to_string).collect())
-                    .unwrap_or_default();
-                for (k, v) in inner_url.query_pairs() {
-                    query
-                        .entry(k.to_ascii_lowercase())
-                        .or_insert_with(|| v.into_owned());
+                return None;
+            }
+
+            // 兼容 moviepilot://open?path=/subscribe/movie 与 moviepilot://route?route=/?shotcut=message
+            if (host == "open" || host == "route") && segments.is_empty() {
+                if let Some(inner_path) = query.remove("path").or_else(|| query.remove("route")) {
+                    return Self::parse_relative_route(&inner_path, Some(&query));
                 }
-                return Self::route_segments(&segments, &query);
+                if host == "route" {
+                    return None;
+                }
             }
 
             let mut full = Vec::new();
@@ -186,6 +334,32 @@ impl AppDeepLink {
         None
     }
 
+    /// 解析后端推送与 Web 端约定的首页快捷弹窗参数（`/?shotcut=message`、`/?shortcut=message` 等）。
+    fn resolve_home_shortcut(raw_shortcut: &str) -> Option<Self> {
+        match raw_shortcut.trim().to_ascii_lowercase().as_str() {
+            "message" | "messages" | "notification" | "notifications" => Some(Self::Messages),
+            "recognition" | "rule" | "ruletest" | "rule_test" => Some(Self::Diagnostics {
+                section: "recognize".to_string(),
+            }),
+            "log" | "logs" | "livelog" | "live_log" => Some(Self::Diagnostics {
+                section: "logs".to_string(),
+            }),
+            "network" | "nettest" => Some(Self::Diagnostics {
+                section: "network".to_string(),
+            }),
+            "words" | "word" => Some(Self::Diagnostics {
+                section: "words".to_string(),
+            }),
+            "scheduler" | "schedulers" | "schedule" | "jobs" => Some(Self::Diagnostics {
+                section: "schedulers".to_string(),
+            }),
+            "system" | "health" | "check" => Some(Self::Diagnostics {
+                section: "check".to_string(),
+            }),
+            _ => None,
+        }
+    }
+
     fn route_segments(segments: &[String], query: &HashMap<String, String>) -> Option<Self> {
         let first = segments
             .first()
@@ -195,7 +369,20 @@ impl AppDeepLink {
         let third = segments.get(2).cloned();
 
         match first.as_str() {
-            "" | "discover" | "home" => Some(Self::Discover),
+            "" | "discover" | "recommend" | "home" => {
+                if segments.len() > 1 {
+                    return None;
+                }
+                if let Some(raw_shortcut) = query
+                    .get("shotcut")
+                    .or_else(|| query.get("shortcut"))
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                {
+                    return Self::resolve_home_shortcut(raw_shortcut);
+                }
+                Some(Self::Discover)
+            }
             "explore" => Some(Self::Explore { source: second }),
             "dashboard" | "mine" => Some(Self::Dashboard),
             "setting" | "settings" => {
@@ -244,12 +431,12 @@ impl AppDeepLink {
                 storage: query.get("storage").cloned(),
                 path: query.get("path").cloned(),
             }),
-            "history" => Some(Self::History {
+            "history" | "transfer" => Some(Self::History {
                 search: query.get("search").or_else(|| query.get("q")).cloned(),
             }),
             "workflow" | "workflows" => Some(Self::Workflows),
             "site" | "sites" => Some(Self::Sites),
-            "message" | "messages" => Some(Self::Messages),
+            "message" | "messages" | "notification" | "notifications" => Some(Self::Messages),
             "plugin" | "plugins" => Some(Self::Plugins {
                 installed_only: second
                     .as_deref()
@@ -352,6 +539,28 @@ impl AppDeepLink {
         }
         None
     }
+    /// 百分号解码单个路径段，保留非 ASCII UTF-8 内容。
+    fn urlencoding_decode(input: &str) -> String {
+        let bytes = input.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'%'
+                && i + 2 < bytes.len()
+                && let (Some(hi), Some(lo)) = (
+                    (bytes[i + 1] as char).to_digit(16),
+                    (bytes[i + 2] as char).to_digit(16),
+                )
+            {
+                out.push(((hi << 4) | lo) as u8);
+                i += 3;
+                continue;
+            }
+            out.push(bytes[i]);
+            i += 1;
+        }
+        String::from_utf8(out).unwrap_or_else(|_| input.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -385,5 +594,45 @@ mod tests {
                 assert_eq!(encoded["prompt"].as_str(), Some(prompt), "URL={url}");
             }
         }
+    }
+
+    #[test]
+    fn parses_push_notification_shortcut_and_hash_routes() {
+        assert_eq!(
+            AppDeepLink::parse("/?shotcut=message"),
+            Some(AppDeepLink::Messages)
+        );
+        assert_eq!(
+            AppDeepLink::parse("/?shortcut=messages"),
+            Some(AppDeepLink::Messages)
+        );
+        assert_eq!(
+            AppDeepLink::parse("/#/?shotcut=message"),
+            Some(AppDeepLink::Messages)
+        );
+        assert_eq!(
+            AppDeepLink::parse("/#/history?search=Dune"),
+            Some(AppDeepLink::History {
+                search: Some("Dune".to_string()),
+            })
+        );
+        assert_eq!(
+            AppDeepLink::parse(
+                "moviepilot-app://notification?origin=https%3A%2F%2Fmp.example.test&route=%2F%3Fshotcut%3Dmessage&owner=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ),
+            Some(AppDeepLink::Messages)
+        );
+        assert_eq!(AppDeepLink::parse("/?shotcut=unknown"), None);
+        assert_eq!(AppDeepLink::parse("//evil.example/messages"), None);
+        assert_eq!(
+            AppDeepLink::parse("/play?url=https%3A%2F%2Fmedia.example.test%2Fdemo.mp4"),
+            None
+        );
+        assert_eq!(
+            AppDeepLink::parse(
+                "moviepilot-app://notification?origin=https%3A%2F%2Fmp.example.test&route=%2Fplay%3Fitemid%3D1&owner=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ),
+            None
+        );
     }
 }

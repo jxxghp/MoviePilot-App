@@ -143,6 +143,8 @@ export struct HarmonyDashboardPage {
   @StorageLink(HarmonyAppearanceStore.KEY_DASHBOARD_MODULES) modulesRaw: string = '';
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
+  @StorageProp('mp_open_messages_revision') @Watch('onOpenMessagesRevisionChanged') openMessagesRevision: number = 0;
+  private static lastConsumedMessagesRevision: number = 0;
   @Prop userName: string = 'admin';
   @Prop serverUrl: string = '';
   @State private stats: MpDashboardStats = {
@@ -176,6 +178,29 @@ export struct HarmonyDashboardPage {
   aboutToAppear(): void {
     this.modules = HarmonyAppearanceStore.parseModules(this.modulesRaw, DEFAULT_DASHBOARD_MODULES);
     this.refreshDashboard();
+    if (this.openMessagesRevision > HarmonyDashboardPage.lastConsumedMessagesRevision) {
+      HarmonyDashboardPage.lastConsumedMessagesRevision = this.openMessagesRevision;
+      setTimeout(() => {
+        this.presentMessagesFromSystemIntent();
+      }, 40);
+    }
+  }
+
+  onOpenMessagesRevisionChanged(): void {
+    if (this.openMessagesRevision > HarmonyDashboardPage.lastConsumedMessagesRevision) {
+      HarmonyDashboardPage.lastConsumedMessagesRevision = this.openMessagesRevision;
+      this.presentMessagesFromSystemIntent();
+    }
+  }
+
+  private presentMessagesFromSystemIntent(): void {
+    this.showShortcutsSheet = false;
+    this.showModulesSheet = false;
+    this.showMedalSheet = false;
+    this.showMessagesSheet = true;
+    MoviePilotRepository.shared().fetchMessages().then((list: MpMessageItem[]) => {
+      this.messages = list;
+    }).catch(() => {});
   }
 
   private persistModules(next: CustomModulePref[]): void {

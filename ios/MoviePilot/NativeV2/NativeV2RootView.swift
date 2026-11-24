@@ -180,6 +180,15 @@ struct NativeV2RootView: View {
       }
       showsPlugins = false
     }
+    .onChange(of: routeHub.pendingTarget) { target in
+      guard target != nil else { return }
+      if authenticated {
+        hasCompletedInitialBoot = true
+        if model.isSwitchingServer {
+          model.cancelSwitchServer()
+        }
+      }
+    }
     .onChange(of: model.selected?.id) { _ in concealSecrets() }
     .onChange(of: model.form) { _ in concealSecrets() }
     .onChange(of: scenePhase) { phase in

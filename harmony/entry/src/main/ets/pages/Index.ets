@@ -158,13 +158,36 @@ struct Index {
     this.consumePendingIntents();
   }
 
+  private static normalizeServerOrigin(rawUrl: string): string {
+    const trimmed = rawUrl.trim().replace(/\/+$/, '');
+    if (trimmed.length === 0) { return ''; }
+    return trimmed
+      .replace(/^HTTPS:\/\//i, 'https://')
+      .replace(/^HTTP:\/\//i, 'http://')
+      .replace(/^(https:\/\/[^/:]+):443(?=\/|$)/i, '$1')
+      .replace(/^(http:\/\/[^/:]+):80(?=\/|$)/i, '$1')
+      .toLowerCase();
+  }
+
   private consumePendingIntents(): void {
     if (this.authStage !== 'main') {
       return;
     }
     const rawDl = AppStorage.get<string>('mp_pending_deeplink') ?? '';
     if (rawDl.length > 0) {
+      const rawOrigin = AppStorage.get<string>('mp_pending_deeplink_origin') ?? '';
       AppStorage.setOrCreate('mp_pending_deeplink', '');
+      AppStorage.setOrCreate('mp_pending_deeplink_origin', '');
+      if (rawOrigin.length > 0) {
+        const expected = Index.normalizeServerOrigin(rawOrigin);
+        const current = Index.normalizeServerOrigin(this.serverUrl);
+        if (expected.length === 0 || expected !== current) {
+          return;
+        }
+      }
+      if (this.serverSwitchReturnStage === 'main') {
+        this.serverSwitchReturnStage = '';
+      }
       this.applyDeepLinkJson(rawDl);
     }
     const rawMedia = AppStorage.get<string>('mp_pending_media_uri') ?? '';
@@ -195,12 +218,20 @@ struct Index {
         this.switchTab('subscribe');
       } else if (kind === 'subscribeCommunity') {
         this.routeStack = ['subscribe_square'];
+      } else if (kind === 'calendar') {
+        this.routeStack = ['calendar'];
       } else if (kind === 'dashboard') {
+        this.routeStack = [];
         this.switchTab('dashboard');
+      } else if (kind === 'messages') {
+        this.routeStack = [];
+        this.switchTab('dashboard');
+        const nextRev = (AppStorage.get<number>('mp_open_messages_revision') ?? 0) + 1;
+        AppStorage.setOrCreate('mp_open_messages_revision', nextRev);
       } else if (kind === 'search') {
         this.routeStack = ['search'];
       } else if (kind === 'resources') {
-        this.resourceSearchKeyword = String(obj['query'] ?? '');
+        this.resourceSearchKeyword = String(obj['keyword'] ?? obj['query'] ?? '');
         this.routeStack = ['resources'];
       } else if (kind === 'downloads') {
         this.routeStack = ['downloads'];
@@ -210,10 +241,15 @@ struct Index {
         this.routeStack = ['history'];
       } else if (kind === 'workflows') {
         this.routeStack = ['workflows'];
+      } else if (kind === 'sites') {
+        this.routeStack = ['sites'];
       } else if (kind === 'plugins') {
         this.routeStack = ['plugins'];
       } else if (kind === 'agent') {
         this.routeStack = ['agent'];
+      } else if (kind === 'music') {
+        this.routeStack = [];
+        this.switchTab('discover');
       } else if (kind === 'settings' || kind === 'appearance' || kind === 'users' || kind === 'systemSettings') {
         this.routeStack = ['settings'];
       } else if (kind === 'diagnostics') {

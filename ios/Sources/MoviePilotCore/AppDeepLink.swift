@@ -270,19 +270,42 @@ public enum AppDeepLink: Equatable, Hashable, Sendable {
     return .playLocalFile(url: url, title: title, kind: kind)
   }
 
+  /// 规范化站内相对路径前缀：剥离 Vue Hash 路由前缀（`/#/...`、`/#?...`），拒绝跨站 `//`、反斜杠与危险协议。
+  private static func normalizeRelativeRoute(_ rawRoute: String) -> String? {
+    let trimmed = rawRoute.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty,
+      trimmed.utf8.count <= 2048,
+      !trimmed.hasPrefix("//"),
+      !trimmed.contains("\\"),
+      !trimmed.lowercased().hasPrefix("javascript:"),
+      Self.isSafeText(trimmed, maxUTF8: 2048)
+    else { return nil }
+    let withLeadingSlash = trimmed.hasPrefix("/") ? trimmed : "/\(trimmed)"
+    let normalized: String
+    if withLeadingSlash.hasPrefix("/#/") {
+      normalized = "/" + withLeadingSlash.dropFirst(3)
+    } else if withLeadingSlash.hasPrefix("/#?") {
+      normalized = "/?" + withLeadingSlash.dropFirst(3)
+    } else if withLeadingSlash == "/#" {
+      normalized = "/"
+    } else {
+      normalized = withLeadingSlash
+    }
+    let pathPrefix =
+      normalized.split(separator: "?", maxSplits: 1).first.map(String.init) ?? normalized
+    guard !pathPrefix.hasPrefix("//"), !pathPrefix.contains("://"), !normalized.contains("#")
+    else { return nil }
+    return normalized
+  }
+
   /// 解析 `moviepilot://open?path=...` 的联动目标路径，拒绝跨协议或 `//` 重定向载荷。
   private static func parseOpenPath(
     _ rawPath: String,
     outerQueryItems: [URLQueryItem]
   ) -> AppDeepLink? {
-    guard !rawPath.hasPrefix("//"), !rawPath.contains("\\"),
-      !rawPath.lowercased().hasPrefix("javascript:"),
-      Self.isSafeText(rawPath, maxUTF8: 2048)
-    else { return nil }
-    let pathPrefix = rawPath.split(separator: "?", maxSplits: 1).first.map(String.init) ?? rawPath
-    guard !pathPrefix.contains("://"), !pathPrefix.contains("#") else { return nil }
-    let normalizedPath = rawPath.hasPrefix("/") ? rawPath : "/\(rawPath)"
-    guard let (segments, innerQueryItems) = Self.parseRelativePath(normalizedPath) else {
+    guard let normalizedPath = Self.normalizeRelativeRoute(rawPath),
+      let (segments, innerQueryItems) = Self.parseRelativePath(normalizedPath)
+    else {
       return nil
     }
     var mergedItems = innerQueryItems
@@ -297,9 +320,9 @@ public enum AppDeepLink: Equatable, Hashable, Sendable {
     return resolve(segments: segments, queryItems: mergedItems)
   }
 
-  /// 直接拆分相对路径与查询字符串，兼容未转义中文参数与百分号编码参数。
-  private static func parseRelativePath(_ normalizedPath: String) -> ([String], [URLQueryItem])? {
-    guard !normalizedPath.contains("#") else { return nil }
+  /// 直接拆分相对路径与查询字符串，兼容 Vue Hash 路由、未转义中文参数与百分号编码参数。
+  private static func parseRelativePath(_ rawPath: String) -> ([String], [URLQueryItem])? {
+    guard let normalizedPath = Self.normalizeRelativeRoute(rawPath) else { return nil }
     let parts = normalizedPath.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
     let rawPathPart = String(parts[0])
     guard let rawSegments = splitPathSegments(rawPathPart) else { return nil }
@@ -331,6 +354,28 @@ public enum AppDeepLink: Equatable, Hashable, Sendable {
     return (decodedSegments, queryItems)
   }
 
+  /// 解析后端推送与 Web 前端约定的首页快捷弹窗参数（如 APNs 默认携带的 `/?shotcut=message`）。
+  private static func resolveHomeShortcut(_ rawShortcut: String) -> AppDeepLink? {
+    switch rawShortcut.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "message", "messages", "notification", "notifications":
+      .messages
+    case "recognition", "rule", "ruletest", "rule-test", "rule_test":
+      .diagnostics("rule_test")
+    case "log", "logs", "livelog", "live-log", "live_log":
+      .diagnostics("live_log")
+    case "network", "nettest":
+      .diagnostics("nettest")
+    case "words", "word":
+      .diagnostics("words")
+    case "scheduler", "schedulers", "schedule", "jobs":
+      .diagnostics("scheduler")
+    case "system", "health", "check":
+      .diagnostics("health")
+    default:
+      nil
+    }
+  }
+
   /// 将路径分段与查询参数映射到严格白名单中的功能目的地。
   private static func resolve(
     segments: [String],
@@ -338,11 +383,23 @@ public enum AppDeepLink: Equatable, Hashable, Sendable {
   ) -> AppDeepLink? {
     let lower = segments.map { $0.lowercased() }
     guard let first = lower.first else {
+      if let rawShortcut = queryValue(in: queryItems, keys: ["shotcut", "shortcut"])?
+        .trimmingCharacters(in: .whitespacesAndNewlines),
+        !rawShortcut.isEmpty
+      {
+        return resolveHomeShortcut(rawShortcut)
+      }
       return .discover
     }
     switch first {
     case "discover", "recommend", "home":
       guard lower.count == 1 else { return nil }
+      if let rawShortcut = queryValue(in: queryItems, keys: ["shotcut", "shortcut"])?
+        .trimmingCharacters(in: .whitespacesAndNewlines),
+        !rawShortcut.isEmpty
+      {
+        return resolveHomeShortcut(rawShortcut)
+      }
       return .discover
 
     case "explore":

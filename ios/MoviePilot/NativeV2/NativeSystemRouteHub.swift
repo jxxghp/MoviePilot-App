@@ -9,6 +9,8 @@ final class NativeSystemRouteHub: ObservableObject {
 
   /// 当前待由 `NativeV2MainShell` 消费的一次性导航意图。
   @Published private(set) var pendingTarget: AppDeepLink?
+  /// 每次通过系统通知或快捷方式定位到消息中心时递增，用于驱动已展开的消息面板强制刷新最新通知。
+  @Published private(set) var messagesRefreshRevision = 0
   /// 跨账号、权限不匹配或无效链接/文件时的安全提示横幅（不自动切换实例或账号）。
   @Published var bannerMessage: String?
 
@@ -16,6 +18,14 @@ final class NativeSystemRouteHub: ObservableObject {
   private var pendingDeepLink = PendingAppDeepLink()
 
   private init() {}
+
+  /// 统一写入待消费目标并在定位到消息中心时发出刷新信号。
+  private func assignPendingTarget(_ target: AppDeepLink) {
+    if target == .messages {
+      messagesRefreshRevision &+= 1
+    }
+    pendingTarget = target
+  }
 
   /// 将后端通知路径严格映射至已知原生目的地，未收录路径及播放动作一律拒绝。
   static func target(forRoute rawRoute: String) -> AppDeepLink? {
@@ -50,7 +60,7 @@ final class NativeSystemRouteHub: ObservableObject {
     guard let mapped = Self.target(forRoute: route) else { return false }
     pendingShortcut.clear()
     pendingDeepLink.clear()
-    pendingTarget = mapped
+    assignPendingTarget(mapped)
     return true
   }
 
@@ -58,7 +68,7 @@ final class NativeSystemRouteHub: ObservableObject {
   func open(widgetContent: WidgetContent) {
     pendingShortcut.clear()
     pendingDeepLink.clear()
-    pendingTarget = Self.target(forWidgetContent: widgetContent)
+    assignPendingTarget(Self.target(forWidgetContent: widgetContent))
   }
 
   /// 记录冷/热启动主屏幕快捷方式，绑定当前实例并受 5 分钟有效期约束。
@@ -77,12 +87,12 @@ final class NativeSystemRouteHub: ObservableObject {
   func resolvePending(for instanceID: String) {
     if let deepLink = pendingDeepLink.resolve(for: instanceID) {
       pendingDeepLink.clear()
-      pendingTarget = deepLink
+      assignPendingTarget(deepLink)
       return
     }
     if let shortcut = pendingShortcut.resolve(for: instanceID) {
       pendingShortcut.clear()
-      pendingTarget = Self.target(forShortcut: shortcut)
+      assignPendingTarget(Self.target(forShortcut: shortcut))
     }
   }
 

@@ -348,6 +348,9 @@ final class NativeAppModel: ObservableObject {
     NotificationService.shared.resumePending()
     WidgetService.shared.resumePending(native: session)
     NativeSystemRouteHub.shared.resolvePending(for: session.instance.id.uuidString)
+    if isSwitchingServer, NativeSystemRouteHub.shared.pendingTarget != nil {
+      cancelSwitchServer()
+    }
     reportUsageIfEnabled(for: session)
   }
 
@@ -464,6 +467,7 @@ final class NativeAppModel: ObservableObject {
     execute { [self] id in
       let forgettingActiveSession = manager.currentSession?.instance.id == instance.id
       WidgetService.shared.endSession(instanceId: instance.id, clear: true)
+      NotificationService.shared.clearStoredState(for: instance.id)
       await LegacyWebsiteStorage.erase(for: instance.id)
       try check(id)
       try instances.forget(instance)

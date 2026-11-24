@@ -55,7 +55,7 @@ routes:
     web_aliases: ["/plugins"]
     target: "plugins"
   - pattern: "moviepilot://messages"
-    web_aliases: ["/messages"]
+    web_aliases: ["/messages", "/?shotcut=message", "/?shortcut=message"]
     target: "messages"
   - pattern: "moviepilot://agent?prompt={prompt}"
     web_aliases: ["/agent"]

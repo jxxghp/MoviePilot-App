@@ -218,6 +218,7 @@ private fun checkRoutePermission(route: AppRoute, perms: PermissionsFfi): String
 fun MoviePilotRootShell(
     repository: MoviePilotRepository,
     incomingDeepLink: String?,
+    incomingDeepLinkOrigin: String? = null,
     incomingExternalMedia: MediaPlaybackRequest?,
     onConsumeDeepLink: () -> Unit = {},
     onConsumeExternalMedia: () -> Unit = {},
@@ -444,10 +445,14 @@ fun MoviePilotRootShell(
             }
 
             // 其余业务路由需等待会话进入 Authenticated 后再导航并消费，确保 NeedsLogin -> Authenticated 无损重放
-            if (session !is SessionState.Authenticated) {
+            val activeSession = session as? SessionState.Authenticated ?: return@LaunchedEffect
+            if (!AndroidPushProvider.matchesServerOrigin(incomingDeepLinkOrigin, activeSession.serverUrl)) {
+                snackbarHostState.showSnackbar("这条通知属于其他实例或账号，请切换服务后查看消息中心")
+                onConsumeDeepLink()
                 return@LaunchedEffect
             }
 
+            isSwitchingServer = false
             activeMedalShowcase = null
             if (obj != null) {
                 when (kind) {
@@ -457,6 +462,7 @@ fun MoviePilotRootShell(
                         pushRoute(AppRoute.TabRoot, MainTab.Explore)
                     }
                     "dashboard" -> pushRoute(AppRoute.TabRoot, MainTab.Dashboard)
+                    "messages" -> pushRoute(AppRoute.Messages, MainTab.Dashboard)
                     "authorization" -> {
                         clearTabStack(MainTab.Dashboard)
                         pushRoute(AppRoute.SettingsHub, MainTab.Dashboard)
@@ -479,6 +485,21 @@ fun MoviePilotRootShell(
                             else -> null
                         }
                         if (target != null) pushRoute(target, MainTab.Dashboard)
+                    }
+                    "users" -> pushRoute(AppRoute.Users, MainTab.Dashboard)
+                    "systemSettings" -> pushRoute(AppRoute.MediaSourcesSettings, MainTab.Dashboard)
+                    "playbackSettings" -> pushRoute(AppRoute.PlaybackSettings, MainTab.Dashboard)
+                    "diagnostics" -> {
+                        val sec = obj["section"]?.jsonPrimitive?.content?.takeIf { it != "null" }.orEmpty()
+                        val tabName = when (sec.lowercase()) {
+                            "recognize", "rule", "rule_test" -> "名称识别"
+                            "network", "nettest" -> "网络测试"
+                            "logs", "log", "live_log" -> "实时日志"
+                            "schedulers", "scheduler", "schedule" -> "定时服务"
+                            "words", "word" -> "词表"
+                            else -> "健康检查"
+                        }
+                        pushRoute(AppRoute.Diagnostics(tabName), MainTab.Workspace)
                     }
                     "search" -> pushRoute(
                         AppRoute.GlobalSearch(
