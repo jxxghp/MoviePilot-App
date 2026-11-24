@@ -166,7 +166,7 @@ struct NativePluginFormView: View {
     }
     .navigationTitle(plugin.name)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .navigationBarBackButtonHidden(!isVuePlugin && (form.draft?.hasChanges == true || busy))
     .toolbar {
       if !isVuePlugin && (form.draft?.hasChanges == true || busy) {
@@ -1020,7 +1020,7 @@ private struct NativePluginSelectionView: View {
           .modifier(ConditionalSearchableModifier(enabled: options.count > 8, text: $searchQuery))
         }
       }
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {

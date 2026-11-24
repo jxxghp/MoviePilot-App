@@ -71,7 +71,7 @@ struct NativeMessagesPage: View {
     }
     .navigationTitle("消息中心")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Menu {

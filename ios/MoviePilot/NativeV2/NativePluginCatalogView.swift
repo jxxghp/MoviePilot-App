@@ -134,7 +134,7 @@ struct NativePluginCatalogView: View {
     }
     .navigationTitle(L10n.text("插件"))
     .navigationBarTitleDisplayMode(.large)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         NavigationLink {

@@ -157,6 +157,7 @@ fun SettingsHubScreen(
     onOpenAppearance: () -> Unit,
     onOpenPlugins: () -> Unit,
     onLogout: () -> Unit,
+    onSwitchServer: (() -> Unit)? = null,
     onOpenChannelAuth: () -> Unit = {},
     permissions: PermissionsFfi? = null,
 ) {
@@ -334,6 +335,15 @@ fun SettingsHubScreen(
                             ) {
                                 Text("客户端版本", color = colors.textSecondary, fontSize = 14.sp)
                                 NativeAdaptiveBadge("v$rustVersion", tint = colors.accent)
+                            }
+                            if (onSwitchServer != null) {
+                                HorizontalDivider(color = colors.divider)
+                                SettingsRow(
+                                    icon = Icons.Outlined.Dns,
+                                    title = "切换服务",
+                                    value = serverUrl.ifBlank { "选择或连接其他 MoviePilot 实例" },
+                                    onClick = onSwitchServer,
+                                )
                             }
                             HorizontalDivider(color = colors.divider)
                             Row(

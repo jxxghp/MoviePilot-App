@@ -1043,7 +1043,7 @@ private struct NativeCommunityMedalDetailSheet: View {
       .scrollIndicators(.hidden)
       .navigationTitle("勋章详情")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarTrailing) {
           Button("完成") { dismiss() }

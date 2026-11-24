@@ -11,14 +11,21 @@ import { RustCoreBridge, NativeHuksStore } from '@moviepilot/core_rust_bridge';
  */
 export default class EntryAbility extends UIAbility {
   private static mainWin: window.Window | null = null;
+  static mainWindow: window.Window | null = null;
   private static appCtx: common.UIAbilityContext | null = null;
   static storeInitPromise: Promise<void> | null = null;
 
   static syncWindowAppearance(isDark: boolean): void {
     try {
-      if (EntryAbility.mainWin) {
+      const win = EntryAbility.mainWindow ?? EntryAbility.mainWin;
+      if (win) {
+        try {
+          win.setWindowBackgroundColor(isDark ? '#000000' : '#F4F6FA');
+        } catch {
+          // ignore window background color sync error on unsupported targets
+        }
         const contentColor = isDark ? '#FFFFFF' : '#182431';
-        EntryAbility.mainWin.setWindowSystemBarProperties({
+        win.setWindowSystemBarProperties({
           statusBarColor: '#00000000',
           statusBarContentColor: contentColor,
           navigationBarColor: '#00000000',
@@ -145,8 +152,15 @@ export default class EntryAbility extends UIAbility {
       const syncWin = windowStage.getMainWindowSync();
       if (syncWin) {
         EntryAbility.mainWin = syncWin;
+        EntryAbility.mainWindow = syncWin;
+        const isDarkInit = AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_IS_DARK) ?? true;
+        try {
+          syncWin.setWindowBackgroundColor(isDarkInit ? '#000000' : '#F4F6FA');
+        } catch {
+          // ignore window background color error
+        }
         syncWin.setWindowLayoutFullScreen(true).catch(() => {});
-        EntryAbility.syncWindowAppearance(AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_IS_DARK) ?? true);
+        EntryAbility.syncWindowAppearance(isDarkInit);
         const syncProps = syncWin.getWindowProperties();
         if (syncProps && syncProps.windowRect && syncProps.windowRect.width > 0) {
           this.updateWindowMetricsFromPx(syncProps.windowRect.width, syncProps.windowRect.height, syncWin);
@@ -160,6 +174,7 @@ export default class EntryAbility extends UIAbility {
       windowStage.getMainWindow((err, win) => {
         if (!err && win) {
           EntryAbility.mainWin = win;
+          EntryAbility.mainWindow = win;
           try {
             win.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
           } catch {

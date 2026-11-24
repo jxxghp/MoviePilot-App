@@ -252,6 +252,69 @@ extension View {
   }
 }
 
+/// 跨系统版本顶部导航栏模糊修饰器：iOS 26+ 保持全透液态玻璃与软边过渡；旧系统首屏顶边全透，向上滚动离顶后自动启用超薄毛玻璃覆盖状态栏与标题栏。
+@MainActor
+struct NativeTopNavigationBarModifier: ViewModifier {
+  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if #available(iOS 26, *) {
+      content.toolbarBackground(.hidden, for: .navigationBar)
+    } else if reduceTransparency {
+      content.toolbarBackground(.visible, for: .navigationBar)
+    } else {
+      content
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .toolbarBackground(.automatic, for: .navigationBar)
+    }
+  }
+}
+
+/// 全幅海报详情页顶部导航栏修饰器：iOS 26+ 保持全透液态玻璃；旧系统在首屏海报区隐藏底色，上滚越过阈值后平滑显示毛玻璃导航栏与标题。
+@MainActor
+struct NativeHeroNavigationBarModifier: ViewModifier {
+  let scrollProgress: CGFloat
+  let scrolledTitle: String
+  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if #available(iOS 26, *) {
+      content
+        .navigationTitle("")
+        .toolbarBackground(.hidden, for: .navigationBar)
+    } else {
+      let showBar = scrollProgress > 0.52
+      let showTitle = scrollProgress > 0.62
+      if reduceTransparency {
+        content
+          .navigationTitle(showTitle ? scrolledTitle : "")
+          .toolbarBackground(showBar ? .visible : .hidden, for: .navigationBar)
+      } else {
+        content
+          .navigationTitle(showTitle ? scrolledTitle : "")
+          .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+          .toolbarBackground(showBar ? .visible : .hidden, for: .navigationBar)
+      }
+    }
+  }
+}
+
+extension View {
+  /// 为普通滚动页配置跨版本自适应顶部导航栏（首屏全透，iOS 26 以下上滚自动浮现毛玻璃）。
+  func nativeTopNavigationBar() -> some View {
+    modifier(NativeTopNavigationBarModifier())
+  }
+
+  /// 为全幅海报详情页配置按滚动进度平滑激活的顶部导航栏与内联标题。
+  func nativeHeroNavigationBar(scrollProgress: CGFloat, scrolledTitle: String) -> some View {
+    modifier(
+      NativeHeroNavigationBarModifier(
+        scrollProgress: scrollProgress, scrolledTitle: scrolledTitle))
+  }
+}
+
 /// Cinematic 单一视觉体系的基础常量；不读取旧版主题、主色或壁纸偏好。
 @MainActor
 enum CinematicStyle {

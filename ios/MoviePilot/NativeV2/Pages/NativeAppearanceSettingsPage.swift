@@ -28,7 +28,7 @@ struct NativeAppearanceSettingsPage: View {
     }
     .navigationTitle("主题与外观")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
   }
 
   /// 顶部实时预览卡片：随主题、背景渐变与前景色调整即时反映最终视觉效果。

@@ -155,7 +155,7 @@ struct NativeMediaServerLibraryPage: View {
     }
     .navigationTitle(activeLibraryName)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .searchable(
       text: $searchText,
       placement: .navigationBarDrawer(displayMode: .automatic),

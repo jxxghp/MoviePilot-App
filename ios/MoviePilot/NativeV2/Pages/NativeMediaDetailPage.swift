@@ -12,6 +12,7 @@ struct NativeMediaDetailPage: View {
 
   @State private var detail: MediaDetailPayload?
   @State private var status = NativeMediaStatusSnapshot()
+  @State private var subscribedRecordIDs: [Int: Int] = [:]
   @State private var credits: [MediaPersonSummary] = []
   @State private var recommendations: [MediaSummaryItem] = []
   @State private var failed = false
@@ -22,6 +23,8 @@ struct NativeMediaDetailPage: View {
   @State private var isMutatingMovie = false
   @State private var isLaunchingPlayback = false
   @State private var pendingCancelSeason: NativeSeasonCancelTarget?
+  @State private var activeFilesTarget: NativeSubscribeFilesTarget?
+  @State private var activeEditorTarget: NativeMediaSubscribeEditTarget?
   @State private var actionFeedback: NativeDetailActionFeedback?
   @State private var scrollOffset: CGFloat = 0
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -136,15 +139,28 @@ struct NativeMediaDetailPage: View {
         .scrollIndicators(.hidden)
         .refreshable { await loadAll(forceRefresh: true) }
         .modifier(NativeDetailScrollClipping())
+        .modifier(NativeSoftTopScrollEdge(isActive: eased > 0.02))
         .ignoresSafeArea(edges: .top)
         .modifier(NativeDetailScrollObservation(offset: $scrollOffset))
         .accessibilityIdentifier("native-media-detail-scroll")
       }
-      .navigationTitle("")
+      .nativeHeroNavigationBar(scrollProgress: eased, scrolledTitle: detail?.title ?? "")
     }
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
     .task(id: attempt) { await loadAll(forceRefresh: attempt > 0) }
+    .sheet(item: $activeFilesTarget) { target in
+      NativeSubscribeFilesSheet(session: session, target: target)
+        .nativeAdaptiveSheetSizing()
+    }
+    .sheet(item: $activeEditorTarget) { target in
+      NativeSubscribeEditorSheet(
+        session: session, subscribeID: target.subscribeID, title: target.title
+      ) {
+        NativePageDataCache.shared.remove("subscriptions|list", session: session)
+        actionFeedback = NativeDetailActionFeedback(isError: false, message: "订阅规则已更新。")
+      }
+      .nativeAdaptiveSheetSizing()
+    }
     .alert(
       "取消订阅",
       isPresented: Binding(
@@ -417,10 +433,25 @@ struct NativeMediaDetailPage: View {
             if canSubscribe {
               if tv {
                 let seasons = resolvedSeasons(detail)
-                let primarySeason =
-                  seasons.first(where: { $0.seasonNumber > 0 })?.seasonNumber ?? 1
+                let positiveSeasons = seasons.filter { $0.seasonNumber > 0 }
+                let primarySeason = positiveSeasons.first?.seasonNumber ?? 1
                 let anySubscribed = subscribedCount > 0 || status.subscribed
+                let allSeasonsSubscribed =
+                  positiveSeasons.count > 1
+                  && positiveSeasons.allSatisfy { status.seasons[$0.seasonNumber] != nil }
                 let firstSubscribedSeason = status.seasons.keys.sorted().first
+                let tvButtonTitle: String =
+                  if mutatingSeason != nil {
+                    "提交中…"
+                  } else if allSeasonsSubscribed {
+                    "已订阅全部季"
+                  } else if subscribedCount > 0 {
+                    "已订阅 \(subscribedCount) 季"
+                  } else if status.subscribed {
+                    "已订阅"
+                  } else {
+                    "订阅第 \(primarySeason) 季"
+                  }
                 Button {
                   if !anySubscribed {
                     Task { await performSubscribe(season: primarySeason) }
@@ -434,17 +465,53 @@ struct NativeMediaDetailPage: View {
                   }
                 } label: {
                   detailCapsuleLabel(
-                    title: subscribedCount > 0
-                      ? "已订阅 \(subscribedCount) 季"
-                      : (status.subscribed ? "已订阅" : "订阅第 \(primarySeason) 季"),
-                    symbol: anySubscribed ? "bookmark.fill" : "bookmark",
+                    title: tvButtonTitle,
+                    symbol: anySubscribed ? "checkmark.circle.fill" : "bookmark",
                     prominent: !hasPlay && !anySubscribed,
                     accentFilled: anySubscribed
                   )
                 }
                 .buttonStyle(.plain)
                 .disabled(mutatingSeason != nil)
+                .contextMenu {
+                  if anySubscribed {
+                    let targetSeason = firstSubscribedSeason ?? primarySeason
+                    Button {
+                      openSubscribeFiles(detail, season: targetSeason)
+                    } label: {
+                      Label("订阅文件详情", systemImage: "doc.text.magnifyingglass")
+                    }
+                    if let subID = subscribedRecordIDs[targetSeason] ?? subscribedRecordIDs[-1],
+                      subID > 0
+                    {
+                      Button {
+                        activeEditorTarget = NativeMediaSubscribeEditTarget(
+                          subscribeID: subID,
+                          title: "\(detail.title ?? "剧集") S\(String(format: "%02d", targetSeason))"
+                        )
+                      } label: {
+                        Label("编辑订阅规则", systemImage: "slider.horizontal.3")
+                      }
+                    }
+                    Button(role: .destructive) {
+                      pendingCancelSeason = NativeSeasonCancelTarget(
+                        season: firstSubscribedSeason,
+                        message: firstSubscribedSeason.map {
+                          "确认取消《\(detail.title ?? "该剧集")》第 \($0) 季的订阅吗？"
+                        } ?? "确认取消《\(detail.title ?? "该剧集")》的订阅吗？"
+                      )
+                    } label: {
+                      Label("取消订阅", systemImage: "trash")
+                    }
+                  }
+                }
                 .accessibilityIdentifier("native-media-detail-subscribe")
+
+                if anySubscribed {
+                  subscribeFilesQuickButton {
+                    openSubscribeFiles(detail, season: firstSubscribedSeason ?? primarySeason)
+                  }
+                }
               } else {
                 Button {
                   if status.subscribed {
@@ -458,14 +525,45 @@ struct NativeMediaDetailPage: View {
                   detailCapsuleLabel(
                     title: isMutatingMovie
                       ? "提交中…" : (status.subscribed ? "已订阅" : "添加订阅"),
-                    symbol: status.subscribed ? "bookmark.fill" : "bookmark",
+                    symbol: status.subscribed ? "checkmark.circle.fill" : "bookmark",
                     prominent: !hasPlay && !status.subscribed,
                     accentFilled: status.subscribed
                   )
                 }
                 .buttonStyle(.plain)
                 .disabled(isMutatingMovie)
+                .contextMenu {
+                  if status.subscribed {
+                    Button {
+                      openSubscribeFiles(detail, season: nil)
+                    } label: {
+                      Label("订阅文件详情", systemImage: "doc.text.magnifyingglass")
+                    }
+                    if let subID = subscribedRecordIDs[-1], subID > 0 {
+                      Button {
+                        activeEditorTarget = NativeMediaSubscribeEditTarget(
+                          subscribeID: subID, title: detail.title ?? "订阅"
+                        )
+                      } label: {
+                        Label("编辑订阅规则", systemImage: "slider.horizontal.3")
+                      }
+                    }
+                    Button(role: .destructive) {
+                      pendingCancelSeason = NativeSeasonCancelTarget(
+                        season: nil,
+                        message: "确认取消《\(detail.title ?? "该作品")》的订阅吗？")
+                    } label: {
+                      Label("取消订阅", systemImage: "trash")
+                    }
+                  }
+                }
                 .accessibilityIdentifier("native-media-detail-subscribe")
+
+                if status.subscribed {
+                  subscribeFilesQuickButton {
+                    openSubscribeFiles(detail, season: nil)
+                  }
+                }
               }
             }
 
@@ -525,6 +623,60 @@ struct NativeMediaDetailPage: View {
         browseHome: false
       )
     }
+  }
+
+  /// 已订阅状态下紧邻订阅主按钮的圆形文件详情快捷入口。
+  private func subscribeFilesQuickButton(action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      Image(systemName: "doc.text.magnifyingglass")
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(NativeTheme.success)
+        .frame(width: 48, height: 48)
+        .background {
+          Circle()
+            .fill(
+              Color(red: 0.24, green: 0.66, blue: 0.46).opacity(colorScheme == .light ? 0.16 : 0.24)
+            )
+            .overlay {
+              Circle()
+                .strokeBorder(
+                  Color(red: 0.44, green: 0.90, blue: 0.66).opacity(0.36), lineWidth: 0.7)
+            }
+        }
+        .contentShape(Circle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("订阅文件详情")
+    .accessibilityIdentifier("native-media-detail-subscribe-files")
+  }
+
+  /// 打开当前作品或分季的订阅文件详情弹窗（优先使用已记录的订阅 ID，缺省时按媒体源身份实时反查）。
+  private func openSubscribeFiles(_ detail: MediaDetailPayload, season: Int?) {
+    let key = isTelevision(detail) ? (season ?? -1) : -1
+    let knownID = subscribedRecordIDs[key] ?? (season != nil ? nil : subscribedRecordIDs[-1])
+    let mediaType =
+      MediaSummaryItem.normalizeMediaType(detail.type)
+      ?? MediaSummaryItem.normalizeMediaType(identity.type)
+      ?? "电影"
+    let baseTitle = detail.title ?? "订阅文件"
+    let displayTitle =
+      if let season, mediaType == "电视剧" {
+        "\(baseTitle) S\(String(format: "%02d", season))"
+      } else {
+        baseTitle
+      }
+    activeFilesTarget = NativeSubscribeFilesTarget(
+      subscribeID: knownID,
+      mediaLookup: NativeSubscribeMediaLookup(
+        mediaSource: detail.mediaSource ?? identity.source,
+        mediaID: detail.mediaID ?? identity.mediaID,
+        type: mediaType,
+        season: mediaType == "电视剧" ? season : nil,
+        title: detail.title,
+        year: detail.year
+      ),
+      fallbackTitle: displayTitle
+    )
   }
 
   /// 详情操作栏统一 48pt 等高胶囊按钮样式（主强调 / 已订阅状态 / 次级玻璃三种清晰视觉层级）。
@@ -699,45 +851,79 @@ struct NativeMediaDetailPage: View {
               .lineLimit(2)
           }
           if canSubscribe {
-            Button {
-              if isSubscribed {
-                pendingCancelSeason = NativeSeasonCancelTarget(
-                  season: season.seasonNumber,
-                  message: "确认取消《\(detail.title ?? "该剧集")》\(season.displayTitle)的订阅吗？")
-              } else {
-                Task { await performSubscribe(season: season.seasonNumber) }
-              }
-            } label: {
-              HStack(spacing: 5) {
-                if isMutating {
-                  ProgressView().controlSize(.mini).tint(.white)
+            HStack(spacing: 8) {
+              Button {
+                if isSubscribed {
+                  pendingCancelSeason = NativeSeasonCancelTarget(
+                    season: season.seasonNumber,
+                    message: "确认取消《\(detail.title ?? "该剧集")》\(season.displayTitle)的订阅吗？")
                 } else {
-                  Image(systemName: isSubscribed ? "bookmark.fill" : "plus")
-                    .font(.caption2.weight(.semibold))
+                  Task { await performSubscribe(season: season.seasonNumber) }
                 }
-                Text(isSubscribed ? "已订阅" : "订阅本季")
-                  .font(.caption.weight(.semibold))
-              }
-              .foregroundStyle(isSubscribed ? .white : .primary)
-              .padding(.horizontal, 11)
-              .padding(.vertical, 6)
-              .background {
-                Capsule()
-                  .fill(
-                    isSubscribed
-                      ? NativeAppearanceStore.shared.accentColor
-                      : .primary.opacity(0.10)
-                  )
-                  .overlay {
-                    Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 0.6)
+              } label: {
+                HStack(spacing: 5) {
+                  if isMutating {
+                    ProgressView().controlSize(.mini).tint(.white)
+                  } else {
+                    Image(systemName: isSubscribed ? "checkmark.circle.fill" : "plus")
+                      .font(.caption2.weight(.semibold))
                   }
+                  Text(isSubscribed ? "已订阅" : "订阅本季")
+                    .font(.caption.weight(.semibold))
+                }
+                .foregroundStyle(isSubscribed ? .white : .primary)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+                .background {
+                  Capsule()
+                    .fill(
+                      isSubscribed
+                        ? NativeAppearanceStore.shared.accentColor
+                        : .primary.opacity(0.10)
+                    )
+                    .overlay {
+                      Capsule().strokeBorder(
+                        isSubscribed
+                          ? Color.white.opacity(0.24)
+                          : Color.primary.opacity(0.18),
+                        lineWidth: 0.6
+                      )
+                    }
+                }
+                .frame(minHeight: 36)
               }
-              .frame(minHeight: 36)
+              .buttonStyle(.plain)
+              .disabled(mutatingSeason != nil)
+              .accessibilityIdentifier(
+                "native-media-detail-season-subscribe-\(season.seasonNumber)")
+
+              if isSubscribed {
+                Button {
+                  openSubscribeFiles(detail, season: season.seasonNumber)
+                } label: {
+                  HStack(spacing: 4) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                      .font(.caption2.weight(.semibold))
+                    Text("文件")
+                      .font(.caption.weight(.semibold))
+                  }
+                  .foregroundStyle(.primary.opacity(0.88))
+                  .padding(.horizontal, 10)
+                  .padding(.vertical, 6)
+                  .background {
+                    Capsule()
+                      .fill(NativeTheme.chipFill)
+                      .overlay { Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.6) }
+                  }
+                  .frame(minHeight: 36)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(season.displayTitle)订阅文件详情")
+                .accessibilityIdentifier(
+                  "native-media-detail-season-files-\(season.seasonNumber)")
+              }
             }
-            .buttonStyle(.plain)
-            .disabled(mutatingSeason != nil)
             .padding(.top, 2)
-            .accessibilityIdentifier("native-media-detail-season-subscribe-\(season.seasonNumber)")
           }
         }
         Spacer(minLength: 0)
@@ -928,21 +1114,44 @@ struct NativeMediaDetailPage: View {
     }
   }
 
+  private var detailCacheKey: String {
+    let normalizedType = MediaSummaryItem.normalizeMediaType(identity.type) ?? "电影"
+    return "mediaDetail|\(identity.source)|\(identity.mediaID)|\(normalizedType)"
+  }
+
+  /// 将最新详情、订阅状态与记录编号写回页面缓存，确保返回再进入时按钮状态一致。
+  private func syncDetailCache() {
+    guard let detail else { return }
+    NativePageDataCache.shared.set(
+      (
+        detail: detail,
+        status: status,
+        subscribedRecordIDs: subscribedRecordIDs,
+        credits: credits,
+        recommendations: recommendations
+      ),
+      for: detailCacheKey,
+      session: session
+    )
+  }
+
   /// 并行读取核心详情与状态/演职员/推荐；命中作品缓存时首帧直出且静默复用，下拉刷新强制重拉。
   private func loadAll(forceRefresh: Bool = false) async {
     let normalizedType = MediaSummaryItem.normalizeMediaType(identity.type) ?? "电影"
-    let cacheKey = "mediaDetail|\(identity.source)|\(identity.mediaID)|\(normalizedType)"
+    let cacheKey = detailCacheKey
     if !forceRefresh,
       let cached:
         (
           detail: MediaDetailPayload,
           status: NativeMediaStatusSnapshot,
+          subscribedRecordIDs: [Int: Int],
           credits: [MediaPersonSummary],
           recommendations: [MediaSummaryItem]
         ) = NativePageDataCache.shared.get(cacheKey, session: session)
     {
       detail = cached.detail
       status = cached.status
+      subscribedRecordIDs = cached.subscribedRecordIDs
       credits = cached.credits
       recommendations = cached.recommendations
       failed = false
@@ -982,9 +1191,7 @@ struct NativeMediaDetailPage: View {
       if let loadedStatus { status = loadedStatus }
       if !loadedCredits.isEmpty { credits = loadedCredits }
       recommendations = loadedRecommendations
-      NativePageDataCache.shared.set(
-        (detail: loaded, status: status, credits: credits, recommendations: recommendations),
-        for: cacheKey, session: session)
+      syncDetailCache()
     } catch is CancellationError {
       return
     } catch {
@@ -992,27 +1199,85 @@ struct NativeMediaDetailPage: View {
     }
   }
 
-  /// 单次请求查询本地媒体库入库状态与当前账号各季订阅状态。
+  /// 单次请求查询本地媒体库入库状态与当前账号各季订阅状态；当非 TMDB 媒体源映射为 TMDB 订阅导致 `media/status` 未命中时，自动回退 `GET /api/v1/subscribe/media/{id}` 投影探针。
   private func loadMediaStatus(_ loaded: MediaDetailPayload, fallbackType: String? = nil) async
     -> NativeMediaStatusSnapshot?
   {
+    let resolvedSource = loaded.mediaSource ?? identity.source
+    let resolvedID = loaded.mediaID ?? identity.mediaID
+    let resolvedType =
+      MediaSummaryItem.normalizeMediaType(loaded.type)
+      ?? fallbackType
+      ?? MediaSummaryItem.normalizeMediaType(identity.type)
+      ?? "电影"
     let payload = [
       NativeMediaStatusQuery(
-        mediaSource: loaded.mediaSource ?? identity.source,
-        mediaID: loaded.mediaID ?? identity.mediaID,
-        mtype: MediaSummaryItem.normalizeMediaType(loaded.type)
-          ?? fallbackType
-          ?? MediaSummaryItem.normalizeMediaType(identity.type)
-          ?? "电影",
+        mediaSource: resolvedSource,
+        mediaID: resolvedID,
+        mtype: resolvedType,
         title: loaded.title,
         year: loaded.year)
     ]
-    guard let body = try? JSONEncoder().encode(payload),
+    var snapshot: NativeMediaStatusSnapshot?
+    if let body = try? JSONEncoder().encode(payload),
       let endpoint = try? APIEndpoint(path: ["media", "status"], method: .post, body: body)
+    {
+      snapshot = try? await session.request(
+        endpoint, as: [NativeMediaStatusSnapshot].self, requiring: .init(category: .discovery)
+      ).value.first
+    }
+
+    let isTV = resolvedType == "电视剧"
+    let needsFallbackProbe =
+      canSubscribe
+      && ((snapshot?.subscribed != true) || (isTV && (snapshot?.seasons.isEmpty ?? true)))
+    if needsFallbackProbe,
+      let fallback = await probeSubscribeByMediaIdentity(
+        mediaSource: resolvedSource,
+        mediaID: resolvedID,
+        mtype: resolvedType,
+        title: loaded.title,
+        year: loaded.year
+      ),
+      let foundID = fallback.id, foundID > 0
+    {
+      var merged = snapshot ?? NativeMediaStatusSnapshot()
+      merged.subscribed = true
+      if isTV, let seasonNum = fallback.season {
+        merged.seasons[seasonNum] = merged.seasons[seasonNum] ?? (fallback.state ?? "R")
+        subscribedRecordIDs[seasonNum] = foundID
+      } else {
+        subscribedRecordIDs[-1] = foundID
+      }
+      snapshot = merged
+    }
+    return snapshot
+  }
+
+  /// 调用 `GET /api/v1/subscribe/media/{mediaID}` 进行跨源身份投影与片名年份兜底反查。
+  private func probeSubscribeByMediaIdentity(
+    mediaSource: String,
+    mediaID: String,
+    mtype: String,
+    title: String?,
+    year: String?
+  ) async -> NativeSubscribeIdentityProbe? {
+    guard !mediaSource.isEmpty, !mediaID.isEmpty, mediaID != "0" else { return nil }
+    var query: [URLQueryItem] = [
+      URLQueryItem(name: "media_source", value: mediaSource),
+      URLQueryItem(name: "mtype", value: mtype),
+    ]
+    if let title, !title.isEmpty {
+      query.append(URLQueryItem(name: "title", value: title))
+    }
+    if let year, !year.isEmpty {
+      query.append(URLQueryItem(name: "year", value: year))
+    }
+    guard let endpoint = try? APIEndpoint(path: ["subscribe", "media", mediaID], query: query)
     else { return nil }
     return try? await session.request(
-      endpoint, as: [NativeMediaStatusSnapshot].self, requiring: .init(category: .discovery)
-    ).value.first
+      endpoint, as: NativeSubscribeIdentityProbe.self, requiring: .init(category: .subscribe)
+    ).value
   }
 
   /// 读取当前数据源演职员列表（TMDB / 豆瓣 / Bangumi / AniList），缺省时页面自动回落到详情内嵌的 actors。
@@ -1051,9 +1316,10 @@ struct NativeMediaDetailPage: View {
     return []
   }
 
-  /// 显式单次提交订阅新增请求；绝不自动重试，成功后重新同步媒体状态。
+  /// 显式单次提交订阅新增请求；采用权威乐观合并，防止豆瓣/Bangumi 等非 TMDB 来源转换身份后被滞后查询冲掉已订阅按钮状态。
   private func performSubscribe(season: Int?) async {
     guard let detail, canSubscribe else { return }
+    let tv = isTelevision(detail)
     if let season {
       mutatingSeason = season
     } else {
@@ -1071,22 +1337,46 @@ struct NativeMediaDetailPage: View {
           year: detail.year ?? "",
           mediaSource: detail.mediaSource ?? identity.source,
           mediaID: detail.mediaID ?? identity.mediaID,
-          season: isTelevision(detail) ? season : nil))
+          season: tv ? season : nil))
       let endpoint = try APIEndpoint(
         path: ["subscribe"], method: .post, body: body, trailingSlash: true)
-      try await session.perform(endpoint, requiring: .init(category: .subscribe))
+      let created = try await session.request(
+        endpoint, as: NativeSubscribeCreatedPayload?.self, requiring: .init(category: .subscribe)
+      ).value
       try Task.checkCancellation()
-      if let season {
-        status.seasons[season] = "normal"
-      } else {
-        status.subscribed = true
+      if let createdID = created?.id, createdID > 0 {
+        subscribedRecordIDs[tv ? (season ?? -1) : -1] = createdID
       }
+
+      var next = status
+      next.subscribed = true
+      if let season, tv {
+        next.seasons[season] = next.seasons[season] ?? "R"
+      }
+      status = next
+      syncDetailCache()
+      NativePageDataCache.shared.remove("subscriptions|list", session: session)
+
       if let refreshed = await loadMediaStatus(detail) {
-        status = refreshed
+        if let itemID = refreshed.itemID, !itemID.isEmpty {
+          next.itemID = itemID
+        }
+        if let server = refreshed.server, !server.isEmpty {
+          next.server = server
+        }
+        for (s, stateVal) in refreshed.seasons {
+          next.seasons[s] = stateVal
+        }
+        next.subscribed = true
+        if let season, tv {
+          next.seasons[season] = next.seasons[season] ?? "R"
+        }
+        status = next
+        syncDetailCache()
       }
       actionFeedback = NativeDetailActionFeedback(
         isError: false,
-        message: season.map { "已添加第 \($0) 季订阅。" } ?? "已添加订阅。")
+        message: (tv ? season : nil).map { "已添加第 \($0) 季订阅。" } ?? "已添加订阅。")
     } catch is CancellationError {
       return
     } catch {
@@ -1095,9 +1385,10 @@ struct NativeMediaDetailPage: View {
     }
   }
 
-  /// 确认后单次提交取消订阅，不自动重试，成功后刷新状态。
+  /// 确认后单次提交取消订阅，对称权威合并状态并同步失效订阅列表缓存。
   private func performUnsubscribe(season: Int?) async {
     guard let detail, canSubscribe else { return }
+    let tv = isTelevision(detail)
     if let season {
       mutatingSeason = season
     } else {
@@ -1111,7 +1402,7 @@ struct NativeMediaDetailPage: View {
       var query = [
         URLQueryItem(name: "media_source", value: detail.mediaSource ?? identity.source)
       ]
-      if let season, isTelevision(detail) {
+      if let season, tv {
         query.append(URLQueryItem(name: "season", value: String(season)))
       }
       let endpoint = try APIEndpoint(
@@ -1119,17 +1410,43 @@ struct NativeMediaDetailPage: View {
         method: .delete, query: query)
       try await session.perform(endpoint, requiring: .init(category: .subscribe))
       try Task.checkCancellation()
-      if let season {
-        status.seasons.removeValue(forKey: season)
+
+      var next = status
+      if let season, tv {
+        next.seasons.removeValue(forKey: season)
+        subscribedRecordIDs.removeValue(forKey: season)
+        next.subscribed = !next.seasons.isEmpty
       } else {
-        status.subscribed = false
+        next.seasons.removeAll()
+        subscribedRecordIDs.removeAll()
+        next.subscribed = false
       }
+      status = next
+      syncDetailCache()
+      NativePageDataCache.shared.remove("subscriptions|list", session: session)
+
       if let refreshed = await loadMediaStatus(detail) {
-        status = refreshed
+        if let itemID = refreshed.itemID, !itemID.isEmpty {
+          next.itemID = itemID
+        }
+        if let server = refreshed.server, !server.isEmpty {
+          next.server = server
+        }
+        if let season, tv {
+          var mergedSeasons = refreshed.seasons
+          mergedSeasons.removeValue(forKey: season)
+          next.seasons = mergedSeasons
+          next.subscribed = !mergedSeasons.isEmpty
+        } else {
+          next.seasons.removeAll()
+          next.subscribed = false
+        }
+        status = next
+        syncDetailCache()
       }
       actionFeedback = NativeDetailActionFeedback(
         isError: false,
-        message: season.map { "已取消第 \($0) 季订阅。" } ?? "已取消订阅。")
+        message: (tv ? season : nil).map { "已取消第 \($0) 季订阅。" } ?? "已取消订阅。")
     } catch is CancellationError {
       return
     } catch {
@@ -1339,7 +1656,7 @@ struct NativePersonDetailPage: View {
     }
     .navigationTitle(person?.displayName ?? fallbackName)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .task(id: attempt) { await load() }
   }
 
@@ -1443,6 +1760,25 @@ private struct NativeSeasonCancelTarget: Identifiable {
   let id = UUID()
   let season: Int?
   let message: String
+}
+
+/// 从详情页直接打开订阅规则编辑器的目标载体。
+private struct NativeMediaSubscribeEditTarget: Identifiable {
+  let subscribeID: Int
+  let title: String
+  var id: Int { subscribeID }
+}
+
+/// `POST /api/v1/subscribe/` 新增成功返回的订阅主键载荷。
+private struct NativeSubscribeCreatedPayload: Decodable, Sendable {
+  let id: Int?
+}
+
+/// `GET /api/v1/subscribe/media/{mediaID}` 跨源投影探针返回的最小字段。
+private struct NativeSubscribeIdentityProbe: Decodable, Sendable {
+  let id: Int?
+  let season: Int?
+  let state: String?
 }
 
 /// 订阅操作的轻量结果提示。

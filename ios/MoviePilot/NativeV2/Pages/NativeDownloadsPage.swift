@@ -84,7 +84,7 @@ struct NativeDownloadsPage: View {
     }
     .navigationTitle("正在下载")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Menu {

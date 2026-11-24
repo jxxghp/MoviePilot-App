@@ -83,7 +83,7 @@ struct NativeSitesPage: View {
     }
     .navigationTitle(sites.isEmpty ? "站点管理" : "站点管理 (\(sites.count))")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .searchable(text: $searchText, prompt: "搜索站点名称或域名")
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
@@ -678,7 +678,7 @@ private struct NativeSiteDataSheet: View {
       }
       .navigationTitle("站点数据")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -1227,7 +1227,7 @@ private struct NativeSiteEditorSheet: View {
       }
       .navigationTitle(isCreate ? "新增站点" : "编辑站点")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }

@@ -187,7 +187,7 @@ struct NativeDiagnosticsToolsPage: View {
     }
     .navigationTitle(tool.rawValue)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         trailingAction
@@ -1963,7 +1963,7 @@ private struct NativeEpisodeRuleEditorSheet: View {
       }
       .navigationTitle(rule.name.isEmpty ? "新增剧集规则" : "编辑剧集规则")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }

@@ -50,7 +50,7 @@ struct NativeSystemSettingsPage: View {
     }
     .navigationTitle("高级系统设置")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button {

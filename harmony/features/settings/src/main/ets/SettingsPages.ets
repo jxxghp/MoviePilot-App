@@ -1,4 +1,5 @@
 import { pasteboard } from '@kit.BasicServicesKit';
+import { image } from '@kit.ImageKit';
 import {
   RustCoreBridge,
   MoviePilotRepository,
@@ -13,6 +14,7 @@ import {
   MpDirectoryConfig,
   MpStorageConfig,
   MpAuthorizationItem,
+  MpImageLoader,
   MpRemoteImage,
   formatByteSize
 } from '@moviepilot/core_rust_bridge';
@@ -72,6 +74,68 @@ const NOTIFICATION_TYPES: string[][] = [
   ['clawbot', 'ClawBot'],
   ['chrome', 'WebPush']
 ];
+
+/**
+ * 插件卡片圆角图标：优先渲染远程插件图标，加载中或远程不可达时自动回退至 `logo_plugin.png`。
+ */
+@Component
+struct HarmonyPluginCardIcon {
+  @Prop @Watch('onIconUrlChanged') iconUrl: string = '';
+  @Prop pluginName: string = '';
+  @State private pixelMap: image.PixelMap | null = null;
+  private activeUrl: string = '';
+
+  aboutToAppear(): void {
+    this.syncIcon();
+  }
+
+  onIconUrlChanged(): void {
+    this.syncIcon();
+  }
+
+  private syncIcon(): void {
+    const target = (this.iconUrl ?? '').trim();
+    this.activeUrl = target;
+    if (!target || target.startsWith('data:image/')) {
+      this.pixelMap = null;
+      return;
+    }
+    const cached = MpImageLoader.getCached(target, 240);
+    if (cached) {
+      this.pixelMap = cached;
+      return;
+    }
+    this.pixelMap = null;
+    MpImageLoader.load(target, 240).then((pm: image.PixelMap | null) => {
+      if (this.activeUrl === target && pm) {
+        this.pixelMap = pm;
+      }
+    }).catch(() => {});
+  }
+
+  build() {
+    if (this.iconUrl.startsWith('data:image/')) {
+      Image(this.iconUrl)
+        .width(44)
+        .height(44)
+        .borderRadius(12)
+        .objectFit(ImageFit.Cover)
+    } else if (this.pixelMap) {
+      Image(this.pixelMap)
+        .width(44)
+        .height(44)
+        .borderRadius(12)
+        .objectFit(ImageFit.Cover)
+    } else {
+      HarmonyEntityLogo({
+        kind: 'plugin',
+        value: this.pluginName,
+        logoSize: 44,
+        cornerRadius: 12
+      })
+    }
+  }
+}
 
 /**
  * 鸿蒙「插件中心」独立页面：
@@ -420,22 +484,10 @@ export struct HarmonyPluginsPage {
                 Column() {
                   CinematicPanel({ panelPadding: 14, cornerRadius: 18, interactive: this.activeTabIdx === 0 }) {
                     Row({ space: 12 }) {
-                      if (pl.iconUrl.length > 0) {
-                        MpRemoteImage({
-                          src: pl.iconUrl,
-                          imgWidth: 44,
-                          imgHeight: 44,
-                          imgRadius: 12,
-                          placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
-                        })
-                      } else {
-                        HarmonyEntityLogo({
-                          kind: 'plugin',
-                          value: pl.pluginName,
-                          logoSize: 44,
-                          cornerRadius: 12
-                        })
-                      }
+                      HarmonyPluginCardIcon({
+                        iconUrl: pl.iconUrl,
+                        pluginName: pl.pluginName
+                      })
 
                       Column({ space: 4 }) {
                         Row({ space: 6 }) {
@@ -658,6 +710,7 @@ export struct HarmonySettingsHubPage {
 
   onBack: () => void = () => {};
   onOpenSites: () => void = () => {};
+  onSwitchServer: () => void = () => {};
   onLogout: () => void = () => {};
 
   aboutToAppear(): void {
@@ -1437,7 +1490,8 @@ export struct HarmonySettingsHubPage {
                       Text(dl.name).fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
                       if (dl.isDefault) { NativeAdaptiveBadge({ text: '默认', tintHex: this.accentHex }) }
                     }
-                    Text(`${dl.type} · ${dl.host || '已配置'}`).fontSize(12).fontColor(mpSecondaryText(this.isDark)).maxLines(1)
+                    Text(`${dl.type} · ${dl.host || '已配置'}`).fontSize(12).fontColor(mpSecondaryText(this.isDark))
+                      .maxLines(1).wordBreak(WordBreak.BREAK_ALL).textOverflow({ overflow: TextOverflow.Ellipsis })
                   }
                   .alignItems(HorizontalAlign.Start)
                   .layoutWeight(1)
@@ -1492,7 +1546,8 @@ export struct HarmonySettingsHubPage {
                   })
                   Column({ space: 3 }) {
                     Text(ms.name).fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
-                    Text(`${ms.type} · ${ms.host || '已配置'}`).fontSize(12).fontColor(mpSecondaryText(this.isDark)).maxLines(1)
+                    Text(`${ms.type} · ${ms.host || '已配置'}`).fontSize(12).fontColor(mpSecondaryText(this.isDark))
+                      .maxLines(1).wordBreak(WordBreak.BREAK_ALL).textOverflow({ overflow: TextOverflow.Ellipsis })
                   }
                   .alignItems(HorizontalAlign.Start)
                   .layoutWeight(1)
@@ -2295,6 +2350,26 @@ export struct HarmonySettingsHubPage {
                 Text('客户端版本').fontSize(15).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
                 NativeAdaptiveBadge({ text: `v${RustCoreBridge.version()}`, tintHex: this.accentHex })
               }.width('100%').padding({ left: 16, right: 16, top: 14, bottom: 14 })
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+              Row({ space: 12 }) {
+                Stack({ alignContent: Alignment.Center }) {
+                  SymbolGlyph($r('sys.symbol.arrow_left_arrow_right')).fontSize(16).fontColor([this.accentHex])
+                }
+                .width(28).height(28).borderRadius(8)
+                .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '26' : '18'))
+
+                Text('切换服务').fontSize(15).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                Text(this.serverUrl.replace(/^https?:\/\//, '').split('/')[0] || '当前服务')
+                  .fontSize(12.5)
+                  .fontColor(mpSecondaryText(this.isDark))
+                  .maxLines(1)
+                SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(14).fontColor([mpSecondaryText(this.isDark)])
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 14, bottom: 14 })
+              .hoverEffect(HoverEffect.Highlight)
+              .accessibilityText('切换 MoviePilot 服务实例')
+              .onClick(() => this.onSwitchServer())
               Divider().color(HarmonyThemeColors.divider(this.isDark))
               Row({ space: 12 }) {
                 Stack({ alignContent: Alignment.Center }) {

@@ -101,7 +101,7 @@ struct NativeFileManagerPage: View {
     }
     .navigationTitle("文件管理")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Menu {
@@ -707,7 +707,7 @@ private struct NativeFileRenameSheet: View {
       }
       .navigationTitle("重命名")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("取消") { dismiss() }
@@ -991,7 +991,7 @@ struct NativeManualTransferSheet: View {
       }
       .navigationTitle(historyLogID != nil ? "重新整理" : "手动整理")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -1916,7 +1916,7 @@ private struct NativeManualTransferMediaPickerSheet: View {
       }
       .navigationTitle("选择识别媒体")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {

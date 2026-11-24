@@ -58,7 +58,7 @@ struct NativeCalendarPage: View {
     }
     .navigationTitle(navigationMonthTitle)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button("今天") {

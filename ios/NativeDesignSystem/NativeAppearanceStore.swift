@@ -209,7 +209,25 @@ final class NativeAppearanceStore: ObservableObject {
     animateBackground =
       defaults.object(forKey: Keys.animateBackground) as? Bool ?? true
     // 导航栏默认入口与返回按钮统一采用系统文本色，避免被主题强调色染成彩色。
-    UINavigationBar.appearance().tintColor = .label
+    let navBar = UINavigationBar.appearance()
+    navBar.tintColor = .label
+    if #unavailable(iOS 26) {
+      let scrollEdge = UINavigationBarAppearance()
+      scrollEdge.configureWithTransparentBackground()
+      scrollEdge.backgroundColor = .clear
+      scrollEdge.shadowColor = .clear
+
+      let standard = UINavigationBarAppearance()
+      standard.configureWithDefaultBackground()
+      standard.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+      standard.backgroundColor = .clear
+      standard.shadowColor = UIColor.separator.withAlphaComponent(0.18)
+
+      navBar.scrollEdgeAppearance = scrollEdge
+      navBar.compactScrollEdgeAppearance = scrollEdge
+      navBar.standardAppearance = standard
+      navBar.compactAppearance = standard
+    }
   }
 
   /// 当前生效的 SwiftUI 外观模式（`nil` 表示跟随系统）。

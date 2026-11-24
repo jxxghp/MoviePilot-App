@@ -1,5 +1,6 @@
 package com.moviepilot.designsystem
 
+import android.app.UiModeManager
 import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -484,7 +485,8 @@ object ExpressivePalettes {
  */
 @Stable
 class NativeAppearanceStore(context: Context? = null) {
-    private val prefs = context?.getSharedPreferences("mp_appearance_v2", Context.MODE_PRIVATE)
+    private val appContext = context?.applicationContext
+    private val prefs = appContext?.getSharedPreferences("mp_appearance_v2", Context.MODE_PRIVATE)
 
     var mode by mutableStateOf(
         NativeAppearanceMode.fromId(prefs?.getString("mode", GeneratedDesignTokens.DEFAULT_MODE)),
@@ -529,9 +531,37 @@ class NativeAppearanceStore(context: Context? = null) {
     val backgroundPresetId: String get() = paletteId
     val accentPresetId: String get() = paletteId
 
+    init {
+        syncPlatformNightMode()
+    }
+
+    /** 根据当前外观模式与系统深浅状态解析是否使用深色主题。 */
+    fun resolveIsDark(systemDark: Boolean): Boolean = when (mode) {
+        NativeAppearanceMode.Dark -> true
+        NativeAppearanceMode.Light -> false
+        NativeAppearanceMode.System -> systemDark
+    }
+
+    /**
+     * 在 Android 12+（API 31+）同步应用级深浅夜间模式（`UiModeManager.setApplicationNightMode`），
+     * 确保深色或纯黑主题下系统冷启动 SplashScreen 始终使用 `values-night` 的 `#000000` 全黑背景。
+     */
+    fun syncPlatformNightMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val uiModeManager = appContext?.getSystemService(UiModeManager::class.java) ?: return
+            val nightMode = when (mode) {
+                NativeAppearanceMode.Dark -> UiModeManager.MODE_NIGHT_YES
+                NativeAppearanceMode.Light -> UiModeManager.MODE_NIGHT_NO
+                NativeAppearanceMode.System -> UiModeManager.MODE_NIGHT_AUTO
+            }
+            runCatching { uiModeManager.setApplicationNightMode(nightMode) }
+        }
+    }
+
     fun updateMode(newMode: NativeAppearanceMode) {
         mode = newMode
         prefs?.edit()?.putString("mode", newMode.id)?.apply()
+        syncPlatformNightMode()
     }
 
     fun updatePalette(id: String) {
@@ -542,6 +572,7 @@ class NativeAppearanceStore(context: Context? = null) {
     fun updatePureBlackDark(enabled: Boolean) {
         pureBlackDark = enabled
         prefs?.edit()?.putBoolean("pure_black", enabled)?.apply()
+        syncPlatformNightMode()
     }
 
     fun updateDynamicColorEnabled(enabled: Boolean) {

@@ -137,7 +137,7 @@ struct NativePluginCronEditor: View {
           .frame(maxWidth: 680).accessibilityIdentifier("native-cron-form")
       }
       .navigationTitle(field.label).navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .navigationDestination(for: NativeCronUnit.self) { unit in
         if let fields = NativeCronExpression(expression).fields {
           NativeCronFieldEditor(unit: unit, token: fields[unit.index]) { token in
@@ -235,7 +235,7 @@ private struct NativeCronFieldEditor: View {
         .frame(maxWidth: 680).accessibilityIdentifier("native-cron-field-form")
     }
     .navigationTitle(NativeCronLabels.unit(draft.unit)).navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .navigationDestination(isPresented: $selectingMode) {
       NativeCronModePicker(modes: modes, selection: modeBinding)
     }
@@ -481,7 +481,7 @@ private struct NativeCronModePicker: View {
         .accessibilityIdentifier("native-cron-mode-form")
     }
     .navigationTitle(L10n.text("方式")).navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarLeading) {
         Button {

@@ -3,12 +3,14 @@ import {
   MpMediaItem,
   MpCastMember,
   MpSeasonInfo,
+  MpTmdbEpisodeItem,
   MpPersonDetail,
   MpRemoteImage
 } from '@moviepilot/core_rust_bridge';
 import {
   CinematicPanel,
   NativeAdaptiveBadge,
+  NativeAdaptivePill,
   NativeBackHeader,
   NativeTopStatusBarBlur,
   HarmonyAdaptiveLayout,
@@ -23,10 +25,9 @@ import { HarmonyPlaybackRequest } from '@moviepilot/media_player';
 
 /**
  * 鸿蒙沉浸式影视/剧集详情页：
- * - 主视觉标题与徽标列严格左对齐（`HorizontalAlign.Start`）并展示数据源品牌 Logo；
- * - 支持豆瓣 / Bangumi 条目（`GET /api/v1/media/{mediaId}`）完整加载简介、演职员与分季；
- * - 自动查询 `/api/v1/subscribe/media/{mediaid}` 订阅状态；
- * - 剧情简介支持 3 行折叠 + 「展开 / 收起」切换，「添加订阅 / 搜索资源」配备语义图标。
+ * - 修复 V3 订阅状态同步、乐观更新防覆盖与静态 `$r(...)` 符号即时刷新；
+ * - 支持主按钮与分季胶囊独立添加订阅、点击已订阅按钮弹出原生确认框取消订阅；
+ * - 电视剧支持分季切换并以 16:9 横版剧照卡片横向滚动展示单集列表。
  */
 @Component
 export struct HarmonyMediaDetailPage {
@@ -37,6 +38,7 @@ export struct HarmonyMediaDetailPage {
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
   @StorageLink(HarmonyAppearanceStore.KEY_SAFE_TOP_VP) safeTopVp: number = 38;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_BOTTOM_VP) safeBottomVp: number = 16;
   @Prop @Watch('onItemChanged') item: MpMediaItem = {
     id: '', mediaId: '', tmdbId: '', doubanId: '', title: '', enTitle: '', year: '', type: '电影',
     overview: '', vote: 0, posterUrl: '', backdropUrl: '', logoUrl: '', source: 'themoviedb',
@@ -45,10 +47,18 @@ export struct HarmonyMediaDetailPage {
   @State private hydratedItem: MpMediaItem | null = null;
   @State private scrollOffsetY: number = 0;
   @State private subscribed: boolean = false;
+  @State private subscribedSeasons: number[] = [];
+  @State private mutatingSubscribe: boolean = false;
   @State private overviewExpanded: boolean = false;
   @State private cast: MpCastMember[] = [];
   @State private seasons: MpSeasonInfo[] = [];
+  @State private activeSeasonNumber: number = 1;
+  @State private tmdbEpisodes: MpTmdbEpisodeItem[] = [];
+  @State private loadingEpisodes: boolean = false;
   @State private statusMsg: string = '';
+  @State private statusIsError: boolean = false;
+  private userMutatedSubscribe: boolean = false;
+  private detailLoadSeq: number = 0;
   private scroller: Scroller = new Scroller();
   onBack: () => void = () => {};
   onSearchResource: (kw: string) => void = () => {};
@@ -56,30 +66,80 @@ export struct HarmonyMediaDetailPage {
   onPlayMedia: (req: HarmonyPlaybackRequest) => void = () => {};
 
   aboutToAppear(): void {
-    this.loadMeta();
+    this.loadDetail();
   }
 
   onItemChanged(): void {
     this.hydratedItem = null;
     this.overviewExpanded = false;
+    this.subscribed = false;
+    this.subscribedSeasons = [];
+    this.mutatingSubscribe = false;
+    this.userMutatedSubscribe = false;
     this.cast = [];
     this.seasons = [];
+    this.activeSeasonNumber = 1;
+    this.tmdbEpisodes = [];
+    this.loadingEpisodes = false;
     this.statusMsg = '';
-    this.loadMeta();
+    this.statusIsError = false;
+    this.loadDetail();
   }
 
   private activeMedia(): MpMediaItem {
     return this.hydratedItem ?? this.item;
   }
 
-  private async loadMeta(): Promise<void> {
+  private isTvMedia(target?: MpMediaItem): boolean {
+    const m = target ?? this.activeMedia();
+    const lower = (m.type ?? '').trim().toLowerCase();
+    return lower === '电视剧' || lower === 'tv' || lower === 'series' || lower === '番剧' || this.seasons.length > 0;
+  }
+
+  private isSeasonSubscribed(seasonNum: number): boolean {
+    return this.subscribedSeasons.includes(seasonNum);
+  }
+
+  private isPrimarySubscribed(): boolean {
+    if (this.isTvMedia() && this.seasons.length > 0) {
+      return this.subscribedSeasons.includes(this.activeSeasonNumber) ||
+        (this.subscribed && this.subscribedSeasons.length === 0);
+    }
+    return this.subscribed || this.subscribedSeasons.length > 0;
+  }
+
+  private primarySubscribeLabel(): string {
+    if (this.isTvMedia() && this.seasons.length > 0) {
+      return `订阅第 ${this.activeSeasonNumber} 季`;
+    }
+    return '添加订阅';
+  }
+
+  private primarySubscribedLabel(): string {
+    if (this.isTvMedia() && this.seasons.length > 0 && this.subscribedSeasons.includes(this.activeSeasonNumber)) {
+      return `第 ${this.activeSeasonNumber} 季已订阅`;
+    }
+    return '已订阅';
+  }
+
+  private showToastSafe(msg: string): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: msg, duration: 1800 });
+    } catch {
+      // ignore toast error on unsupported context
+    }
+  }
+
+  private async loadDetail(): Promise<void> {
+    const seq = ++this.detailLoadSeq;
     const repo = MoviePilotRepository.shared();
     let workingItem: MpMediaItem = this.item;
 
-    // 1. 当 tmdbId 为空（如豆瓣 / Bangumi 条目）或缺少简介时，调用 GET /api/v1/media/{mediaId} 补全详情与演职员
+    // 1. 当缺少 tmdbId 或简介为空时，通过 V3 GET /api/v1/media/{rawMediaId}?media_source=... 补全详情与分季
     if (!workingItem.tmdbId || workingItem.overview.trim().length === 0) {
       try {
         const bundle = await repo.fetchMediaDetailBundle(workingItem);
+        if (seq !== this.detailLoadSeq) { return; }
         if (bundle) {
           workingItem = bundle.item;
           this.hydratedItem = bundle.item;
@@ -95,41 +155,214 @@ export struct HarmonyMediaDetailPage {
       }
     }
 
-    // 2. 查询真实订阅状态 GET /api/v1/subscribe/media/{mediaid}
-    try {
-      this.subscribed = await repo.checkMediaSubscribed(workingItem);
-    } catch {
-      // ignore check error
-    }
+    // 2. 并发拉取 /api/v1/media/status（入库与各季订阅字典）、/api/v1/subscribe/media/{id}、演职员与季列表
+    const needCredits = workingItem.tmdbId.length > 0 && this.cast.length === 0;
+    const needSeasons = workingItem.tmdbId.length > 0 && this.seasons.length === 0 &&
+      (workingItem.type === '电视剧' || workingItem.type.toLowerCase() === 'tv');
 
-    // 3. 若有 tmdbId，补充演职员与分季详情
-    if (workingItem.tmdbId.length > 0) {
-      try {
-        if (this.cast.length === 0) {
-          this.cast = await repo.fetchMediaCredits(workingItem.tmdbId, workingItem.type);
-        }
-        if (this.seasons.length === 0 && (workingItem.type === '电视剧' || workingItem.type.toLowerCase() === 'tv')) {
-          this.seasons = await repo.fetchMediaSeasons(workingItem.tmdbId);
-        }
-      } catch {
-        // ignore
+    try {
+      const results = await Promise.all([
+        repo.fetchMediaStatus(workingItem),
+        repo.checkMediaSubscribed(workingItem),
+        needCredits ? repo.fetchMediaCredits(workingItem.tmdbId, workingItem.type) : Promise.resolve(this.cast),
+        needSeasons ? repo.fetchMediaSeasons(workingItem.tmdbId) : Promise.resolve(this.seasons)
+      ]);
+      if (seq !== this.detailLoadSeq) { return; }
+
+      const mediaStatus = results[0];
+      const directSub = results[1];
+      if (results[2].length > 0) {
+        this.cast = results[2];
       }
+      if (results[3].length > 0) {
+        this.seasons = results[3];
+      }
+
+      // 合并媒体库命中信息，支持已入库条目一键直放
+      if (mediaStatus.itemId.length > 0) {
+        const merged: MpMediaItem = {
+          id: workingItem.id,
+          mediaId: workingItem.mediaId,
+          tmdbId: workingItem.tmdbId,
+          doubanId: workingItem.doubanId,
+          title: workingItem.title,
+          enTitle: workingItem.enTitle,
+          year: workingItem.year,
+          type: workingItem.type,
+          overview: workingItem.overview,
+          vote: workingItem.vote,
+          posterUrl: workingItem.posterUrl,
+          backdropUrl: workingItem.backdropUrl,
+          logoUrl: workingItem.logoUrl,
+          source: workingItem.source,
+          inLibrary: true,
+          subtitle: workingItem.subtitle,
+          percent: workingItem.percent,
+          serverName: mediaStatus.server || workingItem.serverName,
+          playUrl: workingItem.playUrl,
+          serverItemId: mediaStatus.itemId,
+          imdbId: workingItem.imdbId,
+          tvdbId: workingItem.tvdbId
+        };
+        workingItem = merged;
+        this.hydratedItem = merged;
+      }
+
+      // 若用户已在请求返回前主动点击订阅/取消订阅，只合并分季而不覆盖用户乐观状态
+      if (!this.userMutatedSubscribe) {
+        this.subscribed = mediaStatus.subscribed || directSub || mediaStatus.seasons.length > 0;
+        this.subscribedSeasons = mediaStatus.seasons;
+      } else {
+        const mergedSeasons: number[] = [...this.subscribedSeasons];
+        for (let i = 0; i < mediaStatus.seasons.length; i++) {
+          const sn = mediaStatus.seasons[i];
+          if (!mergedSeasons.includes(sn)) {
+            mergedSeasons.push(sn);
+          }
+        }
+        mergedSeasons.sort((a: number, b: number) => a - b);
+        if (this.subscribed) {
+          this.subscribedSeasons = mergedSeasons;
+        }
+      }
+
+      // 3. 初始化电视剧默认选中季并拉取 16:9 横版分集剧照卡片
+      if (this.seasons.length > 0) {
+        const preferred = this.seasons.find((s: MpSeasonInfo) => s.seasonNumber > 0) ?? this.seasons[0];
+        this.activeSeasonNumber = preferred.seasonNumber;
+        if (workingItem.tmdbId.length > 0) {
+          this.loadSeasonEpisodes(workingItem.tmdbId, preferred.seasonNumber);
+        }
+      }
+    } catch {
+      // keep existing state
     }
   }
 
-  private async triggerSubscribe(): Promise<void> {
-    const media = this.activeMedia();
-    const ok = await MoviePilotRepository.shared().addSubscribe(media);
-    if (ok) {
-      this.subscribed = true;
+  private async loadSeasonEpisodes(tmdbId: string, seasonNum: number): Promise<void> {
+    if (!tmdbId) {
+      this.tmdbEpisodes = [];
+      return;
     }
-    this.statusMsg = ok ? '已添加至 MoviePilot 订阅队列' : (this.subscribed ? '当前已在订阅队列中' : '订阅请求未确认，请检查是否已存在');
+    this.loadingEpisodes = true;
+    try {
+      this.tmdbEpisodes = await MoviePilotRepository.shared().fetchTmdbSeasonEpisodes(tmdbId, seasonNum);
+    } catch {
+      this.tmdbEpisodes = [];
+    }
+    this.loadingEpisodes = false;
+  }
+
+  private selectSeason(seasonNum: number): void {
+    if (this.activeSeasonNumber === seasonNum && this.tmdbEpisodes.length > 0) {
+      return;
+    }
+    this.activeSeasonNumber = seasonNum;
+    const tmdb = this.activeMedia().tmdbId;
+    if (tmdb.length > 0) {
+      this.loadSeasonEpisodes(tmdb, seasonNum);
+    }
+  }
+
+  private async handleAddSubscribe(targetSeason?: number): Promise<void> {
+    if (this.mutatingSubscribe) { return; }
+    const media = this.activeMedia();
+    const isTv = this.isTvMedia(media);
+    const seasonToUse: number | undefined = isTv
+      ? (targetSeason !== undefined ? targetSeason : (this.seasons.length > 0 ? this.activeSeasonNumber : 1))
+      : undefined;
+
+    this.mutatingSubscribe = true;
+    this.userMutatedSubscribe = true;
+    try {
+      const res = await MoviePilotRepository.shared().addSubscribeWithMessage(media, seasonToUse);
+      if (res.ok) {
+        this.subscribed = true;
+        if (seasonToUse !== undefined && !this.subscribedSeasons.includes(seasonToUse)) {
+          const next = [...this.subscribedSeasons, seasonToUse];
+          next.sort((a: number, b: number) => a - b);
+          this.subscribedSeasons = next;
+        }
+        this.statusIsError = false;
+        this.statusMsg = res.message || (seasonToUse !== undefined
+          ? `已订阅「${media.title}」第 ${seasonToUse} 季`
+          : `已订阅「${media.title}」`);
+        this.showToastSafe(this.statusMsg);
+      } else {
+        this.statusIsError = true;
+        this.statusMsg = res.message || '订阅添加失败，请检查数据源配置';
+        this.showToastSafe(this.statusMsg);
+      }
+    } catch {
+      this.statusIsError = true;
+      this.statusMsg = '网络请求异常，添加订阅失败';
+    }
+    this.mutatingSubscribe = false;
+  }
+
+  private confirmCancelSubscribe(targetSeason?: number): void {
+    if (this.mutatingSubscribe) { return; }
+    const media = this.activeMedia();
+    const isTv = this.isTvMedia(media);
+    const seasonToCancel: number | undefined = isTv
+      ? (targetSeason !== undefined ? targetSeason : (this.seasons.length > 0 ? this.activeSeasonNumber : undefined))
+      : undefined;
+    const seasonLabel = seasonToCancel !== undefined ? `第 ${seasonToCancel} 季` : '';
+
+    this.getUIContext().showAlertDialog({
+      title: '取消订阅',
+      message: `确定要取消订阅「${media.title}${seasonLabel ? ' · ' + seasonLabel : ''}」吗？`,
+      autoCancel: true,
+      primaryButton: {
+        value: '保留订阅',
+        action: () => {}
+      },
+      secondaryButton: {
+        value: '取消订阅',
+        fontColor: '#E84855',
+        action: () => {
+          this.executeCancelSubscribe(seasonToCancel);
+        }
+      }
+    });
+  }
+
+  private async executeCancelSubscribe(seasonToCancel?: number): Promise<void> {
+    if (this.mutatingSubscribe) { return; }
+    const media = this.activeMedia();
+    this.mutatingSubscribe = true;
+    this.userMutatedSubscribe = true;
+    try {
+      const ok = await MoviePilotRepository.shared().deleteMediaSubscribe(media, seasonToCancel);
+      if (ok) {
+        if (seasonToCancel !== undefined) {
+          this.subscribedSeasons = this.subscribedSeasons.filter((sn: number) => sn !== seasonToCancel);
+          this.subscribed = this.subscribedSeasons.length > 0;
+        } else {
+          this.subscribed = false;
+          this.subscribedSeasons = [];
+        }
+        this.statusIsError = false;
+        this.statusMsg = seasonToCancel !== undefined
+          ? `已取消第 ${seasonToCancel} 季订阅`
+          : '已取消订阅';
+        this.showToastSafe(this.statusMsg);
+      } else {
+        this.statusIsError = true;
+        this.statusMsg = '取消订阅失败，请稍后重试';
+      }
+    } catch {
+      this.statusIsError = true;
+      this.statusMsg = '取消订阅请求异常';
+    }
+    this.mutatingSubscribe = false;
   }
 
   private sourceDisplayLabel(src: string): string {
     const lower = (src ?? '').toLowerCase();
     if (lower.includes('douban')) { return '豆瓣'; }
     if (lower.includes('bangumi')) { return 'Bangumi'; }
+    if (lower.includes('anilist')) { return 'AniList'; }
     if (lower.includes('music')) { return 'MusicBrainz'; }
     return 'TMDB';
   }
@@ -146,6 +379,262 @@ export struct HarmonyMediaDetailPage {
       return 340;
     }
     return 380;
+  }
+
+  @Builder
+  primarySubscribeButtonBuilder() {
+    if (this.isPrimarySubscribed()) {
+      Button() {
+        Row({ space: 6 }) {
+          SymbolGlyph($r('sys.symbol.checkmark_circle_fill'))
+            .fontSize(16)
+            .fontColor([Color.White])
+          Text(this.primarySubscribedLabel())
+            .fontSize(14.5)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(Color.White)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+      }
+      .layoutWeight(1)
+      .height(46)
+      .borderRadius(23)
+      .backgroundColor('#34C759')
+      .enabled(!this.mutatingSubscribe)
+      .opacity(this.mutatingSubscribe ? 0.72 : 1)
+      .accessibilityText(`${this.primarySubscribedLabel()}，点击取消订阅`)
+      .onClick(() => this.confirmCancelSubscribe())
+    } else {
+      Button() {
+        Row({ space: 6 }) {
+          SymbolGlyph($r('sys.symbol.bookmark_fill'))
+            .fontSize(16)
+            .fontColor([!this.activeMedia().inLibrary ? Color.White : mpPrimaryText(this.isDark)])
+          Text(this.mutatingSubscribe ? '处理中…' : this.primarySubscribeLabel())
+            .fontSize(14.5)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(!this.activeMedia().inLibrary ? Color.White : mpPrimaryText(this.isDark))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+      }
+      .layoutWeight(1)
+      .height(46)
+      .borderRadius(23)
+      .backgroundColor(this.activeMedia().inLibrary ? HarmonyThemeColors.chipFill(this.isDark) : this.accentHex)
+      .enabled(!this.mutatingSubscribe)
+      .opacity(this.mutatingSubscribe ? 0.72 : 1)
+      .accessibilityText(this.primarySubscribeLabel())
+      .onClick(() => { this.handleAddSubscribe(); })
+    }
+  }
+
+  @Builder
+  seasonsSectionBuilder() {
+    Column({ space: 12 }) {
+      Row() {
+        Text(`分季 (${this.seasons.length})`)
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(mpPrimaryText(this.isDark))
+          .layoutWeight(1)
+        if (this.subscribedSeasons.length > 0) {
+          Text(`已订 ${this.subscribedSeasons.length} 季`)
+            .fontSize(12)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#34C759')
+        }
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16 })
+
+      Scroll() {
+        Row({ space: 12 }) {
+          ForEach(this.seasons, (s: MpSeasonInfo) => {
+            Column({ space: 6 }) {
+              Stack({ alignContent: Alignment.TopEnd }) {
+                MpRemoteImage({
+                  src: s.posterUrl || this.activeMedia().posterUrl,
+                  imgWidth: 112,
+                  imgHeight: 162,
+                  imgRadius: 12,
+                  placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                })
+                if (this.activeSeasonNumber === s.seasonNumber) {
+                  Column()
+                    .width(112)
+                    .height(162)
+                    .borderRadius(12)
+                    .border({ width: 2, color: this.accentHex, radius: 12 })
+                    .hitTestBehavior(HitTestMode.None)
+                }
+                if (this.isSeasonSubscribed(s.seasonNumber)) {
+                  Row({ space: 3 }) {
+                    SymbolGlyph($r('sys.symbol.checkmark'))
+                      .fontSize(10)
+                      .fontColor([Color.White])
+                    Text('已订')
+                      .fontSize(10)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor(Color.White)
+                  }
+                  .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                  .borderRadius(8)
+                  .backgroundColor('#E034C759')
+                  .margin(6)
+                }
+              }
+              .onClick(() => this.selectSeason(s.seasonNumber))
+
+              Text(s.name)
+                .fontSize(13)
+                .fontWeight(this.activeSeasonNumber === s.seasonNumber ? FontWeight.Bold : FontWeight.Medium)
+                .fontColor(this.activeSeasonNumber === s.seasonNumber ? this.accentHex : mpPrimaryText(this.isDark))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width(112)
+                .onClick(() => this.selectSeason(s.seasonNumber))
+
+              Text(`共 ${s.episodeCount} 集`)
+                .fontSize(11)
+                .fontColor(mpSecondaryText(this.isDark))
+                .width(112)
+
+              if (this.isSeasonSubscribed(s.seasonNumber)) {
+                Row({ space: 4 }) {
+                  SymbolGlyph($r('sys.symbol.checkmark_circle_fill'))
+                    .fontSize(12)
+                    .fontColor([Color.White])
+                  Text('已订阅')
+                    .fontSize(11.5)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(Color.White)
+                }
+                .width(112)
+                .height(28)
+                .justifyContent(FlexAlign.Center)
+                .borderRadius(14)
+                .backgroundColor('#34C759')
+                .onClick(() => this.confirmCancelSubscribe(s.seasonNumber))
+              } else {
+                Row({ space: 4 }) {
+                  SymbolGlyph($r('sys.symbol.bookmark_fill'))
+                    .fontSize(12)
+                    .fontColor([this.accentHex])
+                  Text('订阅本季')
+                    .fontSize(11.5)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(this.accentHex)
+                }
+                .width(112)
+                .height(28)
+                .justifyContent(FlexAlign.Center)
+                .borderRadius(14)
+                .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '26' : '16'))
+                .onClick(() => { this.handleAddSubscribe(s.seasonNumber); })
+              }
+            }
+            .alignItems(HorizontalAlign.Start)
+          }, (s: MpSeasonInfo) => `${s.seasonNumber}_${this.isSeasonSubscribed(s.seasonNumber)}_${this.activeSeasonNumber === s.seasonNumber}`)
+        }
+        .padding({ left: 16, right: 16 })
+      }
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Off)
+
+      // 当前季 16:9 横版剧集列表（横向滚动）
+      if (this.loadingEpisodes && this.tmdbEpisodes.length === 0) {
+        Row({ space: 8 }) {
+          LoadingProgress().width(20).height(20).color(this.accentHex)
+          Text(`正在加载第 ${this.activeSeasonNumber} 季分集…`)
+            .fontSize(12)
+            .fontColor(mpSecondaryText(this.isDark))
+        }
+        .padding({ left: 16, right: 16, top: 4 })
+      } else if (this.tmdbEpisodes.length > 0) {
+        Column({ space: 10 }) {
+          Row() {
+            Text(`剧集 · 第 ${this.activeSeasonNumber} 季 (${this.tmdbEpisodes.length})`)
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(mpPrimaryText(this.isDark))
+              .layoutWeight(1)
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 4 })
+
+          Scroll() {
+            Row({ space: 12 }) {
+              ForEach(this.tmdbEpisodes, (ep: MpTmdbEpisodeItem) => {
+                Column({ space: 6 }) {
+                  Stack({ alignContent: Alignment.BottomStart }) {
+                    MpRemoteImage({
+                      src: ep.stillUrl || this.activeMedia().backdropUrl || this.activeMedia().posterUrl,
+                      imgWidth: 228,
+                      imgHeight: 128,
+                      imgRadius: 14,
+                      placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                    })
+
+                    Column()
+                      .width(228)
+                      .height(48)
+                      .borderRadius({ bottomLeft: 14, bottomRight: 14 })
+                      .linearGradient({ angle: 180, colors: [['#00000000', 0], ['#BA000000', 1]] })
+
+                    Row() {
+                      Text(`E${String(ep.episodeNumber).padStart(2, '0')}`)
+                        .fontSize(10.5)
+                        .fontWeight(FontWeight.Bold)
+                        .fontColor(Color.White)
+                        .padding({ left: 7, right: 7, top: 2, bottom: 2 })
+                        .borderRadius(8)
+                        .backgroundColor('#B810141E')
+                      Blank()
+                      if (ep.runtimeMinutes > 0) {
+                        Text(`${ep.runtimeMinutes} 分钟`)
+                          .fontSize(10.5)
+                          .fontColor('#E6FFFFFF')
+                          .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                          .borderRadius(8)
+                          .backgroundColor('#8C000000')
+                      }
+                    }
+                    .width(228)
+                    .padding({ left: 8, right: 8, bottom: 8 })
+                  }
+
+                  Text(`${ep.episodeNumber}. ${ep.title}`)
+                    .fontSize(13.5)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(mpPrimaryText(this.isDark))
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .width(228)
+
+                  if (ep.overview.length > 0 || ep.airDate.length > 0) {
+                    Text(ep.overview.length > 0 ? ep.overview : ep.airDate)
+                      .fontSize(11.5)
+                      .fontColor(mpSecondaryText(this.isDark))
+                      .lineHeight(16.5)
+                      .maxLines(2)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .width(228)
+                  }
+                }
+                .width(228)
+                .alignItems(HorizontalAlign.Start)
+              }, (ep: MpTmdbEpisodeItem) => `${ep.seasonNumber}_${ep.episodeNumber}_${ep.id}`)
+            }
+            .alignItems(VerticalAlign.Top)
+            .padding({ left: 16, right: 16 })
+          }
+          .scrollable(ScrollDirection.Horizontal)
+          .scrollBar(BarState.Off)
+        }
+      }
+    }
   }
 
   build() {
@@ -240,7 +729,7 @@ export struct HarmonyMediaDetailPage {
             .padding(this.isShortLandscape() ? 14 : 20)
           }
 
-          // 操作按钮（带清晰语义图标）
+          // 操作按钮（带清晰语义图标与静态 $r 符号重绘保障）
           Column({ space: 10 }) {
             if (this.activeMedia().inLibrary || this.activeMedia().playUrl.length > 0) {
               Button() {
@@ -255,8 +744,9 @@ export struct HarmonyMediaDetailPage {
               .backgroundColor(this.accentHex)
               .onClick(async () => {
                 const cur = this.activeMedia();
+                const streamTargetId = cur.serverItemId && cur.serverItemId.length > 0 ? cur.serverItemId : cur.id;
                 try {
-                  const manifest = await MoviePilotRepository.shared().fetchVideoStreamInfo(cur.id, cur.serverName);
+                  const manifest = await MoviePilotRepository.shared().fetchVideoStreamInfo(streamTargetId, cur.serverName);
                   if (manifest && manifest.contentUrl.length > 0) {
                     this.onPlayMedia({
                       url: manifest.contentUrl,
@@ -277,28 +767,14 @@ export struct HarmonyMediaDetailPage {
                     isAudio: false
                   });
                 } else {
+                  this.statusIsError = true;
                   this.statusMsg = '暂未获取到媒体服务器直连播放地址';
                 }
               })
             }
 
             Row({ space: 10 }) {
-              Button() {
-                Row({ space: 6 }) {
-                  SymbolGlyph($r(this.subscribed ? 'sys.symbol.checkmark' : 'sys.symbol.bookmark_fill'))
-                    .fontSize(16)
-                    .fontColor([this.subscribed || !this.activeMedia().inLibrary ? Color.White : mpPrimaryText(this.isDark)])
-                  Text(this.subscribed ? '已订阅' : '添加订阅')
-                    .fontSize(14.5)
-                    .fontWeight(FontWeight.Medium)
-                    .fontColor(this.subscribed || !this.activeMedia().inLibrary ? Color.White : mpPrimaryText(this.isDark))
-                }
-              }
-              .layoutWeight(1)
-              .height(46)
-              .borderRadius(23)
-              .backgroundColor(this.subscribed ? '#34C759' : (this.activeMedia().inLibrary ? HarmonyThemeColors.chipFill(this.isDark) : this.accentHex))
-              .onClick(() => this.triggerSubscribe())
+              this.primarySubscribeButtonBuilder()
 
               Button() {
                 Row({ space: 6 }) {
@@ -322,7 +798,11 @@ export struct HarmonyMediaDetailPage {
           .padding({ left: 16, right: 16 })
 
           if (this.statusMsg.length > 0) {
-            Text(this.statusMsg).fontSize(12).fontColor('#52C41A').padding({ left: 16, right: 16 }).width('100%')
+            Text(this.statusMsg)
+              .fontSize(12)
+              .fontColor(this.statusIsError ? '#E84855' : '#34C759')
+              .padding({ left: 16, right: 16 })
+              .width('100%')
           }
 
           // 可折叠剧情简介（默认 3 行 + 展开/收起）
@@ -365,38 +845,9 @@ export struct HarmonyMediaDetailPage {
           .width('100%')
           .padding({ left: 16, right: 16 })
 
-          // 剧集分季
+          // 剧集分季与横滑 16:9 分集卡片
           if (this.seasons.length > 0) {
-            Column({ space: 10 }) {
-              Text(`分季 (${this.seasons.length})`)
-                .fontSize(18)
-                .fontWeight(FontWeight.Bold)
-                .fontColor(mpPrimaryText(this.isDark))
-                .width('100%')
-                .padding({ left: 16, right: 16 })
-
-              Scroll() {
-                Row({ space: 12 }) {
-                  ForEach(this.seasons, (s: MpSeasonInfo) => {
-                    Column({ space: 6 }) {
-                      MpRemoteImage({
-                        src: s.posterUrl || this.activeMedia().posterUrl,
-                        imgWidth: 108,
-                        imgHeight: 156,
-                        imgRadius: 12,
-                        placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
-                      })
-                      Text(s.name).fontSize(13).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark)).maxLines(1).width(108)
-                      Text(`共 ${s.episodeCount} 集`).fontSize(11).fontColor(mpSecondaryText(this.isDark)).width(108)
-                    }
-                    .alignItems(HorizontalAlign.Start)
-                  }, (s: MpSeasonInfo) => String(s.seasonNumber))
-                }
-                .padding({ left: 16, right: 16 })
-              }
-              .scrollable(ScrollDirection.Horizontal)
-              .scrollBar(BarState.Off)
-            }
+            this.seasonsSectionBuilder()
           }
 
           // 演职员表（点击演职员可下钻查看个人主页与作品集）
@@ -462,7 +913,7 @@ export struct HarmonyMediaDetailPage {
             }
           }
         }
-        .padding({ bottom: 48 })
+        .padding({ bottom: Math.max(48, this.safeBottomVp + 28) })
       }
       .scrollBar(BarState.Off)
       .onDidScroll(() => {

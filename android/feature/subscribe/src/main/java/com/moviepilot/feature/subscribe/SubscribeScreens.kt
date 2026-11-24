@@ -1,5 +1,10 @@
 package com.moviepilot.feature.subscribe
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,20 +42,26 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FilterList
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.OpenInBrowser
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.UnfoldMore
+import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -81,7 +92,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -104,11 +117,18 @@ import com.moviepilot.designsystem.NativeEntityLogo
 import com.moviepilot.designsystem.NativeGlassSheet
 import com.moviepilot.designsystem.NativeNetworkEntityLogo
 import com.moviepilot.designsystem.NativePosterCard
+import com.moviepilot.designsystem.NativeSegmentedControl
+import com.moviepilot.media.MediaPlaybackRequest
+import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.rustbridge.CalendarEntryDto
 import com.moviepilot.rustbridge.MediaCardItem
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.RustCoreBridge
+import com.moviepilot.rustbridge.SubscribeDownloadFileDto
+import com.moviepilot.rustbridge.SubscribeEpisodeFileGroupDto
+import com.moviepilot.rustbridge.SubscribeFilesInfoDto
 import com.moviepilot.rustbridge.SubscribeItemDto
+import com.moviepilot.rustbridge.SubscribeLibraryFileDto
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -130,6 +150,8 @@ fun SubscriptionsScreen(
     onOpenCalendar: () -> Unit,
     onOpenCommunity: () -> Unit,
     onOpenMedia: (MediaCardItem) -> Unit = {},
+    onPlayMedia: ((MediaPlaybackRequest) -> Unit)? = null,
+    onOpenServerItem: ((itemId: String, server: String, fallbackTitle: String) -> Unit)? = null,
 ) {
     val colors = LocalMoviePilotColors.current
     val bottomOverlayInset = LocalBottomOverlayInset.current
@@ -148,6 +170,7 @@ fun SubscriptionsScreen(
     var items by remember { mutableStateOf(repository.cachedSubscriptions.orEmpty()) }
     var isRefreshing by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<SubscribeItemDto?>(null) }
+    var viewingFilesItem by remember { mutableStateOf<SubscribeItemDto?>(null) }
     var confirmDeleteItem by remember { mutableStateOf<SubscribeItemDto?>(null) }
 
     suspend fun loadSubs(forceRefresh: Boolean = true) {
@@ -366,6 +389,12 @@ fun SubscriptionsScreen(
                                             onClick = { toggleSubWithUndo(sub) },
                                         )
                                         NativeAdaptivePill(
+                                            title = "文件",
+                                            selected = false,
+                                            icon = Icons.Rounded.FolderOpen,
+                                            onClick = { viewingFilesItem = sub },
+                                        )
+                                        NativeAdaptivePill(
                                             title = "编辑",
                                             selected = false,
                                             icon = Icons.Rounded.Edit,
@@ -405,6 +434,14 @@ fun SubscriptionsScreen(
             item = current,
             repository = repository,
             onDismiss = { editingItem = null },
+            onOpenFiles = if (current.id > 0) {
+                {
+                    editingItem = null
+                    viewingFilesItem = current
+                }
+            } else {
+                null
+            },
             onDelete = {
                 editingItem = null
                 confirmDeleteItem = current
@@ -419,6 +456,23 @@ fun SubscriptionsScreen(
                     } else {
                         snackbar?.showSnackbar(msg)
                     }
+                }
+            },
+        )
+    }
+
+    // 订阅关联文件详情弹窗
+    viewingFilesItem?.let { targetSub ->
+        SubscribeFilesSheet(
+            subscribeId = targetSub.id,
+            seedSubscribe = targetSub,
+            repository = repository,
+            onDismiss = { viewingFilesItem = null },
+            onPlayMedia = onPlayMedia,
+            onOpenServerItem = onOpenServerItem?.let { cb ->
+                { itemId, server, fallbackTitle ->
+                    viewingFilesItem = null
+                    cb(itemId, server, fallbackTitle)
                 }
             },
         )
@@ -456,6 +510,7 @@ private fun SubscribeEditorSheet(
     item: SubscribeItemDto,
     repository: MoviePilotRepository,
     onDismiss: () -> Unit,
+    onOpenFiles: (() -> Unit)? = null,
     onDelete: () -> Unit,
     onSave: (SubscribeItemDto) -> Unit,
 ) {
@@ -510,6 +565,7 @@ private fun SubscribeEditorSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .weight(1f, fill = false)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 18.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -560,6 +616,32 @@ private fun SubscribeEditorSheet(
                         )
                     },
                 )
+            }
+
+            if (onOpenFiles != null) {
+                CinematicPanel(
+                    padding = 14.dp,
+                    showsShadow = false,
+                    modifier = Modifier.clickable(onClick = onOpenFiles),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(Icons.Rounded.FolderOpen, contentDescription = null, tint = colors.accent, modifier = Modifier.size(20.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("查看订阅文件详情", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                Text("浏览已下载种子文件、入库媒体路径与直放入口", color = colors.textMuted, fontSize = 12.sp)
+                            }
+                        }
+                        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(20.dp))
+                    }
+                }
             }
 
             // 分组 0：剧集季集与剧集组（电视剧显示）
@@ -1304,6 +1386,689 @@ private fun SubscribeCommunityContent(
                         inLibrary = item.inLibrary,
                         bottomBadgeText = hotText,
                         onClick = { onOpenMedia(item) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+
+private fun detectResolutionBadge(raw: String): String? {
+    val lower = raw.lowercase()
+    return when {
+        "2160p" in lower -> "2160P"
+        "4k" in lower || "uhd" in lower || "3840x" in lower -> "4K"
+        "1080p" in lower || "1920x" in lower -> "1080P"
+        "720p" in lower || "1280x" in lower -> "720P"
+        "480p" in lower -> "480P"
+        else -> null
+    }
+}
+
+/**
+ * 订阅关联文件详情半屏弹窗（对应 `GET /api/v1/subscribe/files/{subscribe_id}`）：
+ * 支持竖屏与紧凑横屏自适应滚动，完整呈现汇总统计、下载/媒体库模式页签、分集状态筛选、路径复制与媒体库直放/详情跳转。
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun SubscribeFilesSheet(
+    subscribeId: Int,
+    seedSubscribe: SubscribeItemDto? = null,
+    repository: MoviePilotRepository,
+    onDismiss: () -> Unit,
+    onPlayMedia: ((MediaPlaybackRequest) -> Unit)? = null,
+    onOpenServerItem: ((itemId: String, server: String, fallbackTitle: String) -> Unit)? = null,
+) {
+    val colors = LocalMoviePilotColors.current
+    val context = LocalContext.current
+    val snackbar = LocalSnackbarHostState.current
+    val scope = rememberCoroutineScope()
+    val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
+
+    var filesInfo by remember(subscribeId) { mutableStateOf<SubscribeFilesInfoDto?>(null) }
+    var loading by remember(subscribeId) { mutableStateOf(true) }
+    var modeTab by rememberSaveable(subscribeId) { mutableIntStateOf(0) } // 0: 下载文件, 1: 媒体库文件
+    var statusFilter by rememberSaveable(subscribeId) { mutableStateOf("all") } // all | library | downloaded | missing
+    var inlineFeedback by remember { mutableStateOf<String?>(null) }
+
+    suspend fun reloadFiles() {
+        loading = true
+        filesInfo = repository.fetchSubscribeFilesInfo(subscribeId)
+        loading = false
+    }
+
+    LaunchedEffect(subscribeId) {
+        reloadFiles()
+    }
+
+    val sub = filesInfo?.subscribe ?: seedSubscribe
+    val isTv = MoviePilotRepository.isTvType(sub?.type)
+
+    val allGroups = remember(filesInfo, sub, isTv) {
+        val rawGroups = filesInfo?.episodes.orEmpty()
+        if (isTv) {
+            val byKey = rawGroups.associateBy { it.episodeKey }.toMutableMap()
+            val totalEp = sub?.totalEpisode ?: 0
+            val startEp = (sub?.startEpisode ?: 1).coerceAtLeast(1)
+            if (totalEp > 0) {
+                for (ep in startEp..totalEp) {
+                    byKey.putIfAbsent(ep, SubscribeEpisodeFileGroupDto(episodeKey = ep))
+                }
+            }
+            byKey.values.sortedBy { it.episodeKey }
+        } else {
+            rawGroups.ifEmpty {
+                listOf(
+                    SubscribeEpisodeFileGroupDto(
+                        episodeKey = 0,
+                        title = sub?.name.orEmpty(),
+                    ),
+                )
+            }
+        }
+    }
+
+    val totalCount = remember(allGroups, sub, isTv) {
+        if (isTv) maxOf(allGroups.size, sub?.totalEpisode ?: 0).coerceAtLeast(1) else allGroups.size.coerceAtLeast(1)
+    }
+    val downloadedCount = remember(allGroups) {
+        allGroups.count { it.download.isNotEmpty() || it.library.isNotEmpty() }
+    }
+    val libraryCount = remember(allGroups) {
+        allGroups.count { it.library.isNotEmpty() }
+    }
+    val missingCount = (totalCount - downloadedCount).coerceAtLeast(0)
+
+    val totalDownloadFiles = remember(allGroups) { allGroups.sumOf { it.download.size } }
+    val totalLibraryFiles = remember(allGroups) { allGroups.sumOf { it.library.size } }
+
+    fun episodeStatusKey(group: SubscribeEpisodeFileGroupDto): String = when {
+        group.library.isNotEmpty() -> "library"
+        group.download.isNotEmpty() -> "downloaded"
+        else -> "missing"
+    }
+
+    val filteredGroups = remember(allGroups, statusFilter) {
+        when (statusFilter) {
+            "library" -> allGroups.filter { episodeStatusKey(it) == "library" }
+            "downloaded" -> allGroups.filter { episodeStatusKey(it) == "downloaded" }
+            "missing" -> allGroups.filter { episodeStatusKey(it) == "missing" }
+            else -> allGroups
+        }
+    }
+
+    fun copyPathToClipboard(path: String) {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        cm?.setPrimaryClip(ClipData.newPlainText("MoviePilot 文件路径", path))
+        inlineFeedback = "已复制路径：$path"
+        scope.launch {
+            snackbar?.showSnackbar("已复制文件路径")
+        }
+    }
+
+    NativeGlassSheet(onDismissRequest = onDismiss) {
+        // 顶部固定导航栏（紧凑高度友好）
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            NativeAdaptivePill("关闭", selected = false, onClick = onDismiss)
+            Text(
+                text = "订阅文件详情",
+                color = colors.textPrimary,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                textAlign = TextAlign.Center,
+            )
+            IconButton(
+                onClick = { scope.launch { reloadFiles() } },
+                modifier = Modifier.size(36.dp),
+            ) {
+                Icon(Icons.Rounded.Refresh, contentDescription = "刷新文件状态", tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f, fill = false),
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            // 1. 顶部汇总卡片（海报 + 标题/季/年/状态胶囊 + 三枚进度统计卡片）
+            item(key = "sub_files_summary") {
+                CinematicPanel(padding = 14.dp, showsShadow = false) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(if (compactHeight) 54.dp else 66.dp)
+                                    .height(if (compactHeight) 80.dp else 98.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Brush.linearGradient(listOf(colors.accent.copy(alpha = 0.35f), Color(0xFF28203A)))),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                val poster = sub?.poster
+                                if (!poster.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = poster,
+                                        contentDescription = sub.name,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                } else {
+                                    Text((sub?.name ?: "MP").take(2), color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    text = sub?.name?.ifBlank { "订阅 #$subscribeId" } ?: "订阅 #$subscribeId",
+                                    color = colors.textPrimary,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    if (isTv && (sub?.season ?: 0) > 0) {
+                                        NativeAdaptiveBadge("S%02d".format(sub!!.season), tint = colors.accent)
+                                    }
+                                    if (!sub?.year.isNullOrBlank()) {
+                                        NativeAdaptiveBadge(sub!!.year)
+                                    }
+                                    if (!sub?.type.isNullOrBlank()) {
+                                        NativeAdaptiveBadge(sub!!.type)
+                                    }
+                                    val isPaused = sub?.state == "S"
+                                    NativeAdaptiveBadge(
+                                        text = if (isPaused) "已暂停" else "订阅中",
+                                        tint = if (isPaused) colors.warning else Color(0xFF1F9D55),
+                                    )
+                                }
+                            }
+                        }
+
+                        // 三枚进度统计小卡：已下载 / 已入库 / 缺失
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            SubscribeProgressStatCard(
+                                label = "已下载",
+                                valueText = "$downloadedCount/$totalCount",
+                                ratio = downloadedCount.toFloat() / totalCount.toFloat(),
+                                tint = colors.info,
+                                modifier = Modifier.weight(1f),
+                            )
+                            SubscribeProgressStatCard(
+                                label = "已入库",
+                                valueText = "$libraryCount/$totalCount",
+                                ratio = libraryCount.toFloat() / totalCount.toFloat(),
+                                tint = Color(0xFF1F9D55),
+                                modifier = Modifier.weight(1f),
+                            )
+                            SubscribeProgressStatCard(
+                                label = "缺失",
+                                valueText = "$missingCount",
+                                ratio = missingCount.toFloat() / totalCount.toFloat(),
+                                tint = colors.warning,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 2. 模式切换页签（下载文件 / 媒体库文件） + 状态过滤芯片
+            item(key = "sub_files_controls") {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    NativeSegmentedControl(
+                        options = listOf("下载文件 ($totalDownloadFiles)", "媒体库文件 ($totalLibraryFiles)"),
+                        selectedIndex = modeTab,
+                        onSelect = { modeTab = it },
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val filters = listOf(
+                            "all" to "全部 (${allGroups.size})",
+                            "library" to "已入库 ($libraryCount)",
+                            "downloaded" to "已下载 (${allGroups.count { episodeStatusKey(it) == "downloaded" }})",
+                            "missing" to "待入库 ($missingCount)",
+                        )
+                        items(filters) { (key, title) ->
+                            NativeAdaptivePill(
+                                title = title,
+                                selected = statusFilter == key,
+                                onClick = { statusFilter = key },
+                            )
+                        }
+                    }
+                    inlineFeedback?.let { tip ->
+                        Text(
+                            text = tip,
+                            color = colors.success,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+
+            // 3. 分集文件详情卡片列表
+            if (loading) {
+                item(key = "sub_files_loading") {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(color = colors.accent)
+                    }
+                }
+            } else if (filteredGroups.isEmpty()) {
+                item(key = "sub_files_empty") {
+                    CinematicPanel(padding = 20.dp, showsShadow = false) {
+                        Text(
+                            text = "当前筛选条件下暂无匹配的分集记录",
+                            color = colors.textMuted,
+                            fontSize = 14.sp,
+                        )
+                    }
+                }
+            } else {
+                items(filteredGroups, key = { "ep_group_${it.episodeKey}" }) { group ->
+                    val statusKey = episodeStatusKey(group)
+                    val (statusLabel, statusColor) = when (statusKey) {
+                        "library" -> "已入库" to Color(0xFF1F9D55)
+                        "downloaded" -> "已下载" to colors.info
+                        else -> "待入库" to colors.warning
+                    }
+                    val epCode = if (group.episodeKey <= 0 && !isTv) {
+                        if (sub?.type == "电影") "电影" else "正片"
+                    } else if (group.episodeKey <= 0) {
+                        "正片"
+                    } else {
+                        "E%02d".format(group.episodeKey)
+                    }
+                    val epTitle = group.title.ifBlank {
+                        if (group.episodeKey <= 0) (sub?.name?.ifBlank { "正片" } ?: "正片") else "第 ${group.episodeKey} 集"
+                    }
+
+                    CinematicPanel(padding = 14.dp, showsShadow = false) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                NativeAdaptiveBadge(epCode, tint = colors.accent)
+                                Text(
+                                    text = epTitle,
+                                    color = colors.textPrimary,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                NativeAdaptiveBadge(statusLabel, tint = statusColor)
+                            }
+
+                            if (group.description.isNotBlank()) {
+                                Text(
+                                    text = group.description,
+                                    color = colors.textMuted,
+                                    fontSize = 12.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+
+                            if (modeTab == 0) {
+                                if (group.download.isEmpty()) {
+                                    Text(
+                                        text = if (group.library.isNotEmpty()) {
+                                            "已完成整理入库（共 ${group.library.size} 个媒体库文件，可切换至「媒体库文件」查看）"
+                                        } else {
+                                            "暂无下载任务文件"
+                                        },
+                                        color = colors.textMuted,
+                                        fontSize = 12.5.sp,
+                                    )
+                                } else {
+                                    group.download.forEachIndexed { idx, dl ->
+                                        if (idx > 0) HorizontalDivider(color = colors.divider)
+                                        DownloadFileEntryCard(
+                                            dl = dl,
+                                            onCopyPath = ::copyPathToClipboard,
+                                        )
+                                    }
+                                }
+                            } else {
+                                if (group.library.isEmpty()) {
+                                    Text(
+                                        text = if (group.download.isNotEmpty()) {
+                                            "已下载 ${group.download.size} 个文件，等待整理入库"
+                                        } else {
+                                            "暂未入库媒体文件"
+                                        },
+                                        color = colors.textMuted,
+                                        fontSize = 12.5.sp,
+                                    )
+                                } else {
+                                    group.library.forEachIndexed { idx, lib ->
+                                        if (idx > 0) HorizontalDivider(color = colors.divider)
+                                        LibraryFileEntryCard(
+                                            lib = lib,
+                                            fallbackTitle = epTitle,
+                                            artworkUrl = group.backdrop ?: sub?.poster,
+                                            repository = repository,
+                                            onCopyPath = ::copyPathToClipboard,
+                                            onOpenBrowser = { url ->
+                                                runCatching {
+                                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                                }
+                                            },
+                                            onPlayMedia = onPlayMedia,
+                                            onOpenServerItem = onOpenServerItem,
+                                            onFeedback = { inlineFeedback = it },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item(key = "sub_files_bottom_spacer") {
+                Spacer(Modifier.height(18.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubscribeProgressStatCard(
+    label: String,
+    valueText: String,
+    ratio: Float,
+    tint: Color,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalMoviePilotColors.current
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.chipFill.copy(alpha = 0.72f))
+            .border(0.6.dp, colors.divider, RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, color = colors.textMuted, fontSize = 11.5.sp)
+            Text(valueText, color = colors.textPrimary, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(4.dp)
+                .clip(CircleShape)
+                .background(colors.divider),
+        ) {
+            if (ratio > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(ratio.coerceIn(0.06f, 1f))
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(tint),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DownloadFileEntryCard(
+    dl: SubscribeDownloadFileDto,
+    onCopyPath: (String) -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    val resBadge = remember(dl.torrentTitle, dl.filePath) {
+        detectResolutionBadge("${dl.torrentTitle} ${dl.filePath}")
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (resBadge != null) {
+                NativeAdaptiveBadge(resBadge, tint = colors.accent)
+            }
+            if (dl.siteName.isNotBlank()) {
+                Row(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(colors.chipFill)
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    NativeEntityLogo("site", dl.siteName, size = 14.dp, cornerRadius = 3.dp)
+                    Text(dl.siteName, color = colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            val dlName = dl.downloader.ifBlank { "默认下载器" }
+            Row(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(colors.chipFill)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                NativeEntityLogo("downloader", dl.downloader.ifBlank { "default" }, size = 14.dp, cornerRadius = 3.dp)
+                Text(dlName, color = colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        if (dl.torrentTitle.isNotBlank()) {
+            Text(
+                text = dl.torrentTitle,
+                color = colors.textPrimary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                lineHeight = 18.sp,
+            )
+        }
+        if (dl.hash.isNotBlank()) {
+            Text(
+                text = "Hash: ${dl.hash}",
+                color = colors.textMuted,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (dl.filePath.isNotBlank()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(colors.surfaceContainerHigh.copy(alpha = 0.65f))
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+            ) {
+                Text(
+                    text = dl.filePath,
+                    color = colors.textSecondary,
+                    fontSize = 11.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    lineHeight = 16.sp,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NativeAdaptivePill(
+                    title = "复制路径",
+                    selected = false,
+                    icon = Icons.Rounded.ContentCopy,
+                    onClick = { onCopyPath(dl.filePath) },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LibraryFileEntryCard(
+    lib: SubscribeLibraryFileDto,
+    fallbackTitle: String,
+    artworkUrl: String?,
+    repository: MoviePilotRepository,
+    onCopyPath: (String) -> Unit,
+    onOpenBrowser: (String) -> Unit,
+    onPlayMedia: ((MediaPlaybackRequest) -> Unit)?,
+    onOpenServerItem: ((itemId: String, server: String, fallbackTitle: String) -> Unit)?,
+    onFeedback: (String) -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    val scope = rememberCoroutineScope()
+    val resBadge = remember(lib.filePath) { detectResolutionBadge(lib.filePath) }
+    val isServerBacked = !lib.server.isNullOrBlank()
+    val entityKind = if (isServerBacked) "mediaserver" else "storage"
+    val entityVal = if (isServerBacked) (lib.serverType ?: lib.server!!) else lib.storage
+    val entityTitle = lib.server ?: lib.storage.ifBlank { "local" }
+    val isHttpUrl = lib.filePath.startsWith("http://", ignoreCase = true) ||
+        lib.filePath.startsWith("https://", ignoreCase = true)
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (resBadge != null) {
+                NativeAdaptiveBadge(resBadge, tint = Color(0xFF1F9D55))
+            }
+            Row(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(colors.chipFill)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                NativeEntityLogo(entityKind, entityVal, size = 14.dp, cornerRadius = 3.dp)
+                Text(entityTitle, color = colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        if (lib.filePath.isNotBlank()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(colors.surfaceContainerHigh.copy(alpha = 0.65f))
+                    .clickable {
+                        if (isHttpUrl) onOpenBrowser(lib.filePath) else onCopyPath(lib.filePath)
+                    }
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+            ) {
+                Text(
+                    text = lib.filePath,
+                    color = colors.textSecondary,
+                    fontSize = 11.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    lineHeight = 16.sp,
+                )
+            }
+        }
+
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (lib.filePath.isNotBlank()) {
+                NativeAdaptivePill(
+                    title = "复制路径",
+                    selected = false,
+                    icon = Icons.Rounded.ContentCopy,
+                    onClick = { onCopyPath(lib.filePath) },
+                )
+                if (isHttpUrl) {
+                    NativeAdaptivePill(
+                        title = "打开链接",
+                        selected = false,
+                        icon = Icons.Rounded.OpenInBrowser,
+                        onClick = { onOpenBrowser(lib.filePath) },
+                    )
+                }
+            }
+
+            if (!lib.server.isNullOrBlank() && !lib.itemid.isNullOrBlank()) {
+                if (onPlayMedia != null) {
+                    NativeAdaptivePill(
+                        title = "立即播放",
+                        selected = true,
+                        icon = Icons.Rounded.PlayArrow,
+                        tint = colors.accent,
+                        onClick = {
+                            scope.launch {
+                                val manifest = repository.fetchVideoStreamInfo(lib.itemid!!, lib.server)
+                                if (manifest != null) {
+                                    val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
+                                    onPlayMedia(
+                                        MediaPlaybackRequest(
+                                            url = manifest.contentUrl,
+                                            title = manifest.title.ifBlank { fallbackTitle },
+                                            subtitle = lib.server!!,
+                                            artworkUrl = artworkUrl,
+                                            isAudio = manifest.mediaType == "audio",
+                                            lyricsLrc = lrc,
+                                            headers = manifest.headers,
+                                            itemId = manifest.itemId,
+                                            server = manifest.server,
+                                            resumePositionMs = manifest.resumePositionMs,
+                                            subtitles = manifest.subtitles.map {
+                                                SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
+                                            },
+                                        ),
+                                    )
+                                } else {
+                                    onFeedback("暂无法从 ${lib.server} 获取播放流")
+                                }
+                            }
+                        },
+                    )
+                }
+                if (onOpenServerItem != null) {
+                    NativeAdaptivePill(
+                        title = "媒体库详情",
+                        selected = false,
+                        icon = Icons.Rounded.VideoLibrary,
+                        onClick = { onOpenServerItem(lib.itemid!!, lib.server!!, fallbackTitle) },
                     )
                 }
             }

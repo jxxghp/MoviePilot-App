@@ -55,9 +55,11 @@ export struct HarmonyServerConnectionPage {
   @StorageLink(HarmonyAppearanceStore.KEY_SAFE_LEFT_VP) safeLeftVp: number = 0;
   @StorageLink(HarmonyAppearanceStore.KEY_SAFE_RIGHT_VP) safeRightVp: number = 0;
   @Prop savedServers: SavedServerEntry[] = [];
+  @Prop canGoBack: boolean = false;
   @State private address: string = '';
   @State private errorText: string = '';
   @State private showLangSheet: boolean = false;
+  onBack: () => void = () => {};
   onConnectSuccess: (normalizedUrl: string, allowSelfSigned: boolean) => void = () => {};
   onSelectSaved: (entry: SavedServerEntry) => void = () => {};
   onDeleteSaved: (entry: SavedServerEntry) => void = () => {};
@@ -254,9 +256,29 @@ export struct HarmonyServerConnectionPage {
 
   build() {
     Column() {
-      // 固定贴顶导航栏（动态适配状态栏与左右挖孔安全区）
+      // 固定贴顶导航栏（动态适配状态栏与左右挖孔安全区，支持切换服务态返回）
       Row() {
-        Blank().width(64)
+        if (this.canGoBack) {
+          Row({ space: 4 }) {
+            SymbolGlyph($r('sys.symbol.chevron_left'))
+              .fontSize(14)
+              .fontColor([mpPrimaryText(this.isDark)])
+            Text(this.locale === 'en-US' ? 'Back' : (this.locale === 'zh-TW' ? '返回' : '返回'))
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(mpPrimaryText(this.isDark))
+          }
+          .width(64)
+          .height(34)
+          .justifyContent(FlexAlign.Center)
+          .borderRadius(17)
+          .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 17, this.accentHex, true, this.dynamicLight))
+          .hoverEffect(HoverEffect.Highlight)
+          .accessibilityText('返回上一页')
+          .onClick(() => this.onBack())
+        } else {
+          Blank().width(64)
+        }
 
         Text(this.locale === 'en-US' ? 'Connect' : (this.locale === 'zh-TW' ? '連接服務' : '连接服务'))
           .fontSize(17)

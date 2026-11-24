@@ -465,21 +465,20 @@ class MoviePilotRepository(context: Context) {
 
     /** 拉取 `/api/v1/media/{id}?media_source=...&type_name=...` 完整媒体详情（含透明片名 Logo、时长、分季、分级等）。 */
     suspend fun fetchMediaDetail(item: MediaCardItem): MediaCardItem? {
-        val lookupId = item.tmdbId?.toString()
-            ?: item.doubanId?.takeIf { it.isNotBlank() }
-            ?: item.bangumiId?.toString()
-            ?: item.mediaId?.takeIf { it.isNotBlank() }
-            ?: return null
-        val src = when {
-            item.source.isNotBlank() -> item.source
-            item.tmdbId != null -> "themoviedb"
-            item.doubanId != null -> "douban"
-            item.bangumiId != null -> "bangumi"
-            else -> "themoviedb"
-        }
+        val identity = normalizeCanonicalMediaIdentity(
+            source = item.source,
+            mediaId = item.mediaId,
+            tmdbId = item.tmdbId,
+            doubanId = item.doubanId,
+            bangumiId = item.bangumiId,
+            imdbId = item.imdbId,
+            tvdbId = item.tvdbId,
+        ) ?: return null
+        val (src, lookupId) = identity
+        val typeName = canonicalMediaType(item.type)
         val resp = authedRequest(
             segments = listOf("media", lookupId),
-            query = listOf("media_source" to src, "type_name" to item.type.ifBlank { "电影" }),
+            query = listOf("media_source" to src, "type_name" to typeName),
         ).getOrNull() ?: return null
         if (resp.status !in 200..299) return null
         val obj = extractObject(resp.body) ?: return null
@@ -487,32 +486,49 @@ class MoviePilotRepository(context: Context) {
         if (!parsed.logoPath.isNullOrBlank()) {
             mediaLogoCache["$src:$lookupId"] = parsed.logoPath
         }
-        return parsed
+        return parsed.copy(
+            season = parsed.season ?: item.season,
+            serverItemId = item.serverItemId ?: parsed.serverItemId,
+            serverName = item.serverName ?: parsed.serverName,
+            serverType = item.serverType ?: parsed.serverType,
+        )
     }
 
     /** 为发现页 Hero 异步补拉透明片名 Logo（带内存缓存，与 iOS `hydrateHeroLogos` 一致）。 */
     suspend fun fetchHeroLogo(item: MediaCardItem): String? {
         if (!item.logoPath.isNullOrBlank()) return item.logoPath
-        val lookupId = item.tmdbId?.toString() ?: item.mediaId ?: return null
-        val key = "${item.source}:$lookupId"
+        val identity = normalizeCanonicalMediaIdentity(
+            source = item.source,
+            mediaId = item.mediaId,
+            tmdbId = item.tmdbId,
+            doubanId = item.doubanId,
+            bangumiId = item.bangumiId,
+            imdbId = item.imdbId,
+            tvdbId = item.tvdbId,
+        ) ?: return null
+        val key = "${identity.first}:${identity.second}"
         mediaLogoCache[key]?.let { return it }
         return fetchMediaDetail(item)?.logoPath
     }
 
     /** 拉取影视演职员列表（自动路由 TMDB / 豆瓣 / Bangumi）。 */
     suspend fun fetchMediaCredits(item: MediaCardItem): List<MediaPersonDto> {
-        val typeName = item.type.ifBlank { "电影" }
+        val typeName = canonicalMediaType(item.type)
+        val identity = normalizeCanonicalMediaIdentity(
+            source = item.source,
+            mediaId = item.mediaId,
+            tmdbId = item.tmdbId,
+            doubanId = item.doubanId,
+            bangumiId = item.bangumiId,
+            imdbId = item.imdbId,
+            tvdbId = item.tvdbId,
+        )
         val segs = when {
-            item.source.contains("douban", true) && !item.doubanId.isNullOrBlank() ->
-                listOf("douban", "credits", item.doubanId, typeName)
-            item.source.contains("bangumi", true) && item.bangumiId != null ->
-                listOf("bangumi", "credits", item.bangumiId.toString())
-            item.tmdbId != null ->
-                listOf("tmdb", "credits", item.tmdbId.toString(), typeName)
-            !item.doubanId.isNullOrBlank() ->
-                listOf("douban", "credits", item.doubanId, typeName)
-            !item.mediaId.isNullOrBlank() ->
-                listOf("tmdb", "credits", item.mediaId, typeName)
+            identity?.first == "douban" -> listOf("douban", "credits", identity.second, typeName)
+            identity?.first == "bangumi" -> listOf("bangumi", "credits", identity.second)
+            item.tmdbId != null -> listOf("tmdb", "credits", item.tmdbId.toString(), typeName)
+            identity?.first == "themoviedb" -> listOf("tmdb", "credits", identity.second, typeName)
+            !item.doubanId.isNullOrBlank() -> listOf("douban", "credits", item.doubanId, typeName)
             else -> return emptyList()
         }
         val resp = authedRequest(segs).getOrNull() ?: return emptyList()
@@ -645,31 +661,43 @@ class MoviePilotRepository(context: Context) {
         return result.distinctBy { "${it.server}:${it.id}:${it.title}" }
     }
 
-    /** 拉取所有已启用媒体服务器的「最近入库」列表（聚合多媒体服务器，用于发现页与仪表盘卡片）。 */
+    /** 拉取所有已启用媒体服务器的「最近入库」列表（聚合多媒体服务器，保留 `serverItemId` 与 `serverName` 供直达媒体库详情页）。 */
     suspend fun fetchMediaServerLatest(): List<MediaCardItem> {
-        val servers = fetchMediaServers().filter { it.enabled }.map { it.name }.ifEmpty { listOf("Emby", "Jellyfin", "Plex") }
+        val configs = fetchMediaServers().filter { it.enabled }
+        val servers = if (configs.isNotEmpty()) {
+            configs.map { it.name to it.type }
+        } else {
+            listOf("Emby" to "emby", "Jellyfin" to "jellyfin", "Plex" to "plex")
+        }
         val result = mutableListOf<MediaCardItem>()
-        for (srv in servers) {
+        for ((srv, srvType) in servers) {
             val resp = authedRequest(listOf("mediaserver", "latest"), query = listOf("server" to srv)).getOrNull()
             val arr = extractArray(resp?.body)
             arr.forEach { el ->
                 val obj = el.asObj() ?: return@forEach
                 val title = obj.str("title") ?: return@forEach
+                val itemId = obj.str("item_id") ?: obj.str("id")
+                val serverName = obj.str("server") ?: srv
+                val serverType = obj.str("server_type")?.takeIf { it.isNotBlank() } ?: srvType
+                val useCookies = obj.bool("use_cookies") == true
                 result += MediaCardItem(
                     title = title,
                     year = obj.str("year") ?: obj.str("subtitle")?.take(4) ?: "",
-                    type = obj.str("type") ?: "电影",
+                    type = canonicalMediaType(obj.str("type")),
                     overview = obj.str("subtitle") ?: "",
-                    posterPath = resolveImageUrl(obj.str("image"), maxWidth = 450),
-                    backdropPath = resolveImageUrl(obj.str("image"), maxWidth = 900),
-                    mediaId = obj.str("item_id") ?: obj.str("id"),
-                    source = obj.str("server") ?: srv,
+                    posterPath = resolveImageUrl(obj.str("image"), maxWidth = 450, useCookies = useCookies),
+                    backdropPath = resolveImageUrl(obj.str("image"), maxWidth = 900, useCookies = useCookies),
+                    mediaId = itemId,
+                    serverItemId = itemId,
+                    serverName = serverName,
+                    serverType = serverType,
+                    source = serverName,
                     inLibrary = true,
                     rawJson = obj.toString(),
                 )
             }
         }
-        return result.distinctBy { "${it.source}:${it.resolvedId}" }
+        return result.distinctBy { "${it.serverName ?: it.source}:${it.serverItemId ?: it.resolvedId}" }
     }
 
     private suspend fun fetchMediaList(segments: List<String>, query: List<Pair<String, String>>): List<MediaCardItem> {
@@ -693,32 +721,56 @@ class MoviePilotRepository(context: Context) {
         }.orEmpty()
         val genres = explicitGenres.ifEmpty { mappedGenreIds }
 
-        val tmdbId = obj.int("tmdb_id") ?: obj.int("tmdbid")
-        val mediaId = obj.str("media_id") ?: obj.str("id")
-        val src = obj.str("source") ?: obj.str("media_source") ?: "themoviedb"
-        val cachedLogo = mediaLogoCache["$src:${tmdbId ?: mediaId}"]
+        val tmdbId = obj.int("tmdb_id") ?: obj.int("tmdbid") ?: obj.str("tmdb_id")?.toIntOrNull()
+        val doubanId = obj.str("douban_id") ?: obj.str("doubanid")
+        val bangumiId = obj.int("bangumi_id") ?: obj.int("bangumiid") ?: obj.str("bangumi_id")?.toIntOrNull()
+        val imdbId = obj.str("imdb_id") ?: obj.str("imdbid")
+        val tvdbId = obj.str("tvdb_id") ?: obj.str("tvdbid") ?: obj.int("tvdb_id")?.toString()
+        val rawMediaId = obj.str("media_id") ?: obj.str("id")
+        val rawSrc = obj.str("media_source") ?: obj.str("source")
+        val canonicalIdentity = normalizeCanonicalMediaIdentity(
+            source = rawSrc,
+            mediaId = rawMediaId,
+            tmdbId = tmdbId,
+            doubanId = doubanId,
+            bangumiId = bangumiId,
+            imdbId = imdbId,
+            tvdbId = tvdbId,
+        )
+        val src = canonicalIdentity?.first ?: normalizeMediaSource(rawSrc) ?: rawSrc ?: "themoviedb"
+        val cleanMediaId = canonicalIdentity?.second ?: rawMediaId
+        val cachedLogo = mediaLogoCache["$src:${tmdbId ?: cleanMediaId}"]
+        val serverName = obj.str("server")?.takeIf { it.isNotBlank() }
+        val serverItemId = obj.str("item_id")?.takeIf { it.isNotBlank() }
+            ?: (if (serverName != null) obj.str("id")?.takeIf { it.isNotBlank() } else null)
 
         return MediaCardItem(
             title = title,
             year = obj.str("year") ?: obj.str("release_date")?.take(4) ?: obj.str("first_air_date")?.take(4) ?: "",
-            type = obj.str("type") ?: "电影",
+            type = canonicalMediaType(obj.str("type") ?: obj.str("media_type") ?: obj.str("item_type")),
             overview = obj.str("overview") ?: obj.str("description") ?: "",
             posterPath = resolveImageUrl(obj.str("poster_path") ?: obj.str("poster") ?: obj.str("image"), maxWidth = 500),
             backdropPath = resolveImageUrl(obj.str("backdrop_path") ?: obj.str("backdrop"), maxWidth = 1080),
-            voteAverage = obj.dbl("vote_average") ?: obj.dbl("vote") ?: 0.0,
+            voteAverage = obj.dbl("vote_average") ?: obj.dbl("vote") ?: obj.dbl("rating") ?: 0.0,
             source = src,
-            tmdbId = tmdbId,
-            doubanId = obj.str("douban_id") ?: obj.str("doubanid"),
-            bangumiId = obj.int("bangumi_id") ?: obj.int("bangumiid"),
+            tmdbId = tmdbId ?: (if (src == "themoviedb") cleanMediaId?.toIntOrNull() else null),
+            doubanId = doubanId ?: (if (src == "douban") cleanMediaId else null),
+            bangumiId = bangumiId ?: (if (src == "bangumi") cleanMediaId?.toIntOrNull() else null),
+            imdbId = imdbId,
+            tvdbId = tvdbId,
             mediaIdPrefix = obj.str("mediaid_prefix"),
-            mediaId = mediaId,
+            mediaId = cleanMediaId,
+            season = obj.int("season") ?: obj.int("season_number"),
+            serverItemId = serverItemId,
+            serverName = serverName,
+            serverType = obj.str("server_type")?.takeIf { it.isNotBlank() },
             logoPath = resolveImageUrl(obj.str("logo_path"), maxWidth = 720) ?: cachedLogo,
             genres = genres,
             runtime = obj.int("runtime"),
-            numberOfSeasons = obj.int("number_of_seasons"),
-            contentRating = obj.str("content_rating"),
-            releaseDate = obj.str("release_date") ?: obj.str("first_air_date"),
-            inLibrary = obj.bool("in_library") ?: false,
+            numberOfSeasons = obj.int("number_of_seasons") ?: obj.int("season_count"),
+            contentRating = obj.str("content_rating") ?: obj.str("official_rating"),
+            releaseDate = obj.str("release_date") ?: obj.str("first_air_date") ?: obj.str("premiere_date"),
+            inLibrary = obj.bool("in_library") ?: (serverItemId != null),
             popularityCount = obj.int("count") ?: 0,
             shareUser = obj.str("share_user"),
             shareComment = obj.str("share_comment"),
@@ -739,6 +791,49 @@ class MoviePilotRepository(context: Context) {
 
     // ==================== 订阅 / 日历 / 社区 ====================
 
+    private fun parseSubscribeItem(obj: JsonObject): SubscribeItemDto? {
+        val name = obj.str("name") ?: return null
+        val rawSrc = obj.str("media_source") ?: "themoviedb"
+        val rawMediaId = obj.str("media_id") ?: obj.int("tmdbid")?.toString() ?: ""
+        val normIdentity = normalizeCanonicalMediaIdentity(source = rawSrc, mediaId = rawMediaId)
+        return SubscribeItemDto(
+            id = obj.int("id") ?: 0,
+            name = name,
+            year = obj.str("year") ?: "",
+            type = canonicalMediaType(obj.str("type")),
+            season = obj.int("season"),
+            poster = resolveImageUrl(obj.str("poster"), maxWidth = 400),
+            backdrop = resolveImageUrl(obj.str("backdrop"), maxWidth = 900),
+            vote = obj.dbl("vote") ?: 0.0,
+            state = obj.str("state") ?: "R",
+            totalEpisode = obj.int("total_episode") ?: 0,
+            lackEpisode = obj.int("lack_episode") ?: 0,
+            mediaSource = normIdentity?.first ?: normalizeMediaSource(rawSrc) ?: rawSrc,
+            mediaId = normIdentity?.second ?: rawMediaId,
+            quality = obj.str("quality") ?: "",
+            resolution = obj.str("resolution") ?: "",
+            effect = obj.str("effect") ?: "",
+            bestVersion = (obj.int("best_version") ?: 0) == 1 || obj.bool("best_version") == true,
+            sites = obj["sites"].asArr()?.mapNotNull { it.asPrim()?.intOrNull } ?: emptyList(),
+            filterGroups = obj["filter_groups"].asArr()?.mapNotNull { it.asPrim()?.content?.takeIf { s -> s != "null" } } ?: emptyList(),
+            searchImdbId = (obj.int("search_imdbid") ?: 0) == 1 || obj.bool("search_imdbid") == true,
+            searchInterval = obj.int("search_interval"),
+            keyword = obj.str("keyword") ?: "",
+            savePath = obj.str("save_path") ?: "",
+            include = obj.str("include") ?: "",
+            exclude = obj.str("exclude") ?: "",
+            mediaCategory = obj.str("media_category") ?: "",
+            customWords = obj.str("custom_words") ?: "",
+            date = obj.str("date") ?: "",
+            username = obj.str("username") ?: "",
+            description = obj.str("description") ?: "",
+            startEpisode = obj.int("start_episode"),
+            downloader = obj.str("downloader") ?: "",
+            episodeGroup = obj.str("episode_group") ?: "",
+            rawJson = obj.toString(),
+        )
+    }
+
     suspend fun fetchSubscriptions(forceRefresh: Boolean = true): List<SubscribeItemDto> {
         if (!forceRefresh) {
             cachedSubscriptions?.let { return it }
@@ -746,46 +841,53 @@ class MoviePilotRepository(context: Context) {
         val resp = authedRequest(listOf("subscribe"), trailingSlash = true).getOrNull() ?: return cachedSubscriptions ?: emptyList()
         if (resp.status !in 200..299) return cachedSubscriptions ?: emptyList()
         val parsed = extractArray(resp.body).mapNotNull { el ->
-            val obj = el.asObj() ?: return@mapNotNull null
-            SubscribeItemDto(
-                id = obj.int("id") ?: 0,
-                name = obj.str("name") ?: return@mapNotNull null,
-                year = obj.str("year") ?: "",
-                type = obj.str("type") ?: "电影",
-                season = obj.int("season"),
-                poster = resolveImageUrl(obj.str("poster"), maxWidth = 400),
-                backdrop = resolveImageUrl(obj.str("backdrop"), maxWidth = 900),
-                vote = obj.dbl("vote") ?: 0.0,
-                state = obj.str("state") ?: "R",
-                totalEpisode = obj.int("total_episode") ?: 0,
-                lackEpisode = obj.int("lack_episode") ?: 0,
-                mediaSource = obj.str("media_source") ?: "themoviedb",
-                mediaId = obj.str("media_id") ?: obj.int("tmdbid")?.toString() ?: "",
-                quality = obj.str("quality") ?: "",
-                resolution = obj.str("resolution") ?: "",
-                effect = obj.str("effect") ?: "",
-                bestVersion = (obj.int("best_version") ?: 0) == 1 || obj.bool("best_version") == true,
-                sites = obj["sites"].asArr()?.mapNotNull { it.asPrim()?.intOrNull } ?: emptyList(),
-                filterGroups = obj["filter_groups"].asArr()?.mapNotNull { it.asPrim()?.content?.takeIf { s -> s != "null" } } ?: emptyList(),
-                searchImdbId = (obj.int("search_imdbid") ?: 0) == 1 || obj.bool("search_imdbid") == true,
-                searchInterval = obj.int("search_interval"),
-                keyword = obj.str("keyword") ?: "",
-                savePath = obj.str("save_path") ?: "",
-                include = obj.str("include") ?: "",
-                exclude = obj.str("exclude") ?: "",
-                mediaCategory = obj.str("media_category") ?: "",
-                customWords = obj.str("custom_words") ?: "",
-                date = obj.str("date") ?: "",
-                username = obj.str("username") ?: "",
-                description = obj.str("description") ?: "",
-                startEpisode = obj.int("start_episode"),
-                downloader = obj.str("downloader") ?: "",
-                episodeGroup = obj.str("episode_group") ?: "",
-                rawJson = obj.toString(),
-            )
+            el.asObj()?.let(::parseSubscribeItem)
         }
         cachedSubscriptions = parsed
         return parsed
+    }
+
+    /** 拉取订阅关联的下载与入库文件详情（`GET /api/v1/subscribe/files/{subscribe_id}`）。 */
+    suspend fun fetchSubscribeFilesInfo(subscribeId: Int): SubscribeFilesInfoDto? {
+        if (subscribeId <= 0) return null
+        val resp = authedRequest(listOf("subscribe", "files", subscribeId.toString())).getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val rootObj = extractObject(resp.body) ?: return null
+        val sub = rootObj["subscribe"].asObj()?.let(::parseSubscribeItem)
+        val episodesObj = rootObj["episodes"].asObj()
+        val groups = episodesObj?.entries?.mapNotNull { (keyStr, valEl) ->
+            val epObj = valEl.asObj() ?: return@mapNotNull null
+            val epKey = keyStr.trim().toIntOrNull() ?: 0
+            val downloads = epObj["download"].asArr().orEmpty().mapNotNull { dEl ->
+                val dObj = dEl.asObj() ?: return@mapNotNull null
+                SubscribeDownloadFileDto(
+                    torrentTitle = dObj.str("torrent_title").orEmpty(),
+                    siteName = dObj.str("site_name").orEmpty(),
+                    downloader = dObj.str("downloader").orEmpty(),
+                    hash = dObj.str("hash").orEmpty(),
+                    filePath = dObj.str("file_path").orEmpty(),
+                )
+            }
+            val libraries = epObj["library"].asArr().orEmpty().mapNotNull { lEl ->
+                val lObj = lEl.asObj() ?: return@mapNotNull null
+                SubscribeLibraryFileDto(
+                    storage = lObj.str("storage")?.ifBlank { "local" } ?: "local",
+                    filePath = lObj.str("file_path").orEmpty(),
+                    server = lObj.str("server")?.takeIf { it.isNotBlank() },
+                    serverType = lObj.str("server_type")?.takeIf { it.isNotBlank() },
+                    itemid = lObj.str("itemid")?.takeIf { it.isNotBlank() } ?: lObj.str("item_id")?.takeIf { it.isNotBlank() },
+                )
+            }
+            SubscribeEpisodeFileGroupDto(
+                episodeKey = epKey,
+                title = epObj.str("title").orEmpty(),
+                description = epObj.str("description").orEmpty(),
+                backdrop = resolveImageUrl(epObj.str("backdrop"), maxWidth = 780),
+                download = downloads,
+                library = libraries,
+            )
+        }.orEmpty().sortedBy { it.episodeKey }
+        return SubscribeFilesInfoDto(subscribe = sub, episodes = groups)
     }
 
     suspend fun fetchSubscribePopular(stype: String = "电影", page: Int = 1): List<MediaCardItem> =
@@ -890,24 +992,32 @@ class MoviePilotRepository(context: Context) {
         return ok to msg
     }
 
-    /** 查询媒体真实订阅状态（调用 `GET /api/v1/subscribe/media/{mediaid}` 并结合已订阅分季集合）。 */
-    suspend fun checkMediaSubscribed(item: MediaCardItem, season: Int? = null): Pair<Boolean, Set<Int>> {
-        val prefixedMediaId = when {
-            !item.mediaId.isNullOrBlank() && item.mediaId.contains(":") -> item.mediaId
-            item.tmdbId != null -> "tmdb:${item.tmdbId}"
-            !item.doubanId.isNullOrBlank() -> "douban:${item.doubanId}"
-            item.bangumiId != null -> "bangumi:${item.bangumiId}"
-            !item.mediaId.isNullOrBlank() -> "tmdb:${item.mediaId}"
-            else -> ""
-        }
-        var directSubscribed = false
-        val subscribedSeasons = mutableSetOf<Int>()
-        if (prefixedMediaId.isNotBlank()) {
+    /** 查询媒体真实订阅状态（遵循 V3 规范发送无前缀 `media_id` + 必填 `media_source`，结合 `POST /api/v1/media/status` 与已订阅列表）。 */
+    suspend fun checkMediaSubscribed(item: MediaCardItem, season: Int? = item.season): Pair<Boolean, Set<Int>> {
+        val status = checkMediaInLibraryStatus(item, season)
+        val subscribedSeasons = status.subscribedSeasons.keys.toMutableSet()
+        var directSubscribed = status.subscribed
+
+        val identity = normalizeCanonicalMediaIdentity(
+            source = item.source,
+            mediaId = item.mediaId,
+            tmdbId = item.tmdbId,
+            doubanId = item.doubanId,
+            bangumiId = item.bangumiId,
+            imdbId = item.imdbId,
+            tvdbId = item.tvdbId,
+        )
+        val mtype = canonicalMediaType(item.type)
+        val isTv = isTvType(mtype)
+        if (!directSubscribed && identity != null) {
             val q = buildList {
-                if (season != null) add("season" to season.toString())
+                add("media_source" to identity.first)
+                add("mtype" to mtype)
+                if (isTv && season != null) add("season" to season.toString())
                 if (item.title.isNotBlank()) add("title" to item.title)
+                if (item.year.isNotBlank()) add("year" to item.year)
             }
-            val resp = authedRequest(listOf("subscribe", "media", prefixedMediaId), query = q).getOrNull()
+            val resp = authedRequest(listOf("subscribe", "media", identity.second), query = q).getOrNull()
             if (resp != null && resp.status in 200..299) {
                 val obj = extractObject(resp.body)
                 val subId = obj?.int("id") ?: 0
@@ -917,70 +1027,173 @@ class MoviePilotRepository(context: Context) {
                 }
             }
         }
-        val allSubs = fetchSubscriptions(forceRefresh = false)
-        allSubs.forEach { sub ->
-            val sameMedia = (item.tmdbId != null && (sub.mediaId == item.tmdbId.toString() || sub.mediaId == "tmdb:${item.tmdbId}" || sub.rawJson.contains("\"tmdbid\":${item.tmdbId}"))) ||
-                (!item.doubanId.isNullOrBlank() && sub.rawJson.contains("\"doubanid\":\"${item.doubanId}\"")) ||
-                (sub.name == item.title && (item.year.isBlank() || sub.year == item.year))
-            if (sameMedia) {
-                if (item.type == "电影") directSubscribed = true
-                sub.season?.let { subscribedSeasons += it }
-            }
-        }
-        if (season != null && season in subscribedSeasons) {
+        if (isTv && season != null && season in subscribedSeasons) {
             directSubscribed = true
         }
         return directSubscribed to subscribedSeasons
     }
 
-    /** 查询媒体真实入库状态与可播放条目 ID（调用 `POST /api/v1/media/status` 并匹配媒体服务器条目）。 */
-    suspend fun checkMediaInLibraryStatus(item: MediaCardItem): MediaLibraryStatusDto {
-        val bodyMap = mutableMapOf<String, JsonElement>(
-            "title" to JsonPrimitive(item.title),
-            "year" to JsonPrimitive(item.year),
-            "type" to JsonPrimitive(item.type.ifBlank { "电影" }),
+    /**
+     * 批量契约查询媒体本地入库状态、订阅状态与可直放条目 ID：
+     * 严格发送 JSON 数组 `[{"media_source": ..., "media_id": ..., "mtype": ...}]` 到 `POST /api/v1/media/status`。
+     */
+    suspend fun checkMediaInLibraryStatus(item: MediaCardItem, season: Int? = item.season): MediaLibraryStatusDto {
+        val identity = normalizeCanonicalMediaIdentity(
+            source = item.source,
+            mediaId = item.mediaId,
+            tmdbId = item.tmdbId,
+            doubanId = item.doubanId,
+            bangumiId = item.bangumiId,
+            imdbId = item.imdbId,
+            tvdbId = item.tvdbId,
         )
-        item.tmdbId?.let { bodyMap["tmdb_id"] = JsonPrimitive(it); bodyMap["tmdbid"] = JsonPrimitive(it) }
-        item.doubanId?.let { bodyMap["douban_id"] = JsonPrimitive(it) }
-        item.bangumiId?.let { bodyMap["bangumi_id"] = JsonPrimitive(it) }
-        item.mediaId?.let { bodyMap["media_id"] = JsonPrimitive(it) }
+        val mtype = canonicalMediaType(item.type)
+        val isTv = isTvType(mtype)
+        val queryMap = mutableMapOf<String, JsonElement>(
+            "mtype" to JsonPrimitive(mtype),
+        )
+        if (identity != null) {
+            queryMap["media_source"] = JsonPrimitive(identity.first)
+            queryMap["media_id"] = JsonPrimitive(identity.second)
+        }
+        if (item.title.isNotBlank()) queryMap["title"] = JsonPrimitive(item.title)
+        if (item.year.isNotBlank()) queryMap["year"] = JsonPrimitive(item.year)
+        if (isTv && season != null) queryMap["season"] = JsonPrimitive(season)
 
         var inLib = item.inLibrary
-        var server = ""
-        var serverType = ""
-        var itemId = ""
-        val seasonsMap = mutableMapOf<Int, List<Int>>()
+        var server = item.serverName.orEmpty()
+        var serverType = item.serverType.orEmpty()
+        var itemId = item.serverItemId.orEmpty()
+        var subscribed = false
+        val subscribedSeasonsMap = mutableMapOf<Int, String>()
+        val seasonsEpisodesMap = mutableMapOf<Int, List<Int>>()
 
         val resp = authedRequest(
             segments = listOf("media", "status"),
             method = "POST",
-            body = JsonObject(bodyMap).toString(),
+            body = JsonArray(listOf(JsonObject(queryMap))).toString(),
         ).getOrNull()
         if (resp != null && resp.status in 200..299) {
-            val obj = extractObject(resp.body)
-            if (obj != null) {
-                inLib = obj.bool("in_library") ?: obj.bool("exists") ?: (!obj.str("item_id").isNullOrBlank()) || inLib
-                server = obj.str("server").orEmpty()
-                serverType = obj.str("server_type").orEmpty()
-                itemId = obj.str("item_id") ?: obj.str("id").orEmpty()
-                obj["seasons"].asObj()?.forEach { (k, v) ->
-                    val sNum = k.toIntOrNull() ?: return@forEach
-                    val eps = v.asArr()?.mapNotNull { it.asPrim()?.intOrNull }.orEmpty()
-                    seasonsMap[sNum] = eps
+            val statusObj = extractArray(resp.body).firstOrNull()?.asObj() ?: extractObject(resp.body)
+            if (statusObj != null) {
+                val resItemId = statusObj.str("item_id") ?: statusObj.str("itemid").orEmpty()
+                val resServer = statusObj.str("server").orEmpty()
+                if (resItemId.isNotBlank()) {
+                    itemId = resItemId
+                    inLib = true
                 }
-                if (seasonsMap.isNotEmpty()) inLib = true
+                if (resServer.isNotBlank()) {
+                    server = resServer
+                }
+                subscribed = statusObj.bool("subscribed") ?: false
+                statusObj["seasons"].asObj()?.forEach { (k, v) ->
+                    val sNum = k.toIntOrNull() ?: return@forEach
+                    when (v) {
+                        is JsonPrimitive -> {
+                            val mode = v.content.takeIf { it != "null" && it.isNotBlank() } ?: "normal"
+                            subscribedSeasonsMap[sNum] = mode
+                        }
+                        is JsonArray -> {
+                            val eps = v.mapNotNull { it.asPrim()?.intOrNull }
+                            seasonsEpisodesMap[sNum] = eps
+                        }
+                        else -> Unit
+                    }
+                }
             }
         }
 
-        // 若已知入库但缺少直放 itemId，或条目本身来自媒体服务器浏览，尝试从已启用媒体服务器精准定位 itemId
+        // 结合本地缓存订阅列表补充已订阅季与对应 subscribeId（用于直达订阅文件详情弹窗）
+        var matchedSubId: Int? = null
+        val seasonSubIds = mutableMapOf<Int, Int>()
+        val allSubs = fetchSubscriptions(forceRefresh = false)
+        allSubs.forEach { sub ->
+            val subIdentity = normalizeCanonicalMediaIdentity(sub.mediaSource, sub.mediaId)
+            val sameIdentity = identity != null && subIdentity != null &&
+                identity.first == subIdentity.first && identity.second == subIdentity.second
+            val sameTmdb = item.tmdbId != null && (
+                sub.mediaId == item.tmdbId.toString() ||
+                    sub.rawJson.contains("\"tmdbid\":${item.tmdbId}")
+                )
+            val sameTitle = isTvType(sub.type) == isTv &&
+                sub.name == item.title &&
+                (item.year.isBlank() || sub.year.isBlank() || sub.year == item.year)
+            if (sameIdentity || sameTmdb || sameTitle) {
+                if (isTv) {
+                    val sNum = sub.season ?: 1
+                    subscribedSeasonsMap.putIfAbsent(sNum, if (sub.bestVersion) "best_version" else "normal")
+                    if (sub.id > 0) seasonSubIds[sNum] = sub.id
+                    if (season == null || season == sNum) {
+                        subscribed = true
+                        if (sub.id > 0) matchedSubId = sub.id
+                    }
+                } else {
+                    subscribed = true
+                    if (sub.id > 0) matchedSubId = sub.id
+                }
+            }
+        }
+
+        // 若 `POST /api/v1/media/status` 未命中或服务端为旧版本，回退调用规范 `GET /api/v1/subscribe/media/{rawMediaId}?media_source=...`
+        if (identity != null && (!subscribed || (matchedSubId == null && subscribed))) {
+            val q = buildList {
+                add("media_source" to identity.first)
+                add("mtype" to mtype)
+                if (isTv && season != null) add("season" to season.toString())
+                if (item.title.isNotBlank()) add("title" to item.title)
+                if (item.year.isNotBlank()) add("year" to item.year)
+            }
+            val subResp = authedRequest(listOf("subscribe", "media", identity.second), query = q).getOrNull()
+            if (subResp != null && subResp.status in 200..299) {
+                val subObj = extractObject(subResp.body)
+                val subId = subObj?.int("id") ?: 0
+                if (subId > 0) {
+                    subscribed = true
+                    matchedSubId = subId
+                    val sNum = subObj?.int("season") ?: season
+                    if (isTv && sNum != null) {
+                        subscribedSeasonsMap.putIfAbsent(sNum, "normal")
+                        seasonSubIds[sNum] = subId
+                    }
+                }
+            }
+        }
+
+        // 电视剧已入库时尽力查询各季已入库集号（供详情页单集卡片展示「已入库」角标）
+        if (isTv && inLib && seasonsEpisodesMap.isEmpty() && identity != null) {
+            val existsBody = mutableMapOf<String, JsonElement>(
+                "type" to JsonPrimitive("电视剧"),
+                "title" to JsonPrimitive(item.title),
+                "media_source" to JsonPrimitive(identity.first),
+                "media_id" to JsonPrimitive(identity.second),
+            )
+            if (item.year.isNotBlank()) existsBody["year"] = JsonPrimitive(item.year)
+            val existsResp = authedRequest(
+                segments = listOf("mediaserver", "exists_remote"),
+                method = "POST",
+                body = JsonObject(existsBody).toString(),
+            ).getOrNull()
+            if (existsResp != null && existsResp.status in 200..299) {
+                extractObject(existsResp.body)?.forEach { (k, v) ->
+                    val sNum = k.toIntOrNull() ?: return@forEach
+                    val eps = v.asArr()?.mapNotNull { it.asPrim()?.intOrNull }.orEmpty()
+                    if (eps.isNotEmpty()) seasonsEpisodesMap[sNum] = eps
+                }
+            }
+        }
+
+        // 补充媒体服务器类型与缺失 itemId 定位
         val mediaServers = fetchMediaServers().filter { it.enabled }
+        if (server.isNotBlank() && serverType.isBlank()) {
+            serverType = mediaServers.firstOrNull { it.name.equals(server, ignoreCase = true) }?.type.orEmpty()
+        }
         if (itemId.isBlank() && !item.mediaId.isNullOrBlank() && mediaServers.any { it.name.equals(item.source, ignoreCase = true) }) {
             val matchedSrv = mediaServers.first { it.name.equals(item.source, ignoreCase = true) }
             inLib = true
             server = matchedSrv.name
             serverType = matchedSrv.type
             itemId = item.mediaId
-        } else if (itemId.isBlank() && item.title.isNotBlank() && mediaServers.isNotEmpty()) {
+        } else if (itemId.isBlank() && inLib && item.title.isNotBlank() && mediaServers.isNotEmpty()) {
             for (srv in mediaServers) {
                 val page = fetchMediaServerBrowse(server = srv.name, keyword = item.title, limit = 6)
                 val hit = page.items.firstOrNull { cand ->
@@ -1001,7 +1214,11 @@ class MoviePilotRepository(context: Context) {
             server = server,
             serverType = serverType,
             itemId = itemId,
-            existingEpisodesBySeason = seasonsMap,
+            subscribed = subscribed || (isTv && season != null && season in subscribedSeasonsMap),
+            subscribedSeasons = subscribedSeasonsMap,
+            subscribeId = matchedSubId ?: (if (isTv && season != null) seasonSubIds[season] else null),
+            seasonSubscribeIds = seasonSubIds,
+            existingEpisodesBySeason = seasonsEpisodesMap,
         )
     }
 
@@ -1017,20 +1234,45 @@ class MoviePilotRepository(context: Context) {
         return ok
     }
 
-    /** 创建或更新订阅，返回 `(是否成功, 服务端提示文案)`。 */
-    suspend fun createOrUpdateSubscriptionWithMessage(item: SubscribeItemDto, isUpdate: Boolean = false): Pair<Boolean, String> {
+    /** 创建或更新订阅，返回 `(是否成功, 服务端提示文案, 订阅ID)`。 */
+    suspend fun createOrUpdateSubscriptionFull(
+        item: SubscribeItemDto,
+        isUpdate: Boolean = false,
+    ): Triple<Boolean, String, Int?> {
         val baseMap = runCatching {
             if (isUpdate && item.rawJson.isNotBlank()) json.parseToJsonElement(item.rawJson).asObj()?.toMutableMap() else null
         }.getOrNull() ?: mutableMapOf()
-        if (item.id > 0) baseMap["id"] = JsonPrimitive(item.id)
+
+        val canonicalType = canonicalMediaType(item.type)
+        val isTv = isTvType(canonicalType)
+        val identity = normalizeCanonicalMediaIdentity(source = item.mediaSource, mediaId = item.mediaId)
+
+        if (isUpdate && item.id > 0) {
+            baseMap["id"] = JsonPrimitive(item.id)
+        } else {
+            baseMap.remove("id")
+        }
+        // 移除服务端禁止公共写入的只读字段及旧版 tmdbid 冗余键
+        listOf(
+            "tmdbid", "poster", "backdrop", "vote", "description", "lack_episode",
+            "completed_episode", "completed_tracks", "note", "state", "last_update",
+            "username", "current_priority", "episode_priority", "date", "execution_status", "last_search",
+        ).forEach { baseMap.remove(it) }
+
         baseMap["name"] = JsonPrimitive(item.name)
-        baseMap["year"] = JsonPrimitive(item.year)
-        baseMap["type"] = JsonPrimitive(item.type)
-        if (item.season != null) baseMap["season"] = JsonPrimitive(item.season) else baseMap.remove("season")
-        baseMap["media_source"] = JsonPrimitive(item.mediaSource)
-        if (item.mediaId.isNotBlank()) {
-            baseMap["media_id"] = JsonPrimitive(item.mediaId)
-            item.mediaId.removePrefix("tmdb:").toIntOrNull()?.let { baseMap["tmdbid"] = JsonPrimitive(it) }
+        baseMap["year"] = JsonPrimitive(item.year.trim())
+        baseMap["type"] = JsonPrimitive(canonicalType)
+        if (isTv) {
+            baseMap["season"] = JsonPrimitive(item.season ?: 1)
+        } else {
+            baseMap.remove("season")
+        }
+        if (identity != null) {
+            baseMap["media_source"] = JsonPrimitive(identity.first)
+            baseMap["media_id"] = JsonPrimitive(identity.second)
+        } else {
+            baseMap.remove("media_source")
+            baseMap.remove("media_id")
         }
         baseMap["total_episode"] = JsonPrimitive(item.totalEpisode)
         if (item.startEpisode != null) baseMap["start_episode"] = JsonPrimitive(item.startEpisode) else baseMap.remove("start_episode")
@@ -1041,7 +1283,11 @@ class MoviePilotRepository(context: Context) {
         baseMap["sites"] = JsonArray(item.sites.map { JsonPrimitive(it) })
         baseMap["filter_groups"] = JsonArray(item.filterGroups.map { JsonPrimitive(it) })
         baseMap["search_imdbid"] = JsonPrimitive(if (item.searchImdbId) 1 else 0)
-        if (item.searchInterval != null) baseMap["search_interval"] = JsonPrimitive(item.searchInterval) else baseMap.remove("search_interval")
+        if (item.searchInterval != null && item.searchInterval > 0) {
+            baseMap["search_interval"] = JsonPrimitive(item.searchInterval)
+        } else {
+            baseMap.remove("search_interval")
+        }
         baseMap["keyword"] = JsonPrimitive(item.keyword)
         baseMap["save_path"] = JsonPrimitive(item.savePath)
         baseMap["downloader"] = JsonPrimitive(item.downloader)
@@ -1050,21 +1296,69 @@ class MoviePilotRepository(context: Context) {
         baseMap["exclude"] = JsonPrimitive(item.exclude)
         baseMap["media_category"] = JsonPrimitive(item.mediaCategory)
         baseMap["custom_words"] = JsonPrimitive(item.customWords)
+
         val resp = authedRequest(
             segments = listOf("subscribe"),
             method = if (isUpdate) "PUT" else "POST",
             body = JsonObject(baseMap).toString(),
             trailingSlash = true,
-        ).getOrNull() ?: return false to "网络请求失败"
+        ).getOrNull() ?: return Triple(false, "网络请求失败", null)
         val rootObj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
-        val ok = rootObj?.bool("success") ?: (resp.status in 200..299)
+        val ok = resp.status in 200..299 && rootObj?.bool("success") == true
+        val createdId = rootObj?.get("data").asObj()?.int("id") ?: item.id.takeIf { it > 0 }
         if (ok) cachedSubscriptions = null
-        val msg = rootObj?.str("message") ?: if (ok) "订阅已保存" else "操作失败（HTTP ${resp.status}）"
+        val msg = rootObj?.str("message")?.takeIf { it.isNotBlank() }
+            ?: if (ok) (if (isUpdate) "订阅已保存" else "已添加到我的订阅") else "订阅操作失败（HTTP ${resp.status}）"
+        return Triple(ok, msg, createdId)
+    }
+
+    /** 创建或更新订阅，返回 `(是否成功, 服务端提示文案)`。 */
+    suspend fun createOrUpdateSubscriptionWithMessage(item: SubscribeItemDto, isUpdate: Boolean = false): Pair<Boolean, String> {
+        val (ok, msg, _) = createOrUpdateSubscriptionFull(item, isUpdate)
         return ok to msg
     }
 
     suspend fun createOrUpdateSubscription(item: SubscribeItemDto, isUpdate: Boolean = false): Boolean =
         createOrUpdateSubscriptionWithMessage(item, isUpdate).first
+
+    /** 按媒体规范身份取消订阅（`DELETE /api/v1/subscribe/media/{rawMediaId}?media_source=...`），并刷新缓存。 */
+    suspend fun unsubscribeMediaWithMessage(item: MediaCardItem, season: Int? = null): Pair<Boolean, String> {
+        val identity = normalizeCanonicalMediaIdentity(
+            source = item.source,
+            mediaId = item.mediaId,
+            tmdbId = item.tmdbId,
+            doubanId = item.doubanId,
+            bangumiId = item.bangumiId,
+            imdbId = item.imdbId,
+            tvdbId = item.tvdbId,
+        )
+        val isTv = isTvType(item.type)
+        if (identity != null) {
+            val q = buildList {
+                add("media_source" to identity.first)
+                if (isTv && season != null) add("season" to season.toString())
+            }
+            val resp = authedRequest(
+                segments = listOf("subscribe", "media", identity.second),
+                method = "DELETE",
+                query = q,
+            ).getOrNull() ?: return false to "网络请求失败"
+            val rootObj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+            val ok = resp.status in 200..299 && rootObj?.bool("success") == true
+            if (ok) cachedSubscriptions = null
+            val msg = rootObj?.str("message")?.takeIf { it.isNotBlank() }
+                ?: if (ok) "已取消订阅" else "取消订阅失败（HTTP ${resp.status}）"
+            return ok to msg
+        }
+        // 无外部数据源身份时按标题与季号从订阅列表回退定位主键删除
+        val target = fetchSubscriptions(forceRefresh = true).firstOrNull { sub ->
+            sub.name == item.title &&
+                (item.year.isBlank() || sub.year.isBlank() || sub.year == item.year) &&
+                (!isTv || season == null || sub.season == season)
+        } ?: return false to "未找到匹配的订阅记录"
+        val ok = deleteSubscription(target.id)
+        return ok to (if (ok) "已取消订阅" else "取消订阅失败")
+    }
 
     suspend fun deleteSubscription(id: Int): Boolean {
         val resp = authedRequest(listOf("subscribe", id.toString()), method = "DELETE").getOrNull()
@@ -2396,33 +2690,351 @@ class MoviePilotRepository(context: Context) {
         val rawItems = root["items"].asArr() ?: extractArray(resp?.body)
         val total = root.int("total_count") ?: root.int("total") ?: rawItems.size
         val hasMore = root.bool("has_more") ?: (startIndex + rawItems.size < total)
-        val items = rawItems.mapNotNull { el ->
-            val obj = el.asObj() ?: return@mapNotNull null
-            val itemId = obj.str("item_id") ?: obj.str("id") ?: return@mapNotNull null
-            val rawImg = obj.str("poster")
-                ?: obj.str("thumb")
-                ?: obj.str("image")
-                ?: obj.str("poster_path")
-                ?: obj.str("backdrop")
-                ?: obj.str("backdrop_path")
-            val useCookies = obj.bool("use_cookies") == true
-            MediaServerBrowseItemDto(
-                itemId = itemId,
-                title = obj.str("title") ?: obj.str("name") ?: "未命名条目",
-                subtitle = obj.str("subtitle") ?: obj.str("artist") ?: obj.str("album").orEmpty(),
-                type = obj.str("item_type") ?: obj.str("type").orEmpty(),
-                year = obj.str("year").orEmpty(),
-                imageUrl = resolveImageUrl(rawImg, maxWidth = 480, useCookies = useCookies),
-                server = obj.str("server") ?: server,
-                serverType = obj.str("server_type").orEmpty(),
-                played = obj.bool("is_played") ?: obj.bool("played") ?: false,
-                userRating = obj.dbl("rating") ?: obj.dbl("vote_average") ?: obj.dbl("community_rating") ?: 0.0,
-                unplayedCount = obj.int("unplayed_count"),
-                tmdbId = obj.int("tmdbid") ?: obj.int("tmdb_id"),
-                mediaId = obj.str("media_id"),
+        val items = rawItems.mapNotNull { el -> parseMediaServerBrowseItem(el, defaultServer = server) }
+        return MediaServerBrowsePageDto(items = items, totalCount = total, hasMore = hasMore)
+    }
+
+    private fun parseMediaServerBrowseItem(el: JsonElement, defaultServer: String = ""): MediaServerBrowseItemDto? {
+        val obj = el.asObj() ?: return null
+        val itemId = obj.str("item_id") ?: obj.str("id") ?: return null
+        val useCookies = obj.bool("use_cookies") == true
+        val posterUrl = resolveImageUrl(obj.str("poster") ?: obj.str("poster_path"), maxWidth = 480, useCookies = useCookies)
+        val thumbUrl = resolveImageUrl(obj.str("thumb"), maxWidth = 780, useCookies = useCookies)
+        val backdropUrl = resolveImageUrl(obj.str("backdrop") ?: obj.str("backdrop_path"), maxWidth = 1080, useCookies = useCookies)
+        val fallbackImg = resolveImageUrl(obj.str("image"), maxWidth = 480, useCookies = useCookies)
+        return MediaServerBrowseItemDto(
+            itemId = itemId,
+            title = obj.str("title") ?: obj.str("name") ?: "未命名条目",
+            originalTitle = obj.str("original_title").orEmpty(),
+            subtitle = obj.str("subtitle") ?: obj.str("artist") ?: obj.str("album").orEmpty(),
+            overview = obj.str("overview").orEmpty(),
+            type = obj.str("item_type") ?: obj.str("type").orEmpty(),
+            mediaType = obj.str("media_type").orEmpty(),
+            year = obj.str("year").orEmpty(),
+            premiereDate = obj.str("premiere_date").orEmpty(),
+            imageUrl = posterUrl ?: thumbUrl ?: fallbackImg ?: backdropUrl,
+            poster = posterUrl ?: fallbackImg,
+            backdrop = backdropUrl,
+            thumb = thumbUrl,
+            server = obj.str("server") ?: defaultServer,
+            serverType = obj.str("server_type").orEmpty(),
+            durationMs = obj.lng("duration_ms"),
+            seriesId = obj.str("series_id"),
+            seriesName = obj.str("series_name").orEmpty(),
+            seasonId = obj.str("season_id"),
+            seasonNumber = obj.int("season_number"),
+            episodeNumber = obj.int("episode_number"),
+            childCount = obj.int("child_count"),
+            played = obj.bool("is_played") ?: obj.bool("played") ?: false,
+            playedPercentage = obj.dbl("played_percentage") ?: obj.dbl("percent") ?: 0.0,
+            resumePositionMs = obj.lng("resume_position_ms") ?: 0L,
+            userRating = obj.dbl("rating") ?: obj.dbl("vote_average") ?: obj.dbl("community_rating") ?: 0.0,
+            unplayedCount = obj.int("unplayed_count"),
+            tmdbId = obj.int("tmdbid") ?: obj.int("tmdb_id") ?: obj.str("tmdb_id")?.toIntOrNull(),
+            mediaId = obj.str("media_id"),
+        )
+    }
+
+    /**
+     * 拉取媒体服务器单个条目完整详情（`GET /api/v1/mediaserver/detail`），
+     * 自动支持 Season/Episode 向父剧集继承外部编号，并通过 `/api/v1/media/{id}` 补全豆瓣/IMDb/透明片名 Logo。
+     */
+    suspend fun fetchMediaServerItemDetail(
+        itemId: String,
+        server: String? = null,
+        enrichMetadata: Boolean = true,
+    ): MediaServerItemDetailDto? {
+        if (itemId.isBlank()) return null
+        val q = buildList {
+            add("itemid" to itemId)
+            if (!server.isNullOrBlank()) add("server" to server)
+        }
+        val resp = authedRequest(listOf("mediaserver", "detail"), query = q).getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val obj = extractObject(resp.body) ?: return null
+        val useCookies = obj.bool("use_cookies") == true
+
+        val people = obj["people"].asArr().orEmpty().mapNotNull { pEl ->
+            val pObj = pEl.asObj() ?: return@mapNotNull null
+            val pName = pObj.str("name") ?: return@mapNotNull null
+            MediaServerPersonDto(
+                id = pObj.str("id").orEmpty(),
+                name = pName,
+                role = pObj.str("role").orEmpty(),
+                type = pObj.str("type").orEmpty(),
+                image = resolveImageUrl(pObj.str("image"), maxWidth = 320, useCookies = useCookies),
             )
         }
-        return MediaServerBrowsePageDto(items = items, totalCount = total, hasMore = hasMore)
+
+        val mediaSources = obj["media_sources"].asArr().orEmpty().mapNotNull { srcEl ->
+            val srcObj = srcEl.asObj() ?: return@mapNotNull null
+            val streams = srcObj["streams"].asArr().orEmpty().mapNotNull { stEl ->
+                val stObj = stEl.asObj() ?: return@mapNotNull null
+                val rawFrameRate = stObj.str("frame_rate")
+                    ?: stObj.str("average_frame_rate")
+                    ?: stObj.str("real_frame_rate")
+                    ?: stObj.dbl("frame_rate")?.let { if (it > 0.0) it.toString() else null }
+                val rawLevel = stObj.str("level")
+                    ?: stObj.dbl("level")?.let { if (it > 0.0) it.toString() else null }
+                MediaServerStreamTrackDto(
+                    index = stObj.int("index"),
+                    type = stObj.str("type")?.lowercase() ?: "unknown",
+                    codec = stObj.str("codec")?.takeIf { it.isNotBlank() },
+                    language = stObj.str("language")?.takeIf { it.isNotBlank() },
+                    title = stObj.str("title")?.takeIf { it.isNotBlank() },
+                    displayTitle = stObj.str("display_title")?.takeIf { it.isNotBlank() },
+                    isDefault = stObj.bool("is_default") ?: false,
+                    isForced = stObj.bool("is_forced") ?: false,
+                    isExternal = stObj.bool("is_external") ?: false,
+                    subtitleId = stObj.str("subtitle_id")?.takeIf { it.isNotBlank() },
+                    channels = stObj.int("channels"),
+                    channelLayout = stObj.str("channel_layout")?.takeIf { it.isNotBlank() },
+                    bitrate = stObj.lng("bitrate"),
+                    width = stObj.int("width"),
+                    height = stObj.int("height"),
+                    videoRange = stObj.str("video_range")?.takeIf { it.isNotBlank() },
+                    frameRate = rawFrameRate?.takeIf { it.isNotBlank() && it != "0" && it != "0.0" },
+                    profile = stObj.str("profile")?.takeIf { it.isNotBlank() },
+                    level = rawLevel?.takeIf { it.isNotBlank() && it != "0" && it != "0.0" },
+                    aspectRatio = stObj.str("aspect_ratio")?.takeIf { it.isNotBlank() },
+                    isInterlaced = stObj.bool("is_interlaced"),
+                    colorPrimaries = stObj.str("color_primaries")?.takeIf { it.isNotBlank() },
+                    colorSpace = stObj.str("color_space")?.takeIf { it.isNotBlank() },
+                    bitDepth = stObj.int("bit_depth"),
+                    sampleRate = stObj.int("sample_rate"),
+                )
+            }
+            MediaServerSourceDto(
+                id = srcObj.str("id").orEmpty(),
+                name = srcObj.str("name").orEmpty(),
+                container = srcObj.str("container").orEmpty(),
+                size = srcObj.lng("size"),
+                bitrate = srcObj.lng("bitrate"),
+                durationMs = srcObj.lng("duration_ms"),
+                streams = streams,
+            )
+        }
+
+        val resolvedServer = obj.str("server") ?: server.orEmpty()
+        var resolvedServerType = obj.str("server_type").orEmpty()
+        if (resolvedServer.isNotBlank() && resolvedServerType.isBlank()) {
+            resolvedServerType = fetchMediaServers().firstOrNull { it.name.equals(resolvedServer, ignoreCase = true) }?.type.orEmpty()
+        }
+
+        var detail = MediaServerItemDetailDto(
+            itemId = obj.str("item_id") ?: itemId,
+            server = resolvedServer,
+            serverType = resolvedServerType,
+            itemType = obj.str("item_type") ?: "Movie",
+            mediaType = obj.str("media_type").orEmpty(),
+            title = obj.str("title") ?: obj.str("name").orEmpty(),
+            originalTitle = obj.str("original_title").orEmpty(),
+            subtitle = obj.str("subtitle").orEmpty(),
+            tagline = obj.str("tagline").orEmpty(),
+            overview = obj.str("overview").orEmpty(),
+            year = obj.str("year").orEmpty(),
+            premiereDate = obj.str("premiere_date").orEmpty(),
+            officialRating = obj.str("official_rating").orEmpty(),
+            rating = obj.dbl("rating") ?: 0.0,
+            durationMs = obj.lng("duration_ms"),
+            poster = resolveImageUrl(obj.str("poster") ?: obj.str("image"), maxWidth = 600, useCookies = useCookies),
+            backdrop = resolveImageUrl(obj.str("backdrop") ?: obj.str("backdrop_path"), maxWidth = 1280, useCookies = useCookies),
+            thumb = resolveImageUrl(obj.str("thumb"), maxWidth = 780, useCookies = useCookies),
+            logoUrl = resolveImageUrl(obj.str("logo") ?: obj.str("logo_path"), maxWidth = 720, useCookies = useCookies),
+            genres = obj["genres"].asArr()?.mapNotNull { it.asPrim()?.content?.takeIf { s -> s.isNotBlank() && s != "null" } }.orEmpty(),
+            studios = obj["studios"].asArr()?.mapNotNull { it.asPrim()?.content?.takeIf { s -> s.isNotBlank() && s != "null" } }.orEmpty(),
+            people = people,
+            mediaSource = obj.str("media_source"),
+            mediaId = obj.str("media_id"),
+            imdbId = obj.str("imdb_id")?.takeIf { it.isNotBlank() },
+            tmdbId = obj.str("tmdb_id")?.takeIf { it.isNotBlank() } ?: obj.int("tmdb_id")?.toString(),
+            tvdbId = obj.str("tvdb_id")?.takeIf { it.isNotBlank() } ?: obj.int("tvdb_id")?.toString(),
+            doubanId = obj.str("douban_id")?.takeIf { it.isNotBlank() },
+            parentId = obj.str("parent_id"),
+            seriesId = obj.str("series_id"),
+            seriesName = obj.str("series_name").orEmpty(),
+            seasonId = obj.str("season_id"),
+            seasonName = obj.str("season_name").orEmpty(),
+            seasonNumber = obj.int("season_number"),
+            episodeNumber = obj.int("episode_number"),
+            seasonCount = obj.int("season_count"),
+            episodeCount = obj.int("episode_count"),
+            childCount = obj.int("child_count"),
+            played = obj.bool("played") ?: false,
+            playedPercentage = obj.dbl("played_percentage") ?: 0.0,
+            resumePositionMs = obj.lng("resume_position_ms") ?: 0L,
+            mediaSources = mediaSources,
+            playUrl = obj.str("play_url")?.takeIf { it.isNotBlank() },
+            canPlay = obj.bool("can_play") ?: false,
+        )
+
+        if (!enrichMetadata) return detail
+
+        // 1. Season / Episode 条目缺少外部元数据时，向所属父剧集继承 tmdb_id / douban_id / imdb_id / genres / people
+        val isChildEpisodeOrSeason = detail.itemType.equals("Episode", ignoreCase = true) ||
+            detail.itemType.equals("Season", ignoreCase = true)
+        val parentSeriesId = detail.seriesId?.takeIf { it.isNotBlank() }
+            ?: (if (detail.itemType.equals("Season", ignoreCase = true)) detail.parentId?.takeIf { it.isNotBlank() } else null)
+        if (isChildEpisodeOrSeason && parentSeriesId != null && parentSeriesId != detail.itemId &&
+            (detail.tmdbId.isNullOrBlank() || detail.doubanId.isNullOrBlank() || detail.imdbId.isNullOrBlank() || detail.people.isEmpty())
+        ) {
+            val parent = fetchMediaServerItemDetail(parentSeriesId, detail.server.ifBlank { server }, enrichMetadata = false)
+            if (parent != null) {
+                detail = detail.copy(
+                    tmdbId = detail.tmdbId ?: parent.tmdbId,
+                    imdbId = detail.imdbId ?: parent.imdbId,
+                    tvdbId = detail.tvdbId ?: parent.tvdbId,
+                    doubanId = detail.doubanId ?: parent.doubanId,
+                    mediaSource = detail.mediaSource ?: parent.mediaSource,
+                    mediaId = detail.mediaId ?: parent.mediaId,
+                    genres = detail.genres.ifEmpty { parent.genres },
+                    people = detail.people.ifEmpty { parent.people },
+                    backdrop = detail.backdrop ?: parent.backdrop,
+                    logoUrl = detail.logoUrl ?: parent.logoUrl,
+                    year = detail.year.ifBlank { parent.year },
+                )
+            }
+        }
+
+        // 2. 通过 `/api/v1/media/{id}` 补全豆瓣 / IMDb / TVDB 外部编号与透明片名 Logo（如 Emby 仅存了 tmdb_id）
+        val identity = normalizeCanonicalMediaIdentity(
+            source = detail.mediaSource,
+            mediaId = detail.mediaId,
+            tmdbId = detail.tmdbId?.toIntOrNull(),
+            doubanId = detail.doubanId,
+            imdbId = detail.imdbId,
+            tvdbId = detail.tvdbId,
+        )
+        if (identity != null && (detail.doubanId.isNullOrBlank() || detail.imdbId.isNullOrBlank() || detail.logoUrl.isNullOrBlank())) {
+            val typeName = canonicalMediaType(detail.mediaType.ifBlank { detail.itemType })
+            val mediaResp = authedRequest(
+                segments = listOf("media", identity.second),
+                query = listOf("media_source" to identity.first, "type_name" to typeName),
+            ).getOrNull()
+            if (mediaResp != null && mediaResp.status in 200..299) {
+                val mObj = extractObject(mediaResp.body)
+                if (mObj != null) {
+                    val enrichedGenres = if (detail.genres.isEmpty()) {
+                        parseMediaCard(mObj)?.genres.orEmpty()
+                    } else {
+                        detail.genres
+                    }
+                    detail = detail.copy(
+                        tmdbId = detail.tmdbId ?: mObj.int("tmdb_id")?.toString() ?: mObj.str("tmdb_id")?.takeIf { it.isNotBlank() },
+                        imdbId = detail.imdbId ?: mObj.str("imdb_id")?.takeIf { it.isNotBlank() } ?: mObj.str("imdbid")?.takeIf { it.isNotBlank() },
+                        tvdbId = detail.tvdbId ?: mObj.int("tvdb_id")?.toString() ?: mObj.str("tvdb_id")?.takeIf { it.isNotBlank() },
+                        doubanId = detail.doubanId ?: mObj.str("douban_id")?.takeIf { it.isNotBlank() } ?: mObj.str("doubanid")?.takeIf { it.isNotBlank() },
+                        logoUrl = detail.logoUrl ?: resolveImageUrl(mObj.str("logo_path"), maxWidth = 720),
+                        genres = enrichedGenres,
+                        overview = detail.overview.ifBlank { mObj.str("overview").orEmpty() },
+                    )
+                }
+            }
+        }
+        return detail
+    }
+
+    /** 查询媒体服务器电视剧全部季列表（`GET /api/v1/mediaserver/seasons`）。 */
+    suspend fun fetchMediaServerSeasons(seriesId: String, server: String): List<MediaServerBrowseItemDto> {
+        if (seriesId.isBlank() || server.isBlank()) return emptyList()
+        val resp = authedRequest(
+            segments = listOf("mediaserver", "seasons"),
+            query = listOf("itemid" to seriesId, "server" to server),
+        ).getOrNull() ?: return emptyList()
+        if (resp.status !in 200..299) return emptyList()
+        return extractArray(resp.body).mapNotNull { parseMediaServerBrowseItem(it, defaultServer = server) }
+    }
+
+    /** 查询媒体服务器指定季的全部单集详情卡片（`GET /api/v1/mediaserver/season-episodes`）。 */
+    suspend fun fetchMediaServerSeasonEpisodes(
+        seriesId: String,
+        server: String,
+        seasonId: String? = null,
+        seasonNumber: Int? = null,
+    ): List<MediaServerBrowseItemDto> {
+        if (seriesId.isBlank() || server.isBlank()) return emptyList()
+        val q = buildList {
+            add("itemid" to seriesId)
+            add("server" to server)
+            if (!seasonId.isNullOrBlank()) add("season_id" to seasonId)
+            if (seasonNumber != null) add("season" to seasonNumber.toString())
+        }
+        val resp = authedRequest(
+            segments = listOf("mediaserver", "season-episodes"),
+            query = q,
+        ).getOrNull() ?: return emptyList()
+        if (resp.status !in 200..299) return emptyList()
+        return extractArray(resp.body).mapNotNull { parseMediaServerBrowseItem(it, defaultServer = server) }
+    }
+
+    /**
+     * 拉取媒体服务器条目的「类似作品」列表：
+     * 按 `/tmdb/similar` -> `/tmdb/recommend` -> `/douban/recommend` -> `/mediaserver/browse` 同风格回退顺序聚合。
+     */
+    suspend fun fetchSimilarMediaForServerItem(detail: MediaServerItemDetailDto): List<MediaCardItem> {
+        val typeName = if (isTvType(detail.mediaType.ifBlank { detail.itemType })) "电视剧" else "电影"
+        var candidates = emptyList<MediaCardItem>()
+
+        val tmdbId = detail.tmdbId?.trim()?.takeIf { it.isNotBlank() && it != "0" }
+            ?: (if (normalizeMediaSource(detail.mediaSource) == "themoviedb") detail.mediaId?.trim()?.takeIf { it.isNotBlank() } else null)
+        val doubanId = detail.doubanId?.trim()?.takeIf { it.isNotBlank() && it != "0" }
+            ?: (if (normalizeMediaSource(detail.mediaSource) == "douban") detail.mediaId?.trim()?.takeIf { it.isNotBlank() } else null)
+
+        if (tmdbId != null) {
+            candidates = fetchMediaList(
+                listOf("tmdb", "similar", tmdbId, typeName),
+                listOf("page" to "1", "count" to "20"),
+            )
+            if (candidates.isEmpty()) {
+                candidates = fetchMediaList(
+                    listOf("tmdb", "recommend", tmdbId, typeName),
+                    listOf("page" to "1", "count" to "20"),
+                )
+            }
+        }
+        if (candidates.isEmpty() && doubanId != null) {
+            candidates = fetchMediaList(
+                listOf("douban", "recommend", doubanId, typeName),
+                listOf("page" to "1", "count" to "20"),
+            )
+        }
+        if (candidates.isEmpty() && detail.server.isNotBlank()) {
+            val browsePage = fetchMediaServerBrowse(
+                server = detail.server,
+                genre = detail.genres.firstOrNull().orEmpty(),
+                itemType = if (typeName == "电视剧") "Series" else "Movie",
+                limit = 20,
+            )
+            candidates = browsePage.items
+                .filter { it.itemId != detail.itemId && it.itemId != detail.seriesId }
+                .map { cand ->
+                    MediaCardItem(
+                        title = cand.title,
+                        year = cand.year,
+                        type = typeName,
+                        overview = cand.overview,
+                        posterPath = cand.poster ?: cand.imageUrl,
+                        backdropPath = cand.backdrop ?: cand.thumb,
+                        voteAverage = cand.userRating,
+                        source = if (cand.tmdbId != null) "themoviedb" else cand.server.ifBlank { detail.server },
+                        tmdbId = cand.tmdbId,
+                        mediaId = cand.mediaId ?: cand.tmdbId?.toString() ?: cand.itemId,
+                        serverItemId = cand.itemId,
+                        serverName = cand.server.ifBlank { detail.server },
+                        serverType = cand.serverType.ifBlank { detail.serverType },
+                        inLibrary = true,
+                    )
+                }
+        }
+        val selfTitle = detail.seriesName.ifBlank { detail.title }
+        return candidates
+            .filterNot { c ->
+                (tmdbId != null && c.tmdbId?.toString() == tmdbId) ||
+                    (doubanId != null && c.doubanId == doubanId) ||
+                    (c.title == selfTitle && (detail.year.isBlank() || c.year == detail.year))
+            }
+            .distinctBy { it.resolvedId }
+            .take(20)
     }
 
     /** 拉取媒体服务器真实直放流与外挂字幕清单（`GET /api/v1/mediaserver/stream-info`）。 */
@@ -2920,5 +3532,85 @@ class MoviePilotRepository(context: Context) {
         private val TMDB_LANG_LABEL_TO_CODE = mapOf(
             "华语" to "zh", "英语" to "en", "日语" to "ja", "韩语" to "ko",
         )
+
+        /** 统一判定媒体类型是否属于剧集/分季/单集维度（避免 `"tv"` / `"Series"` / `"电视剧"` 状态跳变）。 */
+        fun isTvType(type: String?): Boolean {
+            val t = type?.trim()?.lowercase() ?: return false
+            return t in setOf("电视剧", "tv", "series", "show", "season", "episode", "anime", "番剧", "剧集", "tvshow")
+        }
+
+        /** 将英文、媒体服务器或榜单类型统一映射为 MoviePilot V3 标准中文 `MediaType`（`电影` / `电视剧` / `音乐`）。 */
+        fun canonicalMediaType(type: String?): String {
+            val t = type?.trim().orEmpty()
+            return when {
+                isTvType(t) -> "电视剧"
+                t.lowercase() in setOf("音乐", "music", "audio", "musicalbum", "album", "track") -> "音乐"
+                else -> "电影"
+            }
+        }
+
+        /** 将客户端探索页、推荐流或历史别名统一映射为 MoviePilot V3 规范 `MediaSource`；媒体服务器名返回 `null`。 */
+        fun normalizeMediaSource(rawSource: String?): String? {
+            val s = rawSource?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: return null
+            return when (s) {
+                "themoviedb", "tmdb", "tmdb_movies", "tmdb_tvs", "tmdb_trending" -> "themoviedb"
+                "douban", "douban_movies", "douban_tvs", "douban_showing", "douban_top250" -> "douban"
+                "doubanmusic", "douban_music" -> "doubanmusic"
+                "bangumi", "bgm" -> "bangumi"
+                "anilist" -> "anilist"
+                "imdb" -> "imdb"
+                "tvdb", "thetvdb" -> "tvdb"
+                "musicbrainz", "music" -> "musicbrainz"
+                "theaudiodb", "audio_db" -> "theaudiodb"
+                else -> null
+            }
+        }
+
+        /**
+         * 规范化 `(media_source, raw_media_id)` 元数据身份对：
+         * - 自动剥离 `tmdb:12345`、`douban:3520`、`bangumi:400` 等历史前缀；
+         * - 拒绝 `"0"`、空白或媒体服务器内部条目 ID 混入 V3 外部元数据接口。
+         */
+        fun normalizeCanonicalMediaIdentity(
+            source: String?,
+            mediaId: String?,
+            tmdbId: Int? = null,
+            doubanId: String? = null,
+            bangumiId: Int? = null,
+            imdbId: String? = null,
+            tvdbId: String? = null,
+        ): Pair<String, String>? {
+            val rawIdTrimmed = mediaId?.trim()?.takeIf { it.isNotBlank() && it != "0" && !it.equals("null", true) }
+            if (rawIdTrimmed != null && rawIdTrimmed.contains(":")) {
+                val prefix = rawIdTrimmed.substringBefore(":")
+                val rest = rawIdTrimmed.substringAfter(":").trim()
+                val mappedPrefix = normalizeMediaSource(prefix)
+                if (mappedPrefix != null && rest.isNotBlank() && rest != "0") {
+                    return mappedPrefix to rest
+                }
+            }
+
+            val normSrc = normalizeMediaSource(source)
+            if (normSrc != null) {
+                val candidateId = when (normSrc) {
+                    "themoviedb" -> tmdbId?.takeIf { it > 0 }?.toString() ?: rawIdTrimmed
+                    "douban" -> doubanId?.trim()?.takeIf { it.isNotBlank() && it != "0" } ?: rawIdTrimmed
+                    "bangumi" -> bangumiId?.takeIf { it > 0 }?.toString() ?: rawIdTrimmed
+                    "imdb" -> imdbId?.trim()?.takeIf { it.isNotBlank() && it != "0" } ?: rawIdTrimmed
+                    "tvdb" -> tvdbId?.trim()?.takeIf { it.isNotBlank() && it != "0" } ?: rawIdTrimmed
+                    else -> rawIdTrimmed
+                }
+                if (!candidateId.isNullOrBlank() && candidateId != "0" && !candidateId.contains(":")) {
+                    return normSrc to candidateId
+                }
+            }
+
+            tmdbId?.takeIf { it > 0 }?.let { return "themoviedb" to it.toString() }
+            doubanId?.trim()?.takeIf { it.isNotBlank() && it != "0" }?.let { return "douban" to it }
+            bangumiId?.takeIf { it > 0 }?.let { return "bangumi" to it.toString() }
+            imdbId?.trim()?.takeIf { it.isNotBlank() && it != "0" }?.let { return "imdb" to it }
+            tvdbId?.trim()?.takeIf { it.isNotBlank() && it != "0" }?.let { return "tvdb" to it }
+            return null
+        }
     }
 }

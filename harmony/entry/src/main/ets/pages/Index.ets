@@ -33,7 +33,11 @@ import {
   HarmonyExplorePage,
   HarmonyGlobalSearchPage
 } from '@moviepilot/discover';
-import { HarmonyMediaDetailPage, HarmonyPersonDetailPage } from '@moviepilot/media';
+import {
+  HarmonyMediaDetailPage,
+  HarmonyMediaServerDetailPage,
+  HarmonyPersonDetailPage
+} from '@moviepilot/media';
 import { HarmonySubscriptionsPage } from '@moviepilot/subscribe';
 import { HarmonyResourceSearchPage, HarmonyDownloadsPage } from '@moviepilot/download';
 import { HarmonyLibraryPage } from '@moviepilot/library';
@@ -56,6 +60,8 @@ const MAIN_TAB_ORDER: HarmonyMainTab[] = ['discover', 'explore', 'subscribe', 'm
 @Component
 struct Index {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) @Watch('onDarkChanged') isDark: boolean = true;
+  @StorageLink(HarmonyAppearanceStore.KEY_PALETTE_ID) paletteId: string = 'harmony_blue';
+  @StorageLink(HarmonyAppearanceStore.KEY_PURE_BLACK) pureBlack: boolean = false;
   @StorageLink(HarmonyAppearanceStore.KEY_BREAKPOINT) breakpoint: string = 'sm';
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
@@ -70,6 +76,7 @@ struct Index {
 
   @State private hydratingSession: boolean = true;
   @State private authStage: string = 'connect'; // 'connect' | 'login' | 'main'
+  @State private serverSwitchReturnStage: string = ''; // '' | 'main' | 'login'
   @State private serverUrl: string = '';
   @State private userName: string = 'admin';
   @State private userAvatar: string = '';
@@ -275,10 +282,87 @@ struct Index {
     }
   }
 
+  private openMediaSmart(it: MpMediaItem): void {
+    this.selectedMedia = it;
+    const isMediaServerCard = it.source === 'mediaserver' || it.source === 'library' ||
+      (Boolean(it.serverItemId && it.serverItemId.length > 0) && it.serverName.length > 0 && it.mediaId.length === 0);
+    this.pushRoute(isMediaServerCard ? 'mediaserver_detail' : 'detail');
+  }
+
+  private async playServerItemById(itemId: string, server: string, fallbackTitle: string): Promise<void> {
+    try {
+      const info = await MoviePilotRepository.shared().fetchVideoStreamInfo(itemId, server);
+      if (info && info.contentUrl.length > 0) {
+        this.playMedia({
+          url: info.contentUrl,
+          title: info.title || fallbackTitle,
+          subtitle: server,
+          isAudio: info.mediaType === 'audio'
+        });
+      }
+    } catch {
+      // ignore stream lookup error
+    }
+  }
+
+  private restoreFromServerSwitch(): void {
+    const prev = this.serverSwitchReturnStage;
+    this.serverSwitchReturnStage = '';
+    if (prev === 'login') {
+      this.authStage = 'login';
+    } else if (prev === 'main') {
+      this.authStage = 'main';
+    }
+  }
+
+  private commitConnectedServer(url: string, selfSigned: boolean): void {
+    const returningFromMain = this.serverSwitchReturnStage === 'main';
+    const sameAuthenticatedServer = returningFromMain &&
+      url === this.serverUrl &&
+      MoviePilotRepository.shared().token.length > 0;
+
+    if (sameAuthenticatedServer) {
+      this.allowSelfSigned = selfSigned;
+      MoviePilotRepository.shared().configureServer(url, selfSigned);
+      this.serverSwitchReturnStage = '';
+      this.authStage = 'main';
+      return;
+    }
+
+    if (returningFromMain && url !== this.serverUrl) {
+      HarmonyAudioSession.shared().stopAndRelease();
+      this.activePlayer = null;
+      this.miniMusic = null;
+      MoviePilotRepository.shared().clearSession();
+      NativeHuksStore.shared().clearActiveSession().catch(() => {});
+      MpImageLoader.clearCache();
+      clearEntityLogoCache();
+      try {
+        webview.WebCookieManager.clearAllCookiesSync();
+      } catch {
+        // ignore cookie cleanup error
+      }
+      try {
+        webview.WebStorage.deleteAllData();
+      } catch {
+        // ignore web domStorage cleanup error
+      }
+      this.routeStack = [];
+      this.selectedTab = 'discover';
+    }
+
+    this.serverUrl = url;
+    this.allowSelfSigned = selfSigned;
+    MoviePilotRepository.shared().configureServer(url, selfSigned);
+    this.serverSwitchReturnStage = '';
+    this.authStage = 'login';
+  }
+
   private handleLogout(_fromSessionExpired: boolean = false): void {
     if (this.authStage !== 'main' && _fromSessionExpired) {
       return;
     }
+    this.serverSwitchReturnStage = '';
     HarmonyAudioSession.shared().stopAndRelease();
     this.activePlayer = null;
     this.miniMusic = null;
@@ -307,6 +391,10 @@ struct Index {
         this.miniMusic = this.activePlayer;
       }
       this.activePlayer = null;
+      return true;
+    }
+    if (this.serverSwitchReturnStage.length > 0) {
+      this.restoreFromServerSwitch();
       return true;
     }
     if (this.authStage === 'login') {
@@ -350,10 +438,7 @@ struct Index {
     Tabs({ index: this.activeMainTabIndex(), controller: this.tabsController }) {
       TabContent() {
         HarmonyDiscoverPage({
-          onOpenMedia: (it: MpMediaItem) => {
-            this.selectedMedia = it;
-            this.pushRoute('detail');
-          },
+          onOpenMedia: (it: MpMediaItem) => this.openMediaSmart(it),
           onOpenExplore: (src: string) => {
             this.exploreSource = src;
             this.switchTab('explore');
@@ -371,10 +456,7 @@ struct Index {
       TabContent() {
         HarmonyExplorePage({
           initialSource: this.exploreSource,
-          onOpenMedia: (it: MpMediaItem) => {
-            this.selectedMedia = it;
-            this.pushRoute('detail');
-          },
+          onOpenMedia: (it: MpMediaItem) => this.openMediaSmart(it),
           onOpenSearch: () => this.pushRoute('search')
         })
       }
@@ -385,9 +467,9 @@ struct Index {
           initialMode: 'mine',
           onOpenSearch: () => this.pushRoute('search'),
           onOpenCalendar: () => this.pushRoute('calendar'),
-          onOpenMedia: (it: MpMediaItem) => {
-            this.selectedMedia = it;
-            this.pushRoute('detail');
+          onOpenMedia: (it: MpMediaItem) => this.openMediaSmart(it),
+          onPlayServerItem: (itemId: string, server: string, title: string) => {
+            this.playServerItemById(itemId, server, title);
           }
         })
       }
@@ -414,10 +496,7 @@ struct Index {
           serverUrl: this.serverUrl,
           onOpenShortcutRoute: (routeId: string) => this.pushRoute(routeId),
           onOpenSettings: () => this.pushRoute('settings'),
-          onOpenMedia: (it: MpMediaItem) => {
-            this.selectedMedia = it;
-            this.pushRoute('detail');
-          }
+          onOpenMedia: (it: MpMediaItem) => this.openMediaSmart(it)
         })
       }
     }
@@ -436,10 +515,7 @@ struct Index {
           initialLibraryId: this.activeLibraryId,
           initialServerName: this.activeLibraryServer,
           onBack: () => this.popRoute(),
-          onOpenMedia: (it: MpMediaItem) => {
-            this.selectedMedia = it;
-            this.pushRoute('detail');
-          },
+          onOpenMedia: (it: MpMediaItem) => this.openMediaSmart(it),
           onOpenPerson: (person: MpCastMember) => {
             this.selectedPerson = person;
             this.pushRoute('person');
@@ -448,13 +524,25 @@ struct Index {
       } else if (this.currentRoute() === 'search') {
         HarmonyGlobalSearchPage({
           onBack: () => this.popRoute(),
-          onOpenMedia: (it: MpMediaItem) => {
-            this.selectedMedia = it;
-            this.pushRoute('detail');
-          },
+          onOpenMedia: (it: MpMediaItem) => this.openMediaSmart(it),
           onOpenPerson: (person: MpCastMember) => {
             this.selectedPerson = person;
             this.pushRoute('person');
+          }
+        })
+      } else if (this.currentRoute() === 'mediaserver_detail' && this.selectedMedia) {
+        HarmonyMediaServerDetailPage({
+          item: this.selectedMedia,
+          onBack: () => this.popRoute(),
+          onPlayMedia: (req: HarmonyPlaybackRequest) => this.playMedia(req),
+          onOpenMedia: (it: MpMediaItem) => this.openMediaSmart(it),
+          onOpenPerson: (person: MpCastMember) => {
+            this.selectedPerson = person;
+            this.pushRoute('person');
+          },
+          onSearchResource: (kw: string) => {
+            this.resourceSearchKeyword = kw;
+            this.pushRoute('resources');
           }
         })
       } else if (this.currentRoute() === 'detail' && this.selectedMedia) {
@@ -475,10 +563,7 @@ struct Index {
         HarmonyPersonDetailPage({
           person: this.selectedPerson,
           onBack: () => this.popRoute(),
-          onOpenMedia: (it: MpMediaItem) => {
-            this.selectedMedia = it;
-            this.pushRoute('detail');
-          }
+          onOpenMedia: (it: MpMediaItem) => this.openMediaSmart(it)
         })
       } else if (this.currentRoute() === 'calendar' || this.currentRoute() === 'subscribe_square') {
         HarmonySubscriptionsPage({
@@ -486,9 +571,9 @@ struct Index {
           initialTitle: this.currentRoute() === 'calendar' ? '追剧日历' : '订阅广场',
           initialMode: this.currentRoute() === 'calendar' ? 'calendar' : 'square',
           onBack: () => this.popRoute(),
-          onOpenMedia: (it: MpMediaItem) => {
-            this.selectedMedia = it;
-            this.pushRoute('detail');
+          onOpenMedia: (it: MpMediaItem) => this.openMediaSmart(it),
+          onPlayServerItem: (itemId: string, server: string, title: string) => {
+            this.playServerItemById(itemId, server, title);
           }
         })
       } else if (this.currentRoute() === 'resources') {
@@ -529,13 +614,16 @@ struct Index {
           userName: this.userName,
           onBack: () => this.popRoute(),
           onOpenSites: () => this.pushRoute('sites'),
+          onSwitchServer: () => {
+            this.serverSwitchReturnStage = 'main';
+          },
           onLogout: () => this.handleLogout(false)
         })
       }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(HarmonyThemeColors.canvas(this.isDark))
+    .backgroundColor(HarmonyThemeColors.canvas(this.isDark, this.paletteId, this.pureBlack))
   }
 
   build() {
@@ -549,30 +637,28 @@ struct Index {
         .width('100%')
         .height('100%')
         .justifyContent(FlexAlign.Center)
-      } else if (this.authStage === 'connect') {
+      } else if (this.authStage === 'connect' || this.serverSwitchReturnStage === 'main') {
         HarmonyServerConnectionPage({
           savedServers: this.savedServers,
+          canGoBack: this.serverSwitchReturnStage.length > 0,
+          onBack: () => this.restoreFromServerSwitch(),
           onConnectSuccess: (url: string, selfSigned: boolean) => {
-            this.serverUrl = url;
-            this.allowSelfSigned = selfSigned;
+            const existing = this.savedServers.find((s: SavedServerEntry) => s.url === url);
             const entry: SavedServerEntry = {
               id: url,
               name: url.replace(/^https?:\/\//, '').split('/')[0],
               url: url,
-              username: '',
+              username: existing ? existing.username : '',
               lastUsedMs: Date.now(),
               allowSelfSigned: selfSigned
             };
             const nextList = [entry, ...this.savedServers.filter((s: SavedServerEntry) => s.url !== url)];
             this.savedServers = nextList;
             NativeHuksStore.shared().saveServersList(nextList).catch(() => {});
-            this.authStage = 'login';
+            this.commitConnectedServer(url, selfSigned);
           },
           onSelectSaved: (entry: SavedServerEntry) => {
-            this.serverUrl = entry.url;
-            this.allowSelfSigned = Boolean(entry.allowSelfSigned);
-            MoviePilotRepository.shared().configureServer(entry.url, Boolean(entry.allowSelfSigned));
-            this.authStage = 'login';
+            this.commitConnectedServer(entry.url, Boolean(entry.allowSelfSigned));
           },
           onDeleteSaved: (entry: SavedServerEntry) => {
             this.savedServers = this.savedServers.filter((s: SavedServerEntry) => s.url !== entry.url);
@@ -582,7 +668,10 @@ struct Index {
       } else if (this.authStage === 'login') {
         HarmonyLoginPage({
           serverUrl: this.serverUrl,
-          onSwitchServer: () => { this.authStage = 'connect'; },
+          onSwitchServer: () => {
+            this.serverSwitchReturnStage = 'login';
+            this.authStage = 'connect';
+          },
           onLoginSuccess: (token: string, name: string, isSu: boolean, avatar: string, keepLogin: boolean) => {
             this.userName = name;
             this.isSuperuser = isSu;
@@ -612,6 +701,7 @@ struct Index {
             });
             this.savedServers = updatedServers;
             NativeHuksStore.shared().saveServersList(updatedServers).catch(() => {});
+            this.serverSwitchReturnStage = '';
             this.authStage = 'main';
             this.consumePendingIntents();
           }

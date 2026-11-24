@@ -128,4 +128,66 @@ struct MediaServerBrowseModelTests {
     #expect(boxDetail.kind == .boxSet)
     #expect(boxDetail.resolvedExternalIdentity == nil)
   }
+
+  @Test func decodesExtendedStreamMetadataAndFormatsMediaInfo() throws {
+    let json = """
+      {
+        "streams": [
+          {
+            "index": 0,
+            "type": "video",
+            "display_title": "1080p H264",
+            "title": "内嵌视频",
+            "codec": "h264",
+            "width": 1920,
+            "height": 1080,
+            "frame_rate": 23.976025,
+            "bitrate": 14300000,
+            "video_range": "SDR",
+            "profile": "High",
+            "level": 41.0,
+            "is_interlaced": false,
+            "color_primaries": "bt709",
+            "color_space": "bt709",
+            "bit_depth": 8
+          },
+          {
+            "index": 1,
+            "type": "audio",
+            "display_title": "English EAC3",
+            "title": "英语",
+            "language": "English",
+            "channel_layout": "5.1",
+            "channels": 6,
+            "codec": "eac3",
+            "bitrate": 1000000,
+            "sample_rate": 48000,
+            "is_external": false,
+            "is_default": true
+          }
+        ],
+        "id": "src-1080p"
+      }
+      """
+    let source = try JSONDecoder().decode(MediaServerSourceDTO.self, from: Data(json.utf8))
+    let video = try #require(source.videoStreams.first)
+    #expect(video.formattedResolution == "1920x1080")
+    #expect(video.inferredAspectRatio == "16:9")
+    #expect(video.formattedBitrate == "14.3mbps")
+    #expect(video.frameRate == "23.976025")
+    #expect(video.profile == "High")
+    #expect(video.level == "41.0")
+    #expect(video.isInterlaced == false)
+    #expect(video.colorPrimaries == "bt709")
+    #expect(video.colorSpace == "bt709")
+    #expect(video.bitDepth == 8)
+
+    let audio = try #require(source.audioStreams.first)
+    #expect(audio.formattedBitrate == "1000kbps")
+    #expect(audio.formattedSampleRate == "48000Hz")
+    #expect(audio.channelLayout == "5.1")
+    #expect(audio.channels == 6)
+    #expect(audio.isDefault == true)
+    #expect(audio.isExternal == false)
+  }
 }

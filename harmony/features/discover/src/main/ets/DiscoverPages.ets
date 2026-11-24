@@ -1323,7 +1323,35 @@ export struct HarmonyMediaServerLibraryPage {
                 item: it,
                 fillWidth: true,
                 showPlayBadge: true,
-                onTap: () => this.onOpenMedia(it)
+                onTap: () => {
+                  const srv = it.serverName || this.activeLib()?.serverName || this.initialServerName;
+                  const sid = (it.serverItemId && it.serverItemId.length > 0) ? it.serverItemId : it.id;
+                  const targetItem: MpMediaItem = {
+                    id: it.id,
+                    mediaId: it.mediaId,
+                    tmdbId: it.tmdbId,
+                    doubanId: it.doubanId,
+                    title: it.title,
+                    enTitle: it.enTitle,
+                    year: it.year,
+                    type: it.type,
+                    overview: it.overview,
+                    vote: it.vote,
+                    posterUrl: it.posterUrl,
+                    backdropUrl: it.backdropUrl,
+                    logoUrl: it.logoUrl,
+                    source: 'mediaserver',
+                    inLibrary: true,
+                    subtitle: it.subtitle,
+                    percent: it.percent,
+                    serverName: srv,
+                    playUrl: it.playUrl,
+                    serverItemId: sid,
+                    imdbId: it.imdbId,
+                    tvdbId: it.tvdbId
+                  };
+                  this.onOpenMedia(targetItem);
+                }
               })
             }
           }, (it: MpMediaItem) => it.id)

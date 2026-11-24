@@ -15,10 +15,14 @@ struct NativeMediaServerDetailPage: View {
   let fallbackPoster: String?
 
   @State private var detail: MediaServerItemDetailDTO?
+  @State private var parentSeriesDetail: MediaServerItemDetailDTO?
   @State private var fetchedLogo: MediaServerLogoCacheEntry?
+  @State private var enrichedIDs = MediaServerEnrichedIDs()
   @State private var seasons: [MediaServerBrowseItemDTO] = []
   @State private var episodes: [MediaServerBrowseItemDTO] = []
   @State private var collectionItems: [MediaServerBrowseItemDTO] = []
+  @State private var similarItems: [MediaServerSimilarCardItem] = []
+  @State private var sampleEpisodeSource: MediaServerSourceDTO?
   @State private var selectedSeasonNumber: Int?
   @State private var selectedSourceID: String?
   @State private var trackSelection = MediaPlaybackTrackSelection()
@@ -29,7 +33,9 @@ struct NativeMediaServerDetailPage: View {
   @State private var isSubscribing = false
   @State private var isSubscribed = false
   @State private var subscribedSeasons: Set<Int> = []
+  @State private var subscribedRecordIDs: [Int: Int] = [:]
   @State private var pendingCancelSubscribe: MediaServerCancelSubscribeTarget?
+  @State private var activeFilesTarget: NativeSubscribeFilesTarget?
   @State private var synopsisExpanded = false
   @State private var feedbackMessage: (text: String, isError: Bool)?
   @State private var scrollOffset: CGFloat = 0
@@ -69,12 +75,20 @@ struct NativeMediaServerDetailPage: View {
   private var canSearchResources: Bool { session.user.allows(.init(category: .search)) }
   private var resolvedServer: String? { detail?.server ?? server }
 
+  private var effectiveExternalIdentity: (source: String, mediaID: String, type: String)? {
+    detail?.resolvedExternalIdentity ?? parentSeriesDetail?.resolvedExternalIdentity
+  }
+
   private var activeMediaSource: MediaServerSourceDTO? {
     guard let sources = detail?.mediaSources, !sources.isEmpty else { return nil }
     if let selectedSourceID, let matched = sources.first(where: { $0.id == selectedSourceID }) {
       return matched
     }
     return sources.first
+  }
+
+  private var displayInfoMediaSource: MediaServerSourceDTO? {
+    activeMediaSource ?? sampleEpisodeSource
   }
 
   var body: some View {
@@ -169,7 +183,7 @@ struct NativeMediaServerDetailPage: View {
                 if detail.kind == .series || detail.kind == .season || detail.kind == .musicAlbum,
                   !episodes.isEmpty
                 {
-                  episodesSection(detail)
+                  episodesSection(detail, isWide: isWide)
                 }
 
                 if detail.kind == .episode, !episodes.isEmpty {
@@ -180,6 +194,19 @@ struct NativeMediaServerDetailPage: View {
 
                 if !detail.people.isEmpty {
                   castSection(detail.people)
+                }
+
+                if !similarItems.isEmpty {
+                  similarWorksSection(detail)
+                }
+
+                let links = resolvedExternalLinks(detail)
+                if !links.isEmpty {
+                  externalLinksSection(links)
+                }
+
+                if let infoSource = displayInfoMediaSource, !infoSource.streams.isEmpty {
+                  mediaStreamsInfoSection(infoSource)
                 }
 
                 metadataCard(detail)
@@ -206,16 +233,23 @@ struct NativeMediaServerDetailPage: View {
         .scrollIndicators(.hidden)
         .refreshable { await loadAll() }
         .modifier(MediaServerDetailScrollClipping())
+        .modifier(NativeSoftTopScrollEdge(isActive: eased > 0.02))
         .ignoresSafeArea(edges: .top)
         .modifier(MediaServerDetailScrollObservation(offset: $scrollOffset))
         .accessibilityIdentifier("native-mediaserver-detail-scroll")
       }
-      .navigationTitle("")
+      .nativeHeroNavigationBar(
+        scrollProgress: eased,
+        scrolledTitle: detail.map(heroDisplayTitle) ?? ""
+      )
     }
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
     .task(id: "\(server ?? "")|\(itemID)") {
       await loadAll()
+    }
+    .sheet(item: $activeFilesTarget) { target in
+      NativeSubscribeFilesSheet(session: session, target: target)
+        .nativeAdaptiveSheetSizing()
     }
     .alert(
       "取消订阅",
@@ -492,7 +526,7 @@ struct NativeMediaServerDetailPage: View {
     _ detail: MediaServerItemDetailDTO, isCompactLandscape: Bool = false
   ) -> some View {
     let hasPlayAction = canInitiatePlayback(detail)
-    let subscribeTarget = detail.resolvedExternalIdentity
+    let subscribeTarget = effectiveExternalIdentity
     let externalURL = detail.playUrl.flatMap(URL.init(string:))
     let hasOverflowActions = subscribeTarget != nil || externalURL != nil
     let useSingleRow = isCompactLandscape && !dynamicTypeSize.isAccessibilitySize
@@ -566,7 +600,7 @@ struct NativeMediaServerDetailPage: View {
                 if isSubscribing {
                   ProgressView().controlSize(.mini).tint(.primary)
                 } else {
-                  Image(systemName: subscribedNow ? "bookmark.fill" : "plus")
+                  Image(systemName: subscribedNow ? "checkmark.circle.fill" : "plus")
                     .font(.subheadline.weight(.semibold))
                 }
                 Text(subscribeButtonTitle(detail, subscribed: subscribedNow))
@@ -597,6 +631,15 @@ struct NativeMediaServerDetailPage: View {
             }
             .buttonStyle(.plain)
             .disabled(isSubscribing)
+            .contextMenu {
+              if subscribedNow {
+                Button {
+                  openSubscribeFiles(detail, external: ext)
+                } label: {
+                  Label("订阅文件详情", systemImage: "doc.text.magnifyingglass")
+                }
+              }
+            }
             .accessibilityIdentifier("native-mediaserver-detail-subscribe")
           }
 
@@ -649,6 +692,13 @@ struct NativeMediaServerDetailPage: View {
         } label: {
           Label("查看刮削元数据详情", systemImage: "info.circle")
         }
+        if canSubscribe && isCurrentlySubscribed(detail, external: ext) {
+          Button {
+            openSubscribeFiles(detail, external: ext)
+          } label: {
+            Label("订阅文件详情", systemImage: "doc.text.magnifyingglass")
+          }
+        }
       }
       if let url = externalURL {
         Button {
@@ -676,7 +726,7 @@ struct NativeMediaServerDetailPage: View {
   @ViewBuilder
   private func resourceSearchDestination(_ detail: MediaServerItemDetailDTO) -> some View {
     let searchTitle = detail.seriesName ?? detail.title
-    if let ext = detail.resolvedExternalIdentity {
+    if let ext = effectiveExternalIdentity {
       NativeResourceSearchPage(
         session: session,
         target: .media(
@@ -1007,9 +1057,11 @@ struct NativeMediaServerDetailPage: View {
     .frame(width: 112, alignment: .leading)
   }
 
-  // MARK: - Episodes Section (Series Quick View / Season Full List / Music Album Tracks)
+  // MARK: - Episodes Section (Series & Season 16:9 Horizontal Strip / Music Album Vertical Tracks)
 
-  private func episodesSection(_ detail: MediaServerItemDetailDTO) -> some View {
+  private func episodesSection(_ detail: MediaServerItemDetailDTO, isWide: Bool = false)
+    -> some View
+  {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
         Text(detail.kind == .musicAlbum ? "曲目列表" : "剧集列表")
@@ -1053,19 +1105,191 @@ struct NativeMediaServerDetailPage: View {
         }
       }
 
-      VStack(spacing: 10) {
-        ForEach(Array(episodes.enumerated()), id: \.element.id) { index, ep in
-          episodeRowCard(ep, index: index, parentDetail: detail)
+      if detail.kind == .musicAlbum {
+        VStack(spacing: 10) {
+          ForEach(Array(episodes.enumerated()), id: \.element.id) { index, ep in
+            audioTrackRowCard(ep, index: index, parentDetail: detail)
+          }
+        }
+      } else {
+        let cardWidth: CGFloat = isWide ? 252 : 224
+        let cardHeight: CGFloat = isWide ? 142 : 126
+        ScrollViewReader { scrollProxy in
+          ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(alignment: .top, spacing: 12) {
+              ForEach(Array(episodes.enumerated()), id: \.element.id) { index, ep in
+                landscapeEpisodeCard(
+                  ep,
+                  index: index,
+                  parentDetail: detail,
+                  cardWidth: cardWidth,
+                  thumbHeight: cardHeight
+                )
+                .id(ep.id)
+              }
+            }
+          }
+          .onAppear {
+            if let nextIdx = nextPlayableEpisodeIndex(),
+              nextIdx > 0,
+              episodes.indices.contains(nextIdx)
+            {
+              scrollProxy.scrollTo(episodes[nextIdx].id, anchor: .leading)
+            }
+          }
+          .onChange(of: episodes.first?.id) { _ in
+            if let nextIdx = nextPlayableEpisodeIndex(),
+              episodes.indices.contains(nextIdx)
+            {
+              withAnimation(.easeOut(duration: 0.22)) {
+                scrollProxy.scrollTo(episodes[nextIdx].id, anchor: .leading)
+              }
+            }
+          }
         }
       }
     }
   }
 
-  private func episodeRowCard(
+  /// 剧集/分季 16:9 横版剧照卡片：优先读取单集横版截图 `thumb` / `backdrop`，左上角集号、右上角已看、底部进度与快速播放。
+  private func landscapeEpisodeCard(
+    _ ep: MediaServerBrowseItemDTO,
+    index: Int,
+    parentDetail: MediaServerItemDetailDTO,
+    cardWidth: CGFloat,
+    thumbHeight: CGFloat
+  ) -> some View {
+    let artworkRef = ep.thumb ?? ep.backdrop ?? parentDetail.backdrop ?? ep.poster
+    let codeLabel = ep.episodeCode ?? String(format: "E%02d", ep.episodeNumber ?? (index + 1))
+
+    return ZStack(alignment: .topLeading) {
+      NavigationLink {
+        NativeMediaServerDetailPage(
+          session: session,
+          server: ep.server ?? resolvedServer,
+          itemID: ep.itemId,
+          fallbackTitle: ep.title,
+          fallbackItemType: ep.itemType,
+          fallbackPoster: artworkRef
+        )
+      } label: {
+        VStack(alignment: .leading, spacing: 7) {
+          ZStack(alignment: .bottom) {
+            NativeMediaArtwork(
+              session: session,
+              reference: artworkRef,
+              role: .backdrop,
+              maximumWidth: 520
+            )
+            .frame(width: cardWidth, height: thumbHeight)
+            .clipped()
+
+            LinearGradient(
+              colors: [.clear, .black.opacity(0.62)],
+              startPoint: .center,
+              endPoint: .bottom
+            )
+            .frame(height: thumbHeight * 0.52)
+
+            if let progress = ep.progressFraction, progress > 0.01, ep.played != true {
+              GeometryReader { bar in
+                ZStack(alignment: .leading) {
+                  Rectangle().fill(.black.opacity(0.45))
+                  Rectangle()
+                    .fill(appearance.accentColor)
+                    .frame(width: max(6, bar.size.width * progress))
+                }
+              }
+              .frame(height: 3)
+            }
+          }
+          .frame(width: cardWidth, height: thumbHeight)
+          .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+          .overlay(alignment: .topLeading) {
+            Text(codeLabel)
+              .font(.caption2.weight(.bold).monospacedDigit())
+              .foregroundStyle(.white)
+              .padding(.horizontal, 7)
+              .padding(.vertical, 3)
+              .background(.black.opacity(0.62), in: Capsule())
+              .padding(8)
+          }
+          .overlay(alignment: .topTrailing) {
+            if ep.played == true {
+              Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.white, NativeTheme.success)
+                .padding(8)
+            }
+          }
+          .overlay(alignment: .bottomLeading) {
+            if let dur = ep.formattedDuration {
+              Text(dur)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.white.opacity(0.92))
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2.5)
+                .background(.black.opacity(0.55), in: Capsule())
+                .padding(.leading, 8)
+                .padding(.bottom, 8)
+            }
+          }
+          .overlay {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+              .strokeBorder(.white.opacity(0.14), lineWidth: 0.6)
+          }
+
+          Text(ep.title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+
+          if let overview = ep.overview?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !overview.isEmpty
+          {
+            Text(overview)
+              .font(.caption)
+              .foregroundStyle(.primary.opacity(0.64))
+              .lineLimit(2)
+              .multilineTextAlignment(.leading)
+          }
+        }
+        .frame(width: cardWidth, alignment: .leading)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityIdentifier("native-mediaserver-episode-row-\(ep.itemId)")
+
+      Button {
+        Task { await playEpisodeAt(index: index) }
+      } label: {
+        ZStack {
+          Circle()
+            .fill(.ultraThinMaterial)
+            .overlay {
+              Circle().strokeBorder(.white.opacity(0.32), lineWidth: 0.7)
+            }
+          Image(systemName: "play.fill")
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(.white)
+            .offset(x: 1)
+        }
+        .frame(width: 34, height: 34)
+        .shadow(color: .black.opacity(0.32), radius: 5, y: 2)
+      }
+      .buttonStyle(.plain)
+      .disabled(isLaunchingPlayback)
+      .offset(x: cardWidth - 42, y: thumbHeight - 42)
+      .accessibilityLabel("播放 \(ep.title)")
+      .accessibilityIdentifier("native-mediaserver-episode-play-\(ep.itemId)")
+    }
+  }
+
+  /// 音乐专辑曲目纵向行卡片。
+  private func audioTrackRowCard(
     _ ep: MediaServerBrowseItemDTO, index: Int, parentDetail: MediaServerItemDetailDTO
   ) -> some View {
-    let isAudioTrack = ep.kind == .audio || parentDetail.kind == .musicAlbum
-    return CinematicPanel(padding: 10) {
+    CinematicPanel(padding: 10) {
       HStack(alignment: .center, spacing: 12) {
         NavigationLink {
           NativeMediaServerDetailPage(
@@ -1078,72 +1302,20 @@ struct NativeMediaServerDetailPage: View {
           )
         } label: {
           HStack(alignment: .center, spacing: 12) {
-            if isAudioTrack {
-              Text("\(ep.episodeNumber ?? (index + 1))")
-                .font(.subheadline.weight(.semibold).monospacedDigit())
-                .foregroundStyle(.primary.opacity(0.60))
-                .frame(width: 26)
-            } else {
-              ZStack(alignment: .bottom) {
-                NativeMediaArtwork(
-                  session: session,
-                  reference: ep.thumb ?? ep.backdrop ?? ep.poster ?? parentDetail.backdrop,
-                  role: .backdrop,
-                  maximumWidth: 320
-                )
-                .frame(width: 118, height: 68)
-                .clipped()
+            Text("\(ep.episodeNumber ?? (index + 1))")
+              .font(.subheadline.weight(.semibold).monospacedDigit())
+              .foregroundStyle(.primary.opacity(0.60))
+              .frame(width: 26)
 
-                if let progress = ep.progressFraction, progress > 0.01, ep.played != true {
-                  GeometryReader { bar in
-                    ZStack(alignment: .leading) {
-                      Rectangle().fill(.black.opacity(0.45))
-                      Rectangle()
-                        .fill(appearance.accentColor)
-                        .frame(width: max(4, bar.size.width * progress))
-                    }
-                  }
-                  .frame(height: 3)
-                }
-              }
-              .frame(width: 118, height: 68)
-              .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-              .overlay(alignment: .topTrailing) {
-                if ep.played == true {
-                  Image(systemName: "checkmark.circle.fill")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.white, NativeTheme.success)
-                    .padding(4)
-                }
-              }
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-              HStack(spacing: 5) {
-                if let code = ep.episodeCode {
-                  Text(code)
-                    .font(.caption2.weight(.bold).monospacedDigit())
-                    .foregroundStyle(appearance.accentColor)
-                }
-                if let dur = ep.formattedDuration {
-                  Text(dur)
-                    .font(.caption2)
-                    .foregroundStyle(.primary.opacity(0.55))
-                }
-              }
-
+            VStack(alignment: .leading, spacing: 3) {
               Text(ep.title)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
-                .lineLimit(2)
-
-              if let overview = ep.overview?.trimmingCharacters(in: .whitespacesAndNewlines),
-                !overview.isEmpty
-              {
-                Text(overview)
-                  .font(.caption)
-                  .foregroundStyle(.primary.opacity(0.66))
-                  .lineLimit(2)
+                .lineLimit(1)
+              if let dur = ep.formattedDuration {
+                Text(dur)
+                  .font(.caption2)
+                  .foregroundStyle(.primary.opacity(0.55))
               }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1169,16 +1341,17 @@ struct NativeMediaServerDetailPage: View {
     }
   }
 
-  /// 集详情页下方的本季分集横向速览条，方便快速切换上一集/下一集或本季其他集。
+  /// 集详情页下方的本季分集横向速览条，优先使用单集横版截图。
   private func adjacentEpisodesStrip(_ detail: MediaServerItemDetailDTO) -> some View {
     VStack(alignment: .leading, spacing: 10) {
       Text("本季更多剧集")
         .font(.headline)
         .accessibilityAddTraits(.isHeader)
-      ScrollView(.horizontal) {
+      ScrollView(.horizontal, showsIndicators: false) {
         LazyHStack(spacing: 10) {
           ForEach(episodes) { ep in
             let isCurrent = ep.itemId == detail.itemId
+            let epArtwork = ep.thumb ?? ep.backdrop ?? detail.backdrop ?? ep.poster
             NavigationLink {
               NativeMediaServerDetailPage(
                 session: session,
@@ -1186,15 +1359,15 @@ struct NativeMediaServerDetailPage: View {
                 itemID: ep.itemId,
                 fallbackTitle: ep.title,
                 fallbackItemType: "Episode",
-                fallbackPoster: ep.thumb ?? ep.poster
+                fallbackPoster: epArtwork
               )
             } label: {
               VStack(alignment: .leading, spacing: 5) {
                 NativeMediaArtwork(
                   session: session,
-                  reference: ep.thumb ?? ep.backdrop ?? ep.poster,
+                  reference: epArtwork,
                   role: .backdrop,
-                  maximumWidth: 280
+                  maximumWidth: 320
                 )
                 .frame(width: 146, height: 82)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -1217,7 +1390,6 @@ struct NativeMediaServerDetailPage: View {
           }
         }
       }
-      .scrollIndicators(.hidden)
     }
   }
 
@@ -1322,6 +1494,420 @@ struct NativeMediaServerDetailPage: View {
         }
       }
     }
+  }
+
+  // MARK: - 类似作品 / 链接 / 媒体信息（横向流式卡片）
+
+  /// 类似作品横向竖版海报栏：2:3 海报 + 右下角暗色半透评分胶囊 + 标题 + 年份。
+  private func similarWorksSection(_ detail: MediaServerItemDetailDTO) -> some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("类似作品")
+        .font(.title3.weight(.bold))
+        .accessibilityAddTraits(.isHeader)
+
+      ScrollView(.horizontal, showsIndicators: false) {
+        LazyHStack(alignment: .top, spacing: 12) {
+          ForEach(similarItems.prefix(16)) { item in
+            switch item.destination {
+            case .externalMedia(let identity):
+              NavigationLink {
+                NativeMediaDetailPage(session: session, identity: identity)
+              } label: {
+                similarWorkPosterTile(item)
+              }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("native-mediaserver-similar-\(item.id)")
+
+            case .libraryItem(let srv, let targetID, let itemType):
+              NavigationLink {
+                NativeMediaServerDetailPage(
+                  session: session,
+                  server: srv ?? resolvedServer,
+                  itemID: targetID,
+                  fallbackTitle: item.title,
+                  fallbackItemType: itemType,
+                  fallbackPoster: item.poster
+                )
+              } label: {
+                similarWorkPosterTile(item)
+              }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("native-mediaserver-similar-\(item.id)")
+
+            case .none:
+              similarWorkPosterTile(item)
+            }
+          }
+        }
+      }
+    }
+    .accessibilityIdentifier("native-mediaserver-similar-section")
+  }
+
+  private func similarWorkPosterTile(_ item: MediaServerSimilarCardItem) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      NativeMediaArtwork(
+        session: session,
+        reference: item.poster,
+        role: .poster,
+        maximumWidth: 360
+      )
+      .frame(width: 114, height: 171)
+      .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+      .overlay(alignment: .bottomTrailing) {
+        if let rating = item.rating, rating > 0 {
+          Text(String(format: "%.1f", rating))
+            .font(.caption2.weight(.bold).monospacedDigit())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6.5)
+            .padding(.vertical, 2.5)
+            .background(.black.opacity(0.68), in: Capsule())
+            .padding(6)
+        }
+      }
+      .overlay {
+        RoundedRectangle(cornerRadius: 13, style: .continuous)
+          .strokeBorder(.white.opacity(0.12), lineWidth: 0.6)
+      }
+
+      Text(item.title)
+        .font(.footnote.weight(.semibold))
+        .foregroundStyle(.primary)
+        .lineLimit(1)
+
+      if let year = item.year, !year.isEmpty {
+        Text(year)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+      }
+    }
+    .frame(width: 114, alignment: .leading)
+  }
+
+  /// 外部资料站链接胶囊横栏（豆瓣、IMDb、TheMovieDb、Trakt、TheTVDB 等）。
+  private func externalLinksSection(_ links: [MediaServerExternalLinkChip]) -> some View {
+    let isLight = colorScheme == .light
+    return VStack(alignment: .leading, spacing: 12) {
+      Text("链接")
+        .font(.title3.weight(.bold))
+        .accessibilityAddTraits(.isHeader)
+
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 10) {
+          ForEach(links) { link in
+            Button {
+              UIApplication.shared.open(link.url)
+            } label: {
+              HStack(spacing: 6) {
+                Image(systemName: "link")
+                  .font(.caption.weight(.semibold))
+                  .foregroundStyle(.secondary)
+                Text(link.title)
+                  .font(.footnote.weight(.medium))
+                  .foregroundStyle(.primary.opacity(0.90))
+              }
+              .padding(.horizontal, 14)
+              .padding(.vertical, 8.5)
+              .background {
+                Capsule()
+                  .fill(isLight ? Color.black.opacity(0.045) : Color.white.opacity(0.055))
+                  .overlay {
+                    Capsule()
+                      .strokeBorder(
+                        isLight ? Color.black.opacity(0.14) : Color.white.opacity(0.16),
+                        lineWidth: 0.8
+                      )
+                  }
+              }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-mediaserver-link-\(link.id)")
+          }
+        }
+      }
+    }
+    .accessibilityIdentifier("native-mediaserver-links-section")
+  }
+
+  /// 解析当前作品可用的全部外部站点链接。
+  private func resolvedExternalLinks(
+    _ detail: MediaServerItemDetailDTO
+  ) -> [MediaServerExternalLinkChip] {
+    let isTV = detail.kind.isTelevisionHierarchy || detail.mediaType == "电视剧"
+    let doubanID = Self.cleanExternalID(
+      enrichedIDs.doubanID ?? detail.doubanId ?? parentSeriesDetail?.doubanId)
+    let imdbID = Self.cleanExternalID(
+      enrichedIDs.imdbID ?? detail.imdbId ?? parentSeriesDetail?.imdbId)
+    let tmdbID = Self.cleanExternalID(
+      enrichedIDs.tmdbID ?? detail.tmdbId ?? parentSeriesDetail?.tmdbId)
+    let tvdbID = Self.cleanExternalID(
+      enrichedIDs.tvdbID ?? detail.tvdbId ?? parentSeriesDetail?.tvdbId)
+    let bangumiID = Self.cleanExternalID(enrichedIDs.bangumiID)
+
+    var items: [MediaServerExternalLinkChip] = []
+    if let doubanID, let url = URL(string: "https://movie.douban.com/subject/\(doubanID)/") {
+      items.append(MediaServerExternalLinkChip(id: "douban", title: "豆瓣", url: url))
+    }
+    if let imdbID, let url = URL(string: "https://www.imdb.com/title/\(imdbID)/") {
+      items.append(MediaServerExternalLinkChip(id: "imdb", title: "IMDb", url: url))
+    }
+    if let tmdbID,
+      let url = URL(string: "https://www.themoviedb.org/\(isTV ? "tv" : "movie")/\(tmdbID)")
+    {
+      items.append(MediaServerExternalLinkChip(id: "tmdb", title: "TheMovieDb", url: url))
+    }
+    if let imdbID,
+      let encoded = imdbID.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+      let url = URL(string: "https://trakt.tv/search/imdb?query=\(encoded)")
+    {
+      items.append(MediaServerExternalLinkChip(id: "trakt", title: "Trakt", url: url))
+    } else if let tmdbID,
+      let encoded = tmdbID.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+      let url = URL(
+        string: "https://trakt.tv/search/tmdb/\(encoded)?id_type=\(isTV ? "show" : "movie")")
+    {
+      items.append(MediaServerExternalLinkChip(id: "trakt", title: "Trakt", url: url))
+    }
+    if let tvdbID,
+      let url = URL(
+        string: "https://www.thetvdb.com/dereferrer/\(isTV ? "series" : "movie")/\(tvdbID)")
+    {
+      items.append(MediaServerExternalLinkChip(id: "tvdb", title: "TheTVDB", url: url))
+    }
+    if let bangumiID, let url = URL(string: "https://bgm.tv/subject/\(bangumiID)") {
+      items.append(MediaServerExternalLinkChip(id: "bangumi", title: "Bangumi", url: url))
+    }
+    if let playURLText = detail.playUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !playURLText.isEmpty,
+      let webURL = URL(string: playURLText),
+      let scheme = webURL.scheme?.lowercased(),
+      scheme == "http" || scheme == "https"
+    {
+      items.append(
+        MediaServerExternalLinkChip(
+          id: "server-web",
+          title: resolvedServer ?? "媒体库网页",
+          url: webURL
+        )
+      )
+    }
+    return items
+  }
+
+  /// 媒体信息横向流式轨道参数卡片（视频 / 音频 / 字幕）。
+  private func mediaStreamsInfoSection(_ source: MediaServerSourceDTO) -> some View {
+    let summaryParts: [String] = {
+      var parts: [String] = []
+      if let container = source.container?.trimmingCharacters(in: .whitespacesAndNewlines),
+        !container.isEmpty
+      {
+        parts.append(container.uppercased())
+      }
+      if let size = source.size, size > 0 {
+        parts.append(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+      }
+      return parts
+    }()
+
+    return VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .firstTextBaseline) {
+        Text("媒体信息")
+          .font(.title3.weight(.bold))
+          .accessibilityAddTraits(.isHeader)
+        Spacer()
+        if !summaryParts.isEmpty {
+          Text(summaryParts.joined(separator: " · "))
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+        }
+      }
+
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(alignment: .top, spacing: 12) {
+          ForEach(Array(source.videoStreams.enumerated()), id: \.element.id) { idx, stream in
+            mediaStreamInfoCard(
+              symbol: "video",
+              title: "视频",
+              isSelected: source.videoStreams.count > 1 && idx == 0,
+              rows: videoStreamRows(stream, sourceBitrate: source.bitrate)
+            )
+          }
+
+          ForEach(Array(source.audioStreams.enumerated()), id: \.element.id) { idx, stream in
+            let selected =
+              trackSelection.audioOrdinal != nil
+              ? trackSelection.audioOrdinal == idx
+              : stream.isDefault
+            mediaStreamInfoCard(
+              symbol: "speaker.wave.2",
+              title: "音频",
+              isSelected: selected,
+              rows: audioStreamRows(stream)
+            )
+          }
+
+          ForEach(source.subtitleStreams) { stream in
+            let selected =
+              isSubtitleStreamSelected(stream, in: source)
+              || (trackSelection.subtitleOrdinal == nil
+                && trackSelection.subtitleExternalID == nil
+                && !trackSelection.subtitleDisabled
+                && stream.isDefault)
+            mediaStreamInfoCard(
+              symbol: "captions.bubble",
+              title: "字幕",
+              isSelected: selected,
+              rows: subtitleStreamRows(stream)
+            )
+          }
+        }
+      }
+    }
+    .accessibilityIdentifier("native-mediaserver-mediainfo-section")
+  }
+
+  private func mediaStreamInfoCard(
+    symbol: String,
+    title: String,
+    isSelected: Bool,
+    rows: [(String, String)]
+  ) -> some View {
+    let isLight = colorScheme == .light
+    let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+    return VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 8) {
+        Image(systemName: symbol)
+          .font(.subheadline.weight(.medium))
+          .foregroundStyle(.primary.opacity(0.88))
+        Text(title)
+          .font(.callout.weight(.semibold))
+          .foregroundStyle(.primary)
+        if isSelected {
+          Image(systemName: "checkmark")
+            .font(.footnote.weight(.bold))
+            .foregroundStyle(.primary)
+        }
+        Spacer(minLength: 0)
+      }
+      .padding(.bottom, 2)
+
+      VStack(alignment: .leading, spacing: 8) {
+        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+          HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(row.0)
+              .font(.footnote)
+              .foregroundStyle(.primary.opacity(0.84))
+            Text(row.1)
+              .font(.footnote)
+              .foregroundStyle(.secondary)
+              .lineLimit(2)
+              .multilineTextAlignment(.leading)
+          }
+        }
+      }
+    }
+    .padding(16)
+    .frame(width: 248, alignment: .topLeading)
+    .background {
+      shape
+        .fill(isLight ? Color.black.opacity(0.035) : Color.white.opacity(0.045))
+        .overlay {
+          shape.strokeBorder(
+            isLight ? Color.black.opacity(0.12) : Color.white.opacity(0.14),
+            lineWidth: 0.8
+          )
+        }
+    }
+  }
+
+  private func videoStreamRows(
+    _ stream: MediaServerStreamDTO, sourceBitrate: Int?
+  ) -> [(String, String)] {
+    var rows: [(String, String)] = []
+    func appendIfPresent(_ key: String, _ raw: String?) {
+      guard let val = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !val.isEmpty else {
+        return
+      }
+      rows.append((key, val))
+    }
+    appendIfPresent("标题", stream.displayTitle ?? stream.resolvedLabel)
+    appendIfPresent("内嵌标题", stream.title)
+    appendIfPresent("编码", stream.codec)
+    appendIfPresent("分辨率", stream.formattedResolution)
+    appendIfPresent("帧率", stream.frameRate)
+    let fallbackBitrate: String? = {
+      if let formatted = stream.formattedBitrate { return formatted }
+      guard let sb = sourceBitrate, sb > 0 else { return nil }
+      return sb >= 2_000_000
+        ? String(format: "%.1fmbps", Double(sb) / 1_000_000.0)
+        : "\(Int((Double(sb) / 1_000.0).rounded()))kbps"
+    }()
+    appendIfPresent("比特率", fallbackBitrate)
+    appendIfPresent("动态范围", stream.videoRange)
+    appendIfPresent("配置", stream.profile)
+    appendIfPresent("等级", stream.level)
+    appendIfPresent("长宽比", stream.inferredAspectRatio)
+    if let interlaced = stream.isInterlaced {
+      rows.append(("交错", interlaced ? "是" : "否"))
+    }
+    appendIfPresent("基色", stream.colorPrimaries)
+    appendIfPresent("色域", stream.colorSpace)
+    if let depth = stream.bitDepth, depth > 0 {
+      rows.append(("位深", String(depth)))
+    }
+    return rows
+  }
+
+  private func audioStreamRows(_ stream: MediaServerStreamDTO) -> [(String, String)] {
+    var rows: [(String, String)] = []
+    func appendIfPresent(_ key: String, _ raw: String?) {
+      guard let val = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !val.isEmpty else {
+        return
+      }
+      rows.append((key, val))
+    }
+    appendIfPresent("标题", stream.displayTitle ?? stream.resolvedLabel)
+    appendIfPresent("内嵌标题", stream.title)
+    appendIfPresent("语言", stream.language)
+    appendIfPresent("布局", stream.channelLayout)
+    if let ch = stream.channels, ch > 0 {
+      rows.append(("声道", String(ch)))
+    }
+    appendIfPresent("编码", stream.codec)
+    appendIfPresent("比特率", stream.formattedBitrate)
+    appendIfPresent("采样率", stream.formattedSampleRate)
+    rows.append(("外部", stream.isExternal ? "是" : "否"))
+    rows.append(("默认", stream.isDefault ? "是" : "否"))
+    return rows
+  }
+
+  private func subtitleStreamRows(_ stream: MediaServerStreamDTO) -> [(String, String)] {
+    var rows: [(String, String)] = []
+    func appendIfPresent(_ key: String, _ raw: String?) {
+      guard let val = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !val.isEmpty else {
+        return
+      }
+      rows.append((key, val))
+    }
+    appendIfPresent("标题", stream.displayTitle ?? stream.resolvedLabel)
+    appendIfPresent("内嵌标题", stream.title)
+    appendIfPresent("语言", stream.language)
+    appendIfPresent("编码", stream.codec)
+    rows.append(("强制", stream.isForced ? "是" : "否"))
+    rows.append(("外部", stream.isExternal ? "是" : "否"))
+    rows.append(("默认", stream.isDefault ? "是" : "否"))
+    return rows
+  }
+
+  nonisolated private static func cleanExternalID(_ raw: String?) -> String? {
+    guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !trimmed.isEmpty,
+      trimmed != "0",
+      trimmed.lowercased() != "none",
+      trimmed.lowercased() != "null"
+    else { return nil }
+    return trimmed
   }
 
   private func feedbackBanner(_ text: String, isError: Bool) -> some View {
@@ -1586,6 +2172,35 @@ struct NativeMediaServerDetailPage: View {
     }
   }
 
+  /// 打开当前媒体库作品的订阅文件详情弹窗。
+  private func openSubscribeFiles(
+    _ detail: MediaServerItemDetailDTO,
+    external: (source: String, mediaID: String, type: String)
+  ) {
+    let season = resolveCancelSeason(detail, external: external)
+    let key = external.type == "电视剧" ? (season ?? -1) : -1
+    let knownID = subscribedRecordIDs[key] ?? subscribedRecordIDs[-1]
+    let baseTitle = detail.seriesName ?? detail.title
+    let displayTitle =
+      if let season, external.type == "电视剧" {
+        "\(baseTitle) S\(String(format: "%02d", season))"
+      } else {
+        baseTitle
+      }
+    activeFilesTarget = NativeSubscribeFilesTarget(
+      subscribeID: knownID,
+      mediaLookup: NativeSubscribeMediaLookup(
+        mediaSource: external.source,
+        mediaID: external.mediaID,
+        type: external.type,
+        season: external.type == "电视剧" ? season : nil,
+        title: baseTitle,
+        year: detail.yearText
+      ),
+      fallbackTitle: displayTitle
+    )
+  }
+
   private func performSubscribe(
     _ detail: MediaServerItemDetailDTO,
     external: (source: String, mediaID: String, type: String)
@@ -1606,6 +2221,9 @@ struct NativeMediaServerDetailPage: View {
         case mediaID = "media_id"
       }
     }
+    struct SubscribeCreatedPayload: Decodable, Sendable {
+      let id: Int?
+    }
     do {
       let targetSeason =
         external.type == "电视剧" ? (detail.seasonNumber ?? selectedSeasonNumber ?? 1) : nil
@@ -1621,13 +2239,26 @@ struct NativeMediaServerDetailPage: View {
       )
       let endpoint = try APIEndpoint(
         path: ["subscribe"], method: .post, body: body, trailingSlash: true)
-      try await session.perform(endpoint, requiring: .init(category: .subscribe))
+      let created = try await session.request(
+        endpoint, as: SubscribeCreatedPayload?.self, requiring: .init(category: .subscribe)
+      ).value
+      if let createdID = created?.id, createdID > 0 {
+        subscribedRecordIDs[targetSeason ?? -1] = createdID
+      }
+
+      isSubscribed = true
       if let targetSeason {
         subscribedSeasons.insert(targetSeason)
-      } else {
-        isSubscribed = true
       }
-      await loadSubscriptionStatus(detail, external: external)
+      NativePageDataCache.shared.remove("subscriptions|list", session: session)
+
+      if let snapshot = await fetchSubscriptionSnapshot(detail, external: external) {
+        isSubscribed = true
+        subscribedSeasons.formUnion(snapshot.seasons)
+        if let targetSeason {
+          subscribedSeasons.insert(targetSeason)
+        }
+      }
       feedbackMessage = ("已成功添加订阅。", false)
     } catch {
       feedbackMessage = ("添加订阅失败，可能已存在或暂无权限。", true)
@@ -1651,11 +2282,27 @@ struct NativeMediaServerDetailPage: View {
       try await session.perform(endpoint, requiring: .init(category: .subscribe))
       if let season = target.season {
         subscribedSeasons.remove(season)
+        subscribedRecordIDs.removeValue(forKey: season)
+        isSubscribed = !subscribedSeasons.isEmpty
       } else {
+        subscribedSeasons.removeAll()
+        subscribedRecordIDs.removeAll()
         isSubscribed = false
       }
-      if let detail, let ext = detail.resolvedExternalIdentity {
-        await loadSubscriptionStatus(detail, external: ext)
+      NativePageDataCache.shared.remove("subscriptions|list", session: session)
+
+      if let detail, let ext = effectiveExternalIdentity,
+        let snapshot = await fetchSubscriptionSnapshot(detail, external: ext)
+      {
+        if let season = target.season {
+          var remaining = snapshot.seasons
+          remaining.remove(season)
+          subscribedSeasons = remaining
+          isSubscribed = !remaining.isEmpty
+        } else {
+          subscribedSeasons.removeAll()
+          isSubscribed = false
+        }
       }
       feedbackMessage = (
         target.season.map { "已取消第 \($0) 季订阅。" } ?? "已取消订阅。",
@@ -1666,11 +2313,20 @@ struct NativeMediaServerDetailPage: View {
     }
   }
 
-  /// 查询当前作品在 MoviePilot 中的订阅与分季订阅状态，使「已订阅」按钮与媒体详情页保持一致并支持再次点击取消。
+  /// 查询当前作品在 MoviePilot 中的订阅与分季状态，附带 `GET /api/v1/subscribe/media/{id}` 跨源投影兜底。
   private func loadSubscriptionStatus(
     _ loaded: MediaServerItemDetailDTO,
     external: (source: String, mediaID: String, type: String)
   ) async {
+    guard let snapshot = await fetchSubscriptionSnapshot(loaded, external: external) else { return }
+    isSubscribed = snapshot.subscribed
+    subscribedSeasons = snapshot.seasons
+  }
+
+  private func fetchSubscriptionSnapshot(
+    _ loaded: MediaServerItemDetailDTO,
+    external: (source: String, mediaID: String, type: String)
+  ) async -> (subscribed: Bool, seasons: Set<Int>)? {
     struct StatusQueryItem: Encodable {
       let mediaSource: String
       let mediaID: String
@@ -1684,7 +2340,7 @@ struct NativeMediaServerDetailPage: View {
         case mediaID = "media_id"
       }
     }
-    struct StatusResponseItem: Decodable {
+    struct StatusResponseItem: Decodable, Sendable {
       let subscribed: Bool
       let seasons: [Int: String]
 
@@ -1704,23 +2360,63 @@ struct NativeMediaServerDetailPage: View {
         seasons = parsed
       }
     }
+    struct IdentityProbe: Decodable, Sendable {
+      let id: Int?
+      let season: Int?
+    }
+
+    let queryTitle = loaded.seriesName ?? loaded.title
+    let queryYear = loaded.yearText ?? parentSeriesDetail?.yearText
     let payload = [
       StatusQueryItem(
         mediaSource: external.source,
         mediaID: external.mediaID,
         mtype: external.type,
-        title: loaded.seriesName ?? loaded.title,
-        year: loaded.yearText
+        title: queryTitle,
+        year: queryYear
       )
     ]
-    guard let body = try? JSONEncoder().encode(payload),
+    var subscribedFlag = false
+    var seasonSet: Set<Int> = []
+    if let body = try? JSONEncoder().encode(payload),
       let endpoint = try? APIEndpoint(path: ["media", "status"], method: .post, body: body),
       let snapshot = try? await session.request(
         endpoint, as: [StatusResponseItem].self, requiring: .init(category: .discovery)
       ).value.first
-    else { return }
-    isSubscribed = snapshot.subscribed
-    subscribedSeasons = Set(snapshot.seasons.keys)
+    {
+      subscribedFlag = snapshot.subscribed
+      seasonSet = Set(snapshot.seasons.keys)
+    }
+
+    let isTV = external.type == "电视剧"
+    if canSubscribe && (!subscribedFlag || (isTV && seasonSet.isEmpty)) {
+      var probeQuery: [URLQueryItem] = [
+        URLQueryItem(name: "media_source", value: external.source),
+        URLQueryItem(name: "mtype", value: external.type),
+      ]
+      if !queryTitle.isEmpty {
+        probeQuery.append(URLQueryItem(name: "title", value: queryTitle))
+      }
+      if let queryYear, !queryYear.isEmpty {
+        probeQuery.append(URLQueryItem(name: "year", value: queryYear))
+      }
+      if let endpoint = try? APIEndpoint(
+        path: ["subscribe", "media", external.mediaID], query: probeQuery),
+        let probe = try? await session.request(
+          endpoint, as: IdentityProbe.self, requiring: .init(category: .subscribe)
+        ).value,
+        let probeID = probe.id, probeID > 0
+      {
+        subscribedFlag = true
+        if isTV, let s = probe.season {
+          seasonSet.insert(s)
+          subscribedRecordIDs[s] = probeID
+        } else {
+          subscribedRecordIDs[-1] = probeID
+        }
+      }
+    }
+    return (subscribedFlag, seasonSet)
   }
 
   // MARK: - Data Loading
@@ -1729,6 +2425,10 @@ struct NativeMediaServerDetailPage: View {
     isLoading = true
     loadFailed = false
     fetchedLogo = nil
+    parentSeriesDetail = nil
+    enrichedIDs = MediaServerEnrichedIDs()
+    similarItems = []
+    sampleEpisodeSource = nil
     var query = [URLQueryItem(name: "itemid", value: itemID)]
     if let server, !server.isEmpty {
       query.append(URLQueryItem(name: "server", value: server))
@@ -1739,6 +2439,13 @@ struct NativeMediaServerDetailPage: View {
         endpoint, as: MediaServerItemDetailDTO.self, requiring: .init(category: .discovery)
       ).value
       detail = loaded
+      enrichedIDs = MediaServerEnrichedIDs(
+        doubanID: Self.cleanExternalID(loaded.doubanId),
+        imdbID: Self.cleanExternalID(loaded.imdbId),
+        tmdbID: Self.cleanExternalID(loaded.tmdbId),
+        tvdbID: Self.cleanExternalID(loaded.tvdbId),
+        bangumiID: nil
+      )
       let preferZh =
         UserDefaults.standard.object(forKey: "nativeV2.playback.preferChineseSub") as? Bool ?? true
       if let firstSource = loaded.mediaSources.first {
@@ -1747,14 +2454,37 @@ struct NativeMediaServerDetailPage: View {
           for: firstSource, preferChineseSub: preferZh)
       }
       isLoading = false
+
+      if loaded.kind == .season || loaded.kind == .episode,
+        let seriesID = loaded.seriesId, !seriesID.isEmpty,
+        loaded.resolvedExternalIdentity == nil
+      {
+        var seriesQuery = [URLQueryItem(name: "itemid", value: seriesID)]
+        if let srv = loaded.server ?? server, !srv.isEmpty {
+          seriesQuery.append(URLQueryItem(name: "server", value: srv))
+        }
+        if let seriesEP = try? APIEndpoint(path: ["mediaserver", "detail"], query: seriesQuery),
+          let loadedSeries = try? await session.request(
+            seriesEP, as: MediaServerItemDetailDTO.self, requiring: .init(category: .discovery)
+          ).value
+        {
+          parentSeriesDetail = loadedSeries
+          enrichedIDs.merge(from: loadedSeries)
+        }
+      }
+
+      let resolvedExt =
+        loaded.resolvedExternalIdentity ?? parentSeriesDetail?.resolvedExternalIdentity
       async let childrenTask: Void = loadHierarchyChildren(for: loaded)
       async let subStatusTask: Void = {
-        if let ext = loaded.resolvedExternalIdentity {
+        if let ext = resolvedExt {
           await loadSubscriptionStatus(loaded, external: ext)
         }
       }()
-      async let logoTask: Void = loadLogoIfNeeded(for: loaded)
-      _ = await (childrenTask, subStatusTask, logoTask)
+      async let logoAndIDsTask: Void = loadLogoAndExternalMetadata(
+        for: loaded, external: resolvedExt)
+      async let similarTask: Void = loadSimilarWorks(for: loaded, external: resolvedExt)
+      _ = await (childrenTask, subStatusTask, logoAndIDsTask, similarTask)
     } catch is CancellationError {
       return
     } catch {
@@ -1763,29 +2493,51 @@ struct NativeMediaServerDetailPage: View {
     }
   }
 
-  /// 媒体库详情未直接返回 Logo 时，利用外部媒体源编号静默拉取透明标题 Logo 并按身份缓存（携带语言元数据供中文准入过滤）。
-  private func loadLogoIfNeeded(for loaded: MediaServerItemDetailDTO) async {
+  /// 拉取透明标题 Logo 并补齐外部站点编号（豆瓣 / IMDb / TMDB / TVDB / Bangumi），即使媒体服务器仅存储了单一编号也能展示完整链接。
+  private func loadLogoAndExternalMetadata(
+    for loaded: MediaServerItemDetailDTO,
+    external: (source: String, mediaID: String, type: String)?
+  ) async {
     if let direct = loaded.logo?.trimmingCharacters(in: .whitespacesAndNewlines), !direct.isEmpty {
       fetchedLogo = MediaServerLogoCacheEntry(
         url: direct, logoLanguage: loaded.logoLanguage, originalLanguage: nil)
-      return
     }
-    guard let ext = loaded.resolvedExternalIdentity else { return }
-    let cacheKey = "\(session.scope.instanceID.uuidString)|\(ext.source)|\(ext.mediaID)|\(ext.type)"
-    if let cached = Self.mediaLogoCache[cacheKey] {
-      fetchedLogo = cached
-      return
-    }
-    struct LogoProbe: Decodable, Sendable {
+    guard let ext = external else { return }
+    struct ExternalMediaProbe: Decodable, Sendable {
       let logoPath: String?
       let logoLanguage: String?
       let originalLanguage: String?
+      let doubanID: String?
+      let imdbID: String?
+      let tmdbID: String?
+      let tvdbID: String?
+      let bangumiID: String?
+
       private enum CodingKeys: String, CodingKey {
         case logoPath = "logo_path"
         case logoLanguage = "logo_language"
         case originalLanguage = "original_language"
+        case doubanID = "douban_id"
+        case imdbID = "imdb_id"
+        case tmdbID = "tmdb_id"
+        case tvdbID = "tvdb_id"
+        case bangumiID = "bangumi_id"
+      }
+
+      init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        logoPath = try? c.decodeIfPresent(String.self, forKey: .logoPath)
+        logoLanguage = try? c.decodeIfPresent(String.self, forKey: .logoLanguage)
+        originalLanguage = try? c.decodeIfPresent(String.self, forKey: .originalLanguage)
+        doubanID = try? c.decodeIfPresent(MediaServerFlexibleScalar.self, forKey: .doubanID)?.value
+        imdbID = try? c.decodeIfPresent(MediaServerFlexibleScalar.self, forKey: .imdbID)?.value
+        tmdbID = try? c.decodeIfPresent(MediaServerFlexibleScalar.self, forKey: .tmdbID)?.value
+        tvdbID = try? c.decodeIfPresent(MediaServerFlexibleScalar.self, forKey: .tvdbID)?.value
+        bangumiID =
+          try? c.decodeIfPresent(MediaServerFlexibleScalar.self, forKey: .bangumiID)?.value
       }
     }
+
     guard
       let endpoint = try? APIEndpoint(
         path: ["media", ext.mediaID],
@@ -1794,19 +2546,191 @@ struct NativeMediaServerDetailPage: View {
           URLQueryItem(name: "type_name", value: ext.type),
         ]),
       let probe = try? await session.request(
-        endpoint, as: LogoProbe.self, requiring: .init(category: .discovery)
-      ).value,
-      let resolved = NativeMediaDetailPage.resolveArtwork(
-        probe.logoPath, source: ext.source, tmdbSize: "w500"),
-      !resolved.isEmpty
+        endpoint, as: ExternalMediaProbe.self, requiring: .init(category: .discovery)
+      ).value
     else { return }
-    let entry = MediaServerLogoCacheEntry(
-      url: resolved,
-      logoLanguage: probe.logoLanguage,
-      originalLanguage: probe.originalLanguage
-    )
-    Self.mediaLogoCache[cacheKey] = entry
-    fetchedLogo = entry
+
+    if let v = Self.cleanExternalID(probe.doubanID), enrichedIDs.doubanID == nil {
+      enrichedIDs.doubanID = v
+    }
+    if let v = Self.cleanExternalID(probe.imdbID), enrichedIDs.imdbID == nil {
+      enrichedIDs.imdbID = v
+    }
+    if let v = Self.cleanExternalID(probe.tmdbID), enrichedIDs.tmdbID == nil {
+      enrichedIDs.tmdbID = v
+    }
+    if let v = Self.cleanExternalID(probe.tvdbID), enrichedIDs.tvdbID == nil {
+      enrichedIDs.tvdbID = v
+    }
+    if let v = Self.cleanExternalID(probe.bangumiID), enrichedIDs.bangumiID == nil {
+      enrichedIDs.bangumiID = v
+    }
+
+    if fetchedLogo == nil {
+      let cacheKey =
+        "\(session.scope.instanceID.uuidString)|\(ext.source)|\(ext.mediaID)|\(ext.type)"
+      if let cached = Self.mediaLogoCache[cacheKey] {
+        fetchedLogo = cached
+      } else if let resolved = NativeMediaDetailPage.resolveArtwork(
+        probe.logoPath, source: ext.source, tmdbSize: "w500"),
+        !resolved.isEmpty
+      {
+        let entry = MediaServerLogoCacheEntry(
+          url: resolved,
+          logoLanguage: probe.logoLanguage,
+          originalLanguage: probe.originalLanguage
+        )
+        Self.mediaLogoCache[cacheKey] = entry
+        fetchedLogo = entry
+      }
+    }
+  }
+
+  /// 加载类似作品：优先按外部身份请求相似/推荐列表，缺省时按首个类型标签回退同媒体库高分作品。
+  private func loadSimilarWorks(
+    for loaded: MediaServerItemDetailDTO,
+    external: (source: String, mediaID: String, type: String)?
+  ) async {
+    guard loaded.kind == .movie || loaded.kind.isTelevisionHierarchy else { return }
+    if let ext = external {
+      var candidateEndpoints: [APIEndpoint] = []
+      let normalizedType = ext.type
+      switch ext.source.lowercased() {
+      case "themoviedb", "tmdb":
+        if let sim = try? APIEndpoint(
+          path: ["tmdb", "similar", ext.mediaID, normalizedType],
+          query: [URLQueryItem(name: "page", value: "1")])
+        {
+          candidateEndpoints.append(sim)
+        }
+        if let rec = try? APIEndpoint(
+          path: ["tmdb", "recommend", ext.mediaID, normalizedType],
+          query: [URLQueryItem(name: "page", value: "1")])
+        {
+          candidateEndpoints.append(rec)
+        }
+      case "douban":
+        if let rec = try? APIEndpoint(
+          path: ["douban", "recommend", ext.mediaID, normalizedType],
+          query: [URLQueryItem(name: "page", value: "1")])
+        {
+          candidateEndpoints.append(rec)
+        }
+      case "bangumi":
+        if let rec = try? APIEndpoint(
+          path: ["bangumi", "recommend", ext.mediaID],
+          query: [URLQueryItem(name: "page", value: "1")])
+        {
+          candidateEndpoints.append(rec)
+        }
+      case "anilist":
+        if let rec = try? APIEndpoint(
+          path: ["anilist", "recommend", ext.mediaID],
+          query: [URLQueryItem(name: "page", value: "1")])
+        {
+          candidateEndpoints.append(rec)
+        }
+      default:
+        break
+      }
+
+      for endpoint in candidateEndpoints {
+        if let list = try? await session.request(
+          endpoint, as: [MediaSummaryItem].self, requiring: .init(category: .discovery)
+        ).value, !list.isEmpty {
+          let cards: [MediaServerSimilarCardItem] = list.compactMap { item in
+            guard let title = item.title, !title.isEmpty else { return nil }
+            let resolved = item.resolvedIdentity(fallbackSource: ext.source)
+            let poster = NativeMediaDetailPage.resolveArtwork(
+              item.posterPath,
+              source: resolved?.source ?? item.mediaSource ?? ext.source
+            )
+            let dest: MediaServerSimilarCardItem.Destination =
+              if let resolved {
+                .externalMedia(
+                  NativeMediaIdentity(
+                    source: resolved.source, mediaID: resolved.mediaID, type: resolved.type))
+              } else {
+                .none
+              }
+            return MediaServerSimilarCardItem(
+              id: resolved.map { "\($0.source)|\($0.mediaID)" } ?? item.id,
+              title: title,
+              year: item.year,
+              rating: item.voteAverage,
+              poster: poster,
+              destination: dest
+            )
+          }
+          if !cards.isEmpty {
+            similarItems = cards
+            return
+          }
+        }
+      }
+    }
+
+    // 媒体库同流派高分回退
+    let genres = loaded.genres.isEmpty ? (parentSeriesDetail?.genres ?? []) : loaded.genres
+    guard let primaryGenre = genres.first,
+      let srv = loaded.server ?? server, !srv.isEmpty,
+      let browseEP = try? APIEndpoint(
+        path: ["mediaserver", "browse"],
+        query: [
+          URLQueryItem(name: "server", value: srv),
+          URLQueryItem(name: "genre", value: primaryGenre),
+          URLQueryItem(name: "sort_by", value: "rating"),
+          URLQueryItem(name: "sort_order", value: "desc"),
+          URLQueryItem(name: "limit", value: "18"),
+        ]),
+      let page = try? await session.request(
+        browseEP, as: MediaServerBrowsePageDTO.self, requiring: .init(category: .discovery)
+      ).value
+    else { return }
+
+    let excludedIDs: Set<String> = Set([loaded.itemId, loaded.seriesId].compactMap { $0 })
+    similarItems = page.items
+      .filter { !excludedIDs.contains($0.itemId) }
+      .map { child in
+        MediaServerSimilarCardItem(
+          id: "ms|\(child.id)",
+          title: child.title,
+          year: child.yearText,
+          rating: child.rating,
+          poster: child.poster ?? child.thumb ?? child.backdrop,
+          destination: .libraryItem(
+            server: child.server ?? srv,
+            itemID: child.itemId,
+            itemType: child.itemType
+          )
+        )
+      }
+  }
+
+  /// 当剧集/分季容器自身无 `mediaSources` 时，静默拉取首集/待看集的详情以展示完整 `媒体信息`。
+  private func loadSampleEpisodeMediaSourceIfNeeded(
+    parentDetail: MediaServerItemDetailDTO,
+    episodeList: [MediaServerBrowseItemDTO]
+  ) async {
+    guard parentDetail.mediaSources.isEmpty, !episodeList.isEmpty else { return }
+    let targetIdx = nextPlayableEpisodeIndex() ?? 0
+    guard episodeList.indices.contains(targetIdx) else { return }
+    let sampleEp = episodeList[targetIdx]
+    var query = [URLQueryItem(name: "itemid", value: sampleEp.itemId)]
+    if let srv = sampleEp.server ?? resolvedServer, !srv.isEmpty {
+      query.append(URLQueryItem(name: "server", value: srv))
+    }
+    guard let epEndpoint = try? APIEndpoint(path: ["mediaserver", "detail"], query: query),
+      let epDetail = try? await session.request(
+        epEndpoint, as: MediaServerItemDetailDTO.self, requiring: .init(category: .discovery)
+      ).value,
+      let firstSource = epDetail.mediaSources.first
+    else { return }
+    sampleEpisodeSource = firstSource
+    let preferZh =
+      UserDefaults.standard.object(forKey: "nativeV2.playback.preferChineseSub") as? Bool ?? true
+    trackSelection = MediaPlaybackTrackSelection.defaultSelection(
+      for: firstSource, preferChineseSub: preferZh)
   }
 
   private func loadHierarchyChildren(for loaded: MediaServerItemDetailDTO) async {
@@ -1849,6 +2773,7 @@ struct NativeMediaServerDetailPage: View {
         ).value
       {
         episodes = epList
+        await loadSampleEpisodeMediaSourceIfNeeded(parentDetail: loaded, episodeList: epList)
       }
 
     case .episode:
@@ -1868,6 +2793,7 @@ struct NativeMediaServerDetailPage: View {
         ).value
       {
         episodes = epList
+        await loadSampleEpisodeMediaSourceIfNeeded(parentDetail: loaded, episodeList: epList)
       }
 
     case .musicAlbum:
@@ -1922,8 +2848,50 @@ struct NativeMediaServerDetailPage: View {
       ).value
     {
       episodes = epList
+      if let detail {
+        await loadSampleEpisodeMediaSourceIfNeeded(parentDetail: detail, episodeList: epList)
+      }
     }
   }
+}
+
+/// 媒体库详情页聚合的多来源外部编号。
+private struct MediaServerEnrichedIDs: Sendable {
+  var doubanID: String?
+  var imdbID: String?
+  var tmdbID: String?
+  var tvdbID: String?
+  var bangumiID: String?
+
+  mutating func merge(from other: MediaServerItemDetailDTO) {
+    if doubanID == nil, let v = other.doubanId, !v.isEmpty, v != "0" { doubanID = v }
+    if imdbID == nil, let v = other.imdbId, !v.isEmpty, v != "0" { imdbID = v }
+    if tmdbID == nil, let v = other.tmdbId, !v.isEmpty, v != "0" { tmdbID = v }
+    if tvdbID == nil, let v = other.tvdbId, !v.isEmpty, v != "0" { tvdbID = v }
+  }
+}
+
+/// 媒体库详情页「类似作品」卡片数据。
+private struct MediaServerSimilarCardItem: Identifiable, Sendable {
+  enum Destination: Sendable {
+    case externalMedia(NativeMediaIdentity)
+    case libraryItem(server: String?, itemID: String, itemType: String)
+    case none
+  }
+
+  let id: String
+  let title: String
+  let year: String?
+  let rating: Double?
+  let poster: String?
+  let destination: Destination
+}
+
+/// 媒体库详情页「链接」胶囊项。
+private struct MediaServerExternalLinkChip: Identifiable, Sendable {
+  let id: String
+  let title: String
+  let url: URL
 }
 
 /// 待确认取消订阅的目标参数。

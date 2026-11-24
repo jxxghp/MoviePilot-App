@@ -143,7 +143,7 @@ struct NativeDashboardPage: View {
     }
     .navigationTitle("")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .onAppear {
       isPageVisible = true
       syncWidgetsFromStorage()
@@ -1921,7 +1921,7 @@ private struct NativeDashboardWidgetsSheet: View {
       }
       .navigationTitle("编辑仪表盘组件")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }

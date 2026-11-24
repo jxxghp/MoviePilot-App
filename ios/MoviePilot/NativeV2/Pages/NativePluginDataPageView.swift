@@ -140,7 +140,7 @@ struct NativePluginDataPageView: View {
     }
     .navigationTitle(pluginName)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       if navKey == nil, renderMode.lowercased() != "vue" {
         ToolbarItem(placement: .topBarTrailing) {

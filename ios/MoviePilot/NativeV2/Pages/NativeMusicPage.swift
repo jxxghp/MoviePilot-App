@@ -44,7 +44,7 @@ struct NativeMusicPage: View {
     }
     .navigationTitle("音乐探索")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .searchable(text: $searchText, prompt: "筛选专辑或艺人名称")
   }
 }
@@ -349,7 +349,7 @@ struct NativeMusicAlbumDetailPage: View {
     }
     .navigationTitle("专辑详情")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .task { await load() }
     .alert("取消音乐订阅", isPresented: $showsCancelConfirm) {
       Button("取消订阅", role: .destructive) { Task { await cancelSubscribe() } }
@@ -785,7 +785,7 @@ struct NativeMusicArtistDetailPage: View {
     }
     .navigationTitle(artist?.displayName ?? artistName)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .task { await load() }
   }
 

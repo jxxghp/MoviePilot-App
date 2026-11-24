@@ -50,6 +50,7 @@ struct NativeSubscriptionsPage: View {
   @State private var loadFailed = false
   @State private var attempt = 0
   @State private var mutatingID: Int?
+  @State private var viewingFilesItem: NativeSubscribeItem?
   @State private var editingItem: NativeSubscribeItem?
   @State private var pendingDelete: NativeSubscribeItem?
   @State private var feedback: NativeSubscribeFeedback?
@@ -102,7 +103,7 @@ struct NativeSubscriptionsPage: View {
     }
     .navigationTitle("我的订阅")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .searchable(text: $searchText, prompt: "筛选订阅片名")
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
@@ -151,6 +152,12 @@ struct NativeSubscriptionsPage: View {
       }
     }
     .task(id: attempt) { await load(forceRefresh: attempt > 0) }
+    .sheet(item: $viewingFilesItem) { item in
+      NativeSubscribeFilesSheet(
+        session: session, subscribeID: item.id, fallbackTitle: item.displayTitle
+      )
+      .nativeAdaptiveSheetSizing()
+    }
     .sheet(item: $editingItem) { item in
       NativeSubscribeEditorSheet(session: session, subscribeID: item.id, title: item.displayTitle) {
         feedback = NativeSubscribeFeedback(isError: false, message: "订阅规则已更新。")
@@ -313,7 +320,7 @@ struct NativeSubscriptionsPage: View {
             subscribeTickStrip(projection, item: item)
               .padding(.top, 2)
           }
-          HStack(spacing: 10) {
+          HStack(spacing: 8) {
             Button {
               Task { await toggleStatus(item) }
             } label: {
@@ -339,6 +346,28 @@ struct NativeSubscriptionsPage: View {
             .buttonStyle(.plain)
             .disabled(mutatingID != nil)
             .accessibilityIdentifier("native-subscribe-toggle-\(item.id)")
+
+            Button {
+              viewingFilesItem = item
+            } label: {
+              HStack(spacing: 4) {
+                Image(systemName: "doc.text.magnifyingglass")
+                  .font(.caption2.weight(.semibold))
+                Text("文件").font(.caption.weight(.semibold))
+              }
+              .foregroundStyle(.primary)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 5)
+              .background {
+                Capsule()
+                  .fill(.primary.opacity(0.13))
+                  .overlay { Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 0.6) }
+              }
+              .frame(minHeight: 32)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("查看订阅文件详情")
+            .accessibilityIdentifier("native-subscribe-files-\(item.id)")
             Spacer()
           }
           .padding(.top, 2)
@@ -346,6 +375,11 @@ struct NativeSubscriptionsPage: View {
       }
     }
     .contextMenu {
+      Button {
+        viewingFilesItem = item
+      } label: {
+        Label("文件详情", systemImage: "doc.text.magnifyingglass")
+      }
       Button {
         editingItem = item
       } label: {
@@ -611,6 +645,7 @@ struct NativeSubscriptionsPage: View {
       try await session.perform(endpoint, requiring: .init(category: .subscribe))
       try Task.checkCancellation()
       items.removeAll { $0.id == item.id }
+      NativePageDataCache.shared.set(items, for: "subscriptions|list", session: session)
       feedback = NativeSubscribeFeedback(isError: false, message: "已取消订阅。")
     } catch is CancellationError {
       return

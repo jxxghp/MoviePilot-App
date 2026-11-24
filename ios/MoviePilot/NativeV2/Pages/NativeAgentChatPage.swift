@@ -755,7 +755,7 @@ struct NativeAgentChatPage: View {
     }
     .navigationTitle("智能助手")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         Button {
@@ -1392,7 +1392,7 @@ struct NativeAgentChatPage: View {
       }
       .navigationTitle("历史会话")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {

@@ -64,7 +64,7 @@ struct NativeWorkflowsPage: View {
     }
     .navigationTitle("我的工作流")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         NavigationLink {
@@ -508,7 +508,7 @@ private struct NativeWorkflowEditorSheet: View {
       }
       .navigationTitle(isCreate ? "新增工作流" : "编辑工作流")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
@@ -682,7 +682,7 @@ private struct NativeWorkflowCommunityPage: View {
     }
     .navigationTitle("社区分享")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .alert(
       "复用工作流",
       isPresented: Binding(

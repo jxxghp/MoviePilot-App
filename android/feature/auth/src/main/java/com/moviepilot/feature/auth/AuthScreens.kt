@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -90,6 +91,8 @@ fun ServerConnectionScreen(
     onDeleteSaved: (String) -> Unit,
     allowSelfSignedTls: Boolean = false,
     onToggleSelfSignedTls: (Boolean) -> Unit = {},
+    currentServerUrl: String? = null,
+    onBack: (() -> Unit)? = null,
 ) {
     val colors = LocalMoviePilotColors.current
     val cfg = LocalConfiguration.current
@@ -213,7 +216,22 @@ fun ServerConnectionScreen(
                                 }
                                 Spacer(Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(entry.name, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Text(entry.name, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                        if (!currentServerUrl.isNullOrBlank() && entry.url.trimEnd('/').equals(currentServerUrl.trimEnd('/'), ignoreCase = true)) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(CircleShape)
+                                                    .background(colors.success.copy(alpha = 0.18f))
+                                                    .padding(horizontal = 7.dp, vertical = 2.dp),
+                                            ) {
+                                                Text("当前", color = colors.success, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
                                     Text(entry.url, color = colors.textMuted, fontSize = 12.sp)
                                 }
                                 IconButton(
@@ -252,7 +270,16 @@ fun ServerConnectionScreen(
                     .padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Spacer(Modifier.size(38.dp))
+                if (onBack != null) {
+                    CinematicCircleButton(
+                        icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "返回",
+                        onClick = onBack,
+                        size = 38.dp,
+                    )
+                } else {
+                    Spacer(Modifier.size(38.dp))
+                }
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     Text("连接服务", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 }
@@ -302,7 +329,15 @@ fun ServerConnectionScreen(
                     .padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Spacer(Modifier.size(42.dp))
+                if (onBack != null) {
+                    CinematicCircleButton(
+                        icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "返回",
+                        onClick = onBack,
+                    )
+                } else {
+                    Spacer(Modifier.size(44.dp))
+                }
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     Text("连接服务", color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 }

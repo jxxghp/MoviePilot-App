@@ -204,7 +204,7 @@ struct NativeSystemModulesPage: View {
     }
     .navigationTitle(domain.rawValue)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Group {
@@ -1650,7 +1650,7 @@ private struct NativeNotificationEditorSheet: View {
       }
       .navigationTitle(initial == nil ? "新增通知渠道" : "编辑通知渠道")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("取消") { dismiss() }
@@ -2001,7 +2001,7 @@ private struct NativeDirectoryEditorSheet: View {
       }
       .navigationTitle(initial == nil ? "新增整理目录" : "编辑整理目录")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("取消") { dismiss() }

@@ -663,18 +663,54 @@ struct NativeDiscoverPage: View {
     .accessibilityHidden(true)
   }
 
-  /// 滚动离顶后在状态栏安全区呈现渐进柔化过渡，浅/深色自动匹配当前背景主题色。
+  /// 滚动离顶后在状态栏安全区呈现渐进柔化过渡：iOS 26 以下叠加真实超薄毛玻璃雾面防止状态栏与海报文字重叠，浅/深色自动匹配当前背景主题色。
+  @ViewBuilder
   private func topSafeAreaVeil(progress: CGFloat, height: CGFloat) -> some View {
     let opacity = Double(progress)
     let surface = NativeTheme.topVeilColor(for: colorScheme, appearance: appearance)
-    return LinearGradient(
+    let tintGradient = LinearGradient(
       stops: [
         .init(color: surface.opacity(opacity), location: 0),
         .init(color: surface.opacity(0.94 * opacity), location: 0.44),
         .init(color: surface.opacity(0.62 * opacity), location: 0.72),
         .init(color: .clear, location: 1),
-      ], startPoint: .top, endPoint: .bottom
+      ],
+      startPoint: .top,
+      endPoint: .bottom
     )
+    Group {
+      if #available(iOS 26, *) {
+        tintGradient
+      } else if reduceTransparency {
+        surface.opacity(min(1, opacity * 1.15))
+      } else {
+        ZStack {
+          Rectangle()
+            .fill(.ultraThinMaterial)
+            .mask(
+              LinearGradient(
+                stops: [
+                  .init(color: .white, location: 0),
+                  .init(color: .white.opacity(0.84), location: 0.56),
+                  .init(color: .clear, location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+              )
+            )
+          LinearGradient(
+            stops: [
+              .init(color: surface.opacity(0.52), location: 0),
+              .init(color: surface.opacity(0.24), location: 0.58),
+              .init(color: .clear, location: 1),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+          )
+        }
+        .opacity(opacity)
+      }
+    }
     .frame(height: height)
     .ignoresSafeArea(edges: [.top, .horizontal])
     .allowsHitTesting(false)
@@ -1391,7 +1427,7 @@ struct NativeDiscoverRailGrid<Destination: View>: View {
     }
     .navigationTitle(rail.title)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .accessibilityIdentifier("native-discover-grid")
     .task(id: request) {
       if let request { await appendPage(for: request) }

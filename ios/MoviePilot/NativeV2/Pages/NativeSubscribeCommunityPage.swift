@@ -73,7 +73,7 @@ struct NativeSubscribeCommunityPage: View {
     }
     .navigationTitle("订阅广场")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .searchable(text: $searchText, prompt: "筛选片名或分享标题")
     .onSubmit(of: .search) { reloadToken += 1 }
     .task(id: "\(selectedTab.rawValue)|\(reloadToken)") { await load() }

@@ -1,12 +1,15 @@
 package com.moviepilot.app
 
 import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -80,11 +83,22 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) {
             handleIntent(intent)
         }
+        val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val initialDark = appearanceStore.resolveIsDark(systemDark)
+        window.setBackgroundDrawable(
+            ColorDrawable(if (initialDark) android.graphics.Color.BLACK else 0xFFF4F6FA.toInt()),
+        )
 
         setContent {
             MoviePilotTheme(appearanceStore = appearanceStore) {
                 val isDark = LocalMoviePilotColors.current.isDark
                 val view = LocalView.current
+                LaunchedEffect(isDark, appearanceStore.mode, appearanceStore.pureBlackDark) {
+                    window.setBackgroundDrawable(
+                        ColorDrawable(if (isDark) android.graphics.Color.BLACK else 0xFFF4F6FA.toInt()),
+                    )
+                    appearanceStore.syncPlatformNightMode()
+                }
                 SideEffect {
                     val controller = WindowCompat.getInsetsController(window, view)
                     controller.isAppearanceLightStatusBars = !isDark

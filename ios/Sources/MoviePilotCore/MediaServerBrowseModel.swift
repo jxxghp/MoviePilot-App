@@ -129,13 +129,22 @@ public struct MediaServerStreamDTO: Decodable, Identifiable, Hashable, Sendable 
   public let width: Int?
   public let height: Int?
   public let videoRange: String?
+  public let profile: String?
+  public let level: String?
+  public let frameRate: String?
+  public let aspectRatio: String?
+  public let isInterlaced: Bool?
+  public let colorPrimaries: String?
+  public let colorSpace: String?
+  public let bitDepth: Int?
+  public let sampleRate: Int?
 
   public var id: String {
     "\(type):\(index ?? -1):\(subtitleId ?? displayTitle ?? title ?? codec ?? "")"
   }
 
   private enum CodingKeys: String, CodingKey {
-    case index, type, codec, language, title, channels, bitrate, width, height
+    case index, type, codec, language, title, channels, bitrate, width, height, profile, level
     case displayTitle = "display_title"
     case isDefault = "is_default"
     case isForced = "is_forced"
@@ -143,6 +152,13 @@ public struct MediaServerStreamDTO: Decodable, Identifiable, Hashable, Sendable 
     case subtitleId = "subtitle_id"
     case channelLayout = "channel_layout"
     case videoRange = "video_range"
+    case frameRate = "frame_rate"
+    case aspectRatio = "aspect_ratio"
+    case isInterlaced = "is_interlaced"
+    case colorPrimaries = "color_primaries"
+    case colorSpace = "color_space"
+    case bitDepth = "bit_depth"
+    case sampleRate = "sample_rate"
   }
 
   public init(
@@ -161,7 +177,16 @@ public struct MediaServerStreamDTO: Decodable, Identifiable, Hashable, Sendable 
     bitrate: Int? = nil,
     width: Int? = nil,
     height: Int? = nil,
-    videoRange: String? = nil
+    videoRange: String? = nil,
+    profile: String? = nil,
+    level: String? = nil,
+    frameRate: String? = nil,
+    aspectRatio: String? = nil,
+    isInterlaced: Bool? = nil,
+    colorPrimaries: String? = nil,
+    colorSpace: String? = nil,
+    bitDepth: Int? = nil,
+    sampleRate: Int? = nil
   ) {
     self.index = index
     self.type = type
@@ -179,6 +204,15 @@ public struct MediaServerStreamDTO: Decodable, Identifiable, Hashable, Sendable 
     self.width = width
     self.height = height
     self.videoRange = videoRange
+    self.profile = profile
+    self.level = level
+    self.frameRate = frameRate
+    self.aspectRatio = aspectRatio
+    self.isInterlaced = isInterlaced
+    self.colorPrimaries = colorPrimaries
+    self.colorSpace = colorSpace
+    self.bitDepth = bitDepth
+    self.sampleRate = sampleRate
   }
 
   public init(from decoder: Decoder) throws {
@@ -199,6 +233,104 @@ public struct MediaServerStreamDTO: Decodable, Identifiable, Hashable, Sendable 
     width = try container.decodeIfPresent(Int.self, forKey: .width)
     height = try container.decodeIfPresent(Int.self, forKey: .height)
     videoRange = try container.decodeIfPresent(String.self, forKey: .videoRange)
+    profile = try? container.decodeIfPresent(String.self, forKey: .profile)
+    level = Self.decodeLevelText(container)
+    frameRate = Self.decodeFrameRateText(container)
+    aspectRatio = try? container.decodeIfPresent(String.self, forKey: .aspectRatio)
+    isInterlaced = try? container.decodeIfPresent(Bool.self, forKey: .isInterlaced)
+    colorPrimaries = try? container.decodeIfPresent(String.self, forKey: .colorPrimaries)
+    colorSpace = try? container.decodeIfPresent(String.self, forKey: .colorSpace)
+    bitDepth = try? container.decodeIfPresent(Int.self, forKey: .bitDepth)
+    sampleRate = try? container.decodeIfPresent(Int.self, forKey: .sampleRate)
+  }
+
+  private static func decodeLevelText(_ container: KeyedDecodingContainer<CodingKeys>) -> String? {
+    if let text = try? container.decodeIfPresent(String.self, forKey: .level) {
+      let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+      return trimmed.isEmpty ? nil : trimmed
+    }
+    if let number = try? container.decodeIfPresent(Double.self, forKey: .level), number > 0 {
+      if number.truncatingRemainder(dividingBy: 1) == 0 {
+        return String(format: "%.1f", number)
+      }
+      return Self.trimTrailingZeros(String(format: "%.2f", number))
+    }
+    return nil
+  }
+
+  private static func decodeFrameRateText(
+    _ container: KeyedDecodingContainer<CodingKeys>
+  ) -> String? {
+    if let text = try? container.decodeIfPresent(String.self, forKey: .frameRate) {
+      let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+      return trimmed.isEmpty ? nil : trimmed
+    }
+    if let number = try? container.decodeIfPresent(Double.self, forKey: .frameRate), number > 0 {
+      return Self.trimTrailingZeros(String(format: "%.6f", number))
+    }
+    return nil
+  }
+
+  private static func trimTrailingZeros(_ value: String) -> String {
+    guard value.contains(".") else { return value }
+    var trimmed = value
+    while trimmed.last == "0" {
+      trimmed.removeLast()
+    }
+    if trimmed.last == "." {
+      trimmed.removeLast()
+    }
+    return trimmed
+  }
+
+  private static func gcd(_ a: Int, _ b: Int) -> Int {
+    var x = abs(a)
+    var y = abs(b)
+    while y != 0 {
+      let r = x % y
+      x = y
+      y = r
+    }
+    return max(x, 1)
+  }
+
+  /// 视频像素分辨率展示文本（如 `1920x1080`）。
+  public var formattedResolution: String? {
+    guard let w = width, let h = height, w > 0, h > 0 else { return nil }
+    return "\(w)x\(h)"
+  }
+
+  /// 视频画面长宽比（优先读取服务端 `aspect_ratio`，缺省时通过宽高最大公约数推导如 `16:9`）。
+  public var inferredAspectRatio: String? {
+    if let raw = aspectRatio?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
+      return raw
+    }
+    guard let w = width, let h = height, w > 0, h > 0 else { return nil }
+    let divisor = Self.gcd(w, h)
+    let rw = w / divisor
+    let rh = h / divisor
+    if rw <= 32 && rh <= 32 {
+      return "\(rw):\(rh)"
+    }
+    return String(format: "%.2f:1", Double(w) / Double(h))
+  }
+
+  /// 轨道比特率格式化文本（如 `14.3mbps` 或 `1000kbps`）。
+  public var formattedBitrate: String? {
+    guard let bitrate, bitrate > 0 else { return nil }
+    if bitrate >= 2_000_000 {
+      return String(format: "%.1fmbps", Double(bitrate) / 1_000_000.0)
+    }
+    if bitrate >= 1_000 {
+      return "\(Int((Double(bitrate) / 1_000.0).rounded()))kbps"
+    }
+    return "\(bitrate)bps"
+  }
+
+  /// 音频采样率格式化文本（如 `48000Hz`）。
+  public var formattedSampleRate: String? {
+    guard let sampleRate, sampleRate > 0 else { return nil }
+    return "\(sampleRate)Hz"
   }
 
   /// 供播前选择器和规格区展示的简洁轨道名称。

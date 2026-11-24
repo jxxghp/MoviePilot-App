@@ -120,7 +120,7 @@ struct NativePluginMarketPage: View {
     scrollContent
       .navigationTitle("插件")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .searchable(text: $searchText, prompt: "搜索已安装插件、作者或标签")
       .toolbar {
         ToolbarItem(placement: .topBarTrailing) {
@@ -869,7 +869,7 @@ private struct NativePluginStorePage: View {
     }
     .navigationTitle("插件市场")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .searchable(text: $searchText, prompt: "搜索插件名称、作者或标签")
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
@@ -1348,7 +1348,7 @@ private struct NativePluginMarketDetailSheet: View {
       }
       .navigationTitle(plugin.installed ? "插件详情" : "安装插件")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -2035,7 +2035,7 @@ private struct NativePluginVersionHistorySheet: View {
       }
       .navigationTitle("版本历史")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -2325,7 +2325,7 @@ private struct NativePluginCloneSheet: View {
       }
       .navigationTitle("创建插件分身")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("取消") { dismiss() }
@@ -2466,7 +2466,7 @@ private struct NativePluginLogSheet: View {
       }
       .navigationTitle("\(plugin.displayName) 日志")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -2565,7 +2565,7 @@ private struct NativePluginCapabilitiesSheet: View {
       }
       .navigationTitle("运行能力")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -2682,7 +2682,7 @@ private struct NativePluginDataSummarySheet: View {
       }
       .navigationTitle("数据摘要")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -2831,7 +2831,7 @@ private struct NativePluginInstanceManageSheet: View {
       }
       .navigationTitle("实例管理")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {

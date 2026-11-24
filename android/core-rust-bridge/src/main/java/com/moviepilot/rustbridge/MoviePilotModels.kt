@@ -1,5 +1,7 @@
 package com.moviepilot.rustbridge
 
+import java.util.Locale
+import kotlin.math.roundToInt
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -31,8 +33,14 @@ data class MediaCardItem(
     @SerialName("tmdb_id") val tmdbId: Int? = null,
     @SerialName("douban_id") val doubanId: String? = null,
     @SerialName("bangumi_id") val bangumiId: Int? = null,
+    @SerialName("imdb_id") val imdbId: String? = null,
+    @SerialName("tvdb_id") val tvdbId: String? = null,
     @SerialName("mediaid_prefix") val mediaIdPrefix: String? = null,
     @SerialName("media_id") val mediaId: String? = null,
+    val season: Int? = null,
+    val serverItemId: String? = null,
+    val serverName: String? = null,
+    val serverType: String? = null,
     @SerialName("logo_path") val logoPath: String? = null,
     val genres: List<String> = emptyList(),
     val runtime: Int? = null,
@@ -49,7 +57,8 @@ data class MediaCardItem(
 ) {
     /** 稳定业务标识。 */
     val resolvedId: String
-        get() = mediaId ?: tmdbId?.toString() ?: doubanId ?: bangumiId?.toString() ?: title
+        get() = serverItemId?.takeIf { it.isNotBlank() }?.let { "${serverName.orEmpty()}:$it" }
+            ?: mediaId ?: tmdbId?.toString() ?: doubanId ?: bangumiId?.toString() ?: title
 }
 
 /** 媒体服务器继续观看条目。 */
@@ -607,18 +616,34 @@ data class MediaServerLibraryDto(
     val link: String? = null,
 )
 
-/** 媒体服务器浏览网格条目（对应 `GET /api/v1/mediaserver/browse`）。 */
+/** 媒体服务器浏览网格、季列表与单集列表通用条目（对应 `/mediaserver/browse`、`/seasons`、`/season-episodes`）。 */
 @Serializable
 data class MediaServerBrowseItemDto(
     val itemId: String = "",
     val title: String = "",
+    val originalTitle: String = "",
     val subtitle: String = "",
+    val overview: String = "",
     val type: String = "",
+    val mediaType: String = "",
     val year: String = "",
+    val premiereDate: String = "",
     val imageUrl: String? = null,
+    val poster: String? = null,
+    val backdrop: String? = null,
+    val thumb: String? = null,
     val server: String = "",
     val serverType: String = "",
+    val durationMs: Long? = null,
+    val seriesId: String? = null,
+    val seriesName: String = "",
+    val seasonId: String? = null,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
+    val childCount: Int? = null,
     val played: Boolean = false,
+    val playedPercentage: Double = 0.0,
+    val resumePositionMs: Long = 0L,
     val userRating: Double = 0.0,
     val unplayedCount: Int? = null,
     val tmdbId: Int? = null,
@@ -780,14 +805,200 @@ data class ChannelAuthRecordDto(
     val createdAt: String = "",
 )
 
-/** 媒体库入库与可直放状态快照（对应 `POST /api/v1/media/status` 及媒体服务器匹配）。 */
+/** 媒体库入库、订阅与可直放状态快照（对应 `POST /api/v1/media/status` 及媒体服务器匹配）。 */
 @Serializable
 data class MediaLibraryStatusDto(
     val inLibrary: Boolean = false,
     val server: String = "",
     val serverType: String = "",
     val itemId: String = "",
+    val subscribed: Boolean = false,
+    val subscribedSeasons: Map<Int, String> = emptyMap(),
+    val subscribeId: Int? = null,
+    val seasonSubscribeIds: Map<Int, Int> = emptyMap(),
     val existingEpisodesBySeason: Map<Int, List<Int>> = emptyMap(),
+)
+
+/** 订阅关联的下载任务文件信息（对应 `GET /api/v1/subscribe/files/{subscribe_id}` 中的 `download` 项）。 */
+@Serializable
+data class SubscribeDownloadFileDto(
+    val torrentTitle: String = "",
+    val siteName: String = "",
+    val downloader: String = "",
+    val hash: String = "",
+    val filePath: String = "",
+)
+
+/** 订阅关联的媒体库/存储文件信息（对应 `GET /api/v1/subscribe/files/{subscribe_id}` 中的 `library` 项）。 */
+@Serializable
+data class SubscribeLibraryFileDto(
+    val storage: String = "local",
+    val filePath: String = "",
+    val server: String? = null,
+    val serverType: String? = null,
+    val itemid: String? = null,
+)
+
+/** 订阅单集（或电影正片 key=0）关联的下载与入库文件分组。 */
+@Serializable
+data class SubscribeEpisodeFileGroupDto(
+    val episodeKey: Int = 0,
+    val title: String = "",
+    val description: String = "",
+    val backdrop: String? = null,
+    val download: List<SubscribeDownloadFileDto> = emptyList(),
+    val library: List<SubscribeLibraryFileDto> = emptyList(),
+)
+
+/** 订阅完整文件详情聚合快照（对应 `GET /api/v1/subscribe/files/{subscribe_id}`）。 */
+@Serializable
+data class SubscribeFilesInfoDto(
+    val subscribe: SubscribeItemDto? = null,
+    val episodes: List<SubscribeEpisodeFileGroupDto> = emptyList(),
+)
+
+/** 媒体服务器音视频/字幕单轨道信息（覆盖标准字段与可选高阶编码元数据）。 */
+@Serializable
+data class MediaServerStreamTrackDto(
+    val index: Int? = null,
+    val type: String = "unknown",
+    val codec: String? = null,
+    val language: String? = null,
+    val title: String? = null,
+    val displayTitle: String? = null,
+    val isDefault: Boolean = false,
+    val isForced: Boolean = false,
+    val isExternal: Boolean = false,
+    val subtitleId: String? = null,
+    val channels: Int? = null,
+    val channelLayout: String? = null,
+    val bitrate: Long? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val videoRange: String? = null,
+    val frameRate: String? = null,
+    val profile: String? = null,
+    val level: String? = null,
+    val aspectRatio: String? = null,
+    val isInterlaced: Boolean? = null,
+    val colorPrimaries: String? = null,
+    val colorSpace: String? = null,
+    val bitDepth: Int? = null,
+    val sampleRate: Int? = null,
+) {
+    /** 优先采用服务端显式长宽比，缺失时通过宽高最大公约数推导（如 `1920x1080` -> `16:9`）。 */
+    val inferredAspectRatio: String?
+        get() {
+            aspectRatio?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
+            val w = width ?: return null
+            val h = height ?: return null
+            if (w <= 0 || h <= 0) return null
+            val g = gcd(w, h)
+            val rw = w / g
+            val rh = h / g
+            return if (rw <= 64 && rh <= 64) {
+                "$rw:$rh"
+            } else {
+                String.format(Locale.US, "%.2f:1", w.toDouble() / h.toDouble())
+            }
+        }
+
+    /** 格式化轨道码率：视频轨道百万级采用 `14.3mbps`，音频或千位码率采用 `1000kbps`。 */
+    val formattedBitrate: String?
+        get() {
+            val bps = bitrate ?: return null
+            if (bps <= 0L) return null
+            return if (type.equals("video", ignoreCase = true) && bps >= 1_000_000L) {
+                String.format(Locale.US, "%.1fmbps", bps / 1_000_000.0)
+            } else if (!type.equals("audio", ignoreCase = true) && bps >= 10_000_000L) {
+                String.format(Locale.US, "%.1fmbps", bps / 1_000_000.0)
+            } else {
+                "${(bps / 1000.0).roundToInt().coerceAtLeast(1)}kbps"
+            }
+        }
+
+    /** 格式化像素分辨率（如 `1920x1080`）。 */
+    val formattedResolution: String?
+        get() {
+            val w = width ?: return null
+            val h = height ?: return null
+            return if (w > 0 && h > 0) "${w}x${h}" else null
+        }
+
+    companion object {
+        private tailrec fun gcd(a: Int, b: Int): Int = if (b == 0) kotlin.math.abs(a) else gcd(b, a % b)
+    }
+}
+
+/** 媒体服务器单个可播放媒体源版本（对应 `MediaServerMediaSource`）。 */
+@Serializable
+data class MediaServerSourceDto(
+    val id: String = "",
+    val name: String = "",
+    val container: String = "",
+    val size: Long? = null,
+    val bitrate: Long? = null,
+    val durationMs: Long? = null,
+    val streams: List<MediaServerStreamTrackDto> = emptyList(),
+)
+
+/** 媒体服务器条目演职员信息（对应 `MediaServerPerson`）。 */
+@Serializable
+data class MediaServerPersonDto(
+    val id: String = "",
+    val name: String = "",
+    val role: String = "",
+    val type: String = "",
+    val image: String? = null,
+)
+
+/** 媒体服务器条目完整详情（对应 `GET /api/v1/mediaserver/detail`）。 */
+@Serializable
+data class MediaServerItemDetailDto(
+    val itemId: String = "",
+    val server: String = "",
+    val serverType: String = "",
+    val itemType: String = "Movie",
+    val mediaType: String = "",
+    val title: String = "",
+    val originalTitle: String = "",
+    val subtitle: String = "",
+    val tagline: String = "",
+    val overview: String = "",
+    val year: String = "",
+    val premiereDate: String = "",
+    val officialRating: String = "",
+    val rating: Double = 0.0,
+    val durationMs: Long? = null,
+    val poster: String? = null,
+    val backdrop: String? = null,
+    val thumb: String? = null,
+    val logoUrl: String? = null,
+    val genres: List<String> = emptyList(),
+    val studios: List<String> = emptyList(),
+    val people: List<MediaServerPersonDto> = emptyList(),
+    val mediaSource: String? = null,
+    val mediaId: String? = null,
+    val imdbId: String? = null,
+    val tmdbId: String? = null,
+    val tvdbId: String? = null,
+    val doubanId: String? = null,
+    val parentId: String? = null,
+    val seriesId: String? = null,
+    val seriesName: String = "",
+    val seasonId: String? = null,
+    val seasonName: String = "",
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
+    val seasonCount: Int? = null,
+    val episodeCount: Int? = null,
+    val childCount: Int? = null,
+    val played: Boolean = false,
+    val playedPercentage: Double = 0.0,
+    val resumePositionMs: Long = 0L,
+    val mediaSources: List<MediaServerSourceDto> = emptyList(),
+    val playUrl: String? = null,
+    val canPlay: Boolean = false,
 )
 
 /** 发现页内存会话快照（用于切 Tab 与详情返回时零闪烁保留滚动位置与已加载内容）。 */

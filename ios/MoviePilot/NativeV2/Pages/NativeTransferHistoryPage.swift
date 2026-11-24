@@ -89,7 +89,7 @@ struct NativeTransferHistoryPage: View {
     }
     .navigationTitle(total > 0 ? "整理历史 (\(total))" : "整理历史")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button {
@@ -816,7 +816,7 @@ private struct NativeTransferDeleteSheet: View {
       }
       .navigationTitle("删除整理记录")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -1037,7 +1037,7 @@ private struct NativeTransferQueueSheet: View {
       }
       .navigationTitle("整理队列")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {

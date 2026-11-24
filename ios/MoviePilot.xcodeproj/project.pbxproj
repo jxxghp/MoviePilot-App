@@ -118,6 +118,7 @@
 		BE036DC842893643B15A3BE2 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC001A55D766FA81E7EC654 /* Views.swift */; };
 		C38CDC369F7BE7AB52EF08E5 /* NativeTransferHistoryPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD83F9ADCEC4810F8AB5FA50 /* NativeTransferHistoryPage.swift */; };
 		C457385E6CCEDEF3C538631F /* code-front-t1.webp in Resources */ = {isa = PBXBuildFile; fileRef = E5F0C3C780CF6B350FB8A86E /* code-front-t1.webp */; };
+		C5315286AFDA4CCAD1E92407 /* NativeSubscribeFilesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A58B21E3ADBBEB0DA68B282 /* NativeSubscribeFilesSheet.swift */; };
 		C7AFFBB62B984D525CD4AF11 /* pioneer-back.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = 4972561A2540F41380FD1BC5 /* pioneer-back.outline.json */; };
 		C905E1D50159CE4EB6B7F9EC /* pioneer-front.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = 5258571B1D038C7F90D5412F /* pioneer-front.outline.json */; };
 		CB626FFC996C4EEF7E1CA9EB /* maintainer-back.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = 05A87480D45A8A9E7A2980DF /* maintainer-back.outline.json */; };
@@ -197,6 +198,7 @@
 		06C61A153F85D5CD1A2B2698 /* NativeDynamicActionCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDynamicActionCenter.swift; sourceTree = "<group>"; };
 		074E2F176D7B19065BD0557F /* ThirdPartyNotices.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = ThirdPartyNotices.txt; sourceTree = "<group>"; };
 		08443236F43B97DD00EC6B5A /* NativeMusicPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMusicPage.swift; sourceTree = "<group>"; };
+		0A58B21E3ADBBEB0DA68B282 /* NativeSubscribeFilesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscribeFilesSheet.swift; sourceTree = "<group>"; };
 		0C3768A521BAD3B9ACDA204C /* plugin-back.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "plugin-back.outline.json"; sourceTree = "<group>"; };
 		0F3A2C564E2EA5C5DCB0B229 /* maintainer-front.webp */ = {isa = PBXFileReference; path = "maintainer-front.webp"; sourceTree = "<group>"; };
 		0F76CEDDB57A4191AB2FAB88 /* plugin-front-t1-height.webp */ = {isa = PBXFileReference; path = "plugin-front-t1-height.webp"; sourceTree = "<group>"; };
@@ -514,6 +516,7 @@
 				5F33A2CBF14E52CA99816FE7 /* NativeSitesPage.swift */,
 				F5CA3958D36BFB5E17CA6E7E /* NativeSubscribeCommunityPage.swift */,
 				7566D9064F4C7139A064B5BD /* NativeSubscribeEditorSheet.swift */,
+				0A58B21E3ADBBEB0DA68B282 /* NativeSubscribeFilesSheet.swift */,
 				DA6542A83716C651A9A5510B /* NativeSubscriptionsPage.swift */,
 				4A47B559552B90D83BE13166 /* NativeSystemIntegrationSheets.swift */,
 				82505BCAA1DF4DB8495B8348 /* NativeSystemModulesPage.swift */,
@@ -907,6 +910,7 @@
 				1643E5D3ACDFDECB97B3BD54 /* NativeSitesPage.swift in Sources */,
 				3B7D26D9189BEB1B9C008546 /* NativeSubscribeCommunityPage.swift in Sources */,
 				5D3E6E5DA1BB440CBDF5E6FA /* NativeSubscribeEditorSheet.swift in Sources */,
+				C5315286AFDA4CCAD1E92407 /* NativeSubscribeFilesSheet.swift in Sources */,
 				FFBF4A25C55AF8B92FC3E416 /* NativeSubscriptionsPage.swift in Sources */,
 				2BA2E297A78BF7DB111DB06C /* NativeSystemIntegrationSheets.swift in Sources */,
 				D3F8AFBC464110DB485BC873 /* NativeSystemModulesPage.swift in Sources */,

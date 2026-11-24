@@ -120,7 +120,7 @@ struct NativeExplorePage: View {
     }
     .navigationTitle("探索")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .onAppear {
       syncSourceConfigs()
       if let targetSource = externalSource {
@@ -1213,7 +1213,7 @@ private struct NativeExploreSourcesSheet: View {
       }
       .navigationTitle("探索来源配置")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }

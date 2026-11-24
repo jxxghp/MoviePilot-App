@@ -69,7 +69,7 @@ struct NativeUsersPage: View {
     }
     .navigationTitle(users.isEmpty ? "用户管理" : "用户管理 (\(users.count))")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .searchable(text: $searchText, prompt: "按用户名或邮箱筛选")
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
@@ -491,7 +491,7 @@ private struct NativeUserEditorSheet: View {
       }
       .navigationTitle(isCreate ? "新增用户" : "编辑用户")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }

@@ -2,7 +2,7 @@
 
 MoviePilot 官方单仓三端全原生移动与大屏客户端，基于单一事实源（`shared/`）与 Rust 共享业务内核（`shared/core-rust/`），同时驱动 **iOS / iPadOS（SwiftUI + Liquid Glass）**、**Android（Jetpack Compose + Material 3 Expressive）** 与 **HarmonyOS NEXT（ArkTS / ArkUI + 动态光感材质）**，直接对接 MoviePilot V3 后端 REST/SSE API，拒绝跨端套壳与主流程 WebView。
 
-👉 **[查看三端实测界面图册（iOS 60 张 · Android 28 张 · HarmonyOS 40 张）](screenshots/README.md)**
+👉 **[查看三端实测界面图册（iOS 60 张 · Android 28 张 · HarmonyOS 42 张）](screenshots/README.md)**
 
 ## 仓库目录结构
 

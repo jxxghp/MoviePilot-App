@@ -20,6 +20,7 @@ android {
 dependencies {
     implementation(project(":design-system"))
     implementation(project(":core-rust-bridge"))
+    implementation(project(":core-media"))
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     testImplementation(libs.junit)
 }

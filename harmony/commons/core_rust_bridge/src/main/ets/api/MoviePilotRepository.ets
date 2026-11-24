@@ -32,6 +32,9 @@ export interface MpMediaItem {
   percent: number;
   serverName: string;
   playUrl: string;
+  serverItemId?: string;
+  imdbId?: string;
+  tvdbId?: string;
 }
 
 export interface MpCastMember {
@@ -518,17 +521,311 @@ export interface MpRecognizeResult {
   overview: string;
 }
 
-interface SubscribeCreateBody {
-  name: string;
-  type: string;
-  year: string;
-  tmdbid?: number;
-  doubanid?: string;
+/** 规范化后的 V3 媒体数据源与无前缀原生 ID。 */
+export interface MpResolvedMediaIdentity {
+  mediaSource: string;
+  rawMediaId: string;
 }
 
-interface SubscribeUpdateBody {
+/** V3 媒体入库与订阅批量状态结果（`/api/v1/media/status`）。 */
+export interface MpMediaStatusResult {
+  subscribed: boolean;
+  seasons: number[];
+  itemId: string;
+  server: string;
+}
+
+/** V3 订阅创建/变更结果（`/api/v1/subscribe/`）。 */
+export interface MpSubscribeMutationResult {
+  ok: boolean;
+  message: string;
   id: number;
-  state: string;
+}
+
+/** 订阅关联下载文件信息（`/api/v1/subscribe/files/{id}`）。 */
+export interface MpSubscribeDownloadFile {
+  torrentTitle: string;
+  siteName: string;
+  downloader: string;
+  hash: string;
+  filePath: string;
+}
+
+/** 订阅关联媒体库文件信息（`/api/v1/subscribe/files/{id}`）。 */
+export interface MpSubscribeLibraryFile {
+  storage: string;
+  filePath: string;
+  server: string;
+  serverType: string;
+  itemId: string;
+}
+
+/** 订阅单集或正片关联文件集合。 */
+export interface MpSubscribeEpisodeFiles {
+  episodeKey: string;
+  episodeNumber: number;
+  title: string;
+  description: string;
+  backdropUrl: string;
+  downloads: MpSubscribeDownloadFile[];
+  libraries: MpSubscribeLibraryFile[];
+}
+
+/** 订阅文件详情完整响应模型（`/api/v1/subscribe/files/{id}`）。 */
+export interface MpSubscribeFilesInfo {
+  subscribe: MpSubscribeItem | null;
+  episodes: MpSubscribeEpisodeFiles[];
+  totalCount: number;
+  downloadedCount: number;
+  libraryCount: number;
+  missingCount: number;
+}
+
+/** TMDB 单季分集模型（`/api/v1/tmdb/{tmdbid}/{season}`）。 */
+export interface MpTmdbEpisodeItem {
+  id: string;
+  seasonNumber: number;
+  episodeNumber: number;
+  title: string;
+  overview: string;
+  airDate: string;
+  runtimeMinutes: number;
+  vote: number;
+  stillUrl: string;
+}
+
+/** 媒体服务器音视频/字幕轨道模型（`/api/v1/mediaserver/detail`）。 */
+export interface MpMediaServerStream {
+  index: number;
+  type: string;
+  codec: string;
+  language: string;
+  title: string;
+  displayTitle: string;
+  isDefault: boolean;
+  isForced: boolean;
+  isExternal: boolean;
+  subtitleId: string;
+  channels: number;
+  channelLayout: string;
+  bitrate: number;
+  width: number;
+  height: number;
+  videoRange: string;
+  frameRate?: string;
+  profile?: string;
+  level?: string;
+  aspectRatio?: string;
+  isInterlaced?: boolean;
+  colorPrimaries?: string;
+  colorSpace?: string;
+  bitDepth?: number;
+  sampleRate?: number;
+  inferredAspectRatio: string;
+  formattedBitrate: string;
+}
+
+/** 媒体服务器多版本媒体源模型。 */
+export interface MpMediaServerSource {
+  id: string;
+  name: string;
+  container: string;
+  sizeBytes: number;
+  bitrate: number;
+  durationMs: number;
+  streams: MpMediaServerStream[];
+}
+
+/** 媒体服务器演职员模型。 */
+export interface MpMediaServerPerson {
+  id: string;
+  name: string;
+  role: string;
+  type: string;
+  imageUrl: string;
+}
+
+/** 媒体服务器季或单集卡片模型（`/api/v1/mediaserver/seasons` & `season-episodes`）。 */
+export interface MpMediaServerEpisode {
+  itemId: string;
+  server: string;
+  serverType: string;
+  itemType: string;
+  title: string;
+  subtitle: string;
+  overview: string;
+  year: string;
+  premiereDate: string;
+  rating: number;
+  durationMs: number;
+  posterUrl: string;
+  backdropUrl: string;
+  thumbUrl: string;
+  seriesId: string;
+  seriesName: string;
+  seasonId: string;
+  seasonNumber: number;
+  episodeNumber: number;
+  childCount: number;
+  played: boolean;
+  playedPercentage: number;
+  resumePositionMs: number;
+}
+
+/** 媒体服务器单个条目完整详情模型（`/api/v1/mediaserver/detail`）。 */
+export interface MpMediaServerDetail {
+  itemId: string;
+  server: string;
+  serverType: string;
+  itemType: string;
+  mediaType: string;
+  title: string;
+  originalTitle: string;
+  subtitle: string;
+  tagline: string;
+  overview: string;
+  year: string;
+  premiereDate: string;
+  rating: number;
+  officialRating: string;
+  durationMs: number;
+  posterUrl: string;
+  backdropUrl: string;
+  thumbUrl: string;
+  genres: string[];
+  studios: string[];
+  people: MpMediaServerPerson[];
+  mediaSource: string;
+  mediaId: string;
+  imdbId: string;
+  tmdbId: string;
+  tvdbId: string;
+  doubanId: string;
+  parentId: string;
+  seriesId: string;
+  seriesName: string;
+  seasonId: string;
+  seasonName: string;
+  seasonNumber: number;
+  episodeNumber: number;
+  seasonCount: number;
+  episodeCount: number;
+  played: boolean;
+  playedPercentage: number;
+  resumePositionMs: number;
+  mediaSources: MpMediaServerSource[];
+  playUrl: string;
+  canPlay: boolean;
+}
+
+function gcdPositive(a: number, b: number): number {
+  let x = Math.abs(Math.round(a));
+  let y = Math.abs(Math.round(b));
+  while (y !== 0) {
+    const t = x % y;
+    x = y;
+    y = t;
+  }
+  return x > 0 ? x : 1;
+}
+
+function inferStreamAspectRatio(width: number, height: number, explicitRatio: string): string {
+  const clean = explicitRatio.trim();
+  if (clean.length > 0) { return clean; }
+  if (width > 0 && height > 0) {
+    const g = gcdPositive(width, height);
+    return `${Math.round(width / g)}:${Math.round(height / g)}`;
+  }
+  return '';
+}
+
+function formatStreamBitrate(bitrate: number, streamType: string): string {
+  if (!Number.isFinite(bitrate) || bitrate <= 0) { return ''; }
+  if (streamType === 'video' && bitrate >= 1000000) {
+    return `${(bitrate / 1000000).toFixed(1)}mbps`;
+  }
+  if (bitrate >= 10000000) {
+    return `${(bitrate / 1000000).toFixed(1)}mbps`;
+  }
+  if (bitrate >= 1000) {
+    return `${Math.round(bitrate / 1000)}kbps`;
+  }
+  return `${Math.round(bitrate)}bps`;
+}
+
+function normalizeMediaSourceCode(raw: string): string {
+  const s = (raw ?? '').trim().toLowerCase();
+  if (!s) { return ''; }
+  if (s === 'tmdb' || s === 'themoviedb' || s === 'tmdb_movies' || s === 'tmdb_tvs' || s === 'subscribe_popular') {
+    return 'themoviedb';
+  }
+  if (s === 'douban' || s === 'douban_movies' || s === 'douban_tvs') {
+    return 'douban';
+  }
+  if (s === 'bangumi' || s === 'bgm') {
+    return 'bangumi';
+  }
+  if (s === 'anilist') {
+    return 'anilist';
+  }
+  if (s === 'imdb') {
+    return 'imdb';
+  }
+  if (s === 'tvdb') {
+    return 'tvdb';
+  }
+  if (s === 'musicbrainz' || s === 'listenbrainz') {
+    return 'musicbrainz';
+  }
+  if (s === 'doubanmusic' || s === 'douban_music') {
+    return 'doubanmusic';
+  }
+  if (s === 'theaudiodb' || s === 'audio_db') {
+    return 'theaudiodb';
+  }
+  return '';
+}
+
+function mediaPrefixForSource(sourceCode: string): string {
+  const norm = normalizeMediaSourceCode(sourceCode);
+  if (norm === 'themoviedb') { return 'tmdb'; }
+  return norm || sourceCode.trim().toLowerCase();
+}
+
+function stripKnownMediaPrefix(rawVal: string): string {
+  let clean = (rawVal ?? '').trim();
+  if (!clean) { return ''; }
+  const idx = clean.indexOf(':');
+  if (idx > 0) {
+    const left = clean.substring(0, idx).trim();
+    if (/^[a-zA-Z_-]+$/.test(left)) {
+      clean = clean.substring(idx + 1).trim();
+    }
+  }
+  const lower = clean.toLowerCase();
+  if (!clean || clean === '0' || lower === 'null' || lower === 'none' || lower === 'undefined') {
+    return '';
+  }
+  return clean;
+}
+
+function normalizeMediaTypeForV3(rawType: string, hasSeasons: boolean = false): string {
+  const lower = (rawType ?? '').trim().toLowerCase();
+  if (
+    hasSeasons ||
+    lower === '电视剧' ||
+    lower === 'tv' ||
+    lower === 'series' ||
+    lower === 'season' ||
+    lower === 'episode' ||
+    lower === '番剧'
+  ) {
+    return '电视剧';
+  }
+  if (lower === '音乐' || lower === 'music' || lower === 'audio' || lower === 'musicalbum' || lower === 'track') {
+    return '音乐';
+  }
+  return '电影';
 }
 
 /** 安全的 JSON 字典访问工具（严格满足 ArkTS 静态类型约束，绝不抛出 null 异常）。 */
@@ -679,6 +976,7 @@ export class MoviePilotRepository {
     this.token = '';
     this.userAvatar = '';
     this.cachedMediaServers = [];
+    this.cachedSubscriptions = null;
     this.siteIconCache.clear();
     this.transport.clearCookies();
   }
@@ -706,6 +1004,24 @@ export class MoviePilotRepository {
       return `${this.baseUrl}/api/v1/system/img/0?imgurl=${encodeURIComponent(normalized)}&cache=true${cookieQuery}`;
     }
     return `${this.baseUrl}/${normalized}`;
+  }
+
+  /** 解析插件图标 URL：兼容绝对地址、`data:image/` 与官方插件仓库相对文件名。 */
+  resolvePluginIconUrl(rawIcon: string): string {
+    const clean = rawIcon.trim();
+    if (!clean || clean.toLowerCase() === 'null' || clean.toLowerCase() === 'none') {
+      return '';
+    }
+    if (clean.startsWith('data:image/') || clean.startsWith('http://') || clean.startsWith('https://') || clean.startsWith('/api/')) {
+      return this.resolveImageUrl(clean);
+    }
+    const stripped = clean.replace(/^\.?\/*/, '');
+    const fileName = stripped.startsWith('plugin_icon/') ? stripped.substring('plugin_icon/'.length) : stripped;
+    if (!fileName || fileName.includes('..')) {
+      return '';
+    }
+    const officialUrl = `https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/${encodeURIComponent(fileName)}`;
+    return this.resolveImageUrl(officialUrl);
   }
 
   async get(segments: string[], query: Record<string, string> = {}, trailingSlash: boolean = false): Promise<NativeHttpResponse> {
@@ -805,17 +1121,52 @@ export class MoviePilotRepository {
     const r = asRec(raw);
     if (!r) { return null; }
     const isPerson = fallbackSource === 'person' || strVal(r, 'media_type').toLowerCase() === 'person' || strVal(r, 'known_for_department').length > 0;
-    const rawId = strVal(r, 'id') || strVal(r, 'item_id');
-    const tmdbId = strVal(r, 'tmdb_id') || (isPerson ? rawId : '');
-    const doubanId = strVal(r, 'douban_id');
-    const bangumiId = strVal(r, 'bangumi_id');
-    const mediaId = strVal(r, 'mediaid_prefix')
-      ? `${strVal(r, 'mediaid_prefix')}:${strVal(r, 'media_id')}`
-      : (tmdbId && !isPerson ? `tmdb:${tmdbId}` : (doubanId ? `douban:${doubanId}` : (bangumiId ? `bangumi:${bangumiId}` : rawId)));
+    const isMediaServerSrc = !isPerson && (
+      fallbackSource === 'mediaserver' ||
+      fallbackSource === 'library' ||
+      strVal(r, 'item_type').length > 0 ||
+      (strVal(r, 'server').length > 0 && strVal(r, 'item_id').length > 0)
+    );
+    const serverItemId = strVal(r, 'item_id') || (isMediaServerSrc ? strVal(r, 'id') : '');
+    const rawId = isMediaServerSrc
+      ? (serverItemId || strVal(r, 'id'))
+      : (strVal(r, 'id') || strVal(r, 'item_id'));
+
+    const rawMediaSource = strVal(r, 'media_source');
+    const rawMediaIdVal = stripKnownMediaPrefix(strVal(r, 'media_id'));
+    const normSource = normalizeMediaSourceCode(rawMediaSource);
+
+    let tmdbId = stripKnownMediaPrefix(strVal(r, 'tmdb_id')) || (isPerson ? rawId : '');
+    if (!tmdbId && normSource === 'themoviedb' && rawMediaIdVal.length > 0) {
+      tmdbId = rawMediaIdVal;
+    }
+    let doubanId = stripKnownMediaPrefix(strVal(r, 'douban_id'));
+    if (!doubanId && normSource === 'douban' && rawMediaIdVal.length > 0) {
+      doubanId = rawMediaIdVal;
+    }
+    const bangumiId = stripKnownMediaPrefix(strVal(r, 'bangumi_id')) || (normSource === 'bangumi' ? rawMediaIdVal : '');
+    const imdbId = stripKnownMediaPrefix(strVal(r, 'imdb_id')) || (normSource === 'imdb' ? rawMediaIdVal : '');
+    const tvdbId = stripKnownMediaPrefix(strVal(r, 'tvdb_id')) || (normSource === 'tvdb' ? rawMediaIdVal : '');
+
+    let mediaId = '';
+    if (strVal(r, 'mediaid_prefix').length > 0 && rawMediaIdVal.length > 0) {
+      mediaId = `${strVal(r, 'mediaid_prefix')}:${rawMediaIdVal}`;
+    } else if (normSource.length > 0 && rawMediaIdVal.length > 0) {
+      mediaId = `${mediaPrefixForSource(normSource)}:${rawMediaIdVal}`;
+    } else if (tmdbId && !isPerson) {
+      mediaId = `tmdb:${tmdbId}`;
+    } else if (doubanId) {
+      mediaId = `douban:${doubanId}`;
+    } else if (bangumiId) {
+      mediaId = `bangumi:${bangumiId}`;
+    } else if (!isMediaServerSrc) {
+      mediaId = rawId;
+    }
+
     const posterRaw = strVal(r, 'poster_path') || strVal(r, 'profile_path') || strVal(r, 'poster') || strVal(r, 'image') || strVal(r, 'thumb') || strVal(r, 'backdrop_path');
     const backdropRaw = strVal(r, 'backdrop_path') || strVal(r, 'backdrop') || strVal(r, 'image') || strVal(r, 'thumb') || posterRaw;
     const useCookies = boolVal(r, 'use_cookies', false);
-    const rawPercent = numVal(r, 'percent', 0);
+    const rawPercent = numVal(r, 'percent', numVal(r, 'played_percentage', 0));
 
     let subText = strVal(r, 'subtitle');
     if (isPerson && !subText) {
@@ -829,7 +1180,7 @@ export class MoviePilotRepository {
         const gn = gRec ? strVal(gRec, 'name') : String(gItem ?? '').trim();
         if (gn.length > 0) { genreNames.push(gn); }
       }
-      const relDate = strVal(r, 'release_date') || strVal(r, 'first_air_date');
+      const relDate = strVal(r, 'release_date') || strVal(r, 'first_air_date') || strVal(r, 'premiere_date');
       const metaParts: string[] = [];
       if (genreNames.length > 0) { metaParts.push(genreNames.join(' / ')); }
       if (relDate.length > 0) { metaParts.push(relDate); }
@@ -837,7 +1188,24 @@ export class MoviePilotRepository {
     }
 
     const rawLogo = strVal(r, 'logo_path') || strVal(r, 'clear_logo') || strVal(r, 'logo');
-    const inferredType = isPerson ? '人物' : strVal(r, 'type', fallbackSource === 'collection' ? '合集' : (fallbackSource === 'music' ? '音乐' : '电影'));
+    const rawTypeCandidate = strVal(r, 'type') || strVal(r, 'media_type') || strVal(r, 'item_type');
+    let inferredType = '电影';
+    if (isPerson) {
+      inferredType = '人物';
+    } else if (fallbackSource === 'collection') {
+      inferredType = '合集';
+    } else if (rawTypeCandidate.length > 0) {
+      inferredType = normalizeMediaTypeForV3(rawTypeCandidate, false);
+    } else if (fallbackSource === 'music') {
+      inferredType = '音乐';
+    } else if (fallbackSource.includes('tv')) {
+      inferredType = '电视剧';
+    }
+
+    const resolvedSource = isMediaServerSrc
+      ? 'mediaserver'
+      : (normSource || strVal(r, 'source', fallbackSource));
+
     return {
       id: rawId || mediaId || strVal(r, 'title') || strVal(r, 'name'),
       mediaId: mediaId,
@@ -852,13 +1220,52 @@ export class MoviePilotRepository {
       posterUrl: this.resolveImageUrl(posterRaw, useCookies),
       backdropUrl: this.resolveImageUrl(backdropRaw, useCookies),
       logoUrl: this.resolveImageUrl(rawLogo, useCookies),
-      source: strVal(r, 'source', fallbackSource),
-      inLibrary: boolVal(r, 'in_library', false) || strVal(r, 'item_type').length > 0,
+      source: resolvedSource,
+      inLibrary: boolVal(r, 'in_library', false) || isMediaServerSrc,
       subtitle: subText,
       percent: Math.round(rawPercent),
       serverName: strVal(r, 'server'),
-      playUrl: strVal(r, 'link')
+      playUrl: strVal(r, 'link') || strVal(r, 'play_url'),
+      serverItemId: serverItemId,
+      imdbId: imdbId,
+      tvdbId: tvdbId
     };
+  }
+
+  /**
+   * 解析标准 V3 `(mediaSource, rawMediaId)` 二元组（自动剥离 `tmdb:`/`douban:` 等前缀）。
+   */
+  resolveCanonicalMediaIdentity(item: MpMediaItem): MpResolvedMediaIdentity {
+    const cleanMediaId = (item.mediaId ?? '').trim();
+    const colonIdx = cleanMediaId.indexOf(':');
+    if (colonIdx > 0) {
+      const prefix = cleanMediaId.substring(0, colonIdx);
+      const src = normalizeMediaSourceCode(prefix);
+      const rawId = stripKnownMediaPrefix(cleanMediaId.substring(colonIdx + 1));
+      if (src.length > 0 && rawId.length > 0) {
+        return { mediaSource: src, rawMediaId: rawId };
+      }
+    }
+    const cleanTmdb = stripKnownMediaPrefix(item.tmdbId);
+    if (cleanTmdb.length > 0) {
+      return { mediaSource: 'themoviedb', rawMediaId: cleanTmdb };
+    }
+    const cleanDouban = stripKnownMediaPrefix(item.doubanId);
+    if (cleanDouban.length > 0) {
+      return { mediaSource: 'douban', rawMediaId: cleanDouban };
+    }
+    const cleanImdb = stripKnownMediaPrefix(item.imdbId ?? '');
+    if (cleanImdb.length > 0) {
+      return { mediaSource: 'imdb', rawMediaId: cleanImdb };
+    }
+    if (item.source !== 'mediaserver' && item.source !== 'library') {
+      const fallbackSrc = normalizeMediaSourceCode(item.source) || 'themoviedb';
+      const fallbackId = stripKnownMediaPrefix(cleanMediaId || item.id);
+      if (fallbackId.length > 0) {
+        return { mediaSource: fallbackSrc, rawMediaId: fallbackId };
+      }
+    }
+    return { mediaSource: '', rawMediaId: '' };
   }
 
   async fetchRecommend(path: string, page: number = 1): Promise<MpMediaItem[]> {
@@ -876,6 +1283,12 @@ export class MoviePilotRepository {
   }
 
   private cachedMediaServers: string[] = [];
+  private cachedSubscriptions: MpSubscribeItem[] | null = null;
+
+  /** 清空内存中的订阅列表缓存。 */
+  invalidateSubscriptionsCache(): void {
+    this.cachedSubscriptions = null;
+  }
 
   async fetchMediaServerClients(): Promise<string[]> {
     if (this.cachedMediaServers.length > 0) {
@@ -917,6 +1330,7 @@ export class MoviePilotRepository {
         if (it) {
           it.inLibrary = true;
           if (!it.serverName) { it.serverName = servers[s]; }
+          if (!it.serverItemId && it.id.length > 0) { it.serverItemId = it.id; }
           out.push(it);
         }
       }
@@ -924,7 +1338,8 @@ export class MoviePilotRepository {
     return out;
   }
 
-  async fetchRecentlyAdded(): Promise<MpMediaItem[]> {
+  /** 拉取媒体服务器最新入库条目，完整保留 `serverItemId` 与 `serverName`。 */
+  async fetchMediaServerLatest(): Promise<MpMediaItem[]> {
     const servers = await this.fetchMediaServerClients();
     const out: MpMediaItem[] = [];
     for (let s = 0; s < servers.length; s++) {
@@ -938,11 +1353,16 @@ export class MoviePilotRepository {
         if (it) {
           it.inLibrary = true;
           if (!it.serverName) { it.serverName = servers[s]; }
+          if (!it.serverItemId && it.id.length > 0) { it.serverItemId = it.id; }
           out.push(it);
         }
       }
     }
     return out;
+  }
+
+  async fetchRecentlyAdded(): Promise<MpMediaItem[]> {
+    return this.fetchMediaServerLatest();
   }
 
   async fetchExplore(sourceKey: string, sortBy: string = 'popularity.desc', page: number = 1): Promise<MpMediaItem[]> {
@@ -1007,7 +1427,10 @@ export class MoviePilotRepository {
     for (let i = 0; i < arr.length; i++) {
       const it = this.parseMediaItem(arr[i], kind);
       if (it) {
-        if (kind === 'library') { it.inLibrary = true; }
+        if (kind === 'library') {
+          it.inLibrary = true;
+          if (!it.serverItemId && it.id.length > 0) { it.serverItemId = it.id; }
+        }
         out.push(it);
       }
     }
@@ -1015,8 +1438,9 @@ export class MoviePilotRepository {
   }
 
   async fetchMediaCredits(tmdbId: string, mediaType: string): Promise<MpCastMember[]> {
-    if (!tmdbId) { return []; }
-    const resp = await this.get(['tmdb', 'credits', tmdbId, mediaType || '电影']);
+    const cleanTmdb = stripKnownMediaPrefix(tmdbId);
+    if (!cleanTmdb) { return []; }
+    const resp = await this.get(['tmdb', 'credits', cleanTmdb, normalizeMediaTypeForV3(mediaType)]);
     if (resp.status !== 200) { return []; }
     const arr = unwrapArray(parseJsonSafe(resp.body));
     const out: MpCastMember[] = [];
@@ -1034,8 +1458,9 @@ export class MoviePilotRepository {
   }
 
   async fetchMediaSeasons(tmdbId: string): Promise<MpSeasonInfo[]> {
-    if (!tmdbId) { return []; }
-    const resp = await this.get(['tmdb', 'seasons', tmdbId]);
+    const cleanTmdb = stripKnownMediaPrefix(tmdbId);
+    if (!cleanTmdb) { return []; }
+    const resp = await this.get(['tmdb', 'seasons', cleanTmdb]);
     if (resp.status !== 200) { return []; }
     const arr = unwrapArray(parseJsonSafe(resp.body));
     const out: MpSeasonInfo[] = [];
@@ -1055,28 +1480,56 @@ export class MoviePilotRepository {
   }
 
   /**
-   * 查询完整媒体详情（`GET /api/v1/media/{mediaid}`），支持豆瓣 (`douban:...`)、Bangumi (`bangumi:...`) 与 TMDB (`tmdb:...`)。
+   * 查询 TMDB 指定季全部单集剧照与简介（`GET /api/v1/tmdb/{tmdbid}/{season}`）。
+   */
+  async fetchTmdbSeasonEpisodes(tmdbId: string, seasonNumber: number, episodeGroup: string = ''): Promise<MpTmdbEpisodeItem[]> {
+    const cleanTmdb = stripKnownMediaPrefix(tmdbId);
+    if (!cleanTmdb) { return []; }
+    const q: Record<string, string> = {};
+    if (episodeGroup.trim().length > 0) {
+      q['episode_group'] = episodeGroup.trim();
+    }
+    const resp = await this.get(['tmdb', cleanTmdb, String(Math.max(0, Math.round(seasonNumber)))], q);
+    if (resp.status !== 200) { return []; }
+    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const out: MpTmdbEpisodeItem[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const r = asRec(arr[i]);
+      if (!r) { continue; }
+      const epNo = Math.round(numVal(r, 'episode_number', i + 1));
+      out.push({
+        id: strVal(r, 'id', `${cleanTmdb}_${seasonNumber}_${epNo}`),
+        seasonNumber: Math.round(numVal(r, 'season_number', seasonNumber)),
+        episodeNumber: epNo,
+        title: strVal(r, 'name', `第 ${epNo} 集`),
+        overview: strVal(r, 'overview'),
+        airDate: strVal(r, 'air_date'),
+        runtimeMinutes: Math.round(numVal(r, 'runtime', 0)),
+        vote: numVal(r, 'vote_average', 0),
+        stillUrl: this.resolveImageUrl(strVal(r, 'still_path'))
+      });
+    }
+    return out;
+  }
+
+  /**
+   * 查询完整媒体详情（`GET /api/v1/media/{rawMediaId}?media_source=...&type_name=...`）。
    */
   async fetchMediaDetailBundle(baseItem: MpMediaItem): Promise<MpMediaDetailBundle | null> {
-    let mediaKey = baseItem.mediaId.trim();
-    if (!mediaKey || (!mediaKey.includes(':') && baseItem.doubanId.length > 0)) {
-      mediaKey = baseItem.doubanId.length > 0
-        ? `douban:${baseItem.doubanId}`
-        : (baseItem.tmdbId.length > 0 ? `tmdb:${baseItem.tmdbId}` : baseItem.id);
-    }
-    if (!mediaKey) { return null; }
+    const resolved = this.resolveCanonicalMediaIdentity(baseItem);
+    if (!resolved.mediaSource || !resolved.rawMediaId) { return null; }
     const q: Record<string, string> = {};
-    if (baseItem.type.length > 0) { q['type_name'] = baseItem.type; }
-    if (baseItem.title.length > 0) { q['title'] = baseItem.title; }
-    if (baseItem.year.length > 0) { q['year'] = baseItem.year; }
-    const resp = await this.get(['media', mediaKey], q);
+    q['media_source'] = resolved.mediaSource;
+    q['type_name'] = normalizeMediaTypeForV3(baseItem.type);
+    const resp = await this.get(['media', resolved.rawMediaId], q);
     if (resp.status !== 200) { return null; }
     const r = unwrapObject(parseJsonSafe(resp.body));
     if (!r) { return null; }
-    const parsed = this.parseMediaItem(r, baseItem.source);
+    const parsed = this.parseMediaItem(r, resolved.mediaSource);
+    const canonicalKey = `${mediaPrefixForSource(resolved.mediaSource)}:${resolved.rawMediaId}`;
     const mergedItem: MpMediaItem = parsed ? {
       id: parsed.id || baseItem.id,
-      mediaId: parsed.mediaId || mediaKey,
+      mediaId: parsed.mediaId || canonicalKey,
       tmdbId: parsed.tmdbId || baseItem.tmdbId,
       doubanId: parsed.doubanId || baseItem.doubanId,
       title: parsed.title || baseItem.title,
@@ -1088,12 +1541,15 @@ export class MoviePilotRepository {
       posterUrl: parsed.posterUrl || baseItem.posterUrl,
       backdropUrl: parsed.backdropUrl || baseItem.backdropUrl,
       logoUrl: parsed.logoUrl || baseItem.logoUrl,
-      source: parsed.source || baseItem.source,
+      source: parsed.source || resolved.mediaSource,
       inLibrary: parsed.inLibrary || baseItem.inLibrary,
       subtitle: parsed.subtitle || baseItem.subtitle,
       percent: baseItem.percent,
       serverName: baseItem.serverName || parsed.serverName,
-      playUrl: baseItem.playUrl || parsed.playUrl
+      playUrl: baseItem.playUrl || parsed.playUrl,
+      serverItemId: baseItem.serverItemId || parsed.serverItemId,
+      imdbId: parsed.imdbId || baseItem.imdbId,
+      tvdbId: parsed.tvdbId || baseItem.tvdbId
     } : baseItem;
 
     const cast: MpCastMember[] = [];
@@ -1128,40 +1584,148 @@ export class MoviePilotRepository {
     return { item: mergedItem, cast: cast, seasons: seasons };
   }
 
-  /** 检查指定媒体是否已在订阅队列（`GET /api/v1/subscribe/media/{mediaid}`）。 */
-  async checkMediaSubscribed(item: MpMediaItem, season: number = 0): Promise<boolean> {
-    let mediaKey = item.mediaId.trim();
-    if (!mediaKey || !mediaKey.includes(':')) {
-      if (item.tmdbId.length > 0) {
-        mediaKey = `tmdb:${item.tmdbId}`;
-      } else if (item.doubanId.length > 0) {
-        mediaKey = `douban:${item.doubanId}`;
-      }
+  /**
+   * 批量查询本地入库与分季订阅状态（`POST /api/v1/media/status`）。
+   */
+  async fetchMediaStatus(item: MpMediaItem, season?: number): Promise<MpMediaStatusResult> {
+    const empty: MpMediaStatusResult = {
+      subscribed: false,
+      seasons: [],
+      itemId: '',
+      server: ''
+    };
+    const resolved = this.resolveCanonicalMediaIdentity(item);
+    const reqItem: Record<string, Object> = {};
+    if (resolved.mediaSource.length > 0 && resolved.rawMediaId.length > 0) {
+      reqItem['media_source'] = resolved.mediaSource;
+      reqItem['media_id'] = resolved.rawMediaId;
     }
-    if (!mediaKey) { return false; }
+    const mtype = normalizeMediaTypeForV3(item.type, season !== undefined && season > 0);
+    reqItem['mtype'] = mtype;
+    if (item.title.trim().length > 0) {
+      reqItem['title'] = item.title.trim();
+    }
+    if (item.year.trim().length > 0) {
+      reqItem['year'] = String(item.year).trim();
+    }
+    if (season !== undefined && season >= 0) {
+      reqItem['season'] = Math.round(season);
+    }
+    const resp = await this.postJson(['media', 'status'], JSON.stringify([reqItem]));
+    if (resp.status !== 200) { return empty; }
+    const arr = unwrapArray(parseJsonSafe(resp.body));
+    if (arr.length === 0) { return empty; }
+    const r = asRec(arr[0]);
+    if (!r) { return empty; }
+    const seasonsRec = asRec(r['seasons']);
+    const seasonNums: number[] = [];
+    if (seasonsRec) {
+      const keys = Object.keys(seasonsRec);
+      for (let i = 0; i < keys.length; i++) {
+        const sn = Number(keys[i]);
+        if (Number.isFinite(sn) && sn >= 0) {
+          seasonNums.push(Math.round(sn));
+        }
+      }
+      seasonNums.sort((a: number, b: number) => a - b);
+    }
+    return {
+      subscribed: boolVal(r, 'subscribed', false) || seasonNums.length > 0,
+      seasons: seasonNums,
+      itemId: strVal(r, 'item_id'),
+      server: strVal(r, 'server')
+    };
+  }
+
+  /**
+   * 检查指定媒体是否已在订阅队列（严格遵循 V3 `GET /api/v1/subscribe/media/{rawMediaId}?media_source=...`）。
+   */
+  async checkMediaSubscribed(item: MpMediaItem, season?: number): Promise<boolean> {
+    const resolved = this.resolveCanonicalMediaIdentity(item);
+    if (!resolved.mediaSource || !resolved.rawMediaId) {
+      const statusRes = await this.fetchMediaStatus(item, season);
+      return statusRes.subscribed;
+    }
     const q: Record<string, string> = {};
-    if (season > 0) { q['season'] = String(season); }
-    if (item.title.length > 0) { q['title'] = item.title; }
-    const resp = await this.get(['subscribe', 'media', mediaKey], q);
+    q['media_source'] = resolved.mediaSource;
+    q['mtype'] = normalizeMediaTypeForV3(item.type, season !== undefined && season > 0);
+    if (season !== undefined && season >= 0) {
+      q['season'] = String(Math.round(season));
+    }
+    if (item.title.trim().length > 0) {
+      q['title'] = item.title.trim();
+    }
+    if (item.year.trim().length > 0) {
+      q['year'] = String(item.year).trim();
+    }
+    const resp = await this.get(['subscribe', 'media', resolved.rawMediaId], q);
     if (resp.status !== 200) { return false; }
     const rec = unwrapObject(parseJsonSafe(resp.body));
     return rec !== null && numVal(rec, 'id', 0) > 0;
   }
 
-  async addSubscribe(item: MpMediaItem): Promise<boolean> {
-    const body: SubscribeCreateBody = {
-      name: item.title,
-      type: item.type || '电影',
-      year: item.year
+  /**
+   * 新增订阅并返回结构化状态消息（严格遵循 V3 `media_source` + `media_id` + `season` 契约并校验 `parsed.success === true`）。
+   */
+  async addSubscribeWithMessage(item: MpMediaItem, season?: number): Promise<MpSubscribeMutationResult> {
+    const resolved = this.resolveCanonicalMediaIdentity(item);
+    const mtype = normalizeMediaTypeForV3(item.type, season !== undefined && season > 0);
+    const payload: Record<string, Object> = {};
+    payload['name'] = item.title.trim();
+    payload['type'] = mtype;
+    payload['year'] = item.year ? String(item.year).trim() : '';
+    if (resolved.mediaSource.length > 0 && resolved.rawMediaId.length > 0) {
+      payload['media_source'] = resolved.mediaSource;
+      payload['media_id'] = resolved.rawMediaId;
+    }
+    if (mtype === '电视剧') {
+      payload['season'] = (season !== undefined && season >= 0) ? Math.round(season) : 1;
+    }
+    const resp = await this.postJson(['subscribe'], JSON.stringify(payload), true);
+    const parsed = asRec(parseJsonSafe(resp.body));
+    const ok = resp.status >= 200 && resp.status < 300 && parsed !== null && boolVal(parsed, 'success', false) === true;
+    const dataRec = parsed ? asRec(parsed['data']) : null;
+    const subId = numVal(dataRec, 'id', 0);
+    const msg = strVal(parsed, 'message');
+    if (ok) {
+      this.invalidateSubscriptionsCache();
+    }
+    return {
+      ok: ok,
+      message: msg.length > 0 ? msg : (ok ? '已添加至 MoviePilot 订阅队列' : '订阅添加失败，请检查媒体标识或服务端状态'),
+      id: subId
     };
-    if (item.tmdbId.length > 0 && Number.isFinite(Number(item.tmdbId))) {
-      body.tmdbid = Number(item.tmdbId);
+  }
+
+  /** 新增订阅（布尔简写封装）。 */
+  async addSubscribe(item: MpMediaItem, season?: number): Promise<boolean> {
+    const res = await this.addSubscribeWithMessage(item, season);
+    return res.ok;
+  }
+
+  /**
+   * 按媒体数据源身份取消/删除订阅（`DELETE /api/v1/subscribe/media/{rawMediaId}?media_source=...`）。
+   */
+  async deleteMediaSubscribe(item: MpMediaItem, season?: number): Promise<boolean> {
+    const resolved = this.resolveCanonicalMediaIdentity(item);
+    if (!resolved.mediaSource || !resolved.rawMediaId) {
+      return false;
     }
-    if (item.doubanId.length > 0) {
-      body.doubanid = item.doubanId;
+    const q: Record<string, string> = {};
+    q['media_source'] = resolved.mediaSource;
+    if (season !== undefined && season >= 0) {
+      q['season'] = String(Math.round(season));
     }
-    const resp = await this.postJson(['subscribe'], JSON.stringify(body), true);
-    return resp.status >= 200 && resp.status < 300;
+    const resp = await this.deleteReq(['subscribe', 'media', resolved.rawMediaId], q);
+    if (resp.status < 200 || resp.status >= 300) {
+      return false;
+    }
+    const parsed = asRec(parseJsonSafe(resp.body));
+    const ok = parsed ? boolVal(parsed, 'success', true) : true;
+    if (ok) {
+      this.invalidateSubscriptionsCache();
+    }
+    return ok;
   }
 
   async fetchDashboardStats(): Promise<MpDashboardStats> {
@@ -1365,58 +1929,151 @@ export class MoviePilotRepository {
     return this.fetchCommunityMedals();
   }
 
+  private parseSubscribeRecord(r: Record<string, Object> | null): MpSubscribeItem | null {
+    if (!r) { return null; }
+    const rawSites = asArr(r['sites']);
+    const siteIds: number[] = [];
+    for (let j = 0; j < rawSites.length; j++) {
+      const sid = Number(rawSites[j]);
+      if (Number.isFinite(sid) && sid > 0) { siteIds.push(sid); }
+    }
+    const rawGroups = asArr(r['filter_groups']);
+    const groups: string[] = [];
+    for (let j = 0; j < rawGroups.length; j++) {
+      const g = String(rawGroups[j] ?? '').trim();
+      if (g.length > 0) { groups.push(g); }
+    }
+    return {
+      id: numVal(r, 'id'),
+      name: strVal(r, 'name'),
+      year: strVal(r, 'year'),
+      type: strVal(r, 'type', '电影'),
+      season: numVal(r, 'season', 0),
+      totalEpisode: numVal(r, 'total_episode', 0),
+      lackEpisode: numVal(r, 'lack_episode', 0),
+      state: strVal(r, 'state', 'R'),
+      posterUrl: this.resolveImageUrl(strVal(r, 'poster')),
+      backdropUrl: this.resolveImageUrl(strVal(r, 'backdrop') || strVal(r, 'poster')),
+      vote: numVal(r, 'vote', 0),
+      description: strVal(r, 'description'),
+      savePath: strVal(r, 'save_path'),
+      quality: strVal(r, 'quality'),
+      resolution: strVal(r, 'resolution'),
+      effect: strVal(r, 'effect'),
+      bestVersion: boolVal(r, 'best_version', false),
+      startEpisode: numVal(r, 'start_episode', 0),
+      episodeGroup: strVal(r, 'episode_group'),
+      downloader: strVal(r, 'downloader'),
+      sites: siteIds,
+      filterGroups: groups,
+      include: strVal(r, 'include'),
+      exclude: strVal(r, 'exclude'),
+      customWords: strVal(r, 'custom_words'),
+      searchImdbid: boolVal(r, 'search_imdbid', false),
+      interval: numVal(r, 'interval', numVal(r, 'search_interval', 0)),
+      rawJson: JSON.stringify(r)
+    };
+  }
+
   async fetchSubscriptions(): Promise<MpSubscribeItem[]> {
     const resp = await this.get(['subscribe'], {}, true);
     if (resp.status !== 200) { return []; }
     const arr = unwrapArray(parseJsonSafe(resp.body));
     const out: MpSubscribeItem[] = [];
     for (let i = 0; i < arr.length; i++) {
-      const r = asRec(arr[i]);
-      if (!r) { continue; }
-      const rawSites = asArr(r['sites']);
-      const siteIds: number[] = [];
-      for (let j = 0; j < rawSites.length; j++) {
-        const sid = Number(rawSites[j]);
-        if (Number.isFinite(sid) && sid > 0) { siteIds.push(sid); }
-      }
-      const rawGroups = asArr(r['filter_groups']);
-      const groups: string[] = [];
-      for (let j = 0; j < rawGroups.length; j++) {
-        const g = String(rawGroups[j] ?? '').trim();
-        if (g.length > 0) { groups.push(g); }
-      }
-      out.push({
-        id: numVal(r, 'id'),
-        name: strVal(r, 'name'),
-        year: strVal(r, 'year'),
-        type: strVal(r, 'type', '电影'),
-        season: numVal(r, 'season', 0),
-        totalEpisode: numVal(r, 'total_episode', 0),
-        lackEpisode: numVal(r, 'lack_episode', 0),
-        state: strVal(r, 'state', 'R'),
-        posterUrl: this.resolveImageUrl(strVal(r, 'poster')),
-        backdropUrl: this.resolveImageUrl(strVal(r, 'backdrop') || strVal(r, 'poster')),
-        vote: numVal(r, 'vote', 0),
-        description: strVal(r, 'description'),
-        savePath: strVal(r, 'save_path'),
-        quality: strVal(r, 'quality'),
-        resolution: strVal(r, 'resolution'),
-        effect: strVal(r, 'effect'),
-        bestVersion: boolVal(r, 'best_version', false),
-        startEpisode: numVal(r, 'start_episode', 0),
-        episodeGroup: strVal(r, 'episode_group'),
-        downloader: strVal(r, 'downloader'),
-        sites: siteIds,
-        filterGroups: groups,
-        include: strVal(r, 'include'),
-        exclude: strVal(r, 'exclude'),
-        customWords: strVal(r, 'custom_words'),
-        searchImdbid: boolVal(r, 'search_imdbid', false),
-        interval: numVal(r, 'interval', 0),
-        rawJson: JSON.stringify(r)
-      });
+      const parsed = this.parseSubscribeRecord(asRec(arr[i]));
+      if (parsed) { out.push(parsed); }
     }
+    this.cachedSubscriptions = out;
     return out;
+  }
+
+  /**
+   * 拉取订阅关联下载与媒体库文件详情（`GET /api/v1/subscribe/files/{subscribe_id}`）。
+   */
+  async fetchSubscribeFiles(subscribeId: number): Promise<MpSubscribeFilesInfo | null> {
+    if (!Number.isFinite(subscribeId) || subscribeId <= 0) { return null; }
+    const resp = await this.get(['subscribe', 'files', String(Math.round(subscribeId))]);
+    if (resp.status !== 200) { return null; }
+    const root = unwrapObject(parseJsonSafe(resp.body));
+    if (!root) { return null; }
+    const sub = this.parseSubscribeRecord(asRec(root['subscribe']));
+    const episodesDict = asRec(root['episodes']);
+    const episodes: MpSubscribeEpisodeFiles[] = [];
+    if (episodesDict) {
+      const keys = Object.keys(episodesDict);
+      keys.sort((a: string, b: string) => {
+        const na = Number(a);
+        const nb = Number(b);
+        if (Number.isFinite(na) && Number.isFinite(nb)) { return na - nb; }
+        return a.localeCompare(b);
+      });
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        const epRec = asRec(episodesDict[key]);
+        if (!epRec) { continue; }
+        const epNum = Number.isFinite(Number(key)) ? Math.round(Number(key)) : i;
+        const dlRaw = asArr(epRec['download']);
+        const downloads: MpSubscribeDownloadFile[] = [];
+        for (let d = 0; d < dlRaw.length; d++) {
+          const dr = asRec(dlRaw[d]);
+          if (!dr) { continue; }
+          downloads.push({
+            torrentTitle: strVal(dr, 'torrent_title'),
+            siteName: strVal(dr, 'site_name'),
+            downloader: strVal(dr, 'downloader'),
+            hash: strVal(dr, 'hash'),
+            filePath: strVal(dr, 'file_path')
+          });
+        }
+        const libRaw = asArr(epRec['library']);
+        const libraries: MpSubscribeLibraryFile[] = [];
+        for (let l = 0; l < libRaw.length; l++) {
+          const lr = asRec(libRaw[l]);
+          if (!lr) { continue; }
+          libraries.push({
+            storage: strVal(lr, 'storage', 'local'),
+            filePath: strVal(lr, 'file_path'),
+            server: strVal(lr, 'server'),
+            serverType: strVal(lr, 'server_type'),
+            itemId: strVal(lr, 'itemid') || strVal(lr, 'item_id')
+          });
+        }
+        episodes.push({
+          episodeKey: key,
+          episodeNumber: epNum,
+          title: strVal(epRec, 'title', epNum === 0 ? (sub ? sub.name : '正片') : `第 ${epNum} 集`),
+          description: strVal(epRec, 'description'),
+          backdropUrl: this.resolveImageUrl(strVal(epRec, 'backdrop')),
+          downloads: downloads,
+          libraries: libraries
+        });
+      }
+    }
+    let downloadedCount = 0;
+    let libraryCount = 0;
+    let missingCount = 0;
+    for (let i = 0; i < episodes.length; i++) {
+      const hasDl = episodes[i].downloads.length > 0;
+      const hasLib = episodes[i].libraries.length > 0;
+      if (hasDl) { downloadedCount++; }
+      if (hasLib) { libraryCount++; }
+      if (!hasDl && !hasLib) { missingCount++; }
+    }
+    const totalCount = episodes.length > 0
+      ? episodes.length
+      : (sub && sub.totalEpisode > 0 ? sub.totalEpisode : (sub ? 1 : 0));
+    if (episodes.length === 0 && totalCount > 0) {
+      missingCount = sub && sub.lackEpisode > 0 ? sub.lackEpisode : totalCount;
+    }
+    return {
+      subscribe: sub,
+      episodes: episodes,
+      totalCount: totalCount,
+      downloadedCount: downloadedCount,
+      libraryCount: libraryCount,
+      missingCount: missingCount
+    };
   }
 
   /** 切换订阅启用/暂停状态（严格使用 V3 `PUT /api/v1/subscribe/status/{id}?state=R|S`）。 */
@@ -1808,7 +2465,7 @@ export class MoviePilotRepository {
         installed: boolVal(r, 'installed', state === 'installed'),
         state: boolVal(r, 'state', false),
         hasPage: boolVal(r, 'has_page', false),
-        iconUrl: this.resolveImageUrl(strVal(r, 'plugin_icon')),
+        iconUrl: this.resolvePluginIconUrl(strVal(r, 'plugin_icon')),
         renderMode: strVal(r, 'render_mode', 'vuetify'),
         repoUrl: strVal(r, 'repo_url')
       });
@@ -1893,7 +2550,7 @@ export class MoviePilotRepository {
     return out;
   }
 
-  /** 浏览媒体服务器条目（严格采用 V3 `start_index` 与 `limit` 分页参数）。 */
+  /** 浏览媒体服务器条目（严格采用 V3 `start_index` 与 `limit` 分页参数，保留 `serverItemId` 与 `serverName`）。 */
   async browseMediaServerLibrary(serverName: string, libraryId: string, startIndex: number = 0, limit: number = 36): Promise<MpMediaItem[]> {
     const q: Record<string, string> = {};
     if (serverName.length > 0) { q['server'] = serverName; }
@@ -1909,6 +2566,7 @@ export class MoviePilotRepository {
       if (it) {
         it.inLibrary = true;
         if (!it.serverName) { it.serverName = serverName; }
+        if (!it.serverItemId && it.id.length > 0) { it.serverItemId = it.id; }
         out.push(it);
       }
     }
@@ -1917,6 +2575,10 @@ export class MoviePilotRepository {
 
   async fetchMediaServerBrowse(serverName: string, libraryId: string): Promise<MpMediaItem[]> {
     return this.browseMediaServerLibrary(serverName, libraryId, 0, 36);
+  }
+
+  async fetchMediaServerItems(serverName: string, libraryId: string, page: number = 1): Promise<MpMediaItem[]> {
+    return this.fetchMediaServerBrowseFiltered(serverName, libraryId, '', 'DateCreated', '', page);
   }
 
   async fetchSubscribePopular(mediaType: string = '电影'): Promise<MpMediaItem[]> {
@@ -2176,7 +2838,7 @@ export class MoviePilotRepository {
     return out;
   }
 
-  /** 媒体库精细浏览（严格使用 `start_index` 与 `limit` 参数）。 */
+  /** 媒体库精细浏览（严格使用 `start_index` 与 `limit` 参数，完整保留 `serverItemId` 与 `serverName`）。 */
   async fetchMediaServerBrowseFiltered(
     serverName: string,
     libraryId: string,
@@ -2203,6 +2865,7 @@ export class MoviePilotRepository {
       if (it) {
         it.inLibrary = true;
         if (!it.serverName) { it.serverName = serverName; }
+        if (!it.serverItemId && it.id.length > 0) { it.serverItemId = it.id; }
         out.push(it);
       }
     }
@@ -2210,14 +2873,16 @@ export class MoviePilotRepository {
   }
 
   /**
-   * 查询媒体播放流地址（调用真实 `GET /api/v1/mediaserver/stream-info?item_id=...&server=...` 及 `/mediaserver/stream`，替代 HTML `/mediaserver/play/`）。
+   * 查询媒体播放流地址（调用真实 `GET /api/v1/mediaserver/stream-info?itemid=...&server=...` 及 `/mediaserver/stream`）。
    */
-  async fetchVideoStreamInfo(itemId: string, server: string = ''): Promise<MpVideoStreamInfo | null> {
+  async fetchVideoStreamInfo(itemId: string, server: string = '', mediaSourceId: string = ''): Promise<MpVideoStreamInfo | null> {
     const cleanId = itemId.trim();
     if (!cleanId) { return null; }
     const q: Record<string, string> = {};
+    q['itemid'] = cleanId;
     q['item_id'] = cleanId;
     if (server.length > 0) { q['server'] = server; }
+    if (mediaSourceId.length > 0) { q['media_source_id'] = mediaSourceId; }
     const resp = await this.get(['mediaserver', 'stream-info'], q);
     if (resp.status !== 200) { return null; }
     const r = unwrapObject(parseJsonSafe(resp.body));
@@ -2225,15 +2890,25 @@ export class MoviePilotRepository {
     let rawUrl = strVal(r, 'url') || strVal(r, 'stream_url') || strVal(r, 'content_url') || strVal(r, 'direct_url');
     if (!rawUrl && this.baseUrl.length > 0) {
       const sq: Record<string, string> = {};
-      sq['item_id'] = strVal(r, 'item_id', cleanId);
+      const resolvedId = strVal(r, 'item_id', cleanId);
+      sq['itemid'] = resolvedId;
       if (server.length > 0) { sq['server'] = server; }
+      if (mediaSourceId.length > 0) { sq['media_source_id'] = mediaSourceId; }
       if (this.token.length > 0) { sq['token'] = this.token; }
       rawUrl = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, ['mediaserver', 'stream'], sq);
     }
     if (!rawUrl) { return null; }
-    const fullUrl = rawUrl.startsWith('http://') || rawUrl.startsWith('https://')
+    let fullUrl = rawUrl.startsWith('http://') || rawUrl.startsWith('https://')
       ? rawUrl
       : `${this.baseUrl}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`;
+    if (
+      this.token.length > 0 &&
+      this.baseUrl.length > 0 &&
+      RustCoreBridge.serverAddressContains(this.baseUrl, fullUrl) &&
+      !fullUrl.includes('token=')
+    ) {
+      fullUrl = `${fullUrl}${fullUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(this.token)}`;
+    }
     return {
       itemId: strVal(r, 'item_id', cleanId),
       server: strVal(r, 'server', server),
@@ -2242,6 +2917,420 @@ export class MoviePilotRepository {
       mediaType: strVal(r, 'media_type', 'video'),
       resumePositionMs: Math.round(numVal(r, 'resume_position_ms', 0))
     };
+  }
+
+  private parseMediaServerStream(raw: Object): MpMediaServerStream | null {
+    const r = asRec(raw);
+    if (!r) { return null; }
+    const streamType = strVal(r, 'type', 'unknown').toLowerCase();
+    const width = Math.round(numVal(r, 'width', numVal(r, 'Width', 0)));
+    const height = Math.round(numVal(r, 'height', numVal(r, 'Height', 0)));
+    const bitrate = Math.round(numVal(r, 'bitrate', numVal(r, 'BitRate', 0)));
+    const rawAspect = strVal(r, 'aspect_ratio') || strVal(r, 'AspectRatio');
+    const rawFrameRate = strVal(r, 'frame_rate') || strVal(r, 'real_frame_rate') || strVal(r, 'average_frame_rate')
+      || strVal(r, 'RealFrameRate') || strVal(r, 'AverageFrameRate');
+    const rawProfile = strVal(r, 'profile') || strVal(r, 'Profile');
+    const rawLevel = strVal(r, 'level') || strVal(r, 'Level');
+    const rawPrimaries = strVal(r, 'color_primaries') || strVal(r, 'ColorPrimaries');
+    const rawColorSpace = strVal(r, 'color_space') || strVal(r, 'ColorSpace');
+    const rawBitDepth = Math.round(numVal(r, 'bit_depth', numVal(r, 'BitDepth', 0)));
+    const rawSampleRate = Math.round(numVal(r, 'sample_rate', numVal(r, 'SampleRate', 0)));
+    const hasInterlaceField = r['is_interlaced'] !== undefined || r['IsInterlaced'] !== undefined;
+    const isInterlacedVal = hasInterlaceField
+      ? (r['is_interlaced'] !== undefined ? boolVal(r, 'is_interlaced', false) : boolVal(r, 'IsInterlaced', false))
+      : undefined;
+
+    return {
+      index: Math.round(numVal(r, 'index', 0)),
+      type: streamType,
+      codec: strVal(r, 'codec'),
+      language: strVal(r, 'language'),
+      title: strVal(r, 'title'),
+      displayTitle: strVal(r, 'display_title'),
+      isDefault: boolVal(r, 'is_default', false),
+      isForced: boolVal(r, 'is_forced', false),
+      isExternal: boolVal(r, 'is_external', false),
+      subtitleId: strVal(r, 'subtitle_id'),
+      channels: Math.round(numVal(r, 'channels', 0)),
+      channelLayout: strVal(r, 'channel_layout'),
+      bitrate: bitrate,
+      width: width,
+      height: height,
+      videoRange: strVal(r, 'video_range'),
+      frameRate: rawFrameRate.length > 0 && rawFrameRate !== '0' ? rawFrameRate : undefined,
+      profile: rawProfile.length > 0 ? rawProfile : undefined,
+      level: rawLevel.length > 0 && rawLevel !== '0' ? rawLevel : undefined,
+      aspectRatio: rawAspect.length > 0 ? rawAspect : undefined,
+      isInterlaced: isInterlacedVal,
+      colorPrimaries: rawPrimaries.length > 0 ? rawPrimaries : undefined,
+      colorSpace: rawColorSpace.length > 0 ? rawColorSpace : undefined,
+      bitDepth: rawBitDepth > 0 ? rawBitDepth : undefined,
+      sampleRate: rawSampleRate > 0 ? rawSampleRate : undefined,
+      inferredAspectRatio: inferStreamAspectRatio(width, height, rawAspect),
+      formattedBitrate: formatStreamBitrate(bitrate, streamType)
+    };
+  }
+
+  private parseMediaServerEpisodeCard(raw: Object, fallbackServer: string = ''): MpMediaServerEpisode | null {
+    const r = asRec(raw);
+    if (!r) { return null; }
+    const useCookies = boolVal(r, 'use_cookies', false);
+    const itemId = strVal(r, 'item_id') || strVal(r, 'id');
+    if (!itemId) { return null; }
+    return {
+      itemId: itemId,
+      server: strVal(r, 'server', fallbackServer),
+      serverType: strVal(r, 'server_type'),
+      itemType: strVal(r, 'item_type', 'Episode'),
+      title: strVal(r, 'title') || strVal(r, 'name', '未命名剧集'),
+      subtitle: strVal(r, 'subtitle'),
+      overview: strVal(r, 'overview'),
+      year: strVal(r, 'year'),
+      premiereDate: strVal(r, 'premiere_date'),
+      rating: numVal(r, 'rating', 0),
+      durationMs: Math.round(numVal(r, 'duration_ms', 0)),
+      posterUrl: this.resolveImageUrl(strVal(r, 'poster') || strVal(r, 'image'), useCookies),
+      backdropUrl: this.resolveImageUrl(strVal(r, 'backdrop'), useCookies),
+      thumbUrl: this.resolveImageUrl(strVal(r, 'thumb'), useCookies),
+      seriesId: strVal(r, 'series_id'),
+      seriesName: strVal(r, 'series_name'),
+      seasonId: strVal(r, 'season_id'),
+      seasonNumber: Math.round(numVal(r, 'season_number', -1)),
+      episodeNumber: Math.round(numVal(r, 'episode_number', 0)),
+      childCount: Math.round(numVal(r, 'child_count', 0)),
+      played: boolVal(r, 'played', false),
+      playedPercentage: numVal(r, 'played_percentage', 0),
+      resumePositionMs: Math.round(numVal(r, 'resume_position_ms', 0))
+    };
+  }
+
+  /**
+   * 查询媒体服务器单个条目完整详情（`GET /api/v1/mediaserver/detail?itemid=...&server=...`）。
+   */
+  async fetchMediaServerDetail(itemId: string, server: string = ''): Promise<MpMediaServerDetail | null> {
+    const cleanId = itemId.trim();
+    if (!cleanId) { return null; }
+    const q: Record<string, string> = {};
+    q['itemid'] = cleanId;
+    if (server.trim().length > 0) {
+      q['server'] = server.trim();
+    }
+    const resp = await this.get(['mediaserver', 'detail'], q);
+    if (resp.status !== 200) { return null; }
+    const r = unwrapObject(parseJsonSafe(resp.body));
+    if (!r) { return null; }
+    const useCookies = boolVal(r, 'use_cookies', false);
+
+    const genres: string[] = [];
+    const genresRaw = asArr(r['genres']);
+    for (let i = 0; i < genresRaw.length; i++) {
+      const gRec = asRec(genresRaw[i]);
+      const gStr = gRec ? strVal(gRec, 'name') : String(genresRaw[i] ?? '').trim();
+      if (gStr.length > 0) { genres.push(gStr); }
+    }
+
+    const studios: string[] = [];
+    const studiosRaw = asArr(r['studios']);
+    for (let i = 0; i < studiosRaw.length; i++) {
+      const sStr = String(studiosRaw[i] ?? '').trim();
+      if (sStr.length > 0) { studios.push(sStr); }
+    }
+
+    const people: MpMediaServerPerson[] = [];
+    const peopleRaw = asArr(r['people']);
+    for (let i = 0; i < Math.min(peopleRaw.length, 24); i++) {
+      const pr = asRec(peopleRaw[i]);
+      if (!pr) { continue; }
+      const pName = strVal(pr, 'name');
+      if (!pName) { continue; }
+      people.push({
+        id: strVal(pr, 'id', `ms_person_${i}`),
+        name: pName,
+        role: strVal(pr, 'role'),
+        type: strVal(pr, 'type', 'Actor'),
+        imageUrl: this.resolveImageUrl(strVal(pr, 'image'), useCookies)
+      });
+    }
+
+    const mediaSources: MpMediaServerSource[] = [];
+    const sourcesRaw = asArr(r['media_sources']);
+    for (let i = 0; i < sourcesRaw.length; i++) {
+      const sr = asRec(sourcesRaw[i]);
+      if (!sr) { continue; }
+      const streams: MpMediaServerStream[] = [];
+      const streamsRaw = asArr(sr['streams']);
+      for (let j = 0; j < streamsRaw.length; j++) {
+        const parsedStream = this.parseMediaServerStream(streamsRaw[j]);
+        if (parsedStream) { streams.push(parsedStream); }
+      }
+      mediaSources.push({
+        id: strVal(sr, 'id', `src_${i}`),
+        name: strVal(sr, 'name', `版本 ${i + 1}`),
+        container: strVal(sr, 'container'),
+        sizeBytes: Math.round(numVal(sr, 'size', 0)),
+        bitrate: Math.round(numVal(sr, 'bitrate', 0)),
+        durationMs: Math.round(numVal(sr, 'duration_ms', 0)),
+        streams: streams
+      });
+    }
+
+    const rawMediaSource = normalizeMediaSourceCode(strVal(r, 'media_source'));
+    const rawMediaIdVal = stripKnownMediaPrefix(strVal(r, 'media_id'));
+    let tmdbId = stripKnownMediaPrefix(strVal(r, 'tmdb_id'));
+    if (!tmdbId && rawMediaSource === 'themoviedb' && rawMediaIdVal.length > 0) {
+      tmdbId = rawMediaIdVal;
+    }
+    let doubanId = stripKnownMediaPrefix(strVal(r, 'douban_id'));
+    if (!doubanId && rawMediaSource === 'douban' && rawMediaIdVal.length > 0) {
+      doubanId = rawMediaIdVal;
+    }
+
+    return {
+      itemId: strVal(r, 'item_id', cleanId),
+      server: strVal(r, 'server', server),
+      serverType: strVal(r, 'server_type'),
+      itemType: strVal(r, 'item_type', 'Movie'),
+      mediaType: strVal(r, 'media_type'),
+      title: strVal(r, 'title', '未命名条目'),
+      originalTitle: strVal(r, 'original_title'),
+      subtitle: strVal(r, 'subtitle'),
+      tagline: strVal(r, 'tagline'),
+      overview: strVal(r, 'overview'),
+      year: strVal(r, 'year'),
+      premiereDate: strVal(r, 'premiere_date'),
+      rating: numVal(r, 'rating', 0),
+      officialRating: strVal(r, 'official_rating'),
+      durationMs: Math.round(numVal(r, 'duration_ms', 0)),
+      posterUrl: this.resolveImageUrl(strVal(r, 'poster') || strVal(r, 'image'), useCookies),
+      backdropUrl: this.resolveImageUrl(strVal(r, 'backdrop'), useCookies),
+      thumbUrl: this.resolveImageUrl(strVal(r, 'thumb'), useCookies),
+      genres: genres,
+      studios: studios,
+      people: people,
+      mediaSource: rawMediaSource,
+      mediaId: rawMediaIdVal,
+      imdbId: stripKnownMediaPrefix(strVal(r, 'imdb_id')),
+      tmdbId: tmdbId,
+      tvdbId: stripKnownMediaPrefix(strVal(r, 'tvdb_id')),
+      doubanId: doubanId,
+      parentId: strVal(r, 'parent_id'),
+      seriesId: strVal(r, 'series_id'),
+      seriesName: strVal(r, 'series_name'),
+      seasonId: strVal(r, 'season_id'),
+      seasonName: strVal(r, 'season_name'),
+      seasonNumber: Math.round(numVal(r, 'season_number', -1)),
+      episodeNumber: Math.round(numVal(r, 'episode_number', 0)),
+      seasonCount: Math.round(numVal(r, 'season_count', 0)),
+      episodeCount: Math.round(numVal(r, 'episode_count', 0)),
+      played: boolVal(r, 'played', false),
+      playedPercentage: numVal(r, 'played_percentage', 0),
+      resumePositionMs: Math.round(numVal(r, 'resume_position_ms', 0)),
+      mediaSources: mediaSources,
+      playUrl: strVal(r, 'play_url') || strVal(r, 'link'),
+      canPlay: boolVal(r, 'can_play', false)
+    };
+  }
+
+  /**
+   * 查询媒体服务器剧集全部季卡片列表（`GET /api/v1/mediaserver/seasons`）。
+   */
+  async fetchMediaServerSeasons(seriesId: string, server: string): Promise<MpMediaServerEpisode[]> {
+    const cleanId = seriesId.trim();
+    const cleanSrv = server.trim();
+    if (!cleanId || !cleanSrv) { return []; }
+    const q: Record<string, string> = {
+      'itemid': cleanId,
+      'server': cleanSrv
+    };
+    const resp = await this.get(['mediaserver', 'seasons'], q);
+    if (resp.status !== 200) { return []; }
+    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const out: MpMediaServerEpisode[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const card = this.parseMediaServerEpisodeCard(arr[i], cleanSrv);
+      if (card) { out.push(card); }
+    }
+    return out;
+  }
+
+  /**
+   * 查询媒体服务器指定季全部单集详情卡片（`GET /api/v1/mediaserver/season-episodes`）。
+   */
+  async fetchMediaServerSeasonEpisodes(
+    seriesId: string,
+    server: string,
+    seasonId: string = '',
+    season?: number
+  ): Promise<MpMediaServerEpisode[]> {
+    const cleanId = seriesId.trim();
+    const cleanSrv = server.trim();
+    if (!cleanId || !cleanSrv) { return []; }
+    const q: Record<string, string> = {
+      'itemid': cleanId,
+      'server': cleanSrv
+    };
+    if (seasonId.trim().length > 0) {
+      q['season_id'] = seasonId.trim();
+    }
+    if (season !== undefined && season >= 0) {
+      q['season'] = String(Math.round(season));
+    }
+    const resp = await this.get(['mediaserver', 'season-episodes'], q);
+    if (resp.status !== 200) { return []; }
+    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const out: MpMediaServerEpisode[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const card = this.parseMediaServerEpisodeCard(arr[i], cleanSrv);
+      if (card) { out.push(card); }
+    }
+    return out;
+  }
+
+  /**
+   * 为媒体服务器详情补全外部编号（`doubanId` / `imdbId` / `tmdbId` / `tvdbId`），支持 Season/Episode 向上回溯父剧集与 `/api/v1/media/{id}` 补全。
+   */
+  async enrichMediaServerExternalIds(detail: MpMediaServerDetail): Promise<MpMediaServerDetail> {
+    const lowerItemType = detail.itemType.toLowerCase();
+    if (
+      (lowerItemType === 'season' || lowerItemType === 'episode') &&
+      !detail.tmdbId && !detail.doubanId && !detail.imdbId
+    ) {
+      const parentLookupId = detail.seriesId || detail.parentId;
+      if (parentLookupId.length > 0) {
+        try {
+          const parentDetail = await this.fetchMediaServerDetail(parentLookupId, detail.server);
+          if (parentDetail) {
+            if (!detail.tmdbId && parentDetail.tmdbId) { detail.tmdbId = parentDetail.tmdbId; }
+            if (!detail.doubanId && parentDetail.doubanId) { detail.doubanId = parentDetail.doubanId; }
+            if (!detail.imdbId && parentDetail.imdbId) { detail.imdbId = parentDetail.imdbId; }
+            if (!detail.tvdbId && parentDetail.tvdbId) { detail.tvdbId = parentDetail.tvdbId; }
+            if (!detail.mediaSource && parentDetail.mediaSource) { detail.mediaSource = parentDetail.mediaSource; }
+            if (!detail.mediaId && parentDetail.mediaId) { detail.mediaId = parentDetail.mediaId; }
+            if (detail.genres.length === 0 && parentDetail.genres.length > 0) {
+              detail.genres = parentDetail.genres;
+            }
+          }
+        } catch {
+          // ignore parent lookup failure
+        }
+      }
+    }
+
+    const isTv = normalizeMediaTypeForV3(detail.mediaType || detail.itemType) === '电视剧';
+    const lookupSrc = detail.tmdbId.length > 0
+      ? 'themoviedb'
+      : (detail.doubanId.length > 0 ? 'douban' : (detail.mediaSource || ''));
+    const lookupId = detail.tmdbId.length > 0
+      ? detail.tmdbId
+      : (detail.doubanId.length > 0 ? detail.doubanId : detail.mediaId);
+
+    if (lookupSrc.length > 0 && lookupId.length > 0 && (!detail.doubanId || !detail.imdbId || !detail.tmdbId)) {
+      try {
+        const q: Record<string, string> = {
+          'media_source': lookupSrc,
+          'type_name': isTv ? '电视剧' : '电影'
+        };
+        const resp = await this.get(['media', lookupId], q);
+        if (resp.status === 200) {
+          const r = unwrapObject(parseJsonSafe(resp.body));
+          if (r) {
+            const extraTmdb = stripKnownMediaPrefix(strVal(r, 'tmdb_id'));
+            const extraDouban = stripKnownMediaPrefix(strVal(r, 'douban_id'));
+            const extraImdb = stripKnownMediaPrefix(strVal(r, 'imdb_id'));
+            const extraTvdb = stripKnownMediaPrefix(strVal(r, 'tvdb_id'));
+            if (!detail.tmdbId && extraTmdb.length > 0) { detail.tmdbId = extraTmdb; }
+            if (!detail.doubanId && extraDouban.length > 0) { detail.doubanId = extraDouban; }
+            if (!detail.imdbId && extraImdb.length > 0) { detail.imdbId = extraImdb; }
+            if (!detail.tvdbId && extraTvdb.length > 0) { detail.tvdbId = extraTvdb; }
+          }
+        }
+      } catch {
+        // ignore media enrichment failure
+      }
+    }
+    return detail;
+  }
+
+  /**
+   * 查询媒体服务器详情页「类似作品」（依次走 TMDB similar -> TMDB recommend -> 豆瓣 recommend -> 同类型库内回退）。
+   */
+  async fetchMediaServerSimilar(detail: MpMediaServerDetail): Promise<MpMediaItem[]> {
+    const typeName = normalizeMediaTypeForV3(detail.mediaType || detail.itemType) === '电视剧' ? '电视剧' : '电影';
+    const out: MpMediaItem[] = [];
+
+    if (detail.tmdbId.length > 0) {
+      try {
+        const simResp = await this.get(['tmdb', 'similar', detail.tmdbId, typeName]);
+        if (simResp.status === 200) {
+          const arr = unwrapArray(parseJsonSafe(simResp.body));
+          for (let i = 0; i < arr.length; i++) {
+            const it = this.parseMediaItem(arr[i], 'themoviedb');
+            if (it) { out.push(it); }
+          }
+        }
+      } catch {
+        // ignore similar error
+      }
+      if (out.length === 0) {
+        try {
+          const recResp = await this.get(['tmdb', 'recommend', detail.tmdbId, typeName]);
+          if (recResp.status === 200) {
+            const arr = unwrapArray(parseJsonSafe(recResp.body));
+            for (let i = 0; i < arr.length; i++) {
+              const it = this.parseMediaItem(arr[i], 'themoviedb');
+              if (it) { out.push(it); }
+            }
+          }
+        } catch {
+          // ignore recommend error
+        }
+      }
+    }
+
+    if (out.length === 0 && detail.doubanId.length > 0) {
+      try {
+        const dbResp = await this.get(['douban', 'recommend', detail.doubanId, typeName]);
+        if (dbResp.status === 200) {
+          const arr = unwrapArray(parseJsonSafe(dbResp.body));
+          for (let i = 0; i < arr.length; i++) {
+            const it = this.parseMediaItem(arr[i], 'douban');
+            if (it) { out.push(it); }
+          }
+        }
+      } catch {
+        // ignore douban recommend error
+      }
+    }
+
+    if (out.length === 0 && detail.server.length > 0) {
+      try {
+        const q: Record<string, string> = {
+          'server': detail.server,
+          'start_index': '0',
+          'limit': '18'
+        };
+        if (detail.genres.length > 0) {
+          q['genre'] = detail.genres[0];
+        }
+        const brResp = await this.get(['mediaserver', 'browse'], q);
+        if (brResp.status === 200) {
+          const arr = unwrapArray(parseJsonSafe(brResp.body));
+          for (let i = 0; i < arr.length; i++) {
+            const it = this.parseMediaItem(arr[i], 'mediaserver');
+            if (it && it.id !== detail.itemId && it.serverItemId !== detail.itemId) {
+              it.inLibrary = true;
+              if (!it.serverName) { it.serverName = detail.server; }
+              if (!it.serverItemId && it.id.length > 0) { it.serverItemId = it.id; }
+              out.push(it);
+            }
+          }
+        }
+      } catch {
+        // ignore browse fallback error
+      }
+    }
+
+    return out.slice(0, 18);
   }
 
   /** 无损保存/更新订阅规则（保留未编辑服务端字段）。 */

@@ -47,7 +47,7 @@ struct NativeWorkflowCanvasPage: View {
     }
     .navigationTitle(detail?.name ?? workflowTitle)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         Button {
@@ -884,7 +884,7 @@ private struct NativeWorkflowAddNodeSheet: View {
       }
       .navigationTitle("添加工作流节点")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .searchable(text: $query, prompt: "搜索动作名称或类名")
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
@@ -1047,7 +1047,7 @@ private struct NativeWorkflowNodeEditorSheet: View {
       }
       .navigationTitle("节点参数")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
@@ -1198,7 +1198,7 @@ private struct NativeWorkflowLinkSheet: View {
       }
       .navigationTitle("从「\(source.name)」连线")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {

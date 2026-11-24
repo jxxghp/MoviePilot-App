@@ -128,7 +128,7 @@ struct NativeNotificationSettingsSheet: View {
       }
       .navigationTitle("系统推送通知")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -382,7 +382,7 @@ struct NativeWidgetSettingsSheet: View {
       }
       .navigationTitle("桌面小组件")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {

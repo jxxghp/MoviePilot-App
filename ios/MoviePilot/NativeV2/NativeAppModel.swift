@@ -18,6 +18,7 @@ final class NativeAppModel: ObservableObject {
   @Published private(set) var busy = false
   @Published private(set) var messageKey: String?
   @Published private(set) var fixedUsername = false
+  @Published private(set) var isSwitchingServer = false
   @Published private(set) var language = AppLanguage.current
   @Published var address = ""
   @Published var username = ""
@@ -30,6 +31,7 @@ final class NativeAppModel: ObservableObject {
   @Published var needsOTP = false
   private let instances: InstanceStore
   private let credentials = LoginCredentialStore()
+  private var previousAuthenticatedInstance: SavedInstance?
   private var task: Task<Void, Never>?
   private var usageReportTask: Task<Void, Never>?
   private var reportedUsageScope: NativeSessionScope?
@@ -69,8 +71,26 @@ final class NativeAppModel: ObservableObject {
     }
   }
 
+  /// 当前切换服务页是否可返回原已登录会话。
+  var canCancelSwitchServer: Bool {
+    isSwitchingServer && (manager.currentSession != nil || previousAuthenticatedInstance != nil)
+  }
+
   /// 新实例先取消旧尝试和草稿，只有本次返回可以更新界面与回填凭据；冷启动/小组件发起的连接保留系统跳转意图。
   func connect(_ instance: SavedInstance, preserveSystemLaunchIntent: Bool = false) {
+    if isSwitchingServer,
+      let active = manager.currentSession,
+      active.instance.id == instance.id,
+      active.instance.address == instance.address
+    {
+      cancelSwitchServer()
+      return
+    }
+    if manager.currentSession != nil && manager.currentSession?.instance.id != instance.id {
+      NativePageDataCache.shared.clearAll()
+      NativeMediaArtworkCache.shared.clearMemory()
+      NativeMediaLibraryStatusStore.shared.clearAll()
+    }
     resetSessionState(clearSystemIntents: !preserveSystemLaunchIntent)
     do {
       selected = try instances.select(instance.address)
@@ -95,6 +115,54 @@ final class NativeAppModel: ObservableObject {
         }
       }
     } catch { messageKey = Self.errorKey(error) }
+  }
+
+  /// 从已登录设置页进入切换服务面板：保留当前内存会话与页面滚动栈，支持随时返回原服务。
+  func beginSwitchServer() {
+    operationID = UUID()
+    task?.cancel()
+    task = nil
+    busy = false
+    if previousAuthenticatedInstance == nil {
+      previousAuthenticatedInstance =
+        selected
+        ?? saved.first(where: { $0.id == manager.currentSession?.instance.id })
+    }
+    clearSecrets()
+    address = ""
+    username = ""
+    rememberSession = true
+    rememberCredentials = false
+    needsOTP = false
+    fixedUsername = false
+    messageKey = nil
+    form = .connection
+    saved = instances.instances
+    isSwitchingServer = true
+  }
+
+  /// 取消切换服务：若原会话仍在内存则零耗时恢复，否则按已保存实例重新连接恢复。
+  func cancelSwitchServer() {
+    operationID = UUID()
+    task?.cancel()
+    task = nil
+    busy = false
+    clearSecrets()
+    messageKey = nil
+    let previous = previousAuthenticatedInstance
+    previousAuthenticatedInstance = nil
+    isSwitchingServer = false
+    if manager.currentSession != nil {
+      if let previous {
+        selected = (try? instances.select(previous.address)) ?? previous
+        saved = instances.instances
+        address = previous.address.url.absoluteString
+      }
+      return
+    }
+    if let previous {
+      connect(previous)
+    }
   }
 
   /// 退出连接页不注销已保存令牌；旧网络、通知绑定、快捷项与临时 Widget 代次必须先停止。
@@ -195,6 +263,8 @@ final class NativeAppModel: ObservableObject {
     guard let selected else { return }
     do {
       try manager.logout()
+      isSwitchingServer = false
+      previousAuthenticatedInstance = nil
       NativeAgentChatStore.resetAll()
       usageReportTask?.cancel()
       usageReportTask = nil
@@ -219,6 +289,8 @@ final class NativeAppModel: ObservableObject {
   /// 观察状态变迁：已认证时挂载原生系统集成；过期时立即清理本实例集成资料并回到登录页。
   func received(_ state: NativeSessionState) {
     if case .authenticated = state, let session = manager.currentSession {
+      isSwitchingServer = false
+      previousAuthenticatedInstance = nil
       lastSessionValidationAt = Date()
       NotificationService.shared.attachNative(session)
       WidgetService.shared.reconcile(native: session)
@@ -227,6 +299,8 @@ final class NativeAppModel: ObservableObject {
       return
     }
     if case .loginRequired(let instance, .expired) = state {
+      isSwitchingServer = false
+      previousAuthenticatedInstance = nil
       let target = selected ?? saved.first(where: { $0.id == instance.id })
       if let target { selected = target }
       NativeAgentChatStore.resetAll()
@@ -388,10 +462,21 @@ final class NativeAppModel: ObservableObject {
   /// 只在确认删除后执行；先清理旧网页存储与小组件授权，再交由既有地址簿清理安全记录。
   func forget(_ instance: SavedInstance) {
     execute { [self] id in
+      let forgettingActiveSession = manager.currentSession?.instance.id == instance.id
       WidgetService.shared.endSession(instanceId: instance.id, clear: true)
       await LegacyWebsiteStorage.erase(for: instance.id)
       try check(id)
       try instances.forget(instance)
+      if previousAuthenticatedInstance?.id == instance.id {
+        previousAuthenticatedInstance = nil
+      }
+      if forgettingActiveSession {
+        NativePageDataCache.shared.clearAll()
+        NativeMediaArtworkCache.shared.clearMemory()
+        NativeMediaLibraryStatusStore.shared.clearAll()
+        isSwitchingServer = false
+        resetSessionState(clearSystemIntents: true)
+      }
       saved = instances.instances
       if selected?.id == instance.id { selected = nil }
     }

@@ -96,6 +96,7 @@ fun MediaServerLibraryScreen(
     onBack: () -> Unit,
     onOpenMedia: (MediaCardItem) -> Unit,
     onPlayMedia: (MediaPlaybackRequest) -> Unit,
+    onOpenServerDetail: ((itemId: String, server: String, title: String, poster: String?) -> Unit)? = null,
 ) {
     val colors = LocalMoviePilotColors.current
     val bottomOverlayInset = LocalBottomOverlayInset.current
@@ -447,25 +448,16 @@ fun MediaServerLibraryScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    scope.launch {
-                                        statusTip = null
-                                        val isSeries = entry.type.equals("Series", ignoreCase = true) ||
-                                            entry.type == "电视剧"
-                                        if (isSeries && entry.tmdbId != null) {
-                                            onOpenMedia(
-                                                MediaCardItem(
-                                                    tmdbId = entry.tmdbId,
-                                                    mediaId = entry.mediaId ?: entry.tmdbId.toString(),
-                                                    title = entry.title,
-                                                    year = entry.year,
-                                                    type = "电视剧",
-                                                    posterPath = entry.imageUrl,
-                                                    inLibrary = true,
-                                                    source = "themoviedb",
-                                                ),
-                                            )
-                                        } else {
-                                            val manifest = repository.fetchVideoStreamInfo(entry.itemId, entry.server.ifBlank { activeServer })
+                                    val resolvedSrv = entry.server.ifBlank { activeServer }
+                                    val isAudioEntry = isMusicLib ||
+                                        entry.type.equals("Audio", ignoreCase = true) ||
+                                        entry.type.equals("MusicAlbum", ignoreCase = true)
+                                    if (!isAudioEntry && onOpenServerDetail != null && entry.itemId.isNotBlank()) {
+                                        onOpenServerDetail(entry.itemId, resolvedSrv, entry.title, entry.imageUrl)
+                                    } else {
+                                        scope.launch {
+                                            statusTip = null
+                                            val manifest = repository.fetchVideoStreamInfo(entry.itemId, resolvedSrv)
                                             if (manifest != null) {
                                                 val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
                                                 onPlayMedia(
@@ -473,7 +465,7 @@ fun MediaServerLibraryScreen(
                                                         url = manifest.contentUrl,
                                                         title = manifest.title.ifBlank { entry.title },
                                                         subtitle = listOfNotNull(
-                                                            entry.server.ifBlank { activeServer },
+                                                            resolvedSrv.ifBlank { null },
                                                             entry.year.ifBlank { null },
                                                         ).joinToString(" · "),
                                                         artworkUrl = entry.imageUrl,
@@ -488,20 +480,23 @@ fun MediaServerLibraryScreen(
                                                         },
                                                     ),
                                                 )
-                                            } else if (entry.tmdbId != null || !entry.mediaId.isNullOrBlank()) {
+                                            } else if (onOpenServerDetail != null && entry.itemId.isNotBlank()) {
+                                                onOpenServerDetail(entry.itemId, resolvedSrv, entry.title, entry.imageUrl)
+                                            } else {
                                                 onOpenMedia(
                                                     MediaCardItem(
                                                         tmdbId = entry.tmdbId,
-                                                        mediaId = entry.mediaId ?: entry.tmdbId?.toString(),
+                                                        mediaId = entry.mediaId ?: entry.itemId,
+                                                        serverItemId = entry.itemId,
+                                                        serverName = resolvedSrv,
+                                                        serverType = entry.serverType.ifBlank { activeServerType },
                                                         title = entry.title,
                                                         year = entry.year,
-                                                        type = if (isSeries) "电视剧" else "电影",
+                                                        type = if (MoviePilotRepository.isTvType(entry.type)) "电视剧" else "电影",
                                                         posterPath = entry.imageUrl,
                                                         inLibrary = true,
                                                     ),
                                                 )
-                                            } else {
-                                                statusTip = "暂无法获取直放流"
                                             }
                                         }
                                     }

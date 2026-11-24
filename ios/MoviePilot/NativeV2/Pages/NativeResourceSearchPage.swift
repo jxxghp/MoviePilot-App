@@ -156,7 +156,7 @@ struct NativeResourceSearchPage: View {
     }
     .navigationTitle(navigationTitle)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         if !results.isEmpty {
@@ -1057,7 +1057,7 @@ private struct NativeResourceAllFiltersSheet: View {
       }
       .navigationTitle("全部筛选 (\(filter.activeCount))")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("重置") { filter.clearAll() }
@@ -1361,7 +1361,7 @@ private struct NativeDownloadConfirmSheet: View {
       }
       .navigationTitle("确认下载")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {

@@ -2100,7 +2100,9 @@ fun GlobalSearchScreen(
                             voteAverage = item.voteAverage,
                             inLibrary = item.inLibrary || kind == "library",
                             onClick = {
-                                if (kind == "library") {
+                                if (kind == "library" && !item.serverItemId.isNullOrBlank() && !item.serverName.isNullOrBlank()) {
+                                    onOpenMedia(item)
+                                } else if (kind == "library") {
                                     scope.launch {
                                         playError = null
                                         val itemId = item.mediaId ?: item.tmdbId?.toString().orEmpty()

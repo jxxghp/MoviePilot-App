@@ -1,10 +1,10 @@
 # MoviePilot-App 三端全原生界面实测图册
 
-本图册按平台归档直连真实 MoviePilot V3 后端实例运行的验收截图（共 **128 张**）：
+本图册按平台归档直连真实 MoviePilot V3 后端实例运行的验收截图（共 **130 张**）：
 
 - **[iOS / iPadOS（SwiftUI + Liquid Glass · 60 张）](#iosswiftui--liquid-glass--ios-26-实测验收)**：iPhone 17（iOS 26 模拟器）黄金基准界面
 - **[Android（Jetpack Compose + Material 3 Expressive · 28 张）](#androidjetpack-compose--material-3-expressive--api-35-实测验收)**：Android 15（API 35 硬件加速模拟器）实测界面
-- **[HarmonyOS NEXT（ArkUI + 动态光感 · 40 张）](#harmonyos-nextarkui--动态光感--api-26-实测验收)**：HarmonyOS 7（API 26 `Mate 90 Pro` 模拟器）实测界面
+- **[HarmonyOS NEXT（ArkUI + 动态光感 · 42 张）](#harmonyos-nextarkui--动态光感--api-26-实测验收)**：HarmonyOS 7（API 26 `Mate 90 Pro` 模拟器）实测界面
 
 ---
 
@@ -163,7 +163,7 @@
 
 ## HarmonyOS NEXT（ArkUI + 动态光感 · API 26 实测验收）
 
-以下 40 张截图采集自 HarmonyOS 7.0.0（API 26，`Mate 90 Pro` 模拟器）直连真实 MoviePilot V3 后端实例运行界面：
+以下 42 张截图采集自 HarmonyOS 7.0.0（API 26，`Mate 90 Pro` 模拟器）直连真实 MoviePilot V3 后端实例运行界面：
 
 - **鸿蒙专属视觉与动态光感体系**：圆角悬浮一体式 5 Tab 导航栏、无遮挡渐进模糊沉浸顶栏、原生 `.bindSheet` 多档半模态弹窗、5 套鸿蒙色板（默认 **鸿蒙智蓝 `#317AF7`** + **AMOLED 纯黑** + **HarmonyOS 7 `uiMaterial.ImmersiveMaterial` 动态光感**及多代际自动回退）与全场景服务品牌 Logo；
 - **全量核心业务闭环**：发现 10 大模块与自定义排序、Emby 媒体库无遮挡浏览、探索与全局搜索、全量订阅编辑器与追剧日历、站点资源多选站点与多维筛选、多存储文件管理与手动识别整理、3D 社区勋章与背面三遍凹雕、动态插件中心与 AI 智能助手流式对话。
@@ -226,6 +226,6 @@
 | :---: | :---: | :---: |
 | ![HarmonyOS下载器编辑](harmony/36-downloader-editor.jpg) | ![HarmonyOS智能助手](harmony/37-agent-chat.jpg) | ![HarmonyOSAI历史会话](harmony/38-agent-history-sessions.jpg) |
 
-| AI 附件与斜杠命令弹窗 | | |
+| AI 附件与斜杠命令弹窗 | Emby 媒体库详情（相似 / 链接 / 媒体信息） | 订阅文件详情与入库播放 |
 | :---: | :---: | :---: |
-| ![HarmonyOSAI附件命令](harmony/39-agent-attach-commands.jpg) | | |
+| ![HarmonyOSAI附件命令](harmony/39-agent-attach-commands.jpg) | ![HarmonyOS媒体库详情](harmony/40-mediaserver-detail.jpg) | ![HarmonyOS订阅文件详情](harmony/41-subscribe-files.jpg) |

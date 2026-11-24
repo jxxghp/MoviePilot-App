@@ -544,7 +544,7 @@ struct NativeMediaSearchPage: View {
     }
     .navigationTitle("搜索")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .task(id: sourceLoadAttempt) { await loadSources() }
     .onAppear {
       consumeExternalSearchIfNeeded()
@@ -1759,7 +1759,7 @@ private struct NativeLibraryEpisodesSheet: View {
       }
       .navigationTitle(target.title)
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -1973,7 +1973,7 @@ struct NativeMediaCollectionDetailPage: View {
     .nativeTrackContainerWidth($containerWidth)
     .navigationTitle(seed.title)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .task(id: seed.collectionID) {
       if items.isEmpty {
         await loadPage(1, replace: true)

@@ -74,7 +74,7 @@ struct NativeSettingsHubPage: View {
     }
     .navigationTitle(t("设置"))
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .sheet(isPresented: $showsNotificationSettings) {
       NativeNotificationSettingsSheet(session: session)
         .nativeAdaptiveSheetSizing()
@@ -686,7 +686,7 @@ struct NativeChannelAuthorizationPage: View {
     }
     .navigationTitle("渠道授权")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       if isSuperuser {
         ToolbarItem(placement: .topBarTrailing) {
@@ -1003,7 +1003,7 @@ private struct NativeChannelAuthCreateSheet: View {
       }
       .navigationTitle("新增渠道授权")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
@@ -1171,7 +1171,7 @@ private struct NativeChannelAuthEditSheet: View {
       }
       .navigationTitle("审批与权限")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
@@ -1377,7 +1377,7 @@ struct NativeSubscribeSearchSettingsPage: View {
     }
     .navigationTitle("订阅与搜索")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button {
@@ -1672,7 +1672,7 @@ struct NativeMediaSourceSettingsPage: View {
     }
     .navigationTitle("媒体数据源")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button {
@@ -1803,7 +1803,7 @@ private struct NativeSiteScopePickerView: View {
     }
     .navigationTitle(title)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button(selection.isEmpty ? "全选" : "清空") {
@@ -1868,7 +1868,7 @@ private struct NativeStringMultiPickerView: View {
     }
     .navigationTitle(title)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
   }
 }
 
@@ -1975,7 +1975,7 @@ struct NativeDownloadersManagePage: View {
     }
     .navigationTitle("下载器")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button {
@@ -2222,7 +2222,7 @@ private struct NativeDownloaderEditorSheet: View {
       }
       .navigationTitle(initial == nil ? "新增下载器" : "编辑下载器")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
@@ -2371,7 +2371,7 @@ struct NativeMediaServersManagePage: View {
     }
     .navigationTitle("媒体服务器")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button {
@@ -2581,7 +2581,7 @@ private struct NativeMediaServerEditorSheet: View {
       }
       .navigationTitle(initial == nil ? "新增媒体服务器" : "编辑媒体服务器")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
@@ -2727,7 +2727,7 @@ struct NativePlaybackPreferencesPage: View {
     }
     .navigationTitle("播放偏好")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
   }
 }
 

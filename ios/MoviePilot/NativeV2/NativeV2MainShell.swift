@@ -112,6 +112,11 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         page
           .frame(maxWidth: .infinity, maxHeight: .infinity)
           .transition(.opacity)
+        if usesLegacyFloatingTabBar {
+          legacyFloatingTabBarOverlay
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+            .zIndex(40)
+        }
         if let miniMusic = playbackLauncher.miniMusicState, !showsOverflowMenu {
           floatingMiniMusicBar(miniMusic)
             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -294,6 +299,108 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     NativeDeviceLayout.isIPhoneDuoHardware && verticalBarEdge.isActive
   }
 
+  /// iPhone 在 iOS 26 以下使用自定义 4+1 悬浮毛玻璃胶囊底部栏替代扁平系统标签栏。
+  private var usesLegacyFloatingTabBar: Bool {
+    if #available(iOS 26, *) {
+      return false
+    }
+    return !NativeDeviceLayout.isIPad && !usesDuoSideOperationBar
+  }
+
+  /// 自定义悬浮胶囊底栏为滚动内容预留的底部安全余量。
+  private var legacyTabBarReservedHeight: CGFloat {
+    isCompactPhoneLandscape ? 58 : 72
+  }
+
+  /// 构造 iOS 26 以下 iPhone 的 4+1 悬浮毛玻璃胶囊底部栏覆盖层。
+  private var legacyFloatingTabBarOverlay: some View {
+    var items: [NativeLegacyFloatingTabItem] = []
+    if canDiscover {
+      items.append(
+        NativeLegacyFloatingTabItem(
+          id: "discover",
+          title: t("发现"),
+          symbol: "sparkles.tv",
+          activeSymbol: "sparkles.tv.fill",
+          isAvatar: false,
+          accessibilityID: "native-v2-tab-发现",
+          isSelected: selectedTab == .discover,
+          action: {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+              tabSelection.wrappedValue = .discover
+            }
+          }
+        )
+      )
+      items.append(
+        NativeLegacyFloatingTabItem(
+          id: "explore",
+          title: t("探索"),
+          symbol: "safari",
+          activeSymbol: "safari.fill",
+          isAvatar: false,
+          accessibilityID: "native-v2-tab-探索",
+          isSelected: selectedTab == .explore,
+          action: {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+              tabSelection.wrappedValue = .explore
+            }
+          }
+        )
+      )
+    }
+    items.append(
+      NativeLegacyFloatingTabItem(
+        id: "mine",
+        title: t("我的"),
+        symbol: "person.crop.circle",
+        activeSymbol: "person.crop.circle.fill",
+        isAvatar: true,
+        accessibilityID: "native-v2-tab-我的",
+        isSelected: selectedTab == .mine,
+        action: {
+          withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+            tabSelection.wrappedValue = .mine
+          }
+        }
+      )
+    )
+    items.append(
+      NativeLegacyFloatingTabItem(
+        id: "settings",
+        title: t("设置"),
+        symbol: "gearshape",
+        activeSymbol: "gearshape.fill",
+        isAvatar: false,
+        accessibilityID: "native-v2-tab-设置",
+        isSelected: selectedTab == .settings,
+        action: {
+          withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+            tabSelection.wrappedValue = .settings
+          }
+        }
+      )
+    )
+    return NativeLegacyFloatingTabBar(
+      items: items,
+      userTabAvatar: userTabAvatar,
+      showsTrailingButton: canDiscover || hasTrailingCustomAction,
+      trailingTitle: hasTrailingCustomAction ? trailingButtonTitle : t("搜索"),
+      trailingSymbol: trailingButtonSymbol,
+      isTrailingActive: selectedTab == .search || hasTrailingCustomAction,
+      isCompactLandscape: isCompactPhoneLandscape,
+      onTrailingAction: {
+        if hasTrailingCustomAction {
+          triggerTrailingCustomAction()
+        } else {
+          withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+            tabSelection.wrappedValue = .search
+          }
+        }
+      }
+    )
+  }
+
   /// 是否属于顶层 4 主标签（用于控制双击弹出溢出菜单与代理拦截范围，iPad 侧栏工作台项与搜索项不参与）。
   private func isPrimaryRootTab(_ page: Page) -> Bool {
     switch page {
@@ -326,11 +433,12 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       })
   }
 
-  /// 拦截 iPhone 上 UITabBarController 对当前已选中标签的重复点击以及右下角动态自定义按钮的点击；iPad 使用原生 sidebarAdaptable 侧栏，iPhone Duo 使用系统竖向侧边操作区，均不改写系统代理。
+  /// 拦截 iPhone 上 UITabBarController 对当前已选中标签的重复点击以及右下角动态自定义按钮的点击；iOS 26 以下同步彻底隐藏系统灰底标签栏。
   @ViewBuilder
   private var tabReselectInterceptor: some View {
     if !usesDuoSideOperationBar && !NativeDeviceLayout.isIPad {
       NativeTabBarReselectInterceptor(
+        hidesSystemTabBar: usesLegacyFloatingTabBar,
         shouldInterceptReselect: { isPrimaryRootTab(selectedTab) },
         onReselect: { toggleOverflowMenu() },
         shouldInterceptTrailingTab: { hasTrailingCustomAction },
@@ -816,6 +924,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         initialSource: .tmdbMovies,
         externalSource: $pendingExploreSource
       )
+      .modifier(NativeLegacyHideSystemTabBarModifier(isHidden: usesLegacyFloatingTabBar))
       .nativeDuoPrefersToolbarItems()
       .toolbar {
         if usesDuoSideOperationBar {
@@ -824,6 +933,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       }
       .navigationDestination(for: NativeWorkspaceDestination.self) { destination in
         workspaceDestinationView(destination)
+          .modifier(NativeLegacyHideSystemTabBarModifier(isHidden: usesLegacyFloatingTabBar))
           .toolbar {
             if usesDuoSideOperationBar {
               duoPushedDynamicActionToolbar
@@ -831,6 +941,10 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           }
       }
     }
+    .modifier(
+      NativeLegacyBottomClearanceModifier(
+        enabled: usesLegacyFloatingTabBar, height: legacyTabBarReservedHeight)
+    )
     .background(tabReselectInterceptor)
   }
 
@@ -848,6 +962,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           memberDashboardView
         }
       }
+      .modifier(NativeLegacyHideSystemTabBarModifier(isHidden: usesLegacyFloatingTabBar))
       .nativeDuoPrefersToolbarItems()
       .toolbar {
         if usesDuoSideOperationBar {
@@ -856,6 +971,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       }
       .navigationDestination(for: NativeWorkspaceDestination.self) { destination in
         workspaceDestinationView(destination)
+          .modifier(NativeLegacyHideSystemTabBarModifier(isHidden: usesLegacyFloatingTabBar))
           .toolbar {
             if usesDuoSideOperationBar {
               duoPushedDynamicActionToolbar
@@ -863,6 +979,10 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           }
       }
     }
+    .modifier(
+      NativeLegacyBottomClearanceModifier(
+        enabled: usesLegacyFloatingTabBar, height: legacyTabBarReservedHeight)
+    )
     .background(tabReselectInterceptor)
   }
 
@@ -925,7 +1045,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
     .navigationTitle("")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button {
@@ -977,8 +1097,6 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         onOpenPlugins: { showsPlugins = true },
         onSelectLanguage: onSelectLanguage,
         onSwitchServer: {
-          NativePageDataCache.shared.clearAll()
-          NativeMediaArtworkCache.shared.clearMemory()
           onSwitchServer()
         },
         onLogout: {
@@ -988,6 +1106,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           onLogout()
         }
       )
+      .modifier(NativeLegacyHideSystemTabBarModifier(isHidden: usesLegacyFloatingTabBar))
       .nativeDuoPrefersToolbarItems()
       .toolbar {
         if usesDuoSideOperationBar {
@@ -996,6 +1115,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       }
       .navigationDestination(for: NativeWorkspaceDestination.self) { destination in
         workspaceDestinationView(destination)
+          .modifier(NativeLegacyHideSystemTabBarModifier(isHidden: usesLegacyFloatingTabBar))
           .toolbar {
             if usesDuoSideOperationBar {
               duoPushedDynamicActionToolbar
@@ -1004,8 +1124,13 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       }
       .navigationDestination(isPresented: $showsPlugins) {
         pluginDestination()
+          .modifier(NativeLegacyHideSystemTabBarModifier(isHidden: usesLegacyFloatingTabBar))
       }
     }
+    .modifier(
+      NativeLegacyBottomClearanceModifier(
+        enabled: usesLegacyFloatingTabBar, height: legacyTabBarReservedHeight)
+    )
     .background(tabReselectInterceptor)
   }
 
@@ -1021,6 +1146,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           searchPath.append(NativeMediaIdentity(source: source, mediaID: id, type: type))
         }
       )
+      .modifier(NativeLegacyHideSystemTabBarModifier(isHidden: usesLegacyFloatingTabBar))
       .nativeDuoPrefersToolbarItems()
       .toolbar {
         if usesDuoSideOperationBar {
@@ -1029,8 +1155,14 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       }
       .navigationDestination(for: NativeMediaIdentity.self) { identity in
         NativeMediaDetailPage(session: session, identity: identity)
+          .modifier(NativeLegacyHideSystemTabBarModifier(isHidden: usesLegacyFloatingTabBar))
       }
     }
+    .modifier(
+      NativeLegacyBottomClearanceModifier(
+        enabled: usesLegacyFloatingTabBar, height: legacyTabBarReservedHeight)
+    )
+    .background(tabReselectInterceptor)
   }
 
   /// 发现页用原生导航推入全部海报网格与媒体详情，主视觉顶部无多余遮挡按钮。
@@ -1140,6 +1272,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         onRetry: { discoveryAttempt += 1 }
       )
       .toolbarBackground(.hidden, for: .navigationBar)
+      .modifier(NativeLegacyHideSystemTabBarModifier(isHidden: usesLegacyFloatingTabBar))
       .nativeDuoPrefersToolbarItems()
       .toolbar {
         if usesDuoSideOperationBar {
@@ -1147,61 +1280,68 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         }
       }
       .navigationDestination(for: NativeMediaDestination.self) { destination in
-        switch destination {
-        case .media(let identity):
-          NativeMediaDetailPage(session: session, identity: identity)
-        case .music(let seed):
-          NativeMusicAlbumDetailPage(session: session, seed: seed)
-        case .rail(let rail):
-          NativeDiscoverRailGrid(session: session, rail: rail) { page in
-            try await loadRailPage(rail.id, page: page)
-          } destination: { identity in
-            if identity.type == "音乐",
-              let seed = musicSeeds["\(identity.source)|\(identity.mediaID)"]
-            {
-              NativeMusicAlbumDetailPage(session: session, seed: seed)
-            } else {
-              NativeMediaDetailPage(session: session, identity: identity)
-            }
-          }
-        case .workspace(let dest):
-          workspaceDestinationView(dest)
-            .toolbar {
-              if usesDuoSideOperationBar {
-                duoPushedDynamicActionToolbar
+        Group {
+          switch destination {
+          case .media(let identity):
+            NativeMediaDetailPage(session: session, identity: identity)
+          case .music(let seed):
+            NativeMusicAlbumDetailPage(session: session, seed: seed)
+          case .rail(let rail):
+            NativeDiscoverRailGrid(session: session, rail: rail) { page in
+              try await loadRailPage(rail.id, page: page)
+            } destination: { identity in
+              if identity.type == "音乐",
+                let seed = musicSeeds["\(identity.source)|\(identity.mediaID)"]
+              {
+                NativeMusicAlbumDetailPage(session: session, seed: seed)
+              } else {
+                NativeMediaDetailPage(session: session, identity: identity)
               }
             }
-        case .explore(let source):
-          NativeExplorePage(session: session, initialSource: source)
-        case .mediaServer(let target):
-          switch target {
-          case .library(
-            let server, let serverType, let libraryID, let libraryName, let libraryType,
-            let externalLink, let serverID):
-            NativeMediaServerLibraryPage(
-              session: session,
-              server: server,
-              serverType: serverType,
-              libraryID: libraryID,
-              libraryName: libraryName,
-              libraryType: libraryType,
-              externalLink: externalLink,
-              serverID: serverID
-            )
-          case .detail(
-            let server, let itemID, let fallbackTitle, let fallbackItemType, let fallbackPoster):
-            NativeMediaServerDetailPage(
-              session: session,
-              server: server,
-              itemID: itemID,
-              fallbackTitle: fallbackTitle,
-              fallbackItemType: fallbackItemType,
-              fallbackPoster: fallbackPoster
-            )
+          case .workspace(let dest):
+            workspaceDestinationView(dest)
+              .toolbar {
+                if usesDuoSideOperationBar {
+                  duoPushedDynamicActionToolbar
+                }
+              }
+          case .explore(let source):
+            NativeExplorePage(session: session, initialSource: source)
+          case .mediaServer(let target):
+            switch target {
+            case .library(
+              let server, let serverType, let libraryID, let libraryName, let libraryType,
+              let externalLink, let serverID):
+              NativeMediaServerLibraryPage(
+                session: session,
+                server: server,
+                serverType: serverType,
+                libraryID: libraryID,
+                libraryName: libraryName,
+                libraryType: libraryType,
+                externalLink: externalLink,
+                serverID: serverID
+              )
+            case .detail(
+              let server, let itemID, let fallbackTitle, let fallbackItemType, let fallbackPoster):
+              NativeMediaServerDetailPage(
+                session: session,
+                server: server,
+                itemID: itemID,
+                fallbackTitle: fallbackTitle,
+                fallbackItemType: fallbackItemType,
+                fallbackPoster: fallbackPoster
+              )
+            }
           }
         }
+        .modifier(NativeLegacyHideSystemTabBarModifier(isHidden: usesLegacyFloatingTabBar))
       }
     }
+    .modifier(
+      NativeLegacyBottomClearanceModifier(
+        enabled: usesLegacyFloatingTabBar, height: legacyTabBarReservedHeight)
+    )
     .background(tabReselectInterceptor)
   }
 
@@ -3201,8 +3341,9 @@ final class NativePageDataCache {
   }
 }
 
-/// 通过代理包装底层 UITabBarController，在重复点击已激活标签或点击右下角动态自定义按钮时返回 `false`，阻止滚回顶部、退回根页或闪烁切换标签。
+/// 通过代理包装底层 UITabBarController，在重复点击已激活标签或点击右下角动态自定义按钮时返回 `false`，并在 iOS 26 以下 iPhone 彻底隐藏系统灰底 `UITabBar`。
 private struct NativeTabBarReselectInterceptor: UIViewControllerRepresentable {
+  let hidesSystemTabBar: Bool
   let shouldInterceptReselect: () -> Bool
   let onReselect: () -> Void
   let shouldInterceptTrailingTab: () -> Bool
@@ -3210,6 +3351,7 @@ private struct NativeTabBarReselectInterceptor: UIViewControllerRepresentable {
 
   func makeCoordinator() -> Coordinator {
     Coordinator(
+      hidesSystemTabBar: hidesSystemTabBar,
       shouldInterceptReselect: shouldInterceptReselect,
       onReselect: onReselect,
       shouldInterceptTrailingTab: shouldInterceptTrailingTab,
@@ -3226,6 +3368,7 @@ private struct NativeTabBarReselectInterceptor: UIViewControllerRepresentable {
   }
 
   func updateUIViewController(_ uiViewController: InterceptorHostController, context: Context) {
+    context.coordinator.hidesSystemTabBar = hidesSystemTabBar
     context.coordinator.shouldInterceptReselect = shouldInterceptReselect
     context.coordinator.onReselect = onReselect
     context.coordinator.shouldInterceptTrailingTab = shouldInterceptTrailingTab
@@ -3238,8 +3381,18 @@ private struct NativeTabBarReselectInterceptor: UIViewControllerRepresentable {
   final class InterceptorHostController: UIViewController {
     var onAttach: ((UITabBarController) -> Void)?
 
+    override func viewWillAppear(_ animated: Bool) {
+      super.viewWillAppear(animated)
+      attachIfPossible()
+    }
+
     override func viewDidAppear(_ animated: Bool) {
       super.viewDidAppear(animated)
+      attachIfPossible()
+    }
+
+    override func viewWillLayoutSubviews() {
+      super.viewWillLayoutSubviews()
       attachIfPossible()
     }
 
@@ -3266,29 +3419,58 @@ private struct NativeTabBarReselectInterceptor: UIViewControllerRepresentable {
     }
   }
 
+  @MainActor
   final class Coordinator: NSObject, UITabBarControllerDelegate {
+    var hidesSystemTabBar: Bool
     var shouldInterceptReselect: () -> Bool
     var onReselect: () -> Void
     var shouldInterceptTrailingTab: () -> Bool
     var onSelectTrailingTab: () -> Void
     private weak var observedTabBarController: UITabBarController?
     private weak var originalDelegate: (any UITabBarControllerDelegate)?
+    private var hiddenObservation: NSKeyValueObservation?
 
     init(
+      hidesSystemTabBar: Bool,
       shouldInterceptReselect: @escaping () -> Bool,
       onReselect: @escaping () -> Void,
       shouldInterceptTrailingTab: @escaping () -> Bool,
       onSelectTrailingTab: @escaping () -> Void
     ) {
+      self.hidesSystemTabBar = hidesSystemTabBar
       self.shouldInterceptReselect = shouldInterceptReselect
       self.onReselect = onReselect
       self.shouldInterceptTrailingTab = shouldInterceptTrailingTab
       self.onSelectTrailingTab = onSelectTrailingTab
     }
 
+    private static func enforceHiddenTabBar(_ tabBar: UITabBar) {
+      if !tabBar.isHidden { tabBar.isHidden = true }
+      if tabBar.alpha != 0 { tabBar.alpha = 0 }
+      if tabBar.isUserInteractionEnabled { tabBar.isUserInteractionEnabled = false }
+      if !tabBar.accessibilityElementsHidden { tabBar.accessibilityElementsHidden = true }
+    }
+
     func attach(to tabBarController: UITabBarController) {
+      if hidesSystemTabBar {
+        Self.enforceHiddenTabBar(tabBarController.tabBar)
+        if observedTabBarController !== tabBarController || hiddenObservation == nil {
+          hiddenObservation = tabBarController.tabBar.observe(\.isHidden, options: [.new]) {
+            tabBar, _ in
+            MainActor.assumeIsolated {
+              if !tabBar.isHidden {
+                Self.enforceHiddenTabBar(tabBar)
+              }
+            }
+          }
+        }
+      } else {
+        hiddenObservation = nil
+      }
+
       if let existing = tabBarController.delegate as? Coordinator {
         // 复用已挂载的代理实例并就地刷新回调，绝不在多标签切换期间反复改写 delegate，彻底杜绝 iPad sidebarAdaptable 下的重布局乒乓死循环。
+        existing.hidesSystemTabBar = hidesSystemTabBar
         existing.shouldInterceptReselect = shouldInterceptReselect
         existing.onReselect = onReselect
         existing.shouldInterceptTrailingTab = shouldInterceptTrailingTab
@@ -3425,7 +3607,7 @@ private struct NativeShortcutsSheet: View {
       }
       .navigationTitle("捷径")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -4120,12 +4302,282 @@ extension View {
   }
 }
 
-/// 与 `LaunchScreen.storyboard` 像素级一致的启动屏覆层：冷启动自动连接与发现首屏加载完成前持续展示居中 Logo，加载完成后柔和淡出。
+/// iOS 26 以下 iPhone 隐藏系统底栏修饰器。
+private struct NativeLegacyHideSystemTabBarModifier: ViewModifier {
+  let isHidden: Bool
+
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if isHidden {
+      content.toolbar(.hidden, for: .tabBar)
+    } else {
+      content
+    }
+  }
+}
+
+/// iOS 26 以下 iPhone 为自定义悬浮胶囊底栏预留页面滚动安全高度，保证滚到底部时内容不被遮挡且滑动时透过毛玻璃。
+private struct NativeLegacyBottomClearanceModifier: ViewModifier {
+  let enabled: Bool
+  let height: CGFloat
+
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if enabled {
+      content.safeAreaInset(edge: .bottom, spacing: 0) {
+        Color.clear
+          .frame(height: height)
+          .allowsHitTesting(false)
+          .accessibilityHidden(true)
+      }
+    } else {
+      content
+    }
+  }
+}
+
+/// 自定义 4+1 悬浮胶囊底栏的单个主标签描述。
+private struct NativeLegacyFloatingTabItem: Identifiable {
+  let id: String
+  let title: String
+  let symbol: String
+  let activeSymbol: String
+  let isAvatar: Bool
+  let accessibilityID: String
+  let isSelected: Bool
+  let action: () -> Void
+}
+
+/// iOS 26 以下 iPhone 专属 4+1 悬浮毛玻璃胶囊导航栏：左侧 4 项通透毛玻璃胶囊 + 弹性滑动高亮底座，右侧独立圆形搜索/上下文动作按钮。
+@MainActor
+private struct NativeLegacyFloatingTabBar: View {
+  let items: [NativeLegacyFloatingTabItem]
+  let userTabAvatar: UIImage?
+  let showsTrailingButton: Bool
+  let trailingTitle: String
+  let trailingSymbol: String
+  let isTrailingActive: Bool
+  let isCompactLandscape: Bool
+  let onTrailingAction: () -> Void
+
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+  @Namespace private var activePillNamespace
+
+  var body: some View {
+    let isLight = colorScheme == .light
+    let barHeight: CGFloat = isCompactLandscape ? 48 : 58
+    let accent = appearance.accentColor
+    HStack(spacing: isCompactLandscape ? 10 : 12) {
+      HStack(spacing: 2) {
+        ForEach(items) { item in
+          Button(action: item.action) {
+            VStack(spacing: isCompactLandscape ? 1.5 : 3) {
+              Group {
+                if item.isAvatar, let avatar = userTabAvatar {
+                  Image(uiImage: avatar)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(
+                      width: isCompactLandscape ? 19 : 22,
+                      height: isCompactLandscape ? 19 : 22
+                    )
+                    .clipShape(Circle())
+                    .overlay {
+                      Circle()
+                        .strokeBorder(
+                          item.isSelected ? accent : Color.primary.opacity(0.22),
+                          lineWidth: item.isSelected ? 1.5 : 0.7
+                        )
+                    }
+                } else {
+                  Image(systemName: item.isSelected ? item.activeSymbol : item.symbol)
+                    .font(
+                      .system(
+                        size: isCompactLandscape ? 15.5 : 18,
+                        weight: item.isSelected ? .semibold : .medium
+                      )
+                    )
+                    .frame(height: isCompactLandscape ? 19 : 22)
+                }
+              }
+              Text(item.title)
+                .font(.system(size: 10, weight: item.isSelected ? .semibold : .medium))
+                .lineLimit(1)
+            }
+            .foregroundStyle(
+              item.isSelected
+                ? accent
+                : Color.primary.opacity(isLight ? 0.72 : 0.78)
+            )
+            .frame(maxWidth: .infinity)
+            .frame(height: barHeight - 8)
+            .background {
+              if item.isSelected {
+                Capsule()
+                  .fill(accent.opacity(isLight ? 0.15 : 0.22))
+                  .overlay {
+                    Capsule()
+                      .strokeBorder(accent.opacity(isLight ? 0.28 : 0.36), lineWidth: 0.6)
+                  }
+                  .matchedGeometryEffect(id: "legacy-floating-tab-pill", in: activePillNamespace)
+              }
+            }
+            .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel(item.title)
+          .accessibilityAddTraits(item.isSelected ? .isSelected : [])
+          .accessibilityIdentifier(item.accessibilityID)
+        }
+      }
+      .padding(.horizontal, 5)
+      .frame(maxWidth: .infinity)
+      .frame(height: barHeight)
+      .background {
+        capsuleGlassSurface(isLight: isLight, accent: accent)
+      }
+
+      if showsTrailingButton {
+        Button(action: onTrailingAction) {
+          Image(systemName: trailingSymbol)
+            .font(.system(size: isCompactLandscape ? 17 : 19, weight: .semibold))
+            .foregroundStyle(
+              isTrailingActive
+                ? accent
+                : Color.primary.opacity(isLight ? 0.84 : 0.88)
+            )
+            .frame(width: barHeight, height: barHeight)
+            .background {
+              circleGlassSurface(isLight: isLight, accent: accent, active: isTrailingActive)
+            }
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(trailingTitle)
+        .accessibilityAddTraits(isTrailingActive ? .isSelected : [])
+        .accessibilityIdentifier("native-v2-search-tab-item")
+      }
+    }
+    .frame(maxWidth: 460)
+    .padding(.horizontal, isCompactLandscape ? 20 : 18)
+    .padding(.bottom, isCompactLandscape ? 4 : 6)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+  }
+
+  @ViewBuilder
+  private func capsuleGlassSurface(isLight: Bool, accent: Color) -> some View {
+    if reduceTransparency {
+      Capsule()
+        .fill(isLight ? Color.white.opacity(0.96) : CinematicStyle.solidSurface)
+        .overlay {
+          Capsule()
+            .strokeBorder(
+              isLight ? Color.black.opacity(0.12) : Color.white.opacity(0.18), lineWidth: 0.8)
+        }
+        .shadow(color: .black.opacity(isLight ? 0.10 : 0.28), radius: 12, y: 6)
+    } else {
+      Capsule()
+        .fill(.ultraThinMaterial)
+        .overlay {
+          Capsule()
+            .fill(
+              LinearGradient(
+                colors: [
+                  Color.white.opacity(isLight ? 0.48 : 0.14),
+                  Color.white.opacity(isLight ? 0.14 : 0.03),
+                  .clear,
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+              )
+            )
+        }
+        .overlay {
+          Capsule()
+            .strokeBorder(
+              LinearGradient(
+                colors: [
+                  Color.white.opacity(isLight ? 0.78 : 0.32),
+                  Color.white.opacity(isLight ? 0.22 : 0.08),
+                  accent.opacity(isLight ? 0.16 : 0.20),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+              ),
+              lineWidth: 0.8
+            )
+        }
+        .shadow(color: .black.opacity(isLight ? 0.12 : 0.34), radius: 16, y: 8)
+    }
+  }
+
+  @ViewBuilder
+  private func circleGlassSurface(isLight: Bool, accent: Color, active: Bool) -> some View {
+    if reduceTransparency {
+      Circle()
+        .fill(isLight ? Color.white.opacity(0.96) : CinematicStyle.solidSurface)
+        .overlay {
+          Circle()
+            .strokeBorder(
+              active
+                ? accent.opacity(0.45)
+                : (isLight ? Color.black.opacity(0.12) : Color.white.opacity(0.18)),
+              lineWidth: 0.8
+            )
+        }
+        .shadow(color: .black.opacity(isLight ? 0.10 : 0.28), radius: 12, y: 6)
+    } else {
+      Circle()
+        .fill(.ultraThinMaterial)
+        .overlay {
+          if active {
+            Circle().fill(accent.opacity(isLight ? 0.15 : 0.24))
+          }
+        }
+        .overlay {
+          Circle()
+            .fill(
+              LinearGradient(
+                colors: [
+                  Color.white.opacity(isLight ? 0.48 : 0.15),
+                  Color.white.opacity(isLight ? 0.12 : 0.03),
+                  .clear,
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+              )
+            )
+        }
+        .overlay {
+          Circle()
+            .strokeBorder(
+              LinearGradient(
+                colors: [
+                  active ? accent.opacity(0.55) : Color.white.opacity(isLight ? 0.78 : 0.34),
+                  Color.white.opacity(isLight ? 0.22 : 0.08),
+                  accent.opacity(active ? 0.32 : 0.16),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+              ),
+              lineWidth: 0.8
+            )
+        }
+        .shadow(color: .black.opacity(isLight ? 0.12 : 0.34), radius: 16, y: 8)
+    }
+  }
+}
+
+/// 与 `LaunchScreen.storyboard` 像素级一致的启动屏覆层：深色主题下采用纯黑 `#000000` 背景，冷启动自动连接与发现首屏加载完成前持续展示居中 Logo，加载完成后柔和淡出。
 @MainActor
 struct NativeLaunchSplashView: View {
+  @Environment(\.colorScheme) private var colorScheme
+
   var body: some View {
     ZStack {
-      Color("LaunchBackground")
+      (colorScheme == .dark ? Color.black : Color("LaunchBackground"))
         .ignoresSafeArea()
       Image("LaunchMark")
         .resizable()

@@ -82,6 +82,7 @@ import com.moviepilot.feature.download.ResourceSearchScreen
 import com.moviepilot.feature.library.FileManagerScreen
 import com.moviepilot.feature.library.TransferHistoryScreen
 import com.moviepilot.feature.media.MediaDetailScreen
+import com.moviepilot.feature.media.MediaServerDetailScreen
 import com.moviepilot.feature.media.PersonDetailScreen
 import com.moviepilot.feature.settings.AppearanceSettingsScreen
 import com.moviepilot.feature.settings.ChannelAuthorizationScreen
@@ -127,6 +128,12 @@ sealed interface AppRoute {
     data object SettingsHub : AppRoute
     data class GlobalSearch(val query: String = "", val kind: String = "media") : AppRoute
     data class MediaDetail(val item: MediaCardItem) : AppRoute
+    data class MediaServerDetail(
+        val itemId: String,
+        val server: String,
+        val fallbackTitle: String = "",
+        val fallbackPoster: String? = null,
+    ) : AppRoute
     data class PersonDetail(val person: MediaPersonDto) : AppRoute
     data class MediaServerLibrary(val library: MediaServerLibraryDto) : AppRoute
     data object Messages : AppRoute
@@ -230,6 +237,7 @@ fun MoviePilotRootShell(
     val medalJson = remember { Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true } }
 
     var allowSelfSignedTls by remember { mutableStateOf(repository.secretStore.allowSelfSignedTls) }
+    var isSwitchingServer by rememberSaveable { mutableStateOf(false) }
     var selectedTabId by rememberSaveable { mutableStateOf(MainTab.Discover.id) }
     val selectedTab = MainTab.entries.firstOrNull { it.id == selectedTabId } ?: MainTab.Discover
 
@@ -316,6 +324,22 @@ fun MoviePilotRootShell(
         }
     }
 
+    /** 智能分发媒体卡片跳转：携带 `serverItemId` 与 `serverName` 的已入库卡片直达 `MediaServerDetailScreen`。 */
+    fun openMediaSmart(item: MediaCardItem) {
+        if (!item.serverItemId.isNullOrBlank() && !item.serverName.isNullOrBlank()) {
+            pushRoute(
+                AppRoute.MediaServerDetail(
+                    itemId = item.serverItemId!!,
+                    server = item.serverName!!,
+                    fallbackTitle = item.title,
+                    fallbackPoster = item.posterPath,
+                ),
+            )
+        } else {
+            pushRoute(AppRoute.MediaDetail(item))
+        }
+    }
+
     fun releaseBackgroundAudio() {
         bgAudioPlayer?.release()
         bgAudioPlayer = null
@@ -362,16 +386,17 @@ fun MoviePilotRootShell(
         wasAuthenticated = nowAuth
     }
 
-    // Android 系统 Back 返回键 / 边缘侧滑统一接管（按当前 Tab 子栈 -> Discover 根 Tab 顺序回退）
+    // Android 系统 Back 返回键 / 边缘侧滑统一接管（按播放器 -> 勋章 -> 切换服务覆盖层 -> 当前 Tab 子栈 -> Discover 根 Tab 顺序回退）
     val canHandleBack = activePlayerRequest != null ||
         activeMedalShowcase != null ||
-        activeStack.isNotEmpty() ||
-        selectedTab != MainTab.Discover
+        isSwitchingServer ||
+        (session is SessionState.Authenticated && (activeStack.isNotEmpty() || selectedTab != MainTab.Discover))
 
     BackHandler(enabled = canHandleBack) {
         when {
             activePlayerRequest != null -> activePlayerRequest = null
             activeMedalShowcase != null -> activeMedalShowcase = null
+            isSwitchingServer -> isSwitchingServer = false
             activeStack.isNotEmpty() -> popRoute()
             selectedTab != MainTab.Discover -> selectedTabId = MainTab.Discover.id
         }
@@ -506,9 +531,9 @@ fun MoviePilotRootShell(
 
     val authSession = session as? SessionState.Authenticated
     val isTopLevelTab = currentRoute == AppRoute.TabRoot
-    val showWideRail = isWideCanvas && authSession != null && activeMedalShowcase == null && activePlayerRequest == null
-    val showBottomNav = authSession != null && isTopLevelTab && !isWideCanvas && activeMedalShowcase == null && activePlayerRequest == null
-    val showMiniMusicBar = bgAudioRequest != null && activeMedalShowcase == null && activePlayerRequest == null
+    val showWideRail = isWideCanvas && authSession != null && !isSwitchingServer && activeMedalShowcase == null && activePlayerRequest == null
+    val showBottomNav = authSession != null && !isSwitchingServer && isTopLevelTab && !isWideCanvas && activeMedalShowcase == null && activePlayerRequest == null
+    val showMiniMusicBar = bgAudioRequest != null && !isSwitchingServer && activeMedalShowcase == null && activePlayerRequest == null
 
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottomOverlayInset = when {
@@ -548,27 +573,71 @@ fun MoviePilotRootShell(
                                 .only(if (showWideRail) WindowInsetsSides.End else WindowInsetsSides.Horizontal),
                         ),
                 ) {
-                    when (val s = session) {
-                        is SessionState.Unconnected -> {
-                            ServerConnectionScreen(
-                                savedServers = savedServers,
-                                onConnect = { repository.connectServer(it) },
-                                onSelectSaved = { repository.selectSavedServer(it) },
-                                onDeleteSaved = { repository.forgetServer(it) },
-                                allowSelfSignedTls = allowSelfSignedTls,
-                                onToggleSelfSignedTls = { enabled ->
-                                    allowSelfSignedTls = enabled
-                                    repository.secretStore.allowSelfSignedTls = enabled
-                                },
-                            )
-                        }
+                    val currentConnectedUrl = when (val cur = session) {
+                        is SessionState.Authenticated -> cur.serverUrl
+                        is SessionState.NeedsLogin -> cur.serverUrl
+                        SessionState.Unconnected -> null
+                    }
+                    if (session is SessionState.Unconnected || isSwitchingServer) {
+                        ServerConnectionScreen(
+                            savedServers = savedServers,
+                            currentServerUrl = currentConnectedUrl,
+                            onBack = if (isSwitchingServer) ({ isSwitchingServer = false }) else null,
+                            onConnect = { rawUrl ->
+                                val normalizedRes = RustCoreBridge.normalizeAddress(rawUrl)
+                                normalizedRes.fold(
+                                    onSuccess = { normalized ->
+                                        if (isSwitchingServer && !currentConnectedUrl.isNullOrBlank() &&
+                                            normalized.trimEnd('/').equals(currentConnectedUrl.trimEnd('/'), ignoreCase = true)
+                                        ) {
+                                            isSwitchingServer = false
+                                            Result.success(normalized)
+                                        } else {
+                                            val connectRes = repository.connectServer(rawUrl)
+                                            if (connectRes.isSuccess) {
+                                                releaseBackgroundAudio()
+                                                clearAllNavigationAndWebSession()
+                                                isSwitchingServer = false
+                                            }
+                                            connectRes
+                                        }
+                                    },
+                                    onFailure = { Result.failure(it) },
+                                )
+                            },
+                            onSelectSaved = { entry ->
+                                if (isSwitchingServer && !currentConnectedUrl.isNullOrBlank() &&
+                                    entry.url.trimEnd('/').equals(currentConnectedUrl.trimEnd('/'), ignoreCase = true)
+                                ) {
+                                    isSwitchingServer = false
+                                } else {
+                                    releaseBackgroundAudio()
+                                    clearAllNavigationAndWebSession()
+                                    repository.selectSavedServer(entry)
+                                    isSwitchingServer = false
+                                }
+                            },
+                            onDeleteSaved = { url ->
+                                repository.forgetServer(url)
+                                if (repository.session.value is SessionState.Unconnected) {
+                                    isSwitchingServer = false
+                                }
+                            },
+                            allowSelfSignedTls = allowSelfSignedTls,
+                            onToggleSelfSignedTls = { enabled ->
+                                allowSelfSignedTls = enabled
+                                repository.secretStore.allowSelfSignedTls = enabled
+                            },
+                        )
+                    } else when (val s = session) {
+                        SessionState.Unconnected -> Unit
 
                         is SessionState.NeedsLogin -> {
                             LoginScreen(
                                 serverUrl = s.serverUrl,
                                 initialNotice = s.notice,
                                 repository = repository,
-                                onSwitchServer = { repository.openServerConnection() },
+                                onSwitchServer = { isSwitchingServer = true },
                                 onLoginSuccess = {},
                             )
                         }
@@ -595,7 +664,7 @@ fun MoviePilotRootShell(
                                         AppRoute.TabRoot -> when (tabAtFrame) {
                                             MainTab.Discover -> DiscoverScreen(
                                                 repository = repository,
-                                                onOpenMedia = { pushRoute(AppRoute.MediaDetail(it)) },
+                                                onOpenMedia = ::openMediaSmart,
                                                 onOpenExplore = { src ->
                                                     exploreSource = src
                                                     onTabBarClick(MainTab.Explore)
@@ -608,7 +677,7 @@ fun MoviePilotRootShell(
                                             MainTab.Explore -> ExploreScreen(
                                                 repository = repository,
                                                 initialSource = exploreSource,
-                                                onOpenMedia = { pushRoute(AppRoute.MediaDetail(it)) },
+                                                onOpenMedia = ::openMediaSmart,
                                                 onOpenSearch = { pushRoute(AppRoute.GlobalSearch()) },
                                                 onPlayAudio = ::startPlayback,
                                             )
@@ -619,7 +688,11 @@ fun MoviePilotRootShell(
                                                 onOpenSearch = { pushRoute(AppRoute.GlobalSearch()) },
                                                 onOpenCalendar = { pushRoute(AppRoute.Calendar) },
                                                 onOpenCommunity = { pushRoute(AppRoute.SubscribeCommunity) },
-                                                onOpenMedia = { pushRoute(AppRoute.MediaDetail(it)) },
+                                                onOpenMedia = ::openMediaSmart,
+                                                onPlayMedia = ::startPlayback,
+                                                onOpenServerItem = { itemId, server, title ->
+                                                    pushRoute(AppRoute.MediaServerDetail(itemId, server, title))
+                                                },
                                             )
                                             MainTab.Workspace -> WorkspaceHubScreen(
                                                 repository = repository,
@@ -665,6 +738,7 @@ fun MoviePilotRootShell(
                                             onOpenPlugins = { pushRoute(AppRoute.Plugins(installedOnly = true)) },
                                             onOpenChannelAuth = { pushRoute(AppRoute.ChannelAuthorization) },
                                             permissions = s.permissions,
+                                            onSwitchServer = { isSwitchingServer = true },
                                             onLogout = {
                                                 releaseBackgroundAudio()
                                                 clearAllNavigationAndWebSession()
@@ -676,7 +750,7 @@ fun MoviePilotRootShell(
                                             initialQuery = route.query,
                                             initialKind = route.kind,
                                             onBack = ::popRoute,
-                                            onOpenMedia = { pushRoute(AppRoute.MediaDetail(it)) },
+                                            onOpenMedia = ::openMediaSmart,
                                             onOpenPerson = { pushRoute(AppRoute.PersonDetail(it)) },
                                             onPlayLibraryItem = ::startPlayback,
                                         )
@@ -687,20 +761,41 @@ fun MoviePilotRootShell(
                                             onSearchResource = { kw -> pushRoute(AppRoute.Resources(kw)) },
                                             onPlayMedia = ::startPlayback,
                                             onOpenPerson = { p -> pushRoute(AppRoute.PersonDetail(p)) },
-                                            onOpenMedia = { pushRoute(AppRoute.MediaDetail(it)) },
+                                            onOpenMedia = ::openMediaSmart,
+                                            onOpenServerDetail = { itemId, server, title ->
+                                                pushRoute(AppRoute.MediaServerDetail(itemId, server, title))
+                                            },
+                                        )
+                                        is AppRoute.MediaServerDetail -> MediaServerDetailScreen(
+                                            itemId = route.itemId,
+                                            server = route.server,
+                                            fallbackTitle = route.fallbackTitle,
+                                            fallbackPoster = route.fallbackPoster,
+                                            repository = repository,
+                                            onBack = ::popRoute,
+                                            onPlayMedia = ::startPlayback,
+                                            onSearchResource = { kw -> pushRoute(AppRoute.Resources(kw)) },
+                                            onOpenMedia = ::openMediaSmart,
+                                            onOpenServerDetail = { itemId, server, title, poster ->
+                                                pushRoute(AppRoute.MediaServerDetail(itemId, server, title, poster))
+                                            },
+                                            onOpenPerson = { p -> pushRoute(AppRoute.PersonDetail(p)) },
                                         )
                                         is AppRoute.PersonDetail -> PersonDetailScreen(
                                             seed = route.person,
                                             repository = repository,
                                             onBack = ::popRoute,
-                                            onOpenMedia = { pushRoute(AppRoute.MediaDetail(it)) },
+                                            onOpenMedia = ::openMediaSmart,
                                         )
                                         is AppRoute.MediaServerLibrary -> MediaServerLibraryScreen(
                                             repository = repository,
                                             initialLibrary = route.library,
                                             onBack = ::popRoute,
-                                            onOpenMedia = { pushRoute(AppRoute.MediaDetail(it)) },
+                                            onOpenMedia = ::openMediaSmart,
                                             onPlayMedia = ::startPlayback,
+                                            onOpenServerDetail = { itemId, server, title, poster ->
+                                                pushRoute(AppRoute.MediaServerDetail(itemId, server, title, poster))
+                                            },
                                         )
                                         AppRoute.Messages -> MessagesCenterScreen(
                                             repository = repository,
@@ -718,7 +813,11 @@ fun MoviePilotRootShell(
                                             onOpenSearch = { pushRoute(AppRoute.GlobalSearch()) },
                                             onOpenCalendar = { pushRoute(AppRoute.Calendar) },
                                             onOpenCommunity = { pushRoute(AppRoute.SubscribeCommunity) },
-                                            onOpenMedia = { pushRoute(AppRoute.MediaDetail(it)) },
+                                            onOpenMedia = ::openMediaSmart,
+                                            onPlayMedia = ::startPlayback,
+                                            onOpenServerItem = { itemId, server, title ->
+                                                pushRoute(AppRoute.MediaServerDetail(itemId, server, title))
+                                            },
                                         )
                                         AppRoute.Calendar -> CalendarScreen(
                                             repository = repository,
@@ -784,7 +883,7 @@ fun MoviePilotRootShell(
                     }
 
                     // 3. 一级主 Tab 右下角 AI 助手入口（受外观开关控制，自动避让底部导航栏与悬浮迷你播控条）
-                    if (authSession != null && isTopLevelTab && appearanceStore.showAgentMascot && activeMedalShowcase == null && activePlayerRequest == null) {
+                    if (authSession != null && !isSwitchingServer && isTopLevelTab && appearanceStore.showAgentMascot && activeMedalShowcase == null && activePlayerRequest == null) {
                         val mascotBottom = when {
                             isWideCanvas && showMiniMusicBar -> 96.dp
                             isWideCanvas -> 24.dp
