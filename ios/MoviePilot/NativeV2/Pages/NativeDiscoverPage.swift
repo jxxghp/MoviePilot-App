@@ -1354,7 +1354,7 @@ struct NativeDiscoverPage: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.white.opacity(0.84))
+        .foregroundStyle(colorScheme == .light ? Color.primary : Color.white.opacity(0.84))
         .accessibilityLabel("查看全部\(title)")
         .accessibilityIdentifier("native-discover-more-\(title)")
       }
