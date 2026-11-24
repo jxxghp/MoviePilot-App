@@ -558,9 +558,13 @@ struct NativeV2RootView: View {
           footer: L10n.text("密码仅在本机安全保存，验证码不会保存。")
         ) {
           CinematicFormRow(symbol: "checkmark.shield") {
-            Toggle(L10n.text("保持登录"), isOn: $model.rememberSession)
-              .tint(appearance.accentColor)
-              .accessibilityIdentifier("native-v2-remember-session")
+            Toggle(
+              L10n.text("保持登录"),
+              isOn: Binding(
+                get: { model.rememberSession }, set: { model.setRememberSession($0) })
+            )
+            .tint(appearance.accentColor)
+            .accessibilityIdentifier("native-v2-remember-session")
           }
           CinematicFormDivider()
           CinematicFormRow(symbol: "key.horizontal") {

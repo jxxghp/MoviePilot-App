@@ -127,7 +127,9 @@ struct NativeCommunityMedalsWidget: View {
 
   var body: some View {
     let medals = profile.orderedKnownMedals
-    let unseen = store.unseenCount(in: medals, userID: profile.userID)
+    // 已读集合整卡只读取一次，避免每个格子各自访问 UserDefaults 并重建集合。
+    let seenTokens = store.seenTokens(userID: profile.userID)
+    let unseen = medals.filter { !seenTokens.contains($0.seenToken) }.count
     let wornKey = store.wornMedalKey(userID: profile.userID)
     let columnCount = dynamicTypeSize.isAccessibilitySize ? 3 : 4
     let columns = Array(
@@ -167,7 +169,7 @@ struct NativeCommunityMedalsWidget: View {
           ForEach(medals) { record in
             medalGridTile(
               record: record,
-              isUnseen: store.isUnseen(record, userID: profile.userID),
+              isUnseen: !seenTokens.contains(record.seenToken),
               isWorn: wornKey == record.key
             )
           }
@@ -185,9 +187,6 @@ struct NativeCommunityMedalsWidget: View {
   ) -> some View {
     let spec = record.spec
     let tone = CommunityMedalColor.color(hex: spec?.toneHex ?? "#9b7bff")
-    let artwork =
-      CommunityMedalAssetLoader.shared.frontImage(for: record)
-      ?? CommunityMedalAssetLoader.shared.badgeImage(for: record)
 
     return Button {
       onSelectMedal(record)
@@ -209,17 +208,7 @@ struct NativeCommunityMedalsWidget: View {
               )
               .frame(width: 64, height: 64)
 
-            if let artwork {
-              Image(uiImage: artwork)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 58, height: 58)
-                .shadow(color: .black.opacity(colorScheme == .dark ? 0.42 : 0.18), radius: 6, y: 3)
-            } else {
-              Image(systemName: "medal.fill")
-                .font(.title2)
-                .foregroundStyle(tone)
-            }
+            NativeCommunityMedalGridArtwork(record: record, tone: tone)
           }
           .frame(width: 64, height: 64)
 
@@ -267,6 +256,72 @@ struct NativeCommunityMedalsWidget: View {
     .buttonStyle(.plain)
     .accessibilityLabel("\(spec?.name ?? record.key)勋章，轻点查看动态 3D 勋章")
     .accessibilityIdentifier("native-community-medal-\(record.key)")
+  }
+}
+
+/// 勋章网格图：展示降采样并已烘焙投影的缩略图；首帧同步命中内存缓存，未命中时在后台线程生成，不阻塞滚动。
+@MainActor
+private struct NativeCommunityMedalGridArtwork: View {
+  let record: CommunityMedalRecord
+  let tone: Color
+
+  /// 勋章本体显示边长（pt），与原网格保持一致。
+  private static let medalSide: CGFloat = 58
+
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.displayScale) private var displayScale
+  @State private var image: UIImage?
+  @State private var resolvedKey: String?
+
+  var body: some View {
+    let stems = CommunityMedalAssetLoader.gridThumbnailStems(for: record)
+    let isDark = colorScheme == .dark
+    let key = CommunityMedalAssetLoader.gridThumbnailKey(
+      stems: stems, medalSide: Self.medalSide, scale: displayScale, isDark: isDark)
+    let isResolved = resolvedKey == key
+    let thumbnail: UIImage? =
+      if isResolved, let image {
+        image
+      } else {
+        CommunityMedalAssetLoader.shared.cachedGridThumbnail(forKey: key)
+      }
+    let canvasSide = CommunityMedalAssetLoader.gridThumbnailCanvasSide(medalSide: Self.medalSide)
+
+    return Group {
+      if let thumbnail {
+        // 缩略图画布含阴影余量，按画布原尺寸绘制并居中溢出，勋章本体仍占 58pt。
+        Image(uiImage: thumbnail)
+          .resizable()
+          .frame(width: canvasSide, height: canvasSide)
+      } else if isResolved {
+        Image(systemName: "medal.fill")
+          .font(.title2)
+          .foregroundStyle(tone)
+      } else {
+        Color.clear
+      }
+    }
+    .frame(width: Self.medalSide, height: Self.medalSide)
+    .task(id: key) {
+      await load(key: key, stems: stems, scale: displayScale, isDark: isDark)
+    }
+  }
+
+  /// 内存缓存未命中时在后台线程降采样并烘焙投影，完成后回到主线程呈现；素材缺失时回退为符号图标。
+  private func load(key: String, stems: [String], scale: CGFloat, isDark: Bool) async {
+    if let cached = CommunityMedalAssetLoader.shared.cachedGridThumbnail(forKey: key) {
+      image = cached
+      resolvedKey = key
+      return
+    }
+    let side = Self.medalSide
+    let generated: UIImage? = await Task.detached(priority: .userInitiated) {
+      CommunityMedalAssetLoader.shared.makeGridThumbnail(
+        stems: stems, medalSide: side, scale: scale, isDark: isDark)
+    }.value
+    guard !Task.isCancelled else { return }
+    image = generated
+    resolvedKey = key
   }
 }
 

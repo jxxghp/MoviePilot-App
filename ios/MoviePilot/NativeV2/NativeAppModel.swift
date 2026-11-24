@@ -56,9 +56,11 @@ final class NativeAppModel: ObservableObject {
       }
   }
 
-  /// 冷启动只尝试恢复上次实例令牌，绝不自动提交可选的已保存密码，同时保留冷启动携带的系统深链与快捷项意图。
+  /// 冷启动先尝试恢复上次实例令牌；仍需登录时，若已回填本机保存的密码且“保持登录”开启，则自动提交一次登录，同时保留冷启动携带的系统深链与快捷项意图。
   func start() {
-    if let selected { connect(selected, preserveSystemLaunchIntent: true) }
+    if let selected {
+      connect(selected, preserveSystemLaunchIntent: true, submitsSavedLogin: true)
+    }
   }
 
   /// 地址校验失败保留原输入，成功则沿用相同标准地址的 UUID。
@@ -77,7 +79,11 @@ final class NativeAppModel: ObservableObject {
   }
 
   /// 新实例先取消旧尝试和草稿，只有本次返回可以更新界面与回填凭据；冷启动/小组件发起的连接保留系统跳转意图。
-  func connect(_ instance: SavedInstance, preserveSystemLaunchIntent: Bool = false) {
+  /// 仅冷启动开启 `submitsSavedLogin`：手动选择实例或小组件深链进入登录页时仍等待用户确认。
+  func connect(
+    _ instance: SavedInstance, preserveSystemLaunchIntent: Bool = false,
+    submitsSavedLogin: Bool = false
+  ) {
     if isSwitchingServer,
       let active = manager.currentSession,
       active.instance.id == instance.id,
@@ -101,7 +107,17 @@ final class NativeAppModel: ObservableObject {
       address = instance.address.url.absoluteString
       form = .login
       execute { [self] id in
-        _ = try await manager.connect(instance.nativeInstance)
+        do {
+          _ = try await manager.connect(instance.nativeInstance)
+        } catch {
+          // 已保存令牌过期：过期回调已回填本机保存的密码与开关，这里代替用户点一次登录。
+          guard submitsSavedLogin, operationID == id, !Task.isCancelled,
+            case .loginRequired(_, .expired) = manager.state, canSubmitSavedLogin
+          else { throw error }
+          messageKey = nil
+          try await submitLogin(id)
+          return
+        }
         try check(id)
         switch manager.state {
         case .initializationRequired(_, let configured):
@@ -111,6 +127,8 @@ final class NativeAppModel: ObservableObject {
           regenerateKey()
         case .loginRequired:
           loadCredentials(instance)
+          // 没有可恢复的令牌：同样只代替用户点一次，失败后停在登录页由用户处理。
+          if submitsSavedLogin, canSubmitSavedLogin { try await submitLogin(id) }
         default: break
         }
       }
@@ -202,25 +220,30 @@ final class NativeAppModel: ObservableObject {
 
   /// 一次明确登录只提交一次；保存密码失败可见，但不撤销已成功确认的内存身份。
   func login() {
+    guard selected != nil else { return }
+    execute { [self] id in try await submitLogin(id) }
+  }
+
+  /// 以当前表单提交登录；手动点击与冷启动自动登录共用，同一操作内只提交一次。
+  private func submitLogin(_ id: UUID) async throws {
     guard let selected else { return }
     let input = LoginCredentials(username: username, password: password)
     let code = otp
     let savePassword = rememberCredentials
     let keepSession = rememberSession
-    execute { [self] id in
-      _ = try await manager.login(
-        to: selected.nativeInstance, username: input.username, password: input.password,
-        otp: code.isEmpty ? nil : code, remember: keepSession)
-      try check(id)
-      do {
-        if savePassword {
-          try credentials.save(input, for: selected.id, address: selected.address)
-        } else {
-          try credentials.remove(for: selected.id)
-        }
-      } catch { messageKey = "此设备未能安全保存部分登录信息，下次可能需要重新输入。" }
-      clearSecrets()
-    }
+    _ = try await manager.login(
+      to: selected.nativeInstance, username: input.username, password: input.password,
+      otp: code.isEmpty ? nil : code, remember: keepSession)
+    try check(id)
+    instances.setKeepsSession(keepSession, for: selected.id)
+    do {
+      if savePassword {
+        try credentials.save(input, for: selected.id, address: selected.address)
+      } else {
+        try credentials.remove(for: selected.id)
+      }
+    } catch { messageKey = "此设备未能安全保存部分登录信息，下次可能需要重新输入。" }
+    clearSecrets()
   }
 
   /// 初始化提交不自动登录，不把生成的 API Key 持久化到设备或剪贴板。
@@ -244,6 +267,17 @@ final class NativeAppModel: ObservableObject {
       fixedUsername = false
       messageKey = result == .created ? "管理员已创建，请登录。" : "服务已初始化，请登录。"
     }
+  }
+
+  /// 冷启动自动登录的前提：密码来自本机保存的记录，且“保持登录”处于开启。
+  private var canSubmitSavedLogin: Bool {
+    rememberSession && rememberCredentials && !username.isEmpty && !password.isEmpty
+  }
+
+  /// “保持登录”按实例记住用户的选择，下次进入登录页时恢复，并决定冷启动是否自动登录。
+  func setRememberSession(_ enabled: Bool) {
+    rememberSession = enabled
+    if let selected { instances.setKeepsSession(enabled, for: selected.id) }
   }
 
   /// 关闭密码记忆立即删除本实例记录，系统拒绝时回滚开关并明确提示。
@@ -519,8 +553,9 @@ final class NativeAppModel: ObservableObject {
     clearSecrets()
   }
 
-  /// 已保存的密码仅回填当前地址，不隐式开启另一个实例的记忆或提交认证。
+  /// 恢复该实例的“保持登录”选择并回填已保存的密码；仅作用于当前地址，是否提交认证由调用方决定。
   private func loadCredentials(_ instance: SavedInstance) {
+    rememberSession = instances.keepsSession(instance.id)
     do {
       if let value = try credentials.read(for: instance.id, address: instance.address) {
         username = value.username

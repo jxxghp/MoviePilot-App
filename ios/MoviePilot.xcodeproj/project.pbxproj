@@ -9,135 +9,67 @@
 /* Begin PBXBuildFile section */
 		02938EC7396846498DBB3C3F /* NativeDownloadsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF6849CE05D1EC77AFA67129 /* NativeDownloadsPage.swift */; };
 		04729F76AADB6E784C8E9C39 /* NativeAppearanceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A4D15B8082C9119B8C37AC /* NativeAppearanceStore.swift */; };
-		0641F7154CEFB514E1481434 /* helper-back.webp in Resources */ = {isa = PBXBuildFile; fileRef = B9B22700540E6F569894A9C5 /* helper-back.webp */; };
-		079B0CC3F5C2C8958C4BF987 /* tester-badge.webp in Resources */ = {isa = PBXBuildFile; fileRef = C7F2F362BA0E1E41C09D9C5B /* tester-badge.webp */; };
 		08E6A5EB18261F0E3B4964F6 /* NativeMusicPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08443236F43B97DD00EC6B5A /* NativeMusicPage.swift */; };
-		0B46AC8B64D89FBE92DB3780 /* code-front-t4.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = 618536EE0B6A4F395D17B133 /* code-front-t4.outline.json */; };
-		0CB959A40353ECC0F3EFFEEE /* code-front-t2-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = 53F35E0F3B51AE41E4DD31CE /* code-front-t2-height.webp */; };
 		0EE2961899BD600DE410D4E8 /* MediaPlaybackController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AFD1560F224ABDAD40A7D45 /* MediaPlaybackController.swift */; };
 		0F10DAF3C3E45285527B6679 /* NativeAgentFloatingMascot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CC709A18D7FAEDC0527EDD8 /* NativeAgentFloatingMascot.swift */; };
 		0FE557F4111AB0095942BEFF /* NativeDiscoverModulesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCE7B8D4C7A31F109890ABCF /* NativeDiscoverModulesSheet.swift */; };
-		105A9DB817B59CD170B68003 /* plugin-front-t4.webp in Resources */ = {isa = PBXBuildFile; fileRef = 9C0A85AEBB99F1C85E046BC6 /* plugin-front-t4.webp */; };
 		1239E3EF7CE49B9F5D5C757C /* WidgetService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA1934688E4D109E194DB96 /* WidgetService.swift */; };
 		1643E5D3ACDFDECB97B3BD54 /* NativeSitesPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F33A2CBF14E52CA99816FE7 /* NativeSitesPage.swift */; };
-		1B287E0A622EF97136D04B6C /* plugin-front-t3-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = 54F1201106C671F923B8ED12 /* plugin-front-t3-height.webp */; };
 		1B6DCC76020A6EE81DA87E69 /* NativeEntityIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7D4C74144CA16E15C0B2839 /* NativeEntityIcons.swift */; };
-		1BFFD15154F30FC5C8953D83 /* code-back.webp in Resources */ = {isa = PBXBuildFile; fileRef = 0FEFA72DF55EBD2EDF9C7DC2 /* code-back.webp */; };
 		1C92A256F9DF407CB0D39639 /* NativeSettingsHubPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4365514BAF4C18C82A3BCB98 /* NativeSettingsHubPage.swift */; };
-		1CA729BA44027F604F4BC6FB /* helper-front.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = 8A6D5B7F52FA754D48654B52 /* helper-front.outline.json */; };
-		1F5959B88D6C8C4886B1865C /* code-front-t1.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = D48D33AF5F1AD161D28CA61F /* code-front-t1.outline.json */; };
-		2043DB432FAEDBE18033BDB3 /* pioneer-back.webp in Resources */ = {isa = PBXBuildFile; fileRef = 1EDF7300C38BD760FACAD035 /* pioneer-back.webp */; };
-		20FF757C2FD83EC72B10CEE0 /* maintainer-front.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = 598C072EE8FC36E48A461443 /* maintainer-front.outline.json */; };
 		23E731081F1C8B9393CDE436 /* MoviePilotWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A53F32D403882DC68D3CE17 /* MoviePilotWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		25E9F37F6976B552C8D7E309 /* code-badge-t3.webp in Resources */ = {isa = PBXBuildFile; fileRef = AD587778CB1A57EE6B35DE98 /* code-badge-t3.webp */; };
-		2608811D79CABC7F6633DF9F /* pioneer-front.webp in Resources */ = {isa = PBXBuildFile; fileRef = 1A6E53DB97363F2994FF9701 /* pioneer-front.webp */; };
 		26EA21BAF0EB0F9D663FE97F /* MoviePilotWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E9D58111CB3F6D0CC5F8EB /* MoviePilotWidgets.swift */; };
-		27459ED49C8090DB0E06E556 /* plugin-front-t2.webp in Resources */ = {isa = PBXBuildFile; fileRef = D5140D3F6024F4966940DEAE /* plugin-front-t2.webp */; };
 		29D3DF44DA14967EB9C79979 /* NativeSystemSettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68C6FA6CA18037E7B4A18B47 /* NativeSystemSettingsPage.swift */; };
 		29E6D5DE3717F6EBA7D36D69 /* NativeDynamicActionCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C61A153F85D5CD1A2B2698 /* NativeDynamicActionCenter.swift */; };
 		2BA2E297A78BF7DB111DB06C /* NativeSystemIntegrationSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A47B559552B90D83BE13166 /* NativeSystemIntegrationSheets.swift */; };
-		2BC695EE8952AB60C26AA376 /* tester-back.webp in Resources */ = {isa = PBXBuildFile; fileRef = 441DB401A29D52CA5EB1A945 /* tester-back.webp */; };
 		2E02C60A35D867A2008213A0 /* NativePluginDataPageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D388D03E1CAFD2739ADF561 /* NativePluginDataPageView.swift */; };
-		2EB3E3181DD49D46A81F479B /* plugin-front-t2.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = 81A6F7398ABEFF9020398F38 /* plugin-front-t2.outline.json */; };
 		2ECCFA5FCDCC8BEB234D0B0D /* NativeDashboardPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76B2E764B2FD72F7288DDD30 /* NativeDashboardPage.swift */; };
-		301B0973C4347E6CAD32F11D /* maintainer-front-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = 6585DB8CEF7B630A488DCD4C /* maintainer-front-height.webp */; };
 		31DD46221D3AA358E7045054 /* NativeAgentChatPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7076717937113403C755586 /* NativeAgentChatPage.swift */; };
 		3B7D26D9189BEB1B9C008546 /* NativeSubscribeCommunityPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CA3958D36BFB5E17CA6E7E /* NativeSubscribeCommunityPage.swift */; };
 		3C9C4AF98C14ECF412DD19A5 /* NativeUsersPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92FC46BA3B51393FE1CBD566 /* NativeUsersPage.swift */; };
 		3CBB675738DCDAD4D0C9ADB9 /* NativeWorkflowsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E76B95589CF91ADA4DD7FA6 /* NativeWorkflowsPage.swift */; };
-		3CC6714D9548B9C9D1F83984 /* helper-back-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = 3FA33FB2ECD7512778F93723 /* helper-back-height.webp */; };
 		3D424A853E324626526E7C32 /* NativePluginCronEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 956812F9BDCA0C80A21A1D4D /* NativePluginCronEditor.swift */; };
 		41EAC1FFF43BBB88B9E028CD /* NativeAppearanceSettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3EF638076E3852573384373 /* NativeAppearanceSettingsPage.swift */; };
-		470B44E8A936D7ED27815D8F /* tester-front.webp in Resources */ = {isa = PBXBuildFile; fileRef = BD08CC73F6299AEC3EB13FEA /* tester-front.webp */; };
-		47185A6631559E49584BC564 /* plugin-back.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = 0C3768A521BAD3B9ACDA204C /* plugin-back.outline.json */; };
-		47190DD87B5F06CAAA7931E5 /* plugin-front-t3.webp in Resources */ = {isa = PBXBuildFile; fileRef = 8F94E77E38FFEE53688AB955 /* plugin-front-t3.webp */; };
 		49B4D0B75FD74C15C723375D /* MediaPictureInPictureController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D33F2AC19EE7708468CFADFF /* MediaPictureInPictureController.swift */; };
-		4A81F92DA5533CF00F3848EA /* plugin-badge-t3.webp in Resources */ = {isa = PBXBuildFile; fileRef = 353028CEC389B0F9A9279FD1 /* plugin-badge-t3.webp */; };
-		4C9724A692E2ED7A90C85AC5 /* plugin-front-t4.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = E6C3E3A3E69C40FD96DEB580 /* plugin-front-t4.outline.json */; };
-		4DCC0C9B6E7751F7A8625755 /* code-front-t4-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = 2C6F223C446C925786100DB3 /* code-front-t4-height.webp */; };
-		51B923A8BAFBEDDAAA4EB1E2 /* security-front.webp in Resources */ = {isa = PBXBuildFile; fileRef = D3B23A4D33F4C3057889A2BC /* security-front.webp */; };
-		5289355C07109577B5248F22 /* code-badge-t1.webp in Resources */ = {isa = PBXBuildFile; fileRef = 70BEB741019885C804363680 /* code-badge-t1.webp */; };
 		528DDA8EB6B423A11DB733E6 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0A361DAFEEE9F51B4F91B7 /* TokenStore.swift */; };
 		54E9EBAF180B0BCF04DE4FC6 /* VLCKit in Frameworks */ = {isa = PBXBuildFile; productRef = 91C7B8794D4CD7E0C76EDFF0 /* VLCKit */; };
-		56941C21DA4D4B4103291DAF /* maintainer-back-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = 276EDD9A96ED80BC706795D5 /* maintainer-back-height.webp */; };
-		57434ACE7F50A4D4D2F9464A /* plugin-front-t2-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = 83AFB2625C525BA16A8D16B3 /* plugin-front-t2-height.webp */; };
 		5927F511B04B6D1BA62E7ACD /* NativeWorkflowCanvasPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C1F71B18FE29C82A939B7C /* NativeWorkflowCanvasPage.swift */; };
-		59724A71CB925CF6AD07FBE1 /* pioneer-back-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = DCB4C8A5FC5BC7A50839F8ED /* pioneer-back-height.webp */; };
-		5BBA666EF5ADC4773FDEA21C /* maintainer-back.webp in Resources */ = {isa = PBXBuildFile; fileRef = DABF41EF1E97EC42F3985EDA /* maintainer-back.webp */; };
 		5D3E6E5DA1BB440CBDF5E6FA /* NativeSubscribeEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7566D9064F4C7139A064B5BD /* NativeSubscribeEditorSheet.swift */; };
-		5D416CA65C95901E97BFCCFF /* code-front-t3.webp in Resources */ = {isa = PBXBuildFile; fileRef = 24097E0B76EAC0BCF5959896 /* code-front-t3.webp */; };
 		6051CDC21EA5C85DA1DD6D3E /* NativeFileManagerPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4560BBC8ECE63C86B8D993DF /* NativeFileManagerPage.swift */; };
 		60C934B3A627113848AA3617 /* ThirdPartyNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = 074E2F176D7B19065BD0557F /* ThirdPartyNotices.txt */; };
-		618EA20C031E6C4C6C22D1E0 /* tester-front.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = 7E0F635C1A1706C2F6D1BC5A /* tester-front.outline.json */; };
-		63C699549C10294B1E3065DB /* security-front-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = 9AA7DAAB453DE0B3A590EE04 /* security-front-height.webp */; };
 		6AB5E40E1A68D643F166E5A6 /* CinematicSurfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC48C1614B5128296F31DB7D /* CinematicSurfaces.swift */; };
-		6B2C51A6E162D31BC7B16BF2 /* helper-badge.webp in Resources */ = {isa = PBXBuildFile; fileRef = CDE5E70865F863100FA5ED0A /* helper-badge.webp */; };
 		6BEF4859F2AE0A164D9941B7 /* LegacyWebsiteStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA3031D7DC4E14A074F6218 /* LegacyWebsiteStorage.swift */; };
-		6C95A0B1CE5CC439C8FD9C1A /* pioneer-badge.webp in Resources */ = {isa = PBXBuildFile; fileRef = 4A32737215DF5B4A6C9980BA /* pioneer-badge.webp */; };
 		6CDCB467D0F4D78498B4B275 /* NativeMediaServerLibraryPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B862EABE429A361CC27AD33 /* NativeMediaServerLibraryPage.swift */; };
-		6E5104EF46ABC35C12A42324 /* helper-front.webp in Resources */ = {isa = PBXBuildFile; fileRef = 20C1225CD32D6A241B68B05B /* helper-front.webp */; };
-		71383324ADFFF13D7CDA3EA6 /* tester-front-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = D487C55DCA48219363CFCCE9 /* tester-front-height.webp */; };
 		713D9E91E655AFBD94513CE8 /* NativeCommunityMedal3D.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E6175439779975CFCB2785F /* NativeCommunityMedal3D.swift */; };
 		74BB072F347838874E453BDA /* MoviePilotCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5EA1036A3B6223749CA83C56 /* MoviePilotCore */; };
-		76621E3EBC6129C608E28285 /* security-back-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = D2894A1C8BDBE82E0FAD366E /* security-back-height.webp */; };
 		81605C89FB80C7DDEB3B42C2 /* CinematicForms.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDEA5C38B21EC1C887096B9D /* CinematicForms.swift */; };
 		823F9719D320A50E3E7ACBFF /* NativeMediaPlaybackLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87FA9E46584D4776F3809815 /* NativeMediaPlaybackLauncher.swift */; };
-		82C98062D403E7AA58D6D665 /* helper-back.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = 3362CF117765E2D63CC99ACF /* helper-back.outline.json */; };
 		82F26380686E29CF97D4DFC7 /* NativeMediaServerDetailPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8D947D97A101D7977471583 /* NativeMediaServerDetailPage.swift */; };
 		8464FBB90159A6B122B561E9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16DC09F74832A0B86B73E0DB /* AppDelegate.swift */; };
 		84F5B4F5B036CE1992EE9C26 /* NativeResourceSearchPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E0B3A43D3BA4AA717CEB29B /* NativeResourceSearchPage.swift */; };
-		8792DFC1CA1159EB6F00CE9C /* code-back-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = E765AE04F5CA3B1C97C27E84 /* code-back-height.webp */; };
-		888F67B13A010BBB959E61E8 /* pioneer-front-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = B9892D64B0008F60150CC618 /* pioneer-front-height.webp */; };
-		89EA767472BE167672BCE602 /* plugin-back.webp in Resources */ = {isa = PBXBuildFile; fileRef = 262691485300B5F473AC0560 /* plugin-back.webp */; };
+		88CB04BEB4BEB2FD5E1189F7 /* CommunityMedals in Resources */ = {isa = PBXBuildFile; fileRef = B49D224903D83A20EF07FF85 /* CommunityMedals */; };
 		8DF4FDF3C653CBAE5E342F13 /* NativeV2EntryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8610FEB4EE38230CD0D07A1 /* NativeV2EntryTests.swift */; };
 		8DF5E1BB381E11AE01C5C435 /* NativeV2RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57AF1DC6B88739AE85862902 /* NativeV2RootView.swift */; };
-		9172C65B5C92EE4BAB018DCD /* tester-back.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = E8578CE0623E509522F1DA90 /* tester-back.outline.json */; };
-		93F085E57FA9693FDD746A32 /* plugin-front-t1.webp in Resources */ = {isa = PBXBuildFile; fileRef = EBFB09A16109C53C5ACDA12A /* plugin-front-t1.webp */; };
-		95FA460082A4150F7CF8C43A /* plugin-front-t1.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = 38F65E5A60C904D2A9DD42AA /* plugin-front-t1.outline.json */; };
 		98EB4831D3C52B37D00D990D /* NativePluginComboboxEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FA5AFA5548F3E007A5709E9 /* NativePluginComboboxEditor.swift */; };
-		9B66EE7924BA03F466B5F4FC /* code-front-t2.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = ACF1C9C9C3DFD1FB26AF9911 /* code-front-t2.outline.json */; };
-		9C9AB95BC1B5ADEFBC536FD5 /* plugin-front-t1-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = 0F76CEDDB57A4191AB2FAB88 /* plugin-front-t1-height.webp */; };
 		9D0CE41BA43CAC19187B26D4 /* NativePluginMarketPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF26A18662E7326F40027471 /* NativePluginMarketPage.swift */; };
 		9DF0F4028DD3BB274401298C /* NativeAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A041E4198BE71B63A2B109 /* NativeAppModel.swift */; };
 		A0AB51CE161F94808B6EE599 /* AccountAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 274895617146E30E9DDE5876 /* AccountAppearance.swift */; };
-		A225C5969D64BA78984BA374 /* code-back.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = 103CBC5BF7E4FA78ACE3F618 /* code-back.outline.json */; };
 		A642DFCFFE0254BB381EE957 /* MoviePilotCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0A56C13BC20DA849FEC8E121 /* MoviePilotCore */; };
 		A7450D804DFEC7AA7069C158 /* NativeSystemRouteHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFCBFC58ED64133835C72B4E /* NativeSystemRouteHub.swift */; };
-		A7E693D5137660D267777112 /* code-badge-t4.webp in Resources */ = {isa = PBXBuildFile; fileRef = EF38E6346B98A44D6628F10A /* code-badge-t4.webp */; };
-		A8B80CE04AFC07CE281F98F4 /* security-badge.webp in Resources */ = {isa = PBXBuildFile; fileRef = FB191AB0ACE7FA481B53EB86 /* security-badge.webp */; };
-		A94FD54F07008BB34177BB09 /* maintainer-badge.webp in Resources */ = {isa = PBXBuildFile; fileRef = CECF3A04726031EE18AF8AA0 /* maintainer-badge.webp */; };
 		AABED68CFA2524E767AD4CE1 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C5522D23DCCE1A49988D78B /* NotificationService.swift */; };
 		AC5C0E3A9E5BA8C48F089160 /* Provider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA63714518565C74DC4BC92B /* Provider.swift */; };
 		B3D2A711BFF5C857E13FF960 /* NativeMessagesPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6459B12BBE68089FA81AC88 /* NativeMessagesPage.swift */; };
-		B67AD33DF56A6095F92DDA25 /* plugin-front-t3.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = C0C3727AD62C5D69C05587AE /* plugin-front-t3.outline.json */; };
 		B751481BFB0F29D5319D82A4 /* InstanceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11C1FABE88ED006EC70944CD /* InstanceStore.swift */; };
 		B8BFDD2872B5BE73B16B5837 /* NativeV2MainShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 326FD64AC22302FFA0758F17 /* NativeV2MainShell.swift */; };
-		BC436B0C95B3F55B3FE85041 /* plugin-badge-t1.webp in Resources */ = {isa = PBXBuildFile; fileRef = 33A68967B3BF62DE29F3560C /* plugin-badge-t1.webp */; };
-		BCB1911529B05BF6FDFAB854 /* code-front-t3.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = 8503B5A0A592383FCE5392BD /* code-front-t3.outline.json */; };
-		BD831D11FDF71F49CC007603 /* security-front.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = C2A3814B6C0417230BA29CC6 /* security-front.outline.json */; };
 		BE036DC842893643B15A3BE2 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC001A55D766FA81E7EC654 /* Views.swift */; };
 		C38CDC369F7BE7AB52EF08E5 /* NativeTransferHistoryPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD83F9ADCEC4810F8AB5FA50 /* NativeTransferHistoryPage.swift */; };
-		C457385E6CCEDEF3C538631F /* code-front-t1.webp in Resources */ = {isa = PBXBuildFile; fileRef = E5F0C3C780CF6B350FB8A86E /* code-front-t1.webp */; };
 		C5315286AFDA4CCAD1E92407 /* NativeSubscribeFilesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A58B21E3ADBBEB0DA68B282 /* NativeSubscribeFilesSheet.swift */; };
-		C7AFFBB62B984D525CD4AF11 /* pioneer-back.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = 4972561A2540F41380FD1BC5 /* pioneer-back.outline.json */; };
-		C905E1D50159CE4EB6B7F9EC /* pioneer-front.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = 5258571B1D038C7F90D5412F /* pioneer-front.outline.json */; };
-		CB626FFC996C4EEF7E1CA9EB /* maintainer-back.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = 05A87480D45A8A9E7A2980DF /* maintainer-back.outline.json */; };
-		CC6E5A06A02F35520BEAFCD7 /* code-front-t1-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = DA880544CCDC8173D88CF919 /* code-front-t1-height.webp */; };
-		CCB27E26503AEA24DB29A396 /* helper-front-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = AD8F455E4462362E76149632 /* helper-front-height.webp */; };
-		CDCD2EF51DD530C7997CF5BC /* plugin-back-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = F7001A60181BCBAAA8B4A8E5 /* plugin-back-height.webp */; };
-		CE9F7F435CFDE141E743C911 /* code-front-t2.webp in Resources */ = {isa = PBXBuildFile; fileRef = A6D1C070896A749DE004DEDB /* code-front-t2.webp */; };
-		CF1CF615FBBA124C548C41EC /* code-front-t3-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = D62E6CB50CBD55F51D27FFFB /* code-front-t3-height.webp */; };
-		D2139CCF50B9527765E187F2 /* plugin-badge-t2.webp in Resources */ = {isa = PBXBuildFile; fileRef = 562F40629FB436A21CF98BB3 /* plugin-badge-t2.webp */; };
 		D25729D75787FFE684BCE836 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDC7F876AC1F304D50E70B03 /* SceneDelegate.swift */; };
-		D297E2D4841BDED8EE70739D /* code-badge-t2.webp in Resources */ = {isa = PBXBuildFile; fileRef = 8BD9A6FE580167DEB09E87CA /* code-badge-t2.webp */; };
 		D2AE907740AD1CA35EDE9E4F /* NativeV2SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18137A11C852F3555A73F283 /* NativeV2SceneDelegate.swift */; };
-		D2B2B88569BA686959325B89 /* maintainer-front.webp in Resources */ = {isa = PBXBuildFile; fileRef = 0F3A2C564E2EA5C5DCB0B229 /* maintainer-front.webp */; };
 		D2F28E40B4CA7F797613B2BD /* NativeMediaSearchPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 018FA9D54CDFDB2AC49D2983 /* NativeMediaSearchPage.swift */; };
 		D35DF2F50FBE16CFA6562C23 /* MoviePilotSession in Frameworks */ = {isa = PBXBuildFile; productRef = 8915619545F91FF4CB349474 /* MoviePilotSession */; };
 		D3F8AFBC464110DB485BC873 /* NativeSystemModulesPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82505BCAA1DF4DB8495B8348 /* NativeSystemModulesPage.swift */; };
-		D6FD1A4A4400610902F1895A /* plugin-badge-t4.webp in Resources */ = {isa = PBXBuildFile; fileRef = D406E405385FEAF10F039AD4 /* plugin-badge-t4.webp */; };
 		D7EDEDB0DE9835F49D973665 /* NativePluginFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27822CB5BB7D354B979B834 /* NativePluginFormView.swift */; };
-		D8466565903F4976AC2DED19 /* plugin-front-t4-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = 5A9EC46EEB6BB2A14B22FDF9 /* plugin-front-t4-height.webp */; };
 		D9DD60CF7154BD6A1589FE6C /* LanguageSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D109BBC337EDBA3CAD6FCC0E /* LanguageSettings.swift */; };
 		DB471BEA03F64E92F0182C28 /* NativeExplorePage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77D6979872674A2654C34AE8 /* NativeExplorePage.swift */; };
 		DD0E2E99E6765F70226EBAF8 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 04E88BB7343F2CD8583FABF2 /* InfoPlist.strings */; };
@@ -146,18 +78,14 @@
 		E3AC1F3F475F11DC45745A36 /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDB18350D46A9411B179B162 /* Configuration.swift */; };
 		E4468F866BDEF9BB3036AF33 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 571C52ACC53E9ADFF2774ACA /* LaunchScreen.storyboard */; };
 		E6614181F752357720A889EB /* NativeMediaDetailPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2CBAA3DC386BDCFF67D1137 /* NativeMediaDetailPage.swift */; };
-		E968F43B46105B95FDB919C4 /* security-back.outline.json in Resources */ = {isa = PBXBuildFile; fileRef = D90A7BC7DD11B74B8776AF79 /* security-back.outline.json */; };
 		E99FD98553961B4C37924301 /* GeneratedTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75AA6BAD2AB90671F8FF5FD1 /* GeneratedTokens.swift */; };
-		EBB575E4B61F7B5B9C040707 /* tester-back-height.webp in Resources */ = {isa = PBXBuildFile; fileRef = E4D90890BC84784C36F50AAD /* tester-back-height.webp */; };
 		EBD4F63E868782325F577479 /* NativeDiagnosticsToolsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7D48CE7A268E8BCABB4E802 /* NativeDiagnosticsToolsPage.swift */; };
 		ED7AB3AFEFD8AAECD1B05FBF /* MoviePilotPluginForms in Frameworks */ = {isa = PBXBuildFile; productRef = 5E248C82425CCA43BA25F73B /* MoviePilotPluginForms */; };
-		F93AB5C247B26024A5E16D03 /* code-front-t4.webp in Resources */ = {isa = PBXBuildFile; fileRef = EFE63D941304EB0DD784832E /* code-front-t4.webp */; };
 		F944EE34CDE90324D357B2C9 /* NativeCommunityMedalsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C90415B5DDCA525A940F84A9 /* NativeCommunityMedalsView.swift */; };
 		FA7D96C95BCA99B1CDDEABA8 /* NativePluginCatalogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C70F0E54BFC5895C7EBDD0AD /* NativePluginCatalogView.swift */; };
 		FBCCCA54858635AC0FAFCBBE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 15977B3A7EE8DCEF7B5257CF /* Assets.xcassets */; };
 		FC9C91C4309FD599B60E191E /* NativeCalendarPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 311A8C9F7207218D1D1F8D15 /* NativeCalendarPage.swift */; };
 		FE97B4770F1151CDA4E7405C /* NativeDeviceLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDC39012EDE608FCCD82D37B /* NativeDeviceLayout.swift */; };
-		FF66A4C8B051F29C96D171D8 /* security-back.webp in Resources */ = {isa = PBXBuildFile; fileRef = E7F86E16F1C16ADB5271CB82 /* security-back.webp */; };
 		FFBF4A25C55AF8B92FC3E416 /* NativeSubscriptionsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA6542A83716C651A9A5510B /* NativeSubscriptionsPage.swift */; };
 /* End PBXBuildFile section */
 
@@ -194,73 +122,43 @@
 
 /* Begin PBXFileReference section */
 		018FA9D54CDFDB2AC49D2983 /* NativeMediaSearchPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaSearchPage.swift; sourceTree = "<group>"; };
-		05A87480D45A8A9E7A2980DF /* maintainer-back.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "maintainer-back.outline.json"; sourceTree = "<group>"; };
 		06C61A153F85D5CD1A2B2698 /* NativeDynamicActionCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDynamicActionCenter.swift; sourceTree = "<group>"; };
 		074E2F176D7B19065BD0557F /* ThirdPartyNotices.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = ThirdPartyNotices.txt; sourceTree = "<group>"; };
 		08443236F43B97DD00EC6B5A /* NativeMusicPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMusicPage.swift; sourceTree = "<group>"; };
 		0A58B21E3ADBBEB0DA68B282 /* NativeSubscribeFilesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscribeFilesSheet.swift; sourceTree = "<group>"; };
-		0C3768A521BAD3B9ACDA204C /* plugin-back.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "plugin-back.outline.json"; sourceTree = "<group>"; };
-		0F3A2C564E2EA5C5DCB0B229 /* maintainer-front.webp */ = {isa = PBXFileReference; path = "maintainer-front.webp"; sourceTree = "<group>"; };
-		0F76CEDDB57A4191AB2FAB88 /* plugin-front-t1-height.webp */ = {isa = PBXFileReference; path = "plugin-front-t1-height.webp"; sourceTree = "<group>"; };
-		0FEFA72DF55EBD2EDF9C7DC2 /* code-back.webp */ = {isa = PBXFileReference; path = "code-back.webp"; sourceTree = "<group>"; };
-		103CBC5BF7E4FA78ACE3F618 /* code-back.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "code-back.outline.json"; sourceTree = "<group>"; };
 		11C1FABE88ED006EC70944CD /* InstanceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstanceStore.swift; sourceTree = "<group>"; };
 		15977B3A7EE8DCEF7B5257CF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		16DC09F74832A0B86B73E0DB /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		18137A11C852F3555A73F283 /* NativeV2SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeV2SceneDelegate.swift; sourceTree = "<group>"; };
 		18D77B462A8A2EDE1AD9ABCC /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		1A53F32D403882DC68D3CE17 /* MoviePilotWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MoviePilotWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		1A6E53DB97363F2994FF9701 /* pioneer-front.webp */ = {isa = PBXFileReference; path = "pioneer-front.webp"; sourceTree = "<group>"; };
 		1CC709A18D7FAEDC0527EDD8 /* NativeAgentFloatingMascot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAgentFloatingMascot.swift; sourceTree = "<group>"; };
-		1EDF7300C38BD760FACAD035 /* pioneer-back.webp */ = {isa = PBXFileReference; path = "pioneer-back.webp"; sourceTree = "<group>"; };
-		20C1225CD32D6A241B68B05B /* helper-front.webp */ = {isa = PBXFileReference; path = "helper-front.webp"; sourceTree = "<group>"; };
-		24097E0B76EAC0BCF5959896 /* code-front-t3.webp */ = {isa = PBXFileReference; path = "code-front-t3.webp"; sourceTree = "<group>"; };
-		262691485300B5F473AC0560 /* plugin-back.webp */ = {isa = PBXFileReference; path = "plugin-back.webp"; sourceTree = "<group>"; };
 		26F7EF16B0F3F0449AC21549 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		274895617146E30E9DDE5876 /* AccountAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountAppearance.swift; sourceTree = "<group>"; };
-		276EDD9A96ED80BC706795D5 /* maintainer-back-height.webp */ = {isa = PBXFileReference; path = "maintainer-back-height.webp"; sourceTree = "<group>"; };
 		2A663A5F20E9060A67A02499 /* APNs.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = APNs.entitlements; sourceTree = "<group>"; };
-		2C6F223C446C925786100DB3 /* code-front-t4-height.webp */ = {isa = PBXFileReference; path = "code-front-t4-height.webp"; sourceTree = "<group>"; };
 		2E6175439779975CFCB2785F /* NativeCommunityMedal3D.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCommunityMedal3D.swift; sourceTree = "<group>"; };
 		2E76B95589CF91ADA4DD7FA6 /* NativeWorkflowsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWorkflowsPage.swift; sourceTree = "<group>"; };
 		311A8C9F7207218D1D1F8D15 /* NativeCalendarPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCalendarPage.swift; sourceTree = "<group>"; };
 		326FD64AC22302FFA0758F17 /* NativeV2MainShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeV2MainShell.swift; sourceTree = "<group>"; };
-		3362CF117765E2D63CC99ACF /* helper-back.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "helper-back.outline.json"; sourceTree = "<group>"; };
-		33A68967B3BF62DE29F3560C /* plugin-badge-t1.webp */ = {isa = PBXFileReference; path = "plugin-badge-t1.webp"; sourceTree = "<group>"; };
-		353028CEC389B0F9A9279FD1 /* plugin-badge-t3.webp */ = {isa = PBXFileReference; path = "plugin-badge-t3.webp"; sourceTree = "<group>"; };
 		38A4D15B8082C9119B8C37AC /* NativeAppearanceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAppearanceStore.swift; sourceTree = "<group>"; };
-		38F65E5A60C904D2A9DD42AA /* plugin-front-t1.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "plugin-front-t1.outline.json"; sourceTree = "<group>"; };
 		3B862EABE429A361CC27AD33 /* NativeMediaServerLibraryPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaServerLibraryPage.swift; sourceTree = "<group>"; };
 		3C5522D23DCCE1A49988D78B /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		3D388D03E1CAFD2739ADF561 /* NativePluginDataPageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginDataPageView.swift; sourceTree = "<group>"; };
 		3E0B3A43D3BA4AA717CEB29B /* NativeResourceSearchPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeResourceSearchPage.swift; sourceTree = "<group>"; };
-		3FA33FB2ECD7512778F93723 /* helper-back-height.webp */ = {isa = PBXFileReference; path = "helper-back-height.webp"; sourceTree = "<group>"; };
 		4365514BAF4C18C82A3BCB98 /* NativeSettingsHubPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSettingsHubPage.swift; sourceTree = "<group>"; };
-		441DB401A29D52CA5EB1A945 /* tester-back.webp */ = {isa = PBXFileReference; path = "tester-back.webp"; sourceTree = "<group>"; };
 		4560BBC8ECE63C86B8D993DF /* NativeFileManagerPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFileManagerPage.swift; sourceTree = "<group>"; };
 		45F7C55CF76C93C422A267E7 /* MoviePilotUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MoviePilotUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		4972561A2540F41380FD1BC5 /* pioneer-back.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "pioneer-back.outline.json"; sourceTree = "<group>"; };
-		4A32737215DF5B4A6C9980BA /* pioneer-badge.webp */ = {isa = PBXFileReference; path = "pioneer-badge.webp"; sourceTree = "<group>"; };
 		4A47B559552B90D83BE13166 /* NativeSystemIntegrationSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSystemIntegrationSheets.swift; sourceTree = "<group>"; };
 		4B46855E6AB548E26061B2F7 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
-		5258571B1D038C7F90D5412F /* pioneer-front.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "pioneer-front.outline.json"; sourceTree = "<group>"; };
-		53F35E0F3B51AE41E4DD31CE /* code-front-t2-height.webp */ = {isa = PBXFileReference; path = "code-front-t2-height.webp"; sourceTree = "<group>"; };
 		5459CACEBD27D42F6FD137E0 /* MoviePilot.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MoviePilot.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		54F1201106C671F923B8ED12 /* plugin-front-t3-height.webp */ = {isa = PBXFileReference; path = "plugin-front-t3-height.webp"; sourceTree = "<group>"; };
-		562F40629FB436A21CF98BB3 /* plugin-badge-t2.webp */ = {isa = PBXFileReference; path = "plugin-badge-t2.webp"; sourceTree = "<group>"; };
 		56A041E4198BE71B63A2B109 /* NativeAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAppModel.swift; sourceTree = "<group>"; };
 		571C52ACC53E9ADFF2774ACA /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		57AF1DC6B88739AE85862902 /* NativeV2RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeV2RootView.swift; sourceTree = "<group>"; };
-		598C072EE8FC36E48A461443 /* maintainer-front.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "maintainer-front.outline.json"; sourceTree = "<group>"; };
-		5A9EC46EEB6BB2A14B22FDF9 /* plugin-front-t4-height.webp */ = {isa = PBXFileReference; path = "plugin-front-t4-height.webp"; sourceTree = "<group>"; };
 		5F33A2CBF14E52CA99816FE7 /* NativeSitesPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSitesPage.swift; sourceTree = "<group>"; };
 		5F9B30B754752545394EF900 /* Widgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widgets.entitlements; sourceTree = "<group>"; };
-		618536EE0B6A4F395D17B133 /* code-front-t4.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "code-front-t4.outline.json"; sourceTree = "<group>"; };
 		64E08B040825C4BB1B965C7E /* NativeDiscoverPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiscoverPage.swift; sourceTree = "<group>"; };
-		6585DB8CEF7B630A488DCD4C /* maintainer-front-height.webp */ = {isa = PBXFileReference; path = "maintainer-front-height.webp"; sourceTree = "<group>"; };
 		68C6FA6CA18037E7B4A18B47 /* NativeSystemSettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSystemSettingsPage.swift; sourceTree = "<group>"; };
 		6FA5AFA5548F3E007A5709E9 /* NativePluginComboboxEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginComboboxEditor.swift; sourceTree = "<group>"; };
-		70BEB741019885C804363680 /* code-badge-t1.webp */ = {isa = PBXFileReference; path = "code-badge-t1.webp"; sourceTree = "<group>"; };
 		7566D9064F4C7139A064B5BD /* NativeSubscribeEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscribeEditorSheet.swift; sourceTree = "<group>"; };
 		75AA6BAD2AB90671F8FF5FD1 /* GeneratedTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneratedTokens.swift; sourceTree = "<group>"; };
 		76B2E764B2FD72F7288DDD30 /* NativeDashboardPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDashboardPage.swift; sourceTree = "<group>"; };
@@ -268,86 +166,44 @@
 		7A9BC01CD4B7F00B1EEA93DB /* ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ios; path = .; sourceTree = SOURCE_ROOT; };
 		7AFD1560F224ABDAD40A7D45 /* MediaPlaybackController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPlaybackController.swift; sourceTree = "<group>"; };
 		7E0A361DAFEEE9F51B4F91B7 /* TokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenStore.swift; sourceTree = "<group>"; };
-		7E0F635C1A1706C2F6D1BC5A /* tester-front.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "tester-front.outline.json"; sourceTree = "<group>"; };
-		81A6F7398ABEFF9020398F38 /* plugin-front-t2.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "plugin-front-t2.outline.json"; sourceTree = "<group>"; };
 		82505BCAA1DF4DB8495B8348 /* NativeSystemModulesPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSystemModulesPage.swift; sourceTree = "<group>"; };
-		83AFB2625C525BA16A8D16B3 /* plugin-front-t2-height.webp */ = {isa = PBXFileReference; path = "plugin-front-t2-height.webp"; sourceTree = "<group>"; };
-		8503B5A0A592383FCE5392BD /* code-front-t3.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "code-front-t3.outline.json"; sourceTree = "<group>"; };
 		87FA9E46584D4776F3809815 /* NativeMediaPlaybackLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaPlaybackLauncher.swift; sourceTree = "<group>"; };
-		8A6D5B7F52FA754D48654B52 /* helper-front.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "helper-front.outline.json"; sourceTree = "<group>"; };
-		8BD9A6FE580167DEB09E87CA /* code-badge-t2.webp */ = {isa = PBXFileReference; path = "code-badge-t2.webp"; sourceTree = "<group>"; };
-		8F94E77E38FFEE53688AB955 /* plugin-front-t3.webp */ = {isa = PBXFileReference; path = "plugin-front-t3.webp"; sourceTree = "<group>"; };
 		92FC46BA3B51393FE1CBD566 /* NativeUsersPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeUsersPage.swift; sourceTree = "<group>"; };
 		956812F9BDCA0C80A21A1D4D /* NativePluginCronEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginCronEditor.swift; sourceTree = "<group>"; };
-		9AA7DAAB453DE0B3A590EE04 /* security-front-height.webp */ = {isa = PBXFileReference; path = "security-front-height.webp"; sourceTree = "<group>"; };
-		9C0A85AEBB99F1C85E046BC6 /* plugin-front-t4.webp */ = {isa = PBXFileReference; path = "plugin-front-t4.webp"; sourceTree = "<group>"; };
-		A6D1C070896A749DE004DEDB /* code-front-t2.webp */ = {isa = PBXFileReference; path = "code-front-t2.webp"; sourceTree = "<group>"; };
 		A6E9D58111CB3F6D0CC5F8EB /* MoviePilotWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoviePilotWidgets.swift; sourceTree = "<group>"; };
 		A7076717937113403C755586 /* NativeAgentChatPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAgentChatPage.swift; sourceTree = "<group>"; };
 		A7D4C74144CA16E15C0B2839 /* NativeEntityIcons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeEntityIcons.swift; sourceTree = "<group>"; };
 		A8D947D97A101D7977471583 /* NativeMediaServerDetailPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaServerDetailPage.swift; sourceTree = "<group>"; };
 		AC48C1614B5128296F31DB7D /* CinematicSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CinematicSurfaces.swift; sourceTree = "<group>"; };
-		ACF1C9C9C3DFD1FB26AF9911 /* code-front-t2.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "code-front-t2.outline.json"; sourceTree = "<group>"; };
-		AD587778CB1A57EE6B35DE98 /* code-badge-t3.webp */ = {isa = PBXFileReference; path = "code-badge-t3.webp"; sourceTree = "<group>"; };
-		AD8F455E4462362E76149632 /* helper-front-height.webp */ = {isa = PBXFileReference; path = "helper-front-height.webp"; sourceTree = "<group>"; };
 		B27822CB5BB7D354B979B834 /* NativePluginFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginFormView.swift; sourceTree = "<group>"; };
+		B49D224903D83A20EF07FF85 /* CommunityMedals */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CommunityMedals; path = MoviePilot/Resources/CommunityMedals; sourceTree = SOURCE_ROOT; };
 		B6459B12BBE68089FA81AC88 /* NativeMessagesPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMessagesPage.swift; sourceTree = "<group>"; };
 		B8610FEB4EE38230CD0D07A1 /* NativeV2EntryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeV2EntryTests.swift; sourceTree = "<group>"; };
-		B9892D64B0008F60150CC618 /* pioneer-front-height.webp */ = {isa = PBXFileReference; path = "pioneer-front-height.webp"; sourceTree = "<group>"; };
-		B9B22700540E6F569894A9C5 /* helper-back.webp */ = {isa = PBXFileReference; path = "helper-back.webp"; sourceTree = "<group>"; };
-		BD08CC73F6299AEC3EB13FEA /* tester-front.webp */ = {isa = PBXFileReference; path = "tester-front.webp"; sourceTree = "<group>"; };
 		BDEA5C38B21EC1C887096B9D /* CinematicForms.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CinematicForms.swift; sourceTree = "<group>"; };
 		BFCBFC58ED64133835C72B4E /* NativeSystemRouteHub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSystemRouteHub.swift; sourceTree = "<group>"; };
 		C0583F9328402162806C7EB8 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
-		C0C3727AD62C5D69C05587AE /* plugin-front-t3.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "plugin-front-t3.outline.json"; sourceTree = "<group>"; };
-		C2A3814B6C0417230BA29CC6 /* security-front.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "security-front.outline.json"; sourceTree = "<group>"; };
 		C70F0E54BFC5895C7EBDD0AD /* NativePluginCatalogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginCatalogView.swift; sourceTree = "<group>"; };
-		C7F2F362BA0E1E41C09D9C5B /* tester-badge.webp */ = {isa = PBXFileReference; path = "tester-badge.webp"; sourceTree = "<group>"; };
 		C90415B5DDCA525A940F84A9 /* NativeCommunityMedalsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCommunityMedalsView.swift; sourceTree = "<group>"; };
 		CA63714518565C74DC4BC92B /* Provider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Provider.swift; sourceTree = "<group>"; };
 		CCC001A55D766FA81E7EC654 /* Views.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views.swift; sourceTree = "<group>"; };
 		CCE7B8D4C7A31F109890ABCF /* NativeDiscoverModulesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiscoverModulesSheet.swift; sourceTree = "<group>"; };
 		CDB18350D46A9411B179B162 /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
-		CDE5E70865F863100FA5ED0A /* helper-badge.webp */ = {isa = PBXFileReference; path = "helper-badge.webp"; sourceTree = "<group>"; };
-		CECF3A04726031EE18AF8AA0 /* maintainer-badge.webp */ = {isa = PBXFileReference; path = "maintainer-badge.webp"; sourceTree = "<group>"; };
 		D109BBC337EDBA3CAD6FCC0E /* LanguageSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageSettings.swift; sourceTree = "<group>"; };
-		D2894A1C8BDBE82E0FAD366E /* security-back-height.webp */ = {isa = PBXFileReference; path = "security-back-height.webp"; sourceTree = "<group>"; };
 		D33F2AC19EE7708468CFADFF /* MediaPictureInPictureController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPictureInPictureController.swift; sourceTree = "<group>"; };
-		D3B23A4D33F4C3057889A2BC /* security-front.webp */ = {isa = PBXFileReference; path = "security-front.webp"; sourceTree = "<group>"; };
-		D406E405385FEAF10F039AD4 /* plugin-badge-t4.webp */ = {isa = PBXFileReference; path = "plugin-badge-t4.webp"; sourceTree = "<group>"; };
-		D487C55DCA48219363CFCCE9 /* tester-front-height.webp */ = {isa = PBXFileReference; path = "tester-front-height.webp"; sourceTree = "<group>"; };
-		D48D33AF5F1AD161D28CA61F /* code-front-t1.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "code-front-t1.outline.json"; sourceTree = "<group>"; };
-		D5140D3F6024F4966940DEAE /* plugin-front-t2.webp */ = {isa = PBXFileReference; path = "plugin-front-t2.webp"; sourceTree = "<group>"; };
-		D62E6CB50CBD55F51D27FFFB /* code-front-t3-height.webp */ = {isa = PBXFileReference; path = "code-front-t3-height.webp"; sourceTree = "<group>"; };
 		D676393768FED12DA28746BD /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		D7D48CE7A268E8BCABB4E802 /* NativeDiagnosticsToolsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiagnosticsToolsPage.swift; sourceTree = "<group>"; };
-		D90A7BC7DD11B74B8776AF79 /* security-back.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "security-back.outline.json"; sourceTree = "<group>"; };
 		DA6542A83716C651A9A5510B /* NativeSubscriptionsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscriptionsPage.swift; sourceTree = "<group>"; };
-		DA880544CCDC8173D88CF919 /* code-front-t1-height.webp */ = {isa = PBXFileReference; path = "code-front-t1-height.webp"; sourceTree = "<group>"; };
-		DABF41EF1E97EC42F3985EDA /* maintainer-back.webp */ = {isa = PBXFileReference; path = "maintainer-back.webp"; sourceTree = "<group>"; };
-		DCB4C8A5FC5BC7A50839F8ED /* pioneer-back-height.webp */ = {isa = PBXFileReference; path = "pioneer-back-height.webp"; sourceTree = "<group>"; };
 		DD83F9ADCEC4810F8AB5FA50 /* NativeTransferHistoryPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTransferHistoryPage.swift; sourceTree = "<group>"; };
 		DDA1934688E4D109E194DB96 /* WidgetService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetService.swift; sourceTree = "<group>"; };
 		DDC39012EDE608FCCD82D37B /* NativeDeviceLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDeviceLayout.swift; sourceTree = "<group>"; };
 		E2CBAA3DC386BDCFF67D1137 /* NativeMediaDetailPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaDetailPage.swift; sourceTree = "<group>"; };
-		E4D90890BC84784C36F50AAD /* tester-back-height.webp */ = {isa = PBXFileReference; path = "tester-back-height.webp"; sourceTree = "<group>"; };
-		E5F0C3C780CF6B350FB8A86E /* code-front-t1.webp */ = {isa = PBXFileReference; path = "code-front-t1.webp"; sourceTree = "<group>"; };
-		E6C3E3A3E69C40FD96DEB580 /* plugin-front-t4.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "plugin-front-t4.outline.json"; sourceTree = "<group>"; };
-		E765AE04F5CA3B1C97C27E84 /* code-back-height.webp */ = {isa = PBXFileReference; path = "code-back-height.webp"; sourceTree = "<group>"; };
-		E7F86E16F1C16ADB5271CB82 /* security-back.webp */ = {isa = PBXFileReference; path = "security-back.webp"; sourceTree = "<group>"; };
-		E8578CE0623E509522F1DA90 /* tester-back.outline.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "tester-back.outline.json"; sourceTree = "<group>"; };
 		E93AFCC3E95380CC87531EFD /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
-		EBFB09A16109C53C5ACDA12A /* plugin-front-t1.webp */ = {isa = PBXFileReference; path = "plugin-front-t1.webp"; sourceTree = "<group>"; };
 		EDC7F876AC1F304D50E70B03 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		EEA3031D7DC4E14A074F6218 /* LegacyWebsiteStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyWebsiteStorage.swift; sourceTree = "<group>"; };
-		EF38E6346B98A44D6628F10A /* code-badge-t4.webp */ = {isa = PBXFileReference; path = "code-badge-t4.webp"; sourceTree = "<group>"; };
 		EF6849CE05D1EC77AFA67129 /* NativeDownloadsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadsPage.swift; sourceTree = "<group>"; };
-		EFE63D941304EB0DD784832E /* code-front-t4.webp */ = {isa = PBXFileReference; path = "code-front-t4.webp"; sourceTree = "<group>"; };
 		F1C1F71B18FE29C82A939B7C /* NativeWorkflowCanvasPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWorkflowCanvasPage.swift; sourceTree = "<group>"; };
 		F3EF638076E3852573384373 /* NativeAppearanceSettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAppearanceSettingsPage.swift; sourceTree = "<group>"; };
 		F5CA3958D36BFB5E17CA6E7E /* NativeSubscribeCommunityPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscribeCommunityPage.swift; sourceTree = "<group>"; };
-		F7001A60181BCBAAA8B4A8E5 /* plugin-back-height.webp */ = {isa = PBXFileReference; path = "plugin-back-height.webp"; sourceTree = "<group>"; };
-		FB191AB0ACE7FA481B53EB86 /* security-badge.webp */ = {isa = PBXFileReference; path = "security-badge.webp"; sourceTree = "<group>"; };
 		FF26A18662E7326F40027471 /* NativePluginMarketPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginMarketPage.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -409,86 +265,6 @@
 				B8610FEB4EE38230CD0D07A1 /* NativeV2EntryTests.swift */,
 			);
 			path = MoviePilotUITests;
-			sourceTree = "<group>";
-		};
-		239B3F027CF31320789652D2 /* CommunityMedals */ = {
-			isa = PBXGroup;
-			children = (
-				E765AE04F5CA3B1C97C27E84 /* code-back-height.webp */,
-				103CBC5BF7E4FA78ACE3F618 /* code-back.outline.json */,
-				0FEFA72DF55EBD2EDF9C7DC2 /* code-back.webp */,
-				70BEB741019885C804363680 /* code-badge-t1.webp */,
-				8BD9A6FE580167DEB09E87CA /* code-badge-t2.webp */,
-				AD587778CB1A57EE6B35DE98 /* code-badge-t3.webp */,
-				EF38E6346B98A44D6628F10A /* code-badge-t4.webp */,
-				DA880544CCDC8173D88CF919 /* code-front-t1-height.webp */,
-				D48D33AF5F1AD161D28CA61F /* code-front-t1.outline.json */,
-				E5F0C3C780CF6B350FB8A86E /* code-front-t1.webp */,
-				53F35E0F3B51AE41E4DD31CE /* code-front-t2-height.webp */,
-				ACF1C9C9C3DFD1FB26AF9911 /* code-front-t2.outline.json */,
-				A6D1C070896A749DE004DEDB /* code-front-t2.webp */,
-				D62E6CB50CBD55F51D27FFFB /* code-front-t3-height.webp */,
-				8503B5A0A592383FCE5392BD /* code-front-t3.outline.json */,
-				24097E0B76EAC0BCF5959896 /* code-front-t3.webp */,
-				2C6F223C446C925786100DB3 /* code-front-t4-height.webp */,
-				618536EE0B6A4F395D17B133 /* code-front-t4.outline.json */,
-				EFE63D941304EB0DD784832E /* code-front-t4.webp */,
-				3FA33FB2ECD7512778F93723 /* helper-back-height.webp */,
-				3362CF117765E2D63CC99ACF /* helper-back.outline.json */,
-				B9B22700540E6F569894A9C5 /* helper-back.webp */,
-				CDE5E70865F863100FA5ED0A /* helper-badge.webp */,
-				AD8F455E4462362E76149632 /* helper-front-height.webp */,
-				8A6D5B7F52FA754D48654B52 /* helper-front.outline.json */,
-				20C1225CD32D6A241B68B05B /* helper-front.webp */,
-				276EDD9A96ED80BC706795D5 /* maintainer-back-height.webp */,
-				05A87480D45A8A9E7A2980DF /* maintainer-back.outline.json */,
-				DABF41EF1E97EC42F3985EDA /* maintainer-back.webp */,
-				CECF3A04726031EE18AF8AA0 /* maintainer-badge.webp */,
-				6585DB8CEF7B630A488DCD4C /* maintainer-front-height.webp */,
-				598C072EE8FC36E48A461443 /* maintainer-front.outline.json */,
-				0F3A2C564E2EA5C5DCB0B229 /* maintainer-front.webp */,
-				DCB4C8A5FC5BC7A50839F8ED /* pioneer-back-height.webp */,
-				4972561A2540F41380FD1BC5 /* pioneer-back.outline.json */,
-				1EDF7300C38BD760FACAD035 /* pioneer-back.webp */,
-				4A32737215DF5B4A6C9980BA /* pioneer-badge.webp */,
-				B9892D64B0008F60150CC618 /* pioneer-front-height.webp */,
-				5258571B1D038C7F90D5412F /* pioneer-front.outline.json */,
-				1A6E53DB97363F2994FF9701 /* pioneer-front.webp */,
-				F7001A60181BCBAAA8B4A8E5 /* plugin-back-height.webp */,
-				0C3768A521BAD3B9ACDA204C /* plugin-back.outline.json */,
-				262691485300B5F473AC0560 /* plugin-back.webp */,
-				33A68967B3BF62DE29F3560C /* plugin-badge-t1.webp */,
-				562F40629FB436A21CF98BB3 /* plugin-badge-t2.webp */,
-				353028CEC389B0F9A9279FD1 /* plugin-badge-t3.webp */,
-				D406E405385FEAF10F039AD4 /* plugin-badge-t4.webp */,
-				0F76CEDDB57A4191AB2FAB88 /* plugin-front-t1-height.webp */,
-				38F65E5A60C904D2A9DD42AA /* plugin-front-t1.outline.json */,
-				EBFB09A16109C53C5ACDA12A /* plugin-front-t1.webp */,
-				83AFB2625C525BA16A8D16B3 /* plugin-front-t2-height.webp */,
-				81A6F7398ABEFF9020398F38 /* plugin-front-t2.outline.json */,
-				D5140D3F6024F4966940DEAE /* plugin-front-t2.webp */,
-				54F1201106C671F923B8ED12 /* plugin-front-t3-height.webp */,
-				C0C3727AD62C5D69C05587AE /* plugin-front-t3.outline.json */,
-				8F94E77E38FFEE53688AB955 /* plugin-front-t3.webp */,
-				5A9EC46EEB6BB2A14B22FDF9 /* plugin-front-t4-height.webp */,
-				E6C3E3A3E69C40FD96DEB580 /* plugin-front-t4.outline.json */,
-				9C0A85AEBB99F1C85E046BC6 /* plugin-front-t4.webp */,
-				D2894A1C8BDBE82E0FAD366E /* security-back-height.webp */,
-				D90A7BC7DD11B74B8776AF79 /* security-back.outline.json */,
-				E7F86E16F1C16ADB5271CB82 /* security-back.webp */,
-				FB191AB0ACE7FA481B53EB86 /* security-badge.webp */,
-				9AA7DAAB453DE0B3A590EE04 /* security-front-height.webp */,
-				C2A3814B6C0417230BA29CC6 /* security-front.outline.json */,
-				D3B23A4D33F4C3057889A2BC /* security-front.webp */,
-				E4D90890BC84784C36F50AAD /* tester-back-height.webp */,
-				E8578CE0623E509522F1DA90 /* tester-back.outline.json */,
-				441DB401A29D52CA5EB1A945 /* tester-back.webp */,
-				C7F2F362BA0E1E41C09D9C5B /* tester-badge.webp */,
-				D487C55DCA48219363CFCCE9 /* tester-front-height.webp */,
-				7E0F635C1A1706C2F6D1BC5A /* tester-front.outline.json */,
-				BD08CC73F6299AEC3EB13FEA /* tester-front.webp */,
-			);
-			path = CommunityMedals;
 			sourceTree = "<group>";
 		};
 		267004C4E5B90C068A2A03F1 /* Pages */ = {
@@ -599,10 +375,10 @@
 			children = (
 				2A663A5F20E9060A67A02499 /* APNs.entitlements */,
 				15977B3A7EE8DCEF7B5257CF /* Assets.xcassets */,
+				B49D224903D83A20EF07FF85 /* CommunityMedals */,
 				571C52ACC53E9ADFF2774ACA /* LaunchScreen.storyboard */,
 				074E2F176D7B19065BD0557F /* ThirdPartyNotices.txt */,
 				5F9B30B754752545394EF900 /* Widgets.entitlements */,
-				239B3F027CF31320789652D2 /* CommunityMedals */,
 				04E88BB7343F2CD8583FABF2 /* InfoPlist.strings */,
 			);
 			path = Resources;
@@ -759,82 +535,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				FBCCCA54858635AC0FAFCBBE /* Assets.xcassets in Resources */,
+				88CB04BEB4BEB2FD5E1189F7 /* CommunityMedals in Resources */,
 				DD0E2E99E6765F70226EBAF8 /* InfoPlist.strings in Resources */,
 				E4468F866BDEF9BB3036AF33 /* LaunchScreen.storyboard in Resources */,
 				60C934B3A627113848AA3617 /* ThirdPartyNotices.txt in Resources */,
-				8792DFC1CA1159EB6F00CE9C /* code-back-height.webp in Resources */,
-				A225C5969D64BA78984BA374 /* code-back.outline.json in Resources */,
-				1BFFD15154F30FC5C8953D83 /* code-back.webp in Resources */,
-				5289355C07109577B5248F22 /* code-badge-t1.webp in Resources */,
-				D297E2D4841BDED8EE70739D /* code-badge-t2.webp in Resources */,
-				25E9F37F6976B552C8D7E309 /* code-badge-t3.webp in Resources */,
-				A7E693D5137660D267777112 /* code-badge-t4.webp in Resources */,
-				CC6E5A06A02F35520BEAFCD7 /* code-front-t1-height.webp in Resources */,
-				1F5959B88D6C8C4886B1865C /* code-front-t1.outline.json in Resources */,
-				C457385E6CCEDEF3C538631F /* code-front-t1.webp in Resources */,
-				0CB959A40353ECC0F3EFFEEE /* code-front-t2-height.webp in Resources */,
-				9B66EE7924BA03F466B5F4FC /* code-front-t2.outline.json in Resources */,
-				CE9F7F435CFDE141E743C911 /* code-front-t2.webp in Resources */,
-				CF1CF615FBBA124C548C41EC /* code-front-t3-height.webp in Resources */,
-				BCB1911529B05BF6FDFAB854 /* code-front-t3.outline.json in Resources */,
-				5D416CA65C95901E97BFCCFF /* code-front-t3.webp in Resources */,
-				4DCC0C9B6E7751F7A8625755 /* code-front-t4-height.webp in Resources */,
-				0B46AC8B64D89FBE92DB3780 /* code-front-t4.outline.json in Resources */,
-				F93AB5C247B26024A5E16D03 /* code-front-t4.webp in Resources */,
-				3CC6714D9548B9C9D1F83984 /* helper-back-height.webp in Resources */,
-				82C98062D403E7AA58D6D665 /* helper-back.outline.json in Resources */,
-				0641F7154CEFB514E1481434 /* helper-back.webp in Resources */,
-				6B2C51A6E162D31BC7B16BF2 /* helper-badge.webp in Resources */,
-				CCB27E26503AEA24DB29A396 /* helper-front-height.webp in Resources */,
-				1CA729BA44027F604F4BC6FB /* helper-front.outline.json in Resources */,
-				6E5104EF46ABC35C12A42324 /* helper-front.webp in Resources */,
-				56941C21DA4D4B4103291DAF /* maintainer-back-height.webp in Resources */,
-				CB626FFC996C4EEF7E1CA9EB /* maintainer-back.outline.json in Resources */,
-				5BBA666EF5ADC4773FDEA21C /* maintainer-back.webp in Resources */,
-				A94FD54F07008BB34177BB09 /* maintainer-badge.webp in Resources */,
-				301B0973C4347E6CAD32F11D /* maintainer-front-height.webp in Resources */,
-				20FF757C2FD83EC72B10CEE0 /* maintainer-front.outline.json in Resources */,
-				D2B2B88569BA686959325B89 /* maintainer-front.webp in Resources */,
-				59724A71CB925CF6AD07FBE1 /* pioneer-back-height.webp in Resources */,
-				C7AFFBB62B984D525CD4AF11 /* pioneer-back.outline.json in Resources */,
-				2043DB432FAEDBE18033BDB3 /* pioneer-back.webp in Resources */,
-				6C95A0B1CE5CC439C8FD9C1A /* pioneer-badge.webp in Resources */,
-				888F67B13A010BBB959E61E8 /* pioneer-front-height.webp in Resources */,
-				C905E1D50159CE4EB6B7F9EC /* pioneer-front.outline.json in Resources */,
-				2608811D79CABC7F6633DF9F /* pioneer-front.webp in Resources */,
-				CDCD2EF51DD530C7997CF5BC /* plugin-back-height.webp in Resources */,
-				47185A6631559E49584BC564 /* plugin-back.outline.json in Resources */,
-				89EA767472BE167672BCE602 /* plugin-back.webp in Resources */,
-				BC436B0C95B3F55B3FE85041 /* plugin-badge-t1.webp in Resources */,
-				D2139CCF50B9527765E187F2 /* plugin-badge-t2.webp in Resources */,
-				4A81F92DA5533CF00F3848EA /* plugin-badge-t3.webp in Resources */,
-				D6FD1A4A4400610902F1895A /* plugin-badge-t4.webp in Resources */,
-				9C9AB95BC1B5ADEFBC536FD5 /* plugin-front-t1-height.webp in Resources */,
-				95FA460082A4150F7CF8C43A /* plugin-front-t1.outline.json in Resources */,
-				93F085E57FA9693FDD746A32 /* plugin-front-t1.webp in Resources */,
-				57434ACE7F50A4D4D2F9464A /* plugin-front-t2-height.webp in Resources */,
-				2EB3E3181DD49D46A81F479B /* plugin-front-t2.outline.json in Resources */,
-				27459ED49C8090DB0E06E556 /* plugin-front-t2.webp in Resources */,
-				1B287E0A622EF97136D04B6C /* plugin-front-t3-height.webp in Resources */,
-				B67AD33DF56A6095F92DDA25 /* plugin-front-t3.outline.json in Resources */,
-				47190DD87B5F06CAAA7931E5 /* plugin-front-t3.webp in Resources */,
-				D8466565903F4976AC2DED19 /* plugin-front-t4-height.webp in Resources */,
-				4C9724A692E2ED7A90C85AC5 /* plugin-front-t4.outline.json in Resources */,
-				105A9DB817B59CD170B68003 /* plugin-front-t4.webp in Resources */,
-				76621E3EBC6129C608E28285 /* security-back-height.webp in Resources */,
-				E968F43B46105B95FDB919C4 /* security-back.outline.json in Resources */,
-				FF66A4C8B051F29C96D171D8 /* security-back.webp in Resources */,
-				A8B80CE04AFC07CE281F98F4 /* security-badge.webp in Resources */,
-				63C699549C10294B1E3065DB /* security-front-height.webp in Resources */,
-				BD831D11FDF71F49CC007603 /* security-front.outline.json in Resources */,
-				51B923A8BAFBEDDAAA4EB1E2 /* security-front.webp in Resources */,
-				EBB575E4B61F7B5B9C040707 /* tester-back-height.webp in Resources */,
-				9172C65B5C92EE4BAB018DCD /* tester-back.outline.json in Resources */,
-				2BC695EE8952AB60C26AA376 /* tester-back.webp in Resources */,
-				079B0CC3F5C2C8958C4BF987 /* tester-badge.webp in Resources */,
-				71383324ADFFF13D7CDA3EA6 /* tester-front-height.webp in Resources */,
-				618EA20C031E6C4C6C22D1E0 /* tester-front.outline.json in Resources */,
-				470B44E8A936D7ED27815D8F /* tester-front.webp in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

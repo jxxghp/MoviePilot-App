@@ -277,6 +277,56 @@ private struct NativeDiscoverLegacyScrollProbe: ViewModifier {
   }
 }
 
+/// 主视觉轮播的连续翻页位置：仅由背景条带观察，避免每帧横滑都重算整页发现内容。
+@MainActor
+final class NativeDiscoverHeroPager: ObservableObject {
+  /// 以“页”为单位的连续位置（如 1.3 表示第 2 页已滑出 30%），尚未产生横滑时为空。
+  @Published private(set) var position: CGFloat?
+
+  /// 由可见轮播页上报自身相对轮播容器的横向偏移，换算为连续翻页位置。
+  func report(index: Int, minX: CGFloat, width: CGFloat) {
+    // 只采信至少部分可见的页面，离屏缓存页的几何不参与换算。
+    guard width > 1, abs(minX) <= width + 1 else { return }
+    let value = CGFloat(index) - minX / width
+    if let position, abs(position - value) < 0.0005 { return }
+    position = value
+  }
+
+  /// 推荐条目变化后清空位置，回落到轮播当前选中页。
+  func reset() {
+    if position != nil { position = nil }
+  }
+}
+
+/// 主视觉背景条带：按轮播连续翻页位置横向平移相邻背景图，与前景标题同步滑动。
+private struct NativeDiscoverHeroBackdropStrip: View {
+  @ObservedObject var pager: NativeDiscoverHeroPager
+  let items: [NativeDiscoverFeature]
+  let fallbackIndex: Int
+  let width: CGFloat
+  let height: CGFloat
+  let artwork: (String?, NativeDiscoverArtworkRole) -> AnyView
+
+  /// 只渲染当前页及左右相邻页：既保证滑动中两张图无缝衔接，也让下一张背景提前就绪；首尾回弹时背景保持不动。
+  var body: some View {
+    let upperBound = CGFloat(max(items.count - 1, 0))
+    let position = min(max(pager.position ?? CGFloat(fallbackIndex), 0), upperBound)
+    let center = Int(position.rounded())
+    ZStack {
+      ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+        if abs(index - center) <= 1 {
+          artwork(item.backdropReference, .backdrop)
+            .frame(width: width, height: height)
+            .clipped()
+            .offset(x: (CGFloat(index) - position) * width)
+        }
+      }
+    }
+    .frame(width: width, height: height)
+    .clipped()
+  }
+}
+
 /// iOS 26 启用系统顶部软滚动边缘，旧系统保留干净原生行为；支持按滚动状态按需开关。
 struct NativeSoftTopScrollEdge: ViewModifier {
   var isActive: Bool = true
@@ -338,6 +388,7 @@ struct NativeDiscoverPage: View {
   @State private var scrollOffset: CGFloat = 0
   @State private var selectedFeatureIndex = 0
   @State private var containerWidth: CGFloat = 0
+  @State private var heroPager = NativeDiscoverHeroPager()
 
   /// 页面只消费已认证的业务投影与显式导航动作，默认缺图不发起无身份 URL 请求。
   init(
@@ -405,31 +456,27 @@ struct NativeDiscoverPage: View {
       let hasContent =
         !content.featuredItems.isEmpty || !populatedRails.isEmpty
         || !content.continueWatching.isEmpty || hasLibrary
-      let activeFeature = currentFeature
+      let carouselOriginX = viewport.frame(in: .global).minX
       ZStack(alignment: .top) {
         ambientSurface(progress: eased).ignoresSafeArea()
-        if let activeFeature {
+        if !content.featuredItems.isEmpty {
           if hasHorizontalInset {
             Color.clear
               .frame(width: viewportWidth, height: 1)
               .overlay(alignment: .topLeading) {
                 featureBackground(
-                  activeFeature, width: backdropWidth, height: heroHeight,
+                  width: backdropWidth, height: heroHeight,
                   progress: progress, eased: eased
                 )
                 .ignoresSafeArea(edges: [.top, .horizontal])
               }
-              .id(activeFeature.id)
-              .transition(.opacity)
               .allowsHitTesting(false)
               .accessibilityHidden(true)
           } else {
             featureBackground(
-              activeFeature, width: viewportWidth, height: heroHeight,
+              width: viewportWidth, height: heroHeight,
               progress: progress, eased: eased
             )
-            .id(activeFeature.id)
-            .transition(.opacity)
             .ignoresSafeArea(edges: .top)
           }
         } else if !hasContent && content.isLoading {
@@ -463,7 +510,9 @@ struct NativeDiscoverPage: View {
               .transition(.opacity)
             } else {
               if !content.featuredItems.isEmpty {
-                heroCarousel(height: heroHeight, isCompactLandscape: isCompactLandscape)
+                heroCarousel(
+                  height: heroHeight, originX: carouselOriginX,
+                  isCompactLandscape: isCompactLandscape)
               }
               LazyVStack(alignment: .leading, spacing: 26) {
                 if isPreview, content.featuredItems.isEmpty {
@@ -524,6 +573,7 @@ struct NativeDiscoverPage: View {
     .nativeTrackContainerWidth($containerWidth)
     .onChange(of: content.featuredItems.map(\.id)) { ids in
       if selectedFeatureIndex >= ids.count { selectedFeatureIndex = 0 }
+      heroPager.reset()
     }
     .accessibilityIdentifier("native-discover-page")
   }
@@ -583,13 +633,6 @@ struct NativeDiscoverPage: View {
     }
   }
 
-  /// 当前主视觉与轮播索引保持同步，数据刷新时自动回落至首条有效条目。
-  private var currentFeature: NativeDiscoverFeature? {
-    guard !content.featuredItems.isEmpty else { return nil }
-    let clamped = min(max(selectedFeatureIndex, 0), content.featuredItems.count - 1)
-    return content.featuredItems[clamped]
-  }
-
   /// 预览主视觉缺席时仍清楚标明演示数据边界。
   private var previewMarker: some View {
     Text("预览数据")
@@ -621,9 +664,9 @@ struct NativeDiscoverPage: View {
     min(max(-scrollOffset / max(height * 0.62, 1), 0), 1)
   }
 
-  /// 主视觉固定于滚动层后方，上滚时轻视差 + 渐进柔焦 + 多段软边溶解，下拉时自然延展。
+  /// 主视觉固定于滚动层后方，上滚时轻视差 + 渐进柔焦 + 多段软边溶解，下拉时自然延展；横滑轮播时背景图随页同步平移。
   private func featureBackground(
-    _ item: NativeDiscoverFeature, width: CGFloat, height: CGFloat,
+    width: CGFloat, height: CGFloat,
     progress: CGFloat, eased: CGFloat
   ) -> some View {
     let scrollUp = max(-scrollOffset, 0)
@@ -638,10 +681,11 @@ struct NativeDiscoverPage: View {
       ? NativeTheme.topVeilColor(for: .light, appearance: appearance)
       : Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
     return ZStack(alignment: .bottom) {
-      artwork(item.backdropReference, .backdrop)
-        .frame(width: width, height: backdropHeight)
-        .clipped()
-        .blur(radius: blurRadius, opaque: false)
+      NativeDiscoverHeroBackdropStrip(
+        pager: heroPager, items: content.featuredItems, fallbackIndex: selectedFeatureIndex,
+        width: width, height: backdropHeight, artwork: artwork
+      )
+      .blur(radius: blurRadius, opaque: false)
       // 仅底部多段平滑融底：默认首屏顶部保持 100% 无遮挡，仅在向上滚动后呈现顶部渐变模糊。
       LinearGradient(
         stops: isLight
@@ -739,7 +783,9 @@ struct NativeDiscoverPage: View {
   }
 
   /// 多条推荐支持横向滑动切换，底部圆点指示器与 Cinematic 发现首屏一致。
-  private func heroCarousel(height: CGFloat, isCompactLandscape: Bool = false) -> some View {
+  private func heroCarousel(
+    height: CGFloat, originX: CGFloat, isCompactLandscape: Bool = false
+  ) -> some View {
     VStack(spacing: isCompactLandscape ? 6 : 10) {
       if content.featuredItems.count > 1 {
         let pageHeight = max(height - (isCompactLandscape ? 16 : 22), 140)
@@ -748,6 +794,15 @@ struct NativeDiscoverPage: View {
             featureForeground(
               item, height: pageHeight, isCompactLandscape: isCompactLandscape
             )
+            .background {
+              // 每页上报相对轮播容器的横向偏移，驱动固定背景层随横滑同步平移。
+              GeometryReader { page in
+                let minX = page.frame(in: .global).minX - originX
+                Color.clear.onChange(of: minX) { value in
+                  heroPager.report(index: index, minX: value, width: page.size.width)
+                }
+              }
+            }
             .tag(index)
           }
         }
@@ -1299,7 +1354,7 @@ struct NativeDiscoverPage: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.white.opacity(0.84))
+        .foregroundStyle(colorScheme == .light ? Color.primary : Color.white.opacity(0.84))
         .accessibilityLabel("查看全部\(title)")
         .accessibilityIdentifier("native-discover-more-\(title)")
       }
