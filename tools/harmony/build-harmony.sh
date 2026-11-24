@@ -52,7 +52,11 @@ if [[ -f "$SDK_PKG" ]]; then
       PROFILE_BACKUP="$(mktemp "${RUNNER_TEMP:-$OUT_DIR}/.build-profile.XXXXXX.json5")"
     fi
     cp "$PROFILE_FILE" "$PROFILE_BACKUP"
-    TARGET_STR="${INSTALLED_VER}(${API_VER})"
+    if [[ "$API_VER" =~ ^[0-9]+$ ]] && (( API_VER < 26 )); then
+      TARGET_STR="${INSTALLED_VER}(${API_VER})"
+    else
+      TARGET_STR="${INSTALLED_VER}"
+    fi
     python3 -c '
 import json, pathlib, sys
 p = pathlib.Path(sys.argv[1])
