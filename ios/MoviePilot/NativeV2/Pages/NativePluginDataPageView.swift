@@ -1442,8 +1442,10 @@ struct NativeVuePluginWebContainer: View {
         } else if showsLoader {
           ScrollView {
             NativeCardListSkeletonView(count: 3, style: .formPanel)
+              .frame(maxWidth: 880)
               .padding(.horizontal, CinematicStyle.margin)
               .padding(.vertical, 16)
+              .frame(maxWidth: .infinity)
           }
           .scrollIndicators(.hidden)
           .transition(.opacity)
@@ -1453,8 +1455,10 @@ struct NativeVuePluginWebContainer: View {
       } else {
         ScrollView {
           NativeCardListSkeletonView(count: 3, style: .formPanel)
+            .frame(maxWidth: 880)
             .padding(.horizontal, CinematicStyle.margin)
             .padding(.vertical, 16)
+            .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.hidden)
         .transition(.opacity)

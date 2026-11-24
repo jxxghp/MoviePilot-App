@@ -107,6 +107,16 @@ struct NativeMediaServerLibraryPage: View {
     _activeLibraryID = State(initialValue: libraryID)
     _activeLibraryName = State(initialValue: libraryName)
     _activeLibraryType = State(initialValue: libraryType)
+    if let cachedClients: [MediaServerClientSummary] = NativePageDataCache.shared.get(
+      "mediaserver|clients", session: session)
+    {
+      _servers = State(initialValue: cachedClients)
+    }
+    if let cachedLibs: [MediaServerLibrarySummary] = NativePageDataCache.shared.get(
+      "mediaserver|libraries|\(server)", session: session)
+    {
+      _libraries = State(initialValue: cachedLibs)
+    }
   }
 
   private var isMusicLibrary: Bool {
@@ -120,11 +130,9 @@ struct NativeMediaServerLibraryPage: View {
   }
 
   private var gridColumns: [GridItem] {
-    let count =
-      containerWidth > 0
-      ? NativeDeviceLayout.posterGridCount(
-        for: min(containerWidth, 1240), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
-      : (horizontalSizeClass == .regular ? 5 : 3)
+    let resolved = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    let count = NativeDeviceLayout.posterGridCount(
+      for: min(resolved, 1240), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
     return Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: count)
   }
 
@@ -442,8 +450,13 @@ struct NativeMediaServerLibraryPage: View {
   @ViewBuilder
   private var contentBody: some View {
     if isLoading && items.isEmpty {
-      NativePosterGridSkeletonView(columns: gridColumns.count, count: gridColumns.count * 3)
-        .padding(.horizontal, CinematicStyle.margin)
+      NativePosterGridSkeletonView(
+        columns: gridColumns.count,
+        count: gridColumns.count * 3,
+        aspectRatio: isMusicLibrary ? 1.0 : 2.0 / 3.0,
+        cornerRadius: 12
+      )
+      .padding(.horizontal, CinematicStyle.margin)
     } else if loadFailed && items.isEmpty {
       CinematicPanel {
         VStack(spacing: 12) {
@@ -670,6 +683,7 @@ struct NativeMediaServerLibraryPage: View {
       ).value
     {
       servers = list
+      NativePageDataCache.shared.set(list, for: "mediaserver|clients", session: session)
       if !list.contains(where: { $0.name == activeServer }),
         let matched =
           list.first(where: { $0.name.caseInsensitiveCompare(activeServer) == .orderedSame })
@@ -681,6 +695,11 @@ struct NativeMediaServerLibraryPage: View {
         activeServer = matched.name
         if activeServerType == nil {
           activeServerType = matched.type
+        }
+        if let cachedLibs: [MediaServerLibrarySummary] = NativePageDataCache.shared.get(
+          "mediaserver|libraries|\(matched.name)", session: session)
+        {
+          libraries = cachedLibs
         }
         serverNormalized = true
       }
@@ -694,6 +713,13 @@ struct NativeMediaServerLibraryPage: View {
   }
 
   private func loadLibrariesForActiveServer(selectFirstIfMissing: Bool) async {
+    let cacheKey = "mediaserver|libraries|\(activeServer)"
+    if libraries.isEmpty,
+      let cached: [MediaServerLibrarySummary] = NativePageDataCache.shared.get(
+        cacheKey, session: session)
+    {
+      libraries = cached
+    }
     guard
       let endpoint = try? APIEndpoint(
         path: ["mediaserver", "library"],
@@ -705,6 +731,7 @@ struct NativeMediaServerLibraryPage: View {
       ).value
     else { return }
     libraries = list
+    NativePageDataCache.shared.set(list, for: cacheKey, session: session)
     if selectFirstIfMissing, activeLibraryID == nil, let first = list.first {
       activeLibraryID = first.libraryID
       activeLibraryName = first.displayName

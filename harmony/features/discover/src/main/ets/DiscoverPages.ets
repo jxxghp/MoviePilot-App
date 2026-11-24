@@ -23,6 +23,11 @@ import {
   HarmonyThemeColors,
   HarmonyEntityLogo,
   HarmonyEntityLogoPill,
+  HarmonySkeletonHost,
+  HarmonySkeletonBlock,
+  HarmonyDiscoverSkeleton,
+  HarmonyPosterGridSkeleton,
+  HarmonyAlbumGridSkeleton,
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
@@ -357,13 +362,7 @@ export struct HarmonyDiscoverPage {
   }
 
   private heroHeightVp(): number {
-    if (this.isShortLandscape()) {
-      return Math.max(204, Math.min(244, Math.round(this.windowHeightVp * 0.58)));
-    }
-    if (this.windowWidthVp >= 840 && this.windowHeightVp >= 480) {
-      return 380;
-    }
-    return 420;
+    return HarmonyAdaptiveLayout.discoverHeroHeightVp(this.windowWidthVp, this.windowHeightVp);
   }
 
   private categoriesColumnsTemplate(): string {
@@ -909,160 +908,165 @@ export struct HarmonyDiscoverPage {
     Stack({ alignContent: Alignment.Top }) {
       Scroll(this.scroller) {
         Column({ space: this.isShortLandscape() ? 16 : 22 }) {
-          // 1. 顶部响应式 Hero 轮播（矮横屏自动收紧高度以露出首行海报架）
-          if (this.heroItems.length > 0) {
-            Swiper() {
-              ForEach(this.heroItems, (hero: MpMediaItem) => {
-                Stack({ alignContent: Alignment.Bottom }) {
-                  if (hero.backdropUrl.length > 0) {
-                    MpRemoteImage({
-                      src: hero.backdropUrl,
-                      imgWidth: '100%',
-                      imgHeight: this.heroHeightVp(),
-                      placeholderColor: HarmonyThemeColors.card(this.isDark)
-                    })
-                  } else {
+          if (this.loading && this.heroItems.length === 0) {
+            HarmonyDiscoverSkeleton()
+          } else {
+            // 1. 顶部响应式 Hero 轮播（矮横屏自动收紧高度以露出首行海报架）
+            if (this.heroItems.length > 0) {
+              Swiper() {
+                ForEach(this.heroItems, (hero: MpMediaItem) => {
+                  Stack({ alignContent: Alignment.Bottom }) {
+                    if (hero.backdropUrl.length > 0) {
+                      MpRemoteImage({
+                        src: hero.backdropUrl,
+                        imgWidth: '100%',
+                        imgHeight: this.heroHeightVp(),
+                        placeholderColor: HarmonyThemeColors.card(this.isDark)
+                      })
+                    } else {
+                      Column()
+                        .width('100%')
+                        .height(this.heroHeightVp())
+                        .backgroundColor(HarmonyThemeColors.card(this.isDark, this.paletteId))
+                    }
+
                     Column()
                       .width('100%')
                       .height(this.heroHeightVp())
-                      .backgroundColor(HarmonyThemeColors.card(this.isDark, this.paletteId))
-                  }
-
-                  Column()
-                    .width('100%')
-                    .height(this.heroHeightVp())
-                    .linearGradient({
-                      angle: 180,
-                      colors: this.isDark
-                        ? [
-                          ['#40000000', 0],
-                          ['#10000000', 0.36],
-                          [HarmonyAppearanceStore.withAlpha(HarmonyThemeColors.canvas(true, this.paletteId), 'CC'), 0.80],
-                          [HarmonyThemeColors.canvas(true, this.paletteId), 1]
-                        ]
-                        : [
-                          ['#30000000', 0],
-                          ['#08000000', 0.38],
-                          [HarmonyAppearanceStore.withAlpha(HarmonyThemeColors.canvas(false, this.paletteId), 'C8'), 0.80],
-                          [HarmonyThemeColors.canvas(false, this.paletteId), 1]
-                        ]
-                    })
-
-                  Column({ space: this.isShortLandscape() ? 4 : 8 }) {
-                    if (hero.logoUrl.length > 0) {
-                      MpRemoteImage({
-                        src: hero.logoUrl,
-                        imgWidth: this.isShortLandscape() ? 164 : 224,
-                        imgHeight: this.isShortLandscape() ? 46 : 74,
-                        fit: ImageFit.Contain,
-                        placeholderColor: Color.Transparent
+                      .linearGradient({
+                        angle: 180,
+                        colors: this.isDark
+                          ? [
+                            ['#40000000', 0],
+                            ['#10000000', 0.36],
+                            [HarmonyAppearanceStore.withAlpha(HarmonyThemeColors.canvas(true, this.paletteId), 'CC'), 0.80],
+                            [HarmonyThemeColors.canvas(true, this.paletteId), 1]
+                          ]
+                          : [
+                            ['#30000000', 0],
+                            ['#08000000', 0.38],
+                            [HarmonyAppearanceStore.withAlpha(HarmonyThemeColors.canvas(false, this.paletteId), 'C8'), 0.80],
+                            [HarmonyThemeColors.canvas(false, this.paletteId), 1]
+                          ]
                       })
-                    } else {
-                      Text(hero.title)
-                        .fontSize(this.isShortLandscape() ? 20 : 26)
-                        .fontWeight(FontWeight.Bold)
-                        .fontColor(Color.White)
-                        .textAlign(TextAlign.Center)
-                        .maxLines(this.isShortLandscape() ? 1 : 2)
-                    }
-                    Text([hero.type, hero.year, hero.subtitle].filter((s: string) => s.length > 0).join(' · '))
-                      .fontSize(this.isShortLandscape() ? 12 : 13)
-                      .fontColor('#E6FFFFFF')
-                      .maxLines(1)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    if (hero.overview.length > 0) {
-                      Text(hero.overview)
-                        .fontSize(12)
-                        .fontColor('#CCFFFFFF')
-                        .maxLines(this.isShortLandscape() ? 1 : 2)
-                        .textAlign(TextAlign.Center)
-                        .textOverflow({ overflow: TextOverflow.Ellipsis })
-                        .constraintSize({ maxWidth: 640 })
-                    }
-                    Row({ space: 10 }) {
-                      Row({ space: 5 }) {
-                        HarmonyEntityLogo({
-                          kind: 'media_source',
-                          value: hero.source || 'themoviedb',
-                          logoSize: 15,
-                          cornerRadius: 4
+
+                    Column({ space: this.isShortLandscape() ? 4 : 8 }) {
+                      if (hero.logoUrl.length > 0) {
+                        MpRemoteImage({
+                          src: hero.logoUrl,
+                          imgWidth: this.isShortLandscape() ? 164 : 224,
+                          imgHeight: this.isShortLandscape() ? 46 : 74,
+                          fit: ImageFit.Contain,
+                          placeholderColor: Color.Transparent
                         })
-                        Text((hero.source || '').toLowerCase().includes('douban')
-                          ? '豆瓣'
-                          : ((hero.source || '').toLowerCase().includes('bangumi') ? 'Bangumi' : 'TheMovieDB'))
-                          .fontSize(11.5)
+                      } else {
+                        Text(hero.title)
+                          .fontSize(this.isShortLandscape() ? 20 : 26)
                           .fontWeight(FontWeight.Bold)
                           .fontColor(Color.White)
+                          .textAlign(TextAlign.Center)
+                          .maxLines(this.isShortLandscape() ? 1 : 2)
                       }
-                      .padding({ left: 8, right: 9, top: 4, bottom: 4 })
-                      .borderRadius(11)
-                      .backgroundColor('#52000000')
-                      .border({ width: 0.6, color: '#38FFFFFF', radius: 11 })
+                      Text([hero.type, hero.year, hero.subtitle].filter((s: string) => s.length > 0).join(' · '))
+                        .fontSize(this.isShortLandscape() ? 12 : 13)
+                        .fontColor('#E6FFFFFF')
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      if (hero.overview.length > 0) {
+                        Text(hero.overview)
+                          .fontSize(12)
+                          .fontColor('#CCFFFFFF')
+                          .maxLines(this.isShortLandscape() ? 1 : 2)
+                          .textAlign(TextAlign.Center)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          .constraintSize({ maxWidth: 640 })
+                      }
+                      Row({ space: 10 }) {
+                        Row({ space: 5 }) {
+                          HarmonyEntityLogo({
+                            kind: 'media_source',
+                            value: hero.source || 'themoviedb',
+                            logoSize: 15,
+                            cornerRadius: 4
+                          })
+                          Text((hero.source || '').toLowerCase().includes('douban')
+                            ? '豆瓣'
+                            : ((hero.source || '').toLowerCase().includes('bangumi') ? 'Bangumi' : 'TheMovieDB'))
+                            .fontSize(11.5)
+                            .fontWeight(FontWeight.Bold)
+                            .fontColor(Color.White)
+                        }
+                        .padding({ left: 8, right: 9, top: 4, bottom: 4 })
+                        .borderRadius(11)
+                        .backgroundColor('#52000000')
+                        .border({ width: 0.6, color: '#38FFFFFF', radius: 11 })
 
-                      if (hero.vote > 0) {
-                        Text(`★ ${hero.vote.toFixed(1)}`)
+                        if (hero.vote > 0) {
+                          Text(`★ ${hero.vote.toFixed(1)}`)
+                            .fontSize(13)
+                            .fontWeight(FontWeight.Bold)
+                            .fontColor('#FFE27A')
+                        }
+                        Text('查看详情 ›')
                           .fontSize(13)
-                          .fontWeight(FontWeight.Bold)
-                          .fontColor('#FFE27A')
+                          .fontWeight(FontWeight.Medium)
+                          .fontColor(Color.White)
                       }
-                      Text('查看详情 ›')
-                        .fontSize(13)
-                        .fontWeight(FontWeight.Medium)
-                        .fontColor(Color.White)
+                      .margin({ top: this.isShortLandscape() ? 2 : 4 })
                     }
-                    .margin({ top: this.isShortLandscape() ? 2 : 4 })
+                    .padding({
+                      left: 22,
+                      right: 22,
+                      bottom: this.isShortLandscape() ? 16 : 28
+                    })
+                    .alignItems(HorizontalAlign.Center)
                   }
-                  .padding({
-                    left: 22,
-                    right: 22,
-                    bottom: this.isShortLandscape() ? 16 : 28
-                  })
-                  .alignItems(HorizontalAlign.Center)
-                }
-                .onClick(() => this.onOpenMedia(hero))
-              }, (hero: MpMediaItem) => hero.id)
+                  .onClick(() => this.onOpenMedia(hero))
+                }, (hero: MpMediaItem) => hero.id)
+              }
+              .height(this.heroHeightVp())
+              .width('100%')
+              .autoPlay(true)
+              .interval(5500)
+              .indicator(Indicator.dot().selectedColor(this.accentHex).color('#55FFFFFF'))
+            } else {
+              Column({ space: 10 }) {
+                SymbolGlyph($r('sys.symbol.TV_tv')).fontSize(34).fontColor([mpSecondaryText(this.isDark)])
+                Text('暂无推荐内容')
+                  .fontSize(13)
+                  .fontColor(mpSecondaryText(this.isDark))
+              }
+              .width('100%')
+              .height(this.heroHeightVp())
+              .justifyContent(FlexAlign.Center)
             }
-            .height(this.heroHeightVp())
-            .width('100%')
-            .autoPlay(true)
-            .interval(5500)
-            .indicator(Indicator.dot().selectedColor(this.accentHex).color('#55FFFFFF'))
-          } else {
-            Column({ space: 10 }) {
-              LoadingProgress().width(34).height(34).color(this.accentHex)
-              Text(this.loading ? '正在加载发现内容…' : '暂无推荐内容')
-                .fontSize(13)
-                .fontColor(mpSecondaryText(this.isDark))
+
+            // 2. 按用户自定义顺序与显隐渲染全部 10 大发现模块
+            ForEach(this.modules, (mod: CustomModulePref) => {
+              if (mod.enabled) {
+                this.renderModuleById(mod.id)
+              }
+            }, (mod: CustomModulePref) => `${mod.id}_${mod.enabled}`)
+
+            // 3. 底部自定义发现模块入口胶囊
+            Row({ space: 8 }) {
+              SymbolGlyph($r('sys.symbol.slider_horizontal_2'))
+                .fontSize(16)
+                .fontColor([mpPrimaryText(this.isDark)])
+              Text('自定义发现模块')
+                .fontSize(13.5)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(mpPrimaryText(this.isDark))
             }
-            .width('100%')
-            .height(this.heroHeightVp())
-            .justifyContent(FlexAlign.Center)
+            .height(42)
+            .padding({ left: 20, right: 20 })
+            .borderRadius(21)
+            .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+            .border({ width: 0.6, color: HarmonyThemeColors.borderSubtle(this.isDark), radius: 21 })
+            .onClick(() => { this.showModulesSheet = true; })
           }
 
-          // 2. 按用户自定义顺序与显隐渲染全部 10 大发现模块
-          ForEach(this.modules, (mod: CustomModulePref) => {
-            if (mod.enabled) {
-              this.renderModuleById(mod.id)
-            }
-          }, (mod: CustomModulePref) => `${mod.id}_${mod.enabled}`)
-
-          // 3. 底部自定义发现模块入口胶囊
-          Row({ space: 8 }) {
-            SymbolGlyph($r('sys.symbol.slider_horizontal_2'))
-              .fontSize(16)
-              .fontColor([mpPrimaryText(this.isDark)])
-            Text('自定义发现模块')
-              .fontSize(13.5)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(mpPrimaryText(this.isDark))
-          }
-          .height(42)
-          .padding({ left: 20, right: 20 })
-          .borderRadius(21)
-          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-          .border({ width: 0.6, color: HarmonyThemeColors.borderSubtle(this.isDark), radius: 21 })
-          .onClick(() => { this.showModulesSheet = true; })
-          .bindSheet($$this.showModulesSheet, this.modulesSheetBuilder(), {
+          Blank().width(0).height(0).bindSheet($$this.showModulesSheet, this.modulesSheetBuilder(), {
             detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
             preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
             blurStyle: BlurStyle.COMPONENT_THIN,
@@ -1202,10 +1206,7 @@ export struct HarmonyMediaServerLibraryPage {
   }
 
   private gridColumnsTemplate(): string {
-    const cols = this.posterColsCount();
-    const arr: string[] = [];
-    for (let i = 0; i < cols; i++) { arr.push('1fr'); }
-    return arr.join(' ');
+    return HarmonyAdaptiveLayout.posterGridTemplate(this.windowWidthVp);
   }
 
   build() {
@@ -1226,6 +1227,16 @@ export struct HarmonyMediaServerLibraryPage {
             this.loadActiveLibrary();
           }
         })
+      } else if (this.loading) {
+        HarmonySkeletonHost({ loadingLabel: '正在加载媒体库分类' }) {
+          Row({ space: 10 }) {
+            HarmonySkeletonBlock({ blockWidth: 88, blockHeight: 42, cornerRadius: 21, shimmerSweep: true })
+            HarmonySkeletonBlock({ blockWidth: 88, blockHeight: 42, cornerRadius: 21, tone: 'subtle' })
+            HarmonySkeletonBlock({ blockWidth: 96, blockHeight: 42, cornerRadius: 21, tone: 'subtle' })
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, bottom: 4 })
+        }
       }
 
       Grid() {
@@ -1292,10 +1303,20 @@ export struct HarmonyMediaServerLibraryPage {
                 logoSize: 16,
                 cornerRadius: 4
               })
-              Text(`共 ${this.activeLib()?.itemCount ?? this.items.length} 项${this.activeLib()?.serverName ? ' · ' + this.activeLib()!.serverName : ''}`)
-                .fontSize(12)
-                .fontColor(mpSecondaryText(this.isDark))
+              if (this.loading) {
+                Column() {
+                  HarmonySkeletonHost({ loadingLabel: '正在统计媒体库条目数' }) {
+                    HarmonySkeletonBlock({ blockWidth: 108, blockHeight: 13, cornerRadius: 4, tone: 'subtle' })
+                  }
+                }
                 .layoutWeight(1)
+                .alignItems(HorizontalAlign.Start)
+              } else {
+                Text(`共 ${(this.keyword.trim().length > 0 || this.activeGenre.length > 0) ? this.items.length : (this.activeLib()?.itemCount ?? this.items.length)} 项${this.activeLib()?.serverName ? ' · ' + this.activeLib()!.serverName : ''}`)
+                  .fontSize(12)
+                  .fontColor(mpSecondaryText(this.isDark))
+                  .layoutWeight(1)
+              }
             }
             .width('100%')
           }
@@ -1305,14 +1326,24 @@ export struct HarmonyMediaServerLibraryPage {
         .columnStart(0)
         .columnEnd(this.posterColsCount() - 1)
 
-        if (this.loading && this.items.length === 0) {
+        if (this.loading) {
           GridItem() {
-            Column() {
-              LoadingProgress().width(32).height(32).color(this.accentHex)
+            HarmonyPosterGridSkeleton({
+              horizontalPadding: 0,
+              bottomPadding: 12
+            })
+          }
+          .columnStart(0)
+          .columnEnd(this.posterColsCount() - 1)
+        } else if (this.items.length === 0) {
+          GridItem() {
+            Column({ space: 8 }) {
+              SymbolGlyph($r('sys.symbol.film')).fontSize(36).fontColor([mpSecondaryText(this.isDark)])
+              Text('暂无符合条件的媒体条目').fontSize(13.5).fontColor(mpSecondaryText(this.isDark))
             }
             .width('100%')
-            .height(140)
-            .justifyContent(FlexAlign.Center)
+            .padding({ top: 36, bottom: 36 })
+            .alignItems(HorizontalAlign.Center)
           }
           .columnStart(0)
           .columnEnd(this.posterColsCount() - 1)
@@ -1381,7 +1412,7 @@ export struct HarmonyExplorePage {
   @State private activeMusicFeed: string = 'douban';
   @State private items: MpMediaItem[] = [];
   @State private albums: MpMusicAlbum[] = [];
-  @State private loading: boolean = false;
+  @State private loading: boolean = true;
   onOpenMedia: (item: MpMediaItem) => void = () => {};
   onOpenSearch: () => void = () => {};
 
@@ -1421,10 +1452,7 @@ export struct HarmonyExplorePage {
   }
 
   private gridColumnsTemplate(): string {
-    const cols = HarmonyAdaptiveLayout.posterGridColumns(this.windowWidthVp);
-    const arr: string[] = [];
-    for (let i = 0; i < cols; i++) { arr.push('1fr'); }
-    return arr.join(' ');
+    return HarmonyAdaptiveLayout.posterGridTemplate(this.windowWidthVp);
   }
 
   build() {
@@ -1498,55 +1526,77 @@ export struct HarmonyExplorePage {
         .padding({ left: 16 })
       }
 
-      if (this.loading && (this.activeSource === 'music' ? this.albums.length === 0 : this.items.length === 0)) {
+      if (this.loading) {
+        if (this.activeSource === 'music') {
+          HarmonyAlbumGridSkeleton({
+            fillViewport: true,
+            bottomPadding: 128
+          })
+        } else {
+          HarmonyPosterGridSkeleton({
+            fillViewport: true,
+            bottomPadding: 128
+          })
+        }
+      } else if (this.activeSource === 'music') {
+        if (this.albums.length === 0) {
+          Column({ space: 8 }) {
+            SymbolGlyph($r('sys.symbol.music')).fontSize(36).fontColor([mpSecondaryText(this.isDark)])
+            Text('当前榜单暂无音乐专辑').fontSize(13.5).fontColor(mpSecondaryText(this.isDark))
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+        } else {
+          Grid() {
+            ForEach(this.albums, (al: MpMusicAlbum) => {
+              GridItem() {
+                Column({ space: 6 }) {
+                  if (al.coverUrl.length > 0) {
+                    MpRemoteImage({
+                      src: al.coverUrl,
+                      imgWidth: '100%',
+                      imgAspectRatio: 1,
+                      imgRadius: 16,
+                      placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                    })
+                  } else {
+                    Stack() {
+                      SymbolGlyph($r('sys.symbol.music')).fontSize(32).fontColor([this.accentHex])
+                    }
+                    .width('100%').aspectRatio(1).borderRadius(16).backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                  }
+                  Text(al.title)
+                    .fontSize(13.5)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(mpPrimaryText(this.isDark))
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .width('100%')
+                  Text(`${al.artist || '音乐专辑'}${al.year ? ' · ' + al.year : ''}`)
+                    .fontSize(11.5)
+                    .fontColor(mpSecondaryText(this.isDark))
+                    .maxLines(1)
+                    .width('100%')
+                }
+                .alignItems(HorizontalAlign.Start)
+              }
+            }, (al: MpMusicAlbum) => al.id)
+          }
+          .columnsTemplate(HarmonyAdaptiveLayout.albumGridColumns(this.windowWidthVp))
+          .columnsGap(12)
+          .rowsGap(16)
+          .padding({ left: 16, right: 16, bottom: 128 })
+          .layoutWeight(1)
+        }
+      } else if (this.items.length === 0) {
         Column({ space: 8 }) {
-          LoadingProgress().width(32).height(32).color(this.accentHex)
-          Text('正在加载片库…').fontSize(13).fontColor(mpSecondaryText(this.isDark))
+          SymbolGlyph($r('sys.symbol.compass')).fontSize(36).fontColor([mpSecondaryText(this.isDark)])
+          Text('暂无探索条目').fontSize(13.5).fontColor(mpSecondaryText(this.isDark))
         }
         .width('100%')
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
-      } else if (this.activeSource === 'music') {
-        Grid() {
-          ForEach(this.albums, (al: MpMusicAlbum) => {
-            GridItem() {
-              Column({ space: 6 }) {
-                if (al.coverUrl.length > 0) {
-                  MpRemoteImage({
-                    src: al.coverUrl,
-                    imgWidth: '100%',
-                    imgAspectRatio: 1,
-                    imgRadius: 16,
-                    placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
-                  })
-                } else {
-                  Stack() {
-                    SymbolGlyph($r('sys.symbol.music')).fontSize(32).fontColor([this.accentHex])
-                  }
-                  .width('100%').aspectRatio(1).borderRadius(16).backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-                }
-                Text(al.title)
-                  .fontSize(13.5)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor(mpPrimaryText(this.isDark))
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .width('100%')
-                Text(`${al.artist || '音乐专辑'}${al.year ? ' · ' + al.year : ''}`)
-                  .fontSize(11.5)
-                  .fontColor(mpSecondaryText(this.isDark))
-                  .maxLines(1)
-                  .width('100%')
-              }
-              .alignItems(HorizontalAlign.Start)
-            }
-          }, (al: MpMusicAlbum) => al.id)
-        }
-        .columnsTemplate(HarmonyAdaptiveLayout.albumGridColumns(this.windowWidthVp))
-        .columnsGap(12)
-        .rowsGap(16)
-        .padding({ left: 16, right: 16, bottom: 128 })
-        .layoutWeight(1)
       } else {
         Grid() {
           ForEach(this.items, (it: MpMediaItem) => {
@@ -1606,10 +1656,7 @@ export struct HarmonyGlobalSearchPage {
   }
 
   private gridColumnsTemplate(): string {
-    const cols = HarmonyAdaptiveLayout.posterGridColumns(this.windowWidthVp);
-    const arr: string[] = [];
-    for (let i = 0; i < cols; i++) { arr.push('1fr'); }
-    return arr.join(' ');
+    return HarmonyAdaptiveLayout.posterGridTemplate(this.windowWidthVp);
   }
 
   build() {
@@ -1667,12 +1714,10 @@ export struct HarmonyGlobalSearchPage {
       .padding({ left: 16, right: 16 })
 
       if (this.searching) {
-        Column() {
-          LoadingProgress().width(32).height(32).color(this.accentHex)
-        }
-        .width('100%')
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Center)
+        HarmonyPosterGridSkeleton({
+          fillViewport: true,
+          bottomPadding: 40
+        })
       } else if (this.results.length > 0) {
         Grid() {
           ForEach(this.results, (it: MpMediaItem) => {

@@ -272,7 +272,7 @@ struct NativeSystemModulesPage: View {
   @ViewBuilder
   private var contentSection: some View {
     if isLoading {
-      NativeCardListSkeletonView(count: 4, style: .iconRow)
+      domainSkeleton
         .transition(.opacity)
     } else if loadFailed {
       CinematicPanel {
@@ -300,6 +300,183 @@ struct NativeSystemModulesPage: View {
         scrapingContent
       case .nettest:
         nettestContent
+      }
+    }
+  }
+
+  /// 按当前系统模块 `domain` 分支渲染与真实页面卡片形态 1:1 对齐的占位骨架。
+  @ViewBuilder
+  private var domainSkeleton: some View {
+    switch domain {
+    case .siteScope:
+      VStack(alignment: .leading, spacing: 14) {
+        HStack(spacing: 8) {
+          NativeSkeletonBlock(width: 96, height: 34, cornerRadius: 17)
+          NativeSkeletonBlock(width: 96, height: 34, cornerRadius: 17)
+          Spacer()
+        }
+        .nativeSkeletonShimmer()
+
+        CinematicPanel(padding: 12) {
+          HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 5) {
+              NativeSkeletonBlock(width: 108, height: 15, cornerRadius: 5)
+              NativeSkeletonBlock(width: 216, height: 12, cornerRadius: 4)
+            }
+            Spacer(minLength: 6)
+            NativeSkeletonBlock(width: 68, height: 16, cornerRadius: 5)
+          }
+        }
+        .nativeSkeletonShimmer()
+
+        NativeCardListSkeletonView(count: 5, style: .groupedIconList)
+      }
+
+    case .directories:
+      VStack(alignment: .leading, spacing: 18) {
+        sectionHeader("刮削策略", count: 0)
+        CinematicPanel(padding: 0) {
+          HStack(spacing: 14) {
+            NativeSkeletonBlock(width: 24, height: 24, cornerRadius: 6)
+            VStack(alignment: .leading, spacing: 4) {
+              NativeSkeletonBlock(width: 84, height: 15, cornerRadius: 5)
+              NativeSkeletonBlock(width: 196, height: 12, cornerRadius: 4)
+            }
+            Spacer()
+            NativeSkeletonBlock(width: 8, height: 13, cornerRadius: 4)
+          }
+          .padding(.horizontal, 16)
+          .padding(.vertical, 14)
+          .frame(minHeight: 58)
+        }
+        .nativeSkeletonShimmer()
+
+        sectionHeader("下载与媒体库整理目录", count: 0)
+        VStack(spacing: 14) {
+          ForEach(0..<2, id: \.self) { _ in
+            CinematicPanel(padding: 15) {
+              VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                  NativeSkeletonBlock(width: 32, height: 20, cornerRadius: 10)
+                  NativeSkeletonBlock(width: 124, height: 16, cornerRadius: 5)
+                  Spacer()
+                  NativeSkeletonBlock(width: 48, height: 20, cornerRadius: 10)
+                }
+                HStack(spacing: 8) {
+                  NativeSkeletonBlock(width: 22, height: 22, cornerRadius: 6)
+                  NativeSkeletonBlock(width: 188, height: 12, cornerRadius: 4)
+                }
+                HStack(spacing: 8) {
+                  NativeSkeletonBlock(width: 22, height: 22, cornerRadius: 6)
+                  NativeSkeletonBlock(width: 206, height: 12, cornerRadius: 4)
+                }
+                HStack(spacing: 6) {
+                  NativeSkeletonBlock(width: 44, height: 18, cornerRadius: 9)
+                  NativeSkeletonBlock(width: 56, height: 18, cornerRadius: 9)
+                  NativeSkeletonBlock(width: 52, height: 18, cornerRadius: 9)
+                }
+              }
+            }
+          }
+        }
+        .nativeSkeletonShimmer()
+
+        sectionHeader("已挂载存储", count: 0)
+        NativeCardListSkeletonView(count: 2, style: .groupedIconList)
+      }
+
+    case .services:
+      VStack(alignment: .leading, spacing: 14) {
+        sectionHeader("下载器", count: 0)
+        NativeCardListSkeletonView(count: 2, style: .iconRow)
+        sectionHeader("媒体服务器", count: 0)
+        NativeCardListSkeletonView(count: 2, style: .iconRow)
+      }
+
+    case .notifications:
+      VStack(alignment: .leading, spacing: 14) {
+        sectionHeader("通知渠道", count: 0)
+        VStack(spacing: 14) {
+          ForEach(0..<3, id: \.self) { _ in
+            CinematicPanel(padding: 15) {
+              VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 13) {
+                  NativeSkeletonBlock(width: 42, height: 42, cornerRadius: 11)
+                  VStack(alignment: .leading, spacing: 4) {
+                    NativeSkeletonBlock(width: 112, height: 16, cornerRadius: 5)
+                    NativeSkeletonBlock(width: 148, height: 12, cornerRadius: 4)
+                  }
+                  Spacer()
+                  NativeSkeletonBlock(width: 48, height: 20, cornerRadius: 10)
+                }
+                HStack(spacing: 6) {
+                  NativeSkeletonBlock(width: 52, height: 18, cornerRadius: 9)
+                  NativeSkeletonBlock(width: 58, height: 18, cornerRadius: 9)
+                  NativeSkeletonBlock(width: 48, height: 18, cornerRadius: 9)
+                }
+              }
+            }
+          }
+        }
+        .nativeSkeletonShimmer()
+      }
+
+    case .rules:
+      VStack(alignment: .leading, spacing: 14) {
+        sectionHeader("优先级规则组", count: 0)
+        VStack(spacing: 12) {
+          ForEach(0..<2, id: \.self) { _ in
+            CinematicPanel(padding: 13) {
+              VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                  NativeSkeletonBlock(width: 116, height: 16, cornerRadius: 5)
+                  Spacer()
+                  NativeSkeletonBlock(width: 42, height: 18, cornerRadius: 9)
+                }
+                NativeSkeletonBlock(height: 12, cornerRadius: 4)
+                NativeSkeletonBlock(width: 196, height: 12, cornerRadius: 4)
+              }
+            }
+          }
+        }
+        .nativeSkeletonShimmer()
+
+        sectionHeader("自定义识别词", count: 0)
+        CinematicPanel(padding: 13) {
+          VStack(alignment: .leading, spacing: 8) {
+            ForEach(0..<4, id: \.self) { idx in
+              if idx > 0 { Divider().overlay(.primary.opacity(0.08)) }
+              NativeSkeletonBlock(
+                width: idx.isMultiple(of: 2) ? 210 : 168, height: 12, cornerRadius: 4)
+            }
+          }
+        }
+        .nativeSkeletonShimmer()
+      }
+
+    case .scraping:
+      VStack(alignment: .leading, spacing: 12) {
+        sectionHeader("刮削元数据开关", count: Self.scrapingLabels.count)
+        CinematicPanel(padding: 14) {
+          VStack(spacing: 12) {
+            ForEach(0..<min(max(Self.scrapingLabels.count, 6), 8), id: \.self) { idx in
+              if idx > 0 { Divider().overlay(.primary.opacity(0.08)) }
+              HStack {
+                NativeSkeletonBlock(
+                  width: idx.isMultiple(of: 2) ? 148 : 124, height: 15, cornerRadius: 5)
+                Spacer()
+                NativeSkeletonBlock(width: 48, height: 28, cornerRadius: 14)
+              }
+            }
+          }
+        }
+        .nativeSkeletonShimmer()
+      }
+
+    case .nettest:
+      VStack(alignment: .leading, spacing: 12) {
+        sectionHeader("网络连通性测试", count: 0)
+        NativeCardListSkeletonView(count: 5, style: .iconRow, showsIcon: false)
       }
     }
   }

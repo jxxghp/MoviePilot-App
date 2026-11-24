@@ -47,7 +47,6 @@ import androidx.compose.material.icons.rounded.ZoomOut
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -102,9 +101,15 @@ import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.LocalSnackbarHostState
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
+import com.moviepilot.designsystem.NativeCardListSkeleton
 import com.moviepilot.designsystem.NativeGlassFab
 import com.moviepilot.designsystem.NativeGlassSheet
 import com.moviepilot.designsystem.NativeNetworkEntityLogo
+import com.moviepilot.designsystem.NativeSkeletonBlock
+import com.moviepilot.designsystem.ProvideSkeletonShimmer
+import com.moviepilot.designsystem.SkeletonCardStyle
+import com.moviepilot.designsystem.SkeletonSurfaceRole
+import com.moviepilot.designsystem.skeletonRootSemantics
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.RustCoreBridge
 import com.moviepilot.rustbridge.SiteItemDto
@@ -112,6 +117,7 @@ import com.moviepilot.rustbridge.SiteUserDataPointDto
 import com.moviepilot.rustbridge.WorkflowActionDto
 import com.moviepilot.rustbridge.WorkflowItemDto
 import com.moviepilot.rustbridge.WorkflowShareDto
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -137,7 +143,8 @@ fun WorkflowsScreen(
 
     var workflows by remember { mutableStateOf<List<WorkflowItemDto>>(emptyList()) }
     var shares by remember { mutableStateOf<List<WorkflowShareDto>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    var isLoadingMy by remember { mutableStateOf(true) }
+    var isLoadingShares by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     var confirmDeleteWorkflow by remember { mutableStateOf<WorkflowItemDto?>(null) }
     var forkedShareIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
@@ -146,24 +153,30 @@ fun WorkflowsScreen(
     suspend fun loadPage(page: Int) {
         if (page == 0) {
             workflows = repository.fetchWorkflows()
+            isLoadingMy = false
         } else {
             shares = repository.fetchWorkflowShares(1)
+            isLoadingShares = false
         }
-        isLoading = false
         isRefreshing = false
     }
 
     LaunchedEffect(Unit) {
-        loadPage(0)
-        loadPage(1)
+        coroutineScope {
+            launch { loadPage(0) }
+            launch { loadPage(1) }
+        }
     }
+
+    val myTabTitle = if (isLoadingMy && workflows.isEmpty()) "我的工作流" else "我的工作流 (${workflows.size})"
+    val sharesTabTitle = if (isLoadingShares && shares.isEmpty()) "社区分享" else "社区分享 (${shares.size})"
 
     ExpressiveTintedScaffold(
         title = "工作流",
         onBack = onBack,
         headerExtra = {
             ExpressivePillTabRow(
-                tabs = listOf("我的工作流 (${workflows.size})", "社区分享 (${shares.size})"),
+                tabs = listOf(myTabTitle, sharesTabTitle),
                 selectedIndex = pagerState.currentPage,
                 onSelect = { idx -> scope.launch { pagerState.animateScrollToPage(idx) } },
                 onTintedHeader = true,
@@ -179,10 +192,17 @@ fun WorkflowsScreen(
                 },
                 modifier = Modifier.fillMaxSize(),
             ) {
-                if (isLoading && workflows.isEmpty() && shares.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = colors.accent)
-                    }
+                val pageInitialLoading = if (pageIdx == 0) {
+                    isLoadingMy && workflows.isEmpty()
+                } else {
+                    isLoadingShares && shares.isEmpty()
+                }
+                if (pageInitialLoading) {
+                    NativeCardListSkeleton(
+                        style = SkeletonCardStyle.WorkflowCard,
+                        count = 4,
+                        contentPadding = PaddingValues(start = margin, end = margin, top = 14.dp, bottom = 96.dp + bottomOverlayInset),
+                    )
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(start = margin, end = margin, top = 14.dp, bottom = 96.dp + bottomOverlayInset),
@@ -690,6 +710,7 @@ fun SitesScreen(
     val listState = rememberLazyListState()
 
     var sites by remember { mutableStateOf<List<SiteItemDto>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     var selectedSiteForData by remember { mutableStateOf<SiteItemDto?>(null) }
     var editingSite by remember { mutableStateOf<SiteItemDto?>(null) }
@@ -700,6 +721,7 @@ fun SitesScreen(
     suspend fun loadSites() {
         val fetched = repository.fetchSites()
         sites = fetched
+        isLoading = false
         isRefreshing = false
         fetched.forEach { s ->
             repository.resolveImageUrl(s.iconUrl)?.let { loadedIcons[s.id] = it }
@@ -717,7 +739,7 @@ fun SitesScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         ExpressiveTintedScaffold(
-            title = "站点管理 (${sites.size})",
+            title = if (isLoading && sites.isEmpty()) "站点管理" else "站点管理 (${sites.size})",
             onBack = onBack,
         ) {
             PullToRefreshBox(
@@ -728,13 +750,36 @@ fun SitesScreen(
                 },
                 modifier = Modifier.fillMaxSize(),
             ) {
-                LazyColumn(
-                    state = listState,
-                    contentPadding = PaddingValues(start = margin, end = margin, top = 14.dp, bottom = 96.dp + bottomOverlayInset),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    items(sites, key = { it.id }) { site ->
+                if (isLoading && sites.isEmpty()) {
+                    NativeCardListSkeleton(
+                        style = SkeletonCardStyle.SiteCard,
+                        count = 5,
+                        columns = AdaptiveDeviceLayout.cardGridColumns(),
+                        contentPadding = PaddingValues(start = margin, end = margin, top = 14.dp, bottom = 96.dp + bottomOverlayInset),
+                    )
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        contentPadding = PaddingValues(start = margin, end = margin, top = 14.dp, bottom = 96.dp + bottomOverlayInset),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        if (sites.isEmpty()) {
+                            item {
+                                CinematicPanel(padding = 28.dp, showsShadow = false) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        Icon(Icons.Rounded.WifiTethering, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(38.dp))
+                                        Text("暂未配置站点", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                        Text("点击右下角「新增站点」即可添加 PT/BT 站点配置并追踪上传下载流量。", color = colors.textSecondary, fontSize = 13.sp, textAlign = TextAlign.Center)
+                                    }
+                                }
+                            }
+                        }
+                        items(sites, key = { it.id }) { site ->
                         val iconData = loadedIcons[site.id] ?: repository.resolveImageUrl(site.iconUrl)
                         val totalTraffic = (site.uploadBytes + site.downloadBytes).coerceAtLeast(1.0)
                         val hasTraffic = site.uploadBytes > 0.0 || site.downloadBytes > 0.0
@@ -850,6 +895,7 @@ fun SitesScreen(
                                                     .background(colors.pink),
                                             )
                                         }
+                                    }
                                     }
                                 }
                             }
@@ -1017,7 +1063,7 @@ private fun SiteDataDetailSheet(
     val colors = LocalMoviePilotColors.current
     val scope = rememberCoroutineScope()
     var history by remember(site.id) { mutableStateOf<List<SiteUserDataPointDto>>(emptyList()) }
-    var refreshing by remember { mutableStateOf(false) }
+    var refreshing by remember(site.id) { mutableStateOf(true) }
 
     suspend fun loadHistory() {
         refreshing = true
@@ -1109,81 +1155,157 @@ private fun SiteDataDetailSheet(
                             Icon(Icons.AutoMirrored.Rounded.ShowChart, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(18.dp))
                             Text("历史流量趋势", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                         }
-                        Text("最近 ${points.size} 天 · GB", color = colors.textMuted, fontSize = 12.sp)
+                        if (refreshing && history.isEmpty()) {
+                            ProvideSkeletonShimmer {
+                                NativeSkeletonBlock(
+                                    cornerRadius = 4.dp,
+                                    role = SkeletonSurfaceRole.Bar,
+                                    modifier = Modifier.size(width = 78.dp, height = 12.dp),
+                                )
+                            }
+                        } else {
+                            Text("最近 ${points.size} 天 · GB", color = colors.textMuted, fontSize = 12.sp)
+                        }
                     }
 
-                    val gb = 1024.0 * 1024.0 * 1024.0
-                    val upGb = points.map { (it.uploadBytes / gb).toFloat() }
-                    val dlGb = points.map { (it.downloadBytes / gb).toFloat() }
-                    val maxY = maxOf(upGb.maxOrNull() ?: 1f, dlGb.maxOrNull() ?: 1f, 10f) * 1.18f
-
-                    Row(modifier = Modifier.fillMaxWidth().height(160.dp)) {
-                        Column(
-                            modifier = Modifier.width(42.dp).height(160.dp),
-                            verticalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            listOf(maxY, maxY * 0.75f, maxY * 0.5f, maxY * 0.25f, 0f).forEach { v ->
-                                Text("${v.roundToInt()}", color = colors.textMuted, fontSize = 10.sp)
-                            }
-                        }
-                        Canvas(modifier = Modifier.weight(1f).height(160.dp)) {
-                            val w = size.width
-                            val h = size.height
-                            val dash = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
-                            for (i in 0..4) {
-                                val y = h * (i / 4f)
-                                drawLine(colors.divider, Offset(0f, y), Offset(w, y), strokeWidth = 1f, pathEffect = dash)
-                            }
-
-                            fun drawSeries(values: List<Float>, strokeColor: Color) {
-                                if (values.isEmpty()) return
-                                val line = Path()
-                                val area = Path()
-                                val count = values.size.coerceAtLeast(2)
-                                values.forEachIndexed { idx, v ->
-                                    val x = if (values.size == 1) w else w * idx / (count - 1f)
-                                    val y = h - (v / maxY).coerceIn(0f, 1f) * h
-                                    if (idx == 0) {
-                                        line.moveTo(x, y)
-                                        area.moveTo(x, h)
-                                        area.lineTo(x, y)
-                                    } else {
-                                        line.lineTo(x, y)
-                                        area.lineTo(x, y)
+                    if (refreshing && history.isEmpty()) {
+                        ProvideSkeletonShimmer {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .skeletonRootSemantics(),
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(160.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.Bottom,
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .width(34.dp)
+                                            .height(160.dp),
+                                        verticalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        repeat(5) {
+                                            NativeSkeletonBlock(
+                                                cornerRadius = 4.dp,
+                                                role = SkeletonSurfaceRole.Bar,
+                                                modifier = Modifier.size(width = 26.dp, height = 10.dp),
+                                            )
+                                        }
                                     }
-                                    if (idx == values.lastIndex) {
-                                        area.lineTo(x, h)
-                                        area.close()
+                                    Row(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(160.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.Bottom,
+                                    ) {
+                                        listOf(0.42f, 0.54f, 0.48f, 0.68f, 0.62f, 0.78f, 0.86f, 0.94f).forEach { frac ->
+                                            NativeSkeletonBlock(
+                                                cornerRadius = 7.dp,
+                                                role = SkeletonSurfaceRole.Bar,
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height((160 * frac).dp),
+                                            )
+                                        }
                                     }
                                 }
-                                drawPath(
-                                    area,
-                                    brush = Brush.verticalGradient(listOf(strokeColor.copy(alpha = 0.34f), Color.Transparent)),
-                                )
-                                drawPath(line, color = strokeColor, style = Stroke(width = 2.6.dp.toPx(), cap = StrokeCap.Round))
-                            }
-
-                            drawSeries(upGb, colors.success)
-                            drawSeries(dlGb, colors.warning)
-                        }
-                    }
-
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                Box(Modifier.size(8.dp).clip(CircleShape).background(colors.success))
-                                Text("上传量", color = colors.textSecondary, fontSize = 12.sp)
-                            }
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                Box(Modifier.size(8.dp).clip(CircleShape).background(colors.warning))
-                                Text("下载量", color = colors.textSecondary, fontSize = 12.sp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    NativeSkeletonBlock(
+                                        cornerRadius = 4.dp,
+                                        role = SkeletonSurfaceRole.Bar,
+                                        modifier = Modifier.size(width = 112.dp, height = 12.dp),
+                                    )
+                                    NativeSkeletonBlock(
+                                        cornerRadius = 4.dp,
+                                        role = SkeletonSurfaceRole.Bar,
+                                        modifier = Modifier.size(width = 84.dp, height = 11.dp),
+                                    )
+                                }
                             }
                         }
-                        Text(
-                            text = listOfNotNull(points.firstOrNull()?.updatedDay?.takeLast(5), points.lastOrNull()?.updatedDay?.takeLast(5)).distinct().joinToString(" ~ "),
-                            color = colors.textMuted,
-                            fontSize = 11.sp,
-                        )
+                    } else {
+                        val gb = 1024.0 * 1024.0 * 1024.0
+                        val upGb = points.map { (it.uploadBytes / gb).toFloat() }
+                        val dlGb = points.map { (it.downloadBytes / gb).toFloat() }
+                        val maxY = maxOf(upGb.maxOrNull() ?: 1f, dlGb.maxOrNull() ?: 1f, 10f) * 1.18f
+
+                        Row(modifier = Modifier.fillMaxWidth().height(160.dp)) {
+                            Column(
+                                modifier = Modifier.width(42.dp).height(160.dp),
+                                verticalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                listOf(maxY, maxY * 0.75f, maxY * 0.5f, maxY * 0.25f, 0f).forEach { v ->
+                                    Text("${v.roundToInt()}", color = colors.textMuted, fontSize = 10.sp)
+                                }
+                            }
+                            Canvas(modifier = Modifier.weight(1f).height(160.dp)) {
+                                val w = size.width
+                                val h = size.height
+                                val dash = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
+                                for (i in 0..4) {
+                                    val y = h * (i / 4f)
+                                    drawLine(colors.divider, Offset(0f, y), Offset(w, y), strokeWidth = 1f, pathEffect = dash)
+                                }
+
+                                fun drawSeries(values: List<Float>, strokeColor: Color) {
+                                    if (values.isEmpty()) return
+                                    val line = Path()
+                                    val area = Path()
+                                    val count = values.size.coerceAtLeast(2)
+                                    values.forEachIndexed { idx, v ->
+                                        val x = if (values.size == 1) w else w * idx / (count - 1f)
+                                        val y = h - (v / maxY).coerceIn(0f, 1f) * h
+                                        if (idx == 0) {
+                                            line.moveTo(x, y)
+                                            area.moveTo(x, h)
+                                            area.lineTo(x, y)
+                                        } else {
+                                            line.lineTo(x, y)
+                                            area.lineTo(x, y)
+                                        }
+                                        if (idx == values.lastIndex) {
+                                            area.lineTo(x, h)
+                                            area.close()
+                                        }
+                                    }
+                                    drawPath(
+                                        area,
+                                        brush = Brush.verticalGradient(listOf(strokeColor.copy(alpha = 0.34f), Color.Transparent)),
+                                    )
+                                    drawPath(line, color = strokeColor, style = Stroke(width = 2.6.dp.toPx(), cap = StrokeCap.Round))
+                                }
+
+                                drawSeries(upGb, colors.success)
+                                drawSeries(dlGb, colors.warning)
+                            }
+                        }
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Box(Modifier.size(8.dp).clip(CircleShape).background(colors.success))
+                                    Text("上传量", color = colors.textSecondary, fontSize = 12.sp)
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Box(Modifier.size(8.dp).clip(CircleShape).background(colors.warning))
+                                    Text("下载量", color = colors.textSecondary, fontSize = 12.sp)
+                                }
+                            }
+                            Text(
+                                text = listOfNotNull(points.firstOrNull()?.updatedDay?.takeLast(5), points.lastOrNull()?.updatedDay?.takeLast(5)).distinct().joinToString(" ~ "),
+                                color = colors.textMuted,
+                                fontSize = 11.sp,
+                            )
+                        }
                     }
                 }
             }

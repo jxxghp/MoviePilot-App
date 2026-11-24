@@ -142,6 +142,30 @@ struct NativeMediaServerDetailPage: View {
             )
             .ignoresSafeArea(edges: .top)
           }
+        } else if !loadFailed {
+          if hasHorizontalInset {
+            Color.clear
+              .frame(width: viewportWidth, height: 1)
+              .overlay(alignment: .topLeading) {
+                loadingHeroBackdrop(
+                  width: backdropWidth,
+                  height: heroHeight,
+                  progress: progress,
+                  eased: eased
+                )
+                .ignoresSafeArea(edges: [.top, .horizontal])
+              }
+              .allowsHitTesting(false)
+              .accessibilityHidden(true)
+          } else {
+            loadingHeroBackdrop(
+              width: viewportWidth,
+              height: heroHeight,
+              progress: progress,
+              eased: eased
+            )
+            .ignoresSafeArea(edges: .top)
+          }
         }
 
         ScrollView {
@@ -223,7 +247,18 @@ struct NativeMediaServerDetailPage: View {
                 .padding(.top, 110)
                 .frame(maxWidth: .infinity)
             } else {
-              NativeMediaDetailSkeletonView(heroHeight: heroHeight)
+              NativeMediaServerDetailSkeletonView(
+                heroHeight: heroHeight,
+                viewportWidth: viewportWidth,
+                horizontalMargin: margin,
+                isWide: isWide,
+                isCompactLandscape: isCompactLandscape,
+                fallbackTitle: fallbackTitle,
+                fallbackItemType: fallbackItemType,
+                canSubscribe: canSubscribe,
+                canSearchResources: canSearchResources
+              )
+              .transition(.opacity)
             }
           }
           .frame(maxWidth: .infinity)
@@ -278,6 +313,72 @@ struct NativeMediaServerDetailPage: View {
         Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
           .opacity(max(0, 1 - Double(progress) * 1.15) * 0.55)
       }
+    }
+  }
+
+  /// 详情加载期间的全幅背景图：若已携带列表海报/剧照则无缝铺底，否则渲染通透呼吸流光背景。
+  @ViewBuilder
+  private func loadingHeroBackdrop(
+    width: CGFloat, height: CGFloat, progress: CGFloat, eased: CGFloat
+  ) -> some View {
+    let pullDown = max(scrollOffset, 0)
+    let backdropHeight = height * 1.06 + pullDown
+    if let fallbackPoster, !fallbackPoster.isEmpty {
+      let scrollUp = max(-scrollOffset, 0)
+      let parallax = reduceMotion ? 0 : -min(scrollUp, height) * 0.08
+      let visibility = max(0, 1 - Double(eased) * 0.96)
+      let isLight = colorScheme == .light
+      let fadeBase =
+        isLight
+        ? NativeTheme.topVeilColor(for: .light, appearance: appearance)
+        : Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
+      ZStack(alignment: .bottom) {
+        NativeMediaArtwork(
+          session: session, reference: fallbackPoster, role: .backdrop, maximumWidth: 1280
+        )
+        .frame(width: width, height: backdropHeight)
+        .clipped()
+
+        LinearGradient(
+          stops: isLight
+            ? [
+              .init(color: .clear, location: 0.48),
+              .init(color: fadeBase.opacity(0.42), location: 0.68),
+              .init(color: fadeBase.opacity(0.88), location: 0.86),
+              .init(color: fadeBase, location: 1),
+            ]
+            : [
+              .init(color: .clear, location: 0.48),
+              .init(color: fadeBase.opacity(0.38), location: 0.68),
+              .init(color: fadeBase.opacity(0.86), location: 0.88),
+              .init(color: fadeBase, location: 1),
+            ],
+          startPoint: .top,
+          endPoint: .bottom
+        )
+        .frame(width: width, height: backdropHeight)
+      }
+      .offset(y: parallax)
+      .mask(alignment: .top) {
+        LinearGradient(
+          stops: [
+            .init(color: .white, location: 0),
+            .init(color: .white, location: 0.58),
+            .init(color: .white.opacity(0.86), location: 0.72),
+            .init(color: .white.opacity(0.38), location: 0.86),
+            .init(color: .clear, location: 1),
+          ],
+          startPoint: .top,
+          endPoint: .bottom
+        )
+        .frame(height: backdropHeight)
+        .offset(y: min(scrollOffset, 0) * 0.85)
+      }
+      .opacity(progress >= 0.99 ? 0 : visibility)
+      .allowsHitTesting(false)
+      .accessibilityHidden(true)
+    } else {
+      NativeHeroBackdropSkeletonView(width: width, height: backdropHeight)
     }
   }
 
@@ -889,11 +990,9 @@ struct NativeMediaServerDetailPage: View {
   // MARK: - Collection Items Section (BoxSet -> Child Items)
 
   private func collectionGridColumns(for width: CGFloat) -> [GridItem] {
-    let count =
-      width > 0
-      ? NativeDeviceLayout.posterGridCount(
-        for: min(width, 1020), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
-      : (horizontalSizeClass == .regular ? 5 : 3)
+    let resolved = NativeDeviceLayout.resolvedContainerWidth(width)
+    let count = NativeDeviceLayout.posterGridCount(
+      for: min(resolved, 1020), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
     return Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: count)
   }
 
@@ -2957,6 +3056,430 @@ private struct MediaServerDetailLegacyScrollProbe: ViewModifier {
           )
         }
         .frame(height: 0)
+      }
+    }
+  }
+}
+
+/// 媒体服务器详情页专属占位骨架布局：按 `fallbackItemType` 1:1 匹配电影/剧集/季/集/合集/音乐专辑的头图信息区、双行或紧凑单行操作栏、播前轨道选择器、16:9 横版分集剧照、简介、演职员、类似作品、外部链接、媒体流信息与元数据面板。
+@MainActor
+struct NativeMediaServerDetailSkeletonView: View {
+  let heroHeight: CGFloat
+  let viewportWidth: CGFloat
+  let horizontalMargin: CGFloat
+  let isWide: Bool
+  let isCompactLandscape: Bool
+  let fallbackTitle: String?
+  let fallbackItemType: String?
+  let canSubscribe: Bool
+  let canSearchResources: Bool
+
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+  private var kind: MediaServerItemKind {
+    let parsed = MediaServerItemKind(rawItemType: fallbackItemType)
+    if case .other(let raw) = parsed, raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      return .movie
+    }
+    return parsed
+  }
+
+  var body: some View {
+    let isLight = colorScheme == .light
+    let useSingleActionRow = isCompactLandscape && !dynamicTypeSize.isAccessibilitySize
+    let supportsExternalActions =
+      (kind == .movie || kind.isTelevisionHierarchy) && (canSubscribe || canSearchResources)
+
+    VStack(alignment: .leading, spacing: 0) {
+      VStack(alignment: .center, spacing: isCompactLandscape ? 5 : 10) {
+        Spacer(minLength: isCompactLandscape ? 44 : 0)
+
+        if let fallbackTitle,
+          !fallbackTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+          NativeHeroPosterTitleView(
+            title: fallbackTitle,
+            isAccessibilitySize: dynamicTypeSize.isAccessibilitySize,
+            isWide: isWide,
+            isCompactLandscape: isCompactLandscape,
+            textAlignment: .center,
+            color: isLight ? Color.primary : Color.white
+          )
+        } else {
+          NativeSkeletonBlock(
+            width: isCompactLandscape ? 180 : 220,
+            height: isCompactLandscape ? 32 : 46,
+            cornerRadius: 10
+          )
+        }
+
+        NativeSkeletonBlock(width: 176, height: 14, cornerRadius: 6)
+
+        HStack(spacing: 6) {
+          NativeSkeletonBlock(width: 44, height: 20, cornerRadius: 10)
+          NativeSkeletonBlock(width: 58, height: 20, cornerRadius: 10)
+        }
+
+        HStack(spacing: 6) {
+          ForEach(0..<3, id: \.self) { _ in
+            NativeSkeletonBlock(width: 48, height: 20, cornerRadius: 10)
+          }
+        }
+      }
+      .padding(.horizontal, horizontalMargin)
+      .padding(.bottom, isCompactLandscape ? 8 : 16)
+      .frame(maxWidth: 1020, minHeight: heroHeight, alignment: .bottom)
+      .frame(maxWidth: .infinity)
+
+      VStack(alignment: .leading, spacing: isCompactLandscape ? 16 : 22) {
+        if kind == .season || kind == .episode {
+          HStack(spacing: 8) {
+            NativeSkeletonBlock(width: 96, height: 28, cornerRadius: 14)
+            if kind == .episode {
+              NativeSkeletonBlock(width: 8, height: 12, cornerRadius: 4)
+              NativeSkeletonBlock(width: 78, height: 28, cornerRadius: 14)
+            }
+          }
+        }
+
+        if useSingleActionRow {
+          HStack(spacing: 10) {
+            NativeSkeletonBlock(height: 48, cornerRadius: 24)
+            if supportsExternalActions {
+              if canSubscribe {
+                NativeSkeletonBlock(height: 48, cornerRadius: 24)
+              }
+              if canSearchResources {
+                NativeSkeletonBlock(height: 48, cornerRadius: 24)
+              }
+            }
+            NativeSkeletonBlock(width: 48, height: 48, cornerRadius: 24)
+          }
+        } else {
+          VStack(spacing: 10) {
+            HStack(spacing: 10) {
+              NativeSkeletonBlock(height: 48, cornerRadius: 24)
+              NativeSkeletonBlock(width: 48, height: 48, cornerRadius: 24)
+            }
+            if supportsExternalActions {
+              HStack(spacing: 10) {
+                if canSubscribe {
+                  NativeSkeletonBlock(height: 46, cornerRadius: 23)
+                }
+                if canSearchResources {
+                  NativeSkeletonBlock(height: 46, cornerRadius: 23)
+                }
+              }
+            }
+          }
+        }
+
+        if kind.isDirectlyPlayable {
+          prePlaySelectorSkeleton
+        }
+
+        middleKindSection
+
+        CinematicPanel(padding: 18) {
+          VStack(alignment: .leading, spacing: 8) {
+            Text("剧情简介")
+              .font(.headline)
+            NativeSkeletonBlock(height: 13, cornerRadius: 5)
+            NativeSkeletonBlock(height: 13, cornerRadius: 5)
+            NativeSkeletonBlock(width: 210, height: 13, cornerRadius: 5)
+          }
+        }
+
+        if kind != .audio {
+          castSectionSkeleton
+        }
+
+        if kind == .movie || kind == .series {
+          similarWorksSkeleton
+        }
+
+        externalLinksSkeleton
+
+        if kind != .boxSet && kind != .folder {
+          mediaStreamsSkeleton
+        }
+
+        metadataCardSkeleton
+      }
+      .frame(maxWidth: 1020, alignment: .leading)
+      .padding(.horizontal, horizontalMargin)
+      .padding(.top, 8)
+      .padding(.bottom, 40)
+      .frame(maxWidth: .infinity)
+    }
+    .nativeSkeletonShimmer()
+  }
+
+  private var prePlaySelectorSkeleton: some View {
+    let rowLabels = kind == .audio ? ["音频", "音轨"] : ["视频", "音轨", "字幕"]
+    return CinematicPanel(padding: 0) {
+      VStack(spacing: 0) {
+        ForEach(Array(rowLabels.enumerated()), id: \.offset) { idx, label in
+          if idx > 0 {
+            Divider().overlay(.primary.opacity(0.10)).padding(.leading, 16)
+          }
+          HStack(spacing: 12) {
+            Text(label)
+              .font(.subheadline.weight(.medium))
+              .foregroundStyle(.primary.opacity(0.76))
+            Spacer(minLength: 12)
+            NativeSkeletonBlock(width: idx == 0 ? 156 : 112, height: 14, cornerRadius: 5)
+          }
+          .padding(.horizontal, 16)
+          .padding(.vertical, 13)
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var middleKindSection: some View {
+    switch kind {
+    case .series:
+      seasonsStripSkeleton
+      landscapeEpisodesSkeleton
+    case .season:
+      landscapeEpisodesSkeleton
+    case .episode:
+      adjacentEpisodesSkeleton
+    case .boxSet:
+      let cols = NativeDeviceLayout.posterGridCount(
+        for: min(max(viewportWidth, 320), 1020),
+        isAccessibilitySize: dynamicTypeSize.isAccessibilitySize
+      )
+      VStack(alignment: .leading, spacing: 12) {
+        HStack {
+          Text("合集内容")
+            .font(.title3.weight(.bold))
+          Spacer()
+          NativeSkeletonBlock(width: 48, height: 12, cornerRadius: 5)
+        }
+        NativePosterGridSkeletonView(
+          columns: cols,
+          count: cols * 2,
+          cornerRadius: 12
+        )
+      }
+    case .musicAlbum:
+      VStack(alignment: .leading, spacing: 12) {
+        HStack {
+          Text("曲目列表")
+            .font(.title3.weight(.bold))
+          Spacer()
+          NativeSkeletonBlock(width: 48, height: 12, cornerRadius: 5)
+        }
+        NativeCardListSkeletonView(count: 6, style: .trackList)
+      }
+    default:
+      EmptyView()
+    }
+  }
+
+  private var seasonsStripSkeleton: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack {
+        Text("分季")
+          .font(.title3.weight(.bold))
+        Spacer()
+        NativeSkeletonBlock(width: 48, height: 12, cornerRadius: 5)
+      }
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(alignment: .top, spacing: 12) {
+          ForEach(0..<4, id: \.self) { _ in
+            VStack(alignment: .leading, spacing: 6) {
+              NativeSkeletonBlock(width: 112, height: 168, cornerRadius: 12)
+              NativeSkeletonBlock(width: 72, height: 12, cornerRadius: 5)
+              NativeSkeletonBlock(width: 38, height: 10, cornerRadius: 4)
+            }
+            .frame(width: 112, alignment: .leading)
+          }
+        }
+      }
+      .allowsHitTesting(false)
+    }
+  }
+
+  private var landscapeEpisodesSkeleton: some View {
+    let cardWidth: CGFloat = isWide ? 252 : 224
+    let thumbHeight: CGFloat = isWide ? 142 : 126
+    return VStack(alignment: .leading, spacing: 12) {
+      HStack {
+        Text("剧集列表")
+          .font(.title3.weight(.bold))
+        Spacer()
+        NativeSkeletonBlock(width: 58, height: 22, cornerRadius: 11)
+      }
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(alignment: .top, spacing: 12) {
+          ForEach(0..<4, id: \.self) { _ in
+            VStack(alignment: .leading, spacing: 7) {
+              NativeSkeletonBlock(width: cardWidth, height: thumbHeight, cornerRadius: 13)
+              NativeSkeletonBlock(width: cardWidth * 0.64, height: 14, cornerRadius: 5)
+              NativeSkeletonBlock(width: cardWidth * 0.90, height: 11, cornerRadius: 4)
+              NativeSkeletonBlock(width: cardWidth * 0.70, height: 11, cornerRadius: 4)
+            }
+            .frame(width: cardWidth, alignment: .leading)
+          }
+        }
+      }
+      .allowsHitTesting(false)
+    }
+  }
+
+  private var adjacentEpisodesSkeleton: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("本季更多剧集")
+        .font(.headline)
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(alignment: .top, spacing: 10) {
+          ForEach(0..<5, id: \.self) { _ in
+            VStack(alignment: .leading, spacing: 5) {
+              NativeSkeletonBlock(width: 146, height: 82, cornerRadius: 10)
+              NativeSkeletonBlock(width: 110, height: 12, cornerRadius: 5)
+            }
+            .frame(width: 146, alignment: .leading)
+          }
+        }
+      }
+      .allowsHitTesting(false)
+    }
+  }
+
+  private var castSectionSkeleton: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("演职员")
+        .font(.title3.weight(.bold))
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(alignment: .top, spacing: 14) {
+          ForEach(0..<8, id: \.self) { _ in
+            VStack(spacing: 6) {
+              NativeSkeletonBlock(width: 68, height: 68, cornerRadius: 34)
+              NativeSkeletonBlock(width: 54, height: 11, cornerRadius: 5)
+              NativeSkeletonBlock(width: 40, height: 10, cornerRadius: 4)
+            }
+            .frame(width: 76)
+          }
+        }
+      }
+      .allowsHitTesting(false)
+    }
+  }
+
+  private var similarWorksSkeleton: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("类似作品")
+        .font(.title3.weight(.bold))
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(alignment: .top, spacing: 12) {
+          ForEach(0..<7, id: \.self) { _ in
+            VStack(alignment: .leading, spacing: 6) {
+              NativeSkeletonBlock(width: 114, height: 171, cornerRadius: 13)
+              NativeSkeletonBlock(width: 84, height: 12, cornerRadius: 5)
+              NativeSkeletonBlock(width: 42, height: 10, cornerRadius: 4)
+            }
+            .frame(width: 114, alignment: .leading)
+          }
+        }
+      }
+      .allowsHitTesting(false)
+    }
+  }
+
+  private var externalLinksSkeleton: some View {
+    let widths: [CGFloat] = [74, 78, 108, 82]
+    return VStack(alignment: .leading, spacing: 12) {
+      Text("链接")
+        .font(.title3.weight(.bold))
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 10) {
+          ForEach(Array(widths.enumerated()), id: \.offset) { _, width in
+            NativeSkeletonBlock(width: width, height: 35, cornerRadius: 17.5)
+          }
+        }
+      }
+      .allowsHitTesting(false)
+    }
+  }
+
+  private var mediaStreamsSkeleton: some View {
+    let cards: [(symbol: String, title: String)] = [
+      ("video", "视频"),
+      ("speaker.wave.2", "音频"),
+      ("captions.bubble", "字幕"),
+    ]
+    let isLight = colorScheme == .light
+    let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+    return VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .firstTextBaseline) {
+        Text("媒体信息")
+          .font(.title3.weight(.bold))
+        Spacer()
+        NativeSkeletonBlock(width: 84, height: 12, cornerRadius: 5)
+      }
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(alignment: .top, spacing: 12) {
+          ForEach(Array(cards.enumerated()), id: \.offset) { _, item in
+            VStack(alignment: .leading, spacing: 10) {
+              HStack(spacing: 8) {
+                Image(systemName: item.symbol)
+                  .font(.subheadline.weight(.medium))
+                  .foregroundStyle(.primary.opacity(0.75))
+                Text(item.title)
+                  .font(.callout.weight(.semibold))
+                  .foregroundStyle(.primary)
+                Spacer(minLength: 0)
+              }
+              .padding(.bottom, 2)
+
+              VStack(alignment: .leading, spacing: 8) {
+                ForEach(0..<4, id: \.self) { row in
+                  HStack(spacing: 10) {
+                    NativeSkeletonBlock(width: 44, height: 12, cornerRadius: 4)
+                    NativeSkeletonBlock(width: row == 0 ? 128 : 96, height: 12, cornerRadius: 4)
+                  }
+                }
+              }
+            }
+            .padding(16)
+            .frame(width: 248, alignment: .topLeading)
+            .background {
+              shape
+                .fill(isLight ? Color.black.opacity(0.035) : Color.white.opacity(0.045))
+                .overlay {
+                  shape.strokeBorder(
+                    isLight ? Color.black.opacity(0.12) : Color.white.opacity(0.14),
+                    lineWidth: 0.8
+                  )
+                }
+            }
+          }
+        }
+      }
+      .allowsHitTesting(false)
+    }
+  }
+
+  private var metadataCardSkeleton: some View {
+    CinematicPanel(padding: 0) {
+      VStack(spacing: 0) {
+        ForEach(0..<4, id: \.self) { idx in
+          if idx > 0 {
+            Divider().overlay(.primary.opacity(0.10)).padding(.leading, 16)
+          }
+          HStack(spacing: 12) {
+            NativeSkeletonBlock(width: 68, height: 14, cornerRadius: 5)
+            Spacer(minLength: 12)
+            NativeSkeletonBlock(width: idx == 0 ? 132 : 96, height: 14, cornerRadius: 5)
+          }
+          .padding(.horizontal, 16)
+          .padding(.vertical, 11)
+        }
       }
     }
   }

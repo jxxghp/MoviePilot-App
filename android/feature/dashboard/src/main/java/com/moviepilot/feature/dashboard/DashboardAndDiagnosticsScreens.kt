@@ -106,9 +106,12 @@ import com.moviepilot.designsystem.LocalBottomOverlayInset
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
+import com.moviepilot.designsystem.NativeCardListSkeleton
+import com.moviepilot.designsystem.NativeDashboardSkeleton
 import com.moviepilot.designsystem.NativeEntityLogo
 import com.moviepilot.designsystem.NativeGlassSheet
 import com.moviepilot.designsystem.NativeSectionHeader
+import com.moviepilot.designsystem.SkeletonCardStyle
 import com.moviepilot.medal3d.CommunityProfile
 import com.moviepilot.medal3d.NativeCommunityMedalsWidget
 import com.moviepilot.pluginhost.NativePluginDataPageView
@@ -217,6 +220,7 @@ fun DashboardScreen(
     }
     var showShortcutsSheet by remember { mutableStateOf(false) }
     var showModulesSheet by remember { mutableStateOf(false) }
+    var isInitialLoading by remember { mutableStateOf(initialCache == null) }
     var isRefreshing by remember { mutableStateOf(false) }
     val modules = remember {
         mutableStateListOf<DashboardModuleToggle>().apply {
@@ -257,6 +261,7 @@ fun DashboardScreen(
                 pluginMetas = metas,
                 pluginWidgets = widgetMap,
             )
+            isInitialLoading = false
             isRefreshing = false
         }
     }
@@ -490,17 +495,20 @@ fun DashboardScreen(
 
             val enabledModules = modules.filter { it.enabled }
 
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = margin,
-                    end = margin,
-                    top = 16.dp,
-                    bottom = bottomOverlayInset + 28.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-            ) {
+            if (isInitialLoading) {
+                NativeDashboardSkeleton()
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = margin,
+                        end = margin,
+                        top = 16.dp,
+                        bottom = bottomOverlayInset + 28.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                ) {
                 var idx = 0
                 while (idx < enabledModules.size) {
                     val mod = enabledModules[idx]
@@ -661,6 +669,7 @@ fun DashboardScreen(
                             }
                         }
                     }
+                }
                 }
             }
         }
@@ -876,9 +885,12 @@ fun MessagesCenterScreen(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     if (isLoading && messages.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = colors.accent)
-                        }
+                        NativeCardListSkeleton(
+                            style = SkeletonCardStyle.MessageCard,
+                            count = 4,
+                            columns = AdaptiveDeviceLayout.cardGridColumns(),
+                            contentPadding = PaddingValues(start = margin, end = margin, top = 8.dp, bottom = bottomOverlayInset + 28.dp),
+                        )
                     } else if (filtered.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize().padding(horizontal = margin), contentAlignment = Alignment.Center) {
                             CinematicPanel(padding = 24.dp) {
@@ -961,9 +973,13 @@ fun MessagesCenterScreen(
                             }
                             if (isLoadingMore) {
                                 item(span = { GridItemSpan(maxLineSpan) }) {
-                                    Box(modifier = Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
-                                        CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(22.dp))
-                                    }
+                                    NativeCardListSkeleton(
+                                        style = SkeletonCardStyle.MessageCard,
+                                        count = cardCols,
+                                        columns = cardCols,
+                                        contentPadding = PaddingValues(0.dp),
+                                        scrollable = false,
+                                    )
                                 }
                             }
                         }
@@ -1115,6 +1131,7 @@ fun ShortcutsDiagnosticsScreen(
         mutableStateOf(if (initialTab in validTools) initialTab else "健康检查")
     }
     var services by remember { mutableStateOf<List<ScheduledServiceDto>>(emptyList()) }
+    var isLoadingServices by remember { mutableStateOf(false) }
     var liveLogs by remember { mutableStateOf<List<String>>(emptyList()) }
     var logLevelFilter by remember { mutableStateOf("全部") }
     var logKeyword by remember { mutableStateOf("") }
@@ -1152,6 +1169,7 @@ fun ShortcutsDiagnosticsScreen(
 
     var activeWordTab by remember { mutableStateOf("识别词") }
     var wordEditorText by remember { mutableStateOf("") }
+    var isLoadingWords by remember { mutableStateOf(false) }
     var saveMsg by remember { mutableStateOf<String?>(null) }
 
     val wordMetas = remember {
@@ -1251,7 +1269,11 @@ fun ShortcutsDiagnosticsScreen(
                 systemModules = repository.fetchSystemModules()
                 isLoadingModules = false
             }
-            "定时服务" -> services = repository.fetchScheduledServices()
+            "定时服务" -> {
+                if (services.isEmpty()) isLoadingServices = true
+                services = repository.fetchScheduledServices()
+                isLoadingServices = false
+            }
             "实时日志" -> {
                 isRefreshingLogs = true
                 liveLogs = repository.fetchSystemLogs(150)
@@ -1261,8 +1283,10 @@ fun ShortcutsDiagnosticsScreen(
     }
     LaunchedEffect(activeWordTab, activeTool) {
         if (activeTool == "词表") {
+            isLoadingWords = true
             val list = repository.fetchCustomWordList(currentWordMeta.key)
             wordEditorText = list.joinToString("\n")
+            isLoadingWords = false
         }
     }
 
@@ -1404,6 +1428,16 @@ fun ShortcutsDiagnosticsScreen(
             ) {
                 when (activeTool) {
                     "词表" -> {
+                        if (isLoadingWords && wordEditorText.isEmpty()) {
+                            item(key = "word_skeleton_$activeWordTab") {
+                                NativeCardListSkeleton(
+                                    style = SkeletonCardStyle.FormPanel,
+                                    count = 2,
+                                    contentPadding = PaddingValues(0.dp),
+                                    scrollable = false,
+                                )
+                            }
+                        } else {
                         item(key = "word_editor_$activeWordTab") {
                             val lineCount = wordEditorText.lines().count { it.isNotBlank() }
                             CinematicPanel(padding = 16.dp) {
@@ -1451,10 +1485,20 @@ fun ShortcutsDiagnosticsScreen(
                                 }
                             }
                         }
+                        }
                     }
 
                     "定时服务" -> {
-                        if (services.isEmpty()) {
+                        if (isLoadingServices && services.isEmpty()) {
+                            item(key = "services_skeleton") {
+                                NativeCardListSkeleton(
+                                    style = SkeletonCardStyle.IconRow,
+                                    count = 5,
+                                    contentPadding = PaddingValues(0.dp),
+                                    scrollable = false,
+                                )
+                            }
+                        } else if (services.isEmpty()) {
                             item {
                                 CinematicPanel(padding = 20.dp) {
                                     Text("暂无已注册的后台定时服务", color = colors.textSecondary, fontSize = 13.5.sp)
@@ -1482,10 +1526,13 @@ fun ShortcutsDiagnosticsScreen(
 
                     "健康检查" -> {
                         if (isLoadingModules && systemModules.isEmpty()) {
-                            item {
-                                Box(modifier = Modifier.fillMaxWidth().padding(vertical = 36.dp), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(color = colors.accent)
-                                }
+                            item(key = "modules_skeleton") {
+                                NativeCardListSkeleton(
+                                    style = SkeletonCardStyle.IconRow,
+                                    count = 5,
+                                    contentPadding = PaddingValues(0.dp),
+                                    scrollable = false,
+                                )
                             }
                         } else if (systemModules.isEmpty()) {
                             item {
@@ -1916,10 +1963,13 @@ fun ShortcutsDiagnosticsScreen(
                             }
                         }
                         if (isRefreshingLogs && liveLogs.isEmpty()) {
-                            item {
-                                Box(modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(color = colors.accent)
-                                }
+                            item(key = "logs_skeleton") {
+                                NativeCardListSkeleton(
+                                    style = SkeletonCardStyle.LogLines,
+                                    count = 8,
+                                    contentPadding = PaddingValues(0.dp),
+                                    scrollable = false,
+                                )
                             }
                         } else if (filteredLogs.isEmpty()) {
                             item {

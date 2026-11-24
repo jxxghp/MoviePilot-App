@@ -46,6 +46,7 @@ struct NativeSubscribeEditorSheet: View {
               .accessibilityIdentifier("native-subscribe-editor-error")
             }
             if isLoading && loaded == nil {
+              filesEntrySection
               NativeCardListSkeletonView(count: 3, style: .formPanel)
                 .transition(.opacity)
             } else if loadFailed && loaded == nil {

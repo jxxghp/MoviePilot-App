@@ -8,6 +8,9 @@ import {
   HarmonyAppearanceStore,
   HarmonyThemeColors,
   HarmonyMainTab,
+  HarmonySkeletonHost,
+  HarmonySkeletonBlock,
+  mpPrimaryText,
   clearEntityLogoCache
 } from '@moviepilot/design_system';
 import {
@@ -61,6 +64,7 @@ const MAIN_TAB_ORDER: HarmonyMainTab[] = ['discover', 'explore', 'subscribe', 'm
 struct Index {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) @Watch('onDarkChanged') isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_PALETTE_ID) paletteId: string = 'harmony_blue';
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_PURE_BLACK) pureBlack: boolean = false;
   @StorageLink(HarmonyAppearanceStore.KEY_BREAKPOINT) breakpoint: string = 'sm';
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
@@ -631,12 +635,55 @@ struct Index {
       CinematicAmbientGradient()
 
       if (this.hydratingSession) {
-        Column() {
-          LoadingProgress().width(34).height(34)
+        HarmonySkeletonHost({ loadingLabel: '正在恢复 MoviePilot 会话', fillHeight: true }) {
+          Column({ space: 14 }) {
+            Stack({ alignContent: Alignment.Center }) {
+              Column()
+                .width(68)
+                .height(68)
+                .borderRadius(20)
+                .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '32' : '1E'))
+                .border({
+                  width: 1,
+                  color: HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '66' : '40'),
+                  radius: 20
+                })
+                .shadow({
+                  radius: 20,
+                  color: HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '44' : '22'),
+                  offsetY: 6
+                })
+              SymbolGlyph($r('sys.symbol.TV_tv_fill'))
+                .fontSize(30)
+                .fontColor([this.accentHex])
+            }
+
+            Text('MoviePilot')
+              .fontSize(20)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(mpPrimaryText(this.isDark))
+
+            Column({ space: 7 }) {
+              HarmonySkeletonBlock({
+                blockWidth: 136,
+                blockHeight: 10,
+                cornerRadius: 5,
+                shimmerSweep: true
+              })
+              HarmonySkeletonBlock({
+                blockWidth: 88,
+                blockHeight: 8,
+                cornerRadius: 4,
+                tone: 'subtle'
+              })
+            }
+            .alignItems(HorizontalAlign.Center)
+          }
+          .width('100%')
+          .height('100%')
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
         }
-        .width('100%')
-        .height('100%')
-        .justifyContent(FlexAlign.Center)
       } else if (this.authStage === 'connect' || this.serverSwitchReturnStage === 'main') {
         HarmonyServerConnectionPage({
           savedServers: this.savedServers,

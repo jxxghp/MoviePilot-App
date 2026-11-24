@@ -649,19 +649,33 @@ fun NativeNetworkEntityLogo(
     cornerRadius: Dp = 10.dp,
     modifier: Modifier = Modifier,
 ) {
+    val colors = LocalMoviePilotColors.current
+    val isPureBlack = LocalAppearanceStore.current.pureBlackDark
+    val skelPalette = remember(colors, isPureBlack) { resolveSkeletonPalette(colors, isPureBlack) }
     var loadFailed by remember(imageUrl) { mutableStateOf(false) }
+    var imageLoaded by remember(imageUrl) { mutableStateOf(false) }
     val shape = RoundedCornerShape(cornerRadius)
     if (!imageUrl.isNullOrBlank() && !loadFailed) {
         Box(
             modifier = modifier
                 .size(size)
-                .clip(shape),
+                .clip(shape)
+                .then(
+                    if (!imageLoaded) {
+                        Modifier
+                            .background(skelPalette.tileFill, shape)
+                            .border(0.6.dp, skelPalette.tileBorder, shape)
+                    } else {
+                        Modifier
+                    },
+                ),
             contentAlignment = Alignment.Center,
         ) {
             AsyncImage(
                 model = imageUrl,
                 contentDescription = value.ifBlank { kind },
                 contentScale = ContentScale.Crop,
+                onSuccess = { imageLoaded = true },
                 onError = { loadFailed = true },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -730,7 +744,11 @@ fun NativePosterCard(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalMoviePilotColors.current
+    val isPureBlack = LocalAppearanceStore.current.pureBlackDark
+    val skelPalette = remember(colors, isPureBlack) { resolveSkeletonPalette(colors, isPureBlack) }
     val shape = RoundedCornerShape((colors.cardRadiusDp - 4).coerceIn(12, 20).dp)
+    var imageFailed by remember(posterUrl) { mutableStateOf(false) }
+    var imageLoaded by remember(posterUrl) { mutableStateOf(false) }
     Column(
         modifier = modifier.clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -740,14 +758,28 @@ fun NativePosterCard(
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
                 .clip(shape)
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                .background(
+                    if (!posterUrl.isNullOrBlank() && !imageFailed && !imageLoaded) {
+                        skelPalette.tileFill
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                    },
+                    shape,
+                )
+                .then(
+                    if (!posterUrl.isNullOrBlank() && !imageFailed && !imageLoaded) {
+                        Modifier.border(0.6.dp, skelPalette.tileBorder, shape)
+                    } else {
+                        Modifier
+                    },
+                ),
         ) {
-            var imageFailed by remember(posterUrl) { mutableStateOf(false) }
             if (!posterUrl.isNullOrBlank() && !imageFailed) {
                 AsyncImage(
                     model = posterUrl,
                     contentDescription = title,
                     contentScale = ContentScale.Crop,
+                    onSuccess = { imageLoaded = true },
                     onError = { imageFailed = true },
                     modifier = Modifier.fillMaxSize(),
                 )

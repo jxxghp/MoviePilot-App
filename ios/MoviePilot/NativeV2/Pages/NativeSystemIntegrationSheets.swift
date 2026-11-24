@@ -259,8 +259,32 @@ struct NativeWidgetSettingsSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
               }
             } else if isLoading && state == nil {
-              NativeCardListSkeletonView(count: 2, style: .formPanel)
-                .transition(.opacity)
+              VStack(spacing: 14) {
+                CinematicPanel(padding: 16) {
+                  VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                      Label("小组件只读授权", systemImage: "square.grid.2x2.fill")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                      Spacer()
+                      NativeSkeletonBlock(width: 48, height: 20, cornerRadius: 10)
+                    }
+                    NativeSkeletonBlock(height: 12, cornerRadius: 4)
+                    Divider().overlay(.primary.opacity(0.10))
+                    HStack(spacing: 12) {
+                      Text("小组件名称")
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                      Spacer()
+                      NativeSkeletonBlock(width: 124, height: 15, cornerRadius: 5)
+                    }
+                    .padding(.vertical, 2)
+                  }
+                }
+                NativeSkeletonBlock(height: 46, cornerRadius: 23)
+              }
+              .nativeSkeletonShimmer()
+              .transition(.opacity)
             } else if let state {
               CinematicPanel(padding: 16) {
                 VStack(alignment: .leading, spacing: 10) {

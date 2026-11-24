@@ -39,8 +39,23 @@ struct NativeUsersPage: View {
             .accessibilityIdentifier("native-users-feedback")
           }
           if isLoading && users.isEmpty {
-            NativeCardListSkeletonView(count: 4, style: .iconRow)
-              .transition(.opacity)
+            VStack(alignment: .leading, spacing: 16) {
+              VStack(alignment: .leading, spacing: 7) {
+                Text("管理员")
+                  .font(.footnote.weight(.medium))
+                  .foregroundStyle(.secondary)
+                  .padding(.horizontal, 6)
+                NativeCardListSkeletonView(count: 1, style: .groupedIconList)
+              }
+              VStack(alignment: .leading, spacing: 7) {
+                Text("普通成员")
+                  .font(.footnote.weight(.medium))
+                  .foregroundStyle(.secondary)
+                  .padding(.horizontal, 6)
+                NativeCardListSkeletonView(count: 3, style: .groupedIconList)
+              }
+            }
+            .transition(.opacity)
           } else if loadFailed && users.isEmpty {
             failureCard
           } else if filteredUsers.isEmpty {

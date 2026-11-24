@@ -87,6 +87,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -101,9 +102,14 @@ import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.LocalSnackbarHostState
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
+import com.moviepilot.designsystem.NativeCardListSkeleton
 import com.moviepilot.designsystem.NativeEntityLogo
 import com.moviepilot.designsystem.NativeGlassFab
 import com.moviepilot.designsystem.NativeGlassSheet
+import com.moviepilot.designsystem.NativeSkeletonBlock
+import com.moviepilot.designsystem.ProvideSkeletonShimmer
+import com.moviepilot.designsystem.SkeletonCardStyle
+import com.moviepilot.designsystem.SkeletonSurfaceRole
 import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.rustbridge.DirectoryConfigDto
 import com.moviepilot.rustbridge.ManualTransferPreviewItemDto
@@ -247,119 +253,146 @@ fun FileManagerScreen(
                 )
             },
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Spacer(Modifier.height(14.dp))
+            ProvideSkeletonShimmer {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Spacer(Modifier.height(14.dp))
 
-                // 顶部玻璃存储选择（带 SMB / 115 / 阿里云盘 / Rclone / 本地 品牌图标）与路径面包屑胶囊
-                CinematicPanel(padding = 10.dp, cornerRadius = 20.dp, showsShadow = false, modifier = Modifier.padding(horizontal = margin)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                            Box {
-                                Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(colors.accent.copy(alpha = 0.18f))
-                                        .border(0.7.dp, colors.accent.copy(alpha = 0.42f), RoundedCornerShape(12.dp))
-                                        .clickable { showStorageMenu = true }
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    NativeEntityLogo(
-                                        kind = "storage",
-                                        value = activeStorage,
-                                        size = 18.dp,
-                                        cornerRadius = 5.dp,
-                                    )
-                                    Text(activeStorageLabel, color = colors.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                    Icon(Icons.Rounded.UnfoldMore, contentDescription = null, tint = colors.accent, modifier = Modifier.size(15.dp))
-                                }
-                                DropdownMenu(expanded = showStorageMenu, onDismissRequest = { showStorageMenu = false }) {
-                                    storages.forEach { st ->
-                                        DropdownMenuItem(
-                                            leadingIcon = {
-                                                NativeEntityLogo(
-                                                    kind = "storage",
-                                                    value = st.type.ifBlank { st.name },
-                                                    size = 20.dp,
-                                                    cornerRadius = 5.dp,
-                                                )
-                                            },
-                                            text = { Text("${st.name} (${st.type})") },
-                                            onClick = {
-                                                activeStorage = st.type
-                                                currentPath = "/"
-                                                showStorageMenu = false
-                                            },
+                    // 顶部玻璃存储选择（带 SMB / 115 / 阿里云盘 / Rclone / 本地 品牌图标）与路径面包屑胶囊
+                    CinematicPanel(padding = 10.dp, cornerRadius = 20.dp, showsShadow = false, modifier = Modifier.padding(horizontal = margin)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                                Box {
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(colors.accent.copy(alpha = 0.18f))
+                                            .border(0.7.dp, colors.accent.copy(alpha = 0.42f), RoundedCornerShape(12.dp))
+                                            .clickable { showStorageMenu = true }
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        NativeEntityLogo(
+                                            kind = "storage",
+                                            value = activeStorage,
+                                            size = 18.dp,
+                                            cornerRadius = 5.dp,
                                         )
+                                        Text(activeStorageLabel, color = colors.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                        Icon(Icons.Rounded.UnfoldMore, contentDescription = null, tint = colors.accent, modifier = Modifier.size(15.dp))
                                     }
-                                }
-                            }
-
-                            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(16.dp))
-
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(colors.chipFill)
-                                    .clickable {
-                                        if (currentPath != "/") {
-                                            currentPath = currentPath.trimEnd('/').substringBeforeLast('/', "").ifBlank { "/" }
+                                    DropdownMenu(expanded = showStorageMenu, onDismissRequest = { showStorageMenu = false }) {
+                                        storages.forEach { st ->
+                                            DropdownMenuItem(
+                                                leadingIcon = {
+                                                    NativeEntityLogo(
+                                                        kind = "storage",
+                                                        value = st.type.ifBlank { st.name },
+                                                        size = 20.dp,
+                                                        cornerRadius = 5.dp,
+                                                    )
+                                                },
+                                                text = { Text("${st.name} (${st.type})") },
+                                                onClick = {
+                                                    activeStorage = st.type
+                                                    currentPath = "/"
+                                                    showStorageMenu = false
+                                                },
+                                            )
                                         }
                                     }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                            ) {
-                                Text(
-                                    text = if (currentPath == "/") "根目录" else currentPath.trimEnd('/').substringAfterLast('/'),
-                                    color = colors.textPrimary,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                }
+
+                                Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(16.dp))
+
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(colors.chipFill)
+                                        .clickable {
+                                            if (currentPath != "/") {
+                                                currentPath = currentPath.trimEnd('/').substringBeforeLast('/', "").ifBlank { "/" }
+                                            }
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                ) {
+                                    Text(
+                                        text = if (currentPath == "/") "根目录" else currentPath.trimEnd('/').substringAfterLast('/'),
+                                        color = colors.textPrimary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            if (isLoading && !isRefreshing) {
+                                NativeSkeletonBlock(
+                                    cornerRadius = 4.dp,
+                                    role = SkeletonSurfaceRole.Bar,
+                                    modifier = Modifier.size(width = 36.dp, height = 13.dp),
                                 )
+                            } else {
+                                Text("${files.size} 项", color = colors.textMuted, fontSize = 12.sp)
                             }
                         }
-                        Text("${files.size} 项", color = colors.textMuted, fontSize = 12.sp)
                     }
-                }
 
-                downloadingFileName?.let { name ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = margin, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        CircularProgressIndicator(color = colors.accent, strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
-                        Text("正在缓冲存储文件：$name …", color = colors.accent, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-
-                Spacer(Modifier.height(10.dp))
-
-                if (isLoading && !isRefreshing) {
-                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = colors.accent)
-                    }
-                } else {
-                    PullToRefreshBox(
-                        isRefreshing = isRefreshing,
-                        onRefresh = {
-                            isRefreshing = true
-                            scope.launch { loadFiles() }
-                        },
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                    ) {
-                        LazyColumn(
-                            state = listState,
-                            contentPadding = PaddingValues(start = margin, end = margin, bottom = 96.dp + bottomOverlayInset),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxSize(),
+                    downloadingFileName?.let { name ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = margin, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                        items(files, key = { it.path + it.name }) { file ->
+                            CircularProgressIndicator(color = colors.accent, strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+                            Text("正在缓冲存储文件：$name …", color = colors.accent, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+
+                    if (isLoading && !isRefreshing) {
+                        NativeCardListSkeleton(
+                            style = SkeletonCardStyle.IconRow,
+                            count = 7,
+                            contentPadding = PaddingValues(start = margin, end = margin, bottom = 96.dp + bottomOverlayInset),
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else {
+                        PullToRefreshBox(
+                            isRefreshing = isRefreshing,
+                            onRefresh = {
+                                isRefreshing = true
+                                scope.launch { loadFiles() }
+                            },
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                        ) {
+                            LazyColumn(
+                                state = listState,
+                                contentPadding = PaddingValues(start = margin, end = margin, bottom = 96.dp + bottomOverlayInset),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                if (files.isEmpty()) {
+                                    item {
+                                        CinematicPanel(padding = 28.dp, showsShadow = false) {
+                                            Column(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                            ) {
+                                                Icon(Icons.Rounded.FolderOpen, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(36.dp))
+                                                Text("当前目录为空", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                                Text("可下拉刷新或切换其他存储目录浏览。", color = colors.textSecondary, fontSize = 12.5.sp, textAlign = TextAlign.Center)
+                                            }
+                                        }
+                                    }
+                                }
+                                items(files, key = { it.path + it.name }) { file ->
                             val playableKind = remember(file.name, file.extension) {
                                 if (file.type == "dir") null
                                 else RustCoreBridge.detectMediaKind(file.extension ?: file.name, false)
@@ -441,8 +474,9 @@ fun FileManagerScreen(
                             }
                         }
                     }
-                    }
                 }
+                }
+            }
             }
         }
 
@@ -768,7 +802,13 @@ fun ManualTransferSheet(
                             ) { Text("搜索", fontWeight = FontWeight.Bold) }
                         }
                         if (isSearchingMedia) {
-                            CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(20.dp))
+                            NativeCardListSkeleton(
+                                style = SkeletonCardStyle.IconRow,
+                                count = 3,
+                                contentPadding = PaddingValues(0.dp),
+                                scrollable = false,
+                                compact = true,
+                            )
                         } else {
                             mediaSearchResults.forEach { m ->
                                 Row(
@@ -1008,6 +1048,8 @@ fun TransferHistoryScreen(
     var records by remember { mutableStateOf<List<TransferHistoryDto>>(emptyList()) }
     var queueItems by remember { mutableStateOf<List<TransferQueueItemDto>>(emptyList()) }
     var showQueueSheet by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(true) }
+    var isLoadingQueue by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
     var isDeleting by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<TransferHistoryDto?>(null) }
@@ -1017,16 +1059,20 @@ fun TransferHistoryScreen(
         val (total, fetched) = repository.fetchTransferHistory(search)
         totalCount = total
         records = fetched
+        isLoading = false
         isRefreshing = false
     }
 
     LaunchedEffect(search) {
+        if (records.isEmpty()) isLoading = true
         reloadHistory()
     }
 
     LaunchedEffect(showQueueSheet) {
         if (showQueueSheet) {
+            isLoadingQueue = true
             queueItems = repository.fetchTransferQueue()
+            isLoadingQueue = false
         }
     }
 
@@ -1046,7 +1092,10 @@ fun TransferHistoryScreen(
             ExpressiveHeaderActionButton(
                 icon = Icons.Rounded.Inbox,
                 contentDescription = "整理队列",
-                onClick = { showQueueSheet = true },
+                onClick = {
+                    isLoadingQueue = true
+                    showQueueSheet = true
+                },
             )
         },
         headerExtra = {
@@ -1088,13 +1137,35 @@ fun TransferHistoryScreen(
                 },
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             ) {
-                LazyColumn(
-                    state = listState,
-                    contentPadding = PaddingValues(start = margin, end = margin, bottom = 64.dp + bottomOverlayInset),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    items(filtered, key = { it.id }) { rec ->
+                if (isLoading && records.isEmpty()) {
+                    NativeCardListSkeleton(
+                        style = SkeletonCardStyle.PosterRow,
+                        count = 5,
+                        contentPadding = PaddingValues(start = margin, end = margin, bottom = 64.dp + bottomOverlayInset),
+                    )
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        contentPadding = PaddingValues(start = margin, end = margin, bottom = 64.dp + bottomOverlayInset),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        if (filtered.isEmpty()) {
+                            item {
+                                CinematicPanel(padding = 28.dp, showsShadow = false) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Rounded.DriveFileMove, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(36.dp))
+                                        Text("暂无匹配的整理记录", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                        Text("完成自动或手动识别刮削整理后，历史记录将汇总于此。", color = colors.textSecondary, fontSize = 12.5.sp, textAlign = TextAlign.Center)
+                                    }
+                                }
+                            }
+                        }
+                        items(filtered, key = { it.id }) { rec ->
                         var rowMenuOpen by remember { mutableStateOf(false) }
                         CinematicPanel(
                             padding = 14.dp,
@@ -1204,6 +1275,7 @@ fun TransferHistoryScreen(
                 }
             }
         }
+        }
     }
 
     if (showQueueSheet) {
@@ -1215,8 +1287,20 @@ fun TransferHistoryScreen(
                     .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text("整理队列 (${queueItems.size})", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                if (queueItems.isEmpty()) {
+                Text(
+                    text = if (isLoadingQueue && queueItems.isEmpty()) "整理队列" else "整理队列 (${queueItems.size})",
+                    color = colors.textPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                if (isLoadingQueue && queueItems.isEmpty()) {
+                    NativeCardListSkeleton(
+                        style = SkeletonCardStyle.IconRow,
+                        count = 3,
+                        contentPadding = PaddingValues(0.dp),
+                        scrollable = false,
+                    )
+                } else if (queueItems.isEmpty()) {
                     CinematicPanel(padding = 16.dp, showsShadow = false) {
                         Text("当前整理队列空闲，新下载完成将自动入队识别刮削。", color = colors.textSecondary, fontSize = 14.sp)
                     }

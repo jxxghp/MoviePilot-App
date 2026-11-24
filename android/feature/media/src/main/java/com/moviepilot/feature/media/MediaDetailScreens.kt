@@ -96,10 +96,19 @@ import com.moviepilot.designsystem.ExpressiveTintedScaffold
 import com.moviepilot.designsystem.LocalBottomOverlayInset
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeAdaptivePill
+import com.moviepilot.designsystem.NativeCastRowSkeleton
 import com.moviepilot.designsystem.NativeEntityLogo
+import com.moviepilot.designsystem.NativeEpisodeShelfSkeleton
+import com.moviepilot.designsystem.NativeMediaDetailSkeleton
+import com.moviepilot.designsystem.NativeOverviewLinesSkeleton
+import com.moviepilot.designsystem.NativePersonDetailSkeleton
 import com.moviepilot.designsystem.NativePosterCard
 import com.moviepilot.designsystem.NativeSectionHeader
+import com.moviepilot.designsystem.NativeSkeletonBlock
 import com.moviepilot.designsystem.NativeTopStatusBarProgressiveBlur
+import com.moviepilot.designsystem.ProvideSkeletonShimmer
+import com.moviepilot.designsystem.SkeletonSurfaceRole
+import com.moviepilot.designsystem.nativePosterGridSkeletonItems
 import com.moviepilot.feature.subscribe.SubscribeFilesSheet
 import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.media.SubtitleTrackItem
@@ -175,12 +184,17 @@ fun MediaDetailScreen(
     var libraryStatus by remember(item.resolvedId) { mutableStateOf(MediaLibraryStatusDto(inLibrary = item.inLibrary)) }
     var feedback by remember(item.resolvedId) { mutableStateOf<String?>(null) }
     var feedbackIsError by remember(item.resolvedId) { mutableStateOf(false) }
+    var isDetailLoading by remember(item.resolvedId) { mutableStateOf(true) }
+    var loadingSeasons by remember(item.resolvedId) { mutableStateOf<Set<Int>>(emptySet()) }
     var isRefreshing by remember { mutableStateOf(false) }
 
     suspend fun loadDetail(clearUserOverrides: Boolean = false) {
         if (clearUserOverrides) {
             userMovieOverride = null
             userSeasonOverrides.clear()
+        }
+        if (!isRefreshing) {
+            isDetailLoading = true
         }
         coroutineScope {
             val detailDef = async { repository.fetchMediaDetail(item) }
@@ -210,10 +224,13 @@ fun MediaDetailScreen(
                 if (expandedSeason == null && defaultSeason != null) {
                     expandedSeason = defaultSeason
                     if (episodesBySeason[defaultSeason] == null) {
+                        loadingSeasons = loadingSeasons + defaultSeason
                         episodesBySeason[defaultSeason] = repository.fetchSeasonEpisodes(resolvedTmdbId, defaultSeason)
+                        loadingSeasons = loadingSeasons - defaultSeason
                     }
                 }
             }
+            isDetailLoading = false
             val querySeason = if (resolvedIsTv) (detail.season ?: item.season ?: seasons.firstOrNull()?.seasonNumber ?: 1) else null
             val libStatus = repository.checkMediaInLibraryStatus(detail, season = querySeason)
             libraryStatus = libStatus
@@ -431,6 +448,20 @@ fun MediaDetailScreen(
                 },
                 modifier = Modifier.fillMaxSize(),
             ) {
+                val isUnseeded = detail.posterPath.isNullOrBlank() &&
+                    detail.backdropPath.isNullOrBlank() &&
+                    detail.overview.isBlank() &&
+                    detail.year.isBlank() &&
+                    (detail.title.isBlank() || detail.title.startsWith("媒体详情 #"))
+                if (isDetailLoading && isUnseeded) {
+                    NativeMediaDetailSkeleton(
+                        heroHeight = heroHeight,
+                        isCompactLandscape = isCompactLandscape,
+                        isLandscape = isLandscape,
+                        showServerExtras = false,
+                    )
+                } else {
+                ProvideSkeletonShimmer {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -714,38 +745,53 @@ fun MediaDetailScreen(
 
                     // 3. 剧情简介玻璃卡
                     item {
+                        val showOverviewShimmer = isDetailLoading && detail.overview.isBlank()
                         val overviewText = detail.overview.ifBlank { "暂无剧情简介，可点击上方按钮快速检索站点高清片源或加入自动追剧订阅。" }
                         CinematicPanel(
                             padding = 16.dp,
                             showsShadow = false,
                             modifier = Modifier
                                 .padding(horizontal = margin)
-                                .clickable { expandOverview = !expandOverview },
+                                .then(if (!showOverviewShimmer) Modifier.clickable { expandOverview = !expandOverview } else Modifier),
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text("剧情简介", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                Text(
-                                    text = overviewText,
-                                    color = colors.textSecondary,
-                                    fontSize = 14.sp,
-                                    lineHeight = 22.sp,
-                                    maxLines = if (expandOverview) Int.MAX_VALUE else 4,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                if (overviewText.length > 90) {
+                                if (showOverviewShimmer) {
+                                    NativeOverviewLinesSkeleton(lines = 3)
+                                } else {
                                     Text(
-                                        text = if (expandOverview) "收起" else "展开全部",
-                                        color = colors.textMuted,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
+                                        text = overviewText,
+                                        color = colors.textSecondary,
+                                        fontSize = 14.sp,
+                                        lineHeight = 22.sp,
+                                        maxLines = if (expandOverview) Int.MAX_VALUE else 4,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
+                                    if (overviewText.length > 90) {
+                                        Text(
+                                            text = if (expandOverview) "收起" else "展开全部",
+                                            color = colors.textMuted,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
 
                     // 4. 剧集分季真实海报卡
-                    if (isTv && seasons.isNotEmpty()) {
+                    if (isTv && seasons.isEmpty() && isDetailLoading) {
+                        item(key = "md_seasons_loading") {
+                            NativeEpisodeShelfSkeleton(
+                                cardWidth = 224.dp,
+                                cardHeight = 126.dp,
+                                count = 4,
+                                contentPadding = PaddingValues(horizontal = margin),
+                                showHeader = true,
+                            )
+                        }
+                    } else if (isTv && seasons.isNotEmpty()) {
                         item {
                             Column(modifier = Modifier.padding(horizontal = margin), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -763,7 +809,9 @@ fun MediaDetailScreen(
                                             val tmdbId = detail.tmdbId
                                             if (!isExpanded && tmdbId != null && episodesBySeason[season.seasonNumber] == null) {
                                                 scope.launch {
+                                                    loadingSeasons = loadingSeasons + season.seasonNumber
                                                     episodesBySeason[season.seasonNumber] = repository.fetchSeasonEpisodes(tmdbId, season.seasonNumber)
+                                                    loadingSeasons = loadingSeasons - season.seasonNumber
                                                 }
                                             }
                                         },
@@ -845,7 +893,13 @@ fun MediaDetailScreen(
                                             // 横向滚动 16:9 横版剧照卡片列表（与媒体库详情页剧集列表 100% 视觉一致）
                                             if (isExpanded) {
                                                 val eps = episodesBySeason[season.seasonNumber].orEmpty()
-                                                if (eps.isNotEmpty()) {
+                                                if (eps.isEmpty() && season.seasonNumber in loadingSeasons) {
+                                                    NativeEpisodeShelfSkeleton(
+                                                        cardWidth = 224.dp,
+                                                        cardHeight = 126.dp,
+                                                        count = 3,
+                                                    )
+                                                } else if (eps.isNotEmpty()) {
                                                     val existingEps = libraryStatus.existingEpisodesBySeason[season.seasonNumber].orEmpty().toSet()
                                                     LazyRow(
                                                         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -948,7 +1002,15 @@ fun MediaDetailScreen(
                     }
 
                     // 5. 演职员真人圆形头像横栏（点击推入独立全屏 `PersonDetailScreen` 页面）
-                    if (credits.isNotEmpty()) {
+                    if (credits.isEmpty() && isDetailLoading) {
+                        item(key = "md_cast_loading") {
+                            NativeCastRowSkeleton(
+                                avatarSize = 72.dp,
+                                contentPadding = PaddingValues(horizontal = margin),
+                                showHeader = true,
+                            )
+                        }
+                    } else if (credits.isNotEmpty()) {
                         item {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 NativeSectionHeader(title = "演职员", modifier = Modifier.padding(horizontal = margin))
@@ -1007,6 +1069,8 @@ fun MediaDetailScreen(
                             }
                         }
                     }
+                }
+                }
                 }
             }
         }
@@ -1160,19 +1224,26 @@ fun PersonDetailScreen(
 
     var person by remember(seed.id) { mutableStateOf(seed) }
     var works by remember(seed.id) { mutableStateOf<List<MediaCardItem>>(emptyList()) }
+    var isLoading by remember(seed.id) { mutableStateOf(true) }
     var bioExpanded by remember(seed.id) { mutableStateOf(false) }
 
     LaunchedEffect(seed.id) {
+        isLoading = true
         val (enriched, list) = repository.fetchPersonDetail(seed)
         person = enriched
         works = list
+        isLoading = false
     }
 
     ExpressiveTintedScaffold(
-        title = person.name,
+        title = person.name.ifBlank { "人物详情" },
         subtitle = person.department.takeIf { it.isNotBlank() },
         onBack = onBack,
     ) {
+        if (isLoading && person.name.isBlank() && person.profilePath.isNullOrBlank()) {
+            NativePersonDetailSkeleton()
+        } else {
+        ProvideSkeletonShimmer {
         LazyVerticalGrid(
             state = gridState,
             columns = GridCells.Fixed(columns),
@@ -1234,6 +1305,12 @@ fun PersonDetailScreen(
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
+                            } else if (isLoading) {
+                                NativeSkeletonBlock(
+                                    cornerRadius = 5.dp,
+                                    role = SkeletonSurfaceRole.Bar,
+                                    modifier = Modifier.size(width = 160.dp, height = 13.dp),
+                                )
                             }
                         }
                     }
@@ -1275,6 +1352,12 @@ fun PersonDetailScreen(
                                 fontSize = 13.sp,
                                 textAlign = TextAlign.Center,
                             )
+                        } else if (isLoading) {
+                            NativeSkeletonBlock(
+                                cornerRadius = 5.dp,
+                                role = SkeletonSurfaceRole.Bar,
+                                modifier = Modifier.size(width = 168.dp, height = 13.dp),
+                            )
                         }
                     }
                 }
@@ -1309,6 +1392,15 @@ fun PersonDetailScreen(
                         }
                     }
                 }
+            } else if (isLoading) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    CinematicPanel(padding = 16.dp, showsShadow = false) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("人物简介", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            NativeOverviewLinesSkeleton(lines = 4)
+                        }
+                    }
+                }
             }
 
             // 参演作品标题
@@ -1329,7 +1421,17 @@ fun PersonDetailScreen(
                         onClick = { onOpenMedia(work) },
                     )
                 }
+            } else if (isLoading) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    NativeSectionHeader(title = "参演作品")
+                }
+                nativePosterGridSkeletonItems(
+                    columns = columns,
+                    count = columns * 2,
+                )
             }
+        }
+        }
         }
     }
 }

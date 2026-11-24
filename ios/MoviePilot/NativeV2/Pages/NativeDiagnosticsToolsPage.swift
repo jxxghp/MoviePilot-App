@@ -358,17 +358,15 @@ struct NativeDiagnosticsToolsPage: View {
         }
       }
 
-      if !modules.isEmpty {
-        ScrollView(.horizontal, showsIndicators: false) {
-          HStack(spacing: 7) {
-            ForEach(HealthFilter.allCases) { option in
-              Button {
-                healthFilter = option
-              } label: {
-                NativeAdaptivePill(option.rawValue, isSelected: healthFilter == option)
-              }
-              .buttonStyle(.plain)
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 7) {
+          ForEach(HealthFilter.allCases) { option in
+            Button {
+              healthFilter = option
+            } label: {
+              NativeAdaptivePill(option.rawValue, isSelected: healthFilter == option)
             }
+            .buttonStyle(.plain)
           }
         }
       }
@@ -454,7 +452,7 @@ struct NativeDiagnosticsToolsPage: View {
   private var nettestContent: some View {
     VStack(alignment: .leading, spacing: 10) {
       if isLoadingNet && netTargets.isEmpty {
-        NativeCardListSkeletonView(count: 5, style: .iconRow)
+        NativeCardListSkeletonView(count: 5, style: .iconRow, showsIcon: false)
           .transition(.opacity)
       } else if netTargets.isEmpty {
         emptyCard("暂无网络测试目标")
@@ -925,7 +923,7 @@ struct NativeDiagnosticsToolsPage: View {
       }
 
       if isLoadingWords {
-        NativeCardListSkeletonView(count: 2, style: .formPanel)
+        wordsSkeleton
           .transition(.opacity)
       } else {
         switch wordsTab {
@@ -978,6 +976,64 @@ struct NativeDiagnosticsToolsPage: View {
           episodeRulesSection
         }
       }
+    }
+  }
+
+  /// 词表加载期间与 `wordsTextEditorCard` 等高（`minHeight: 220`）的等宽编辑框占位骨架。
+  @ViewBuilder
+  private var wordsSkeleton: some View {
+    if wordsTab == .episodeRules {
+      VStack(alignment: .leading, spacing: 10) {
+        CinematicPanel(padding: 14) {
+          VStack(alignment: .leading, spacing: 8) {
+            HStack {
+              NativeSkeletonBlock(width: 148, height: 15, cornerRadius: 5)
+              Spacer()
+              NativeSkeletonBlock(width: 44, height: 18, cornerRadius: 9)
+            }
+            NativeSkeletonBlock(width: 236, height: 12, cornerRadius: 4)
+          }
+        }
+        NativeCardListSkeletonView(count: 2, style: .iconRow, showsIcon: false)
+      }
+      .nativeSkeletonShimmer()
+    } else {
+      VStack(alignment: .leading, spacing: 12) {
+        CinematicPanel(padding: 15) {
+          VStack(alignment: .leading, spacing: 10) {
+            HStack {
+              NativeSkeletonBlock(width: 118, height: 15, cornerRadius: 5)
+              Spacer()
+              NativeSkeletonBlock(width: 44, height: 18, cornerRadius: 9)
+            }
+            NativeSkeletonBlock(width: 228, height: 12, cornerRadius: 4)
+            VStack(alignment: .leading, spacing: 9) {
+              NativeSkeletonBlock(width: 186, height: 12, cornerRadius: 4)
+              NativeSkeletonBlock(width: 242, height: 12, cornerRadius: 4)
+              NativeSkeletonBlock(width: 154, height: 12, cornerRadius: 4)
+              Spacer(minLength: 0)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 220, alignment: .topLeading)
+            .background(
+              NativeTheme.fieldFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+            .overlay {
+              RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.7)
+            }
+            NativeSkeletonBlock(width: 248, height: 12, cornerRadius: 4)
+          }
+        }
+        CinematicPanel(padding: 14) {
+          HStack {
+            NativeSkeletonBlock(width: 156, height: 15, cornerRadius: 5)
+            Spacer()
+            NativeSkeletonBlock(width: 12, height: 12, cornerRadius: 4)
+          }
+        }
+      }
+      .nativeSkeletonShimmer()
     }
   }
 
@@ -1264,7 +1320,7 @@ struct NativeDiagnosticsToolsPage: View {
       }
 
       if isLoadingLog && logEntries.isEmpty {
-        NativeCardListSkeletonView(count: 5, style: .messageCard)
+        NativeCardListSkeletonView(count: 6, style: .logLines)
           .transition(.opacity)
       } else if filteredLogEntries.isEmpty {
         emptyCard("暂无匹配的日志记录")
@@ -1331,17 +1387,15 @@ struct NativeDiagnosticsToolsPage: View {
 
   private var schedulerContent: some View {
     VStack(alignment: .leading, spacing: 11) {
-      if !schedules.isEmpty {
-        ScrollView(.horizontal, showsIndicators: false) {
-          HStack(spacing: 7) {
-            ForEach(SchedulerCategoryFilter.allCases) { option in
-              Button {
-                schedulerFilter = option
-              } label: {
-                NativeAdaptivePill(option.rawValue, isSelected: schedulerFilter == option)
-              }
-              .buttonStyle(.plain)
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 7) {
+          ForEach(SchedulerCategoryFilter.allCases) { option in
+            Button {
+              schedulerFilter = option
+            } label: {
+              NativeAdaptivePill(option.rawValue, isSelected: schedulerFilter == option)
             }
+            .buttonStyle(.plain)
           }
         }
       }

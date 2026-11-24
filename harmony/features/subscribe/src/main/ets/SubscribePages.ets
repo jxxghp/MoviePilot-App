@@ -29,6 +29,11 @@ import {
   HarmonyThemeColors,
   HarmonyAppearanceStore,
   HarmonyAdaptiveLayout,
+  HarmonySkeletonHost,
+  HarmonySkeletonBlock,
+  HarmonyPosterGridSkeleton,
+  HarmonyPosterRowCardGridSkeleton,
+  HarmonySubscribeFilesSheetSkeleton,
   mpPrimaryText,
   mpSecondaryText,
   mpMutedText
@@ -523,10 +528,7 @@ export struct HarmonySubscriptionsPage {
   }
 
   private posterColumnsTemplate(): string {
-    const cols = HarmonyAdaptiveLayout.posterGridColumns(this.windowWidthVp);
-    const parts: string[] = [];
-    for (let i = 0; i < cols; i++) { parts.push('1fr'); }
-    return parts.join(' ');
+    return HarmonyAdaptiveLayout.posterGridTemplate(this.windowWidthVp);
   }
 
   @Builder
@@ -1117,6 +1119,23 @@ export struct HarmonySubscriptionsPage {
                     )
                   }
                   .width('100%')
+                } else if (this.loadingFiles) {
+                  HarmonySkeletonHost({ loadingLabel: '正在加载订阅文件统计' }) {
+                    Row({ space: 8 }) {
+                      ForEach([0, 1, 2], (idx: number) => {
+                        Column({ space: 6 }) {
+                          HarmonySkeletonBlock({ blockWidth: 44, blockHeight: 16, cornerRadius: 5 })
+                          HarmonySkeletonBlock({ blockWidth: 38, blockHeight: 11.5, cornerRadius: 4, tone: 'subtle' })
+                        }
+                        .layoutWeight(1)
+                        .padding({ top: 10, bottom: 10, left: 8, right: 8 })
+                        .borderRadius(14)
+                        .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                        .alignItems(HorizontalAlign.Center)
+                      }, (idx: number) => `sub_fstat_sk_${idx}`)
+                    }
+                    .width('100%')
+                  }
                 }
               }
               .width('100%')
@@ -1134,11 +1153,11 @@ export struct HarmonySubscriptionsPage {
             Row({ space: 8 }) {
               ForEach(['全部', '已入库', '已下载', '待入库'], (st: string) => {
                 NativeAdaptivePill({
-                  title: `${st} ${this.countEpisodesByFileStatus(st)}`,
+                  title: (this.loadingFiles && !this.filesInfo) ? st : `${st} ${this.countEpisodesByFileStatus(st)}`,
                   selected: this.filesStatusFilter === st,
                   onTap: () => { this.filesStatusFilter = st; }
                 })
-              }, (st: string) => `file_st_${st}_${this.countEpisodesByFileStatus(st)}`)
+              }, (st: string) => `file_st_${st}_${(this.loadingFiles && !this.filesInfo) ? 'ld' : this.countEpisodesByFileStatus(st)}`)
             }
           }
           .scrollable(ScrollDirection.Horizontal)
@@ -1147,15 +1166,10 @@ export struct HarmonySubscriptionsPage {
 
           // 3. 分集/正片文件明细卡片列表
           if (this.loadingFiles && !this.filesInfo) {
-            Column({ space: 8 }) {
-              LoadingProgress().width(30).height(30).color(this.accentHex)
-              Text('正在查询下载与入库文件明细…')
-                .fontSize(13)
-                .fontColor(mpSecondaryText(this.isDark))
-            }
-            .width('100%')
-            .padding({ top: 28, bottom: 28 })
-            .alignItems(HorizontalAlign.Center)
+            HarmonySubscribeFilesSheetSkeleton({
+              showStatTiles: false,
+              episodeCount: 3
+            })
           } else if (this.filteredFileEpisodes().length === 0) {
             Column({ space: 8 }) {
               SymbolGlyph($r('sys.symbol.folder'))
@@ -1334,13 +1348,12 @@ export struct HarmonySubscriptionsPage {
 
   @Builder
   calendarListBuilder() {
-    if (this.loadingCalendar) {
-      Column() {
-        LoadingProgress().width(32).height(32).color(this.accentHex)
-      }
-      .width('100%')
-      .layoutWeight(1)
-      .justifyContent(FlexAlign.Center)
+    if (this.loadingCalendar || (this.loading && this.calendarItems.length === 0 && this.items.length === 0)) {
+      HarmonyPosterRowCardGridSkeleton({
+        variant: 'calendar',
+        fillViewport: true,
+        bottomPadding: 44
+      })
     } else if (this.calendarItems.length > 0) {
       Grid() {
         ForEach(this.calendarItems, (ep: MpCalendarEpisodeItem) => {
@@ -1485,8 +1498,12 @@ export struct HarmonySubscriptionsPage {
       if (this.showBack) {
         NativeBackHeader({
           title: this.initialMode === 'calendar'
-            ? `追剧日历 (${this.calendarItems.length > 0 ? this.calendarItems.length : this.filteredItems().length})`
-            : (this.initialMode === 'square' ? '订阅广场' : `${this.initialTitle} (${this.items.length})`),
+            ? ((this.loadingCalendar || (this.loading && this.calendarItems.length === 0))
+              ? '追剧日历'
+              : `追剧日历 (${this.calendarItems.length > 0 ? this.calendarItems.length : this.filteredItems().length})`)
+            : (this.initialMode === 'square'
+              ? '订阅广场'
+              : (this.loading && this.items.length === 0 ? this.initialTitle : `${this.initialTitle} (${this.items.length})`)),
           trailingSymbol: this.initialMode === 'calendar' ? 'sys.symbol.arrow_clockwise' : '',
           trailingAccessibility: this.initialMode === 'calendar' ? '刷新日历' : '',
           onBack: () => this.onBack(),
@@ -1520,7 +1537,10 @@ export struct HarmonySubscriptionsPage {
         this.calendarListBuilder()
       } else {
         HarmonyPillTabBar({
-          tabs: [`我的订阅 (${this.items.length})`, '订阅广场'],
+          tabs: [
+            this.loading && this.items.length === 0 ? '我的订阅' : `我的订阅 (${this.items.length})`,
+            '订阅广场'
+          ],
           selectedIndex: this.mainTabIndex,
           onSelect: (idx: number) => {
             this.mainTabIndex = idx;
@@ -1533,11 +1553,11 @@ export struct HarmonySubscriptionsPage {
             Row({ space: 8 }) {
               ForEach(['全部', '电影', '电视剧', '音乐'], (tab: string) => {
                 NativeAdaptivePill({
-                  title: `${tab} ${this.countByType(tab)}`,
+                  title: (this.loading && this.items.length === 0) ? tab : `${tab} ${this.countByType(tab)}`,
                   selected: this.filter === tab,
                   onTap: () => { this.filter = tab; }
                 })
-              }, (tab: string) => tab)
+              }, (tab: string) => `${tab}_${(this.loading && this.items.length === 0) ? 'ld' : this.countByType(tab)}`)
             }
             .padding({ left: 16, right: 16 })
           }
@@ -1545,12 +1565,11 @@ export struct HarmonySubscriptionsPage {
           .scrollBar(BarState.Off)
 
           if (this.loading && this.items.length === 0) {
-            Column() {
-              LoadingProgress().width(32).height(32).color(this.accentHex)
-            }
-            .width('100%')
-            .layoutWeight(1)
-            .justifyContent(FlexAlign.Center)
+            HarmonyPosterRowCardGridSkeleton({
+              variant: 'subscribe',
+              fillViewport: true,
+              bottomPadding: this.showBack ? 40 : 128
+            })
           } else if (this.filteredItems().length === 0) {
             Column({ space: 8 }) {
               SymbolGlyph($r('sys.symbol.bookmark')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
@@ -1737,16 +1756,30 @@ export struct HarmonySubscriptionsPage {
           .padding({ left: 16, right: 16, top: 2 })
 
           if (this.loadingSquare) {
-            Column() {
-              LoadingProgress().width(32).height(32).color(this.accentHex)
+            if (this.squareModeIndex === 2) {
+              HarmonyPosterRowCardGridSkeleton({
+                variant: 'share',
+                fillViewport: true,
+                bottomPadding: this.showBack ? 40 : 128
+              })
+            } else {
+              HarmonyPosterGridSkeleton({
+                fillViewport: true,
+                bottomPadding: this.showBack ? 40 : 128
+              })
             }
-            .width('100%')
-            .layoutWeight(1)
-            .justifyContent(FlexAlign.Center)
           } else if (this.squareModeIndex === 0) {
             this.popularGrid(this.popularMovies)
           } else if (this.squareModeIndex === 1) {
             this.popularGrid(this.popularTvs)
+          } else if (this.shares.length === 0) {
+            Column({ space: 8 }) {
+              SymbolGlyph($r('sys.symbol.flame')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
+              Text('暂无社区分享订阅').fontSize(14).fontColor(mpSecondaryText(this.isDark))
+            }
+            .width('100%')
+            .layoutWeight(1)
+            .justifyContent(FlexAlign.Center)
           } else {
             Grid() {
               ForEach(this.shares, (sh: MpSubscribeShareItem) => {

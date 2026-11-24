@@ -432,12 +432,33 @@ struct NativeDiscoverPage: View {
             .transition(.opacity)
             .ignoresSafeArea(edges: .top)
           }
+        } else if !hasContent && content.isLoading {
+          if hasHorizontalInset {
+            Color.clear
+              .frame(width: viewportWidth, height: 1)
+              .overlay(alignment: .topLeading) {
+                NativeHeroBackdropSkeletonView(width: backdropWidth, height: heroHeight * 1.08)
+                  .ignoresSafeArea(edges: [.top, .horizontal])
+              }
+              .allowsHitTesting(false)
+              .accessibilityHidden(true)
+          } else {
+            NativeHeroBackdropSkeletonView(width: viewportWidth, height: heroHeight * 1.08)
+              .ignoresSafeArea(edges: .top)
+          }
         }
         ScrollView {
           VStack(spacing: isCompactLandscape ? 16 : 24) {
             if !hasContent && content.isLoading {
               NativeDiscoverSkeletonView(
-                heroHeight: heroHeight, posterWidth: posterWidth, cardWidth: cardWidth
+                heroHeight: heroHeight,
+                posterWidth: NativeDeviceLayout.discoverPosterWidth(
+                  for: viewportWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize),
+                cardWidth: NativeDeviceLayout.discoverCardWidth(
+                  for: viewportWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize),
+                horizontalMargin: NativeDeviceLayout.horizontalMargin(for: viewportWidth),
+                isCompactLandscape: isCompactLandscape,
+                rendersHeroBackdrop: false
               )
               .transition(.opacity)
             } else {
@@ -786,7 +807,7 @@ struct NativeDiscoverPage: View {
     _ item: NativeDiscoverFeature, isCompactLandscape: Bool = false
   ) -> some View {
     let isLight = colorScheme == .light
-    let isWide = containerWidth >= 680
+    let isWide = effectiveWidth >= 680
     return VStack(alignment: .center, spacing: isCompactLandscape ? 5 : 8) {
       if let logoRef = item.logoReference, !logoRef.isEmpty {
         NativeDiscoverLogoBanner(
@@ -1173,7 +1194,7 @@ struct NativeDiscoverPage: View {
     VStack(alignment: .leading, spacing: 14) {
       sectionHeader("分类浏览")
       let perRow = NativeDeviceLayout.discoverCategoryColumns(
-        for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+        for: effectiveWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
       let rows = stride(from: 0, to: content.categories.count, by: perRow).map {
         Array(content.categories[$0..<min($0 + perRow, content.categories.count)])
       }
@@ -1210,7 +1231,7 @@ struct NativeDiscoverPage: View {
 
   /// 媒体库卡片直接呈现服务端封面原图，不叠加名称遮罩，仅在右上角以轻透角标展示入库数量。
   private func providerArtwork(_ provider: NativeDiscoverProvider) -> some View {
-    let providerHeight: CGFloat = NativeDeviceLayout.isWideCanvas(containerWidth) ? 136 : 112
+    let providerHeight: CGFloat = NativeDeviceLayout.isWideCanvas(effectiveWidth) ? 136 : 112
     return ZStack(alignment: .topTrailing) {
       artwork(provider.artworkReference, .provider)
         .frame(width: cardWidth, height: providerHeight).clipped()
@@ -1319,9 +1340,14 @@ struct NativeDiscoverPage: View {
     }
   }
 
-  /// 按当前容器宽度返回发现页外边距（iPad 适度加宽，窄屏保持 16pt）。
+  /// 解析当前画布有效宽度（首帧尚未测量时同步回退至窗口级估算宽度）。
+  private var effectiveWidth: CGFloat {
+    NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+  }
+
+  /// 按当前容器宽度返回发现页外边距（iPad 适度加宽，窄屏保持舒适留白）。
   private var horizontalMargin: CGFloat {
-    NativeDeviceLayout.horizontalMargin(for: containerWidth)
+    NativeDeviceLayout.horizontalMargin(for: effectiveWidth)
   }
 
   /// iOS 16 没有 ScrollView.contentMargins，回退为内容内部水平留白。
@@ -1333,13 +1359,13 @@ struct NativeDiscoverPage: View {
   /// 按当前画布宽度自适应海报宽度（iPhone 3 列加探头，iPad 宽屏清晰大海报）。
   private var posterWidth: CGFloat {
     NativeDeviceLayout.discoverPosterWidth(
-      for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+      for: effectiveWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
   }
 
   /// 按当前画布宽度自适应 16:9 横幅卡宽度。
   private var cardWidth: CGFloat {
     NativeDeviceLayout.discoverCardWidth(
-      for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+      for: effectiveWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
   }
 }
 

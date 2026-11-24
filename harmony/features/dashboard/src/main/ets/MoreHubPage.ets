@@ -9,6 +9,8 @@ import {
   HarmonyAppearanceStore,
   HarmonyPageHeader,
   HarmonyThemeColors,
+  HarmonySkeletonHost,
+  HarmonySkeletonBlock,
   MORE_TOOL_ITEMS,
   MoreToolItem,
   NativeAdaptiveBadge,
@@ -39,6 +41,7 @@ export struct HarmonyMoreHubPage {
   @State private installedPlugins: number = 0;
   @State private librariesCount: number = 0;
   @State private workflowsCount: number = 0;
+  @State private loadingSummary: boolean = true;
   onSelectRoute: (routeId: string) => void = () => {};
   onOpenSearch: () => void = () => {};
 
@@ -47,6 +50,7 @@ export struct HarmonyMoreHubPage {
   }
 
   private async loadSummary(): Promise<void> {
+    this.loadingSummary = true;
     const repo = MoviePilotRepository.shared();
     try {
       const res = await Promise.all([
@@ -67,9 +71,11 @@ export struct HarmonyMoreHubPage {
     } catch {
       // keep existing state
     }
+    this.loadingSummary = false;
   }
 
   private liveSubtitle(item: MoreToolItem): string {
+    if (this.loadingSummary) { return item.subtitle; }
     if (item.id === 'sites' && this.activeSites > 0) { return `${this.activeSites} 站点启用`; }
     if (item.id === 'downloads') { return `${this.activeDownloads} 个任务`; }
     if (item.id === 'media_library' && this.librariesCount > 0) { return `${this.librariesCount} 个媒体库浏览`; }
@@ -156,46 +162,87 @@ export struct HarmonyMoreHubPage {
           // 实时运行概览卡
           Column() {
             CinematicPanel({ panelPadding: 16, cornerRadius: 20, interactive: true }) {
-              Column({ space: 12 }) {
-                Row() {
-                  Text('实时运行概览')
-                    .fontSize(16)
-                    .fontWeight(FontWeight.Bold)
-                    .fontColor(mpPrimaryText(this.isDark))
+              if (this.loadingSummary) {
+                HarmonySkeletonHost({ loadingLabel: '正在获取实时运行概览' }) {
+                  Column({ space: 12 }) {
+                    Row() {
+                      Text('实时运行概览')
+                        .fontSize(16)
+                        .fontWeight(FontWeight.Bold)
+                        .fontColor(mpPrimaryText(this.isDark))
+                        .layoutWeight(1)
+                      HarmonySkeletonBlock({ blockWidth: 56, blockHeight: 22, cornerRadius: 10, tone: 'subtle' })
+                    }.width('100%')
+
+                    Row({ space: 10 }) {
+                      Row({ space: 8 }) {
+                        SymbolGlyph($r('sys.symbol.arrow_down')).fontSize(16).fontColor(['#34C759'])
+                        Column({ space: 5 }) {
+                          Text('下载速度').fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                          HarmonySkeletonBlock({ blockWidth: 74, blockHeight: 16, cornerRadius: 5, shimmerSweep: true })
+                        }.alignItems(HorizontalAlign.Start)
+                      }
+                      .layoutWeight(1)
+                      .padding(12)
+                      .borderRadius(14)
+                      .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+
+                      Row({ space: 8 }) {
+                        SymbolGlyph($r('sys.symbol.arrow_up')).fontSize(16).fontColor([this.accentHex])
+                        Column({ space: 5 }) {
+                          Text('上传速度').fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                          HarmonySkeletonBlock({ blockWidth: 74, blockHeight: 16, cornerRadius: 5, shimmerSweep: true })
+                        }.alignItems(HorizontalAlign.Start)
+                      }
+                      .layoutWeight(1)
+                      .padding(12)
+                      .borderRadius(14)
+                      .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                    }.width('100%')
+                  }
+                }
+              } else {
+                Column({ space: 12 }) {
+                  Row() {
+                    Text('实时运行概览')
+                      .fontSize(16)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor(mpPrimaryText(this.isDark))
+                      .layoutWeight(1)
+                    NativeAdaptiveBadge({
+                      text: this.activeDownloads > 0 ? `${this.activeDownloads} 任务活跃` : '空闲',
+                      tintHex: this.activeDownloads > 0 ? '#34C759' : this.accentHex
+                    })
+                  }.width('100%')
+
+                  Row({ space: 10 }) {
+                    Row({ space: 8 }) {
+                      SymbolGlyph($r('sys.symbol.arrow_down')).fontSize(16).fontColor(['#34C759'])
+                      Column({ space: 2 }) {
+                        Text('下载速度').fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                        Text(formatSpeed(this.stats.downloadSpeed))
+                          .fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                      }.alignItems(HorizontalAlign.Start)
+                    }
                     .layoutWeight(1)
-                  NativeAdaptiveBadge({
-                    text: this.activeDownloads > 0 ? `${this.activeDownloads} 任务活跃` : '空闲',
-                    tintHex: this.activeDownloads > 0 ? '#34C759' : this.accentHex
-                  })
-                }.width('100%')
+                    .padding(12)
+                    .borderRadius(14)
+                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
 
-                Row({ space: 10 }) {
-                  Row({ space: 8 }) {
-                    SymbolGlyph($r('sys.symbol.arrow_down')).fontSize(16).fontColor(['#34C759'])
-                    Column({ space: 2 }) {
-                      Text('下载速度').fontSize(11).fontColor(mpSecondaryText(this.isDark))
-                      Text(formatSpeed(this.stats.downloadSpeed))
-                        .fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
-                    }.alignItems(HorizontalAlign.Start)
-                  }
-                  .layoutWeight(1)
-                  .padding(12)
-                  .borderRadius(14)
-                  .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-
-                  Row({ space: 8 }) {
-                    SymbolGlyph($r('sys.symbol.arrow_up')).fontSize(16).fontColor([this.accentHex])
-                    Column({ space: 2 }) {
-                      Text('上传速度').fontSize(11).fontColor(mpSecondaryText(this.isDark))
-                      Text(formatSpeed(this.stats.uploadSpeed))
-                        .fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
-                    }.alignItems(HorizontalAlign.Start)
-                  }
-                  .layoutWeight(1)
-                  .padding(12)
-                  .borderRadius(14)
-                  .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-                }.width('100%')
+                    Row({ space: 8 }) {
+                      SymbolGlyph($r('sys.symbol.arrow_up')).fontSize(16).fontColor([this.accentHex])
+                      Column({ space: 2 }) {
+                        Text('上传速度').fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                        Text(formatSpeed(this.stats.uploadSpeed))
+                          .fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                      }.alignItems(HorizontalAlign.Start)
+                    }
+                    .layoutWeight(1)
+                    .padding(12)
+                    .borderRadius(14)
+                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                  }.width('100%')
+                }
               }
             }
           }

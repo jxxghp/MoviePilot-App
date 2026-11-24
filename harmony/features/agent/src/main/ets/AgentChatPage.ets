@@ -24,6 +24,10 @@ import {
   HarmonyAppearanceStore,
   HarmonySurfaceModifier,
   HarmonyThemeColors,
+  HarmonySkeletonHost,
+  HarmonySkeletonBlock,
+  HarmonyCardGridSkeleton,
+  HarmonyAgentChatSkeleton,
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
@@ -298,10 +302,14 @@ struct AgentMessageItemView {
           if (this.msg.content.length > 0) {
             this.markdownContentBuilder(this.msg.content)
           } else if (this.sending) {
-            Row({ space: 8 }) {
-              LoadingProgress().width(16).height(16).color(this.accentHex)
-              Text('思考中…').fontSize(13).fontColor(mpSecondaryText(this.isDark))
-            }.width('100%')
+            HarmonySkeletonHost({ loadingLabel: '智能助手正在思考生成回复' }) {
+              Column({ space: 8 }) {
+                HarmonySkeletonBlock({ blockWidth: '76%', blockHeight: 13, cornerRadius: 5, shimmerSweep: true })
+                HarmonySkeletonBlock({ blockWidth: '52%', blockHeight: 13, cornerRadius: 5, tone: 'subtle' })
+              }
+              .width('100%')
+              .alignItems(HorizontalAlign.Start)
+            }
           }
 
           ForEach(this.msg.choices, (card: MpAgentChoiceCard, cIdx: number) => {
@@ -355,6 +363,8 @@ export struct HarmonyAgentChatPage {
   @State private expandedToolMsgIds: string[] = [];
   @State private pendingAttachments: MpAgentAttachment[] = [];
   @State private prompt: string = '';
+  @State private loadingMessages: boolean = true;
+  @State private loadingSessions: boolean = true;
   @State private sending: boolean = false;
   @State private uploading: boolean = false;
   @State private recording: boolean = false;
@@ -384,6 +394,8 @@ export struct HarmonyAgentChatPage {
   }
 
   private async bootstrapAgent(): Promise<void> {
+    this.loadingSessions = true;
+    this.loadingMessages = true;
     const repo = MoviePilotRepository.shared();
     try {
       const res = await Promise.all([
@@ -392,32 +404,39 @@ export struct HarmonyAgentChatPage {
       ]);
       this.sessions = res[0];
       this.commands = res[1];
+      this.loadingSessions = false;
       if (this.sessions.length > 0 && this.messages.length === 0) {
         await this.switchSession(this.sessions[0]);
+        return;
       }
     } catch {
-      // keep fresh empty session
+      this.loadingSessions = false;
     }
+    this.loadingMessages = false;
   }
 
   private async refreshSessions(): Promise<void> {
+    this.loadingSessions = true;
     try {
       this.sessions = await MoviePilotRepository.shared().fetchAgentSessions();
     } catch {
       // ignore
     }
+    this.loadingSessions = false;
   }
 
   private async switchSession(sess: MpAgentSessionSummary): Promise<void> {
     this.activeSessionId = sess.sessionId;
     this.activeSessionTitle = sess.title;
     this.showHistorySheet = false;
+    this.loadingMessages = true;
     try {
       const raw = await MoviePilotRepository.shared().fetchAgentSessionDetail(sess.sessionId);
       this.messages = raw.map((m: MpAgentChatMessage): ObservableAgentMessage => new ObservableAgentMessage(m));
     } catch {
       this.messages = [];
     }
+    this.loadingMessages = false;
   }
 
   private createNewSession(): void {
@@ -425,6 +444,7 @@ export struct HarmonyAgentChatPage {
     this.activeSessionTitle = '新对话';
     this.messages = [];
     this.pendingAttachments = [];
+    this.loadingMessages = false;
     this.showHistorySheet = false;
   }
 
@@ -701,7 +721,9 @@ export struct HarmonyAgentChatPage {
   historySheetBuilder() {
     Column({ space: 12 }) {
       HarmonySheetHeader({
-        title: `历史会话 (${this.sessions.length})`,
+        title: (this.loadingSessions && this.sessions.length === 0)
+          ? '历史会话'
+          : `历史会话 (${this.sessions.length})`,
         cancelText: '关闭',
         actionText: '+ 新对话',
         onCancel: () => { this.showHistorySheet = false; },
@@ -709,7 +731,15 @@ export struct HarmonyAgentChatPage {
       })
       Scroll() {
         Column({ space: 10 }) {
-          if (this.sessions.length === 0) {
+          if (this.loadingSessions && this.sessions.length === 0) {
+            HarmonyCardGridSkeleton({
+              variant: 'scheduler',
+              singleColumn: true,
+              count: 4,
+              horizontalPadding: 0,
+              bottomPadding: 12
+            })
+          } else if (this.sessions.length === 0) {
             Text('暂无历史会话记录').fontSize(13).fontColor(mpSecondaryText(this.isDark)).margin({ top: 24 })
           } else {
             ForEach(this.sessions, (s: MpAgentSessionSummary) => {
@@ -840,7 +870,9 @@ export struct HarmonyAgentChatPage {
       Scroll(this.msgScroller) {
         Column() {
           Column({ space: 14 }) {
-            if (this.messages.length === 0) {
+            if (this.loadingMessages) {
+              HarmonyAgentChatSkeleton()
+            } else if (this.messages.length === 0) {
               Column({ space: 12 }) {
                 Stack({ alignContent: Alignment.Center }) {
                   Column()

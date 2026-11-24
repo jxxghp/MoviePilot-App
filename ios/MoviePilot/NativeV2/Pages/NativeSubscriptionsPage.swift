@@ -63,6 +63,9 @@ struct NativeSubscriptionsPage: View {
 
   /// 采用统一深色紫玫瑰渐变与透色海报玻璃卡，卡片可直达原生影视详情页。
   var body: some View {
+    let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    let columnCount = NativeDeviceLayout.cardGridCount(
+      for: resolvedWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
     ZStack {
       CinematicBackground()
       ScrollView {
@@ -72,15 +75,17 @@ struct NativeSubscriptionsPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && items.isEmpty {
-            NativeCardListSkeletonView(count: 5, style: .posterRow)
-              .transition(.opacity)
+            NativeCardListSkeletonView(
+              count: columnCount * 3,
+              style: .subscribeCard,
+              columns: columnCount
+            )
+            .transition(.opacity)
           } else if loadFailed && items.isEmpty {
             failureCard
           } else if filteredItems.isEmpty {
             emptyCard
           } else {
-            let columnCount = NativeDeviceLayout.cardGridCount(
-              for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
             let gridColumns = Array(
               repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: columnCount)
             LazyVGrid(columns: gridColumns, spacing: 12) {
@@ -90,8 +95,8 @@ struct NativeSubscriptionsPage: View {
             }
           }
         }
-        .frame(maxWidth: containerWidth >= 740 ? 1180 : 820)
-        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: containerWidth))
+        .frame(maxWidth: resolvedWidth >= 740 ? 1180 : 820)
+        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: resolvedWidth))
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
       }
@@ -722,7 +727,13 @@ private struct NativeSubscribeItem: Decodable, Sendable, Identifiable {
       let source = mediaSource, !source.isEmpty,
       let mediaID, !mediaID.isEmpty
     else { return nil }
-    return NativeMediaIdentity(source: source, mediaID: mediaID, type: type)
+    return NativeMediaIdentity(
+      source: source,
+      mediaID: mediaID,
+      type: type,
+      seedTitle: name,
+      seedPoster: poster
+    )
   }
 
   /// 容错解码后端扩展字段（如历史字符串型 `note` 或不同版本缺失字段）。

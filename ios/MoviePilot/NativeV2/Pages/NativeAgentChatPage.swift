@@ -1329,7 +1329,7 @@ struct NativeAgentChatPage: View {
         ScrollView {
           VStack(alignment: .leading, spacing: 12) {
             if isLoadingSessions && sessions.isEmpty {
-              NativeCardListSkeletonView(count: 4, style: .iconRow)
+              NativeCardListSkeletonView(count: 4, style: .groupedIconList, showsIcon: false)
                 .transition(.opacity)
             } else if sessions.isEmpty {
               CinematicPanel {
@@ -1992,39 +1992,54 @@ private struct NativeAgentAttachmentImageTile: View {
   let attachment: NativeAgentAttachmentItem
   let onTapImage: (UIImage) -> Void
 
+  private static let memoryCache = NSCache<NSString, UIImage>()
+  private let tileSize = CGSize(width: 200, height: 140)
+
   @State private var image: UIImage?
   @State private var loading = false
 
   var body: some View {
+    let resolvedImage = image ?? Self.memoryCache.object(forKey: attachment.url as NSString)
     Group {
-      if let image {
+      if let resolvedImage {
         Button {
-          onTapImage(image)
+          onTapImage(resolvedImage)
         } label: {
-          Image(uiImage: image)
+          Image(uiImage: resolvedImage)
             .resizable()
             .scaledToFill()
-            .frame(maxWidth: 220, maxHeight: 180)
+            .frame(width: tileSize.width, height: tileSize.height)
+            .clipped()
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
       } else {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
           .fill(NativeTheme.chipFill)
-          .frame(width: 160, height: 110)
+          .frame(width: tileSize.width, height: tileSize.height)
           .overlay {
             if loading {
-              ProgressView().controlSize(.small)
+              NativeSkeletonBlock(
+                width: tileSize.width,
+                height: tileSize.height,
+                cornerRadius: 12
+              )
+              .nativeSkeletonShimmer()
             } else {
               Image(systemName: "photo").foregroundStyle(.secondary)
             }
           }
       }
     }
+    .frame(width: tileSize.width, height: tileSize.height)
     .task(id: attachment.url) { await load() }
   }
 
   private func load() async {
+    if let cached = Self.memoryCache.object(forKey: attachment.url as NSString) {
+      image = cached
+      return
+    }
     guard image == nil else { return }
     loading = true
     defer { loading = false }
@@ -2036,6 +2051,7 @@ private struct NativeAgentAttachmentImageTile: View {
       let data = try? await session.requestResourcePayload(ep).value,
       let img = UIImage(data: data)
     {
+      Self.memoryCache.setObject(img, forKey: attachment.url as NSString)
       image = img
     }
   }

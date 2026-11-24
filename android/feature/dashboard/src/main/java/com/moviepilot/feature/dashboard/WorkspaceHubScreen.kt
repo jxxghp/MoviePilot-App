@@ -68,6 +68,7 @@ import com.moviepilot.designsystem.ExpressiveTintedScaffold
 import com.moviepilot.designsystem.LocalBottomOverlayInset
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeAdaptiveBadge
+import com.moviepilot.designsystem.NativeWorkspaceSkeleton
 import com.moviepilot.rustbridge.DashboardStatsDto
 import com.moviepilot.rustbridge.MediaServerLibraryDto
 import com.moviepilot.rustbridge.MoviePilotRepository
@@ -125,6 +126,7 @@ fun WorkspaceHubScreen(
     var pluginsCount by remember { mutableIntStateOf(initialCache?.pluginsCount ?: 0) }
     var workflowsCount by remember { mutableIntStateOf(initialCache?.workflows?.size ?: 0) }
     var libraries by remember { mutableStateOf(initialCache?.libraries ?: emptyList()) }
+    var isInitialLoading by remember { mutableStateOf(initialCache == null) }
     var isRefreshing by remember { mutableStateOf(false) }
 
     suspend fun loadSummary() {
@@ -156,6 +158,7 @@ fun WorkspaceHubScreen(
                 workflows = loadedWorkflows,
                 libraries = loadedLibs,
             )
+            isInitialLoading = false
             isRefreshing = false
         }
     }
@@ -187,17 +190,20 @@ fun WorkspaceHubScreen(
             },
             modifier = Modifier.fillMaxSize(),
         ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = margin,
-                    end = margin,
-                    top = 16.dp,
-                    bottom = bottomOverlayInset + 28.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-            ) {
+            if (isInitialLoading) {
+                NativeWorkspaceSkeleton()
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = margin,
+                        end = margin,
+                        top = 16.dp,
+                        bottom = bottomOverlayInset + 28.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                ) {
                 // 实时传输与任务状态总览卡
                 if (canManage) {
                     item(key = "ws_runtime_overview") {
@@ -429,6 +435,7 @@ fun WorkspaceHubScreen(
                             }
                         }
                     }
+                }
                 }
             }
         }

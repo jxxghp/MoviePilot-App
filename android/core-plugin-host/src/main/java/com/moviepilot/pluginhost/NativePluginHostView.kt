@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -48,7 +49,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -85,6 +85,8 @@ import com.moviepilot.designsystem.CinematicPanel
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
+import com.moviepilot.designsystem.NativeCardListSkeleton
+import com.moviepilot.designsystem.SkeletonCardStyle
 import com.moviepilot.rustbridge.RustCoreBridge
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -2100,9 +2102,12 @@ fun IsolatedVuePluginWebView(
                 .alpha(if (contentVisible) 1f else 0f),
         )
         if (!contentVisible) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = colors.accent)
-            }
+            NativeCardListSkeleton(
+                style = SkeletonCardStyle.FormPanel,
+                count = 3,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                modifier = Modifier.fillMaxSize(),
+            )
         }
     }
 }

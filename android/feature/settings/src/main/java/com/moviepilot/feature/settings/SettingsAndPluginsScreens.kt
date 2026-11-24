@@ -115,9 +115,14 @@ import com.moviepilot.designsystem.LocalSnackbarHostState
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
 import com.moviepilot.designsystem.NativeAppearanceMode
+import com.moviepilot.designsystem.NativeCardListSkeleton
 import com.moviepilot.designsystem.NativeNetworkEntityLogo
 import com.moviepilot.designsystem.NativeSegmentedControl
+import com.moviepilot.designsystem.NativeSkeletonBlock
 import com.moviepilot.designsystem.PlaybackPreferencesStore
+import com.moviepilot.designsystem.ProvideSkeletonShimmer
+import com.moviepilot.designsystem.SkeletonCardStyle
+import com.moviepilot.designsystem.SkeletonSurfaceRole
 import com.moviepilot.designsystem.contrastingForeground
 import com.moviepilot.pluginhost.IsolatedVuePluginWebView
 import com.moviepilot.pluginhost.NativePluginDataPageView
@@ -131,6 +136,8 @@ import com.moviepilot.rustbridge.PluginItemDto
 import com.moviepilot.rustbridge.RustCoreBridge
 import com.moviepilot.rustbridge.SessionState
 import com.moviepilot.rustcore.PermissionsFfi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -179,22 +186,35 @@ fun SettingsHubScreen(
     var mediaServersCount by remember { mutableIntStateOf(0) }
     var notificationsCount by remember { mutableIntStateOf(0) }
     var authorizedCount by remember { mutableIntStateOf(0) }
+    var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
 
     suspend fun loadAll() {
-        stats = repository.fetchDashboardStats()
-        if (isAdmin) {
-            activeSitesCount = repository.fetchSites().count { it.isActive }
-            usersCount = repository.fetchUsers().size.coerceAtLeast(1)
-            mediaServersCount = repository.fetchMediaServers().count { it.enabled }
-            notificationsCount = repository.fetchNotificationChannels().count { it.enabled }
-            authorizedCount = repository.fetchChannelAuthorizations().size
+        coroutineScope {
+            val statsDef = async { repository.fetchDashboardStats() }
+            if (isAdmin) {
+                val sitesDef = async { repository.fetchSites().count { it.isActive } }
+                val usersDef = async { repository.fetchUsers().size.coerceAtLeast(1) }
+                val serversDef = async { repository.fetchMediaServers().count { it.enabled } }
+                val notifDef = async { repository.fetchNotificationChannels().count { it.enabled } }
+                val authDef = async { repository.fetchChannelAuthorizations().size }
+                stats = statsDef.await()
+                activeSitesCount = sitesDef.await()
+                usersCount = usersDef.await()
+                mediaServersCount = serversDef.await()
+                notificationsCount = notifDef.await()
+                authorizedCount = authDef.await()
+            } else {
+                stats = statsDef.await()
+            }
         }
+        isLoading = false
         isRefreshing = false
     }
 
     LaunchedEffect(isAdmin) { loadAll() }
 
+    val showInlineShimmer = isLoading && !isRefreshing
     val usedRatio = if (stats.totalBytes > 0) (stats.usedBytes / stats.totalBytes).toFloat().coerceIn(0.02f, 1f) else 0f
     val freeBytes = (stats.totalBytes - stats.usedBytes).coerceAtLeast(0.0)
 
@@ -211,6 +231,7 @@ fun SettingsHubScreen(
             },
             modifier = Modifier.fillMaxSize(),
         ) {
+            ProvideSkeletonShimmer {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             LazyColumn(
                 state = listState,
@@ -232,25 +253,54 @@ fun SettingsHubScreen(
                                     Box(Modifier.size(8.dp).clip(CircleShape).background(colors.success))
                                     Text(host.ifBlank { "MoviePilot" }, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                                 }
-                                Text(
-                                    text = if (stats.totalBytes > 0) "${fmtStorage(stats.usedBytes)} / ${fmtStorage(stats.totalBytes)}" else "-- / --",
-                                    color = colors.textPrimary,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
+                                if (showInlineShimmer) {
+                                    NativeSkeletonBlock(
+                                        cornerRadius = 5.dp,
+                                        role = SkeletonSurfaceRole.Bar,
+                                        modifier = Modifier.size(width = 112.dp, height = 14.dp),
+                                    )
+                                } else {
+                                    Text(
+                                        text = if (stats.totalBytes > 0) "${fmtStorage(stats.usedBytes)} / ${fmtStorage(stats.totalBytes)}" else "-- / --",
+                                        color = colors.textPrimary,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
                             }
-                            Box(modifier = Modifier.fillMaxWidth().height(7.dp).clip(CircleShape).background(colors.chipFill)) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth(usedRatio)
-                                        .height(7.dp)
-                                        .clip(CircleShape)
-                                        .background(Brush.horizontalGradient(listOf(colors.accent, colors.pink))),
+                            if (showInlineShimmer) {
+                                NativeSkeletonBlock(
+                                    cornerRadius = 4.dp,
+                                    role = SkeletonSurfaceRole.Bar,
+                                    modifier = Modifier.fillMaxWidth().height(7.dp),
                                 )
+                            } else {
+                                Box(modifier = Modifier.fillMaxWidth().height(7.dp).clip(CircleShape).background(colors.chipFill)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth(usedRatio)
+                                            .height(7.dp)
+                                            .clip(CircleShape)
+                                            .background(Brush.horizontalGradient(listOf(colors.accent, colors.pink))),
+                                    )
+                                }
                             }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("• 已用 ${(usedRatio * 100).roundToInt()}%", color = colors.accent, fontSize = 12.sp)
-                                Text("可用 ${fmtStorage(freeBytes)}", color = colors.textSecondary, fontSize = 12.sp)
+                                if (showInlineShimmer) {
+                                    NativeSkeletonBlock(
+                                        cornerRadius = 4.dp,
+                                        role = SkeletonSurfaceRole.Bar,
+                                        modifier = Modifier.size(width = 58.dp, height = 12.dp),
+                                    )
+                                    NativeSkeletonBlock(
+                                        cornerRadius = 4.dp,
+                                        role = SkeletonSurfaceRole.Bar,
+                                        modifier = Modifier.size(width = 72.dp, height = 12.dp),
+                                    )
+                                } else {
+                                    Text("• 已用 ${(usedRatio * 100).roundToInt()}%", color = colors.accent, fontSize = 12.sp)
+                                    Text("可用 ${fmtStorage(freeBytes)}", color = colors.textSecondary, fontSize = 12.sp)
+                                }
                             }
                         }
                     }
@@ -260,14 +310,15 @@ fun SettingsHubScreen(
                 if (isAdmin) {
                     item {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            QuickTile("站点管理", "$activeSitesCount 启用", Icons.Outlined.Language, colors.success, Modifier.weight(1f), onOpenSites)
-                            QuickTile("用户管理", "$usersCount 位成员", Icons.Outlined.Group, colors.accent, Modifier.weight(1f), onOpenUsers)
+                            QuickTile("站点管理", "$activeSitesCount 启用", Icons.Outlined.Language, colors.success, Modifier.weight(1f), isLoading = showInlineShimmer, onClick = onOpenSites)
+                            QuickTile("用户管理", "$usersCount 位成员", Icons.Outlined.Group, colors.accent, Modifier.weight(1f), isLoading = showInlineShimmer, onClick = onOpenUsers)
                             QuickTile(
                                 title = "渠道授权",
                                 subtitle = if (authorizedCount > 0) "已绑 $authorizedCount" else "5分钟绑定码",
                                 icon = Icons.Outlined.Key,
                                 dotColor = colors.success,
                                 modifier = Modifier.weight(1f),
+                                isLoading = showInlineShimmer,
                                 onClick = onOpenChannelAuth,
                             )
                         }
@@ -287,7 +338,7 @@ fun SettingsHubScreen(
                                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
                                     SettingsRow(Icons.Outlined.Download, "下载器", "qBittorrent · Transmission · rTorrent", onOpenDownloaders)
                                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
-                                    SettingsRow(Icons.Outlined.Dns, "媒体服务器", "$mediaServersCount 个", onOpenMediaServers)
+                                    SettingsRow(Icons.Outlined.Dns, "媒体服务器", "$mediaServersCount 个", onOpenMediaServers, isLoadingValue = showInlineShimmer)
                                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
                                     SettingsRow(Icons.Outlined.Folder, "整理与目录", "目录映射与刮削", onOpenDirectories)
                                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
@@ -313,7 +364,7 @@ fun SettingsHubScreen(
                         CinematicPanel(padding = 0.dp, showsShadow = false) {
                             Column {
                                 if (isAdmin) {
-                                    SettingsRow(Icons.Outlined.Notifications, "通知渠道", "$notificationsCount 个已启用", onOpenNotifications)
+                                    SettingsRow(Icons.Outlined.Notifications, "通知渠道", "$notificationsCount 个已启用", onOpenNotifications, isLoadingValue = showInlineShimmer)
                                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
                                 } else {
                                     SettingsRow(Icons.Outlined.Key, "渠道授权", "生成 5 分钟机器人绑定码", onOpenChannelAuth)
@@ -362,6 +413,7 @@ fun SettingsHubScreen(
                 }
             }
             }
+            }
         }
     }
 }
@@ -373,6 +425,7 @@ private fun QuickTile(
     icon: ImageVector,
     dotColor: Color,
     modifier: Modifier = Modifier,
+    isLoading: Boolean = false,
     onClick: () -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
@@ -382,7 +435,15 @@ private fun QuickTile(
             Text(title, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 Box(Modifier.size(6.dp).clip(CircleShape).background(dotColor))
-                Text(subtitle, color = colors.textSecondary, fontSize = 11.sp, maxLines = 1)
+                if (isLoading) {
+                    NativeSkeletonBlock(
+                        cornerRadius = 4.dp,
+                        role = SkeletonSurfaceRole.Bar,
+                        modifier = Modifier.size(width = 48.dp, height = 11.dp),
+                    )
+                } else {
+                    Text(subtitle, color = colors.textSecondary, fontSize = 11.sp, maxLines = 1)
+                }
             }
         }
     }
@@ -394,6 +455,7 @@ private fun SettingsRow(
     title: String,
     value: String,
     onClick: () -> Unit,
+    isLoadingValue: Boolean = false,
 ) {
     val colors = LocalMoviePilotColors.current
     Row(
@@ -424,7 +486,13 @@ private fun SettingsRow(
                 color = colors.textPrimary,
                 style = androidx.compose.material3.MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
             )
-            if (value.isNotBlank()) {
+            if (isLoadingValue) {
+                NativeSkeletonBlock(
+                    cornerRadius = 4.dp,
+                    role = SkeletonSurfaceRole.Bar,
+                    modifier = Modifier.padding(top = 2.dp).size(width = 62.dp, height = 12.dp),
+                )
+            } else if (value.isNotBlank()) {
                 Text(
                     value,
                     color = colors.textSecondary,
@@ -841,6 +909,8 @@ fun PluginsCenterScreen(
 
     var installedPlugins by remember { mutableStateOf<List<PluginItemDto>>(emptyList()) }
     var marketPlugins by remember { mutableStateOf<List<PluginItemDto>>(emptyList()) }
+    var isLoadingInstalled by remember { mutableStateOf(true) }
+    var isLoadingMarket by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     val installingIds = remember { mutableStateMapOf<String, Boolean>() }
@@ -848,28 +918,34 @@ fun PluginsCenterScreen(
     suspend fun loadTab(installedOnly: Boolean) {
         if (installedOnly) {
             installedPlugins = repository.fetchPlugins(true)
+            isLoadingInstalled = false
         } else {
             marketPlugins = repository.fetchPlugins(false)
+            isLoadingMarket = false
         }
         isRefreshing = false
     }
 
     suspend fun reloadBoth() {
-        installedPlugins = repository.fetchPlugins(true)
-        marketPlugins = repository.fetchPlugins(false)
-        isRefreshing = false
+        coroutineScope {
+            launch { loadTab(true) }
+            launch { loadTab(false) }
+        }
     }
 
     LaunchedEffect(Unit) {
         reloadBoth()
     }
 
+    val installedTabTitle = if (isLoadingInstalled && installedPlugins.isEmpty()) "已安装" else "已安装 (${installedPlugins.size})"
+    val marketTabTitle = if (isLoadingMarket && marketPlugins.isEmpty()) "插件市场" else "插件市场 (${marketPlugins.size})"
+
     ExpressiveTintedScaffold(
         title = "插件中心",
         onBack = onBack,
         headerExtra = {
             ExpressivePillTabRow(
-                tabs = listOf("已安装 (${installedPlugins.size})", "插件市场 (${marketPlugins.size})"),
+                tabs = listOf(installedTabTitle, marketTabTitle),
                 selectedIndex = pagerState.currentPage,
                 onSelect = { idx -> scope.launch { pagerState.animateScrollToPage(idx) } },
                 onTintedHeader = true,
@@ -922,12 +998,48 @@ fun PluginsCenterScreen(
                     },
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    LazyColumn(
-                        contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomOverlayInset + 28.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        items(filtered, key = { "${pageIdx}_${it.id}" }) { plugin ->
+                    val pageLoading = if (pageIdx == 0) {
+                        isLoadingInstalled && installedPlugins.isEmpty()
+                    } else {
+                        isLoadingMarket && marketPlugins.isEmpty()
+                    }
+                    if (pageLoading) {
+                        NativeCardListSkeleton(
+                            style = SkeletonCardStyle.PluginCard,
+                            count = 5,
+                            contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomOverlayInset + 28.dp),
+                        )
+                    } else {
+                        LazyColumn(
+                            contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomOverlayInset + 28.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            if (filtered.isEmpty()) {
+                                item {
+                                    CinematicPanel(padding = 24.dp, showsShadow = false) {
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            Icon(Icons.Rounded.Extension, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(36.dp))
+                                            Text(
+                                                text = if (searchQuery.isNotBlank()) "未找到匹配的插件" else if (pageIdx == 0) "暂未安装插件" else "暂无可用市场插件",
+                                                color = colors.textPrimary,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                            )
+                                            Text(
+                                                text = if (searchQuery.isNotBlank()) "可尝试其他插件名称、作者或标签关键词。" else if (pageIdx == 0) "切换至「插件市场」即可一键安装官方与社区插件。" else "下拉可重新同步插件仓库。",
+                                                color = colors.textSecondary,
+                                                fontSize = 12.5.sp,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            items(filtered, key = { "${pageIdx}_${it.id}" }) { plugin ->
                             val isInstalling = installingIds[plugin.id] == true
                             CinematicPanel(
                                 padding = 16.dp,
@@ -1001,6 +1113,7 @@ fun PluginsCenterScreen(
                                                     },
                                                 )
                                             }
+                                        }
                                         }
                                     }
                                 }
@@ -1297,9 +1410,12 @@ fun PluginDetailScreen(
                     }
                 }
             } else if (isLoading && !forceVueWebMode && !plugin.renderMode.equals("vue", ignoreCase = true)) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = colors.accent)
-                }
+                NativeCardListSkeleton(
+                    style = SkeletonCardStyle.FormPanel,
+                    count = 3,
+                    contentPadding = PaddingValues(start = margin, end = margin, top = 16.dp, bottom = 32.dp),
+                    modifier = Modifier.weight(1f),
+                )
             } else if (openInVueWebView) {
                 IsolatedVuePluginWebView(
                     pluginId = plugin.id,

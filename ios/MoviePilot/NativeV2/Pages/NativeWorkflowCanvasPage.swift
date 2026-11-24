@@ -107,10 +107,38 @@ struct NativeWorkflowCanvasPage: View {
   @ViewBuilder
   private var mainContent: some View {
     if isLoading && detail == nil {
-      NativeCardListSkeletonView(style: .workflowCanvas)
+      VStack(spacing: 0) {
+        if !isCompactHeight {
+          HStack(spacing: 10) {
+            NativeSkeletonBlock(width: 116, height: 14, cornerRadius: 5)
+            Spacer(minLength: 4)
+            NativeSkeletonBlock(width: 30, height: 30, cornerRadius: 15)
+            NativeSkeletonBlock(width: 52, height: 24, cornerRadius: 12)
+            NativeSkeletonBlock(width: 30, height: 30, cornerRadius: 15)
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 8)
+          .nativeSkeletonShimmer()
+        }
+
+        NativeCardListSkeletonView(
+          style: .workflowCanvas,
+          isCompactCanvas: isCompactHeight
+        )
         .padding(.horizontal, CinematicStyle.margin)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .transition(.opacity)
+
+        HStack(spacing: 8) {
+          ForEach(0..<3, id: \.self) { idx in
+            NativeSkeletonBlock(width: idx == 1 ? 96 : 78, height: 28, cornerRadius: 14)
+          }
+          Spacer(minLength: 0)
+        }
+        .padding(.horizontal, CinematicStyle.margin)
+        .padding(.bottom, isCompactHeight ? 6 : 12)
+        .nativeSkeletonShimmer()
+      }
+      .transition(.opacity)
     } else if loadFailed && detail == nil {
       VStack {
         CinematicPanel {

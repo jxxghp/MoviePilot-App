@@ -23,6 +23,10 @@ import {
   HarmonyAdaptiveLayout,
   HarmonyThemeColors,
   HarmonyAppearanceStore,
+  HarmonySkeletonHost,
+  HarmonySkeletonBlock,
+  HarmonyCardGridSkeleton,
+  HarmonyPosterRowCardGridSkeleton,
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
@@ -579,33 +583,55 @@ export struct HarmonyLibraryPage {
                     })
                 }.width('100%')
 
-                ForEach(this.mtSearchResults, (m: MpMediaItem) => {
-                  Row({ space: 10 }) {
-                    if (m.posterUrl.length > 0) {
-                      MpRemoteImage({
-                        src: m.posterUrl,
-                        imgWidth: 36,
-                        imgHeight: 52,
-                        imgRadius: 6,
-                        placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
-                      })
+                if (this.mtSearching) {
+                  HarmonySkeletonHost({ loadingLabel: '正在检索匹配媒体' }) {
+                    Column({ space: 8 }) {
+                      ForEach([0, 1, 2], (idx: number) => {
+                        Row({ space: 10 }) {
+                          HarmonySkeletonBlock({ blockWidth: 36, blockHeight: 52, cornerRadius: 6, shimmerSweep: true })
+                          Column({ space: 5 }) {
+                            HarmonySkeletonBlock({ blockWidth: '64%', blockHeight: 13, cornerRadius: 4 })
+                            HarmonySkeletonBlock({ blockWidth: '46%', blockHeight: 11, cornerRadius: 4, tone: 'subtle' })
+                          }
+                          .layoutWeight(1)
+                          .alignItems(HorizontalAlign.Start)
+                          HarmonySkeletonBlock({ blockWidth: 32, blockHeight: 16, cornerRadius: 5, tone: 'subtle' })
+                        }
+                        .width('100%')
+                        .padding({ top: 4, bottom: 4 })
+                      }, (idx: number) => `mt_srch_sk_${idx}`)
                     }
-                    Column({ space: 2 }) {
-                      Text(m.title).fontSize(13).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).maxLines(1)
-                      Text(`${m.type}${m.year ? ' · ' + m.year : ''} · ID: ${m.tmdbId || m.doubanId || m.mediaId || m.id}`)
-                        .fontSize(11).fontColor(mpSecondaryText(this.isDark))
-                    }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-                    Text('选用').fontSize(12).fontColor(this.accentHex).fontWeight(FontWeight.Bold)
+                    .width('100%')
                   }
-                  .width('100%').padding({ top: 4, bottom: 4 })
-                  .onClick(() => {
-                    this.mtMediaId = m.tmdbId || m.doubanId || m.mediaId || m.id;
-                    this.mtMediaSource = m.tmdbId ? 'themoviedb' : (m.doubanId ? 'douban' : (m.source || this.mtMediaSource));
-                    if (m.type === '电影' || m.type === '电视剧' || m.type === '音乐') { this.mtMediaType = m.type; }
-                    this.mtSelectedMediaTitle = m.title;
-                    this.mtShowSearch = false;
-                  })
-                }, (m: MpMediaItem) => `mts_${m.id}`)
+                } else {
+                  ForEach(this.mtSearchResults, (m: MpMediaItem) => {
+                    Row({ space: 10 }) {
+                      if (m.posterUrl.length > 0) {
+                        MpRemoteImage({
+                          src: m.posterUrl,
+                          imgWidth: 36,
+                          imgHeight: 52,
+                          imgRadius: 6,
+                          placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                        })
+                      }
+                      Column({ space: 2 }) {
+                        Text(m.title).fontSize(13).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).maxLines(1)
+                        Text(`${m.type}${m.year ? ' · ' + m.year : ''} · ID: ${m.tmdbId || m.doubanId || m.mediaId || m.id}`)
+                          .fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                      }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                      Text('选用').fontSize(12).fontColor(this.accentHex).fontWeight(FontWeight.Bold)
+                    }
+                    .width('100%').padding({ top: 4, bottom: 4 })
+                    .onClick(() => {
+                      this.mtMediaId = m.tmdbId || m.doubanId || m.mediaId || m.id;
+                      this.mtMediaSource = m.tmdbId ? 'themoviedb' : (m.doubanId ? 'douban' : (m.source || this.mtMediaSource));
+                      if (m.type === '电影' || m.type === '电视剧' || m.type === '音乐') { this.mtMediaType = m.type; }
+                      this.mtSelectedMediaTitle = m.title;
+                      this.mtShowSearch = false;
+                    })
+                  }, (m: MpMediaItem) => `mts_${m.id}`)
+                }
               }
             }
           }
@@ -795,7 +821,9 @@ export struct HarmonyLibraryPage {
   build() {
     Column({ space: 10 }) {
       NativeBackHeader({
-        title: this.activeTabIdx === 0 ? `文件管理 (${this.files.length})` : `整理历史 (${this.history.length})`,
+        title: this.activeTabIdx === 0
+          ? (this.loading ? '文件管理' : `文件管理 (${this.files.length})`)
+          : (this.loading ? '整理历史' : `整理历史 (${this.history.length})`),
         trailingSymbol: 'sys.symbol.arrow_clockwise',
         trailingAccessibility: '刷新列表',
         onBack: () => {
@@ -872,8 +900,35 @@ export struct HarmonyLibraryPage {
       }
 
       if (this.loading) {
-        Column() { LoadingProgress().width(32).height(32).color(this.accentHex) }
-          .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+        if (this.activeTabIdx === 0) {
+          HarmonyCardGridSkeleton({
+            variant: 'file',
+            fillViewport: true,
+            bottomPadding: 40
+          })
+        } else {
+          HarmonyPosterRowCardGridSkeleton({
+            variant: 'history',
+            fillViewport: true,
+            bottomPadding: 40
+          })
+        }
+      } else if (this.activeTabIdx === 0 && this.files.length === 0) {
+        Column({ space: 8 }) {
+          SymbolGlyph($r('sys.symbol.folder')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
+          Text('当前目录为空').fontSize(14).fontColor(mpSecondaryText(this.isDark))
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+      } else if (this.activeTabIdx === 1 && this.filteredHistory().length === 0) {
+        Column({ space: 8 }) {
+          SymbolGlyph($r('sys.symbol.clock')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
+          Text('暂无匹配的整理历史记录').fontSize(14).fontColor(mpSecondaryText(this.isDark))
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
       } else {
         Grid() {
           if (this.activeTabIdx === 0) {

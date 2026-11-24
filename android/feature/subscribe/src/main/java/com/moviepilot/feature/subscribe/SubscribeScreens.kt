@@ -61,7 +61,6 @@ import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -113,11 +112,18 @@ import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.LocalSnackbarHostState
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
+import com.moviepilot.designsystem.NativeCardListSkeleton
 import com.moviepilot.designsystem.NativeEntityLogo
 import com.moviepilot.designsystem.NativeGlassSheet
+import com.moviepilot.designsystem.NativeInlineChipRowSkeleton
 import com.moviepilot.designsystem.NativeNetworkEntityLogo
 import com.moviepilot.designsystem.NativePosterCard
+import com.moviepilot.designsystem.NativePosterGridSkeleton
 import com.moviepilot.designsystem.NativeSegmentedControl
+import com.moviepilot.designsystem.NativeSkeletonBlock
+import com.moviepilot.designsystem.ProvideSkeletonShimmer
+import com.moviepilot.designsystem.SkeletonCardStyle
+import com.moviepilot.designsystem.SkeletonSurfaceRole
 import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.rustbridge.CalendarEntryDto
@@ -129,6 +135,8 @@ import com.moviepilot.rustbridge.SubscribeEpisodeFileGroupDto
 import com.moviepilot.rustbridge.SubscribeFilesInfoDto
 import com.moviepilot.rustbridge.SubscribeItemDto
 import com.moviepilot.rustbridge.SubscribeLibraryFileDto
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -167,7 +175,10 @@ fun SubscriptionsScreen(
     }
     val rootPagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
 
-    var items by remember { mutableStateOf(repository.cachedSubscriptions.orEmpty()) }
+    val initialCached = remember { repository.cachedSubscriptions }
+    val cardCols = AdaptiveDeviceLayout.cardGridColumns()
+    var items by remember { mutableStateOf(initialCached.orEmpty()) }
+    var isLoading by remember { mutableStateOf(initialCached == null) }
     var isRefreshing by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<SubscribeItemDto?>(null) }
     var viewingFilesItem by remember { mutableStateOf<SubscribeItemDto?>(null) }
@@ -175,6 +186,7 @@ fun SubscriptionsScreen(
 
     suspend fun loadSubs(forceRefresh: Boolean = true) {
         items = repository.fetchSubscriptions(forceRefresh = forceRefresh)
+        isLoading = false
         isRefreshing = false
     }
 
@@ -216,8 +228,9 @@ fun SubscriptionsScreen(
             )
         },
         headerExtra = {
+            val myTabTitle = if (isLoading && items.isEmpty()) "我的订阅" else "我的订阅 (${items.size})"
             ExpressivePillTabRow(
-                tabs = listOf("我的订阅 (${items.size})", "订阅广场"),
+                tabs = listOf(myTabTitle, "订阅广场"),
                 selectedIndex = rootPagerState.currentPage,
                 onSelect = { idx -> scope.launch { rootPagerState.animateScrollToPage(idx) } },
                 onTintedHeader = true,
@@ -236,11 +249,12 @@ fun SubscriptionsScreen(
                 val movieCnt = items.count { it.type == "电影" }
                 val tvCnt = items.count { it.type == "电视剧" }
                 val musicCnt = items.count { it.type == "音乐" }
+                val showCounts = !isLoading || items.isNotEmpty()
                 val filterChips = listOf(
-                    "all" to "全部 ${items.size}",
-                    "movie" to "电影 $movieCnt",
-                    "tv" to "电视剧 $tvCnt",
-                    "music" to "音乐 $musicCnt",
+                    "all" to if (showCounts) "全部 ${items.size}" else "全部",
+                    "movie" to if (showCounts) "电影 $movieCnt" else "电影",
+                    "tv" to if (showCounts) "电视剧 $tvCnt" else "电视剧",
+                    "music" to if (showCounts) "音乐 $musicCnt" else "音乐",
                 )
                 val filtered = remember(items, selectedCategory) {
                     when (selectedCategory) {
@@ -273,6 +287,42 @@ fun SubscriptionsScreen(
                         },
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                     ) {
+                        if (isLoading && items.isEmpty()) {
+                            NativeCardListSkeleton(
+                                style = SkeletonCardStyle.PosterRow,
+                                count = 5,
+                                columns = cardCols,
+                                contentPadding = PaddingValues(
+                                    start = margin,
+                                    end = margin,
+                                    bottom = bottomOverlayInset + 20.dp,
+                                ),
+                            )
+                        } else if (filtered.isEmpty()) {
+                            LazyColumn(
+                                contentPadding = PaddingValues(
+                                    start = margin,
+                                    end = margin,
+                                    top = 8.dp,
+                                    bottom = bottomOverlayInset + 20.dp,
+                                ),
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                item {
+                                    CinematicPanel(padding = 24.dp, showsShadow = false) {
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            Icon(Icons.Rounded.VideoLibrary, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(36.dp))
+                                            Text("当前分类暂无订阅条目", color = colors.textPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
+                                            Text("可点击右上角搜索添加影视剧或切换至「订阅广场」发现热门分享。", color = colors.textSecondary, fontSize = 13.sp, textAlign = TextAlign.Center)
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
                         LazyColumn(
                             state = listState,
                             contentPadding = PaddingValues(
@@ -422,6 +472,7 @@ fun SubscriptionsScreen(
                         }
                     }
                         }
+                        }
                     }
                 }
             }
@@ -545,20 +596,28 @@ private fun SubscribeEditorSheet(
     val siteIcons = remember { mutableStateMapOf<Int, String>() }
     var allRuleGroups by remember { mutableStateOf<List<String>>(emptyList()) }
     var allDownloaders by remember { mutableStateOf<List<com.moviepilot.rustbridge.ServiceConfigDto>>(emptyList()) }
+    var isLoadingOptions by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-        val activeSites = repository.fetchSites().filter { it.isActive }
-        allSites = activeSites
-        activeSites.forEach { s ->
-            s.iconUrl?.takeIf { it.isNotBlank() }?.let { siteIcons[s.id] = it }
-            launch {
-                repository.fetchSiteIcon(s.id)?.let { icon ->
-                    repository.resolveImageUrl(icon)?.let { siteIcons[s.id] = it }
+        isLoadingOptions = true
+        coroutineScope {
+            val sitesDef = async { repository.fetchSites().filter { it.isActive } }
+            val groupsDef = async { repository.fetchSubscribeSearchSettings().filterRuleGroups.map { it.name }.filter { it.isNotBlank() } }
+            val dlsDef = async { repository.fetchDownloaders().filter { it.enabled } }
+            val activeSites = sitesDef.await()
+            allSites = activeSites
+            allRuleGroups = groupsDef.await()
+            allDownloaders = dlsDef.await()
+            isLoadingOptions = false
+            activeSites.forEach { s ->
+                s.iconUrl?.takeIf { it.isNotBlank() }?.let { siteIcons[s.id] = it }
+                launch {
+                    repository.fetchSiteIcon(s.id)?.let { icon ->
+                        repository.resolveImageUrl(icon)?.let { siteIcons[s.id] = it }
+                    }
                 }
             }
         }
-        allRuleGroups = repository.fetchSubscribeSearchSettings().filterRuleGroups.map { it.name }.filter { it.isNotBlank() }
-        allDownloaders = repository.fetchDownloaders().filter { it.enabled }
     }
 
     NativeGlassSheet(onDismissRequest = onDismiss) {
@@ -733,7 +792,15 @@ private fun SubscribeEditorSheet(
                             Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
                         }
                     }
-                    if (showSitesPicker && allSites.isNotEmpty()) {
+                    if (showSitesPicker) {
+                        if (isLoadingOptions && allSites.isEmpty()) {
+                            NativeInlineChipRowSkeleton(
+                                widths = listOf(76.dp, 88.dp, 82.dp, 94.dp),
+                                height = 34.dp,
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                                role = SkeletonSurfaceRole.Bar,
+                            )
+                        } else if (allSites.isNotEmpty()) {
                         FlowRow(
                             modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -761,6 +828,7 @@ private fun SubscribeEditorSheet(
                                 )
                             }
                         }
+                        }
                     }
                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
                     Row(
@@ -777,7 +845,15 @@ private fun SubscribeEditorSheet(
                             Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
                         }
                     }
-                    if (showGroupsPicker && allRuleGroups.isNotEmpty()) {
+                    if (showGroupsPicker) {
+                        if (isLoadingOptions && allRuleGroups.isEmpty()) {
+                            NativeInlineChipRowSkeleton(
+                                widths = listOf(76.dp, 92.dp, 84.dp),
+                                height = 34.dp,
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                                role = SkeletonSurfaceRole.Bar,
+                            )
+                        } else if (allRuleGroups.isNotEmpty()) {
                         FlowRow(
                             modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -790,6 +866,7 @@ private fun SubscribeEditorSheet(
                                     selectedFilterGroups = if (picked) selectedFilterGroups - g else selectedFilterGroups + g
                                 })
                             }
+                        }
                         }
                     }
                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
@@ -1096,9 +1173,11 @@ fun CalendarScreen(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             ) {
                 if (isLoading && calendarEntries.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        androidx.compose.material3.CircularProgressIndicator(color = colors.accent)
-                    }
+                    NativeCardListSkeleton(
+                        style = SkeletonCardStyle.PosterRow,
+                        count = 4,
+                        contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomOverlayInset + 24.dp),
+                    )
                 } else if (dayItems.isEmpty()) {
                     LazyColumn(
                         contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomOverlayInset + 24.dp),
@@ -1298,8 +1377,20 @@ private fun SubscribeCommunityContent(
         }
 
         if (isLoading && items.isEmpty()) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                androidx.compose.material3.CircularProgressIndicator(color = colors.accent)
+            if (tab == "shares") {
+                NativeCardListSkeleton(
+                    style = SkeletonCardStyle.PosterRow,
+                    count = 5,
+                    columns = AdaptiveDeviceLayout.cardGridColumns(),
+                    contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomPadding),
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                NativePosterGridSkeleton(
+                    columns = cols,
+                    contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomPadding),
+                    modifier = Modifier.weight(1f),
+                )
             }
         } else if (tab == "shares") {
             LazyColumn(
@@ -1535,6 +1626,9 @@ fun SubscribeFilesSheet(
             }
         }
 
+        val isInitialFilesLoading = loading && filesInfo == null
+
+        ProvideSkeletonShimmer {
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1610,27 +1704,61 @@ fun SubscribeFilesSheet(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            SubscribeProgressStatCard(
-                                label = "已下载",
-                                valueText = "$downloadedCount/$totalCount",
-                                ratio = downloadedCount.toFloat() / totalCount.toFloat(),
-                                tint = colors.info,
-                                modifier = Modifier.weight(1f),
-                            )
-                            SubscribeProgressStatCard(
-                                label = "已入库",
-                                valueText = "$libraryCount/$totalCount",
-                                ratio = libraryCount.toFloat() / totalCount.toFloat(),
-                                tint = Color(0xFF1F9D55),
-                                modifier = Modifier.weight(1f),
-                            )
-                            SubscribeProgressStatCard(
-                                label = "缺失",
-                                valueText = "$missingCount",
-                                ratio = missingCount.toFloat() / totalCount.toFloat(),
-                                tint = colors.warning,
-                                modifier = Modifier.weight(1f),
-                            )
+                            if (isInitialFilesLoading) {
+                                listOf("已下载", "已入库", "缺失").forEach { statLabel ->
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(colors.chipFill.copy(alpha = 0.72f))
+                                            .border(0.6.dp, colors.divider, RoundedCornerShape(12.dp))
+                                            .padding(horizontal = 10.dp, vertical = 9.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Text(statLabel, color = colors.textMuted, fontSize = 11.5.sp)
+                                            NativeSkeletonBlock(
+                                                cornerRadius = 4.dp,
+                                                role = SkeletonSurfaceRole.Bar,
+                                                modifier = Modifier.size(width = 28.dp, height = 12.dp),
+                                            )
+                                        }
+                                        NativeSkeletonBlock(
+                                            cornerRadius = 4.dp,
+                                            role = SkeletonSurfaceRole.Bar,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(4.dp),
+                                        )
+                                    }
+                                }
+                            } else {
+                                SubscribeProgressStatCard(
+                                    label = "已下载",
+                                    valueText = "$downloadedCount/$totalCount",
+                                    ratio = downloadedCount.toFloat() / totalCount.toFloat(),
+                                    tint = colors.info,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                SubscribeProgressStatCard(
+                                    label = "已入库",
+                                    valueText = "$libraryCount/$totalCount",
+                                    ratio = libraryCount.toFloat() / totalCount.toFloat(),
+                                    tint = Color(0xFF1F9D55),
+                                    modifier = Modifier.weight(1f),
+                                )
+                                SubscribeProgressStatCard(
+                                    label = "缺失",
+                                    valueText = "$missingCount",
+                                    ratio = missingCount.toFloat() / totalCount.toFloat(),
+                                    tint = colors.warning,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                         }
                     }
                 }
@@ -1640,17 +1768,30 @@ fun SubscribeFilesSheet(
             item(key = "sub_files_controls") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     NativeSegmentedControl(
-                        options = listOf("下载文件 ($totalDownloadFiles)", "媒体库文件 ($totalLibraryFiles)"),
+                        options = if (isInitialFilesLoading) {
+                            listOf("下载文件", "媒体库文件")
+                        } else {
+                            listOf("下载文件 ($totalDownloadFiles)", "媒体库文件 ($totalLibraryFiles)")
+                        },
                         selectedIndex = modeTab,
                         onSelect = { modeTab = it },
                     )
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val filters = listOf(
-                            "all" to "全部 (${allGroups.size})",
-                            "library" to "已入库 ($libraryCount)",
-                            "downloaded" to "已下载 (${allGroups.count { episodeStatusKey(it) == "downloaded" }})",
-                            "missing" to "待入库 ($missingCount)",
-                        )
+                        val filters = if (isInitialFilesLoading) {
+                            listOf(
+                                "all" to "全部",
+                                "library" to "已入库",
+                                "downloaded" to "已下载",
+                                "missing" to "待入库",
+                            )
+                        } else {
+                            listOf(
+                                "all" to "全部 (${allGroups.size})",
+                                "library" to "已入库 ($libraryCount)",
+                                "downloaded" to "已下载 (${allGroups.count { episodeStatusKey(it) == "downloaded" }})",
+                                "missing" to "待入库 ($missingCount)",
+                            )
+                        }
                         items(filters) { (key, title) ->
                             NativeAdaptivePill(
                                 title = title,
@@ -1672,14 +1813,14 @@ fun SubscribeFilesSheet(
             }
 
             // 3. 分集文件详情卡片列表
-            if (loading) {
+            if (isInitialFilesLoading) {
                 item(key = "sub_files_loading") {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(color = colors.accent)
-                    }
+                    NativeCardListSkeleton(
+                        style = SkeletonCardStyle.FormPanel,
+                        count = 3,
+                        contentPadding = PaddingValues(0.dp),
+                        scrollable = false,
+                    )
                 }
             } else if (filteredGroups.isEmpty()) {
                 item(key = "sub_files_empty") {
@@ -1800,6 +1941,7 @@ fun SubscribeFilesSheet(
             item(key = "sub_files_bottom_spacer") {
                 Spacer(Modifier.height(18.dp))
             }
+        }
         }
     }
 }

@@ -83,18 +83,22 @@ struct NativeDashboardPage: View {
 
   /// 主体使用连续渐变底色，所有已启用仪表盘组件依次流式呈现，底部提供「编辑仪表盘组件」胶囊入口。
   var body: some View {
+    let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    let margin = NativeDeviceLayout.horizontalMargin(for: resolvedWidth)
     ZStack {
       CinematicBackground()
       if isInitialLoading {
-        NativeDashboardSkeletonView()
-          .transition(.opacity)
-          .accessibilityIdentifier("native-dashboard-loading")
+        NativeDashboardSkeletonView(
+          containerWidth: resolvedWidth,
+          horizontalMargin: margin
+        )
+        .transition(.opacity)
+        .accessibilityIdentifier("native-dashboard-loading")
       } else {
         ScrollView {
-          let useTwoColumns = containerWidth >= 820 && !dynamicTypeSize.isAccessibilitySize
-          let margin = NativeDeviceLayout.horizontalMargin(for: containerWidth)
+          let useTwoColumns = resolvedWidth >= 820 && !dynamicTypeSize.isAccessibilitySize
           VStack(alignment: .leading, spacing: 20) {
-            if loading { loadingIndicator }
+            if loading && !hasAnyContent { loadingIndicator }
             if !failedSections.isEmpty { errorPanel }
             if useTwoColumns {
               dashboardAdaptiveBentoContent
@@ -134,13 +138,13 @@ struct NativeDashboardPage: View {
           .padding(.bottom, 36)
           .frame(maxWidth: .infinity)
         }
-        .nativeTrackContainerWidth($containerWidth)
         .scrollIndicators(.hidden)
         .modifier(NativeSoftTopScrollEdge())
         .refreshable { await load(forceRefresh: true) }
         .accessibilityIdentifier("native-dashboard-scroll")
       }
     }
+    .nativeTrackContainerWidth($containerWidth)
     .navigationTitle("")
     .navigationBarTitleDisplayMode(.inline)
     .nativeTopNavigationBar()
@@ -348,8 +352,9 @@ struct NativeDashboardPage: View {
   // MARK: - 1. 媒体库统计
 
   private func librarySummary(_ values: NativeDashboardStatistics) -> some View {
+    let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
     let metricColumnsCount: Int =
-      dynamicTypeSize.isAccessibilitySize ? 1 : (containerWidth >= 740 ? 4 : 2)
+      dynamicTypeSize.isAccessibilitySize ? 1 : (resolvedWidth >= 740 ? 4 : 2)
     let columns = Array(
       repeating: GridItem(.flexible(), spacing: 12, alignment: .top),
       count: metricColumnsCount)

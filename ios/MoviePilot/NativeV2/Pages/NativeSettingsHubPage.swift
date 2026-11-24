@@ -25,6 +25,7 @@ struct NativeSettingsHubPage: View {
   @State private var approvedAuthCount: Int = 0
   @State private var downloaderCount: Int?
   @State private var mediaServerCount: Int?
+  @State private var isOverviewLoading: Bool
   @State private var cacheBytes: Int64 = 0
   @State private var showsNotificationSettings = false
   @State private var showsWidgetSettings = false
@@ -35,6 +36,43 @@ struct NativeSettingsHubPage: View {
   @AppStorage("nativeV2.playback.aspectFill") private var playbackAspectFill = false
   @AppStorage("nativeV2.playback.defaultRate") private var playbackDefaultRate = 1.0
   @ObservedObject private var appearance = NativeAppearanceStore.shared
+
+  init(
+    session: NativeSession,
+    snapshot: NativeSessionSnapshot,
+    currentLanguage: AppLanguage,
+    onNavigate: @escaping (NativeWorkspaceDestination) -> Void,
+    onOpenModules: @escaping () -> Void,
+    onOpenPlugins: @escaping () -> Void,
+    onSelectLanguage: @escaping (AppLanguage) -> Void,
+    onSwitchServer: @escaping () -> Void,
+    onLogout: @escaping () -> Void
+  ) {
+    self.session = session
+    self.snapshot = snapshot
+    self.currentLanguage = currentLanguage
+    self.onNavigate = onNavigate
+    self.onOpenModules = onOpenModules
+    self.onOpenPlugins = onOpenPlugins
+    self.onSelectLanguage = onSelectLanguage
+    self.onSwitchServer = onSwitchServer
+    self.onLogout = onLogout
+    if snapshot.user.isSuperuser,
+      let cached: NativeSettingsHubOverviewCache = NativePageDataCache.shared.get(
+        "settingsHub|overview.v2", session: session)
+    {
+      _storage = State(initialValue: cached.storage)
+      _siteCount = State(initialValue: cached.siteCount)
+      _userCount = State(initialValue: cached.userCount)
+      _pendingAuthCount = State(initialValue: cached.pendingAuthCount)
+      _approvedAuthCount = State(initialValue: cached.approvedAuthCount)
+      _downloaderCount = State(initialValue: cached.downloaderCount)
+      _mediaServerCount = State(initialValue: cached.mediaServerCount)
+      _isOverviewLoading = State(initialValue: false)
+    } else {
+      _isOverviewLoading = State(initialValue: snapshot.user.isSuperuser)
+    }
+  }
 
   private func t(_ key: String) -> String {
     L10n.text(key, language: currentLanguage)
@@ -48,6 +86,8 @@ struct NativeSettingsHubPage: View {
           if snapshot.user.isSuperuser {
             if let storage, storage.total > 0 {
               storageTelemetryCard(storage)
+            } else if isOverviewLoading && storage == nil {
+              storageTelemetrySkeletonCard
             }
             adminTopStatusGrid
             coreWorkflowSection
@@ -112,6 +152,34 @@ struct NativeSettingsHubPage: View {
   }
 
   // MARK: - 1. 顶部概览与快捷状态卡
+
+  /// 概览加载期间预留与 `storageTelemetryCard` 完全等高（~96pt）的存储卡片占位骨架，防止设置页首帧下沉跳动。
+  private var storageTelemetrySkeletonCard: some View {
+    let host = session.instance.address.url.host ?? session.instance.address.url.absoluteString
+    return CinematicPanel(padding: 16) {
+      VStack(alignment: .leading, spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Circle()
+            .fill(NativeTheme.success)
+            .frame(width: 7, height: 7)
+          Text(host)
+            .font(.footnote.monospaced())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+          Spacer(minLength: 8)
+          NativeSkeletonBlock(width: 108, height: 13, cornerRadius: 5)
+        }
+        NativeSkeletonBlock(height: 8, cornerRadius: 4)
+        HStack {
+          NativeSkeletonBlock(width: 76, height: 12, cornerRadius: 5)
+          Spacer()
+          NativeSkeletonBlock(width: 86, height: 12, cornerRadius: 5)
+        }
+      }
+      .frame(minHeight: 64)
+    }
+    .nativeSkeletonShimmer()
+  }
 
   private func storageTelemetryCard(_ storage: NativeSettingsStorageBrief) -> some View {
     let host = session.instance.address.url.host ?? session.instance.address.url.absoluteString
@@ -535,7 +603,10 @@ struct NativeSettingsHubPage: View {
 
   private func loadOverview(forceRefresh: Bool = false) async {
     cacheBytes = await NativeMediaArtworkCache.shared.diskCacheSizeBytes(for: session)
-    guard snapshot.user.isSuperuser else { return }
+    guard snapshot.user.isSuperuser else {
+      isOverviewLoading = false
+      return
+    }
     let cacheKey = "settingsHub|overview.v2"
     if !forceRefresh,
       let cached: NativeSettingsHubOverviewCache = NativePageDataCache.shared.get(
@@ -548,8 +619,13 @@ struct NativeSettingsHubPage: View {
       approvedAuthCount = cached.approvedAuthCount
       downloaderCount = cached.downloaderCount
       mediaServerCount = cached.mediaServerCount
+      isOverviewLoading = false
       return
     }
+    if storage == nil {
+      isOverviewLoading = true
+    }
+    defer { isOverviewLoading = false }
     async let storageTask: NativeSettingsStorageBrief? = {
       guard let ep = try? APIEndpoint(path: ["dashboard", "storage"]) else { return nil }
       return try? await session.request(
@@ -812,7 +888,7 @@ struct NativeChannelAuthorizationPage: View {
       }
 
       if isLoading && members.isEmpty {
-        NativeCardListSkeletonView(count: 4, style: .iconRow)
+        NativeCardListSkeletonView(count: 4, style: .groupedIconList)
           .transition(.opacity)
       } else if filteredMembers.isEmpty {
         CinematicPanel(padding: 16) {
@@ -1568,94 +1644,99 @@ struct NativeMediaSourceSettingsPage: View {
             }
           }
 
-          if isLoading {
-            NativeCardListSkeletonView(count: 5, style: .iconRow)
-              .transition(.opacity)
-          } else {
-            VStack(alignment: .leading, spacing: 10) {
-              HStack {
-                Text("媒体搜索数据源")
-                  .font(.subheadline.weight(.medium))
-                  .foregroundStyle(.secondary)
-                Spacer()
+          VStack(alignment: .leading, spacing: 10) {
+            HStack {
+              Text("媒体搜索数据源")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+              Spacer()
+              if isLoading {
+                NativeSkeletonBlock(width: 52, height: 12, cornerRadius: 5)
+                  .nativeSkeletonShimmer()
+              } else {
                 Text(orderedSelection.isEmpty ? "未选择" : "已选 \(orderedSelection.count) 个")
                   .font(.caption)
                   .foregroundStyle(.secondary)
               }
-              .padding(.horizontal, 8)
+            }
+            .padding(.horizontal, 8)
 
+            if isLoading {
+              NativeCardListSkeletonView(count: 4, style: .iconRow, spacing: 10)
+                .transition(.opacity)
+            } else {
               NativeBrandMultiOptionGrid(
                 kind: .mediaSource,
                 items: availableChoices,
                 selection: selectionSetBinding,
                 columns: 1
               )
-
-              Text("仅展示后端已启用的媒体数据源模块；关闭或启用内置模块请在 Web 高级设置中调整。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
             }
 
-            if orderedSelection.count > 1 {
-              VStack(alignment: .leading, spacing: 10) {
-                Text("搜索优先级顺序")
-                  .font(.subheadline.weight(.medium))
-                  .foregroundStyle(.secondary)
-                  .padding(.horizontal, 8)
-                CinematicPanel(padding: 0) {
-                  VStack(spacing: 0) {
-                    ForEach(Array(orderedSelection.enumerated()), id: \.element) { idx, sourceID in
-                      if idx > 0 { CinematicFormDivider() }
-                      let title =
-                        availableChoices.first(where: { $0.id == sourceID })?.title ?? sourceID
-                      HStack(spacing: 12) {
-                        Text("\(idx + 1)")
-                          .font(.caption.monospacedDigit().weight(.bold))
-                          .foregroundStyle(appearance.accentColor)
-                          .frame(width: 22, height: 22)
-                          .background(appearance.accentColor.opacity(0.14), in: Circle())
-                        NativeBrandIcon(
-                          kind: .mediaSource, type: sourceID, size: 28, cornerRadius: 8)
-                        Text(title)
-                          .font(.subheadline.weight(.medium))
-                          .foregroundStyle(.primary)
-                          .lineLimit(2)
-                        Spacer()
-                        HStack(spacing: 4) {
-                          Button {
-                            guard idx > 0 else { return }
-                            orderedSelection.swapAt(idx, idx - 1)
-                          } label: {
-                            Image(systemName: "chevron.up")
-                              .font(.caption.weight(.semibold))
-                              .frame(width: 30, height: 30)
-                              .contentShape(Rectangle())
-                          }
-                          .buttonStyle(.plain)
-                          .foregroundStyle(idx > 0 ? Color.primary : Color.secondary.opacity(0.3))
-                          .disabled(idx == 0)
+            Text("仅展示后端已启用的媒体数据源模块；关闭或启用内置模块请在 Web 高级设置中调整。")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .padding(.horizontal, 8)
+          }
 
-                          Button {
-                            guard idx < orderedSelection.count - 1 else { return }
-                            orderedSelection.swapAt(idx, idx + 1)
-                          } label: {
-                            Image(systemName: "chevron.down")
-                              .font(.caption.weight(.semibold))
-                              .frame(width: 30, height: 30)
-                              .contentShape(Rectangle())
-                          }
-                          .buttonStyle(.plain)
-                          .foregroundStyle(
-                            idx < orderedSelection.count - 1
-                              ? Color.primary : Color.secondary.opacity(0.3)
-                          )
-                          .disabled(idx >= orderedSelection.count - 1)
+          if !isLoading && orderedSelection.count > 1 {
+            VStack(alignment: .leading, spacing: 10) {
+              Text("搜索优先级顺序")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+              CinematicPanel(padding: 0) {
+                VStack(spacing: 0) {
+                  ForEach(Array(orderedSelection.enumerated()), id: \.element) { idx, sourceID in
+                    if idx > 0 { CinematicFormDivider() }
+                    let title =
+                      availableChoices.first(where: { $0.id == sourceID })?.title ?? sourceID
+                    HStack(spacing: 12) {
+                      Text("\(idx + 1)")
+                        .font(.caption.monospacedDigit().weight(.bold))
+                        .foregroundStyle(appearance.accentColor)
+                        .frame(width: 22, height: 22)
+                        .background(appearance.accentColor.opacity(0.14), in: Circle())
+                      NativeBrandIcon(
+                        kind: .mediaSource, type: sourceID, size: 28, cornerRadius: 8)
+                      Text(title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                      Spacer()
+                      HStack(spacing: 4) {
+                        Button {
+                          guard idx > 0 else { return }
+                          orderedSelection.swapAt(idx, idx - 1)
+                        } label: {
+                          Image(systemName: "chevron.up")
+                            .font(.caption.weight(.semibold))
+                            .frame(width: 30, height: 30)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(idx > 0 ? Color.primary : Color.secondary.opacity(0.3))
+                        .disabled(idx == 0)
+
+                        Button {
+                          guard idx < orderedSelection.count - 1 else { return }
+                          orderedSelection.swapAt(idx, idx + 1)
+                        } label: {
+                          Image(systemName: "chevron.down")
+                            .font(.caption.weight(.semibold))
+                            .frame(width: 30, height: 30)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(
+                          idx < orderedSelection.count - 1
+                            ? Color.primary : Color.secondary.opacity(0.3)
+                        )
+                        .disabled(idx >= orderedSelection.count - 1)
                       }
-                      .padding(.horizontal, 14)
-                      .padding(.vertical, 10)
                     }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
                   }
                 }
               }
@@ -1904,7 +1985,7 @@ struct NativeDownloadersManagePage: View {
             }
           }
           if isLoading && items.isEmpty {
-            NativeCardListSkeletonView(count: 3, style: .iconRow)
+            NativeCardListSkeletonView(count: 3, style: .groupedIconList)
               .transition(.opacity)
           } else if items.isEmpty {
             CinematicPanel(padding: 16) {
@@ -2305,7 +2386,7 @@ struct NativeMediaServersManagePage: View {
             }
           }
           if isLoading && items.isEmpty {
-            NativeCardListSkeletonView(count: 3, style: .iconRow)
+            NativeCardListSkeletonView(count: 3, style: .groupedIconList)
               .transition(.opacity)
           } else if items.isEmpty {
             CinematicPanel(padding: 16) {

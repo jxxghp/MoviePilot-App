@@ -61,7 +61,6 @@ import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -107,6 +106,7 @@ import com.moviepilot.designsystem.CinematicGlassSurface
 import com.moviepilot.designsystem.CinematicPanel
 import com.moviepilot.designsystem.ExpressiveHeaderActionButton
 import com.moviepilot.designsystem.ExpressiveMixCollageHeader
+import com.moviepilot.designsystem.ExpressiveMixCollageHeaderSkeleton
 import com.moviepilot.designsystem.ExpressivePillTabRow
 import com.moviepilot.designsystem.ExpressiveTintedScaffold
 import com.moviepilot.designsystem.LocalBottomOverlayInset
@@ -114,11 +114,16 @@ import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
 import com.moviepilot.designsystem.NativeBrandDrawable
+import com.moviepilot.designsystem.NativeDiscoverSkeleton
 import com.moviepilot.designsystem.NativeEntityLogo
 import com.moviepilot.designsystem.NativeGlassSheet
+import com.moviepilot.designsystem.NativePersonGridSkeleton
 import com.moviepilot.designsystem.NativePosterCard
+import com.moviepilot.designsystem.NativePosterGridSkeleton
 import com.moviepilot.designsystem.NativeSectionHeader
 import com.moviepilot.designsystem.NativeTopStatusBarProgressiveBlur
+import com.moviepilot.designsystem.ProvideSkeletonShimmer
+import com.moviepilot.designsystem.nativePosterGridSkeletonItems
 import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.rustbridge.ContinueWatchingItem
@@ -237,6 +242,7 @@ fun DiscoverScreen(
         }
     }
     var showModulesSheet by remember { mutableStateOf(false) }
+    var isInitialLoading by remember { mutableStateOf(initialSnapshot == null) }
     var isRefreshing by remember { mutableStateOf(false) }
 
     val modules = remember {
@@ -283,6 +289,7 @@ fun DiscoverScreen(
             musicDef?.await()?.let { musicAlbums = it }
             showingDef?.await()?.let { doubanShowing = it }
             top250Def?.await()?.let { doubanTop250 = it }
+            isInitialLoading = false
             isRefreshing = false
             syncDiscoverCache()
 
@@ -451,6 +458,15 @@ fun DiscoverScreen(
                 },
                 modifier = Modifier.fillMaxSize(),
             ) {
+                val showInitialSkeleton = isInitialLoading &&
+                    heroItems.isEmpty() &&
+                    movies.isEmpty() &&
+                    tvs.isEmpty() &&
+                    continueItems.isEmpty() &&
+                    latestItems.isEmpty()
+                if (showInitialSkeleton) {
+                    NativeDiscoverSkeleton()
+                } else {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -614,14 +630,11 @@ fun DiscoverScreen(
                                 }
                             }
                         } else {
-                            Box(
+                            Spacer(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(heroHeight),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(28.dp))
-                            }
+                                    .height(if (compactHeight) 56.dp else 72.dp),
+                            )
                         }
                     }
 
@@ -1182,6 +1195,7 @@ fun DiscoverScreen(
                         }
                     }
                 }
+                }
             }
         }
 
@@ -1315,6 +1329,7 @@ fun DiscoverScreen(
     // 发现页点击「热门音乐」方卡后的专辑详情与试听弹层
     selectedAlbum?.let { album ->
         var subMsg by remember(album.id) { mutableStateOf<String?>(null) }
+        var isResolvingStream by remember(album.id) { mutableStateOf(false) }
         val coverSize = if (compactHeight) 120.dp else 176.dp
         NativeGlassSheet(onDismissRequest = { selectedAlbum = null }) {
             Column(
@@ -1362,11 +1377,15 @@ fun DiscoverScreen(
                         Text("订阅专辑", fontWeight = FontWeight.Bold)
                     }
                     Button(
+                        enabled = !isResolvingStream,
                         onClick = {
                             scope.launch {
+                                isResolvingStream = true
+                                subMsg = null
                                 val manifest = repository.fetchMusicStreamInfo(album.title, album.artist.ifBlank { null }, album.title)
                                 if (manifest != null) {
                                     val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
+                                    isResolvingStream = false
                                     selectedAlbum = null
                                     onPlayMedia(
                                         MediaPlaybackRequest(
@@ -1382,6 +1401,7 @@ fun DiscoverScreen(
                                         ),
                                     )
                                 } else {
+                                    isResolvingStream = false
                                     subMsg = "当前媒体服务器未匹配到该专辑可播放音轨"
                                 }
                             }
@@ -1392,7 +1412,7 @@ fun DiscoverScreen(
                     ) {
                         Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("媒体库直放", fontWeight = FontWeight.Bold)
+                        Text(if (isResolvingStream) "匹配音轨中…" else "媒体库直放", fontWeight = FontWeight.Bold)
                     }
                 }
                 subMsg?.let { Text(it, color = colors.success, fontSize = 13.sp) }
@@ -1539,7 +1559,7 @@ fun ExploreScreen(
     val initialCached = remember(cacheKey) { repository.cachedExplore[cacheKey] }
 
     var page by remember(cacheKey) { mutableIntStateOf(initialCached?.page ?: 1) }
-    var isLoading by remember { mutableStateOf(false) }
+    var isLoading by remember(cacheKey) { mutableStateOf(initialCached == null) }
     var isRefreshing by remember { mutableStateOf(false) }
     var canLoadMore by remember(cacheKey) { mutableStateOf(initialCached?.hasMore ?: true) }
     var items by remember(cacheKey) { mutableStateOf(initialCached?.items.orEmpty()) }
@@ -1585,6 +1605,8 @@ fun ExploreScreen(
         else existing?.items?.isNotEmpty() == true
         if (!alreadyLoaded) {
             reloadCurrent(showMainLoader = true)
+        } else {
+            isLoading = false
         }
     }
 
@@ -1644,9 +1666,18 @@ fun ExploreScreen(
             }
             Spacer(Modifier.height(if (compactHeight) 6.dp else 10.dp))
             if (isLoading && musicAlbums.isEmpty()) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = colors.accent)
-                }
+                NativePosterGridSkeleton(
+                    columns = musicColumns,
+                    aspectRatio = 1f,
+                    inPanel = true,
+                    contentPadding = PaddingValues(start = margin, end = margin, top = 4.dp, bottom = bottomOverlayInset + 20.dp),
+                    headerContent = {
+                        ExpressiveMixCollageHeaderSkeleton(
+                            modifier = Modifier.padding(top = 6.dp, bottom = 10.dp),
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                )
             } else {
                 LazyVerticalGrid(
                     state = musicGridState,
@@ -1749,56 +1780,71 @@ fun ExploreScreen(
                 },
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             ) {
-                LazyVerticalGrid(
-                    state = posterGridState,
-                    columns = GridCells.Fixed(columns),
-                    contentPadding = PaddingValues(start = margin, end = margin, top = 4.dp, bottom = bottomOverlayInset + 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    itemsIndexed(items, key = { idx, item -> "${item.resolvedId}-$idx" }) { idx, item ->
-                        if (idx >= items.size - 4 && canLoadMore && !isLoading) {
-                            LaunchedEffect(page) {
-                                isLoading = true
-                                val nextPage = page + 1
-                                val more = repository.fetchExplore(
-                                    source = activeSource,
-                                    page = nextPage,
-                                    genre = activeGenre,
-                                    sort = activeSort,
-                                    language = activeLang,
-                                    doubanTag = activeDoubanTag,
-                                )
-                                if (more.isNotEmpty()) {
-                                    val seen = items.map { it.resolvedId }.toHashSet()
-                                    val merged = items + more.filter { seen.add(it.resolvedId) }
-                                    items = merged
-                                    page = nextPage
-                                    repository.cachedExplore[cacheKey] = ExploreSessionSnapshot(
-                                        items = merged,
-                                        page = nextPage,
-                                        hasMore = canLoadMore,
-                                    )
-                                } else {
-                                    canLoadMore = false
-                                    repository.cachedExplore[cacheKey] = ExploreSessionSnapshot(
-                                        items = items,
-                                        page = page,
-                                        hasMore = false,
-                                    )
+                ProvideSkeletonShimmer {
+                    LazyVerticalGrid(
+                        state = posterGridState,
+                        columns = GridCells.Fixed(columns),
+                        contentPadding = PaddingValues(start = margin, end = margin, top = 4.dp, bottom = bottomOverlayInset + 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        if (isLoading && items.isEmpty()) {
+                            nativePosterGridSkeletonItems(
+                                columns = columns,
+                                count = columns * 3,
+                            )
+                        } else if (!isLoading && items.isEmpty()) {
+                            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                                CinematicPanel(padding = 24.dp, showsShadow = false) {
+                                    Text("当前筛选条件下暂无片库内容", color = colors.textSecondary, fontSize = 14.sp)
                                 }
-                                isLoading = false
                             }
+                        } else {
+                        itemsIndexed(items, key = { idx, item -> "${item.resolvedId}-$idx" }) { idx, item ->
+                            if (idx >= items.size - 4 && canLoadMore && !isLoading) {
+                                LaunchedEffect(page) {
+                                    isLoading = true
+                                    val nextPage = page + 1
+                                    val more = repository.fetchExplore(
+                                        source = activeSource,
+                                        page = nextPage,
+                                        genre = activeGenre,
+                                        sort = activeSort,
+                                        language = activeLang,
+                                        doubanTag = activeDoubanTag,
+                                    )
+                                    if (more.isNotEmpty()) {
+                                        val seen = items.map { it.resolvedId }.toHashSet()
+                                        val merged = items + more.filter { seen.add(it.resolvedId) }
+                                        items = merged
+                                        page = nextPage
+                                        repository.cachedExplore[cacheKey] = ExploreSessionSnapshot(
+                                            items = merged,
+                                            page = nextPage,
+                                            hasMore = canLoadMore,
+                                        )
+                                    } else {
+                                        canLoadMore = false
+                                        repository.cachedExplore[cacheKey] = ExploreSessionSnapshot(
+                                            items = items,
+                                            page = page,
+                                            hasMore = false,
+                                        )
+                                    }
+                                    isLoading = false
+                                }
+                            }
+                            NativePosterCard(
+                                title = item.title,
+                                year = item.year,
+                                posterUrl = item.posterPath,
+                                voteAverage = item.voteAverage,
+                                inLibrary = item.inLibrary,
+                                onClick = { onOpenMedia(item) },
+                            )
                         }
-                        NativePosterCard(
-                            title = item.title,
-                            year = item.year,
-                            posterUrl = item.posterPath,
-                            voteAverage = item.voteAverage,
-                            inLibrary = item.inLibrary,
-                            onClick = { onOpenMedia(item) },
-                        )
+                        }
                     }
                 }
             }
@@ -1809,6 +1855,7 @@ fun ExploreScreen(
     // 音乐专辑详情与订阅/试听弹窗
     selectedAlbum?.let { album ->
         var subMsg by remember(album.id) { mutableStateOf<String?>(null) }
+        var isResolvingStream by remember(album.id) { mutableStateOf(false) }
         val coverSize = if (compactHeight) 124.dp else 188.dp
         NativeGlassSheet(onDismissRequest = { selectedAlbum = null }) {
             Column(
@@ -1859,8 +1906,11 @@ fun ExploreScreen(
                         Text("订阅专辑", fontWeight = FontWeight.Bold)
                     }
                     Button(
+                        enabled = !isResolvingStream,
                         onClick = {
                             scope.launch {
+                                isResolvingStream = true
+                                subMsg = null
                                 val manifest = repository.fetchMusicStreamInfo(
                                     title = album.title,
                                     artist = album.artist.ifBlank { null },
@@ -1868,6 +1918,7 @@ fun ExploreScreen(
                                 )
                                 if (manifest != null) {
                                     val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
+                                    isResolvingStream = false
                                     selectedAlbum = null
                                     onPlayAudio(
                                         MediaPlaybackRequest(
@@ -1883,6 +1934,7 @@ fun ExploreScreen(
                                         ),
                                     )
                                 } else {
+                                    isResolvingStream = false
                                     subMsg = "当前媒体服务器未匹配到该专辑可播放音轨"
                                 }
                             }
@@ -1893,7 +1945,7 @@ fun ExploreScreen(
                     ) {
                         Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("媒体库直放", fontWeight = FontWeight.Bold)
+                        Text(if (isResolvingStream) "匹配音轨中…" else "媒体库直放", fontWeight = FontWeight.Bold)
                     }
                 }
                 subMsg?.let { Text(it, color = colors.success, fontSize = 13.sp) }
@@ -1996,8 +2048,20 @@ fun GlobalSearchScreen(
 
             Spacer(Modifier.height(14.dp))
             if (isSearching) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = colors.accent)
+                if (kind == "person") {
+                    NativePersonGridSkeleton(
+                        columns = columns,
+                        contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomOverlayInset + 24.dp),
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    NativePosterGridSkeleton(
+                        columns = if (kind == "music") AdaptiveDeviceLayout.squareGridColumns() else columns,
+                        aspectRatio = if (kind == "music") 1f else 2f / 3f,
+                        inPanel = kind == "music",
+                        contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomOverlayInset + 24.dp),
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             } else if (query.isBlank()) {
                 // 搜索前紧贴搜索框顶部排布「热门搜索」建议词流，自然清爽
@@ -2154,11 +2218,17 @@ fun MusicDiscoveryScreen(
     val cols = AdaptiveDeviceLayout.squareGridColumns()
     val scope = rememberCoroutineScope()
     var albums by remember { mutableStateOf<List<MusicAlbumDto>>(emptyList()) }
+    var isLoading by remember(repository) { mutableStateOf(repository != null) }
+    var resolvingAlbumId by remember { mutableStateOf<String?>(null) }
     var tip by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(repository) {
         if (repository != null) {
+            isLoading = true
             albums = repository.fetchMusicFeed("douban", 1)
+            isLoading = false
+        } else {
+            isLoading = false
         }
     }
 
@@ -2167,20 +2237,39 @@ fun MusicDiscoveryScreen(
             tip?.let { msg ->
                 Text(msg, color = colors.warning, fontSize = 12.sp, modifier = Modifier.padding(horizontal = margin, vertical = 8.dp))
             }
+            if (isLoading && albums.isEmpty()) {
+                NativePosterGridSkeleton(
+                    columns = cols,
+                    aspectRatio = 1f,
+                    inPanel = true,
+                    contentPadding = PaddingValues(start = margin, end = margin, top = 16.dp, bottom = bottomOverlayInset + 24.dp),
+                    modifier = Modifier.weight(1f),
+                )
+            } else if (!isLoading && albums.isEmpty()) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = margin, vertical = 20.dp), contentAlignment = Alignment.TopCenter) {
+                    CinematicPanel(padding = 24.dp, showsShadow = false) {
+                        Text("暂无推荐音乐专辑，请稍后再试。", color = colors.textSecondary, fontSize = 14.sp)
+                    }
+                }
+            } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(cols),
                 contentPadding = PaddingValues(start = margin, end = margin, top = 16.dp, bottom = bottomOverlayInset + 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.weight(1f),
             ) {
             items(albums) { album ->
+                val isResolvingThis = resolvingAlbumId == album.id
                 CinematicPanel(
                     padding = 12.dp,
                     cornerRadius = 18.dp,
-                    modifier = Modifier.clickable {
+                    modifier = Modifier.clickable(enabled = resolvingAlbumId == null) {
                         scope.launch {
+                            resolvingAlbumId = album.id
                             tip = null
                             val manifest = repository?.fetchMusicStreamInfo(album.title, album.artist.ifBlank { null }, album.title)
+                            resolvingAlbumId = null
                             if (manifest != null) {
                                 val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
                                 onPlayAudio(
@@ -2217,11 +2306,18 @@ fun MusicDiscoveryScreen(
                             }
                         }
                         Text(album.title, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(listOfNotNull(album.artist.ifBlank { null }, album.year.ifBlank { null }).joinToString(" · "), color = colors.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            if (isResolvingThis) "正在匹配媒体库音轨…" else listOfNotNull(album.artist.ifBlank { null }, album.year.ifBlank { null }).joinToString(" · "),
+                            color = if (isResolvingThis) colors.accent else colors.textSecondary,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
             }
-        }
+            }
+            }
         }
     }
 }

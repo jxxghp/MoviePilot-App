@@ -31,6 +31,8 @@ struct NativePluginCatalogView: View {
               .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
               .listRowBackground(Color.clear)
               .listRowSeparator(.hidden)
+          } header: {
+            Text(L10n.text("已安装")).textCase(nil)
           }
         }
         if failed {

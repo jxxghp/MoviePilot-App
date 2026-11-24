@@ -88,9 +88,13 @@ import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.LocalSnackbarHostState
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
+import com.moviepilot.designsystem.NativeCardListSkeleton
 import com.moviepilot.designsystem.NativeEntityLogo
 import com.moviepilot.designsystem.NativeGlassSheet
+import com.moviepilot.designsystem.NativeInlineChipRowSkeleton
 import com.moviepilot.designsystem.NativeNetworkEntityLogo
+import com.moviepilot.designsystem.SkeletonCardStyle
+import com.moviepilot.designsystem.SkeletonSurfaceRole
 import com.moviepilot.rustbridge.DirectoryConfigDto
 import com.moviepilot.rustbridge.DownloadTaskDto
 import com.moviepilot.rustbridge.MoviePilotRepository
@@ -99,6 +103,8 @@ import com.moviepilot.rustbridge.ResourceGroupDto
 import com.moviepilot.rustbridge.ResourceItemDto
 import com.moviepilot.rustbridge.ServiceConfigDto
 import com.moviepilot.rustbridge.SiteItemDto
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -398,9 +404,12 @@ fun ResourceSearchScreen(
             Spacer(Modifier.height(10.dp))
 
             if (isLoading) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = colors.accent)
-                }
+                NativeCardListSkeleton(
+                    style = SkeletonCardStyle.ResourceCard,
+                    count = 5,
+                    contentPadding = PaddingValues(start = margin, end = margin, bottom = 56.dp + bottomOverlayInset),
+                    modifier = Modifier.weight(1f),
+                )
             } else if (displayedGroups.isEmpty()) {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = margin), contentAlignment = Alignment.TopCenter) {
                     CinematicPanel(padding = 28.dp, showsShadow = false) {
@@ -524,6 +533,7 @@ fun ResourceSearchScreen(
         var chosenVariant by remember(group) { mutableStateOf(group.primary) }
         var configuredDownloaders by remember { mutableStateOf<List<ServiceConfigDto>>(emptyList()) }
         var configuredDirs by remember { mutableStateOf<List<DirectoryConfigDto>>(emptyList()) }
+        var isLoadingOptions by remember(group) { mutableStateOf(true) }
         var selectedDownloader by remember { mutableStateOf("默认下载器") }
         var saveDir by remember { mutableStateOf("") }
         var isSubmitting by remember { mutableStateOf(false) }
@@ -535,11 +545,16 @@ fun ResourceSearchScreen(
         )
 
         LaunchedEffect(group) {
-            val dls = repository.fetchDownloaders().filter { it.enabled }
-            configuredDownloaders = dls
-            dls.firstOrNull { it.isDefault }?.let { selectedDownloader = it.name }
-            val dirs = repository.fetchDirectories()
-            configuredDirs = dirs
+            isLoadingOptions = true
+            coroutineScope {
+                val dlsDeferred = async { repository.fetchDownloaders().filter { it.enabled } }
+                val dirsDeferred = async { repository.fetchDirectories() }
+                val dls = dlsDeferred.await()
+                configuredDownloaders = dls
+                dls.firstOrNull { it.isDefault }?.let { selectedDownloader = it.name }
+                configuredDirs = dirsDeferred.await()
+            }
+            isLoadingOptions = false
         }
 
         NativeGlassSheet(onDismissRequest = { if (!isSubmitting) selectedGroupForDownload = null }) {
@@ -600,28 +615,43 @@ fun ResourceSearchScreen(
                 }
 
                 Text("选择下载器", color = colors.textSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    NativeAdaptivePill(
-                        title = "默认下载器",
-                        leadingContent = {
-                            NativeEntityLogo("downloader", "default", size = 16.dp, cornerRadius = 4.dp)
-                        },
-                        selected = selectedDownloader == "默认下载器",
-                        onClick = { selectedDownloader = "默认下载器" },
+                if (isLoadingOptions && configuredDownloaders.isEmpty()) {
+                    NativeInlineChipRowSkeleton(
+                        widths = listOf(96.dp, 88.dp, 82.dp),
+                        height = 34.dp,
+                        role = SkeletonSurfaceRole.Bar,
                     )
-                    configuredDownloaders.forEach { dl ->
+                } else {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         NativeAdaptivePill(
-                            title = dl.name,
+                            title = "默认下载器",
                             leadingContent = {
-                                NativeEntityLogo("downloader", dl.type.ifBlank { dl.name }, size = 16.dp, cornerRadius = 4.dp)
+                                NativeEntityLogo("downloader", "default", size = 16.dp, cornerRadius = 4.dp)
                             },
-                            selected = selectedDownloader == dl.name,
-                            onClick = { selectedDownloader = dl.name },
+                            selected = selectedDownloader == "默认下载器",
+                            onClick = { selectedDownloader = "默认下载器" },
                         )
+                        configuredDownloaders.forEach { dl ->
+                            NativeAdaptivePill(
+                                title = dl.name,
+                                leadingContent = {
+                                    NativeEntityLogo("downloader", dl.type.ifBlank { dl.name }, size = 16.dp, cornerRadius = 4.dp)
+                                },
+                                selected = selectedDownloader == dl.name,
+                                onClick = { selectedDownloader = dl.name },
+                            )
+                        }
                     }
                 }
 
-                if (configuredDirs.any { it.downloadPath.isNotBlank() }) {
+                if (isLoadingOptions && configuredDirs.isEmpty()) {
+                    Text("常用下载目录预设", color = colors.textSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                    NativeInlineChipRowSkeleton(
+                        widths = listOf(104.dp, 132.dp, 112.dp),
+                        height = 34.dp,
+                        role = SkeletonSurfaceRole.Bar,
+                    )
+                } else if (configuredDirs.any { it.downloadPath.isNotBlank() }) {
                     Text("常用下载目录预设", color = colors.textSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         NativeAdaptivePill(
@@ -958,9 +988,12 @@ fun DownloadsScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
             if (isLoading && tasks.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = colors.accent)
-                }
+                NativeCardListSkeleton(
+                    style = SkeletonCardStyle.DownloadTaskCard,
+                    count = 5,
+                    columns = AdaptiveDeviceLayout.cardGridColumns(),
+                    contentPadding = PaddingValues(start = margin, end = margin, top = 14.dp, bottom = 84.dp + bottomOverlayInset),
+                )
             } else if (tasks.isEmpty()) {
                 LazyColumn(
                     contentPadding = PaddingValues(start = margin, end = margin, top = 16.dp, bottom = 64.dp + bottomOverlayInset),

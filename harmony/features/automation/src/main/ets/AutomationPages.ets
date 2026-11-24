@@ -19,6 +19,8 @@ import {
   HarmonyAdaptiveLayout,
   HarmonyAppearanceStore,
   HarmonyThemeColors,
+  HarmonyCardGridSkeleton,
+  HarmonyWorkflowCanvasSkeleton,
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
@@ -105,7 +107,10 @@ export struct HarmonyWorkflowCanvasPage {
 
   private activeNodes(): CanvasNodeLayout[] {
     const wf = this.activeWorkflow();
-    const rawActions: MpWorkflowActionNode[] = wf && wf.actions ? wf.actions : [];
+    if (!wf) {
+      return [];
+    }
+    const rawActions: MpWorkflowActionNode[] = wf.actions ? wf.actions : [];
     if (rawActions.length === 0) {
       return [
         { id: 'n1', name: '获取 RSS 资源', type: 'FetchRssAction', x: 10, y: 24 },
@@ -275,7 +280,7 @@ export struct HarmonyWorkflowCanvasPage {
   build() {
     Column({ space: 10 }) {
       NativeBackHeader({
-        title: `工作流 (${this.workflows.length})`,
+        title: (this.loading && this.workflows.length === 0) ? '工作流' : `工作流 (${this.workflows.length})`,
         trailingSymbol: 'sys.symbol.arrow_clockwise',
         trailingAccessibility: '刷新工作流',
         onBack: () => this.onBack(),
@@ -290,7 +295,10 @@ export struct HarmonyWorkflowCanvasPage {
       })
 
       HarmonyPillTabBar({
-        tabs: [`我的工作流 (${this.workflows.length})`, '工作流广场'],
+        tabs: [
+          (this.loading && this.workflows.length === 0) ? '我的工作流' : `我的工作流 (${this.workflows.length})`,
+          '工作流广场'
+        ],
         selectedIndex: this.wfTabIdx,
         onSelect: (idx: number) => {
           this.wfTabIdx = idx;
@@ -308,8 +316,13 @@ export struct HarmonyWorkflowCanvasPage {
         Scroll() {
           Column({ space: 12 }) {
             if (this.loading && this.workflows.length === 0) {
-              Column() { LoadingProgress().width(32).height(32).color(this.accentHex) }
-                .width('100%').height(140).justifyContent(FlexAlign.Center)
+              HarmonyCardGridSkeleton({
+                variant: 'workflow',
+                count: 2,
+                horizontalPadding: 0,
+                bottomPadding: 4
+              })
+              HarmonyWorkflowCanvasSkeleton()
             } else if (this.workflows.length === 0) {
               CinematicPanel({ panelPadding: 22, cornerRadius: 18 }) {
                 Column({ space: 6 }) {
@@ -406,106 +419,109 @@ export struct HarmonyWorkflowCanvasPage {
               .columnsGap(12)
               .rowsGap(12)
               .width('100%')
-            }
 
-            // 交互式工作流节点画布
-            CinematicPanel({ panelPadding: 14, cornerRadius: 20 }) {
-              Column({ space: 8 }) {
-                Row() {
-                  Text(`节点拓扑画布${this.activeWorkflow() ? ' · ' + (this.activeWorkflow()?.name ?? '') : ''}`)
-                    .fontSize(14).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
-                  Text(`${Math.round(this.scaleVal * 100)}% · 重置`)
-                    .fontSize(12).fontColor(this.accentHex)
-                    .onClick(() => {
-                      this.scaleVal = 1.0;
-                      this.offsetX = 12;
-                      this.offsetY = 18;
-                      this.drawEdges();
-                    })
-                }.width('100%')
-
-                Stack({ alignContent: Alignment.TopStart }) {
-                  Canvas(this.ctx)
-                    .width('100%')
-                    .height(220)
-                    .onReady(() => {
-                      this.canvasReady = true;
-                      this.drawEdges();
-                    })
-
-                  ForEach(this.activeNodes(), (nd: CanvasNodeLayout) => {
-                    Column({ space: 3 }) {
-                      Text(`● ${nd.name}`)
-                        .fontSize(11.5)
-                        .fontWeight(FontWeight.Bold)
-                        .fontColor(Color.White)
-                        .maxLines(1)
-                        .textOverflow({ overflow: TextOverflow.Ellipsis })
-                      Text(nd.type)
-                        .fontSize(9.5)
-                        .fontColor('#CCFFFFFF')
-                        .maxLines(1)
-                        .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    }
-                    .width(NODE_CARD_W)
-                    .height(NODE_CARD_H)
-                    .padding({ left: 10, right: 10, top: 7, bottom: 7 })
-                    .justifyContent(FlexAlign.Center)
-                    .alignItems(HorizontalAlign.Start)
-                    .borderRadius(12)
-                    .backgroundColor(this.selectedNode === nd.name
-                      ? HarmonyAppearanceStore.withAlpha(this.accentHex, 'C8')
-                      : '#CC1B2230')
-                    .border({
-                      width: this.selectedNode === nd.name ? 1.2 : 0.8,
-                      color: this.selectedNode === nd.name ? this.accentHex : '#38FFFFFF',
-                      radius: 12
-                    })
-                    .position({ x: nd.x + this.offsetX, y: nd.y + this.offsetY })
-                    .onClick(() => { this.selectedNode = nd.name; })
-                  }, (nd: CanvasNodeLayout) => nd.id)
-                }
-                .width('100%')
-                .height(220)
-                .clip(true)
-                .borderRadius(14)
-                .backgroundColor(this.isDark ? '#14FFFFFF' : '#0A000000')
-                .scale({ x: this.scaleVal, y: this.scaleVal })
-                .gesture(
-                  GestureGroup(GestureMode.Parallel,
-                    PanGesture()
-                      .onActionStart(() => {
-                        this.panStartX = this.offsetX;
-                        this.panStartY = this.offsetY;
-                      })
-                      .onActionUpdate((ev: GestureEvent) => {
-                        this.offsetX = Math.max(-160, Math.min(160, Math.round(this.panStartX + ev.offsetX)));
-                        this.offsetY = Math.max(-90, Math.min(90, Math.round(this.panStartY + ev.offsetY)));
-                        this.drawEdges();
-                      }),
-                    PinchGesture()
-                      .onActionStart(() => {
-                        this.pinchStartScale = this.scaleVal;
-                      })
-                      .onActionUpdate((ev: GestureEvent) => {
-                        this.scaleVal = Math.max(0.65, Math.min(1.6, this.pinchStartScale * ev.scale));
+              // 交互式工作流节点画布
+              CinematicPanel({ panelPadding: 14, cornerRadius: 20 }) {
+                Column({ space: 8 }) {
+                  Row() {
+                    Text(`节点拓扑画布${this.activeWorkflow() ? ' · ' + (this.activeWorkflow()?.name ?? '') : ''}`)
+                      .fontSize(14).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                    Text(`${Math.round(this.scaleVal * 100)}% · 重置`)
+                      .fontSize(12).fontColor(this.accentHex)
+                      .onClick(() => {
+                        this.scaleVal = 1.0;
+                        this.offsetX = 12;
+                        this.offsetY = 18;
                         this.drawEdges();
                       })
-                  )
-                )
+                  }.width('100%')
 
-                Text(this.selectedNode.length > 0 ? `当前选中节点：${this.selectedNode}（支持单指拖拽与双指缩放）` : '支持单指拖拽画布与双指缩放')
-                  .fontSize(11.5)
-                  .fontColor(mpSecondaryText(this.isDark))
+                  Stack({ alignContent: Alignment.TopStart }) {
+                    Canvas(this.ctx)
+                      .width('100%')
+                      .height(220)
+                      .onReady(() => {
+                        this.canvasReady = true;
+                        this.drawEdges();
+                      })
+
+                    ForEach(this.activeNodes(), (nd: CanvasNodeLayout) => {
+                      Column({ space: 3 }) {
+                        Text(`● ${nd.name}`)
+                          .fontSize(11.5)
+                          .fontWeight(FontWeight.Bold)
+                          .fontColor(Color.White)
+                          .maxLines(1)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                        Text(nd.type)
+                          .fontSize(9.5)
+                          .fontColor('#CCFFFFFF')
+                          .maxLines(1)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      }
+                      .width(NODE_CARD_W)
+                      .height(NODE_CARD_H)
+                      .padding({ left: 10, right: 10, top: 7, bottom: 7 })
+                      .justifyContent(FlexAlign.Center)
+                      .alignItems(HorizontalAlign.Start)
+                      .borderRadius(12)
+                      .backgroundColor(this.selectedNode === nd.name
+                        ? HarmonyAppearanceStore.withAlpha(this.accentHex, 'C8')
+                        : '#CC1B2230')
+                      .border({
+                        width: this.selectedNode === nd.name ? 1.2 : 0.8,
+                        color: this.selectedNode === nd.name ? this.accentHex : '#38FFFFFF',
+                        radius: 12
+                      })
+                      .position({ x: nd.x + this.offsetX, y: nd.y + this.offsetY })
+                      .onClick(() => { this.selectedNode = nd.name; })
+                    }, (nd: CanvasNodeLayout) => nd.id)
+                  }
                   .width('100%')
+                  .height(220)
+                  .clip(true)
+                  .borderRadius(14)
+                  .backgroundColor(this.isDark ? '#14FFFFFF' : '#0A000000')
+                  .scale({ x: this.scaleVal, y: this.scaleVal })
+                  .gesture(
+                    GestureGroup(GestureMode.Parallel,
+                      PanGesture()
+                        .onActionStart(() => {
+                          this.panStartX = this.offsetX;
+                          this.panStartY = this.offsetY;
+                        })
+                        .onActionUpdate((ev: GestureEvent) => {
+                          this.offsetX = Math.max(-160, Math.min(160, Math.round(this.panStartX + ev.offsetX)));
+                          this.offsetY = Math.max(-90, Math.min(90, Math.round(this.panStartY + ev.offsetY)));
+                          this.drawEdges();
+                        }),
+                      PinchGesture()
+                        .onActionStart(() => {
+                          this.pinchStartScale = this.scaleVal;
+                        })
+                        .onActionUpdate((ev: GestureEvent) => {
+                          this.scaleVal = Math.max(0.65, Math.min(1.6, this.pinchStartScale * ev.scale));
+                          this.drawEdges();
+                        })
+                    )
+                  )
+
+                  Text(this.selectedNode.length > 0 ? `当前选中节点：${this.selectedNode}（支持单指拖拽与双指缩放）` : '支持单指拖拽画布与双指缩放')
+                    .fontSize(11.5)
+                    .fontColor(mpSecondaryText(this.isDark))
+                    .width('100%')
+                }
               }
             }
           }.padding({ left: 16, right: 16, bottom: 44 })
         }.scrollBar(BarState.Off).layoutWeight(1)
       } else {
         if (this.loadingShares) {
-          Column() { LoadingProgress().width(32).height(32).color(this.accentHex) }
-            .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+          HarmonyCardGridSkeleton({
+            variant: 'workflow',
+            fillViewport: true,
+            bottomPadding: 44
+          })
         } else if (this.shares.length === 0) {
           Column({ space: 8 }) {
             SymbolGlyph($r('sys.symbol.share')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
@@ -934,7 +950,7 @@ export struct HarmonySitesPage {
   build() {
     Column({ space: 10 }) {
       NativeBackHeader({
-        title: `站点管理 (${this.sites.length})`,
+        title: (this.loading && this.sites.length === 0) ? '站点管理' : `站点管理 (${this.sites.length})`,
         trailingSymbol: 'sys.symbol.plus',
         trailingAccessibility: '新增站点',
         onBack: () => this.onBack(),
@@ -946,8 +962,19 @@ export struct HarmonySitesPage {
       }
 
       if (this.loading && this.sites.length === 0) {
-        Column() { LoadingProgress().width(32).height(32).color(this.accentHex) }
-          .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+        HarmonyCardGridSkeleton({
+          variant: 'site',
+          fillViewport: true,
+          bottomPadding: 44
+        })
+      } else if (this.sites.length === 0) {
+        Column({ space: 8 }) {
+          SymbolGlyph($r('sys.symbol.worldclock')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
+          Text('暂无已配置站点，点击右上角添加').fontSize(14).fontColor(mpSecondaryText(this.isDark))
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
       } else {
         Grid() {
           ForEach(this.sites, (s: MpSiteItem) => {

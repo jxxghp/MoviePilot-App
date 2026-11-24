@@ -25,6 +25,10 @@ import {
   HarmonyThemeColors,
   GeneratedDesignTokens,
   HarmonyAppearanceStore,
+  HarmonySkeletonHost,
+  HarmonySkeletonBlock,
+  HarmonyBentoDashboardSkeleton,
+  HarmonyCardGridSkeleton,
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
@@ -151,6 +155,9 @@ export struct HarmonyDashboardPage {
   @State private messages: MpMessageItem[] = [];
   @State private recentItems: MpMediaItem[] = [];
   @State private modules: CustomModulePref[] = DEFAULT_DASHBOARD_MODULES;
+  @State private loading: boolean = true;
+  @State private hasLoadedOnce: boolean = false;
+  @State private loadingMessages: boolean = false;
   @State private showMessagesSheet: boolean = false;
   @State private showShortcutsSheet: boolean = false;
   @State private showModulesSheet: boolean = false;
@@ -196,6 +203,10 @@ export struct HarmonyDashboardPage {
   }
 
   private async refreshDashboard(): Promise<void> {
+    this.loading = true;
+    if (!this.hasLoadedOnce) {
+      this.loadingMessages = true;
+    }
     const repo = MoviePilotRepository.shared();
     try {
       const res = await Promise.all([
@@ -211,6 +222,9 @@ export struct HarmonyDashboardPage {
     } catch {
       // keep existing state
     }
+    this.hasLoadedOnce = true;
+    this.loading = false;
+    this.loadingMessages = false;
   }
 
   private async handleSendReply(): Promise<void> {
@@ -389,12 +403,21 @@ export struct HarmonyDashboardPage {
   messagesSheetBuilder() {
     Column({ space: 10 }) {
       HarmonySheetHeader({
-        title: `消息中心 (${this.messages.length})`,
+        title: ((this.loading || this.loadingMessages) && this.messages.length === 0)
+          ? '消息中心'
+          : `消息中心 (${this.messages.length})`,
         cancelText: '关闭',
-        actionText: '刷新',
+        actionText: this.loadingMessages ? '加载中' : '刷新',
+        actionEnabled: !this.loadingMessages,
         onCancel: () => { this.showMessagesSheet = false; },
         onAction: async () => {
-          this.messages = await MoviePilotRepository.shared().fetchMessages();
+          this.loadingMessages = true;
+          try {
+            this.messages = await MoviePilotRepository.shared().fetchMessages();
+          } catch {
+            // keep existing messages
+          }
+          this.loadingMessages = false;
         }
       })
 
@@ -404,7 +427,15 @@ export struct HarmonyDashboardPage {
 
       Scroll() {
         Column({ space: 10 }) {
-          if (this.messages.length === 0) {
+          if (this.loadingMessages || (this.loading && !this.hasLoadedOnce && this.messages.length === 0)) {
+            HarmonyCardGridSkeleton({
+              variant: 'service',
+              singleColumn: true,
+              count: 4,
+              horizontalPadding: 0,
+              bottomPadding: 8
+            })
+          } else if (this.messages.length === 0) {
             Text('暂无最新消息通知，可在底部发送命令交互').fontSize(13).fontColor(mpSecondaryText(this.isDark)).margin({ top: 24 })
           } else {
             ForEach(this.messages, (msg: MpMessageItem) => {
@@ -849,27 +880,31 @@ export struct HarmonyDashboardPage {
 
       Scroll() {
         Column({ space: 18 }) {
-          ForEach(this.modules, (mod: CustomModulePref) => {
-            if (mod.enabled) {
-              this.renderDashboardModule(mod.id)
-            }
-          }, (mod: CustomModulePref) => `dm_${mod.id}_${mod.enabled}`)
+          if (this.loading && !this.hasLoadedOnce) {
+            HarmonyBentoDashboardSkeleton()
+          } else {
+            ForEach(this.modules, (mod: CustomModulePref) => {
+              if (mod.enabled) {
+                this.renderDashboardModule(mod.id)
+              }
+            }, (mod: CustomModulePref) => `dm_${mod.id}_${mod.enabled}`)
 
-          Row({ space: 8 }) {
-            SymbolGlyph($r('sys.symbol.slider_horizontal_2'))
-              .fontSize(16)
-              .fontColor([mpPrimaryText(this.isDark)])
-            Text('自定义我的模块')
-              .fontSize(13.5)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(mpPrimaryText(this.isDark))
+            Row({ space: 8 }) {
+              SymbolGlyph($r('sys.symbol.slider_horizontal_2'))
+                .fontSize(16)
+                .fontColor([mpPrimaryText(this.isDark)])
+              Text('自定义我的模块')
+                .fontSize(13.5)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(mpPrimaryText(this.isDark))
+            }
+            .height(42)
+            .padding({ left: 20, right: 20 })
+            .borderRadius(21)
+            .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+            .border({ width: 0.6, color: HarmonyThemeColors.borderSubtle(this.isDark), radius: 21 })
+            .onClick(() => { this.showModulesSheet = true; })
           }
-          .height(42)
-          .padding({ left: 20, right: 20 })
-          .borderRadius(21)
-          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-          .border({ width: 0.6, color: HarmonyThemeColors.borderSubtle(this.isDark), radius: 21 })
-          .onClick(() => { this.showModulesSheet = true; })
         }
         .padding({ left: 16, right: 16, top: 6, bottom: 128 })
       }
@@ -930,6 +965,7 @@ export struct HarmonyDiagnosticsPage {
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
   @Prop initialSection: string = 'schedulers'; // 'check' | 'schedulers' | 'logs' | 'words' | 'recognize' | 'network'
   @State private loading: boolean = true;
+  @State private checkFailed: boolean = false;
   @State private notice: string = '';
 
   @State private schedulers: MpSchedulerItem[] = [];
@@ -969,7 +1005,7 @@ export struct HarmonyDiagnosticsPage {
     if (this.initialSection === 'words') { return '词表'; }
     if (this.initialSection === 'recognize') { return '名称识别'; }
     if (this.initialSection === 'network') { return '网络测试'; }
-    return `定时服务 (${this.schedulers.length})`;
+    return (this.loading && this.schedulers.length === 0) ? '定时服务' : `定时服务 (${this.schedulers.length})`;
   }
 
   private activeWordCategory(): WordCategoryDef {
@@ -982,6 +1018,7 @@ export struct HarmonyDiagnosticsPage {
 
   private async loadCurrentSection(): Promise<void> {
     this.loading = true;
+    this.checkFailed = false;
     this.notice = '';
     const repo = MoviePilotRepository.shared();
     try {
@@ -1008,7 +1045,8 @@ export struct HarmonyDiagnosticsPage {
         this.schedulers = await repo.fetchSchedulers();
       }
     } catch {
-      // ignore
+      this.checkFailed = true;
+      this.testingNet = false;
     }
     this.loading = false;
   }
@@ -1078,7 +1116,13 @@ export struct HarmonyDiagnosticsPage {
                       .fontWeight(FontWeight.Bold)
                       .fontColor(mpPrimaryText(this.isDark))
                       .layoutWeight(1)
-                    NativeAdaptiveBadge({ text: `${this.wordLineCount()} 条`, tintHex: this.accentHex })
+                    if (this.loading) {
+                      HarmonySkeletonHost({ loadingLabel: '正在读取词表条数' }) {
+                        HarmonySkeletonBlock({ blockWidth: 46, blockHeight: 20, cornerRadius: 10, tone: 'subtle' })
+                      }
+                    } else {
+                      NativeAdaptiveBadge({ text: `${this.wordLineCount()} 条`, tintHex: this.accentHex })
+                    }
                   }.width('100%')
 
                   Text(this.activeWordCategory().description)
@@ -1087,18 +1131,35 @@ export struct HarmonyDiagnosticsPage {
                     .lineHeight(18)
                     .width('100%')
 
-                  TextArea({
-                    placeholder: this.activeWordCategory().placeholder,
-                    text: this.wordContent
-                  })
-                    .width('100%')
-                    .height(170)
-                    .fontSize(13.5)
-                    .fontColor(mpPrimaryText(this.isDark))
-                    .placeholderColor(mpSecondaryText(this.isDark))
-                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-                    .borderRadius(12)
-                    .onChange((v: string) => { this.wordContent = v; })
+                  if (this.loading) {
+                    HarmonySkeletonHost({ loadingLabel: '正在加载词表规则内容' }) {
+                      Column({ space: 10 }) {
+                        HarmonySkeletonBlock({ blockWidth: '72%', blockHeight: 13, cornerRadius: 4 })
+                        HarmonySkeletonBlock({ blockWidth: '54%', blockHeight: 13, cornerRadius: 4, tone: 'subtle' })
+                        HarmonySkeletonBlock({ blockWidth: '84%', blockHeight: 13, cornerRadius: 4, tone: 'subtle' })
+                        HarmonySkeletonBlock({ blockWidth: '42%', blockHeight: 13, cornerRadius: 4, tone: 'subtle' })
+                      }
+                      .width('100%')
+                      .height(170)
+                      .padding(14)
+                      .borderRadius(12)
+                      .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                      .alignItems(HorizontalAlign.Start)
+                    }
+                  } else {
+                    TextArea({
+                      placeholder: this.activeWordCategory().placeholder,
+                      text: this.wordContent
+                    })
+                      .width('100%')
+                      .height(170)
+                      .fontSize(13.5)
+                      .fontColor(mpPrimaryText(this.isDark))
+                      .placeholderColor(mpSecondaryText(this.isDark))
+                      .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                      .borderRadius(12)
+                      .onChange((v: string) => { this.wordContent = v; })
+                  }
 
                   Text(`ⓘ ${this.activeWordCategory().inlineHint}`)
                     .fontSize(11.5)
@@ -1169,7 +1230,24 @@ export struct HarmonyDiagnosticsPage {
                 }
               }
 
-              if (this.recResult) {
+              if (this.recognizing) {
+                HarmonySkeletonHost({ loadingLabel: '正在在线解析媒体名称' }) {
+                  CinematicPanel({ panelPadding: 16, cornerRadius: 20 }) {
+                    Row({ space: 12 }) {
+                      HarmonySkeletonBlock({ blockWidth: 72, blockHeight: 106, cornerRadius: 10, shimmerSweep: true })
+                      Column({ space: 8 }) {
+                        HarmonySkeletonBlock({ blockWidth: '68%', blockHeight: 16, cornerRadius: 5 })
+                        HarmonySkeletonBlock({ blockWidth: '52%', blockHeight: 12, cornerRadius: 4, tone: 'subtle' })
+                        HarmonySkeletonBlock({ blockWidth: '40%', blockHeight: 12, cornerRadius: 4, tone: 'subtle' })
+                        HarmonySkeletonBlock({ blockWidth: '58%', blockHeight: 12, cornerRadius: 4, tone: 'subtle' })
+                      }
+                      .alignItems(HorizontalAlign.Start)
+                      .layoutWeight(1)
+                    }
+                    .width('100%')
+                  }
+                }
+              } else if (this.recResult) {
                 CinematicPanel({ panelPadding: 16, cornerRadius: 20 }) {
                   Row({ space: 12 }) {
                     if (this.recResult.posterUrl.length > 0) {
@@ -1210,9 +1288,15 @@ export struct HarmonyDiagnosticsPage {
         .width('100%')
       } else if (this.initialSection === 'network') {
         if (this.loading || this.testingNet) {
-          Column({ space: 10 }) {
-            LoadingProgress().width(32).height(32).color(this.accentHex)
-            Text('正在检测上游节点连通性与延迟…').fontSize(13).fontColor(mpSecondaryText(this.isDark))
+          HarmonyCardGridSkeleton({
+            variant: 'scheduler',
+            fillViewport: true,
+            bottomPadding: 44
+          })
+        } else if (this.netItems.length === 0) {
+          Column({ space: 8 }) {
+            SymbolGlyph($r('sys.symbol.worldclock')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
+            Text('暂无网络连通性检测记录').fontSize(14).fontColor(mpSecondaryText(this.isDark))
           }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         } else {
           Grid() {
@@ -1244,35 +1328,60 @@ export struct HarmonyDiagnosticsPage {
         Scroll() {
           Column() {
             Column({ space: 12 }) {
-              CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
-                Column({ space: 10 }) {
-                  Row() {
-                    Text('服务端连接状态').fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
-                    NativeAdaptiveBadge({ text: '运行正常', tintHex: '#34C759' })
-                  }.width('100%')
-                  Divider().color(HarmonyThemeColors.divider(this.isDark))
-                  Row() {
-                    Text('已启用站点').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
-                    Text(`${this.sitesCount} 个`).fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
-                  }.width('100%')
-                  Row() {
-                    Text('已启用下载器').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
-                    Text(`${this.downloadersCount} 个`).fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
-                  }.width('100%')
-                  Row() {
-                    Text('已连接媒体服务器').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
-                    Text(`${this.mediaServersCount} 个`).fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
-                  }.width('100%')
-                  Row() {
-                    Text('后台内存使用').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
-                    Text(`${formatByteSize(this.stats.memoryUsedBytes)} (${this.stats.memoryPercent.toFixed(1)}%)`)
-                      .fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
-                  }.width('100%')
-                  Row() {
-                    Text('存储空间占用').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
-                    Text(`${formatByteSize(this.stats.storageUsedBytes)} / ${formatByteSize(this.stats.storageTotalBytes)}`)
-                      .fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
-                  }.width('100%')
+              if (this.loading) {
+                HarmonySkeletonHost({ loadingLabel: '正在自检服务端核心组件状态' }) {
+                  CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
+                    Column({ space: 12 }) {
+                      Row() {
+                        HarmonySkeletonBlock({ blockWidth: 112, blockHeight: 15, cornerRadius: 5 })
+                        Blank()
+                        HarmonySkeletonBlock({ blockWidth: 64, blockHeight: 22, cornerRadius: 10, tone: 'subtle' })
+                      }.width('100%')
+                      Divider().color(HarmonyThemeColors.divider(this.isDark))
+                      ForEach([0, 1, 2, 3, 4], (idx: number) => {
+                        Row() {
+                          HarmonySkeletonBlock({ blockWidth: 108, blockHeight: 14, cornerRadius: 4, tone: 'subtle' })
+                          Blank()
+                          HarmonySkeletonBlock({ blockWidth: idx >= 3 ? 116 : 56, blockHeight: 14, cornerRadius: 4 })
+                        }.width('100%')
+                      }, (idx: number) => `chk_sk_${idx}`)
+                    }
+                  }
+                }
+              } else {
+                CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
+                  Column({ space: 10 }) {
+                    Row() {
+                      Text('服务端连接状态').fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                      NativeAdaptiveBadge({
+                        text: this.checkFailed ? '连接异常' : '运行正常',
+                        tintHex: this.checkFailed ? '#E84855' : '#34C759'
+                      })
+                    }.width('100%')
+                    Divider().color(HarmonyThemeColors.divider(this.isDark))
+                    Row() {
+                      Text('已启用站点').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
+                      Text(`${this.sitesCount} 个`).fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                    }.width('100%')
+                    Row() {
+                      Text('已启用下载器').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
+                      Text(`${this.downloadersCount} 个`).fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                    }.width('100%')
+                    Row() {
+                      Text('已连接媒体服务器').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
+                      Text(`${this.mediaServersCount} 个`).fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                    }.width('100%')
+                    Row() {
+                      Text('后台内存使用').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
+                      Text(`${formatByteSize(this.stats.memoryUsedBytes)} (${this.stats.memoryPercent.toFixed(1)}%)`)
+                        .fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                    }.width('100%')
+                    Row() {
+                      Text('存储空间占用').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
+                      Text(`${formatByteSize(this.stats.storageUsedBytes)} / ${formatByteSize(this.stats.storageTotalBytes)}`)
+                        .fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                    }.width('100%')
+                  }
                 }
               }
             }
@@ -1297,14 +1406,36 @@ export struct HarmonyDiagnosticsPage {
 
           Scroll() {
             CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
-              Column({ space: 6 }) {
-                ForEach(this.filteredLogs(), (line: string, idx: number) => {
-                  Text(line)
-                    .fontSize(11)
-                    .fontColor(line.includes('ERROR') ? '#E84855' : (line.includes('WARN') ? '#F29B38' : mpPrimaryText(this.isDark)))
-                    .lineHeight(17)
-                    .width('100%')
-                }, (_line: string, idx: number) => `log_${idx}`)
+              if (this.loading && this.logs.length === 0) {
+                HarmonySkeletonHost({ loadingLabel: '正在读取实时运行日志' }) {
+                  Column({ space: 9 }) {
+                    ForEach([92, 76, 88, 64, 94, 72, 84, 58, 90, 68], (pct: number, idx: number) => {
+                      HarmonySkeletonBlock({
+                        blockWidth: `${pct}%`,
+                        blockHeight: 11.5,
+                        cornerRadius: 4,
+                        tone: idx % 3 === 0 ? 'block' : 'subtle'
+                      })
+                    }, (_pct: number, idx: number) => `log_sk_${idx}`)
+                  }
+                  .width('100%')
+                  .alignItems(HorizontalAlign.Start)
+                }
+              } else if (this.filteredLogs().length === 0) {
+                Text('暂无匹配的实时日志输出')
+                  .fontSize(12.5)
+                  .fontColor(mpSecondaryText(this.isDark))
+                  .width('100%')
+              } else {
+                Column({ space: 6 }) {
+                  ForEach(this.filteredLogs(), (line: string, idx: number) => {
+                    Text(line)
+                      .fontSize(11)
+                      .fontColor(line.includes('ERROR') ? '#E84855' : (line.includes('WARN') ? '#F29B38' : mpPrimaryText(this.isDark)))
+                      .lineHeight(17)
+                      .width('100%')
+                  }, (_line: string, idx: number) => `log_${idx}`)
+                }
               }
             }
           }
@@ -1315,8 +1446,16 @@ export struct HarmonyDiagnosticsPage {
         .layoutWeight(1)
       } else {
         if (this.loading && this.schedulers.length === 0) {
-          Column() { LoadingProgress().width(32).height(32).color(this.accentHex) }
-            .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+          HarmonyCardGridSkeleton({
+            variant: 'scheduler',
+            fillViewport: true,
+            bottomPadding: 44
+          })
+        } else if (this.schedulers.length === 0) {
+          Column({ space: 8 }) {
+            SymbolGlyph($r('sys.symbol.clock')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
+            Text('暂无后台定时服务记录').fontSize(14).fontColor(mpSecondaryText(this.isDark))
+          }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         } else {
           Grid() {
             ForEach(this.schedulers, (s: MpSchedulerItem) => {

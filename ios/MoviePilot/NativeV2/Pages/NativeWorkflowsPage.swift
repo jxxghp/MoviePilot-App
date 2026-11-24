@@ -25,6 +25,9 @@ struct NativeWorkflowsPage: View {
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
+    let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    let columnCount = NativeDeviceLayout.cardGridCount(
+      for: resolvedWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
     ZStack {
       CinematicBackground()
       ScrollView {
@@ -33,15 +36,17 @@ struct NativeWorkflowsPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && workflows.isEmpty {
-            NativeCardListSkeletonView(count: 4, style: .workflowCard)
-              .transition(.opacity)
+            NativeCardListSkeletonView(
+              count: columnCount * 2,
+              style: .workflowCard,
+              columns: columnCount
+            )
+            .transition(.opacity)
           } else if loadFailed && workflows.isEmpty {
             failureCard
           } else if workflows.isEmpty {
             emptyCard
           } else {
-            let columnCount = NativeDeviceLayout.cardGridCount(
-              for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
             let gridColumns = Array(
               repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: columnCount)
             LazyVGrid(columns: gridColumns, spacing: 12) {
@@ -51,8 +56,8 @@ struct NativeWorkflowsPage: View {
             }
           }
         }
-        .frame(maxWidth: containerWidth >= 740 ? 1180 : 840)
-        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: containerWidth))
+        .frame(maxWidth: resolvedWidth >= 740 ? 1180 : 840)
+        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: resolvedWidth))
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
       }

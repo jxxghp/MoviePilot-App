@@ -6,6 +6,7 @@ import {
   NativeAdaptivePill,
   HarmonyAppearanceStore,
   HarmonyThemeColors,
+  HarmonyPluginSheetSkeleton,
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
@@ -1320,10 +1321,18 @@ if(!window.MoviePilotNative&&window.__mpHarmonyChromeHost){
         .height('100%')
 
       if (!this.isReady) {
-        Column({ space: 10 }) {
-          LoadingProgress().width(32).height(32).color(this.accentHex)
-          Text('正在接入插件视图…').fontSize(13).fontColor(mpSecondaryText(this.isDark))
+        Scroll() {
+          Column() {
+            HarmonyPluginSheetSkeleton()
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Center)
         }
+        .scrollBar(BarState.Off)
+        .align(Alignment.Top)
+        .width('100%')
+        .height('100%')
+        .backgroundColor(HarmonyThemeColors.canvas(this.isDark))
       }
     }
     .width('100%')

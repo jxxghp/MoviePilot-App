@@ -1,7 +1,10 @@
 package com.moviepilot.app
 
+import androidx.compose.ui.graphics.Color
 import com.moviepilot.designsystem.NativeAppearanceMode
 import com.moviepilot.designsystem.NativeAppearanceStore
+import com.moviepilot.designsystem.resolveMoviePilotColors
+import com.moviepilot.designsystem.resolveSkeletonPalette
 import com.moviepilot.rustbridge.MediaServerStreamTrackDto
 import com.moviepilot.rustbridge.MoviePilotRepository
 import org.junit.Assert.assertEquals
@@ -91,5 +94,33 @@ class RemediationContractsTest {
         store.updateMode(NativeAppearanceMode.System)
         assertTrue(store.resolveIsDark(systemDark = true))
         assertFalse(store.resolveIsDark(systemDark = false))
+    }
+
+    @Test
+    fun skeletonPaletteCalibratesAcrossDarkTonalPureBlackAndLightModes() {
+        val store = NativeAppearanceStore(null)
+
+        store.updatePureBlackDark(false)
+        val darkColors = resolveMoviePilotColors(isDark = true, store = store)
+        val darkPalette = resolveSkeletonPalette(colors = darkColors, isPureBlack = false)
+        assertEquals(darkColors.surfaceContainerHigh.copy(alpha = 0.72f), darkPalette.tileFill)
+        assertEquals(Color.White.copy(alpha = 0.07f), darkPalette.tileBorder)
+        assertEquals(Color.White.copy(alpha = 0.085f), darkPalette.barFill)
+        assertEquals(Color.White.copy(alpha = 0.085f), darkPalette.sweepPeak)
+
+        store.updatePureBlackDark(true)
+        val pureBlackColors = resolveMoviePilotColors(isDark = true, store = store)
+        val pureBlackPalette = resolveSkeletonPalette(colors = pureBlackColors, isPureBlack = true)
+        assertEquals(Color(0xFF151923), pureBlackPalette.tileFill)
+        assertEquals(Color.White.copy(alpha = 0.10f), pureBlackPalette.tileBorder)
+        assertEquals(Color.White.copy(alpha = 0.105f), pureBlackPalette.barFill)
+        assertEquals(Color.White.copy(alpha = 0.10f), pureBlackPalette.sweepPeak)
+
+        val lightColors = resolveMoviePilotColors(isDark = false, store = store)
+        val lightPalette = resolveSkeletonPalette(colors = lightColors, isPureBlack = false)
+        assertEquals(lightColors.surfaceContainerHigh.copy(alpha = 0.82f), lightPalette.tileFill)
+        assertEquals(Color.Black.copy(alpha = 0.05f), lightPalette.tileBorder)
+        assertEquals(lightColors.textPrimary.copy(alpha = 0.075f), lightPalette.barFill)
+        assertEquals(Color.White.copy(alpha = 0.70f), lightPalette.sweepPeak)
     }
 }

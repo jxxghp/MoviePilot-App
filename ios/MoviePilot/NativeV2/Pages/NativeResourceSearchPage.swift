@@ -108,12 +108,13 @@ struct NativeResourceSearchPage: View {
           }
           if !results.isEmpty || filter.activeCount > 0 {
             cascadingFilterBar
+              .frame(minHeight: 32)
           }
           if let feedback {
             feedbackBanner(feedback)
           }
           if isLoading && results.isEmpty {
-            VStack(spacing: 12) {
+            VStack(spacing: 14) {
               HStack(spacing: 8) {
                 ProgressView().controlSize(.small).tint(.primary)
                 Text(loadingMessage)
@@ -122,7 +123,8 @@ struct NativeResourceSearchPage: View {
                 Spacer(minLength: 0)
               }
               .padding(.horizontal, 4)
-              NativeCardListSkeletonView(count: 5, style: .posterRow)
+              .frame(minHeight: 32)
+              NativeCardListSkeletonView(count: 5, style: .torrentCard, spacing: 11)
             }
             .transition(.opacity)
           } else if loadFailed && results.isEmpty {

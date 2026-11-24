@@ -56,7 +56,7 @@ struct NativeTransferHistoryPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && records.isEmpty {
-            NativeCardListSkeletonView(count: 5, style: .posterRow)
+            NativeCardListSkeletonView(count: 5, style: .historyCard)
               .transition(.opacity)
           } else if loadFailed && records.isEmpty {
             failureCard
@@ -999,8 +999,30 @@ private struct NativeTransferQueueSheet: View {
               }
             }
             if isLoading && jobs.isEmpty {
-              NativeCardListSkeletonView(count: 4, style: .iconRow)
-                .transition(.opacity)
+              VStack(spacing: 12) {
+                ForEach(0..<4, id: \.self) { _ in
+                  CinematicPanel(padding: 13) {
+                    VStack(alignment: .leading, spacing: 8) {
+                      HStack {
+                        NativeSkeletonBlock(width: 148, height: 16, cornerRadius: 5)
+                        Spacer()
+                        NativeSkeletonBlock(width: 36, height: 12, cornerRadius: 4)
+                      }
+                      Divider().overlay(NativeTheme.chipBorder)
+                      HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 4) {
+                          NativeSkeletonBlock(width: 176, height: 13, cornerRadius: 4)
+                          NativeSkeletonBlock(width: 224, height: 10, cornerRadius: 4)
+                        }
+                        Spacer(minLength: 4)
+                        NativeSkeletonBlock(width: 48, height: 18, cornerRadius: 9)
+                      }
+                    }
+                  }
+                }
+              }
+              .nativeSkeletonShimmer()
+              .transition(.opacity)
             } else if loadFailed && jobs.isEmpty {
               CinematicPanel {
                 VStack(spacing: 10) {

@@ -35,8 +35,12 @@ struct NativeCalendarPage: View {
         VStack(alignment: .leading, spacing: 20) {
           weekStrip
           if isLoading && entries.isEmpty {
-            NativeCardListSkeletonView(count: 4, style: .posterRow)
-              .transition(.opacity)
+            VStack(alignment: .leading, spacing: 12) {
+              NativeSkeletonBlock(width: 124, height: 18, cornerRadius: 5)
+                .nativeSkeletonShimmer()
+              NativeCardListSkeletonView(count: 4, style: .posterRow)
+            }
+            .transition(.opacity)
           } else if loadFailed && entries.isEmpty {
             failureCard
           } else {

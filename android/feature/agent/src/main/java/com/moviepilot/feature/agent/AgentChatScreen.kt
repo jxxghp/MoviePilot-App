@@ -114,7 +114,9 @@ import com.moviepilot.designsystem.ExpressiveTintedScaffold
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
+import com.moviepilot.designsystem.NativeCardListSkeleton
 import com.moviepilot.designsystem.NativeGlassSheet
+import com.moviepilot.designsystem.SkeletonCardStyle
 import com.moviepilot.rustbridge.AgentAttachmentDto
 import com.moviepilot.rustbridge.AgentChatMessageDto
 import com.moviepilot.rustbridge.AgentChoiceButtonDto
@@ -125,6 +127,8 @@ import com.moviepilot.rustbridge.AgentToolEntryDto
 import com.moviepilot.rustbridge.MoviePilotRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
@@ -177,6 +181,7 @@ fun AgentChatScreen(
     }
     var sessions by remember { mutableStateOf<List<AgentSessionSummaryDto>>(emptyList()) }
     var commands by remember { mutableStateOf<List<AgentCommandDto>>(emptyList()) }
+    var isInitialLoading by remember { mutableStateOf(true) }
     var isLoadingSessions by remember { mutableStateOf(false) }
 
     var input by remember { mutableStateOf(initialPrompt) }
@@ -327,8 +332,12 @@ fun AgentChatScreen(
     }
 
     LaunchedEffect(Unit) {
-        commands = repository.fetchAgentCommands()
-        refreshSessions()
+        coroutineScope {
+            val cmdDef = async { repository.fetchAgentCommands() }
+            val sessDef = async { refreshSessions() }
+            commands = cmdDef.await()
+            sessDef.await()
+        }
         val savedId = prefs.getString("last_session_id", null)?.takeIf { it.isNotBlank() }
         val targetId = when {
             savedId != null && sessions.any { it.sessionId == savedId } -> savedId
@@ -341,6 +350,7 @@ fun AgentChatScreen(
         if (messages.isEmpty()) {
             messages.add(welcomeMessage())
         }
+        isInitialLoading = false
     }
 
     LaunchedEffect(messages.size) {
@@ -728,6 +738,7 @@ fun AgentChatScreen(
                 icon = Icons.Rounded.History,
                 contentDescription = "历史会话",
                 onClick = {
+                    isLoadingSessions = true
                     showHistorySheet = true
                     scope.launch { refreshSessions() }
                 },
@@ -757,12 +768,20 @@ fun AgentChatScreen(
                 }
             }
 
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = margin, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
+            if (isInitialLoading && messages.isEmpty()) {
+                NativeCardListSkeleton(
+                    style = SkeletonCardStyle.ChatBubbles,
+                    count = 4,
+                    contentPadding = PaddingValues(horizontal = margin, vertical = 14.dp),
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = margin, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
                 items(messages, key = { it.id }) { msg ->
                     if (msg.role == "user") {
                         Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -898,6 +917,7 @@ fun AgentChatScreen(
                             }
                         }
                     }
+                }
                 }
             }
 
@@ -1087,7 +1107,7 @@ fun AgentChatScreen(
         }
     }
 
-    // 历史会话管理弹层（真实读取 / 切换 / 新建 / 删除）
+            // 历史会话管理弹层（真实读取 / 切换 / 新建 / 删除）
     if (showHistorySheet) {
         NativeGlassSheet(onDismissRequest = { showHistorySheet = false }) {
             Column(
@@ -1099,7 +1119,12 @@ fun AgentChatScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("历史会话 (${sessions.size})", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (isLoadingSessions && sessions.isEmpty()) "历史会话" else "历史会话 (${sessions.size})",
+                        color = colors.textPrimary,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
                     NativeAdaptivePill(
                         title = "新对话",
                         selected = true,
@@ -1110,10 +1135,13 @@ fun AgentChatScreen(
                         },
                     )
                 }
-                if (isLoadingSessions) {
-                    Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = colors.accent)
-                    }
+                if (isLoadingSessions && sessions.isEmpty()) {
+                    NativeCardListSkeleton(
+                        style = SkeletonCardStyle.IconRow,
+                        count = 4,
+                        contentPadding = PaddingValues(0.dp),
+                        scrollable = false,
+                    )
                 } else if (sessions.isEmpty()) {
                     CinematicPanel(padding = 20.dp, showsShadow = false) {
                         Text("暂无历史对话记录，发送首条消息后会自动保存会话。", color = colors.textSecondary, fontSize = 13.5.sp)

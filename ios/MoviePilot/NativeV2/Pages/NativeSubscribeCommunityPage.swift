@@ -36,6 +36,7 @@ struct NativeSubscribeCommunityPage: View {
 
   /// 连续深色紫玫瑰渐变、分区切换胶囊、热门海报网格与分享订阅卡片列表。
   var body: some View {
+    let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
     ZStack {
       CinematicBackground()
       ScrollView {
@@ -46,11 +47,16 @@ struct NativeSubscribeCommunityPage: View {
           }
           if isLoading && isCurrentEmpty {
             if selectedTab == .shares {
-              NativeCardListSkeletonView(count: 4, style: .posterRow)
+              sharesSkeleton
                 .transition(.opacity)
             } else {
-              NativePosterGridSkeletonView(columns: columns.count, count: columns.count * 3)
-                .transition(.opacity)
+              NativePosterGridSkeletonView(
+                columns: columns.count,
+                count: columns.count * 3,
+                horizontalSpacing: 11,
+                centeredCaption: true
+              )
+              .transition(.opacity)
             }
           } else if loadFailed && isCurrentEmpty {
             failureCard
@@ -61,7 +67,7 @@ struct NativeSubscribeCommunityPage: View {
           }
         }
         .frame(maxWidth: 1200)
-        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: containerWidth))
+        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: resolvedWidth))
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
       }
@@ -101,12 +107,43 @@ struct NativeSubscribeCommunityPage: View {
 
   /// 随实时容器宽度自适应 3~6 列海报网格。
   private var columns: [GridItem] {
-    let count =
-      containerWidth > 0
-      ? NativeDeviceLayout.posterGridCount(
-        for: min(containerWidth, 1200), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
-      : (horizontalSizeClass == .regular ? 5 : 3)
+    let resolved = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    let count = NativeDeviceLayout.posterGridCount(
+      for: min(resolved, 1200), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
     return Array(repeating: GridItem(.flexible(), spacing: 11, alignment: .top), count: count)
+  }
+
+  /// 社区分享卡片专属占位骨架：对齐 `66×99` 海报、分享者/备注、过滤标签胶囊与底部 `32pt` 复用按钮（总高 ~142pt）。
+  private var sharesSkeleton: some View {
+    VStack(spacing: 12) {
+      ForEach(0..<4, id: \.self) { _ in
+        CinematicPanel(padding: 12) {
+          HStack(alignment: .top, spacing: 12) {
+            NativeSkeletonBlock(width: 66, height: 99, cornerRadius: 11)
+            VStack(alignment: .leading, spacing: 6) {
+              HStack(alignment: .top, spacing: 8) {
+                NativeSkeletonBlock(height: 16, cornerRadius: 6)
+                Spacer(minLength: 4)
+                NativeSkeletonBlock(width: 48, height: 18, cornerRadius: 9)
+              }
+              NativeSkeletonBlock(width: 108, height: 12, cornerRadius: 5)
+              NativeSkeletonBlock(height: 12, cornerRadius: 5)
+              HStack(spacing: 6) {
+                NativeSkeletonBlock(width: 46, height: 18, cornerRadius: 9)
+                NativeSkeletonBlock(width: 54, height: 18, cornerRadius: 9)
+                NativeSkeletonBlock(width: 42, height: 18, cornerRadius: 9)
+              }
+              HStack(spacing: 10) {
+                NativeSkeletonBlock(width: 88, height: 32, cornerRadius: 16)
+                Spacer()
+              }
+              .padding(.top, 2)
+            }
+          }
+        }
+      }
+    }
+    .nativeSkeletonShimmer()
   }
 
   /// 顶部分区切换胶囊栏。

@@ -18,6 +18,11 @@ import {
   HarmonySurfaceModifier,
   HarmonyThemeColors,
   HarmonyEntityLogo,
+  HarmonySkeletonHost,
+  HarmonySkeletonBlock,
+  HarmonyEpisodeStripSkeleton,
+  HarmonyMediaDetailBodySkeleton,
+  HarmonyPosterGridSkeleton,
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
@@ -54,6 +59,7 @@ export struct HarmonyMediaDetailPage {
   @State private seasons: MpSeasonInfo[] = [];
   @State private activeSeasonNumber: number = 1;
   @State private tmdbEpisodes: MpTmdbEpisodeItem[] = [];
+  @State private loadingDetail: boolean = true;
   @State private loadingEpisodes: boolean = false;
   @State private statusMsg: string = '';
   @State private statusIsError: boolean = false;
@@ -80,6 +86,7 @@ export struct HarmonyMediaDetailPage {
     this.seasons = [];
     this.activeSeasonNumber = 1;
     this.tmdbEpisodes = [];
+    this.loadingDetail = true;
     this.loadingEpisodes = false;
     this.statusMsg = '';
     this.statusIsError = false;
@@ -132,6 +139,7 @@ export struct HarmonyMediaDetailPage {
 
   private async loadDetail(): Promise<void> {
     const seq = ++this.detailLoadSeq;
+    this.loadingDetail = true;
     const repo = MoviePilotRepository.shared();
     let workingItem: MpMediaItem = this.item;
 
@@ -236,6 +244,9 @@ export struct HarmonyMediaDetailPage {
       }
     } catch {
       // keep existing state
+    }
+    if (seq === this.detailLoadSeq) {
+      this.loadingDetail = false;
     }
   }
 
@@ -372,13 +383,7 @@ export struct HarmonyMediaDetailPage {
   }
 
   private heroHeightVp(): number {
-    if (this.isShortLandscape()) {
-      return Math.max(188, Math.round(this.windowHeightVp * 0.50));
-    }
-    if (this.windowWidthVp >= 840 && this.windowHeightVp >= 480) {
-      return 340;
-    }
-    return 380;
+    return HarmonyAdaptiveLayout.detailHeroHeightVp(this.windowWidthVp, this.windowHeightVp);
   }
 
   @Builder
@@ -544,14 +549,14 @@ export struct HarmonyMediaDetailPage {
       .scrollBar(BarState.Off)
 
       // 当前季 16:9 横版剧集列表（横向滚动）
-      if (this.loadingEpisodes && this.tmdbEpisodes.length === 0) {
-        Row({ space: 8 }) {
-          LoadingProgress().width(20).height(20).color(this.accentHex)
-          Text(`正在加载第 ${this.activeSeasonNumber} 季分集…`)
-            .fontSize(12)
-            .fontColor(mpSecondaryText(this.isDark))
+      if (this.loadingEpisodes) {
+        HarmonySkeletonHost({ loadingLabel: `正在加载第 ${this.activeSeasonNumber} 季分集` }) {
+          HarmonyEpisodeStripSkeleton({
+            showHeader: true,
+            showSeasonPills: false,
+            itemCount: 3
+          })
         }
-        .padding({ left: 16, right: 16, top: 4 })
       } else if (this.tmdbEpisodes.length > 0) {
         Column({ space: 10 }) {
           Row() {
@@ -805,111 +810,117 @@ export struct HarmonyMediaDetailPage {
               .width('100%')
           }
 
-          // 可折叠剧情简介（默认 3 行 + 展开/收起）
-          Column() {
-            CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
-              Column({ space: 8 }) {
-                Row() {
-                  Text('剧情简介')
-                    .fontSize(16)
-                    .fontWeight(FontWeight.Bold)
-                    .fontColor(mpPrimaryText(this.isDark))
-                    .layoutWeight(1)
-                  if ((this.activeMedia().overview || '').length > 68) {
-                    Text(this.overviewExpanded ? '收起 ▴' : '展开 ▾')
-                      .fontSize(12.5)
-                      .fontWeight(FontWeight.Medium)
-                      .fontColor(this.accentHex)
-                      .onClick(() => { this.overviewExpanded = !this.overviewExpanded; })
-                  }
-                }
-                .width('100%')
-
-                Text(this.activeMedia().overview || '暂无剧情简介，可添加自动追剧订阅或检索 4K 高清片源。')
-                  .fontSize(14)
-                  .fontColor(mpSecondaryText(this.isDark))
-                  .lineHeight(22)
-                  .maxLines(this.overviewExpanded ? 99 : 3)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .width('100%')
-                  .onClick(() => {
+          if (this.loadingDetail) {
+            HarmonyMediaDetailBodySkeleton({
+              showSeasons: this.isTvMedia()
+            })
+          } else {
+            // 可折叠剧情简介（默认 3 行 + 展开/收起）
+            Column() {
+              CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
+                Column({ space: 8 }) {
+                  Row() {
+                    Text('剧情简介')
+                      .fontSize(16)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor(mpPrimaryText(this.isDark))
+                      .layoutWeight(1)
                     if ((this.activeMedia().overview || '').length > 68) {
-                      this.overviewExpanded = !this.overviewExpanded;
-                    }
-                  })
-              }
-              .alignItems(HorizontalAlign.Start)
-              .width('100%')
-            }
-          }
-          .width('100%')
-          .padding({ left: 16, right: 16 })
-
-          // 剧集分季与横滑 16:9 分集卡片
-          if (this.seasons.length > 0) {
-            this.seasonsSectionBuilder()
-          }
-
-          // 演职员表（点击演职员可下钻查看个人主页与作品集）
-          if (this.cast.length > 0) {
-            Column({ space: 10 }) {
-              Text('演职员')
-                .fontSize(18)
-                .fontWeight(FontWeight.Bold)
-                .fontColor(mpPrimaryText(this.isDark))
-                .width('100%')
-                .padding({ left: 16, right: 16 })
-
-              Scroll() {
-                Row({ space: 14 }) {
-                  ForEach(this.cast, (c: MpCastMember) => {
-                    Column({ space: 5 }) {
-                      if (c.profileUrl.length > 0) {
-                        MpRemoteImage({
-                          src: c.profileUrl,
-                          imgWidth: 66,
-                          imgHeight: 66,
-                          imgRadius: 33,
-                          placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
-                        })
-                      } else {
-                        Text((c.name || '演').substring(0, 1))
-                          .width(66)
-                          .height(66)
-                          .borderRadius(33)
-                          .textAlign(TextAlign.Center)
-                          .fontColor(Color.White)
-                          .backgroundColor(this.accentHex)
-                      }
-                      Text(c.name)
-                        .fontSize(12)
+                      Text(this.overviewExpanded ? '收起 ▴' : '展开 ▾')
+                        .fontSize(12.5)
                         .fontWeight(FontWeight.Medium)
-                        .fontColor(mpPrimaryText(this.isDark))
-                        .maxLines(1)
-                        .width(74)
-                        .textAlign(TextAlign.Center)
-                      if (c.character.length > 0) {
-                        Text(c.character)
-                          .fontSize(10)
-                          .fontColor(mpSecondaryText(this.isDark))
+                        .fontColor(this.accentHex)
+                        .onClick(() => { this.overviewExpanded = !this.overviewExpanded; })
+                    }
+                  }
+                  .width('100%')
+
+                  Text(this.activeMedia().overview || '暂无剧情简介，可添加自动追剧订阅或检索 4K 高清片源。')
+                    .fontSize(14)
+                    .fontColor(mpSecondaryText(this.isDark))
+                    .lineHeight(22)
+                    .maxLines(this.overviewExpanded ? 99 : 3)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .width('100%')
+                    .onClick(() => {
+                      if ((this.activeMedia().overview || '').length > 68) {
+                        this.overviewExpanded = !this.overviewExpanded;
+                      }
+                    })
+                }
+                .alignItems(HorizontalAlign.Start)
+                .width('100%')
+              }
+            }
+            .width('100%')
+            .padding({ left: 16, right: 16 })
+
+            // 剧集分季与横滑 16:9 分集卡片
+            if (this.seasons.length > 0) {
+              this.seasonsSectionBuilder()
+            }
+
+            // 演职员表（点击演职员可下钻查看个人主页与作品集）
+            if (this.cast.length > 0) {
+              Column({ space: 10 }) {
+                Text('演职员')
+                  .fontSize(18)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(mpPrimaryText(this.isDark))
+                  .width('100%')
+                  .padding({ left: 16, right: 16 })
+
+                Scroll() {
+                  Row({ space: 14 }) {
+                    ForEach(this.cast, (c: MpCastMember) => {
+                      Column({ space: 5 }) {
+                        if (c.profileUrl.length > 0) {
+                          MpRemoteImage({
+                            src: c.profileUrl,
+                            imgWidth: 66,
+                            imgHeight: 66,
+                            imgRadius: 33,
+                            placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                          })
+                        } else {
+                          Text((c.name || '演').substring(0, 1))
+                            .width(66)
+                            .height(66)
+                            .borderRadius(33)
+                            .textAlign(TextAlign.Center)
+                            .fontColor(Color.White)
+                            .backgroundColor(this.accentHex)
+                        }
+                        Text(c.name)
+                          .fontSize(12)
+                          .fontWeight(FontWeight.Medium)
+                          .fontColor(mpPrimaryText(this.isDark))
                           .maxLines(1)
                           .width(74)
                           .textAlign(TextAlign.Center)
+                        if (c.character.length > 0) {
+                          Text(c.character)
+                            .fontSize(10)
+                            .fontColor(mpSecondaryText(this.isDark))
+                            .maxLines(1)
+                            .width(74)
+                            .textAlign(TextAlign.Center)
+                        }
                       }
-                    }
-                    .alignItems(HorizontalAlign.Center)
-                    .hoverEffect(HoverEffect.Highlight)
-                    .onClick(() => {
-                      if (c.id.length > 0 && !c.id.startsWith('actor_')) {
-                        this.onOpenPerson(c);
-                      }
-                    })
-                  }, (c: MpCastMember) => `${c.id}_${c.name}`)
+                      .alignItems(HorizontalAlign.Center)
+                      .hoverEffect(HoverEffect.Highlight)
+                      .onClick(() => {
+                        if (c.id.length > 0 && !c.id.startsWith('actor_')) {
+                          this.onOpenPerson(c);
+                        }
+                      })
+                    }, (c: MpCastMember) => `${c.id}_${c.name}`)
+                  }
+                  .padding({ left: 16, right: 16 })
                 }
-                .padding({ left: 16, right: 16 })
+                .scrollable(ScrollDirection.Horizontal)
+                .scrollBar(BarState.Off)
               }
-              .scrollable(ScrollDirection.Horizontal)
-              .scrollBar(BarState.Off)
             }
           }
         }
@@ -966,6 +977,8 @@ export struct HarmonyPersonDetailPage {
   }
 
   onPersonChanged(): void {
+    this.detail = null;
+    this.credits = [];
     this.loadPerson();
   }
 
@@ -986,10 +999,7 @@ export struct HarmonyPersonDetailPage {
   }
 
   private gridColumnsTemplate(): string {
-    const cols = HarmonyAdaptiveLayout.posterGridColumns(this.windowWidthVp);
-    const arr: string[] = [];
-    for (let i = 0; i < cols; i++) { arr.push('1fr'); }
-    return arr.join(' ');
+    return HarmonyAdaptiveLayout.posterGridTemplate(this.windowWidthVp);
   }
 
   build() {
@@ -1016,21 +1026,44 @@ export struct HarmonyPersonDetailPage {
                   .width(76).height(76).borderRadius(38).textAlign(TextAlign.Center)
                   .fontColor(Color.White).fontSize(26).fontWeight(FontWeight.Bold).backgroundColor(this.accentHex)
               }
-              Column({ space: 5 }) {
+              Column({ space: 6 }) {
                 Text(this.detail ? this.detail.name : this.person.name)
                   .fontSize(20).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
-                if (this.detail && this.detail.department.length > 0) {
-                  NativeAdaptiveBadge({ text: this.detail.department, tintHex: this.accentHex })
-                }
-                if (this.detail && (this.detail.birthday.length > 0 || this.detail.placeOfBirth.length > 0)) {
-                  Text(`${this.detail.birthday}${this.detail.placeOfBirth ? ' · ' + this.detail.placeOfBirth : ''}`)
-                    .fontSize(12).fontColor(mpSecondaryText(this.isDark)).maxLines(2)
+                if (this.loading && !this.detail) {
+                  HarmonySkeletonHost({ loadingLabel: '正在加载演职员资料' }) {
+                    Column({ space: 6 }) {
+                      HarmonySkeletonBlock({ blockWidth: 64, blockHeight: 20, cornerRadius: 10, tone: 'subtle' })
+                      HarmonySkeletonBlock({ blockWidth: 148, blockHeight: 12, cornerRadius: 4, tone: 'subtle' })
+                    }
+                    .alignItems(HorizontalAlign.Start)
+                  }
+                } else {
+                  if (this.detail && this.detail.department.length > 0) {
+                    NativeAdaptiveBadge({ text: this.detail.department, tintHex: this.accentHex })
+                  }
+                  if (this.detail && (this.detail.birthday.length > 0 || this.detail.placeOfBirth.length > 0)) {
+                    Text(`${this.detail.birthday}${this.detail.placeOfBirth ? ' · ' + this.detail.placeOfBirth : ''}`)
+                      .fontSize(12).fontColor(mpSecondaryText(this.isDark)).maxLines(2)
+                  }
                 }
               }.alignItems(HorizontalAlign.Start).layoutWeight(1)
             }.width('100%')
           }
 
-          if (this.detail && this.detail.biography.length > 0) {
+          if (this.loading && !this.detail) {
+            HarmonySkeletonHost({ loadingLabel: '正在加载人物简介' }) {
+              CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
+                Column({ space: 9 }) {
+                  HarmonySkeletonBlock({ blockWidth: 76, blockHeight: 15, cornerRadius: 5 })
+                  HarmonySkeletonBlock({ blockWidth: '100%', blockHeight: 13, cornerRadius: 4, tone: 'subtle' })
+                  HarmonySkeletonBlock({ blockWidth: '92%', blockHeight: 13, cornerRadius: 4, tone: 'subtle' })
+                  HarmonySkeletonBlock({ blockWidth: '64%', blockHeight: 13, cornerRadius: 4, tone: 'subtle' })
+                }
+                .width('100%')
+                .alignItems(HorizontalAlign.Start)
+              }
+            }
+          } else if (this.detail && this.detail.biography.length > 0) {
             CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
               Column({ space: 6 }) {
                 Text('人物简介').fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
@@ -1042,14 +1075,22 @@ export struct HarmonyPersonDetailPage {
             }
           }
 
-          Text(`参演作品 (${this.credits.length})`)
+          Text(this.loading ? '参演作品' : `参演作品 (${this.credits.length})`)
             .fontSize(17)
             .fontWeight(FontWeight.Bold)
             .fontColor(mpPrimaryText(this.isDark))
             .width('100%')
 
-          if (this.loading && this.credits.length === 0) {
-            LoadingProgress().width(32).height(32).color(this.accentHex).margin({ top: 20 })
+          if (this.loading) {
+            HarmonyPosterGridSkeleton({
+              horizontalPadding: 0,
+              bottomPadding: 12
+            })
+          } else if (this.credits.length === 0) {
+            Text('暂无参演作品记录')
+              .fontSize(13)
+              .fontColor(mpSecondaryText(this.isDark))
+              .padding({ top: 12, bottom: 12 })
           } else {
             Grid() {
               ForEach(this.credits, (it: MpMediaItem) => {

@@ -84,6 +84,32 @@ struct NativeMediaDetailPage: View {
             )
             .ignoresSafeArea(edges: .top)
           }
+        } else if !failed {
+          if hasHorizontalInset {
+            Color.clear
+              .frame(width: viewportWidth, height: 1)
+              .overlay(alignment: .topLeading) {
+                loadingHeroBackdrop(
+                  width: backdropWidth,
+                  height: heroHeight,
+                  isPortraitPhone: isPortraitPhone,
+                  progress: progress,
+                  eased: eased
+                )
+                .ignoresSafeArea(edges: [.top, .horizontal])
+              }
+              .allowsHitTesting(false)
+              .accessibilityHidden(true)
+          } else {
+            loadingHeroBackdrop(
+              width: viewportWidth,
+              height: heroHeight,
+              isPortraitPhone: isPortraitPhone,
+              progress: progress,
+              eased: eased
+            )
+            .ignoresSafeArea(edges: .top)
+          }
         }
         ScrollView {
           VStack(alignment: .leading, spacing: 0) {
@@ -128,8 +154,17 @@ struct NativeMediaDetailPage: View {
                 .padding(.top, 110)
                 .frame(maxWidth: .infinity)
             } else {
-              NativeMediaDetailSkeletonView(heroHeight: heroHeight)
-                .transition(.opacity)
+              NativeMediaDetailSkeletonView(
+                heroHeight: heroHeight,
+                horizontalMargin: margin,
+                isCompactLandscape: isCompactLandscape,
+                isTelevision: MediaSummaryItem.normalizeMediaType(identity.type) == "电视剧",
+                seasonColumns: NativeDeviceLayout.cardGridCount(
+                  for: viewportWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize),
+                seedTitle: identity.seedTitle,
+                rendersHeroBackdrop: false
+              )
+              .transition(.opacity)
             }
           }
           .frame(maxWidth: .infinity)
@@ -205,6 +240,75 @@ struct NativeMediaDetailPage: View {
         Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
           .opacity(max(0, 1 - Double(progress) * 1.15) * 0.55)
       }
+    }
+  }
+
+  /// 详情加载期间的全幅主视觉底图：若路由携带前置卡片海报则平滑延续，否则渲染通透呼吸流光背景。
+  @ViewBuilder
+  private func loadingHeroBackdrop(
+    width: CGFloat, height: CGFloat, isPortraitPhone: Bool, progress: CGFloat, eased: CGFloat
+  ) -> some View {
+    let seedRef: String? =
+      if isPortraitPhone {
+        Self.resolveArtwork(identity.seedPoster, source: identity.source, tmdbSize: "w780")
+          ?? Self.resolveArtwork(identity.seedBackdrop, source: identity.source, tmdbSize: "w1280")
+      } else {
+        Self.resolveArtwork(identity.seedBackdrop, source: identity.source, tmdbSize: "w1280")
+          ?? Self.resolveArtwork(identity.seedPoster, source: identity.source, tmdbSize: "w780")
+      }
+    let pullDown = max(scrollOffset, 0)
+    let backdropHeight = height * 1.06 + pullDown
+    if let seedRef {
+      let scrollUp = max(-scrollOffset, 0)
+      let parallax = reduceMotion ? 0 : -min(scrollUp, height) * 0.08
+      let visibility = max(0, 1 - Double(eased) * 0.96)
+      let isLight = colorScheme == .light
+      let fadeBase =
+        isLight
+        ? NativeTheme.topVeilColor(for: .light, appearance: appearance)
+        : Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
+      ZStack(alignment: .bottom) {
+        NativeMediaArtwork(
+          session: session, reference: seedRef, role: .backdrop, maximumWidth: 1280
+        )
+        .frame(width: width, height: backdropHeight)
+        .clipped()
+        LinearGradient(
+          stops: isLight
+            ? [
+              .init(color: .clear, location: 0.48),
+              .init(color: fadeBase.opacity(0.42), location: 0.68),
+              .init(color: fadeBase.opacity(0.88), location: 0.86),
+              .init(color: fadeBase, location: 1),
+            ]
+            : [
+              .init(color: .clear, location: 0.48),
+              .init(color: fadeBase.opacity(0.38), location: 0.68),
+              .init(color: fadeBase.opacity(0.86), location: 0.88),
+              .init(color: fadeBase, location: 1),
+            ], startPoint: .top, endPoint: .bottom
+        )
+        .frame(width: width, height: backdropHeight)
+      }
+      .offset(y: parallax)
+      .mask(alignment: .top) {
+        LinearGradient(
+          stops: [
+            .init(color: .white, location: 0),
+            .init(color: .white, location: 0.58),
+            .init(color: .white.opacity(0.86), location: 0.72),
+            .init(color: .white.opacity(0.38), location: 0.86),
+            .init(color: .clear, location: 1),
+          ], startPoint: .top, endPoint: .bottom
+        )
+        .frame(height: backdropHeight)
+        .offset(y: min(scrollOffset, 0) * 0.85)
+      }
+      .opacity(progress >= 0.99 ? 0 : visibility)
+      .allowsHitTesting(false)
+      .accessibilityHidden(true)
+    } else {
+      NativeHeroBackdropSkeletonView(width: width, height: backdropHeight)
     }
   }
 
@@ -1014,7 +1118,12 @@ struct NativeMediaDetailPage: View {
           ForEach(recommendations.prefix(16)) { item in
             if let resolved = item.resolvedIdentity(fallbackSource: fallbackSource) {
               let nextIdentity = NativeMediaIdentity(
-                source: resolved.source, mediaID: resolved.mediaID, type: resolved.type)
+                source: resolved.source,
+                mediaID: resolved.mediaID,
+                type: resolved.type,
+                seedTitle: item.title,
+                seedPoster: item.posterPath
+              )
               NavigationLink {
                 NativeMediaDetailPage(session: session, identity: nextIdentity)
               } label: {
@@ -1560,9 +1669,12 @@ struct NativePersonDetailPage: View {
 
   @State private var person: MediaPersonSummary?
   @State private var works: [MediaSummaryItem] = []
+  @State private var isLoading = true
   @State private var failed = false
   @State private var attempt = 0
   @State private var bioExpanded = false
+  @State private var containerWidth: CGFloat = 0
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @ScaledMetric(relativeTo: .body) private var tileWidth = 104.0
 
   init(
@@ -1581,66 +1693,102 @@ struct NativePersonDetailPage: View {
 
   /// 采用统一 Cinematic 连续渐变与透色卡片，不依赖任何网页视图。
   var body: some View {
+    let resolvedWidth = min(NativeDeviceLayout.resolvedContainerWidth(containerWidth), 900)
+    let skeletonColumns = NativeDeviceLayout.posterGridCount(
+      for: resolvedWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
     ZStack {
       CinematicBackground()
       ScrollView {
         VStack(alignment: .leading, spacing: 24) {
           header
-          if let bio = person?.biography?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !bio.isEmpty
-          {
-            CinematicPanel {
-              VStack(alignment: .leading, spacing: 10) {
-                Text("人物简介").font(.headline).accessibilityAddTraits(.isHeader)
-                Text(bio)
-                  .font(.body)
-                  .lineSpacing(5)
-                  .foregroundStyle(.primary.opacity(0.84))
-                  .lineLimit(bioExpanded ? nil : 5)
-                if bio.count > 120 {
-                  Button(bioExpanded ? "收起简介" : "展开全部") {
-                    withAnimation(.easeInOut(duration: 0.2)) { bioExpanded.toggle() }
+          if isLoading && person == nil && works.isEmpty {
+            VStack(alignment: .leading, spacing: 24) {
+              CinematicPanel(padding: 18) {
+                VStack(alignment: .leading, spacing: 10) {
+                  Text("人物简介").font(.headline).accessibilityAddTraits(.isHeader)
+                  NativeSkeletonBlock(height: 13, cornerRadius: 5)
+                  NativeSkeletonBlock(height: 13, cornerRadius: 5)
+                  NativeSkeletonBlock(width: 210, height: 13, cornerRadius: 5)
+                }
+              }
+              .nativeSkeletonShimmer()
+
+              VStack(alignment: .leading, spacing: 14) {
+                Text("参演作品")
+                  .font(.title3.weight(.bold))
+                  .accessibilityAddTraits(.isHeader)
+                NativePosterGridSkeletonView(
+                  columns: skeletonColumns,
+                  count: skeletonColumns * 2,
+                  horizontalSpacing: 11,
+                  verticalSpacing: 18,
+                  centeredCaption: true
+                )
+              }
+            }
+            .transition(.opacity)
+          } else {
+            if let bio = person?.biography?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !bio.isEmpty
+            {
+              CinematicPanel {
+                VStack(alignment: .leading, spacing: 10) {
+                  Text("人物简介").font(.headline).accessibilityAddTraits(.isHeader)
+                  Text(bio)
+                    .font(.body)
+                    .lineSpacing(5)
+                    .foregroundStyle(.primary.opacity(0.84))
+                    .lineLimit(bioExpanded ? nil : 5)
+                  if bio.count > 120 {
+                    Button(bioExpanded ? "收起简介" : "展开全部") {
+                      withAnimation(.easeInOut(duration: 0.2)) { bioExpanded.toggle() }
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary.opacity(0.75))
+                    .buttonStyle(.plain)
                   }
-                  .font(.caption.weight(.semibold))
-                  .foregroundStyle(.primary.opacity(0.75))
-                  .buttonStyle(.plain)
                 }
               }
             }
-          }
-          if !works.isEmpty {
-            VStack(alignment: .leading, spacing: 14) {
-              Text("参演作品")
-                .font(.title3.weight(.bold))
-                .accessibilityAddTraits(.isHeader)
-              LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: tileWidth), spacing: 11)], spacing: 18
-              ) {
-                ForEach(works) { item in
-                  if let resolved = item.resolvedIdentity(fallbackSource: source) {
-                    let nextIdentity = NativeMediaIdentity(
-                      source: resolved.source, mediaID: resolved.mediaID, type: resolved.type)
-                    NavigationLink {
-                      NativeMediaDetailPage(session: session, identity: nextIdentity)
-                    } label: {
+            if !works.isEmpty {
+              VStack(alignment: .leading, spacing: 14) {
+                Text("参演作品")
+                  .font(.title3.weight(.bold))
+                  .accessibilityAddTraits(.isHeader)
+                LazyVGrid(
+                  columns: [GridItem(.adaptive(minimum: tileWidth), spacing: 11)], spacing: 18
+                ) {
+                  ForEach(works) { item in
+                    if let resolved = item.resolvedIdentity(fallbackSource: source) {
+                      let nextIdentity = NativeMediaIdentity(
+                        source: resolved.source,
+                        mediaID: resolved.mediaID,
+                        type: resolved.type,
+                        seedTitle: item.title,
+                        seedPoster: item.posterPath
+                      )
+                      NavigationLink {
+                        NativeMediaDetailPage(session: session, identity: nextIdentity)
+                      } label: {
+                        workTile(item)
+                      }
+                      .buttonStyle(.plain)
+                      .accessibilityIdentifier("native-person-work-\(nextIdentity.id)")
+                    } else {
                       workTile(item)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("native-person-work-\(nextIdentity.id)")
-                  } else {
-                    workTile(item)
                   }
                 }
               }
-            }
-          } else if failed {
-            CinematicPanel {
-              VStack(alignment: .leading, spacing: 10) {
-                Label("暂时无法载入人物资料", systemImage: "exclamationmark.triangle")
-                  .font(.headline)
-                Button("重新载入") { attempt += 1 }
-                  .frame(minHeight: 44)
-                  .accessibilityIdentifier("native-person-detail-retry")
+            } else if failed {
+              CinematicPanel {
+                VStack(alignment: .leading, spacing: 10) {
+                  Label("暂时无法载入人物资料", systemImage: "exclamationmark.triangle")
+                    .font(.headline)
+                  Button("重新载入") { attempt += 1 }
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("native-person-detail-retry")
+                }
               }
             }
           }
@@ -1650,6 +1798,7 @@ struct NativePersonDetailPage: View {
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity)
       }
+      .nativeTrackContainerWidth($containerWidth)
       .scrollIndicators(.hidden)
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-person-detail-scroll")
@@ -1694,6 +1843,9 @@ struct NativePersonDetailPage: View {
           .font(.subheadline)
           .foregroundStyle(.primary.opacity(0.72))
           .multilineTextAlignment(.center)
+      } else if isLoading && person == nil {
+        NativeSkeletonBlock(width: 168, height: 14, cornerRadius: 6)
+          .nativeSkeletonShimmer()
       }
       if let aliases = person?.alsoKnownAs, !aliases.isEmpty {
         Text(aliases.prefix(4).joined(separator: " · "))
@@ -1731,7 +1883,9 @@ struct NativePersonDetailPage: View {
 
   /// 并行读取人物资料与参演作品列表（按当前来源路由至 TMDB / 豆瓣 / Bangumi / AniList）。
   private func load() async {
+    isLoading = true
     failed = false
+    defer { isLoading = false }
     guard
       let personEndpoint = MediaSourceEndpoint.personDetailEndpoint(
         source: source, personID: personID),

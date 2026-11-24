@@ -122,8 +122,13 @@ struct NativeSubscribeFilesSheet: View {
               feedbackBanner(bannerFeedback.message, isError: bannerFeedback.isError)
             }
             if isLoading && payload == nil {
-              NativeCardListSkeletonView(count: 4, style: .posterRow)
-                .transition(.opacity)
+              VStack(alignment: .leading, spacing: 16) {
+                summaryHeaderSkeletonCard
+                modeAndFilterBar
+                  .allowsHitTesting(false)
+                episodeFilesSkeletonList
+              }
+              .transition(.opacity)
             } else if loadFailed && payload == nil {
               failureCard
             } else {
@@ -214,6 +219,75 @@ struct NativeSubscribeFilesSheet: View {
   }
 
   // MARK: - 1. 顶部订阅摘要与进度统计卡片
+
+  /// 加载期间与真实 `summaryHeaderCard` 1:1 等高的顶部摘要占位卡（保留 `fallbackTitle` 与三格统计磁贴）。
+  private var summaryHeaderSkeletonCard: some View {
+    CinematicPanel(padding: 15) {
+      VStack(alignment: .leading, spacing: 14) {
+        HStack(alignment: .top, spacing: 13) {
+          NativeSkeletonBlock(width: 66, height: 99, cornerRadius: 11)
+          VStack(alignment: .leading, spacing: 7) {
+            Text(fallbackTitle)
+              .font(.headline.weight(.bold))
+              .foregroundStyle(.primary)
+              .lineLimit(2)
+              .accessibilityIdentifier("native-subscribe-files-title")
+            HStack(spacing: 6) {
+              if let season = mediaLookup?.season, !isMovieSubscription {
+                NativeAdaptiveBadge(String(format: "S%02d", season), tint: appearance.accentColor)
+              } else {
+                NativeSkeletonBlock(width: 44, height: 20, cornerRadius: 10)
+              }
+              NativeSkeletonBlock(width: 54, height: 20, cornerRadius: 10)
+            }
+          }
+          Spacer(minLength: 0)
+        }
+
+        HStack(spacing: 8) {
+          progressStatTile(label: "已下载", valueText: "--", fraction: 0, tint: NativeTheme.info)
+          progressStatTile(label: "已入库", valueText: "--", fraction: 0, tint: NativeTheme.success)
+          progressStatTile(
+            label: "缺失", valueText: "--", fraction: 0, tint: NativeTheme.badgeMutedText)
+        }
+      }
+    }
+    .nativeSkeletonShimmer()
+  }
+
+  /// 加载期间对齐真实 `episodeFileCard` 的 3 张 16:9 分集文件占位卡片。
+  private var episodeFilesSkeletonList: some View {
+    VStack(spacing: 12) {
+      ForEach(0..<3, id: \.self) { _ in
+        CinematicPanel(padding: 13) {
+          VStack(alignment: .leading, spacing: 11) {
+            HStack(alignment: .center, spacing: 10) {
+              NativeSkeletonBlock(width: 72, height: 42, cornerRadius: 8)
+              VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                  NativeSkeletonBlock(width: 38, height: 18, cornerRadius: 9)
+                  NativeSkeletonBlock(width: 116, height: 15, cornerRadius: 5)
+                }
+                NativeSkeletonBlock(width: 168, height: 11, cornerRadius: 4)
+              }
+              Spacer(minLength: 6)
+              NativeSkeletonBlock(width: 48, height: 20, cornerRadius: 10)
+            }
+            Divider().overlay(NativeTheme.divider)
+            VStack(alignment: .leading, spacing: 7) {
+              HStack(spacing: 7) {
+                NativeSkeletonBlock(width: 48, height: 18, cornerRadius: 9)
+                NativeSkeletonBlock(width: 56, height: 18, cornerRadius: 9)
+                Spacer()
+              }
+              NativeSkeletonBlock(height: 13, cornerRadius: 5)
+            }
+          }
+        }
+      }
+    }
+    .nativeSkeletonShimmer()
+  }
 
   private var summaryHeaderCard: some View {
     let sub = payload?.subscribe

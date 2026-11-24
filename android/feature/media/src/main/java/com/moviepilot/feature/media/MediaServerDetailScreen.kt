@@ -52,7 +52,6 @@ import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -102,8 +101,12 @@ import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
 import com.moviepilot.designsystem.NativeEntityLogo
+import com.moviepilot.designsystem.NativeEpisodeShelfSkeleton
+import com.moviepilot.designsystem.NativeMediaDetailSkeleton
+import com.moviepilot.designsystem.NativePosterShelfSkeleton
 import com.moviepilot.designsystem.NativeSectionHeader
 import com.moviepilot.designsystem.NativeTopStatusBarProgressiveBlur
+import com.moviepilot.designsystem.ProvideSkeletonShimmer
 import com.moviepilot.feature.subscribe.SubscribeFilesSheet
 import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.media.SubtitleTrackItem
@@ -218,6 +221,8 @@ fun MediaServerDetailScreen(
 
     var expandOverview by remember(screenKey) { mutableStateOf(false) }
     var isLoading by remember(screenKey) { mutableStateOf(true) }
+    var isLoadingEpisodes by remember(screenKey) { mutableStateOf(false) }
+    var isLoadingSimilar by remember(screenKey) { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
     var showTopMoreMenu by remember { mutableStateOf(false) }
     var feedback by remember(screenKey) { mutableStateOf<String?>(null) }
@@ -281,14 +286,17 @@ fun MediaServerDetailScreen(
             userMovieOverride = null
             userSeasonOverrides.clear()
         }
+        if (detail == null) {
+            isLoading = true
+        }
         val fetched = repository.fetchMediaServerItemDetail(itemId, server.ifBlank { null })
         if (fetched == null) {
             isLoading = false
+            isLoadingEpisodes = false
+            isLoadingSimilar = false
             isRefreshing = false
             return
         }
-        detail = fetched
-        isLoading = false
 
         val activeSrv = fetched.server.ifBlank { server }
         val isSeries = fetched.itemType.equals("Series", ignoreCase = true) ||
@@ -297,59 +305,74 @@ fun MediaServerDetailScreen(
                 !fetched.itemType.equals("Season", ignoreCase = true))
         val isSeason = fetched.itemType.equals("Season", ignoreCase = true)
 
+        isLoadingSimilar = similarItems.isEmpty()
+        isLoadingEpisodes = (isSeries || isSeason) && episodes.isEmpty()
+        detail = fetched
+        isLoading = false
+
         coroutineScope {
-            val similarDef = async { repository.fetchSimilarMediaForServerItem(fetched) }
+            launch {
+                try {
+                    similarItems = repository.fetchSimilarMediaForServerItem(fetched)
+                } finally {
+                    isLoadingSimilar = false
+                }
+            }
 
             if (isSeries || isSeason) {
-                val seriesTargetId = if (isSeason) {
-                    fetched.seriesId?.takeIf { it.isNotBlank() } ?: fetched.parentId?.takeIf { it.isNotBlank() } ?: fetched.itemId
-                } else {
-                    fetched.itemId
-                }
-                val fetchedSeasons = repository.fetchMediaServerSeasons(seriesTargetId, activeSrv)
-                seasons = fetchedSeasons
-                val chosenSeason = if (isSeason) {
-                    fetchedSeasons.firstOrNull { it.itemId == fetched.itemId || it.seasonNumber == fetched.seasonNumber }
-                        ?: fetchedSeasons.firstOrNull()
-                } else {
-                    fetchedSeasons.firstOrNull { (it.seasonNumber ?: 1) > 0 } ?: fetchedSeasons.firstOrNull()
-                }
-                val sId = chosenSeason?.itemId ?: (if (isSeason) fetched.itemId else null)
-                val sNum = chosenSeason?.seasonNumber ?: fetched.seasonNumber ?: 1
-                selectedSeasonId = sId
-                selectedSeasonNum = sNum
+                launch {
+                    try {
+                        val seriesTargetId = if (isSeason) {
+                            fetched.seriesId?.takeIf { it.isNotBlank() } ?: fetched.parentId?.takeIf { it.isNotBlank() } ?: fetched.itemId
+                        } else {
+                            fetched.itemId
+                        }
+                        val fetchedSeasons = repository.fetchMediaServerSeasons(seriesTargetId, activeSrv)
+                        seasons = fetchedSeasons
+                        val chosenSeason = if (isSeason) {
+                            fetchedSeasons.firstOrNull { it.itemId == fetched.itemId || it.seasonNumber == fetched.seasonNumber }
+                                ?: fetchedSeasons.firstOrNull()
+                        } else {
+                            fetchedSeasons.firstOrNull { (it.seasonNumber ?: 1) > 0 } ?: fetchedSeasons.firstOrNull()
+                        }
+                        val sId = chosenSeason?.itemId ?: (if (isSeason) fetched.itemId else null)
+                        val sNum = chosenSeason?.seasonNumber ?: fetched.seasonNumber ?: 1
+                        selectedSeasonId = sId
+                        selectedSeasonNum = sNum
 
-                val fetchedEps = repository.fetchMediaServerSeasonEpisodes(
-                    seriesId = seriesTargetId,
-                    server = activeSrv,
-                    seasonId = sId,
-                    seasonNumber = sNum,
-                )
-                episodes = fetchedEps
-                val firstEp = fetchedEps.firstOrNull { !it.played } ?: fetchedEps.firstOrNull()
-                selectedEpisodeId = firstEp?.itemId
-                loadEpisodeStreamPreviewIfNeeded(firstEp?.itemId, activeSrv, fetched)
+                        val fetchedEps = repository.fetchMediaServerSeasonEpisodes(
+                            seriesId = seriesTargetId,
+                            server = activeSrv,
+                            seasonId = sId,
+                            seasonNumber = sNum,
+                        )
+                        episodes = fetchedEps
+                        val firstEp = fetchedEps.firstOrNull { !it.played } ?: fetchedEps.firstOrNull()
+                        selectedEpisodeId = firstEp?.itemId
+                        isLoadingEpisodes = false
+                        loadEpisodeStreamPreviewIfNeeded(firstEp?.itemId, activeSrv, fetched)
+                    } finally {
+                        isLoadingEpisodes = false
+                    }
+                }
             }
 
-            val isTv = MoviePilotRepository.isTvType(fetched.mediaType.ifBlank { fetched.itemType })
-            val querySeason = if (isTv) (selectedSeasonNum ?: fetched.seasonNumber ?: 1) else null
-            val statusDef = async {
-                repository.checkMediaInLibraryStatus(toCardSeed(fetched), season = querySeason)
-            }
-
-            similarItems = similarDef.await()
-            val libSt = statusDef.await()
-            libraryStatus = libSt
-            if (isTv) {
-                subscribedSeasons = libSt.subscribedSeasons.keys +
-                    (if (libSt.subscribed && querySeason != null) setOf(querySeason) else emptySet())
-                libSt.seasonSubscribeIds.forEach { (k, v) -> seasonSubscribeIds[k] = v }
-                if (querySeason != null && libSt.subscribeId != null) {
-                    seasonSubscribeIds.putIfAbsent(querySeason, libSt.subscribeId!!)
+            launch {
+                val isTv = MoviePilotRepository.isTvType(fetched.mediaType.ifBlank { fetched.itemType })
+                val querySeason = if (isTv) (selectedSeasonNum ?: fetched.seasonNumber ?: 1) else null
+                val libSt = repository.checkMediaInLibraryStatus(toCardSeed(fetched), season = querySeason)
+                libraryStatus = libSt
+                if (isTv) {
+                    subscribedSeasons = libSt.subscribedSeasons.keys +
+                        (if (libSt.subscribed && querySeason != null) setOf(querySeason) else emptySet())
+                    libSt.seasonSubscribeIds.forEach { (k, v) -> seasonSubscribeIds[k] = v }
+                    if (querySeason != null && libSt.subscribeId != null) {
+                        seasonSubscribeIds.putIfAbsent(querySeason, libSt.subscribeId!!)
+                    }
+                } else {
+                    subscribedMovie = libSt.subscribed
+                    if (libSt.subscribeId != null) movieSubscribeId = libSt.subscribeId
                 }
-            } else {
-                subscribedMovie = libSt.subscribed
-                if (libSt.subscribeId != null) movieSubscribeId = libSt.subscribeId
             }
         }
         isRefreshing = false
@@ -611,6 +634,15 @@ fun MediaServerDetailScreen(
                 },
                 modifier = Modifier.fillMaxSize(),
             ) {
+                if (isLoading && d == null) {
+                    NativeMediaDetailSkeleton(
+                        heroHeight = heroHeight,
+                        isCompactLandscape = isCompactLandscape,
+                        isLandscape = isLandscape,
+                        showServerExtras = true,
+                    )
+                } else {
+                ProvideSkeletonShimmer {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -752,13 +784,7 @@ fun MediaServerDetailScreen(
                         }
                     }
 
-                    if (isLoading && d == null) {
-                        item(key = "ms_loading") {
-                            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = colors.accent)
-                            }
-                        }
-                    } else if (d != null) {
+                    if (d != null) {
                         // 2. 主操作按钮行（立即播放 / 继续播放 + 权威订阅切换 + 多版本切换胶囊）
                         item(key = "ms_actions") {
                             val btnHeight = if (isCompactLandscape) 44.dp else 50.dp
@@ -936,12 +962,12 @@ fun MediaServerDetailScreen(
                         }
 
                         // 4. 剧集列表（分季胶囊 + 16:9 横版剧照横向滚动卡片，图2顶部区域）
-                        if (seasons.isNotEmpty() || episodes.isNotEmpty()) {
+                        if (seasons.isNotEmpty() || episodes.isNotEmpty() || isLoadingEpisodes) {
                             item(key = "ms_episodes") {
                                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     NativeSectionHeader(
                                         title = "剧集列表",
-                                        subtitle = if (episodes.isNotEmpty()) "共 ${episodes.size} 集" else null,
+                                        subtitle = if (!isLoadingEpisodes && episodes.isNotEmpty()) "共 ${episodes.size} 集" else null,
                                         modifier = Modifier.padding(horizontal = margin),
                                     )
                                     if (seasons.size > 1) {
@@ -965,21 +991,27 @@ fun MediaServerDetailScreen(
                                                             selectedSeasonId = sea.itemId
                                                             selectedSeasonNum = sNum
                                                             scope.launch {
-                                                                val seriesRootId = if (d.itemType.equals("Season", true)) {
-                                                                    d.seriesId ?: d.parentId ?: d.itemId
-                                                                } else {
-                                                                    d.itemId
+                                                                isLoadingEpisodes = true
+                                                                try {
+                                                                    val seriesRootId = if (d.itemType.equals("Season", true)) {
+                                                                        d.seriesId ?: d.parentId ?: d.itemId
+                                                                    } else {
+                                                                        d.itemId
+                                                                    }
+                                                                    val newEps = repository.fetchMediaServerSeasonEpisodes(
+                                                                        seriesId = seriesRootId,
+                                                                        server = activeServerName,
+                                                                        seasonId = sea.itemId,
+                                                                        seasonNumber = sNum,
+                                                                    )
+                                                                    episodes = newEps
+                                                                    val firstEp = newEps.firstOrNull { !it.played } ?: newEps.firstOrNull()
+                                                                    selectedEpisodeId = firstEp?.itemId
+                                                                    isLoadingEpisodes = false
+                                                                    loadEpisodeStreamPreviewIfNeeded(firstEp?.itemId, activeServerName, d)
+                                                                } finally {
+                                                                    isLoadingEpisodes = false
                                                                 }
-                                                                val newEps = repository.fetchMediaServerSeasonEpisodes(
-                                                                    seriesId = seriesRootId,
-                                                                    server = activeServerName,
-                                                                    seasonId = sea.itemId,
-                                                                    seasonNumber = sNum,
-                                                                )
-                                                                episodes = newEps
-                                                                val firstEp = newEps.firstOrNull { !it.played } ?: newEps.firstOrNull()
-                                                                selectedEpisodeId = firstEp?.itemId
-                                                                loadEpisodeStreamPreviewIfNeeded(firstEp?.itemId, activeServerName, d)
                                                             }
                                                         }
                                                     },
@@ -988,7 +1020,14 @@ fun MediaServerDetailScreen(
                                         }
                                     }
 
-                                    if (episodes.isNotEmpty()) {
+                                    if (isLoadingEpisodes) {
+                                        NativeEpisodeShelfSkeleton(
+                                            cardWidth = 228.dp,
+                                            cardHeight = 128.dp,
+                                            count = 4,
+                                            contentPadding = PaddingValues(horizontal = margin),
+                                        )
+                                    } else if (episodes.isNotEmpty()) {
                                         LazyRow(
                                             contentPadding = PaddingValues(horizontal = margin),
                                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1199,7 +1238,18 @@ fun MediaServerDetailScreen(
                         }
 
                         // 6. 类似作品（1:1 对齐图2：2:3 竖版圆角海报 + 右下角深色半透明评分角标 + 1 行粗体标题 + 1 行年份）
-                        if (similarItems.isNotEmpty()) {
+                        if (isLoadingSimilar && similarItems.isEmpty()) {
+                            item(key = "ms_similar_loading") {
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    NativeSectionHeader(title = "类似作品", modifier = Modifier.padding(horizontal = margin))
+                                    NativePosterShelfSkeleton(
+                                        posterWidth = 118.dp,
+                                        count = 6,
+                                        contentPadding = PaddingValues(horizontal = margin),
+                                    )
+                                }
+                            }
+                        } else if (similarItems.isNotEmpty()) {
                             item(key = "ms_similar") {
                                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     NativeSectionHeader(title = "类似作品", modifier = Modifier.padding(horizontal = margin))
@@ -1349,6 +1399,8 @@ fun MediaServerDetailScreen(
                             }
                         }
                     }
+                }
+                }
                 }
             }
         }

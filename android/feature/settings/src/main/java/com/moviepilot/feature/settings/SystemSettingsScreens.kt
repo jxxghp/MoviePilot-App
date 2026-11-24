@@ -78,10 +78,15 @@ import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.LocalSnackbarHostState
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
+import com.moviepilot.designsystem.NativeCardListSkeleton
 import com.moviepilot.designsystem.NativeEntityLogo
 import com.moviepilot.designsystem.NativeGlassSheet
 import com.moviepilot.designsystem.NativeNetworkEntityLogo
+import com.moviepilot.designsystem.NativeSkeletonBlock
 import com.moviepilot.designsystem.PlaybackPreferencesStore
+import com.moviepilot.designsystem.ProvideSkeletonShimmer
+import com.moviepilot.designsystem.SkeletonCardStyle
+import com.moviepilot.designsystem.SkeletonSurfaceRole
 import com.moviepilot.rustbridge.ChannelAuthRecordDto
 import com.moviepilot.rustbridge.ChannelBindingCodeDto
 import com.moviepilot.rustbridge.DirectoryConfigDto
@@ -91,6 +96,8 @@ import com.moviepilot.rustbridge.SiteItemDto
 import com.moviepilot.rustbridge.StorageConfigDto
 import com.moviepilot.rustbridge.SubscribeSearchSettingsDto
 import com.moviepilot.rustbridge.UserIdentity
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -112,11 +119,13 @@ fun UsersManagementScreen(
     val snackbar = LocalSnackbarHostState.current
 
     var users by remember { mutableStateOf<List<UserIdentity>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
     var showCreateSheet by remember { mutableStateOf(false) }
     var confirmDeleteUser by remember { mutableStateOf<UserIdentity?>(null) }
 
     suspend fun reloadUsers() {
         users = repository.fetchUsers()
+        isLoading = false
     }
 
     LaunchedEffect(Unit) { reloadUsers() }
@@ -125,7 +134,7 @@ fun UsersManagementScreen(
     val members = remember(users) { users.filter { !it.isSuperuser } }
 
     ExpressiveTintedScaffold(
-        title = "用户管理 (${users.size})",
+        title = if (isLoading && users.isEmpty()) "用户管理" else "用户管理 (${users.size})",
         subtitle = "账号角色、权限分配与安全管理",
         onBack = onBack,
         actions = {
@@ -136,34 +145,47 @@ fun UsersManagementScreen(
             )
         },
     ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = margin,
-                end = margin,
-                top = 14.dp,
-                bottom = bottomOverlayInset + 28.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            if (admins.isNotEmpty()) {
-                item(key = "users_admins") {
-                    UserGroupSection(
-                        header = "管理员 (${admins.size})",
-                        users = admins,
-                        currentUserName = currentUserName,
-                        onRequestDelete = { confirmDeleteUser = it },
-                    )
+        if (isLoading && users.isEmpty()) {
+            NativeCardListSkeleton(
+                style = SkeletonCardStyle.IconRow,
+                count = 4,
+                contentPadding = PaddingValues(
+                    start = margin,
+                    end = margin,
+                    top = 14.dp,
+                    bottom = bottomOverlayInset + 28.dp,
+                ),
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = margin,
+                    end = margin,
+                    top = 14.dp,
+                    bottom = bottomOverlayInset + 28.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                if (admins.isNotEmpty()) {
+                    item(key = "users_admins") {
+                        UserGroupSection(
+                            header = "管理员 (${admins.size})",
+                            users = admins,
+                            currentUserName = currentUserName,
+                            onRequestDelete = { confirmDeleteUser = it },
+                        )
+                    }
                 }
-            }
-            if (members.isNotEmpty()) {
-                item(key = "users_members") {
-                    UserGroupSection(
-                        header = "普通成员 (${members.size})",
-                        users = members,
-                        currentUserName = currentUserName,
-                        onRequestDelete = { confirmDeleteUser = it },
-                    )
+                if (members.isNotEmpty()) {
+                    item(key = "users_members") {
+                        UserGroupSection(
+                            header = "普通成员 (${members.size})",
+                            users = members,
+                            currentUserName = currentUserName,
+                            onRequestDelete = { confirmDeleteUser = it },
+                        )
+                    }
                 }
             }
         }
@@ -417,17 +439,23 @@ fun SubscribeSearchSettingsScreen(
 
     var settings by remember { mutableStateOf(SubscribeSearchSettingsDto()) }
     var allSites by remember { mutableStateOf<List<SiteItemDto>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
     val siteIcons = remember { mutableStateMapOf<Int, String>() }
     var pickerTarget by remember { mutableStateOf<String?>(null) } // "rss" | "indexer"
     var savedNotice by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        settings = repository.fetchSubscribeSearchSettings()
-        val loadedSites = repository.fetchSites()
-        allSites = loadedSites
-        loadedSites.forEach { site ->
-            site.iconUrl?.let { siteIcons[site.id] = it }
+        coroutineScope {
+            val settingsDef = async { repository.fetchSubscribeSearchSettings() }
+            val sitesDef = async { repository.fetchSites() }
+            settings = settingsDef.await()
+            val loadedSites = sitesDef.await()
+            allSites = loadedSites
+            loadedSites.forEach { site ->
+                site.iconUrl?.let { siteIcons[site.id] = it }
+            }
         }
+        isLoading = false
     }
 
     ExpressiveTintedScaffold(
@@ -462,65 +490,79 @@ fun SubscribeSearchSettingsScreen(
                 Text(it, color = colors.success, fontSize = 12.5.sp, modifier = Modifier.padding(horizontal = margin, vertical = 8.dp))
             }
 
-            LazyColumn(
-                contentPadding = PaddingValues(
-                    start = margin,
-                    end = margin,
-                    top = 14.dp,
-                    bottom = bottomOverlayInset + 28.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-                modifier = Modifier.weight(1f),
-            ) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("站点范围", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
-                        CinematicPanel(padding = 0.dp, showsShadow = false) {
-                            Column {
-                                SimpleSettingRow("订阅站点", "已选 ${settings.rssSiteIds.size} 站") { pickerTarget = "rss" }
-                                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
-                                SimpleSettingRow("搜索站点", "已选 ${settings.indexerSiteIds.size} 站") { pickerTarget = "indexer" }
+            if (isLoading) {
+                NativeCardListSkeleton(
+                    style = SkeletonCardStyle.FormPanel,
+                    count = 3,
+                    contentPadding = PaddingValues(
+                        start = margin,
+                        end = margin,
+                        top = 14.dp,
+                        bottom = bottomOverlayInset + 28.dp,
+                    ),
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(
+                        start = margin,
+                        end = margin,
+                        top = 14.dp,
+                        bottom = bottomOverlayInset + 28.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("站点范围", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
+                            CinematicPanel(padding = 0.dp, showsShadow = false) {
+                                Column {
+                                    SimpleSettingRow("订阅站点", "已选 ${settings.rssSiteIds.size} 站") { pickerTarget = "rss" }
+                                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                                    SimpleSettingRow("搜索站点", "已选 ${settings.indexerSiteIds.size} 站") { pickerTarget = "indexer" }
+                                }
                             }
                         }
                     }
-                }
 
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("优先级规则组", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
-                        CinematicPanel(padding = 0.dp, showsShadow = false) {
-                            Column {
-                                SimpleSettingRow("订阅优先级规则", "默认") {}
-                                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
-                                SimpleSettingRow("洗版优先级规则", "默认") {}
-                                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
-                                SimpleSettingRow("搜索优先级规则", "${settings.filterRuleGroups.size.coerceAtLeast(1)} 组") {}
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("优先级规则组", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
+                            CinematicPanel(padding = 0.dp, showsShadow = false) {
+                                Column {
+                                    SimpleSettingRow("订阅优先级规则", "默认") {}
+                                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                                    SimpleSettingRow("洗版优先级规则", "默认") {}
+                                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                                    SimpleSettingRow("搜索优先级规则", "${settings.filterRuleGroups.size.coerceAtLeast(1)} 组") {}
+                                }
                             }
                         }
                     }
-                }
 
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("订阅刷新模式", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
-                        CinematicPanel(padding = 16.dp, showsShadow = false) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text("订阅模式", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    NativeAdaptivePill(
-                                        title = "站点爬虫",
-                                        selected = settings.subscribeMode != "rss",
-                                        onClick = { settings = settings.copy(subscribeMode = "spider") },
-                                    )
-                                    NativeAdaptivePill(
-                                        title = "RSS 订阅",
-                                        selected = settings.subscribeMode == "rss",
-                                        onClick = { settings = settings.copy(subscribeMode = "rss") },
-                                    )
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("订阅刷新模式", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
+                            CinematicPanel(padding = 16.dp, showsShadow = false) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text("订阅模式", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        NativeAdaptivePill(
+                                            title = "站点爬虫",
+                                            selected = settings.subscribeMode != "rss",
+                                            onClick = { settings = settings.copy(subscribeMode = "spider") },
+                                        )
+                                        NativeAdaptivePill(
+                                            title = "RSS 订阅",
+                                            selected = settings.subscribeMode == "rss",
+                                            onClick = { settings = settings.copy(subscribeMode = "rss") },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -535,7 +577,15 @@ fun SubscribeSearchSettingsScreen(
         NativeGlassSheet(onDismissRequest = { pickerTarget = null }) {
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(if (target == "rss") "选择订阅站点" else "选择搜索站点", color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (isLoading && allSites.isEmpty()) {
+                    NativeCardListSkeleton(
+                        style = SkeletonCardStyle.IconRow,
+                        count = 4,
+                        contentPadding = PaddingValues(0.dp),
+                        scrollable = false,
+                    )
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(allSites, key = { it.id }) { site ->
                         LaunchedEffect(site.id) {
                             if (!siteIcons.containsKey(site.id)) {
@@ -572,6 +622,7 @@ fun SubscribeSearchSettingsScreen(
                                 CheckCircleMark(selected = selected)
                             }
                         }
+                    }
                     }
                 }
                 Spacer(Modifier.height(16.dp))
@@ -617,23 +668,27 @@ fun MediaSourcesSettingsScreen(
     }
 
     var selected by remember { mutableStateOf(setOf("themoviedb")) }
+    var isLoading by remember { mutableStateOf(true) }
     var notice by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         selected = repository.fetchSearchSources()
+        isLoading = false
     }
 
     ExpressiveTintedScaffold(
         title = "媒体数据源",
-        subtitle = "已启用 ${selected.size} 个搜索与刮削来源",
+        subtitle = if (isLoading) "正在同步搜索与刮削来源…" else "已启用 ${selected.size} 个搜索与刮削来源",
         onBack = onBack,
         actions = {
             Surface(
                 onClick = {
-                    scope.launch {
-                        val csv = selected.joinToString(",")
-                        repository.saveSettingValue("SEARCH_SOURCE", "\"$csv\"")
-                        notice = "已保存媒体搜索数据源"
+                    if (!isLoading) {
+                        scope.launch {
+                            val csv = selected.joinToString(",")
+                            repository.saveSettingValue("SEARCH_SOURCE", "\"$csv\"")
+                            notice = "已保存媒体搜索数据源"
+                        }
                     }
                 },
                 shape = CircleShape,
@@ -654,76 +709,90 @@ fun MediaSourcesSettingsScreen(
                 Text(it, color = colors.success, fontSize = 12.5.sp, modifier = Modifier.padding(horizontal = margin, vertical = 8.dp))
             }
 
-            LazyColumn(
-                contentPadding = PaddingValues(
-                    start = margin,
-                    end = margin,
-                    top = 14.dp,
-                    bottom = bottomOverlayInset + 28.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.weight(1f),
-            ) {
-                items(allSources, key = { it.id }) { src ->
-                    val isSel = src.id in selected
-                    CinematicPanel(
-                        padding = 14.dp,
-                        cornerRadius = 18.dp,
-                        modifier = Modifier
-                            .then(
-                                if (isSel) Modifier.border(1.4.dp, colors.accent, RoundedCornerShape(18.dp)) else Modifier,
-                            )
-                            .clickable {
-                                selected = if (isSel && selected.size > 1) selected - src.id else selected + src.id
-                            },
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            if (src.hasBrandLogo) {
-                                NativeEntityLogo(
-                                    kind = "datasource",
-                                    value = src.id,
-                                    size = 42.dp,
-                                    cornerRadius = 12.dp,
+            if (isLoading) {
+                NativeCardListSkeleton(
+                    style = SkeletonCardStyle.IconRow,
+                    count = 6,
+                    contentPadding = PaddingValues(
+                        start = margin,
+                        end = margin,
+                        top = 14.dp,
+                        bottom = bottomOverlayInset + 28.dp,
+                    ),
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(
+                        start = margin,
+                        end = margin,
+                        top = 14.dp,
+                        bottom = bottomOverlayInset + 28.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    items(allSources, key = { it.id }) { src ->
+                        val isSel = src.id in selected
+                        CinematicPanel(
+                            padding = 14.dp,
+                            cornerRadius = 18.dp,
+                            modifier = Modifier
+                                .then(
+                                    if (isSel) Modifier.border(1.4.dp, colors.accent, RoundedCornerShape(18.dp)) else Modifier,
                                 )
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(src.monogramTint.copy(alpha = if (colors.isDark) 0.24f else 0.16f))
-                                        .border(0.8.dp, src.monogramTint.copy(alpha = 0.45f), RoundedCornerShape(12.dp)),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Text(
-                                        text = src.monogram,
-                                        color = src.monogramTint,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.ExtraBold,
+                                .clickable {
+                                    selected = if (isSel && selected.size > 1) selected - src.id else selected + src.id
+                                },
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                if (src.hasBrandLogo) {
+                                    NativeEntityLogo(
+                                        kind = "datasource",
+                                        value = src.id,
+                                        size = 42.dp,
+                                        cornerRadius = 12.dp,
                                     )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(src.monogramTint.copy(alpha = if (colors.isDark) 0.24f else 0.16f))
+                                            .border(0.8.dp, src.monogramTint.copy(alpha = 0.45f), RoundedCornerShape(12.dp)),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            text = src.monogram,
+                                            color = src.monogramTint,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                        )
+                                    }
                                 }
-                            }
-                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(src.title, color = colors.textPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
-                                    NativeAdaptiveBadge(src.categoryTag, tint = if (isSel) colors.accent else colors.textMuted)
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text(src.title, color = colors.textPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
+                                        NativeAdaptiveBadge(src.categoryTag, tint = if (isSel) colors.accent else colors.textMuted)
+                                    }
+                                    Text(src.subtitle, color = colors.textSecondary, fontSize = 12.sp)
                                 }
-                                Text(src.subtitle, color = colors.textSecondary, fontSize = 12.sp)
+                                CheckCircleMark(selected = isSel)
                             }
-                            CheckCircleMark(selected = isSel)
                         }
                     }
-                }
-                item {
-                    Text(
-                        "仅展示后端已支持的媒体数据源模块；关闭或启用底层插件模块可在插件中心与 Web 高级设置中调整。",
-                        color = colors.textMuted,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-                    )
+                    item {
+                        Text(
+                            "仅展示后端已支持的媒体数据源模块；关闭或启用底层插件模块可在插件中心与 Web 高级设置中调整。",
+                            color = colors.textMuted,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                        )
+                    }
                 }
             }
         }
@@ -745,16 +814,20 @@ fun DownloadersSettingsScreen(
     val scope = rememberCoroutineScope()
     val snackbar = LocalSnackbarHostState.current
     var list by remember { mutableStateOf<List<ServiceConfigDto>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
     var editingItem by remember { mutableStateOf<ServiceConfigDto?>(null) }
     var isCreateMode by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<ServiceConfigDto?>(null) }
 
-    suspend fun reload() { list = repository.fetchDownloaders() }
+    suspend fun reload() {
+        list = repository.fetchDownloaders()
+        isLoading = false
+    }
     LaunchedEffect(Unit) { reload() }
 
     ExpressiveTintedScaffold(
         title = "下载器",
-        subtitle = "已配置 ${list.size} 个下载客户端",
+        subtitle = if (isLoading && list.isEmpty()) "qBittorrent · Transmission · rTorrent" else "已配置 ${list.size} 个下载客户端",
         onBack = onBack,
         actions = {
             ExpressiveHeaderActionButton(
@@ -767,50 +840,73 @@ fun DownloadersSettingsScreen(
             )
         },
     ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = margin,
-                end = margin,
-                top = 14.dp,
-                bottom = bottomOverlayInset + 28.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            items(list, key = { it.name }) { dl ->
-                CinematicPanel(
-                    padding = 16.dp,
-                    modifier = Modifier.clickable {
-                        isCreateMode = false
-                        editingItem = dl
-                    },
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        NativeEntityLogo(
-                            kind = "downloader",
-                            value = dl.type.ifBlank { dl.name },
-                            size = 42.dp,
-                            cornerRadius = 12.dp,
-                        )
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(dl.name, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                if (dl.isDefault) NativeAdaptiveBadge("默认", tint = colors.brand)
+        if (isLoading && list.isEmpty()) {
+            NativeCardListSkeleton(
+                style = SkeletonCardStyle.IconRow,
+                count = 3,
+                contentPadding = PaddingValues(
+                    start = margin,
+                    end = margin,
+                    top = 14.dp,
+                    bottom = bottomOverlayInset + 28.dp,
+                ),
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = margin,
+                    end = margin,
+                    top = 14.dp,
+                    bottom = bottomOverlayInset + 28.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (list.isEmpty()) {
+                    item(key = "dl_empty") {
+                        CinematicPanel(padding = 20.dp) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("暂未配置下载器", color = colors.textPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
+                                Text("点击右上角「+」即可接入 qBittorrent、Transmission 或 rTorrent 下载客户端。", color = colors.textSecondary, fontSize = 13.sp)
                             }
-                            Text(
-                                "${dl.type} · ${dl.host.ifBlank { "已配置" }}",
-                                color = colors.textSecondary,
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
                         }
-                        NativeAdaptiveBadge(if (dl.enabled) "已启用" else "已停用", tint = if (dl.enabled) colors.success else colors.warning)
-                        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
+                    }
+                }
+                items(list, key = { it.name }) { dl ->
+                    CinematicPanel(
+                        padding = 16.dp,
+                        modifier = Modifier.clickable {
+                            isCreateMode = false
+                            editingItem = dl
+                        },
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            NativeEntityLogo(
+                                kind = "downloader",
+                                value = dl.type.ifBlank { dl.name },
+                                size = 42.dp,
+                                cornerRadius = 12.dp,
+                            )
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(dl.name, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                    if (dl.isDefault) NativeAdaptiveBadge("默认", tint = colors.brand)
+                                }
+                                Text(
+                                    "${dl.type} · ${dl.host.ifBlank { "已配置" }}",
+                                    color = colors.textSecondary,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            NativeAdaptiveBadge(if (dl.enabled) "已启用" else "已停用", tint = if (dl.enabled) colors.success else colors.warning)
+                            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             }
@@ -950,16 +1046,20 @@ fun MediaServersSettingsScreen(
     val scope = rememberCoroutineScope()
     val snackbar = LocalSnackbarHostState.current
     var list by remember { mutableStateOf<List<ServiceConfigDto>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
     var editingItem by remember { mutableStateOf<ServiceConfigDto?>(null) }
     var isCreateMode by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<ServiceConfigDto?>(null) }
 
-    suspend fun reload() { list = repository.fetchMediaServers() }
+    suspend fun reload() {
+        list = repository.fetchMediaServers()
+        isLoading = false
+    }
     LaunchedEffect(Unit) { reload() }
 
     ExpressiveTintedScaffold(
         title = "媒体服务器",
-        subtitle = "已接入 ${list.size} 个播放服务端",
+        subtitle = if (isLoading && list.isEmpty()) "Emby · Jellyfin · Plex · 飞牛 · 绿联 · 极空间" else "已接入 ${list.size} 个播放服务端",
         onBack = onBack,
         actions = {
             ExpressiveHeaderActionButton(
@@ -972,47 +1072,70 @@ fun MediaServersSettingsScreen(
             )
         },
     ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = margin,
-                end = margin,
-                top = 14.dp,
-                bottom = bottomOverlayInset + 28.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            items(list, key = { it.name }) { ms ->
-                CinematicPanel(
-                    padding = 16.dp,
-                    modifier = Modifier.clickable {
-                        isCreateMode = false
-                        editingItem = ms
-                    },
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        NativeEntityLogo(
-                            kind = "mediaserver",
-                            value = ms.type.ifBlank { ms.name },
-                            size = 42.dp,
-                            cornerRadius = 12.dp,
-                        )
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(ms.name, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                            Text(
-                                "${ms.type} · ${ms.host.ifBlank { "已配置" }}",
-                                color = colors.textSecondary,
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+        if (isLoading && list.isEmpty()) {
+            NativeCardListSkeleton(
+                style = SkeletonCardStyle.IconRow,
+                count = 3,
+                contentPadding = PaddingValues(
+                    start = margin,
+                    end = margin,
+                    top = 14.dp,
+                    bottom = bottomOverlayInset + 28.dp,
+                ),
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = margin,
+                    end = margin,
+                    top = 14.dp,
+                    bottom = bottomOverlayInset + 28.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (list.isEmpty()) {
+                    item(key = "ms_empty") {
+                        CinematicPanel(padding = 20.dp) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("暂未接入媒体服务器", color = colors.textPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
+                                Text("点击右上角「+」即可接入 Emby、Jellyfin、Plex、飞牛影视、绿联影视或极空间。", color = colors.textSecondary, fontSize = 13.sp)
+                            }
                         }
-                        NativeAdaptiveBadge(if (ms.enabled) "已启用" else "已停用", tint = if (ms.enabled) colors.success else colors.warning)
-                        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
+                    }
+                }
+                items(list, key = { it.name }) { ms ->
+                    CinematicPanel(
+                        padding = 16.dp,
+                        modifier = Modifier.clickable {
+                            isCreateMode = false
+                            editingItem = ms
+                        },
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            NativeEntityLogo(
+                                kind = "mediaserver",
+                                value = ms.type.ifBlank { ms.name },
+                                size = 42.dp,
+                                cornerRadius = 12.dp,
+                            )
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(ms.name, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "${ms.type} · ${ms.host.ifBlank { "已配置" }}",
+                                    color = colors.textSecondary,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            NativeAdaptiveBadge(if (ms.enabled) "已启用" else "已停用", tint = if (ms.enabled) colors.success else colors.warning)
+                            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             }
@@ -1160,13 +1283,19 @@ fun DirectoriesStorageSettingsScreen(
     val snackbar = LocalSnackbarHostState.current
     var dirs by remember { mutableStateOf<List<DirectoryConfigDto>>(emptyList()) }
     var storages by remember { mutableStateOf<List<StorageConfigDto>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
     var editingDir by remember { mutableStateOf<DirectoryConfigDto?>(null) }
     var isCreateMode by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<DirectoryConfigDto?>(null) }
 
     suspend fun reload() {
-        dirs = repository.fetchDirectories()
-        storages = repository.fetchStorages()
+        coroutineScope {
+            val dirsDef = async { repository.fetchDirectories() }
+            val storagesDef = async { repository.fetchStorages() }
+            dirs = dirsDef.await()
+            storages = storagesDef.await()
+        }
+        isLoading = false
     }
     LaunchedEffect(Unit) { reload() }
 
@@ -1204,10 +1333,24 @@ fun DirectoriesStorageSettingsScreen(
         ) {
             item(key = "dirs_section") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("下载与媒体库整理目录", color = colors.textSecondary, fontSize = 13.sp)
-                        Text("${dirs.size} 项", color = colors.textMuted, fontSize = 12.sp)
+                        if (isLoading && dirs.isEmpty()) {
+                            ProvideSkeletonShimmer {
+                                NativeSkeletonBlock(cornerRadius = 4.dp, role = SkeletonSurfaceRole.Bar, modifier = Modifier.size(width = 36.dp, height = 12.dp))
+                            }
+                        } else {
+                            Text("${dirs.size} 项", color = colors.textMuted, fontSize = 12.sp)
+                        }
                     }
+                    if (isLoading && dirs.isEmpty()) {
+                        NativeCardListSkeleton(
+                            style = SkeletonCardStyle.FormPanel,
+                            count = 2,
+                            contentPadding = PaddingValues(0.dp),
+                            scrollable = false,
+                        )
+                    } else {
                     dirs.forEach { d ->
                         val transferLabel = when (d.transferType.lowercase()) {
                             "link" -> "硬链接"
@@ -1267,15 +1410,30 @@ fun DirectoriesStorageSettingsScreen(
                         }
                         Spacer(Modifier.height(8.dp))
                     }
+                    }
                 }
             }
 
             item(key = "mounted_storages_section") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("已挂载存储", color = colors.textSecondary, fontSize = 13.sp)
-                        Text("${storages.size} 项", color = colors.textMuted, fontSize = 12.sp)
+                        if (isLoading && storages.isEmpty()) {
+                            ProvideSkeletonShimmer {
+                                NativeSkeletonBlock(cornerRadius = 4.dp, role = SkeletonSurfaceRole.Bar, modifier = Modifier.size(width = 36.dp, height = 12.dp))
+                            }
+                        } else {
+                            Text("${storages.size} 项", color = colors.textMuted, fontSize = 12.sp)
+                        }
                     }
+                    if (isLoading && storages.isEmpty()) {
+                        NativeCardListSkeleton(
+                            style = SkeletonCardStyle.IconRow,
+                            count = 3,
+                            contentPadding = PaddingValues(0.dp),
+                            scrollable = false,
+                        )
+                    } else {
                     CinematicPanel(padding = 0.dp, showsShadow = false) {
                         Column {
                             storages.forEachIndexed { idx, st ->
@@ -1301,6 +1459,7 @@ fun DirectoriesStorageSettingsScreen(
                                 }
                             }
                         }
+                    }
                     }
                 }
             }
@@ -1599,18 +1758,20 @@ fun NotificationsSettingsScreen(
     val snackbar = LocalSnackbarHostState.current
 
     var channels by remember { mutableStateOf<List<ServiceConfigDto>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
     var editingChannel by remember { mutableStateOf<ServiceConfigDto?>(null) }
     var isCreateMode by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<ServiceConfigDto?>(null) }
 
     suspend fun reload() {
         channels = repository.fetchNotificationChannels()
+        isLoading = false
     }
     LaunchedEffect(Unit) { reload() }
 
     ExpressiveTintedScaffold(
         title = "通知渠道",
-        subtitle = "已配置 ${channels.size} 个消息推送通道",
+        subtitle = if (isLoading && channels.isEmpty()) "消息推送通道配置" else "已配置 ${channels.size} 个消息推送通道",
         onBack = onBack,
         actions = {
             ExpressiveHeaderActionButton(
@@ -1628,56 +1789,69 @@ fun NotificationsSettingsScreen(
             )
         },
     ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = margin,
-                end = margin,
-                top = 14.dp,
-                bottom = bottomOverlayInset + 28.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            if (channels.isEmpty()) {
-                item(key = "notif_empty") {
-                    CinematicPanel(padding = 20.dp) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("暂未配置通知渠道", color = colors.textPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
-                            Text("点击右上角「+」即可添加微信、Telegram、飞书、Slack、Discord、钉钉、QQ 等 11 类消息渠道。", color = colors.textSecondary, fontSize = 13.sp)
+        if (isLoading && channels.isEmpty()) {
+            NativeCardListSkeleton(
+                style = SkeletonCardStyle.IconRow,
+                count = 4,
+                contentPadding = PaddingValues(
+                    start = margin,
+                    end = margin,
+                    top = 14.dp,
+                    bottom = bottomOverlayInset + 28.dp,
+                ),
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = margin,
+                    end = margin,
+                    top = 14.dp,
+                    bottom = bottomOverlayInset + 28.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (channels.isEmpty()) {
+                    item(key = "notif_empty") {
+                        CinematicPanel(padding = 20.dp) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("暂未配置通知渠道", color = colors.textPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
+                                Text("点击右上角「+」即可添加微信、Telegram、飞书、Slack、Discord、钉钉、QQ 等 11 类消息渠道。", color = colors.textSecondary, fontSize = 13.sp)
+                            }
                         }
                     }
                 }
-            }
-            items(channels, key = { it.name }) { ch ->
-                CinematicPanel(
-                    padding = 16.dp,
-                    modifier = Modifier.clickable {
-                        isCreateMode = false
-                        editingChannel = ch
-                    },
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            NativeEntityLogo(
-                                kind = "notification",
-                                value = ch.type.ifBlank { ch.name },
-                                size = 42.dp,
-                                cornerRadius = 12.dp,
-                            )
-                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(ch.name, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                Text(notificationTypeLabel(ch.type), color = colors.textSecondary, fontSize = 12.sp)
+                items(channels, key = { it.name }) { ch ->
+                    CinematicPanel(
+                        padding = 16.dp,
+                        modifier = Modifier.clickable {
+                            isCreateMode = false
+                            editingChannel = ch
+                        },
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                NativeEntityLogo(
+                                    kind = "notification",
+                                    value = ch.type.ifBlank { ch.name },
+                                    size = 42.dp,
+                                    cornerRadius = 12.dp,
+                                )
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(ch.name, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                    Text(notificationTypeLabel(ch.type), color = colors.textSecondary, fontSize = 12.sp)
+                                }
+                                NativeAdaptiveBadge(if (ch.enabled) "已启用" else "已停用", tint = if (ch.enabled) colors.success else colors.warning)
+                                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
                             }
-                            NativeAdaptiveBadge(if (ch.enabled) "已启用" else "已停用", tint = if (ch.enabled) colors.success else colors.warning)
-                            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
-                        }
-                        if (ch.switchs.isNotEmpty()) {
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                ch.switchs.forEach { sw -> NativeAdaptiveBadge(sw) }
+                            if (ch.switchs.isNotEmpty()) {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    ch.switchs.forEach { sw -> NativeAdaptiveBadge(sw) }
+                                }
                             }
                         }
                     }
@@ -2044,15 +2218,24 @@ fun ChannelAuthorizationScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("已关联与待审批渠道账号", color = colors.textSecondary, fontSize = 13.sp)
-                    Text("${records.size} 项", color = colors.textMuted, fontSize = 12.sp)
+                    if (isLoadingRecords && records.isEmpty()) {
+                        ProvideSkeletonShimmer {
+                            NativeSkeletonBlock(cornerRadius = 4.dp, role = SkeletonSurfaceRole.Bar, modifier = Modifier.size(width = 36.dp, height = 12.dp))
+                        }
+                    } else {
+                        Text("${records.size} 项", color = colors.textMuted, fontSize = 12.sp)
+                    }
                 }
             }
 
             if (isLoadingRecords && records.isEmpty()) {
                 item(key = "auth_records_loading") {
-                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 28.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = colors.accent)
-                    }
+                    NativeCardListSkeleton(
+                        style = SkeletonCardStyle.IconRow,
+                        count = 3,
+                        contentPadding = PaddingValues(0.dp),
+                        scrollable = false,
+                    )
                 }
             } else if (records.isEmpty()) {
                 item(key = "auth_records_empty") {

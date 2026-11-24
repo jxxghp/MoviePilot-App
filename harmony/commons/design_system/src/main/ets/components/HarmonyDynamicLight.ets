@@ -101,6 +101,38 @@ export class HarmonyThemeColors {
   static mutedText(isDark: boolean): string {
     return isDark ? '#66FFFFFF' : '#66000000';
   }
+
+  /** 骨架屏容器表面底色（兼容深色色板、AMOLED 纯黑与浅色模式）。 */
+  static skeletonSurface(isDark: boolean, paletteId: string = 'harmony_blue', pureBlack: boolean = false): string {
+    if (isDark && pureBlack) {
+      return '#FF0F131A';
+    }
+    return HarmonyThemeColors.card(isDark, paletteId);
+  }
+
+  /** 骨架屏主结构占位块底色（海报、主标题、头像与关键按钮）。 */
+  static skeletonBlock(isDark: boolean, pureBlack: boolean = false): string {
+    if (isDark) {
+      return pureBlack ? '#22FFFFFF' : '#24FFFFFF';
+    }
+    return '#13000000';
+  }
+
+  /** 骨架屏次级占位块底色（副标题、元信息行与弱化底槽）。 */
+  static skeletonSubtle(isDark: boolean, pureBlack: boolean = false): string {
+    if (isDark) {
+      return pureBlack ? '#13FFFFFF' : '#15FFFFFF';
+    }
+    return '#0A000000';
+  }
+
+  /** 骨架屏 GPU 平移扫光峰值高光色。 */
+  static skeletonShimmerPeak(isDark: boolean, pureBlack: boolean = false): string {
+    if (isDark) {
+      return pureBlack ? '#24FFFFFF' : '#2CFFFFFF';
+    }
+    return '#70FFFFFF';
+  }
 }
 
 /**

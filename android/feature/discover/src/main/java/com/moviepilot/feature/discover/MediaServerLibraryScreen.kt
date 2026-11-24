@@ -32,7 +32,6 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -68,6 +67,11 @@ import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
 import com.moviepilot.designsystem.NativeEntityLogo
+import com.moviepilot.designsystem.NativeInlineChipRowSkeleton
+import com.moviepilot.designsystem.NativeSkeletonBlock
+import com.moviepilot.designsystem.ProvideSkeletonShimmer
+import com.moviepilot.designsystem.SkeletonSurfaceRole
+import com.moviepilot.designsystem.nativePosterGridSkeletonItems
 import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.rustbridge.MediaCardItem
@@ -125,6 +129,7 @@ fun MediaServerLibraryScreen(
     var items by remember { mutableStateOf<List<MediaServerBrowseItemDto>>(emptyList()) }
     var totalCount by remember { mutableStateOf(0) }
     var hasMore by remember { mutableStateOf(false) }
+    var isLoadingLibraries by remember { mutableStateOf(true) }
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     var isLoadingMore by remember { mutableStateOf(false) }
@@ -159,6 +164,7 @@ fun MediaServerLibraryScreen(
 
     LaunchedEffect(Unit) {
         coroutineScope {
+            isLoadingLibraries = true
             clients = repository.fetchMediaServerClients()
             if (clients.isNotEmpty() && clients.none { it.name == activeServer }) {
                 val matched = clients.firstOrNull { it.name.equals(activeServer, ignoreCase = true) }
@@ -170,6 +176,7 @@ fun MediaServerLibraryScreen(
                 clients.firstOrNull { it.name == activeServer }?.let { activeServerType = it.type }
             }
             libraries = repository.fetchMediaServerLibraries(activeServer.ifBlank { null })
+            isLoadingLibraries = false
             if (activeLibraryId.isBlank() && libraries.isNotEmpty()) {
                 activeLibraryId = libraries.first().id
                 activeLibraryName = libraries.first().name
@@ -221,6 +228,14 @@ fun MediaServerLibraryScreen(
                     onTintedHeader = true,
                 )
             }
+        } else if (isLoadingLibraries) {
+            {
+                NativeInlineChipRowSkeleton(
+                    widths = listOf(84.dp, 92.dp, 76.dp, 88.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    role = SkeletonSurfaceRole.Tile,
+                )
+            }
         } else {
             null
         },
@@ -233,6 +248,7 @@ fun MediaServerLibraryScreen(
             },
             modifier = Modifier.fillMaxSize(),
         ) {
+            ProvideSkeletonShimmer {
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Fixed(columns),
@@ -270,7 +286,9 @@ fun MediaServerLibraryScreen(
                                             selectedGenre = ""
                                             selectedYear = null
                                             scope.launch {
+                                                isLoadingLibraries = true
                                                 libraries = repository.fetchMediaServerLibraries(cli.name)
+                                                isLoadingLibraries = false
                                                 libraries.firstOrNull()?.let { first ->
                                                     activeLibraryId = first.id
                                                     activeLibraryName = first.name
@@ -394,11 +412,19 @@ fun MediaServerLibraryScreen(
                                     cornerRadius = 5.dp,
                                 )
                             }
-                            Text(
-                                text = if (totalCount > 0) "共 $totalCount 项 · $activeServer" else activeServer,
-                                color = colors.textSecondary,
-                                fontSize = 12.sp,
-                            )
+                            if (isLoading && totalCount == 0) {
+                                NativeSkeletonBlock(
+                                    cornerRadius = 5.dp,
+                                    role = SkeletonSurfaceRole.Bar,
+                                    modifier = Modifier.size(width = 108.dp, height = 13.dp),
+                                )
+                            } else {
+                                Text(
+                                    text = if (totalCount > 0) "共 $totalCount 项 · $activeServer" else activeServer,
+                                    color = colors.textSecondary,
+                                    fontSize = 12.sp,
+                                )
+                            }
                         }
                         statusTip?.let { tip ->
                             NativeAdaptiveBadge(tip, tint = colors.warning)
@@ -408,11 +434,11 @@ fun MediaServerLibraryScreen(
 
                 // 5. 内容网格
                 if (isLoading && items.isEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = colors.accent)
-                        }
-                    }
+                    nativePosterGridSkeletonItems(
+                        columns = columns,
+                        aspectRatio = if (isMusicLib) 1f else 2f / 3f,
+                        inPanel = isMusicLib,
+                    )
                 } else if (items.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         CinematicPanel(padding = 24.dp) {
@@ -571,13 +597,15 @@ fun MediaServerLibraryScreen(
                         }
                     }
                     if (isLoadingMore) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(24.dp))
-                            }
-                        }
+                        nativePosterGridSkeletonItems(
+                            columns = columns,
+                            count = columns,
+                            aspectRatio = if (isMusicLib) 1f else 2f / 3f,
+                            inPanel = isMusicLib,
+                        )
                     }
                 }
+            }
             }
         }
     }

@@ -42,6 +42,9 @@ struct NativeDownloadsPage: View {
 
   /// 连续紫玫瑰渐变背景、下载器筛选胶囊、16:9 缩略图进度玻璃卡与原生刷新工具栏。
   var body: some View {
+    let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    let columnCount = NativeDeviceLayout.cardGridCount(
+      for: resolvedWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
     ZStack {
       CinematicBackground()
       ScrollView {
@@ -53,15 +56,18 @@ struct NativeDownloadsPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && tasks.isEmpty {
-            NativeCardListSkeletonView(count: 4, style: .posterRow)
-              .transition(.opacity)
+            NativeCardListSkeletonView(
+              count: columnCount * 3,
+              style: .downloadCard,
+              columns: columnCount,
+              spacing: 14
+            )
+            .transition(.opacity)
           } else if loadFailed && tasks.isEmpty {
             failureCard
           } else if displayedTasks.isEmpty {
             emptyCard
           } else {
-            let columnCount = NativeDeviceLayout.cardGridCount(
-              for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
             let gridColumns = Array(
               repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: columnCount)
             LazyVGrid(columns: gridColumns, spacing: 14) {
@@ -71,8 +77,8 @@ struct NativeDownloadsPage: View {
             }
           }
         }
-        .frame(maxWidth: containerWidth >= 740 ? 1180 : 820)
-        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: containerWidth))
+        .frame(maxWidth: resolvedWidth >= 740 ? 1180 : 820)
+        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: resolvedWidth))
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
       }

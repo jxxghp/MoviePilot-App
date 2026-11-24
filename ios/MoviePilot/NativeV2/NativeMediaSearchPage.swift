@@ -515,13 +515,7 @@ struct NativeMediaSearchPage: View {
             }
           } else if failure == nil {
             if isSearching {
-              let skeletonColumns =
-                containerWidth > 0
-                ? NativeDeviceLayout.posterGridCount(
-                  for: min(containerWidth, 760),
-                  isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
-                : 3
-              NativePosterGridSkeletonView(columns: skeletonColumns, count: skeletonColumns * 3)
+              searchSkeleton(for: committedQuery?.kind ?? kind)
                 .transition(.opacity)
             } else if loadedPage > 0 {
               statusCard(
@@ -592,6 +586,108 @@ struct NativeMediaSearchPage: View {
         NativeMediaCollectionDetailPage(session: session, seed: collection)
       }
     }
+  }
+
+  /// 按当前搜索分类（影视/合集、媒体库、音乐、人物）渲染 1:1 对应的横向行或圆形人物条占位骨架。
+  @ViewBuilder
+  private func searchSkeleton(for activeKind: NativeMediaSearchType) -> some View {
+    VStack(alignment: .leading, spacing: 14) {
+      switch activeKind {
+      case .media, .collection:
+        NativeSkeletonBlock(width: 56, height: 18, cornerRadius: 5)
+        ForEach(0..<5, id: \.self) { _ in
+          CinematicPanel(padding: 9) {
+            HStack(alignment: .center, spacing: 12) {
+              NativeSkeletonBlock(width: 68, height: 102, cornerRadius: 12)
+              VStack(alignment: .leading, spacing: 6) {
+                NativeSkeletonBlock(height: 16, cornerRadius: 6)
+                NativeSkeletonBlock(width: 156, height: 12, cornerRadius: 5)
+                NativeSkeletonBlock(height: 12, cornerRadius: 5)
+                NativeSkeletonBlock(width: 196, height: 12, cornerRadius: 5)
+                NativeSkeletonBlock(width: 42, height: 13, cornerRadius: 5)
+              }
+            }
+          }
+        }
+
+      case .library:
+        HStack {
+          NativeSkeletonBlock(width: 88, height: 18, cornerRadius: 5)
+          Spacer()
+          NativeSkeletonBlock(width: 36, height: 12, cornerRadius: 5)
+        }
+        let isMusicFilter = (committedQuery?.libraryFilter ?? libraryFilter) == .music
+        ForEach(0..<5, id: \.self) { _ in
+          CinematicPanel(padding: 9) {
+            HStack(alignment: .center, spacing: 12) {
+              NativeSkeletonBlock(
+                width: isMusicFilter ? 60 : 64,
+                height: isMusicFilter ? 60 : 92,
+                cornerRadius: isMusicFilter ? 12 : 11
+              )
+              VStack(alignment: .leading, spacing: 6) {
+                NativeSkeletonBlock(height: 15, cornerRadius: 6)
+                HStack(spacing: 6) {
+                  NativeSkeletonBlock(width: 42, height: 18, cornerRadius: 9)
+                  NativeSkeletonBlock(width: 54, height: 12, cornerRadius: 5)
+                  NativeSkeletonBlock(width: 36, height: 12, cornerRadius: 5)
+                }
+                NativeSkeletonBlock(width: 168, height: 12, cornerRadius: 5)
+              }
+              Spacer(minLength: 8)
+              NativeSkeletonBlock(width: 8, height: 13, cornerRadius: 4)
+            }
+          }
+        }
+
+      case .music:
+        NativeSkeletonBlock(width: 52, height: 18, cornerRadius: 5)
+        ForEach(0..<5, id: \.self) { _ in
+          CinematicPanel(padding: 9) {
+            HStack(alignment: .center, spacing: 12) {
+              NativeSkeletonBlock(width: 64, height: 64, cornerRadius: 12)
+              VStack(alignment: .leading, spacing: 6) {
+                NativeSkeletonBlock(height: 15, cornerRadius: 6)
+                NativeSkeletonBlock(width: 148, height: 12, cornerRadius: 5)
+                NativeSkeletonBlock(width: 96, height: 11, cornerRadius: 5)
+              }
+            }
+          }
+        }
+
+      case .person:
+        NativeSkeletonBlock(width: 52, height: 18, cornerRadius: 5)
+        ScrollView(.horizontal, showsIndicators: false) {
+          HStack(alignment: .top, spacing: 14) {
+            ForEach(0..<6, id: \.self) { _ in
+              VStack(spacing: 6) {
+                NativeSkeletonBlock(width: 72, height: 72, cornerRadius: 36)
+                NativeSkeletonBlock(width: 56, height: 12, cornerRadius: 5)
+                NativeSkeletonBlock(width: 42, height: 10, cornerRadius: 4)
+              }
+              .frame(width: 78)
+            }
+          }
+        }
+        .allowsHitTesting(false)
+
+        NativeSkeletonBlock(width: 64, height: 18, cornerRadius: 5)
+          .padding(.top, 4)
+        ForEach(0..<3, id: \.self) { _ in
+          CinematicPanel(padding: 9) {
+            HStack(alignment: .center, spacing: 12) {
+              NativeSkeletonBlock(width: 64, height: 64, cornerRadius: 12)
+              VStack(alignment: .leading, spacing: 6) {
+                NativeSkeletonBlock(width: 136, height: 15, cornerRadius: 6)
+                NativeSkeletonBlock(width: 104, height: 12, cornerRadius: 5)
+              }
+              Spacer(minLength: 0)
+            }
+          }
+        }
+      }
+    }
+    .nativeSkeletonShimmer()
   }
 
   /// 极简通透的独立液态玻璃搜索框与高辨识度分类筛选栏（聚焦态带主题强调色微光边界）。
@@ -1881,11 +1977,9 @@ struct NativeMediaCollectionDetailPage: View {
   private let pageSize = 20
 
   private var gridColumns: [GridItem] {
-    let count =
-      containerWidth > 0
-      ? NativeDeviceLayout.posterGridCount(
-        for: min(containerWidth, 1240), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
-      : (horizontalSizeClass == .regular ? 5 : 3)
+    let resolved = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    let count = NativeDeviceLayout.posterGridCount(
+      for: min(resolved, 1240), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
     return Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: count)
   }
 
@@ -1897,7 +1991,11 @@ struct NativeMediaCollectionDetailPage: View {
           collectionHeaderCard
 
           if isLoading && items.isEmpty {
-            NativePosterGridSkeletonView(columns: gridColumns.count, count: gridColumns.count * 2)
+            NativePosterGridSkeletonView(
+              columns: gridColumns.count,
+              count: gridColumns.count * 3,
+              cornerRadius: 12
+            )
           } else if loadFailed && items.isEmpty {
             CinematicPanel {
               VStack(spacing: 10) {
@@ -2109,7 +2207,9 @@ struct NativeMediaCollectionDetailPage: View {
     return NativeMediaIdentity(
       source: source.isEmpty ? "themoviedb" : source,
       mediaID: mediaID,
-      type: mediaType.isEmpty ? "电影" : mediaType
+      type: mediaType.isEmpty ? "电影" : mediaType,
+      seedTitle: item.title,
+      seedPoster: item.posterPath
     )
   }
 

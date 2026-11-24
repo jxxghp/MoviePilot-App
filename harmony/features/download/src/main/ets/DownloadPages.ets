@@ -19,6 +19,9 @@ import {
   HarmonyAdaptiveLayout,
   HarmonyAppearanceStore,
   HarmonyThemeColors,
+  HarmonySkeletonHost,
+  HarmonySkeletonBlock,
+  HarmonyCardGridSkeleton,
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
@@ -295,25 +298,41 @@ export struct HarmonyResourceSearchPage {
         .width('100%')
 
       Scroll() {
-        Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
-          ForEach(this.sites, (s: MpSiteItem) => {
-            HarmonyEntityLogoPill({
-              kind: 'site',
-              value: s.name,
-              dataUri: s.iconDataUri,
-              title: s.name,
-              selected: this.selectedSiteIds.includes(s.id),
-              onTap: () => {
-                if (this.selectedSiteIds.includes(s.id)) {
-                  this.selectedSiteIds = this.selectedSiteIds.filter((id: number) => id !== s.id);
-                } else {
-                  this.selectedSiteIds = [...this.selectedSiteIds, s.id];
+        if (this.loading && this.sites.length === 0) {
+          HarmonySkeletonHost({ loadingLabel: '正在加载搜索站点列表' }) {
+            Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
+              ForEach([82, 96, 72, 88, 102, 76, 86, 74], (pillW: number, idx: number) => {
+                HarmonySkeletonBlock({
+                  blockWidth: pillW,
+                  blockHeight: 34,
+                  cornerRadius: 17,
+                  tone: idx === 0 ? 'block' : 'subtle'
+                })
+              }, (_pillW: number, idx: number) => `site_pill_sk_${idx}`)
+            }
+            .padding({ bottom: 16 })
+          }
+        } else {
+          Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
+            ForEach(this.sites, (s: MpSiteItem) => {
+              HarmonyEntityLogoPill({
+                kind: 'site',
+                value: s.name,
+                dataUri: s.iconDataUri,
+                title: s.name,
+                selected: this.selectedSiteIds.includes(s.id),
+                onTap: () => {
+                  if (this.selectedSiteIds.includes(s.id)) {
+                    this.selectedSiteIds = this.selectedSiteIds.filter((id: number) => id !== s.id);
+                  } else {
+                    this.selectedSiteIds = [...this.selectedSiteIds, s.id];
+                  }
                 }
-              }
-            })
-          }, (s: MpSiteItem) => `res_site_${s.id}`)
+              })
+            }, (s: MpSiteItem) => `res_site_${s.id}`)
+          }
+          .padding({ bottom: 16 })
         }
-        .padding({ bottom: 16 })
       }.align(Alignment.Top).scrollBar(BarState.Off).layoutWeight(1)
 
       Button(this.keyword.trim().length > 0 ? '应用并搜索' : '应用并浏览')
@@ -442,7 +461,7 @@ export struct HarmonyResourceSearchPage {
         }.padding({ bottom: 16 })
       }.scrollBar(BarState.Off).layoutWeight(1)
 
-      Button(`查看 ${this.filteredResources().length} 条结果`)
+      Button(this.loading ? '查看筛选结果' : `查看 ${this.filteredResources().length} 条结果`)
         .width('100%').height(46).borderRadius(23)
         .backgroundColor(this.accentHex).fontColor(Color.White).fontWeight(FontWeight.Bold)
         .onClick(() => { this.showFilterSheet = false; })
@@ -547,7 +566,7 @@ export struct HarmonyResourceSearchPage {
   build() {
     Column({ space: 10 }) {
       NativeBackHeader({
-        title: `站点资源 (${this.filteredResources().length})`,
+        title: this.loading ? '站点资源' : `站点资源 (${this.filteredResources().length})`,
         onBack: () => this.onBack()
       })
 
@@ -635,9 +654,12 @@ export struct HarmonyResourceSearchPage {
         Text(this.notice).fontSize(12).fontColor('#34C759').padding({ left: 16, right: 16 }).width('100%')
       }
 
-      if (this.loading && this.resources.length === 0) {
-        Column() { LoadingProgress().width(32).height(32).color(this.accentHex) }
-          .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+      if (this.loading) {
+        HarmonyCardGridSkeleton({
+          variant: 'resource',
+          fillViewport: true,
+          bottomPadding: 40
+        })
       } else if (this.filteredResources().length === 0) {
         Column({ space: 8 }) {
           SymbolGlyph($r('sys.symbol.magnifyingglass')).fontSize(36).fontColor([mpSecondaryText(this.isDark)])
@@ -808,7 +830,7 @@ export struct HarmonyDownloadsPage {
   build() {
     Column({ space: 12 }) {
       NativeBackHeader({
-        title: `下载管理 (${this.tasks.length})`,
+        title: (this.loading && this.tasks.length === 0) ? '下载管理' : `下载管理 (${this.tasks.length})`,
         trailingSymbol: 'sys.symbol.arrow_clockwise',
         trailingAccessibility: '刷新下载任务',
         onBack: () => this.onBack(),
@@ -820,8 +842,11 @@ export struct HarmonyDownloadsPage {
       }
 
       if (this.loading && this.tasks.length === 0) {
-        Column() { LoadingProgress().width(32).height(32).color(this.accentHex) }
-          .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+        HarmonyCardGridSkeleton({
+          variant: 'download',
+          fillViewport: true,
+          bottomPadding: 40
+        })
       } else if (this.tasks.length === 0) {
         Column() {
           CinematicPanel({ panelPadding: 28, cornerRadius: 20 }) {

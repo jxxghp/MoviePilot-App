@@ -2900,7 +2900,13 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     guard let mediaID = resolvedID else { return nil }
     let resolvedType = MediaSummaryItem.normalizeMediaType(item.type) ?? fallbackType
     let identity = NativeMediaIdentity(
-      source: resolvedSource, mediaID: mediaID, type: resolvedType)
+      source: resolvedSource,
+      mediaID: mediaID,
+      type: resolvedType,
+      seedTitle: item.title,
+      seedPoster: item.posterPath,
+      seedBackdrop: item.backdropPath
+    )
     let genresSummary = item.genreNames.prefix(2).joined(separator: " / ")
     return NativeDiscoverMedia(
       id: identity.id,
@@ -2916,14 +2922,27 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   }
 }
 
-/// 媒体详情的受控来源、后端 ID 与影视类型，不包含任意详情 URL。
-struct NativeMediaIdentity: Identifiable, Hashable {
+/// 媒体详情的受控来源、后端 ID 与影视类型，可选携带首帧过渡标题与海报种子，不包含任意详情 URL。
+struct NativeMediaIdentity: Identifiable, Hashable, Sendable {
   let source: String
   let mediaID: String
   let type: String
+  var seedTitle: String? = nil
+  var seedPoster: String? = nil
+  var seedBackdrop: String? = nil
 
   /// 路由身份覆盖主来源、媒体原生 ID 和媒体类别，避免跨轨道出现错误复用。
   var id: String { [source, mediaID, type].joined(separator: "|") }
+
+  static func == (lhs: NativeMediaIdentity, rhs: NativeMediaIdentity) -> Bool {
+    lhs.source == rhs.source && lhs.mediaID == rhs.mediaID && lhs.type == rhs.type
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine(source)
+    hasher.combine(mediaID)
+    hasher.combine(type)
+  }
 }
 
 /// 跨标签与全局溢出菜单可推入的受控业务路由。

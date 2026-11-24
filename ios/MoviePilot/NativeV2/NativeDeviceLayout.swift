@@ -23,6 +23,77 @@ enum NativeDeviceLayout {
     UIDevice.current.userInterfaceIdiom == .pad
   }
 
+  /// 首帧尚未完成几何测量（`containerWidth == 0`）时的同步容器宽度估算值：
+  /// 直接读取活跃 `UIWindowScene` 关键窗口的可见安全区宽度，并扣除展开态分栏或 Duo 竖向侧栏占用，消除首帧栅格与边距跳变。
+  @MainActor
+  static var estimatedContainerWidth: CGFloat {
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    let activeScene =
+      scenes.first { $0.activationState == .foregroundActive }
+      ?? scenes.first { $0.activationState == .foregroundInactive }
+      ?? scenes.first
+    guard let scene = activeScene else {
+      return isIPad ? 820 : 393
+    }
+    let keyWindow =
+      scene.keyWindow
+      ?? scene.windows.first(where: \.isKeyWindow)
+      ?? scene.windows.first
+    guard let window = keyWindow else {
+      return max(scene.screen.bounds.width, 320)
+    }
+    if let secondaryWidth = splitSecondaryColumnWidth(in: window.rootViewController),
+      secondaryWidth > 0
+    {
+      return secondaryWidth
+    }
+    let layoutWidth = window.safeAreaLayoutGuide.layoutFrame.width
+    var resolved =
+      layoutWidth > 0
+      ? layoutWidth
+      : max(
+        window.bounds.width - window.safeAreaInsets.left - window.safeAreaInsets.right,
+        scene.screen.bounds.width
+      )
+    if isIPhoneDuoHardware,
+      window.bounds.width >= 600,
+      window.safeAreaInsets.left + window.safeAreaInsets.right < 40
+    {
+      resolved = max(resolved - 76, 320)
+    }
+    return max(resolved, 320)
+  }
+
+  /// 解析自适应页面使用的有效容器宽度：实测宽度就绪后使用实测值，首帧 `0` 时同步回退至窗口级估算宽度。
+  @MainActor
+  static func resolvedContainerWidth(_ tracked: CGFloat) -> CGFloat {
+    tracked > 0 ? tracked : estimatedContainerWidth
+  }
+
+  /// 若当前窗口根控制器中存在非折叠的双栏/三栏 `UISplitViewController`，读取内容主栏真实宽度。
+  @MainActor
+  private static func splitSecondaryColumnWidth(in controller: UIViewController?) -> CGFloat? {
+    guard let controller else { return nil }
+    if let split = controller as? UISplitViewController, !split.isCollapsed {
+      if split.displayMode == .oneBesideSecondary || split.displayMode == .twoBesideSecondary {
+        if let secondary = split.viewController(for: .secondary),
+          secondary.isViewLoaded
+        {
+          let width = secondary.view.safeAreaLayoutGuide.layoutFrame.width
+          if width > 240 { return width }
+        }
+        let fallback = split.view.bounds.width - split.primaryColumnWidth
+        if fallback > 240 { return fallback }
+      }
+    }
+    for child in controller.children {
+      if let found = splitSecondaryColumnWidth(in: child) {
+        return found
+      }
+    }
+    return nil
+  }
+
   /// 是否运行在 iPhone Duo 硬件或对应模拟器机型上；不依赖高版本 SDK 符号，确保旧版 CI 工具链打包仍能生效。
   @MainActor
   static var isIPhoneDuoHardware: Bool {

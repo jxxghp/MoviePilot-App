@@ -59,6 +59,38 @@ export class HarmonyAdaptiveLayout {
     return 3;
   }
 
+  /** 2:3 影视海报网格列模板字符串（响应式 3~6 列，确保骨架与真实网格 1:1 对齐）。 */
+  static posterGridTemplate(widthVp: number): string {
+    const cols = HarmonyAdaptiveLayout.posterGridColumns(widthVp);
+    const parts: string[] = [];
+    for (let i = 0; i < cols; i++) {
+      parts.push('1fr');
+    }
+    return parts.join(' ');
+  }
+
+  /** 发现页顶部沉浸 Hero 响应式高度（兼容竖屏、平板宽屏与矮横屏）。 */
+  static discoverHeroHeightVp(widthVp: number, heightVp: number): number {
+    if (HarmonyAdaptiveLayout.isShortLandscape(widthVp, heightVp)) {
+      return Math.max(204, Math.min(244, Math.round(heightVp * 0.58)));
+    }
+    if (widthVp >= 840 && heightVp >= 480) {
+      return 380;
+    }
+    return 420;
+  }
+
+  /** 影视/媒体库详情页顶部沉浸 Hero 响应式高度（兼容竖屏、平板宽屏与矮横屏）。 */
+  static detailHeroHeightVp(widthVp: number, heightVp: number): number {
+    if (HarmonyAdaptiveLayout.isShortLandscape(widthVp, heightVp)) {
+      return Math.max(188, Math.round(heightVp * 0.50));
+    }
+    if (widthVp >= 840 && heightVp >= 480) {
+      return 340;
+    }
+    return 380;
+  }
+
   /** 1:1 音乐方形专辑网格列模板（`>=1040` 6 列、`>=780` 5 列、`>=540` 4 列、其余 2 列）。 */
   static albumGridColumns(widthVp: number): string {
     let cols = 2;
