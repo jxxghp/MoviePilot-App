@@ -20,7 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Book
-import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Folder
@@ -28,7 +27,6 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.LibraryMusic
-import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shield
@@ -73,8 +71,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Android Material Design 3「更多（工作台）」一级主 Tab：
- * 顶栏右上角统一承载「设置」入口，正文按「资源与媒体流转 / 智能、插件与自动化 / 追剧与社区 / 快捷工具与系统诊断」
- * 四大分组展示全部能力磁贴，支持下拉刷新、内存快照保活与基于 `PermissionsFfi` 的细粒度 RBAC 权限过滤。
+ * 顶栏右上角统一承载「设置」入口，正文按「资源与媒体流转 / 插件与工作流 / 快捷工具与系统诊断」
+ * 三大分组展示全部能力磁贴（站点管理归属设置页，追剧日历与订阅广场归属订阅页），支持下拉刷新、内存快照保活与基于 `PermissionsFfi` 的细粒度 RBAC 权限过滤。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,9 +87,9 @@ fun WorkspaceHubScreen(
     onOpenHistory: () -> Unit,
     onOpenWorkflows: () -> Unit,
     onOpenPlugins: () -> Unit,
-    onOpenSites: () -> Unit,
-    onOpenCalendar: () -> Unit,
-    onOpenSubscribeCommunity: () -> Unit,
+    onOpenSites: () -> Unit = {},
+    onOpenCalendar: () -> Unit = {},
+    onOpenSubscribeCommunity: () -> Unit = {},
     onOpenMediaLibrary: (MediaServerLibraryDto) -> Unit = {},
     onOpenDiagnosticTab: (String) -> Unit,
     permissions: PermissionsFfi? = null,
@@ -111,13 +109,11 @@ fun WorkspaceHubScreen(
 
     val canDiscover = permissions?.discovery != false
     val canSearch = permissions?.search != false
-    val canSubscribe = permissions?.subscribe != false
     val canManage = permissions?.manage != false
     val isAdmin = permissions?.admin != false
     val initialCache = remember { repository.cachedWorkspace }
 
     var activeDownloads by remember { mutableIntStateOf(initialCache?.activeDownloads?.size ?: 0) }
-    var sitesCount by remember { mutableIntStateOf(initialCache?.sites?.count { it.isActive } ?: 0) }
     var pluginsCount by remember { mutableIntStateOf(initialCache?.pluginsCount ?: 0) }
     var workflowsCount by remember { mutableIntStateOf(initialCache?.workflows?.size ?: 0) }
     var libraries by remember { mutableStateOf(initialCache?.libraries ?: emptyList()) }
@@ -127,24 +123,21 @@ fun WorkspaceHubScreen(
     suspend fun loadSummary() {
         coroutineScope {
             val dlDef = async { if (canManage) repository.fetchDownloads() else emptyList() }
-            val siteDef = async { if (isAdmin) repository.fetchSites() else emptyList() }
             val plugDef = async { if (isAdmin) repository.fetchPlugins(installedOnly = true) else emptyList() }
             val wfDef = async { if (isAdmin) repository.fetchWorkflows() else emptyList() }
             val libDef = async { repository.fetchMediaServerLibraries() }
             val loadedDls = dlDef.await()
-            val loadedSites = siteDef.await()
             val loadedPlugins = plugDef.await()
             val loadedWorkflows = wfDef.await()
             val loadedLibs = libDef.await()
 
             activeDownloads = loadedDls.size
-            sitesCount = loadedSites.count { it.isActive }
             pluginsCount = loadedPlugins.size
             workflowsCount = loadedWorkflows.size
             libraries = loadedLibs
             repository.cachedWorkspace = WorkspaceSessionSnapshot(
                 activeDownloads = loadedDls,
-                sites = loadedSites,
+                sites = initialCache?.sites ?: emptyList(),
                 pluginsCount = loadedPlugins.size,
                 workflows = loadedWorkflows,
                 libraries = loadedLibs,
@@ -203,18 +196,6 @@ fun WorkspaceHubScreen(
                                     icon = Icons.Rounded.TravelExplore,
                                     accentTint = colors.info,
                                     onClick = onOpenResources,
-                                    modifier = mod,
-                                )
-                            }
-                        }
-                        if (isAdmin) {
-                            add { mod ->
-                                WorkspaceTileCard(
-                                    title = "站点管理",
-                                    subtitle = if (sitesCount > 0) "$sitesCount 站点启用" else "流量趋势与连通测速",
-                                    icon = Icons.Rounded.Language,
-                                    accentTint = colors.success,
-                                    onClick = onOpenSites,
                                     modifier = mod,
                                 )
                             }
@@ -329,51 +310,7 @@ fun WorkspaceHubScreen(
                         }
                     }
 
-                    // 分组 3：追剧与社区（订阅权限可见）
-                    if (canSubscribe) {
-                        val subscribeCards: List<@Composable (Modifier) -> Unit> = listOf(
-                            { mod ->
-                                WorkspaceTileCard(
-                                    title = "追剧日历",
-                                    subtitle = "本周更新排期",
-                                    icon = Icons.Rounded.CalendarMonth,
-                                    accentTint = colors.pink,
-                                    onClick = onOpenCalendar,
-                                    modifier = mod,
-                                )
-                            },
-                            { mod ->
-                                WorkspaceTileCard(
-                                    title = "订阅广场",
-                                    subtitle = "热门社区共享订阅",
-                                    icon = Icons.Rounded.LocalFireDepartment,
-                                    accentTint = colors.warning,
-                                    onClick = onOpenSubscribeCommunity,
-                                    modifier = mod,
-                                )
-                            },
-                        )
-                        item(key = "ws_subscribe_community") {
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text(
-                                    "追剧与社区",
-                                    color = colors.textSecondary,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    modifier = Modifier.padding(start = 4.dp),
-                                )
-                                subscribeCards.chunked(gridCols).forEach { rowItems ->
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        rowItems.forEach { card -> card(Modifier.weight(1f)) }
-                                        repeat(gridCols - rowItems.size) {
-                                            Spacer(Modifier.weight(1f))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // 分组 4：快捷工具与系统诊断（管理员专属，自适应 2~4 列网格，保留全部 6 项工具）
+                    // 分组 3：快捷工具与系统诊断（管理员专属，自适应 2~4 列网格，保留全部 6 项工具）
                     if (isAdmin) {
                         item(key = "ws_system_diagnostics") {
                             val diagItems: List<@Composable (Modifier) -> Unit> = listOf(

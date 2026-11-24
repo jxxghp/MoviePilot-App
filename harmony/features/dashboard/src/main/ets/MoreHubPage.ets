@@ -14,11 +14,10 @@ import {
 } from '@moviepilot/design_system';
 
 /**
- * 鸿蒙「更多」工作台一级主页面（严格按 4 大清晰业务域归类，右上角承载系统设置入口）：
- * 1. 资源与媒体流转（站点资源 / 站点管理 / 下载管理 / 文件管理 / 整理历史 / 媒体库）
- * 2. 智能、插件与自动化（智能助手 / 插件中心 / 工作流）
- * 3. 追剧与社区（追剧日历 / 订阅广场）
- * 4. 快捷工具与系统诊断（系统检查 / 定时服务 / 实时日志 / 词表管理 / 名称识别 / 网络测试，点击直达单功能页）
+ * 鸿蒙「更多」工作台一级主页面（按 3 大清晰业务域归类，右上角承载系统设置入口，站点管理归属设置页，追剧日历与订阅广场归属订阅页）：
+ * 1. 资源与媒体流转（站点资源 / 下载管理 / 文件管理 / 整理历史 / 媒体库）
+ * 2. 插件与工作流（插件中心 / 工作流）
+ * 3. 快捷工具与系统诊断（系统检查 / 定时服务 / 实时日志 / 词表管理 / 名称识别 / 网络测试，点击直达单功能页）
  */
 @Component
 export struct HarmonyMoreHubPage {
@@ -26,7 +25,6 @@ export struct HarmonyMoreHubPage {
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_BREAKPOINT) breakpoint: string = 'sm';
   @State private activeDownloads: number = 0;
-  @State private activeSites: number = 0;
   @State private installedPlugins: number = 0;
   @State private librariesCount: number = 0;
   @State private workflowsCount: number = 0;
@@ -43,17 +41,15 @@ export struct HarmonyMoreHubPage {
     try {
       const res = await Promise.all([
         repo.fetchDownloads(),
-        repo.fetchSites(),
         repo.fetchPlugins('installed'),
         repo.fetchMediaServerLibraries(),
         repo.fetchWorkflows()
       ]);
       const tasks: MpDownloadTask[] = res[0];
       this.activeDownloads = tasks.length;
-      this.activeSites = res[1].filter((s) => s.isActive).length;
-      this.installedPlugins = res[2].length;
-      this.librariesCount = res[3].length;
-      this.workflowsCount = res[4].length;
+      this.installedPlugins = res[1].length;
+      this.librariesCount = res[2].length;
+      this.workflowsCount = res[3].length;
     } catch {
       // keep existing state
     }
@@ -62,7 +58,6 @@ export struct HarmonyMoreHubPage {
 
   private liveSubtitle(item: MoreToolItem): string {
     if (this.loadingSummary) { return item.subtitle; }
-    if (item.id === 'sites' && this.activeSites > 0) { return `${this.activeSites} 站点启用`; }
     if (item.id === 'downloads') { return `${this.activeDownloads} 个任务`; }
     if (item.id === 'media_library' && this.librariesCount > 0) { return `${this.librariesCount} 个媒体库浏览`; }
     if (item.id === 'plugins' && this.installedPlugins > 0) { return `已装 ${this.installedPlugins} 款`; }
@@ -149,10 +144,8 @@ export struct HarmonyMoreHubPage {
           this.toolGridSection('资源与媒体流转', MORE_TOOL_ITEMS.filter((i: MoreToolItem) => i.group === 0))
           // 2. 插件与工作流
           this.toolGridSection('插件与工作流', MORE_TOOL_ITEMS.filter((i: MoreToolItem) => i.group === 1))
-          // 3. 追剧与社区
-          this.toolGridSection('追剧与社区', MORE_TOOL_ITEMS.filter((i: MoreToolItem) => i.group === 2))
 
-          // 4. 快捷工具与系统诊断（6 项独立捷径直达）
+          // 3. 快捷工具与系统诊断（6 项独立捷径直达）
           Column({ space: 10 }) {
             Text('快捷工具与系统诊断')
               .fontSize(14)
@@ -162,7 +155,7 @@ export struct HarmonyMoreHubPage {
 
             CinematicPanel({ panelPadding: 12, cornerRadius: 20 }) {
               Grid() {
-                ForEach(MORE_TOOL_ITEMS.filter((i: MoreToolItem) => i.group === 3), (item: MoreToolItem) => {
+                ForEach(MORE_TOOL_ITEMS.filter((i: MoreToolItem) => i.group === 2), (item: MoreToolItem) => {
                   GridItem() {
                     Row({ space: 8 }) {
                       SymbolGlyph($r(item.symbolName))

@@ -13,20 +13,19 @@ import {
  */
 export type HarmonyMainTab = 'discover' | 'subscribe' | 'dashboard' | 'more';
 
-/** 「更多」中心业务入口定义（严格按 4 大清晰业务域归类）。 */
+/** 「更多」中心业务入口定义（按三大清晰业务域归类，站点管理归属设置页，追剧日历与订阅广场归属订阅页）。 */
 export interface MoreToolItem {
   id: string;
   title: string;
   subtitle: string;
   symbolName: string;
   tintHex: string;
-  group: number; // 0: 资源与媒体流转, 1: 智能、插件与自动化, 2: 追剧与社区, 3: 快捷工具与系统诊断
+  group: number; // 0: 资源与媒体流转, 1: 插件与工作流, 2: 快捷工具与系统诊断
 }
 
 export const MORE_TOOL_ITEMS: MoreToolItem[] = [
   // 0. 资源与媒体流转
   { id: 'resources', title: '站点资源', subtitle: '多站搜索与精细筛选', symbolName: 'sys.symbol.magnifyingglass', tintHex: '#317AF7', group: 0 },
-  { id: 'sites', title: '站点管理', subtitle: '站点配置与流量监控', symbolName: 'sys.symbol.worldclock', tintHex: '#26B8A8', group: 0 },
   { id: 'downloads', title: '下载管理', subtitle: '实时速率与任务控制', symbolName: 'sys.symbol.arrow_down_circle', tintHex: '#34C759', group: 0 },
   { id: 'files', title: '文件管理', subtitle: '多存储浏览与整理播放', symbolName: 'sys.symbol.folder', tintHex: '#F29B38', group: 0 },
   { id: 'history', title: '整理历史', subtitle: '入库记录与手动重整理', symbolName: 'sys.symbol.clock', tintHex: '#64A2FF', group: 0 },
@@ -34,16 +33,13 @@ export const MORE_TOOL_ITEMS: MoreToolItem[] = [
   // 1. 插件与工作流
   { id: 'plugins', title: '插件中心', subtitle: '已安装与市场扩展', symbolName: 'sys.symbol.puzzle', tintHex: '#26B8A8', group: 1 },
   { id: 'workflows', title: '工作流', subtitle: '自动化流程与节点画布', symbolName: 'sys.symbol.share', tintHex: '#8E7BFF', group: 1 },
-  // 2. 追剧与社区
-  { id: 'calendar', title: '追剧日历', subtitle: '近期播出排期追踪', symbolName: 'sys.symbol.calendar', tintHex: '#EE6896', group: 2 },
-  { id: 'subscribe_square', title: '订阅广场', subtitle: '热门榜单与社区分享', symbolName: 'sys.symbol.flame', tintHex: '#F29B38', group: 2 },
-  // 3. 快捷工具与系统诊断
-  { id: 'diag_check', title: '系统检查', subtitle: '核心状态自检', symbolName: 'sys.symbol.checkmark_shield', tintHex: '#34C759', group: 3 },
-  { id: 'diag_schedulers', title: '定时服务', subtitle: '查看与手动触发', symbolName: 'sys.symbol.clock', tintHex: '#EE6896', group: 3 },
-  { id: 'diag_logs', title: '实时日志', subtitle: '服务端日志追踪', symbolName: 'sys.symbol.doc_text', tintHex: '#5AC8FA', group: 3 },
-  { id: 'diag_words', title: '词表管理', subtitle: '识别与过滤规则', symbolName: 'sys.symbol.bookmark', tintHex: '#26B8A8', group: 3 },
-  { id: 'diag_recognize', title: '名称识别', subtitle: '种子标题在线测试', symbolName: 'sys.symbol.magnifyingglass', tintHex: '#64A2FF', group: 3 },
-  { id: 'diag_network', title: '网络测试', subtitle: '连通与延迟检测', symbolName: 'sys.symbol.worldclock', tintHex: '#F29B38', group: 3 }
+  // 2. 快捷工具与系统诊断
+  { id: 'diag_check', title: '系统检查', subtitle: '核心状态自检', symbolName: 'sys.symbol.checkmark_shield', tintHex: '#34C759', group: 2 },
+  { id: 'diag_schedulers', title: '定时服务', subtitle: '查看与手动触发', symbolName: 'sys.symbol.clock', tintHex: '#EE6896', group: 2 },
+  { id: 'diag_logs', title: '实时日志', subtitle: '服务端日志追踪', symbolName: 'sys.symbol.doc_text', tintHex: '#5AC8FA', group: 2 },
+  { id: 'diag_words', title: '词表管理', subtitle: '识别与过滤规则', symbolName: 'sys.symbol.bookmark', tintHex: '#26B8A8', group: 2 },
+  { id: 'diag_recognize', title: '名称识别', subtitle: '种子标题在线测试', symbolName: 'sys.symbol.magnifyingglass', tintHex: '#64A2FF', group: 2 },
+  { id: 'diag_network', title: '网络测试', subtitle: '连通与延迟检测', symbolName: 'sys.symbol.worldclock', tintHex: '#F29B38', group: 2 }
 ];
 
 export function mpPrimaryText(isDark: boolean): string {

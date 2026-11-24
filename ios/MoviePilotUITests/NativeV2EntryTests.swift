@@ -1821,6 +1821,20 @@ final class NativeV2EntryTests: XCTestCase {
       tap(subTab, app: app)
       return
     }
+    if identifier == "native-workspace-calendar"
+      || identifier == "native-workspace-subscribe-community"
+    {
+      let subTab = tabButton("订阅", app: app)
+      XCTAssertTrue(subTab.waitForExistence(timeout: 10))
+      tap(subTab, app: app)
+      let targetId =
+        identifier == "native-workspace-calendar"
+        ? "native-subscriptions-calendar" : "native-subscriptions-community"
+      let navBtn = app.buttons[targetId]
+      XCTAssertTrue(navBtn.waitForExistence(timeout: 10))
+      tap(navBtn, app: app)
+      return
+    }
     let moreTab = tabButton("更多", app: app)
     XCTAssertTrue(moreTab.waitForExistence(timeout: 10))
     tap(moreTab, app: app)

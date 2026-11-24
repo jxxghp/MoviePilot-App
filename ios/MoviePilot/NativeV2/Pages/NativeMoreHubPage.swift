@@ -2,7 +2,7 @@ import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
 
-/// 原生「更多」功能总枢纽：按四大业务分组承载资源媒体流转、插件与工作流、追剧与社区以及紧凑长方形快捷诊断工具，右上角提供设置入口。
+/// 原生「更多」功能总枢纽：按三大业务分组承载资源媒体流转、插件与工作流以及紧凑长方形快捷诊断工具，右上角提供设置入口。
 @MainActor
 struct NativeMoreHubPage: View {
   let snapshot: NativeSessionSnapshot
@@ -40,11 +40,6 @@ struct NativeMoreHubPage: View {
   /// 媒体发现与识别权限。
   private var canDiscover: Bool {
     snapshot.user.allows(.init(category: .discovery))
-  }
-
-  /// 订阅管理、追剧日历与社区分享权限。
-  private var canSubscribe: Bool {
-    snapshot.user.allows(.init(category: .subscribe))
   }
 
   /// 站点种子资源检索权限。
@@ -131,7 +126,7 @@ struct NativeMoreHubPage: View {
     }
   }
 
-  /// 严格遵循 RBAC 门禁构建可见的四大业务分组。
+  /// 严格遵循 RBAC 门禁构建可见的三大业务分组。
   private var visibleSections: [HubSection] {
     var sections: [HubSection] = []
 
@@ -149,15 +144,6 @@ struct NativeMoreHubPage: View {
       )
     }
     if canManageDownloads {
-      mediaFlowTiles.append(
-        HubTile(
-          id: "native-more-sites",
-          title: "站点管理",
-          subtitle: "站点配置与流量监控",
-          symbol: "globe.asia.australia.fill",
-          tint: .teal
-        ) { onNavigate(.sites) }
-      )
       mediaFlowTiles.append(
         HubTile(
           id: "native-workspace-downloads",
@@ -232,34 +218,7 @@ struct NativeMoreHubPage: View {
       )
     }
 
-    // 3. 追剧与社区
-    if canSubscribe {
-      sections.append(
-        HubSection(
-          id: "community",
-          title: "追剧与社区",
-          isCompactDiagnostics: false,
-          tiles: [
-            HubTile(
-              id: "native-workspace-calendar",
-              title: "追剧日历",
-              subtitle: "近期剧集播出排期",
-              symbol: "calendar",
-              tint: .pink
-            ) { onNavigate(.calendar) },
-            HubTile(
-              id: "native-workspace-subscribe-community",
-              title: "订阅广场",
-              subtitle: "热门榜单与社区分享",
-              symbol: "flame.fill",
-              tint: .orange
-            ) { onNavigate(.subscribeCommunity) },
-          ]
-        )
-      )
-    }
-
-    // 4. 快捷工具与系统诊断（对齐 Android 紧凑横向长方形卡片）
+    // 3. 快捷工具与系统诊断（对齐 Android 紧凑横向长方形卡片）
     var diagTiles: [HubTile] = []
     if snapshot.user.isSuperuser {
       diagTiles.append(
