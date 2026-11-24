@@ -13,15 +13,25 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Explore
@@ -30,13 +40,9 @@ import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.NavigationRailItemDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -120,14 +126,16 @@ private fun MainTabIcon(
     tint: Color,
     userAvatarUrl: String?,
     userInitial: String,
+    compact: Boolean = false,
 ) {
     val colors = LocalMoviePilotColors.current
+    val baseSize = if (compact) 20.dp else 23.dp
     when (tab) {
         MainTab.Discover -> {
             DiscoverTvSparkleIcon(
                 tint = tint,
                 cutoutColor = if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(if (compact) 20.dp else 22.dp),
             )
         }
         MainTab.Explore -> {
@@ -135,7 +143,7 @@ private fun MainTabIcon(
                 imageVector = if (active) Icons.Rounded.Explore else Icons.Outlined.Explore,
                 contentDescription = tab.label,
                 tint = tint,
-                modifier = Modifier.size(23.dp),
+                modifier = Modifier.size(baseSize),
             )
         }
         MainTab.Subscribe -> {
@@ -143,7 +151,7 @@ private fun MainTabIcon(
                 imageVector = if (active) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
                 contentDescription = tab.label,
                 tint = tint,
-                modifier = Modifier.size(23.dp),
+                modifier = Modifier.size(baseSize),
             )
         }
         MainTab.Workspace -> {
@@ -151,13 +159,14 @@ private fun MainTabIcon(
                 imageVector = if (active) Icons.Rounded.MoreHoriz else Icons.Outlined.MoreHoriz,
                 contentDescription = tab.label,
                 tint = tint,
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(if (compact) 21.dp else 24.dp),
             )
         }
         MainTab.Dashboard -> {
+            val avatarSize = if (compact) 21.dp else 24.dp
             Box(
                 modifier = Modifier
-                    .size(24.dp)
+                    .size(avatarSize)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primaryContainer)
                     .border(
@@ -171,8 +180,8 @@ private fun MainTabIcon(
                     imageUrl = userAvatarUrl,
                     kind = "avatar",
                     value = userInitial,
-                    size = 24.dp,
-                    cornerRadius = 12.dp,
+                    size = avatarSize,
+                    cornerRadius = avatarSize / 2,
                 )
             }
         }
@@ -304,8 +313,10 @@ fun MoviePilotBottomNavigationBar(
 }
 
 /**
- * Android Material 3 Expressive 宽屏 / 折叠屏展开 / 平板侧边导航栏（NavigationRail 规范）：
- * 当窗口宽度 >= 680dp 时自动替换底部 NavigationBar，顶置高对比圆形/圆角搜索 FAB。
+ * Android Material 3 Expressive 宽屏 / 手机横屏 / 折叠屏展开 / 平板侧边导航栏（NavigationRail 规范）：
+ * - 当窗口宽度 >= 600dp 时自动替换底部 NavigationBar，顶置高对比圆形搜索按钮；
+ * - 单一合并消费 `systemBars + displayCutout` 的 `Start + Vertical` 安全区，消除双重内边距叠加；
+ * - 手机短屏横屏（`< 480dp`）自动压缩按钮与指示胶囊高度，确保 5 个一级主 Tab 带文字标签完整同屏展示，并在分屏/大字号下平滑纵向滚动。
  */
 @Composable
 fun FloatingNavigationRail(
@@ -317,60 +328,121 @@ fun FloatingNavigationRail(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalMoviePilotColors.current
+    val scheme = MaterialTheme.colorScheme
     val haptic = LocalHapticFeedback.current
-    NavigationRail(
-        modifier = modifier
-            .fillMaxHeight()
-            .statusBarsPadding()
-            .navigationBarsPadding(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        header = {
-            Spacer(Modifier.height(14.dp))
-            FloatingActionButton(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onSearchClick()
-                },
-                shape = CircleShape,
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp),
-            ) {
-                Icon(Icons.Rounded.Search, contentDescription = "全局搜索")
-            }
-            Spacer(Modifier.height(14.dp))
-        },
+    val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
+    val activeFg = if (colors.isDark) scheme.primary else scheme.onSecondaryContainer
+
+    Surface(
+        color = scheme.surfaceContainerLow,
+        modifier = modifier.fillMaxHeight(),
     ) {
-        MainTab.entries.forEach { tab ->
-            val active = tab == selectedTab
-            NavigationRailItem(
-                selected = active,
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onTabClick(tab)
-                },
-                icon = {
-                    MainTabIcon(
-                        tab = tab,
-                        active = active,
-                        tint = if (active) MaterialTheme.colorScheme.primary else colors.textSecondary,
-                        userAvatarUrl = userAvatarUrl,
-                        userInitial = userInitial,
+        Row(modifier = Modifier.fillMaxHeight()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .windowInsetsPadding(
+                        WindowInsets.systemBars
+                            .union(WindowInsets.displayCutout)
+                            .only(WindowInsetsSides.Vertical + WindowInsetsSides.Start),
                     )
-                },
-                label = {
-                    Text(
-                        text = tab.label,
-                        style = MaterialTheme.typography.labelSmall,
+                    .width(AdaptiveDeviceLayout.WideRailWidth)
+                    .verticalScroll(rememberScrollState())
+                    .padding(vertical = if (compactHeight) 6.dp else 14.dp, horizontal = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(if (compactHeight) 3.dp else 8.dp),
+            ) {
+                Surface(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onSearchClick()
+                    },
+                    shape = CircleShape,
+                    color = scheme.primary,
+                    contentColor = scheme.onPrimary,
+                    shadowElevation = 2.dp,
+                    modifier = Modifier.size(if (compactHeight) 42.dp else 52.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Icon(
+                            Icons.Rounded.Search,
+                            contentDescription = "全局搜索",
+                            modifier = Modifier.size(if (compactHeight) 20.dp else 24.dp),
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(if (compactHeight) 4.dp else 10.dp))
+
+                MainTab.entries.forEach { tab ->
+                    val active = tab == selectedTab
+                    val pillBg by animateColorAsState(
+                        targetValue = if (active) scheme.secondaryContainer else Color.Transparent,
+                        animationSpec = tween(200),
+                        label = "railPillBg",
                     )
-                },
-                colors = NavigationRailItemDefaults.colors(
-                    indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    unselectedIconColor = colors.textSecondary,
-                    unselectedTextColor = colors.textSecondary,
-                ),
+                    val contentColor by animateColorAsState(
+                        targetValue = if (active) activeFg else colors.textSecondary,
+                        animationSpec = tween(200),
+                        label = "railPillFg",
+                    )
+                    val interaction = remember { MutableInteractionSource() }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable(
+                                interactionSource = interaction,
+                                indication = ripple(bounded = true, color = scheme.primary),
+                                role = Role.Tab,
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onTabClick(tab)
+                                },
+                            )
+                            .padding(vertical = if (compactHeight) 2.dp else 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(if (compactHeight) 1.dp else 3.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(
+                                    width = if (compactHeight) 48.dp else 56.dp,
+                                    height = if (compactHeight) 26.dp else 32.dp,
+                                )
+                                .clip(CircleShape)
+                                .background(pillBg, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            MainTabIcon(
+                                tab = tab,
+                                active = active,
+                                tint = contentColor,
+                                userAvatarUrl = userAvatarUrl,
+                                userInitial = userInitial,
+                                compact = compactHeight,
+                            )
+                        }
+                        Text(
+                            text = tab.label,
+                            color = contentColor,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = if (compactHeight) 10.sp else 11.sp,
+                                lineHeight = if (compactHeight) 12.sp else 14.sp,
+                                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Clip,
+                        )
+                    }
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(0.6.dp)
+                    .background(scheme.outlineVariant.copy(alpha = if (colors.isDark) 0.36f else 0.55f)),
             )
         }
     }

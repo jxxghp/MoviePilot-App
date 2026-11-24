@@ -1208,7 +1208,13 @@ fun TransferHistoryScreen(
 
     if (showQueueSheet) {
         NativeGlassSheet(onDismissRequest = { showQueueSheet = false }) {
-            Column(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 Text("整理队列 (${queueItems.size})", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 if (queueItems.isEmpty()) {
                     CinematicPanel(padding = 16.dp, showsShadow = false) {
@@ -1260,7 +1266,13 @@ fun TransferHistoryScreen(
             Triple("同时删除记录、源与目标文件", true, true),
         )
         NativeGlassSheet(onDismissRequest = { if (!isDeleting) deleteTarget = null }) {
-            Column(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 Text("删除整理记录：${rec.title}", color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                 Text("操作将同步至 MoviePilot 服务端，请谨慎选择是否连带清理磁盘/网盘文件。", color = colors.textMuted, fontSize = 12.sp)
                 deleteModes.forEach { (optionLabel, deleteSrc, deleteDest) ->

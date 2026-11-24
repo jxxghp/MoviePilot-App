@@ -240,7 +240,7 @@ export struct HarmonyMoreHubPage {
                   }
                 }, (item: MoreToolItem) => item.id)
               }
-              .columnsTemplate('1fr 1fr')
+              .columnsTemplate(this.gridTemplate())
               .columnsGap(10)
               .rowsGap(10)
               .width('100%')

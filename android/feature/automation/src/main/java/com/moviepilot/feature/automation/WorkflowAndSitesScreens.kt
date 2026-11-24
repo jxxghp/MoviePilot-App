@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -446,6 +447,8 @@ fun WorkflowCanvasScreen(
 ) {
     val colors = LocalMoviePilotColors.current
     val bottomOverlayInset = LocalBottomOverlayInset.current
+    val isWideCanvas = AdaptiveDeviceLayout.isWideCanvas()
+    val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
     val snackbar = LocalSnackbarHostState.current
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -458,7 +461,7 @@ fun WorkflowCanvasScreen(
     var currentState by remember(workflow.id) { mutableStateOf(workflow.state) }
     var scale by remember { mutableFloatStateOf(0.86f) }
     var panX by remember { mutableFloatStateOf(with(density) { 18.dp.toPx() }) }
-    var panY by remember { mutableFloatStateOf(with(density) { 42.dp.toPx() }) }
+    var panY by remember { mutableFloatStateOf(with(density) { (if (compactHeight) 18.dp else 42.dp).toPx() }) }
     var selectedNode by remember { mutableStateOf(resolvedActions.firstOrNull()) }
 
     val isRunningState = currentState == "W" || currentState == "R"
@@ -502,7 +505,7 @@ fun WorkflowCanvasScreen(
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = if (compactHeight) 4.dp else 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -638,17 +641,22 @@ fun WorkflowCanvasScreen(
 
         selectedNode?.let { node ->
             CinematicPanel(
-                padding = 16.dp,
+                padding = if (compactHeight) 12.dp else 16.dp,
                 elevatedBlur = true,
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
+                    .align(if (isWideCanvas) Alignment.BottomEnd else Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .padding(start = 18.dp, end = 18.dp, bottom = 24.dp + bottomOverlayInset),
+                    .padding(
+                        start = 18.dp,
+                        end = 18.dp,
+                        bottom = (if (compactHeight) 12.dp else 24.dp) + bottomOverlayInset,
+                    )
+                    .then(if (isWideCanvas) Modifier.widthIn(max = 340.dp) else Modifier.fillMaxWidth()),
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(if (compactHeight) 5.dp else 8.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(node.name, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text(node.name, color = colors.textPrimary, fontSize = if (compactHeight) 15.sp else 16.sp, fontWeight = FontWeight.Bold)
                             Text("${node.type} · 参数 ${node.paramCount} 项", color = colors.textSecondary, fontSize = 12.sp)
                         }
                         IconButton(onClick = { selectedNode = null }, modifier = Modifier.size(28.dp)) {
@@ -656,7 +664,7 @@ fun WorkflowCanvasScreen(
                         }
                     }
                     if (node.description.isNotBlank()) {
-                        Text(node.description, color = colors.textSecondary, fontSize = 13.sp)
+                        Text(node.description, color = colors.textSecondary, fontSize = 13.sp, maxLines = if (compactHeight) 2 else 4, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }

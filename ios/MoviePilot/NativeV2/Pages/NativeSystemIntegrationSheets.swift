@@ -119,8 +119,10 @@ struct NativeNotificationSettingsSheet: View {
               }
             }
           }
+          .frame(maxWidth: 680)
           .padding(.horizontal, CinematicStyle.margin)
           .padding(.vertical, 14)
+          .frame(maxWidth: .infinity)
         }
         .accessibilityIdentifier("native-notification-settings-scroll")
       }
@@ -142,6 +144,7 @@ struct NativeNotificationSettingsSheet: View {
       .task { await refreshStatus() }
     }
     .nativeGlassSheet()
+    .nativeAdaptiveSheetSizing()
   }
 
   /// 状态条目行。
@@ -370,8 +373,10 @@ struct NativeWidgetSettingsSheet: View {
               }
             }
           }
+          .frame(maxWidth: 680)
           .padding(.horizontal, CinematicStyle.margin)
           .padding(.vertical, 14)
+          .frame(maxWidth: .infinity)
         }
         .accessibilityIdentifier("native-widget-settings-scroll")
       }
@@ -393,6 +398,7 @@ struct NativeWidgetSettingsSheet: View {
       .task { await load() }
     }
     .nativeGlassSheet()
+    .nativeAdaptiveSheetSizing()
   }
 
   /// 读取当前实例的小组件上下文与已安装资料。

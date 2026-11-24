@@ -8,15 +8,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,6 +61,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -86,179 +92,238 @@ fun ServerConnectionScreen(
     onToggleSelfSignedTls: (Boolean) -> Unit = {},
 ) {
     val colors = LocalMoviePilotColors.current
+    val cfg = LocalConfiguration.current
+    val isShortWideLandscape = cfg.screenWidthDp >= 640 && cfg.screenHeightDp < 520
     var address by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        // 顶栏：居中「连接服务」+ 右侧语言圆钮
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+    @Composable
+    fun ServerFormColumn() {
+        Column(
+            modifier = Modifier.widthIn(max = 460.dp).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.size(42.dp))
-            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                Text("连接服务", color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-            }
-            CinematicCircleButton(
-                icon = Icons.Outlined.Language,
-                contentDescription = "语言",
-                onClick = {},
-            )
-        }
-
-        Spacer(Modifier.height(28.dp))
-        BrandHeaderBlock()
-        Spacer(Modifier.height(28.dp))
-
-        // 服务地址输入玻璃卡
-        CinematicPanel(padding = 16.dp) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                ) {
-                    Icon(Icons.Outlined.Link, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (address.isEmpty()) {
-                            Text("MoviePilot 服务地址", color = colors.textMuted, fontSize = 16.sp)
+            CinematicPanel(padding = 16.dp) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    ) {
+                        Icon(Icons.Outlined.Link, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (address.isEmpty()) {
+                                Text("MoviePilot 服务地址", color = colors.textMuted, fontSize = 16.sp)
+                            }
+                            BasicTextField(
+                                value = address,
+                                onValueChange = { address = it; errorMessage = null },
+                                singleLine = true,
+                                textStyle = TextStyle(color = colors.textPrimary, fontSize = 16.sp),
+                                cursorBrush = SolidColor(colors.accent),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
-                        BasicTextField(
-                            value = address,
-                            onValueChange = { address = it; errorMessage = null },
-                            singleLine = true,
-                            textStyle = TextStyle(color = colors.textPrimary, fontSize = 16.sp),
-                            cursorBrush = SolidColor(colors.accent),
-                            modifier = Modifier.fillMaxWidth(),
+                    }
+                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 12.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("快捷前缀", color = colors.textMuted, fontSize = 12.sp)
+                        NativeAdaptivePill(
+                            title = "https://",
+                            selected = address.startsWith("https://"),
+                            onClick = {
+                                address = "https://" + address.removePrefix("https://").removePrefix("http://")
+                            },
+                        )
+                        NativeAdaptivePill(
+                            title = "http://",
+                            selected = address.startsWith("http://"),
+                            onClick = {
+                                address = "http://" + address.removePrefix("https://").removePrefix("http://")
+                            },
+                        )
+                    }
+                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("允许自签名 HTTPS 证书", color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text("内网 NAS 或私有证书环境可开启", color = colors.textMuted, fontSize = 11.5.sp)
+                        }
+                        Switch(
+                            checked = allowSelfSignedTls,
+                            onCheckedChange = onToggleSelfSignedTls,
+                            colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
                         )
                     }
                 }
-                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 12.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text("快捷前缀", color = colors.textMuted, fontSize = 12.sp)
-                    NativeAdaptivePill(
-                        title = "https://",
-                        selected = address.startsWith("https://"),
-                        onClick = {
-                            address = "https://" + address.removePrefix("https://").removePrefix("http://")
-                        },
-                    )
-                    NativeAdaptivePill(
-                        title = "http://",
-                        selected = address.startsWith("http://"),
-                        onClick = {
-                            address = "http://" + address.removePrefix("https://").removePrefix("http://")
-                        },
-                    )
-                }
-                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("允许自签名 HTTPS 证书", color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Text("内网 NAS 或私有证书环境可开启", color = colors.textMuted, fontSize = 11.5.sp)
-                    }
-                    Switch(
-                        checked = allowSelfSignedTls,
-                        onCheckedChange = onToggleSelfSignedTls,
-                        colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
-                    )
-                }
             }
-        }
 
-        Spacer(Modifier.height(10.dp))
-        Text(
-            text = errorMessage ?: "支持 HTTPS、局域网地址和部署子路径。",
-            color = if (errorMessage != null) colors.danger else colors.textMuted,
-            fontSize = 13.sp,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp),
-        )
-
-        Spacer(Modifier.height(20.dp))
-        // 全宽胶囊连接按钮
-        val canConnect = address.trim().isNotEmpty()
-        GlassPrimaryPillButton(
-            title = "连接",
-            enabled = canConnect,
-            onClick = {
-                onConnect(address).onFailure { errorMessage = it.message ?: "服务地址无效" }
-            },
-        )
-
-        if (savedServers.isNotEmpty()) {
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(10.dp))
             Text(
-                text = "已保存的服务",
-                color = colors.textSecondary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.fillMaxWidth().padding(start = 6.dp, bottom = 10.dp),
+                text = errorMessage ?: "支持 HTTPS、局域网地址和部署子路径。",
+                color = if (errorMessage != null) colors.danger else colors.textMuted,
+                fontSize = 13.sp,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp),
             )
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                savedServers.forEach { entry ->
-                    CinematicPanel(
-                        padding = 14.dp,
-                        modifier = Modifier.clickable { onSelectSaved(entry) },
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
+
+            Spacer(Modifier.height(if (isShortWideLandscape) 14.dp else 20.dp))
+            val canConnect = address.trim().isNotEmpty()
+            GlassPrimaryPillButton(
+                title = "连接",
+                enabled = canConnect,
+                onClick = {
+                    onConnect(address).onFailure { errorMessage = it.message ?: "服务地址无效" }
+                },
+            )
+
+            if (savedServers.isNotEmpty()) {
+                Spacer(Modifier.height(if (isShortWideLandscape) 20.dp else 32.dp))
+                Text(
+                    text = "已保存的服务",
+                    color = colors.textSecondary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.fillMaxWidth().padding(start = 6.dp, bottom = 10.dp),
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    savedServers.forEach { entry ->
+                        CinematicPanel(
+                            padding = 14.dp,
+                            modifier = Modifier.clickable { onSelectSaved(entry) },
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(colors.accent.copy(alpha = 0.22f)),
-                                contentAlignment = Alignment.Center,
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Icon(Icons.Outlined.Dns, contentDescription = null, tint = colors.accent, modifier = Modifier.size(20.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(colors.accent.copy(alpha = 0.22f)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(Icons.Outlined.Dns, contentDescription = null, tint = colors.accent, modifier = Modifier.size(20.dp))
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(entry.name, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(entry.url, color = colors.textMuted, fontSize = 12.sp)
+                                }
+                                IconButton(
+                                    onClick = { onDeleteSaved(entry.url) },
+                                    modifier = Modifier.size(34.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.DeleteOutline,
+                                        contentDescription = "删除已保存服务",
+                                        tint = colors.textMuted,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textMuted)
                             }
-                            Spacer(Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(entry.name, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                                Text(entry.url, color = colors.textMuted, fontSize = 12.sp)
-                            }
-                            IconButton(
-                                onClick = { onDeleteSaved(entry.url) },
-                                modifier = Modifier.size(34.dp),
-                            ) {
-                                Icon(
-                                    Icons.Outlined.DeleteOutline,
-                                    contentDescription = "删除已保存服务",
-                                    tint = colors.textMuted,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textMuted)
                         }
                     }
                 }
             }
+            Spacer(Modifier.height(if (isShortWideLandscape) 20.dp else 40.dp))
         }
-        Spacer(Modifier.height(40.dp))
+    }
+
+    val safeInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
+    if (isShortWideLandscape) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(safeInsets)
+                .imePadding()
+                .padding(horizontal = 24.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Spacer(Modifier.size(38.dp))
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Text("连接服务", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                }
+                CinematicCircleButton(
+                    icon = Icons.Outlined.Language,
+                    contentDescription = "语言",
+                    onClick = {},
+                    size = 38.dp,
+                )
+            }
+            Row(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(0.42f).fillMaxHeight(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    BrandHeaderBlock(compact = true)
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(0.58f)
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState()),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    ServerFormColumn()
+                }
+            }
+        }
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(safeInsets)
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Spacer(Modifier.size(42.dp))
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Text("连接服务", color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                }
+                CinematicCircleButton(
+                    icon = Icons.Outlined.Language,
+                    contentDescription = "语言",
+                    onClick = {},
+                )
+            }
+
+            Spacer(Modifier.height(28.dp))
+            BrandHeaderBlock(compact = false)
+            Spacer(Modifier.height(28.dp))
+
+            ServerFormColumn()
+        }
     }
 }
 
 /**
- * 登录页面（1:1 对标 iOS 黄金截图 `native-v2-02-login.jpg`）：
+ * 登录页面（1:1 对标 iOS 黄金截图 `native-v2-02-login.jpg`，短宽横屏自动切换左品牌右表单双栏）：
  * 支持账号密码、OTP 二次验证、保持登录、记住账号密码（Android Keystore）与 Passkey 入口。
  */
 @Composable
@@ -270,6 +335,8 @@ fun LoginScreen(
     onLoginSuccess: () -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    val cfg = LocalConfiguration.current
+    val isShortWideLandscape = cfg.screenWidthDp >= 640 && cfg.screenHeightDp < 520
     val scope = rememberCoroutineScope()
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -289,40 +356,8 @@ fun LoginScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CinematicCircleButton(
-                icon = Icons.Outlined.Dns,
-                contentDescription = "切换服务",
-                onClick = onSwitchServer,
-            )
-            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                Text("登录", color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-            }
-            CinematicCircleButton(
-                icon = Icons.Outlined.Language,
-                contentDescription = "语言",
-                onClick = {},
-            )
-        }
-
-        Spacer(Modifier.height(18.dp))
-        BrandHeaderBlock()
-        Spacer(Modifier.height(12.dp))
-
-        // 当前连接的服务绿点胶囊
+    @Composable
+    fun ServerStatusChip() {
         Row(
             modifier = Modifier
                 .clip(CircleShape)
@@ -334,74 +369,30 @@ fun LoginScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Box(Modifier.size(8.dp).clip(CircleShape).background(colors.success))
-            Text(serverUrl, color = colors.textSecondary, fontSize = 13.sp)
+            Text(serverUrl, color = colors.textSecondary, fontSize = 13.sp, maxLines = 1)
             Icon(Icons.Outlined.Refresh, contentDescription = "切换实例", tint = colors.textMuted, modifier = Modifier.size(14.dp))
         }
+    }
 
-        Spacer(Modifier.height(22.dp))
-
-        // 账号/密码输入玻璃卡
-        CinematicPanel(padding = 16.dp) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                ) {
-                    Icon(Icons.Outlined.Person, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (username.isEmpty()) Text("用户名", color = colors.textMuted, fontSize = 16.sp)
-                        BasicTextField(
-                            value = username,
-                            onValueChange = { username = it; notice = null },
-                            singleLine = true,
-                            textStyle = TextStyle(color = colors.textPrimary, fontSize = 16.sp),
-                            cursorBrush = SolidColor(colors.accent),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 10.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                ) {
-                    Icon(Icons.Outlined.Lock, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (password.isEmpty()) Text("密码", color = colors.textMuted, fontSize = 16.sp)
-                        BasicTextField(
-                            value = password,
-                            onValueChange = { password = it; notice = null },
-                            singleLine = true,
-                            visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                            textStyle = TextStyle(color = colors.textPrimary, fontSize = 16.sp),
-                            cursorBrush = SolidColor(colors.accent),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    IconButton(onClick = { showPassword = !showPassword }, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                            contentDescription = "显示密码",
-                            tint = colors.textSecondary,
-                        )
-                    }
-                }
-
-                if (showOtpField) {
-                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 10.dp))
+    @Composable
+    fun LoginFormColumn() {
+        Column(
+            modifier = Modifier.widthIn(max = 460.dp).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            CinematicPanel(padding = 16.dp) {
+                Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                     ) {
-                        Icon(Icons.Outlined.Key, contentDescription = null, tint = colors.accent, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Outlined.Person, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
                         Box(modifier = Modifier.weight(1f)) {
-                            if (otpCode.isEmpty()) Text("6 位动态验证码 (OTP)", color = colors.textMuted, fontSize = 15.sp)
+                            if (username.isEmpty()) Text("用户名", color = colors.textMuted, fontSize = 16.sp)
                             BasicTextField(
-                                value = otpCode,
-                                onValueChange = { otpCode = it },
+                                value = username,
+                                onValueChange = { username = it; notice = null },
                                 singleLine = true,
                                 textStyle = TextStyle(color = colors.textPrimary, fontSize = 16.sp),
                                 cursorBrush = SolidColor(colors.accent),
@@ -409,112 +400,254 @@ fun LoginScreen(
                             )
                         }
                     }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(14.dp))
-
-        // 保持登录 / 记住账号密码开关卡
-        CinematicPanel(padding = 14.dp) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text("保持登录", color = colors.textPrimary, fontSize = 15.sp)
-                    Switch(
-                        checked = keepLogin,
-                        onCheckedChange = { keepLogin = it; repository.secretStore.keepLogin = it },
-                        colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
-                    )
-                }
-                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text("记住账号密码", color = colors.textPrimary, fontSize = 15.sp)
-                    Switch(
-                        checked = rememberCreds,
-                        onCheckedChange = { rememberCreds = it; repository.secretStore.rememberCredentials = it },
-                        colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
-                    )
-                }
-                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text("允许自签名 HTTPS 证书", color = colors.textPrimary, fontSize = 15.sp)
-                    Switch(
-                        checked = allowSelfSigned,
-                        onCheckedChange = { allowSelfSigned = it; repository.secretStore.allowSelfSignedTls = it },
-                        colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(10.dp))
-        Text(
-            text = notice ?: "密码仅在本机安全保存，验证码不会保存。",
-            color = if (notice != null) colors.warning else colors.textMuted,
-            fontSize = 12.sp,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp),
-        )
-
-        Spacer(Modifier.height(20.dp))
-        GlassPrimaryPillButton(
-            title = if (loading) "正在登录..." else "登录",
-            enabled = !loading && username.isNotBlank() && password.isNotBlank(),
-            loading = loading,
-            onClick = {
-                scope.launch {
-                    loading = true
-                    notice = null
-                    when (val res = repository.login(serverUrl, username, password, otpCode)) {
-                        is LoginOutcome.Success -> onLoginSuccess()
-                        is LoginOutcome.OtpRequired -> {
-                            showOtpField = true
-                            notice = res.message
+                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 10.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    ) {
+                        Icon(Icons.Outlined.Lock, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (password.isEmpty()) Text("密码", color = colors.textMuted, fontSize = 16.sp)
+                            BasicTextField(
+                                value = password,
+                                onValueChange = { password = it; notice = null },
+                                singleLine = true,
+                                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                                textStyle = TextStyle(color = colors.textPrimary, fontSize = 16.sp),
+                                cursorBrush = SolidColor(colors.accent),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
-                        is LoginOutcome.Failure -> notice = res.message
+                        IconButton(onClick = { showPassword = !showPassword }, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                contentDescription = "显示密码",
+                                tint = colors.textSecondary,
+                            )
+                        }
                     }
-                    loading = false
+
+                    if (showOtpField) {
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 10.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        ) {
+                            Icon(Icons.Outlined.Key, contentDescription = null, tint = colors.accent, modifier = Modifier.size(20.dp))
+                            Box(modifier = Modifier.weight(1f)) {
+                                if (otpCode.isEmpty()) Text("6 位动态验证码 (OTP)", color = colors.textMuted, fontSize = 15.sp)
+                                BasicTextField(
+                                    value = otpCode,
+                                    onValueChange = { otpCode = it },
+                                    singleLine = true,
+                                    textStyle = TextStyle(color = colors.textPrimary, fontSize = 16.sp),
+                                    cursorBrush = SolidColor(colors.accent),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
                 }
-            },
-        )
-        Spacer(Modifier.height(36.dp))
+            }
+
+            Spacer(Modifier.height(14.dp))
+
+            CinematicPanel(padding = 14.dp) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("保持登录", color = colors.textPrimary, fontSize = 15.sp)
+                        Switch(
+                            checked = keepLogin,
+                            onCheckedChange = { keepLogin = it; repository.secretStore.keepLogin = it },
+                            colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
+                        )
+                    }
+                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("记住账号密码", color = colors.textPrimary, fontSize = 15.sp)
+                        Switch(
+                            checked = rememberCreds,
+                            onCheckedChange = { rememberCreds = it; repository.secretStore.rememberCredentials = it },
+                            colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
+                        )
+                    }
+                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("允许自签名 HTTPS 证书", color = colors.textPrimary, fontSize = 15.sp)
+                        Switch(
+                            checked = allowSelfSigned,
+                            onCheckedChange = { allowSelfSigned = it; repository.secretStore.allowSelfSignedTls = it },
+                            colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = notice ?: "密码仅在本机安全保存，验证码不会保存。",
+                color = if (notice != null) colors.warning else colors.textMuted,
+                fontSize = 12.sp,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp),
+            )
+
+            Spacer(Modifier.height(if (isShortWideLandscape) 14.dp else 20.dp))
+            GlassPrimaryPillButton(
+                title = if (loading) "正在登录..." else "登录",
+                enabled = !loading && username.isNotBlank() && password.isNotBlank(),
+                loading = loading,
+                onClick = {
+                    scope.launch {
+                        loading = true
+                        notice = null
+                        when (val res = repository.login(serverUrl, username, password, otpCode)) {
+                            is LoginOutcome.Success -> onLoginSuccess()
+                            is LoginOutcome.OtpRequired -> {
+                                showOtpField = true
+                                notice = res.message
+                            }
+                            is LoginOutcome.Failure -> notice = res.message
+                        }
+                        loading = false
+                    }
+                },
+            )
+            Spacer(Modifier.height(if (isShortWideLandscape) 20.dp else 36.dp))
+        }
+    }
+
+    val safeInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
+    if (isShortWideLandscape) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(safeInsets)
+                .imePadding()
+                .padding(horizontal = 24.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CinematicCircleButton(
+                    icon = Icons.Outlined.Dns,
+                    contentDescription = "切换服务",
+                    onClick = onSwitchServer,
+                    size = 38.dp,
+                )
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Text("登录", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                }
+                CinematicCircleButton(
+                    icon = Icons.Outlined.Language,
+                    contentDescription = "语言",
+                    onClick = {},
+                    size = 38.dp,
+                )
+            }
+            Row(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(0.42f).fillMaxHeight(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    BrandHeaderBlock(compact = true)
+                    Spacer(Modifier.height(10.dp))
+                    ServerStatusChip()
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(0.58f)
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState()),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    LoginFormColumn()
+                }
+            }
+        }
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(safeInsets)
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CinematicCircleButton(
+                    icon = Icons.Outlined.Dns,
+                    contentDescription = "切换服务",
+                    onClick = onSwitchServer,
+                )
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Text("登录", color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                }
+                CinematicCircleButton(
+                    icon = Icons.Outlined.Language,
+                    contentDescription = "语言",
+                    onClick = {},
+                )
+            }
+
+            Spacer(Modifier.height(18.dp))
+            BrandHeaderBlock(compact = false)
+            Spacer(Modifier.height(12.dp))
+            ServerStatusChip()
+            Spacer(Modifier.height(22.dp))
+            LoginFormColumn()
+        }
     }
 }
 
 @Composable
-private fun BrandHeaderBlock() {
+private fun BrandHeaderBlock(compact: Boolean = false) {
     val colors = LocalMoviePilotColors.current
+    val outerSz = if (compact) 74.dp else 92.dp
+    val innerSz = if (compact) 68.dp else 84.dp
     Box(
         modifier = Modifier
-            .size(92.dp)
-            .shadow(24.dp, RoundedCornerShape(24.dp), ambientColor = colors.accent, spotColor = colors.accent),
+            .size(outerSz)
+            .shadow(if (compact) 18.dp else 24.dp, RoundedCornerShape(if (compact) 20.dp else 24.dp), ambientColor = colors.accent, spotColor = colors.accent),
         contentAlignment = Alignment.Center,
     ) {
-        NativeBrandDrawable(drawableName = "brandmark", size = 84.dp, cornerRadius = 22.dp)
+        NativeBrandDrawable(drawableName = "brandmark", size = innerSz, cornerRadius = if (compact) 18.dp else 22.dp)
     }
-    Spacer(Modifier.height(16.dp))
+    Spacer(Modifier.height(if (compact) 10.dp else 16.dp))
     Text(
         text = "MoviePilot",
         color = colors.textPrimary,
-        fontSize = 28.sp,
+        fontSize = if (compact) 23.sp else 28.sp,
         fontWeight = FontWeight.Bold,
     )
     Spacer(Modifier.height(4.dp))
     Text(
         text = "你的媒体世界，随时连接。",
         color = colors.textSecondary,
-        fontSize = 14.sp,
+        fontSize = if (compact) 13.sp else 14.sp,
     )
 }
 

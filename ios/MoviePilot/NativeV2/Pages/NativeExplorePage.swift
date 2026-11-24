@@ -84,7 +84,7 @@ struct NativeExplorePage: View {
               filterControls
             }
             if isLoading && items.isEmpty {
-              NativePosterGridSkeletonView(columns: 3, count: 9)
+              NativePosterGridSkeletonView(columns: columns.count, count: columns.count * 3)
                 .padding(.horizontal, CinematicStyle.margin)
                 .transition(.opacity)
             } else if loadFailed && items.isEmpty {

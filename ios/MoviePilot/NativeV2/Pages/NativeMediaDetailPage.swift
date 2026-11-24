@@ -42,6 +42,7 @@ struct NativeMediaDetailPage: View {
         : viewportWidth
       let margin = NativeDeviceLayout.horizontalMargin(for: viewportWidth)
       let isPortraitPhone = viewportWidth < viewport.size.height && viewportWidth < 680
+      let isCompactLandscape = viewportWidth > viewport.size.height && viewport.size.height < 500
       let isWide = viewportWidth >= 680
       let heroHeight = NativeDeviceLayout.detailHeroHeight(
         width: viewportWidth,
@@ -84,14 +85,21 @@ struct NativeMediaDetailPage: View {
         ScrollView {
           VStack(alignment: .leading, spacing: 0) {
             if let detail {
-              heroHeaderOverlay(detail, height: heroHeight, margin: margin, isWide: isWide)
-                .frame(maxWidth: 1020, alignment: .center)
-                .frame(maxWidth: .infinity)
-              VStack(alignment: .leading, spacing: 24) {
+              heroHeaderOverlay(
+                detail,
+                height: heroHeight,
+                margin: margin,
+                isWide: isWide,
+                isCompactLandscape: isCompactLandscape
+              )
+              .frame(maxWidth: 1020, alignment: .center)
+              .frame(maxWidth: .infinity)
+              VStack(alignment: .leading, spacing: isCompactLandscape ? 16 : 24) {
                 if let actionFeedback {
                   feedbackBanner(actionFeedback)
                 }
-                actionBar(detail, containerWidth: viewportWidth)
+                actionBar(
+                  detail, containerWidth: viewportWidth, isCompactLandscape: isCompactLandscape)
                 synopsisSection(detail)
                 if isTelevision(detail), !resolvedSeasons(detail).isEmpty {
                   seasonsSection(
@@ -254,14 +262,14 @@ struct NativeMediaDetailPage: View {
   /// 前景透明媒体 Logo 与居中元数据浮置在海报底部融底区，随正文自然上滚。
   private func heroHeaderOverlay(
     _ detail: MediaDetailPayload, height: CGFloat, margin: CGFloat = CinematicStyle.margin,
-    isWide: Bool = false
+    isWide: Bool = false, isCompactLandscape: Bool = false
   ) -> some View {
     let isLight = colorScheme == .light
     let source = detail.mediaSource ?? identity.source
     let titleText = detail.title ?? "未命名作品"
     let logoRef = Self.resolveArtwork(detail.logoPath, source: source, tmdbSize: "w500")
-    return VStack(alignment: .center, spacing: 10) {
-      Spacer(minLength: 0)
+    return VStack(alignment: .center, spacing: isCompactLandscape ? 5 : 10) {
+      Spacer(minLength: isCompactLandscape ? 44 : 0)
       if let logoRef, !logoRef.isEmpty {
         NativeDiscoverLogoBanner(
           session: session,
@@ -270,9 +278,10 @@ struct NativeMediaDetailPage: View {
           isAccessibilitySize: dynamicTypeSize.isAccessibilitySize,
           logoLanguage: detail.logoLanguage,
           originalLanguage: detail.originalLanguage,
-          maxWidth: isWide ? 340 : 284,
-          maxHeight: isWide ? 104 : 88,
+          maxWidth: isCompactLandscape ? 228 : (isWide ? 340 : 284),
+          maxHeight: isCompactLandscape ? 48 : (isWide ? 104 : 88),
           isWide: isWide,
+          isCompactLandscape: isCompactLandscape,
           textAlignment: .center,
           fallbackColor: isLight ? Color.primary : Color.white
         )
@@ -282,13 +291,14 @@ struct NativeMediaDetailPage: View {
           title: titleText,
           isAccessibilitySize: dynamicTypeSize.isAccessibilitySize,
           isWide: isWide,
+          isCompactLandscape: isCompactLandscape,
           textAlignment: .center,
           color: isLight ? Color.primary : Color.white
         )
         .accessibilityIdentifier("native-media-detail-title")
       }
       if let tagline = detail.tagline?.trimmingCharacters(in: .whitespacesAndNewlines),
-        !tagline.isEmpty
+        !tagline.isEmpty, !isCompactLandscape
       {
         Text(tagline)
           .font(.subheadline.italic())
@@ -299,14 +309,15 @@ struct NativeMediaDetailPage: View {
       let summaryParts = metadataLineParts(detail)
       if !summaryParts.isEmpty {
         Text(summaryParts.joined(separator: "  ·  "))
-          .font(.subheadline.weight(.medium))
+          .font(isCompactLandscape ? .footnote.weight(.medium) : .subheadline.weight(.medium))
           .foregroundStyle(isLight ? Color.primary.opacity(0.82) : Color.white.opacity(0.86))
           .multilineTextAlignment(.center)
+          .lineLimit(isCompactLandscape ? 1 : 2)
       }
       HStack(spacing: 10) {
         if let rating = detail.voteAverage, rating > 0 {
           Label(String(format: "%.1f", rating), systemImage: "star.fill")
-            .font(.subheadline.weight(.semibold))
+            .font(isCompactLandscape ? .footnote.weight(.semibold) : .subheadline.weight(.semibold))
             .foregroundStyle(NativeTheme.warning)
         }
         if let server = status.server, !server.isEmpty, status.itemID != nil {
@@ -314,7 +325,7 @@ struct NativeMediaDetailPage: View {
             .font(.caption.weight(.semibold))
             .foregroundStyle(NativeTheme.success)
             .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .padding(.vertical, isCompactLandscape ? 3.5 : 5)
             .background {
               Capsule()
                 .fill(Color(red: 0.16, green: 0.36, blue: 0.28).opacity(0.55))
@@ -334,7 +345,7 @@ struct NativeMediaDetailPage: View {
               .lineLimit(1)
               .foregroundStyle(NativeTheme.chipText)
               .padding(.horizontal, 10)
-              .padding(.vertical, 5)
+              .padding(.vertical, isCompactLandscape ? 3.5 : 5)
               .background {
                 Capsule()
                   .fill(NativeTheme.chipFill)
@@ -345,17 +356,20 @@ struct NativeMediaDetailPage: View {
       }
     }
     .padding(.horizontal, margin)
-    .padding(.bottom, 16)
+    .padding(.bottom, isCompactLandscape ? 8 : 16)
     .frame(maxWidth: .infinity, minHeight: height, alignment: .bottom)
   }
 
-  /// 主操作区遵循 Liquid Glass 分组规范：宽屏单行均衡排布，窄屏已入库时播放主按钮独占第一行、订阅与搜索资源并排居第二行。
+  /// 主操作区遵循 Liquid Glass 分组规范：宽屏与紧凑横屏单行均衡排布，竖屏窄屏已入库时播放主按钮独占第一行、订阅与搜索资源并排居第二行。
   @ViewBuilder
-  private func actionBar(_ detail: MediaDetailPayload, containerWidth: CGFloat = 0) -> some View {
+  private func actionBar(
+    _ detail: MediaDetailPayload, containerWidth: CGFloat = 0, isCompactLandscape: Bool = false
+  ) -> some View {
     let tv = isTelevision(detail)
     let subscribedCount = status.seasons.count
     let hasPlay = (status.itemID?.isEmpty == false)
-    let useSingleRow = containerWidth >= 680 && !dynamicTypeSize.isAccessibilitySize
+    let useSingleRow =
+      (containerWidth >= 680 || isCompactLandscape) && !dynamicTypeSize.isAccessibilitySize
     if canSubscribe || canSearchResources || hasPlay {
       let layout =
         useSingleRow

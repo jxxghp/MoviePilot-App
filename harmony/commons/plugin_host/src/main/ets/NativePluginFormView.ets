@@ -573,6 +573,7 @@ function jsEscape(raw: string): string {
 export struct NativePluginDataPageView {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
   @Prop pluginId: string = '';
   @Prop documentJson: string = '{}';
   @Prop serverUrl: string = '';
@@ -608,6 +609,12 @@ export struct NativePluginDataPageView {
     return this.accentHex;
   }
 
+  private statColumnsTemplate(): string {
+    if (this.windowWidthVp >= 840) { return '1fr 1fr 1fr 1fr'; }
+    if (this.windowWidthVp >= 560) { return '1fr 1fr 1fr'; }
+    return '1fr 1fr';
+  }
+
   build() {
     if (this.renderMode === 'vue' || this.blocks.length === 0) {
       IsolatedVuePluginWebView({
@@ -625,160 +632,166 @@ export struct NativePluginDataPageView {
       })
     } else {
       Scroll() {
-        Column({ space: 10 }) {
-          ForEach(this.blocks, (blk: PluginDataBlock) => {
-            if (blk.kind === 'stat_grid' && blk.stats && blk.stats.length > 0) {
-              Grid() {
-                ForEach(blk.stats, (st: PluginStatCell, sIdx: number) => {
-                  GridItem() {
-                    CinematicPanel({ panelPadding: 13, cornerRadius: 16 }) {
-                      Column({ space: 4 }) {
-                        Text(st.label)
-                          .fontSize(11.5)
-                          .fontColor(mpSecondaryText(this.isDark))
-                          .maxLines(1)
-                          .textOverflow({ overflow: TextOverflow.Ellipsis })
-                          .width('100%')
-                        Text(st.value)
-                          .fontSize(18)
-                          .fontWeight(FontWeight.Bold)
-                          .fontColor(mpPrimaryText(this.isDark))
-                          .maxLines(1)
-                          .textOverflow({ overflow: TextOverflow.Ellipsis })
-                          .width('100%')
-                        if (st.sub.length > 0) {
-                          Text(st.sub)
-                            .fontSize(10.5)
-                            .fontColor(this.accentHex)
-                            .maxLines(1)
-                            .width('100%')
-                        }
-                      }.alignItems(HorizontalAlign.Start).width('100%')
-                    }
-                  }
-                }, (st: PluginStatCell, sIdx: number) => `${blk.id}_st_${sIdx}_${st.label}`)
-              }
-              .columnsTemplate('1fr 1fr')
-              .columnsGap(10)
-              .rowsGap(10)
-              .width('100%')
-            } else if (blk.kind === 'table') {
-              CinematicPanel({ panelPadding: 12, cornerRadius: 16 }) {
-                Scroll() {
-                  Column({ space: 6 }) {
-                    if (blk.headers && blk.headers.length > 0) {
-                      Row({ space: 8 }) {
-                        ForEach(blk.headers, (hd: string, hIdx: number) => {
-                          Text(hd)
-                            .fontSize(12)
-                            .fontWeight(FontWeight.Bold)
+        Column() {
+          Column({ space: 10 }) {
+            ForEach(this.blocks, (blk: PluginDataBlock) => {
+              if (blk.kind === 'stat_grid' && blk.stats && blk.stats.length > 0) {
+                Grid() {
+                  ForEach(blk.stats, (st: PluginStatCell, sIdx: number) => {
+                    GridItem() {
+                      CinematicPanel({ panelPadding: 13, cornerRadius: 16 }) {
+                        Column({ space: 4 }) {
+                          Text(st.label)
+                            .fontSize(11.5)
                             .fontColor(mpSecondaryText(this.isDark))
-                            .width(108)
                             .maxLines(1)
                             .textOverflow({ overflow: TextOverflow.Ellipsis })
-                        }, (hd: string, hIdx: number) => `${blk.id}_th_${hIdx}_${hd}`)
+                            .width('100%')
+                          Text(st.value)
+                            .fontSize(18)
+                            .fontWeight(FontWeight.Bold)
+                            .fontColor(mpPrimaryText(this.isDark))
+                            .maxLines(1)
+                            .textOverflow({ overflow: TextOverflow.Ellipsis })
+                            .width('100%')
+                          if (st.sub.length > 0) {
+                            Text(st.sub)
+                              .fontSize(10.5)
+                              .fontColor(this.accentHex)
+                              .maxLines(1)
+                              .width('100%')
+                          }
+                        }.alignItems(HorizontalAlign.Start).width('100%')
                       }
-                      .padding({ top: 4, bottom: 6 })
-                      Divider().color(HarmonyThemeColors.divider(this.isDark))
                     }
-                    if (blk.rows) {
-                      ForEach(blk.rows.slice(0, 40), (r: string[], rIdx: number) => {
-                        Row({ space: 8 }) {
-                          ForEach(r, (cell: string, cIdx: number) => {
-                            Text(cell)
-                              .fontSize(12)
-                              .fontColor(mpPrimaryText(this.isDark))
-                              .width(108)
-                              .maxLines(2)
-                              .textOverflow({ overflow: TextOverflow.Ellipsis })
-                          }, (_cell: string, cIdx: number) => `${blk.id}_td_${rIdx}_${cIdx}`)
-                        }
-                        .padding({ top: 5, bottom: 5 })
-                        .borderRadius(8)
-                        .backgroundColor(rIdx % 2 === 1 ? (this.isDark ? '#0DFFFFFF' : '#08000000') : Color.Transparent)
-                      }, (_r: string[], rIdx: number) => `${blk.id}_tr_${rIdx}`)
-                    }
-                  }.alignItems(HorizontalAlign.Start)
+                  }, (st: PluginStatCell, sIdx: number) => `${blk.id}_st_${sIdx}_${st.label}`)
                 }
-                .scrollable(ScrollDirection.Horizontal)
-                .scrollBar(BarState.Off)
+                .columnsTemplate(this.statColumnsTemplate())
+                .columnsGap(10)
+                .rowsGap(10)
                 .width('100%')
-              }
-            } else if (blk.kind === 'image' && blk.imageUrl && blk.imageUrl.length > 0) {
-              CinematicPanel({ panelPadding: 10, cornerRadius: 16 }) {
-                Column({ space: 6 }) {
-                  MpRemoteImage({
-                    src: blk.imageUrl,
-                    imgWidth: '100%',
-                    imgHeight: 170,
-                    imgRadius: 12,
-                    fit: ImageFit.Contain,
-                    placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
-                  })
-                  if (blk.title.length > 0) {
-                    Text(blk.title).fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
+              } else if (blk.kind === 'table') {
+                CinematicPanel({ panelPadding: 12, cornerRadius: 16 }) {
+                  Scroll() {
+                    Column({ space: 6 }) {
+                      if (blk.headers && blk.headers.length > 0) {
+                        Row({ space: 8 }) {
+                          ForEach(blk.headers, (hd: string, hIdx: number) => {
+                            Text(hd)
+                              .fontSize(12)
+                              .fontWeight(FontWeight.Bold)
+                              .fontColor(mpSecondaryText(this.isDark))
+                              .width(108)
+                              .maxLines(1)
+                              .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          }, (hd: string, hIdx: number) => `${blk.id}_th_${hIdx}_${hd}`)
+                        }
+                        .padding({ top: 4, bottom: 6 })
+                        Divider().color(HarmonyThemeColors.divider(this.isDark))
+                      }
+                      if (blk.rows) {
+                        ForEach(blk.rows.slice(0, 40), (r: string[], rIdx: number) => {
+                          Row({ space: 8 }) {
+                            ForEach(r, (cell: string, cIdx: number) => {
+                              Text(cell)
+                                .fontSize(12)
+                                .fontColor(mpPrimaryText(this.isDark))
+                                .width(108)
+                                .maxLines(2)
+                                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                            }, (_cell: string, cIdx: number) => `${blk.id}_td_${rIdx}_${cIdx}`)
+                          }
+                          .padding({ top: 5, bottom: 5 })
+                          .borderRadius(8)
+                          .backgroundColor(rIdx % 2 === 1 ? (this.isDark ? '#0DFFFFFF' : '#08000000') : Color.Transparent)
+                        }, (_r: string[], rIdx: number) => `${blk.id}_tr_${rIdx}`)
+                      }
+                    }.alignItems(HorizontalAlign.Start)
                   }
+                  .scrollable(ScrollDirection.Horizontal)
+                  .scrollBar(BarState.Off)
+                  .width('100%')
                 }
-              }
-            } else if (blk.kind === 'card') {
-              CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
-                Column({ space: 6 }) {
-                  if (blk.imageUrl && blk.imageUrl.length > 0) {
+              } else if (blk.kind === 'image' && blk.imageUrl && blk.imageUrl.length > 0) {
+                CinematicPanel({ panelPadding: 10, cornerRadius: 16 }) {
+                  Column({ space: 6 }) {
                     MpRemoteImage({
                       src: blk.imageUrl,
                       imgWidth: '100%',
-                      imgHeight: 148,
-                      imgRadius: 10,
+                      imgHeight: 170,
+                      imgRadius: 12,
+                      fit: ImageFit.Contain,
                       placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
                     })
+                    if (blk.title.length > 0) {
+                      Text(blk.title).fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                    }
                   }
-                  if (blk.title.length > 0) {
-                    Text(blk.title)
-                      .fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
-                  }
-                  if (blk.subtitle && blk.subtitle.length > 0) {
-                    Text(blk.subtitle)
-                      .fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
-                  }
-                  if (blk.chips && blk.chips.length > 0) {
-                    Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
-                      ForEach(blk.chips, (ch: string, cIdx: number) => {
-                        NativeAdaptiveBadge({ text: ch, tintHex: this.accentHex })
-                      }, (ch: string, cIdx: number) => `${blk.id}_ch_${cIdx}_${ch}`)
-                    }.width('100%')
-                  }
-                  if (blk.body.length > 0) {
-                    Text(blk.body)
-                      .fontSize(13).fontColor(mpSecondaryText(this.isDark)).lineHeight(20).width('100%')
-                  }
-                }.alignItems(HorizontalAlign.Start).width('100%')
+                }
+              } else if (blk.kind === 'card') {
+                CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
+                  Column({ space: 6 }) {
+                    if (blk.imageUrl && blk.imageUrl.length > 0) {
+                      MpRemoteImage({
+                        src: blk.imageUrl,
+                        imgWidth: '100%',
+                        imgHeight: 148,
+                        imgRadius: 10,
+                        placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                      })
+                    }
+                    if (blk.title.length > 0) {
+                      Text(blk.title)
+                        .fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
+                    }
+                    if (blk.subtitle && blk.subtitle.length > 0) {
+                      Text(blk.subtitle)
+                        .fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                    }
+                    if (blk.chips && blk.chips.length > 0) {
+                      Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
+                        ForEach(blk.chips, (ch: string, cIdx: number) => {
+                          NativeAdaptiveBadge({ text: ch, tintHex: this.accentHex })
+                        }, (ch: string, cIdx: number) => `${blk.id}_ch_${cIdx}_${ch}`)
+                      }.width('100%')
+                    }
+                    if (blk.body.length > 0) {
+                      Text(blk.body)
+                        .fontSize(13).fontColor(mpSecondaryText(this.isDark)).lineHeight(20).width('100%')
+                    }
+                  }.alignItems(HorizontalAlign.Start).width('100%')
+                }
+              } else if (blk.kind === 'alert') {
+                CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
+                  Column({ space: 4 }) {
+                    if (blk.title.length > 0) {
+                      Text(blk.title).fontSize(14).fontWeight(FontWeight.Bold).fontColor(this.alertTint(blk.tone))
+                    }
+                    Text(blk.body).fontSize(13).fontColor(mpPrimaryText(this.isDark)).lineHeight(20)
+                  }.alignItems(HorizontalAlign.Start).width('100%')
+                }
+              } else if (blk.kind === 'heading') {
+                Text(blk.body)
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(mpPrimaryText(this.isDark))
+                  .width('100%')
+                  .margin({ top: 4 })
+              } else if (blk.kind === 'chip') {
+                NativeAdaptiveBadge({ text: blk.body, tintHex: this.accentHex })
+              } else {
+                CinematicPanel({ panelPadding: 13, cornerRadius: 14 }) {
+                  Text(blk.body).fontSize(13).fontColor(mpSecondaryText(this.isDark)).lineHeight(20).width('100%')
+                }
               }
-            } else if (blk.kind === 'alert') {
-              CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
-                Column({ space: 4 }) {
-                  if (blk.title.length > 0) {
-                    Text(blk.title).fontSize(14).fontWeight(FontWeight.Bold).fontColor(this.alertTint(blk.tone))
-                  }
-                  Text(blk.body).fontSize(13).fontColor(mpPrimaryText(this.isDark)).lineHeight(20)
-                }.alignItems(HorizontalAlign.Start).width('100%')
-              }
-            } else if (blk.kind === 'heading') {
-              Text(blk.body)
-                .fontSize(16)
-                .fontWeight(FontWeight.Bold)
-                .fontColor(mpPrimaryText(this.isDark))
-                .width('100%')
-                .margin({ top: 4 })
-            } else if (blk.kind === 'chip') {
-              NativeAdaptiveBadge({ text: blk.body, tintHex: this.accentHex })
-            } else {
-              CinematicPanel({ panelPadding: 13, cornerRadius: 14 }) {
-                Text(blk.body).fontSize(13).fontColor(mpSecondaryText(this.isDark)).lineHeight(20).width('100%')
-              }
-            }
-          }, (blk: PluginDataBlock) => blk.id)
+            }, (blk: PluginDataBlock) => blk.id)
+          }
+          .width('100%')
+          .constraintSize({ maxWidth: 860 })
+          .padding({ left: 16, right: 16, top: 8, bottom: 28 })
         }
-        .padding({ left: 16, right: 16, top: 8, bottom: 28 })
+        .width('100%')
+        .alignItems(HorizontalAlign.Center)
       }
       .align(Alignment.Top)
       .scrollBar(BarState.Off)
@@ -798,6 +811,8 @@ export struct NativePluginDataPageView {
 export struct IsolatedVuePluginWebView {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) @Watch('onHostWindowResize') windowWidthVp: number = 412;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) @Watch('onHostWindowResize') windowHeightVp: number = 892;
   @Prop pluginId: string = '';
   @Prop serverUrl: string = '';
   @Prop authToken: string = '';
@@ -818,6 +833,8 @@ export struct IsolatedVuePluginWebView {
   private routeRevision: number = 0;
   private stateRevision: number = 0;
   private layoutRevision: number = 0;
+  private webWidthVp: number = 0;
+  private webHeightVp: number = 0;
   private seq: number = 0;
   private currentSheetId: string = '';
   private currentSheetCanDismiss: boolean = false;
@@ -1026,10 +1043,26 @@ if(!window.MoviePilotNative&&window.__mpHarmonyChromeHost){
     }
   }
 
+  private effectiveWebWidthVp(): number {
+    return Math.max(240, Math.round(this.webWidthVp > 0 ? this.webWidthVp : this.windowWidthVp));
+  }
+
+  private effectiveWebHeightVp(): number {
+    return Math.max(180, Math.round(this.webHeightVp > 0 ? this.webHeightVp : this.windowHeightVp));
+  }
+
+  onHostWindowResize(): void {
+    if (this.phase === 'active' && this.webWidthVp <= 0) {
+      this.sendChromeEnvelope('host.layout', this.layoutPayloadJson());
+    }
+  }
+
   private layoutPayloadJson(): string {
     this.layoutRevision += 1;
     const zero = '{"top":0,"left":0,"bottom":0,"right":0}';
-    return `{"layoutRevision":${this.layoutRevision},"viewportPoints":{"width":390,"height":844},"contentInsets":${zero},"systemSafeArea":${zero},"chromeOcclusion":${zero},"keyboardOcclusion":0,"consumedByNativeFrame":true}`;
+    const w = this.effectiveWebWidthVp();
+    const h = this.effectiveWebHeightVp();
+    return `{"layoutRevision":${this.layoutRevision},"viewportPoints":{"width":${w},"height":${h}},"contentInsets":${zero},"systemSafeArea":${zero},"chromeOcclusion":${zero},"keyboardOcclusion":0,"consumedByNativeFrame":true}`;
   }
 
   private handleChromeMessage(rawJson: string): void {
@@ -1295,6 +1328,18 @@ if(!window.MoviePilotNative&&window.__mpHarmonyChromeHost){
     }
     .width('100%')
     .height('100%')
+    .onAreaChange((_oldArea: Area, newArea: Area) => {
+      const nextW = Math.round(Number(newArea.width));
+      const nextH = Math.round(Number(newArea.height));
+      if (Number.isFinite(nextW) && nextW > 0 && Number.isFinite(nextH) && nextH > 0) {
+        const changed = Math.abs(nextW - this.webWidthVp) >= 1 || Math.abs(nextH - this.webHeightVp) >= 1;
+        this.webWidthVp = nextW;
+        this.webHeightVp = nextH;
+        if (changed && this.phase === 'active') {
+          this.sendChromeEnvelope('host.layout', this.layoutPayloadJson());
+        }
+      }
+    })
   }
 }
 
@@ -1504,8 +1549,9 @@ export struct NativePluginHostView {
       })
     } else {
       Scroll() {
-        Column({ space: 12 }) {
-          ForEach(this.fields.filter((f: PluginFieldPlan) => f.visible), (field: PluginFieldPlan, idx: number) => {
+        Column() {
+          Column({ space: 12 }) {
+            ForEach(this.fields.filter((f: PluginFieldPlan) => f.visible), (field: PluginFieldPlan, idx: number) => {
             if (field.component === 'VSwitch' || field.component === 'VCheckbox') {
               CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
                 Row({ space: 10 }) {
@@ -1661,8 +1707,13 @@ export struct NativePluginHostView {
               this.onSaveFullModel(merged);
               this.saving = false;
             })
+          }
+          .width('100%')
+          .constraintSize({ maxWidth: 760 })
+          .padding({ left: 16, right: 16, top: 10, bottom: 28 })
         }
-        .padding({ left: 16, right: 16, top: 10, bottom: 28 })
+        .width('100%')
+        .alignItems(HorizontalAlign.Center)
       }
       .align(Alignment.Top)
       .scrollBar(BarState.Off)

@@ -57,6 +57,11 @@ const MAIN_TAB_ORDER: HarmonyMainTab[] = ['discover', 'explore', 'subscribe', 'm
 struct Index {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) @Watch('onDarkChanged') isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_BREAKPOINT) breakpoint: string = 'sm';
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_BOTTOM_VP) safeBottomVp: number = 16;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_LEFT_VP) safeLeftVp: number = 0;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_RIGHT_VP) safeRightVp: number = 0;
   @StorageLink(HarmonyAppearanceStore.KEY_SHOW_AI_MASCOT) showAiMascot: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ALLOW_SELF_SIGNED) allowSelfSigned: boolean = false;
   @StorageProp('mp_pending_deeplink') @Watch('onPendingDeepLinkChanged') pendingDeepLink: string = '';
@@ -632,7 +637,7 @@ struct Index {
               FloatingAiMascotButton({
                 miniMusicVisible: this.miniMusic !== null,
                 baseRight: 22,
-                baseBottom: 26,
+                baseBottom: Math.max(20, this.safeBottomVp + 10),
                 onTap: () => this.pushRoute('agent')
               })
             }
@@ -648,14 +653,23 @@ struct Index {
                   this.miniMusic = null;
                 }
               })
-                .margin({ bottom: 18 })
+                .margin({ bottom: Math.max(12, this.safeBottomVp + 4) })
             }
           }
           .layoutWeight(1)
           .height('100%')
+          .padding({ right: this.safeRightVp })
+          .expandSafeArea(
+            [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+            [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM]
+          )
         }
         .width('100%')
         .height('100%')
+        .expandSafeArea(
+          [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+          [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END]
+        )
       } else {
         Stack({ alignContent: Alignment.Bottom }) {
           this.preservedTabsBuilder()
@@ -669,7 +683,7 @@ struct Index {
               FloatingAiMascotButton({
                 miniMusicVisible: this.miniMusic !== null,
                 baseRight: 14,
-                baseBottom: 94,
+                baseBottom: (this.windowHeightVp > 0 && this.windowHeightVp < 480 ? 68 : 76) + Math.max(10, this.safeBottomVp),
                 onTap: () => this.pushRoute('agent')
               })
             }
@@ -698,12 +712,17 @@ struct Index {
         }
         .width('100%')
         .height('100%')
-        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+        .padding({ left: this.safeLeftVp, right: this.safeRightVp })
+        .expandSafeArea(
+          [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+          [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM]
+        )
       }
 
       if (this.activePlayer) {
         NativeMediaPlayerView({
           request: this.activePlayer,
+          isLandscape: this.windowWidthVp > this.windowHeightVp,
           onClose: () => { this.activePlayer = null; },
           onMinimizeToMiniBar: () => {
             this.miniMusic = this.activePlayer;
@@ -714,6 +733,9 @@ struct Index {
     }
     .width('100%')
     .height('100%')
-    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    .expandSafeArea(
+      [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+      [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END]
+    )
   }
 }

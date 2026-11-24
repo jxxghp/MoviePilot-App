@@ -141,6 +141,7 @@ export struct CommunityMedal3DComponent {
   @Prop subtitle: string = 'Tier 4';
   @Prop @Watch('onMedalPropsChanged') ownerName: string = 'MoviePilot';
   @Prop @Watch('onMedalPropsChanged') earnedDate: string = '2026-11';
+  @Prop @Watch('onMedalPropsChanged') medalSize: number = 240;
   @State @Watch('onPoseChanged') private rotY: number = 0;
   @State @Watch('onPoseChanged') private rotX: number = 0;
   @State private frontSpec: MedalOutlineSpec = { outline: [], dial: DEFAULT_DIAL_RECT };
@@ -289,11 +290,19 @@ export struct CommunityMedal3DComponent {
     }
   }
 
+  private resolvedMedalSize(): number {
+    return Math.max(120, this.medalSize > 0 ? this.medalSize : 240);
+  }
+
   /** 绘制多层金属侧边浮雕厚度（沿真实 `outline.json` 花瓣/齿轮轮廓挤压）。 */
   private drawMetallicRimRelief(): void {
     const ctx = this.rimCanvasCtx;
+    const canvasSize = this.resolvedMedalSize();
     const w = 240;
-    ctx.clearRect(0, 0, w, w);
+    ctx.clearRect(0, 0, canvasSize, canvasSize);
+    ctx.save();
+    const s = canvasSize / w;
+    ctx.scale(s, s);
     const p = this.palette();
     const activeOutline = this.isShowingBack() ? this.backSpec.outline : this.frontSpec.outline;
     const radY = (this.rotY * Math.PI) / 180;
@@ -326,19 +335,23 @@ export struct CommunityMedal3DComponent {
       ctx.stroke();
       ctx.restore();
     }
+    ctx.restore();
   }
 
   /** 绘制受倾角与旋转角度实时驱动的金属高光扫光层（严格裁剪在 `outline.json` 内，零方框溢出）。 */
   private drawSpecularSweep(): void {
     const ctx = this.specCanvasCtx;
+    const canvasSize = this.resolvedMedalSize();
     const w = 240;
-    ctx.clearRect(0, 0, w, w);
+    ctx.clearRect(0, 0, canvasSize, canvasSize);
     const activeOutline = this.isShowingBack() ? this.backSpec.outline : this.frontSpec.outline;
     const radY = (this.rotY * Math.PI) / 180;
     const sweepRatio = 0.5 + Math.sin(radY * 1.35) * 0.44 - (this.rotX / 68);
     const clampedCenter = Math.max(0.08, Math.min(0.92, sweepRatio));
 
     ctx.save();
+    const s = canvasSize / w;
+    ctx.scale(s, s);
     this.traceOutlinePath(ctx, activeOutline, w, 3, 0, 0);
     ctx.clip();
 
@@ -364,8 +377,12 @@ export struct CommunityMedal3DComponent {
   private drawEngravedOverlay(): void {
     const p = this.palette();
     const ctx = this.backCanvasCtx;
+    const canvasSize = this.resolvedMedalSize();
     const w = 240;
-    ctx.clearRect(0, 0, w, w);
+    ctx.clearRect(0, 0, canvasSize, canvasSize);
+    ctx.save();
+    const s = canvasSize / w;
+    ctx.scale(s, s);
 
     const dial = this.backSpec.dial ?? DEFAULT_DIAL_RECT;
     const cx = dial.x * w;
@@ -443,6 +460,7 @@ export struct CommunityMedal3DComponent {
     drawCarved(this.title, dialCenterY - dialH * 0.02, 13.5, textMaxW);
     drawCarved(`@${this.ownerName}`, dialCenterY + dialH * 0.24, 11.0, textMaxW);
     drawCarved(this.earnedDate, dialCenterY + dialH * 0.46, 9.5, textMaxW);
+    ctx.restore();
   }
 
   private isShowingBack(): boolean {
@@ -460,16 +478,16 @@ export struct CommunityMedal3DComponent {
   }
 
   build() {
-    Column({ space: 12 }) {
+    Column({ space: this.resolvedMedalSize() < 200 ? 8 : 12 }) {
       Stack({ alignContent: Alignment.Center }) {
         // 圆形金属柔和光晕底座（绝无方形硬边）
         Column()
-          .width(248)
-          .height(248)
-          .borderRadius(124)
+          .width(this.resolvedMedalSize() + 8)
+          .height(this.resolvedMedalSize() + 8)
+          .borderRadius(Math.round((this.resolvedMedalSize() + 8) / 2))
           .radialGradient({
             center: ['50%', '50%'],
-            radius: 124,
+            radius: Math.round((this.resolvedMedalSize() + 8) / 2),
             colors: [[`${this.palette().rim_hex}`, 0.0], ['#00000000', 1.0]]
           })
           .opacity(this.isDark ? 0.26 : 0.18)
@@ -479,8 +497,8 @@ export struct CommunityMedal3DComponent {
           if (!this.isShowingBack()) {
             Stack({ alignContent: Alignment.Center }) {
               Canvas(this.rimCanvasCtx)
-                .width(240)
-                .height(240)
+                .width(this.resolvedMedalSize())
+                .height(this.resolvedMedalSize())
                 .hitTestBehavior(HitTestMode.None)
                 .onReady(() => {
                   this.rimCanvasReady = true;
@@ -489,14 +507,14 @@ export struct CommunityMedal3DComponent {
 
               MedalRawfileImage({
                 assetName: this.frontAsset,
-                imgSize: 236,
+                imgSize: Math.max(116, Math.round(this.resolvedMedalSize() * (236 / 240))),
                 imgOpacity: 1.0,
                 showSoftDropShadow: true
               })
 
               Canvas(this.specCanvasCtx)
-                .width(240)
-                .height(240)
+                .width(this.resolvedMedalSize())
+                .height(this.resolvedMedalSize())
                 .hitTestBehavior(HitTestMode.None)
                 .onReady(() => {
                   this.specCanvasReady = true;
@@ -506,8 +524,8 @@ export struct CommunityMedal3DComponent {
           } else {
             Stack({ alignContent: Alignment.Center }) {
               Canvas(this.rimCanvasCtx)
-                .width(240)
-                .height(240)
+                .width(this.resolvedMedalSize())
+                .height(this.resolvedMedalSize())
                 .hitTestBehavior(HitTestMode.None)
                 .onReady(() => {
                   this.rimCanvasReady = true;
@@ -516,14 +534,14 @@ export struct CommunityMedal3DComponent {
 
               MedalRawfileImage({
                 assetName: this.backAsset,
-                imgSize: 236,
+                imgSize: Math.max(116, Math.round(this.resolvedMedalSize() * (236 / 240))),
                 imgOpacity: 1.0,
                 showSoftDropShadow: true
               })
 
               Canvas(this.backCanvasCtx)
-                .width(240)
-                .height(240)
+                .width(this.resolvedMedalSize())
+                .height(this.resolvedMedalSize())
                 .hitTestBehavior(HitTestMode.None)
                 .onReady(() => {
                   this.backCanvasReady = true;
@@ -531,8 +549,8 @@ export struct CommunityMedal3DComponent {
                 })
 
               Canvas(this.specCanvasCtx)
-                .width(240)
-                .height(240)
+                .width(this.resolvedMedalSize())
+                .height(this.resolvedMedalSize())
                 .hitTestBehavior(HitTestMode.None)
                 .onReady(() => {
                   this.specCanvasReady = true;
@@ -542,8 +560,8 @@ export struct CommunityMedal3DComponent {
             .scale({ x: -1, y: 1 })
           }
         }
-        .width(244)
-        .height(244)
+        .width(this.resolvedMedalSize() + 4)
+        .height(this.resolvedMedalSize() + 4)
         .rotate({ x: 0, y: 1, z: 0, angle: this.rotY, perspective: 12 })
         .rotate({ x: 1, y: 0, z: 0, angle: this.rotX, perspective: 12 })
         .gesture(
@@ -563,48 +581,66 @@ export struct CommunityMedal3DComponent {
             })
         )
       }
-      .width(256)
-      .height(256)
+      .width(this.resolvedMedalSize() + 16)
+      .height(this.resolvedMedalSize() + 16)
 
       Row({ space: 10 }) {
         Button() {
           Row({ space: 6 }) {
             SymbolGlyph($r('sys.symbol.arrow_clockwise'))
-              .fontSize(14)
+              .fontSize(this.resolvedMedalSize() < 200 ? 13 : 14)
               .fontColor([mpPrimaryText(this.isDark)])
             Text(this.isShowingBack() ? '翻转至正面' : '翻转查看背面雕刻')
-              .fontSize(13)
+              .fontSize(this.resolvedMedalSize() < 200 ? 12 : 13)
               .fontWeight(FontWeight.Medium)
               .fontColor(mpPrimaryText(this.isDark))
           }
-          .padding({ left: 16, right: 16 })
+          .padding({
+            left: this.resolvedMedalSize() < 200 ? 12 : 16,
+            right: this.resolvedMedalSize() < 200 ? 12 : 16
+          })
         }
-        .height(36)
-        .borderRadius(18)
+        .height(this.resolvedMedalSize() < 200 ? 32 : 36)
+        .borderRadius(this.resolvedMedalSize() < 200 ? 16 : 18)
         .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-        .border({ width: 0.6, color: HarmonyThemeColors.borderSubtle(this.isDark), radius: 18 })
+        .border({ width: 0.6, color: HarmonyThemeColors.borderSubtle(this.isDark), radius: this.resolvedMedalSize() < 200 ? 16 : 18 })
         .onClick(() => this.flipSmoothly())
       }
 
-      Text('左右滑动 360° 旋转检视金属浮雕与背面三遍凹雕')
-        .fontSize(12)
+      Text(this.resolvedMedalSize() < 200 ? '左右滑动 360° 旋转检视' : '左右滑动 360° 旋转检视金属浮雕与背面三遍凹雕')
+        .fontSize(this.resolvedMedalSize() < 200 ? 11 : 12)
         .fontColor(mpSecondaryText(this.isDark))
+        .textAlign(TextAlign.Center)
     }
     .alignItems(HorizontalAlign.Center)
   }
 }
 
-/** 仪表盘嵌入式 4 列真实社区勋章矩阵组件（与 iOS `NativeCommunityMedalsWidget` 1:1 视觉一致）。 */
+/** 仪表盘嵌入式自适应列社区勋章矩阵组件（与 iOS `NativeCommunityMedalsWidget` 视觉一致）。 */
 @Component
 export struct NativeCommunityMedalsWidget {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
   @Prop githubLogin: string = 'MoviePilot';
   @Prop earnedCount: number = 0;
   @Prop totalCount: number = 7;
   @Prop wornMedalId: string = '';
   @Prop medals: MpCommunityMedal[] = [];
   onSelectMedal: (medal: MpCommunityMedal) => void = () => {};
+
+  private columnsTemplate(): string {
+    if (this.windowWidthVp >= 760) {
+      const cols = this.medals.length >= 7 ? 7 : 6;
+      const parts: string[] = [];
+      for (let i = 0; i < cols; i++) { parts.push('1fr'); }
+      return parts.join(' ');
+    }
+    if (this.windowWidthVp >= 580) {
+      return '1fr 1fr 1fr 1fr 1fr';
+    }
+    return '1fr 1fr 1fr 1fr';
+  }
 
   build() {
     CinematicPanel({ panelPadding: 16 }) {
@@ -647,7 +683,7 @@ export struct NativeCommunityMedalsWidget {
                   }
                 }
                 Text(medal.title)
-                  .fontSize(10)
+                  .fontSize(10.5)
                   .fontWeight(FontWeight.Medium)
                   .fontColor(medal.earned ? mpPrimaryText(this.isDark) : mpSecondaryText(this.isDark))
                   .maxLines(1)
@@ -660,11 +696,10 @@ export struct NativeCommunityMedalsWidget {
             }
           }, (medal: MpCommunityMedal) => `${medal.id}_${medal.tier}_${medal.earned}_${medal.worn}`)
         }
-        .columnsTemplate('1fr 1fr 1fr 1fr')
+        .columnsTemplate(this.columnsTemplate())
         .columnsGap(8)
         .rowsGap(10)
         .width('100%')
-        .height(this.medals.length > 4 ? 182 : 92)
       }
     }
   }

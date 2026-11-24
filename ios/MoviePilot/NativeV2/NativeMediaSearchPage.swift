@@ -440,6 +440,8 @@ struct NativeMediaSearchPage: View {
   @State private var searchTask: Task<Void, Never>?
   @State private var searchGeneration = UUID()
   @State private var recentQueries: [String] = []
+  @State private var containerWidth: CGFloat = 0
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @FocusState private var searchFocused: Bool
 
   /// 搜索详情回调只传输受控来源和原生 ID，不传自由 URL。
@@ -513,7 +515,13 @@ struct NativeMediaSearchPage: View {
             }
           } else if failure == nil {
             if isSearching {
-              NativePosterGridSkeletonView(columns: 3, count: 9)
+              let skeletonColumns =
+                containerWidth > 0
+                ? NativeDeviceLayout.posterGridCount(
+                  for: min(containerWidth, 760),
+                  isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+                : 3
+              NativePosterGridSkeletonView(columns: skeletonColumns, count: skeletonColumns * 3)
                 .transition(.opacity)
             } else if loadedPage > 0 {
               statusCard(
@@ -529,6 +537,7 @@ struct NativeMediaSearchPage: View {
         .frame(maxWidth: 760)
         .frame(maxWidth: .infinity)
       }
+      .nativeTrackContainerWidth($containerWidth)
       .scrollDismissesKeyboard(.interactively)
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-media-search-scroll")
@@ -1888,7 +1897,7 @@ struct NativeMediaCollectionDetailPage: View {
           collectionHeaderCard
 
           if isLoading && items.isEmpty {
-            NativePosterGridSkeletonView(columns: horizontalSizeClass == .regular ? 5 : 3, count: 6)
+            NativePosterGridSkeletonView(columns: gridColumns.count, count: gridColumns.count * 2)
           } else if loadFailed && items.isEmpty {
             CinematicPanel {
               VStack(spacing: 10) {

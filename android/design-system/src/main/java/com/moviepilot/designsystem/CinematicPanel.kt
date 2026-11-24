@@ -9,12 +9,20 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +40,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeProgressive
@@ -177,7 +186,7 @@ fun CinematicGlassCapsule(
 
 /**
  * Android Material Design 3 标准模态底部表单（ModalBottomSheet）：
- * 采用实色 `surfaceContainerLow` 表面、28dp 顶部圆角、标准拖动手柄、外部轻点与系统 Back 返回关闭。
+ * 采用实色 `surfaceContainerLow` 表面、28dp 顶部圆角、紧凑横屏拖动手柄、90% 屏幕最大高度约束、水平挖孔与底部导航/软键盘安全避让。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -187,17 +196,40 @@ fun NativeGlassSheet(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    val cfg = LocalConfiguration.current
+    val compactHeight = cfg.screenHeightDp < 480
+    val maxSheetBodyHeight = (cfg.screenHeightDp * 0.90f - if (compactHeight) 22f else 32f).coerceAtLeast(180f).dp
+    val cornerRadius = if (compactHeight) 22.dp else 28.dp
+
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        shape = RoundedCornerShape(topStart = cornerRadius, topEnd = cornerRadius),
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         contentColor = colors.textPrimary,
         scrimColor = Color.Black.copy(alpha = if (colors.isDark) 0.54f else 0.32f),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = if (compactHeight) 8.dp else 14.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 36.dp, height = 4.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.40f)),
+                )
+            }
+        },
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(max = maxSheetBodyHeight)
+                .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
+                .navigationBarsPadding()
                 .imePadding(),
             content = content,
         )

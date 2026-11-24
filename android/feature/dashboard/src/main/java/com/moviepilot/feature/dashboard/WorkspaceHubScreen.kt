@@ -102,6 +102,13 @@ fun WorkspaceHubScreen(
 ) {
     val colors = LocalMoviePilotColors.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
+    val gridCols = AdaptiveDeviceLayout.effectiveContentWidthDp().let { w ->
+        when {
+            w >= 1040 -> 4
+            w >= 700 -> 3
+            else -> 2
+        }
+    }
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -314,12 +321,10 @@ fun WorkspaceHubScreen(
                                 style = MaterialTheme.typography.labelLarge,
                                 modifier = Modifier.padding(start = 4.dp),
                             )
-                            flowCards.chunked(2).forEach { pair ->
+                            flowCards.chunked(gridCols).forEach { rowItems ->
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    pair[0](Modifier.weight(1f))
-                                    if (pair.size > 1) {
-                                        pair[1](Modifier.weight(1f))
-                                    } else {
+                                    rowItems.forEach { card -> card(Modifier.weight(1f)) }
+                                    repeat(gridCols - rowItems.size) {
                                         Spacer(Modifier.weight(1f))
                                     }
                                 }
@@ -392,9 +397,17 @@ fun WorkspaceHubScreen(
                     }
                 }
 
-                // 分组 4：系统诊断（管理员专属）
+                // 分组 4：系统诊断（管理员专属，自适应 2~4 列网格）
                 if (isAdmin) {
                     item(key = "ws_system_diagnostics") {
+                        val diagItems: List<@Composable (Modifier) -> Unit> = listOf(
+                            { mod -> DiagnosticQuickPill("系统检查", Icons.Rounded.Shield, colors.success, mod) { onOpenDiagnosticTab("健康检查") } },
+                            { mod -> DiagnosticQuickPill("定时服务", Icons.Rounded.Schedule, colors.pink, mod) { onOpenDiagnosticTab("定时服务") } },
+                            { mod -> DiagnosticQuickPill("实时日志", Icons.Rounded.Terminal, colors.info, mod) { onOpenDiagnosticTab("实时日志") } },
+                            { mod -> DiagnosticQuickPill("词表管理", Icons.Rounded.Book, colors.cyan, mod) { onOpenDiagnosticTab("词表") } },
+                            { mod -> DiagnosticQuickPill("名称识别", Icons.Rounded.Search, colors.brand, mod) { onOpenDiagnosticTab("名称识别") } },
+                            { mod -> DiagnosticQuickPill("网络测试", Icons.Rounded.Language, colors.warning, mod) { onOpenDiagnosticTab("网络测试") } },
+                        )
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text(
                                 "系统诊断",
@@ -404,17 +417,13 @@ fun WorkspaceHubScreen(
                             )
                             CinematicPanel(padding = 12.dp, showsShadow = false) {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        DiagnosticQuickPill("系统检查", Icons.Rounded.Shield, colors.success, Modifier.weight(1f)) { onOpenDiagnosticTab("健康检查") }
-                                        DiagnosticQuickPill("定时服务", Icons.Rounded.Schedule, colors.pink, Modifier.weight(1f)) { onOpenDiagnosticTab("定时服务") }
-                                    }
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        DiagnosticQuickPill("实时日志", Icons.Rounded.Terminal, colors.info, Modifier.weight(1f)) { onOpenDiagnosticTab("实时日志") }
-                                        DiagnosticQuickPill("词表管理", Icons.Rounded.Book, colors.cyan, Modifier.weight(1f)) { onOpenDiagnosticTab("词表") }
-                                    }
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        DiagnosticQuickPill("名称识别", Icons.Rounded.Search, colors.brand, Modifier.weight(1f)) { onOpenDiagnosticTab("名称识别") }
-                                        DiagnosticQuickPill("网络测试", Icons.Rounded.Language, colors.warning, Modifier.weight(1f)) { onOpenDiagnosticTab("网络测试") }
+                                    diagItems.chunked(gridCols).forEach { rowItems ->
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            rowItems.forEach { pill -> pill(Modifier.weight(1f)) }
+                                            repeat(gridCols - rowItems.size) {
+                                                Spacer(Modifier.weight(1f))
+                                            }
+                                        }
                                     }
                                 }
                             }

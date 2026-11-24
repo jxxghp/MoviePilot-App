@@ -33,6 +33,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @ObservedObject private var appearance = NativeAppearanceStore.shared
   @ObservedObject private var playbackLauncher = NativeMediaPlaybackLauncher.shared
   @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.verticalSizeClass) private var verticalSizeClass
   @Environment(\.nativeVerticalBarEdge) private var verticalBarEdge
   @State private var selectedTab: Page = .discover
   @State private var discovery = NativeDiscoverContent(
@@ -1765,12 +1766,17 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       }
       .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
       .modifier(NativeLiquidGlassPopoverSurface(cornerRadius: 18))
-      .frame(maxWidth: NativeDeviceLayout.isIPad ? 520 : .infinity)
+      .frame(maxWidth: 520)
       .padding(.horizontal, 14)
       .padding(
         .bottom,
-        usesDuoSideOperationBar ? 16 : (NativeDeviceLayout.isIPad ? 24 : 86))
+        usesDuoSideOperationBar
+          ? 16
+          : (NativeDeviceLayout.isIPad
+            ? 24
+            : ((verticalSizeClass == .compact && !NativeDeviceLayout.isIPad) ? 56 : 86)))
     }
+    .frame(maxWidth: .infinity)
     .accessibilityIdentifier("native-mini-music-bar")
   }
 
@@ -1864,16 +1870,22 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       .accessibilityIdentifier("native-overflow-menu-backdrop")
   }
 
-  /// 高透液态玻璃悬浮菜单卡片：顶部展示当前用户头像与信息，下方集中承载全部次级功能入口。
+  /// 当前是否处于普通 iPhone 横屏紧凑高度形态（底部标签栏压缩、垂直可用高度约 354–393pt）。
+  private var isCompactPhoneLandscape: Bool {
+    verticalSizeClass == .compact && !NativeDeviceLayout.isIPad && !usesDuoSideOperationBar
+  }
+
+  /// 高透液态玻璃悬浮菜单卡片：顶部展示当前用户头像与信息，下方集中承载全部次级功能入口；手机横屏自动切换双列紧凑排布避免触顶裁剪。
   private var overflowMenuCard: some View {
-    VStack(alignment: .leading, spacing: 0) {
+    let compactLandscape = isCompactPhoneLandscape
+    return VStack(alignment: .leading, spacing: 0) {
       HStack(spacing: 11) {
         NativeUserAvatarView(
           session: session,
           avatar: snapshot.user.avatar,
           name: snapshot.user.name,
           isSuperuser: snapshot.user.isSuperuser,
-          size: 38
+          size: compactLandscape ? 34 : 38
         )
         VStack(alignment: .leading, spacing: 2) {
           Text(snapshot.user.name)
@@ -1893,7 +1905,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         Spacer(minLength: 0)
       }
       .padding(.horizontal, 14)
-      .padding(.vertical, 12)
+      .padding(.vertical, compactLandscape ? 9 : 12)
       .accessibilityElement(children: .combine)
       .accessibilityIdentifier("native-overflow-user-header")
 
@@ -1903,98 +1915,157 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         overflowMenuRows(
           canSubscribe: canSubscribe,
           canSearchResources: canSearchResources,
-          canManageDownloads: canManageDownloads
+          canManageDownloads: canManageDownloads,
+          twoColumns: compactLandscape
         )
         ScrollView {
           overflowMenuRows(
             canSubscribe: canSubscribe,
             canSearchResources: canSearchResources,
-            canManageDownloads: canManageDownloads
+            canManageDownloads: canManageDownloads,
+            twoColumns: compactLandscape
           )
         }
         .scrollIndicators(.hidden)
-        .frame(maxHeight: 440)
+        .frame(maxHeight: compactLandscape ? 220 : 440)
         .accessibilityIdentifier("native-overflow-menu-scroll")
       }
     }
-    .frame(width: NativeDeviceLayout.isIPad ? 276 : 238)
+    .frame(width: compactLandscape ? 356 : (NativeDeviceLayout.isIPad ? 276 : 238))
     .modifier(NativeLiquidGlassPopoverSurface(cornerRadius: 26))
     .padding(.horizontal, 16)
-    .padding(.top, NativeDeviceLayout.isIPad ? 72 : 0)
-    .padding(.bottom, NativeDeviceLayout.isIPad ? 24 : (usesDuoSideOperationBar ? 20 : 92))
+    .padding(.top, NativeDeviceLayout.isIPad ? 72 : (compactLandscape ? 8 : 0))
+    .padding(
+      .bottom,
+      NativeDeviceLayout.isIPad ? 24 : (usesDuoSideOperationBar ? 20 : (compactLandscape ? 58 : 92))
+    )
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: overflowMenuAlignment)
   }
 
-  /// 悬浮快捷菜单条目容器：优先按内容真实高度紧密包裹，仅在超长字号或小屏时退化为滚动。
+  /// 悬浮快捷菜单条目容器：竖屏单列、手机横屏双列紧凑排布，仅在超长字号时退化为滚动。
+  @ViewBuilder
   private func overflowMenuRows(
     canSubscribe: Bool,
     canSearchResources: Bool,
-    canManageDownloads: Bool
+    canManageDownloads: Bool,
+    twoColumns: Bool = false
   ) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
-      if canSubscribe || canSearchResources || canManageDownloads {
+    if twoColumns {
+      LazyVGrid(
+        columns: [GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4)],
+        spacing: 2
+      ) {
         if canSubscribe {
           overflowMenuRow(
-            title: t("我的订阅"), symbol: "bookmark.fill", id: "native-workspace-subscriptions"
+            title: t("我的订阅"), symbol: "bookmark.fill", id: "native-workspace-subscriptions",
+            compact: true
           ) { openFromOverflow(.subscriptions) }
           overflowMenuRow(
-            title: t("订阅日历"), symbol: "calendar", id: "native-workspace-calendar"
+            title: t("订阅日历"), symbol: "calendar", id: "native-workspace-calendar",
+            compact: true
           ) { openFromOverflow(.calendar) }
         }
         if canSearchResources {
           overflowMenuRow(
             title: t("站点资源"), symbol: "magnifyingglass.circle.fill",
-            id: "native-workspace-resources"
+            id: "native-workspace-resources", compact: true
           ) { openFromOverflow(.resources) }
         }
         if canManageDownloads {
           overflowMenuRow(
-            title: t("下载"), symbol: "arrow.down.circle.fill", id: "native-workspace-downloads"
+            title: t("下载"), symbol: "arrow.down.circle.fill", id: "native-workspace-downloads",
+            compact: true
           ) { openFromOverflow(.downloads) }
-        }
-      }
-
-      if canManageDownloads || snapshot.user.isSuperuser {
-        Divider().overlay(.primary.opacity(0.10)).padding(.vertical, 4)
-        if canManageDownloads {
           overflowMenuRow(
-            title: t("文件管理"), symbol: "folder.fill", id: "native-workspace-files"
+            title: t("文件管理"), symbol: "folder.fill", id: "native-workspace-files",
+            compact: true
           ) { openFromOverflow(.files) }
           overflowMenuRow(
-            title: t("整理历史"), symbol: "clock.arrow.circlepath", id: "native-workspace-history"
+            title: t("整理历史"), symbol: "clock.arrow.circlepath", id: "native-workspace-history",
+            compact: true
           ) { openFromOverflow(.history) }
           overflowMenuRow(
-            title: t("工作流"), symbol: "flowchart", id: "native-workspace-workflows"
+            title: t("工作流"), symbol: "flowchart", id: "native-workspace-workflows",
+            compact: true
           ) { openFromOverflow(.workflows) }
         }
         if snapshot.user.isSuperuser {
           overflowMenuRow(
             title: t("插件"), symbol: "puzzlepiece.extension.fill",
-            id: "native-overflow-plugin-market"
+            id: "native-overflow-plugin-market", compact: true
           ) { openFromOverflow(.pluginMarket) }
         }
       }
+      .padding(.horizontal, 6)
+      .padding(.vertical, 6)
+    } else {
+      VStack(alignment: .leading, spacing: 2) {
+        if canSubscribe || canSearchResources || canManageDownloads {
+          if canSubscribe {
+            overflowMenuRow(
+              title: t("我的订阅"), symbol: "bookmark.fill", id: "native-workspace-subscriptions"
+            ) { openFromOverflow(.subscriptions) }
+            overflowMenuRow(
+              title: t("订阅日历"), symbol: "calendar", id: "native-workspace-calendar"
+            ) { openFromOverflow(.calendar) }
+          }
+          if canSearchResources {
+            overflowMenuRow(
+              title: t("站点资源"), symbol: "magnifyingglass.circle.fill",
+              id: "native-workspace-resources"
+            ) { openFromOverflow(.resources) }
+          }
+          if canManageDownloads {
+            overflowMenuRow(
+              title: t("下载"), symbol: "arrow.down.circle.fill", id: "native-workspace-downloads"
+            ) { openFromOverflow(.downloads) }
+          }
+        }
+
+        if canManageDownloads || snapshot.user.isSuperuser {
+          Divider().overlay(.primary.opacity(0.10)).padding(.vertical, 4)
+          if canManageDownloads {
+            overflowMenuRow(
+              title: t("文件管理"), symbol: "folder.fill", id: "native-workspace-files"
+            ) { openFromOverflow(.files) }
+            overflowMenuRow(
+              title: t("整理历史"), symbol: "clock.arrow.circlepath", id: "native-workspace-history"
+            ) { openFromOverflow(.history) }
+            overflowMenuRow(
+              title: t("工作流"), symbol: "flowchart", id: "native-workspace-workflows"
+            ) { openFromOverflow(.workflows) }
+          }
+          if snapshot.user.isSuperuser {
+            overflowMenuRow(
+              title: t("插件"), symbol: "puzzlepiece.extension.fill",
+              id: "native-overflow-plugin-market"
+            ) { openFromOverflow(.pluginMarket) }
+          }
+        }
+      }
+      .padding(.vertical, 8)
     }
-    .padding(.vertical, 8)
   }
 
   /// 悬浮快捷菜单中的单个原生入口行（图标统一采用文本色，不叠加额外彩色）。
   private func overflowMenuRow(
-    title: String, symbol: String, id: String, action: @escaping () -> Void
+    title: String, symbol: String, id: String, compact: Bool = false,
+    action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
-      HStack(spacing: 12) {
+      HStack(spacing: compact ? 9 : 12) {
         Image(systemName: symbol)
-          .font(.body.weight(.medium))
-          .frame(width: 22)
+          .font(compact ? .subheadline.weight(.medium) : .body.weight(.medium))
+          .frame(width: compact ? 20 : 22)
           .foregroundStyle(.primary)
         Text(title)
           .font(.subheadline.weight(.medium))
           .foregroundStyle(.primary)
-        Spacer()
+          .lineLimit(1)
+        Spacer(minLength: 0)
       }
-      .padding(.horizontal, 16)
-      .frame(minHeight: 42)
+      .padding(.horizontal, compact ? 10 : 16)
+      .frame(minHeight: compact ? 38 : 42)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)

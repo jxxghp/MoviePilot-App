@@ -121,10 +121,14 @@ enum NativeDeviceLayout {
     return 2
   }
 
-  /// 发现页首屏主视觉高度：宽屏横版控制高宽比，避免 16:9 剧照过度裁剪并让首条海报栏自然探头。
+  /// 发现页首屏主视觉高度：宽屏横版控制高宽比，避免 16:9 剧照过度裁剪并让首条海报栏自然探头；手机紧凑横屏优先限高保首屏操作与轨道可见。
   static func discoverHeroHeight(
     width: CGFloat, height: CGFloat, isAccessibilitySize: Bool
   ) -> CGFloat {
+    if width > height && height < 500 {
+      let ratio: CGFloat = isAccessibilitySize ? 0.70 : 0.62
+      return min(max(height * ratio, 216), 288)
+    }
     if isAccessibilitySize {
       return max(560, min(height * 0.76, 680))
     }
@@ -137,10 +141,14 @@ enum NativeDeviceLayout {
     return min(max(height * 0.67, 470), 640)
   }
 
-  /// 影视与媒体库详情页首屏头图高度：加大海报默认占据面积以呈现沉浸式无遮挡影院首屏，同时在 iPad 与横屏下保持优雅比例。
+  /// 影视与媒体库详情页首屏头图高度：加大海报默认占据面积以呈现沉浸式无遮挡影院首屏，同时在紧凑横屏与 iPad 下确保主操作栏首屏完整露出。
   static func detailHeroHeight(
     width: CGFloat, height: CGFloat, isAccessibilitySize: Bool
   ) -> CGFloat {
+    if width > height && height < 500 {
+      let ratio: CGFloat = isAccessibilitySize ? 0.68 : 0.58
+      return min(max(height * ratio, 208), 276)
+    }
     if isAccessibilitySize {
       return max(560, min(height * 0.74, 700))
     }

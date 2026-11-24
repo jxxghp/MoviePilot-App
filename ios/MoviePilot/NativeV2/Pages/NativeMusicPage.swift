@@ -71,7 +71,7 @@ struct NativeMusicExploreSection: View {
       feedBar
       if isLoading && items.isEmpty {
         NativePosterGridSkeletonView(
-          columns: horizontalSizeClass == .regular ? 4 : 2, count: 6, aspectRatio: 1.0,
+          columns: columns.count, count: columns.count * 2, aspectRatio: 1.0,
           cornerRadius: 12
         )
         .transition(.opacity)
@@ -707,8 +707,10 @@ struct NativeMusicArtistDetailPage: View {
   @State private var artist: NativeMusicArtistRaw?
   @State private var albums: [NativeMusicCardItem] = []
   @State private var isLoading = true
+  @State private var containerWidth: CGFloat = 0
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   /// 统一深色紫玫瑰渐变、艺术家头图区与作品专辑网格。
   var body: some View {
@@ -720,7 +722,9 @@ struct NativeMusicArtistDetailPage: View {
           if isLoading && artist == nil && albums.isEmpty {
             VStack(alignment: .leading, spacing: 16) {
               NativeCardListSkeletonView(count: 1, style: .formPanel)
-              NativePosterGridSkeletonView(columns: 2, count: 4, aspectRatio: 1.0, cornerRadius: 12)
+              NativePosterGridSkeletonView(
+                columns: columns.count, count: columns.count * 2, aspectRatio: 1.0, cornerRadius: 12
+              )
             }
             .transition(.opacity)
           } else {
@@ -769,11 +773,12 @@ struct NativeMusicArtistDetailPage: View {
             }
           }
         }
-        .frame(maxWidth: 820)
+        .frame(maxWidth: 1120)
         .padding(.horizontal, CinematicStyle.margin)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity)
       }
+      .nativeTrackContainerWidth($containerWidth)
       .scrollIndicators(.hidden)
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-music-artist-scroll")
@@ -784,9 +789,13 @@ struct NativeMusicArtistDetailPage: View {
     .task { await load() }
   }
 
-  /// 两列或四列专辑网格。
+  /// 随实时容器宽度自适应 2~5 列方形专辑网格。
   private var columns: [GridItem] {
-    let count = horizontalSizeClass == .regular ? 4 : 2
+    let count =
+      containerWidth > 0
+      ? NativeDeviceLayout.squareGridCount(
+        for: min(containerWidth, 1120), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+      : (horizontalSizeClass == .regular ? 4 : 2)
     return Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: count)
   }
 

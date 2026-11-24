@@ -99,8 +99,8 @@ fun MediaServerLibraryScreen(
 ) {
     val colors = LocalMoviePilotColors.current
     val bottomOverlayInset = LocalBottomOverlayInset.current
+    val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
     val margin = AdaptiveDeviceLayout.horizontalMargin()
-    val columns = AdaptiveDeviceLayout.posterGridColumns()
     val scope = rememberCoroutineScope()
     val gridState = rememberLazyGridState()
 
@@ -131,6 +131,7 @@ fun MediaServerLibraryScreen(
 
     val isMusicLib = activeLibraryType.equals("音乐", ignoreCase = true) ||
         activeLibraryType.equals("music", ignoreCase = true)
+    val columns = if (isMusicLib) AdaptiveDeviceLayout.squareGridColumns() else AdaptiveDeviceLayout.posterGridColumns()
 
     suspend fun reload(showSpinner: Boolean = true) {
         if (showSpinner) isLoading = true
@@ -238,11 +239,11 @@ fun MediaServerLibraryScreen(
                 contentPadding = PaddingValues(
                     start = margin,
                     end = margin,
-                    top = 16.dp,
-                    bottom = 42.dp + bottomOverlayInset,
+                    top = if (compactHeight) 10.dp else 16.dp,
+                    bottom = 24.dp + bottomOverlayInset,
                 ),
                 horizontalArrangement = Arrangement.spacedBy(11.dp),
-                verticalArrangement = Arrangement.spacedBy(15.dp),
+                verticalArrangement = Arrangement.spacedBy(if (compactHeight) 11.dp else 15.dp),
             ) {
                 // 1. 多服务器切换栏（展示真实 Emby / Jellyfin / Plex / 飞牛 / 绿联 / 极空间 品牌 Logo）
                 if (clients.size > 1) {
@@ -293,7 +294,7 @@ fun MediaServerLibraryScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                                .padding(horizontal = 14.dp, vertical = if (compactHeight) 7.dp else 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {

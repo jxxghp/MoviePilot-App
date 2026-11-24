@@ -78,6 +78,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -98,9 +99,10 @@ fun ExpressiveHeaderActionButton(
     onClick: () -> Unit,
     containerColor: Color = LocalMoviePilotColors.current.headerButtonBg,
     contentColor: Color = LocalMoviePilotColors.current.headerButtonFg,
-    size: Dp = 44.dp,
+    size: Dp = if (AdaptiveDeviceLayout.isCompactHeight()) 38.dp else 44.dp,
     modifier: Modifier = Modifier,
 ) {
+    val iconSz = if (size <= 38.dp) 20.dp else 22.dp
     Surface(
         onClick = onClick,
         shape = CircleShape,
@@ -115,7 +117,7 @@ fun ExpressiveHeaderActionButton(
                 imageVector = icon,
                 contentDescription = contentDescription,
                 tint = contentColor,
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(iconSz),
             )
         }
     }
@@ -124,6 +126,7 @@ fun ExpressiveHeaderActionButton(
 /**
  * Material 3 Expressive 染色顶栏 + 胶囊页签 + 顶部 28dp 大圆角正文 Sheet 骨架：
  * - 顶部染色画布（`colors.headerTint`）承载大字号主色标题与圆形 Tonal 操作钮；
+ * - 手机横屏等短高度视口（`isCompactHeight`）自动收敛顶栏字号与上下留白，并将副标题与主标题同行内联；
  * - 中部可选承载 `ExpressivePillTabRow`（高亮主色胶囊 + 底部迷你居中小横杠指示条）；
  * - 下方正文区以 28dp 顶部圆角平滑浮起，层次清晰分明。
  */
@@ -138,9 +141,11 @@ fun ExpressiveTintedScaffold(
     sheetContent: @Composable BoxScope.() -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
+    val sheetRadius = if (compactHeight) (colors.sheetRadiusDp - 6).coerceAtLeast(18).dp else colors.sheetRadiusDp.dp
     val sheetShape = RoundedCornerShape(
-        topStart = colors.sheetRadiusDp.dp,
-        topEnd = colors.sheetRadiusDp.dp,
+        topStart = sheetRadius,
+        topEnd = sheetRadius,
     )
 
     Column(
@@ -152,8 +157,11 @@ fun ExpressiveTintedScaffold(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(top = 8.dp, bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(
+                    top = if (compactHeight) 4.dp else 8.dp,
+                    bottom = if (compactHeight) 6.dp else 12.dp,
+                ),
+            verticalArrangement = Arrangement.spacedBy(if (compactHeight) 6.dp else 12.dp),
         ) {
             Row(
                 modifier = Modifier
@@ -169,26 +177,53 @@ fun ExpressiveTintedScaffold(
                         onClick = onBack,
                     )
                 }
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        text = title,
-                        color = colors.headerTitle,
-                        style = if (onBack == null) {
-                            MaterialTheme.typography.headlineLarge
-                        } else {
-                            MaterialTheme.typography.headlineMedium
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (!subtitle.isNullOrBlank()) {
+                if (compactHeight) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
                         Text(
-                            text = subtitle,
-                            color = colors.headerTitle.copy(alpha = 0.72f),
-                            style = MaterialTheme.typography.bodySmall,
+                            text = title,
+                            color = colors.headerTitle,
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (!subtitle.isNullOrBlank()) {
+                            Text(
+                                text = subtitle,
+                                color = colors.headerTitle.copy(alpha = 0.72f),
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                        }
+                    }
+                } else {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = title,
+                            color = colors.headerTitle,
+                            style = if (onBack == null) {
+                                MaterialTheme.typography.headlineLarge
+                            } else {
+                                MaterialTheme.typography.headlineMedium
+                            },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        if (!subtitle.isNullOrBlank()) {
+                            Text(
+                                text = subtitle,
+                                color = colors.headerTitle.copy(alpha = 0.72f),
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
                 if (actions != null) {
@@ -218,7 +253,8 @@ fun ExpressiveTintedScaffold(
 /**
  * Material 3 Expressive 表现力胶囊页签栏：
  * - 选中页签呈现发光柔和主色胶囊 + 深墨色粗体文字，且正下方浮现一枚精致的 24×3dp 圆角小横杠指示器；
- * - 未选中页签采用沉稳深色胶囊，与外层染色顶栏形成利落层次，支持等宽平分或横向滚动。
+ * - 未选中页签采用沉稳深色胶囊，与外层染色顶栏形成利落层次，支持等宽平分或横向滚动；
+ * - 短高度横屏自动切换紧凑胶囊高度（36dp），避免双层页签吞噬正文可视区。
  */
 @Composable
 fun ExpressivePillTabRow(
@@ -233,6 +269,7 @@ fun ExpressivePillTabRow(
     if (tabs.isEmpty()) return
     val colors = LocalMoviePilotColors.current
     val scheme = MaterialTheme.colorScheme
+    val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
     val safeIndex = selectedIndex.coerceIn(0, tabs.lastIndex)
     val inactiveBg = if (onTintedHeader) {
         if (colors.isDark) Color(0xFF0A1220).copy(alpha = 0.78f) else Color.White.copy(alpha = 0.78f)
@@ -268,12 +305,12 @@ fun ExpressivePillTabRow(
         Column(
             modifier = itemModifier,
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compactHeight) 3.dp else 6.dp),
         ) {
             Box(
                 modifier = Modifier
                     .then(if (scrollable) Modifier else Modifier.fillMaxWidth())
-                    .heightIn(min = 44.dp)
+                    .heightIn(min = if (compactHeight) 36.dp else 44.dp)
                     .clip(CircleShape)
                     .background(bg, CircleShape)
                     .then(
@@ -284,19 +321,22 @@ fun ExpressivePillTabRow(
                         },
                     )
                     .clickable { onSelect(idx) }
-                    .padding(horizontal = if (customIcon != null) 16.dp else 20.dp, vertical = 10.dp),
+                    .padding(
+                        horizontal = if (compactHeight) (if (customIcon != null) 14.dp else 16.dp) else (if (customIcon != null) 16.dp else 20.dp),
+                        vertical = if (compactHeight) 5.dp else 10.dp,
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (compactHeight) 6.dp else 7.dp),
                 ) {
                     customIcon?.invoke()
                     Text(
                         text = label,
                         color = fg,
                         style = MaterialTheme.typography.labelLarge.copy(
-                            fontSize = 14.sp,
+                            fontSize = if (compactHeight) 13.sp else 14.sp,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
                         ),
                         maxLines = 1,
@@ -307,7 +347,7 @@ fun ExpressivePillTabRow(
             Box(
                 modifier = Modifier
                     .width(indicatorWidth)
-                    .height(3.dp)
+                    .height(if (compactHeight) 2.5.dp else 3.dp)
                     .clip(CircleShape)
                     .background(if (selected) scheme.primary else Color.Transparent),
             )
@@ -668,63 +708,24 @@ fun ExpressiveMixCollageHeader(
 ) {
     val colors = LocalMoviePilotColors.current
     val scheme = MaterialTheme.colorScheme
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = headline,
-                    color = colors.textPrimary,
-                    style = MaterialTheme.typography.displayLarge,
-                    maxLines = 2,
-                )
-                Text(
-                    text = subtitle,
-                    color = colors.textSecondary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Surface(
-                onClick = onPlayClick,
-                shape = CircleShape,
-                color = scheme.primary,
-                contentColor = scheme.onPrimary,
-                modifier = Modifier
-                    .size(84.dp)
-                    .shadow(10.dp, CircleShape, ambientColor = scheme.primary.copy(alpha = 0.35f)),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Rounded.PlayArrow,
-                        contentDescription = "播放精选",
-                        tint = scheme.onPrimary,
-                        modifier = Modifier.size(36.dp),
-                    )
-                }
-            }
-        }
+    val cfg = LocalConfiguration.current
+    val compactHeight = cfg.screenHeightDp < 480
+    val useSideBySide = cfg.screenWidthDp > cfg.screenHeightDp && (compactHeight || cfg.screenWidthDp >= 680)
 
-        // 斜置大胶囊主封面 + 左右双圆形卫星封面
+    @Composable
+    fun CollageGraphic(compact: Boolean, boxModifier: Modifier) {
+        val stageHeight = if (compact) 144.dp else 228.dp
+        val capsuleW = if (compact) 108.dp else 166.dp
+        val capsuleH = if (compact) 144.dp else 228.dp
+        val centerImgSz = if (compact) 192.dp else 296.dp
+        val satSz = if (compact) 52.dp else 76.dp
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(228.dp),
+            modifier = boxModifier.height(stageHeight),
             contentAlignment = Alignment.Center,
         ) {
-            // 中央斜置胶囊
             Box(
                 modifier = Modifier
-                    .size(width = 166.dp, height = 228.dp)
+                    .size(width = capsuleW, height = capsuleH)
                     .rotate(38f)
                     .clip(CircleShape)
                     .background(scheme.surfaceContainerHigh),
@@ -737,19 +738,18 @@ fun ExpressiveMixCollageHeader(
                         contentDescription = headline,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .requiredSize(296.dp)
+                            .requiredSize(centerImgSz)
                             .rotate(-38f),
                     )
                 } else {
-                    Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = scheme.primary, modifier = Modifier.size(48.dp))
+                    Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = scheme.primary, modifier = Modifier.size(if (compact) 34.dp else 48.dp))
                 }
             }
-            // 左上卫星圆
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .offset(x = 18.dp, y = 10.dp)
-                    .size(78.dp)
+                    .offset(x = if (compact) 10.dp else 18.dp, y = if (compact) 6.dp else 10.dp)
+                    .size(satSz)
                     .shadow(8.dp, CircleShape)
                     .clip(CircleShape)
                     .border(2.5.dp, colors.sheetSurface, CircleShape)
@@ -765,15 +765,14 @@ fun ExpressiveMixCollageHeader(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = colors.pink, modifier = Modifier.size(26.dp))
+                    Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = colors.pink, modifier = Modifier.size(if (compact) 20.dp else 26.dp))
                 }
             }
-            // 右下卫星圆
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .offset(x = (-18).dp, y = (-8).dp)
-                    .size(76.dp)
+                    .offset(x = if (compact) (-10).dp else (-18).dp, y = if (compact) (-6).dp else (-8).dp)
+                    .size(satSz)
                     .shadow(8.dp, CircleShape)
                     .clip(CircleShape)
                     .border(2.5.dp, colors.sheetSurface, CircleShape)
@@ -789,9 +788,98 @@ fun ExpressiveMixCollageHeader(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = colors.cyan, modifier = Modifier.size(26.dp))
+                    Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = colors.cyan, modifier = Modifier.size(if (compact) 20.dp else 26.dp))
                 }
             }
+        }
+    }
+
+    if (useSideBySide) {
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = headline,
+                    color = colors.textPrimary,
+                    style = if (compactHeight) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineLarge,
+                    maxLines = 1,
+                )
+                Text(
+                    text = subtitle,
+                    color = colors.textSecondary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                )
+                Spacer(Modifier.height(2.dp))
+                ExpressiveActionPill(
+                    label = "播放精选",
+                    icon = Icons.Rounded.PlayArrow,
+                    onClick = onPlayClick,
+                    containerColor = scheme.primary,
+                    contentColor = scheme.onPrimary,
+                )
+            }
+            CollageGraphic(
+                compact = true,
+                boxModifier = Modifier.width(if (compactHeight) 216.dp else 256.dp),
+            )
+        }
+    } else {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = headline,
+                        color = colors.textPrimary,
+                        style = MaterialTheme.typography.displayLarge,
+                        maxLines = 2,
+                    )
+                    Text(
+                        text = subtitle,
+                        color = colors.textSecondary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Surface(
+                    onClick = onPlayClick,
+                    shape = CircleShape,
+                    color = scheme.primary,
+                    contentColor = scheme.onPrimary,
+                    modifier = Modifier
+                        .size(84.dp)
+                        .shadow(10.dp, CircleShape, ambientColor = scheme.primary.copy(alpha = 0.35f)),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Rounded.PlayArrow,
+                            contentDescription = "播放精选",
+                            tint = scheme.onPrimary,
+                            modifier = Modifier.size(36.dp),
+                        )
+                    }
+                }
+            }
+
+            CollageGraphic(compact = false, boxModifier = Modifier.fillMaxWidth())
         }
     }
 }

@@ -720,7 +720,7 @@ fun ResourceSearchScreen(
                     }
                 }
                 LazyColumn(
-                    modifier = Modifier.fillMaxWidth().height(340.dp),
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     item {
@@ -789,7 +789,7 @@ fun ResourceSearchScreen(
                     )
                 }
                 LazyColumn(
-                    modifier = Modifier.fillMaxWidth().height(380.dp),
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     if (filterResult.options.sites.isNotEmpty()) {
@@ -1117,7 +1117,10 @@ fun DownloadsScreen(
     if (showFilterSheet) {
         NativeGlassSheet(onDismissRequest = { showFilterSheet = false }) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("按下载器筛选", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)

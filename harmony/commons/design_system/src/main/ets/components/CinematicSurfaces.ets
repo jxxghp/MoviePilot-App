@@ -75,7 +75,10 @@ export struct CinematicAmbientGradient {
         .width('100%')
         .height('100%')
         .backgroundColor(HarmonyThemeColors.canvas(this.isDark, this.paletteId, this.pureBlack))
-        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+        .expandSafeArea(
+          [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+          [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END]
+        )
 
       if (this.animateBg && !(this.isDark && this.pureBlack)) {
         Column()
@@ -89,12 +92,18 @@ export struct CinematicAmbientGradient {
           })
           .opacity(this.isDark ? 0.55 : 0.72)
           .position({ top: 0, left: 0 })
-          .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+          .expandSafeArea(
+            [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+            [SafeAreaEdge.TOP, SafeAreaEdge.START, SafeAreaEdge.END]
+          )
       }
     }
     .width('100%')
     .height('100%')
-    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    .expandSafeArea(
+      [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+      [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END]
+    )
     .hitTestBehavior(HitTestMode.None)
   }
 }
@@ -146,6 +155,8 @@ export struct NativeTopStatusBarBlur {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_PALETTE_ID) paletteId: string = 'harmony_blue';
   @StorageLink(HarmonyAppearanceStore.KEY_PURE_BLACK) pureBlack: boolean = false;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_TOP_VP) safeTopVp: number = 38;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
   @Prop visibilityProgress: number = 1.0;
   @Prop veilHeight: number = 92;
 
@@ -157,20 +168,29 @@ export struct NativeTopStatusBarBlur {
     return HarmonyThemeColors.canvas(this.isDark, this.paletteId, this.pureBlack);
   }
 
+  private effectiveVeilHeight(): number {
+    const compact = this.windowHeightVp > 0 && this.windowHeightVp < 480;
+    const dynamicHeight = Math.max(10, this.safeTopVp) + (compact ? 44 : 54);
+    return Math.max(48, Math.min(this.veilHeight, dynamicHeight));
+  }
+
   build() {
     Stack({ alignContent: Alignment.Top }) {
       Column()
         .width('100%')
-        .height(this.veilHeight)
+        .height(this.effectiveVeilHeight())
         .linearGradientBlur(26 * this.clampedProgress(), {
           fractionStops: [[1, 0], [0.68, 0.48], [0.22, 0.80], [0, 1]],
           direction: GradientDirection.Bottom
         })
-        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+        .expandSafeArea(
+          [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+          [SafeAreaEdge.TOP, SafeAreaEdge.START, SafeAreaEdge.END]
+        )
 
       Column()
         .width('100%')
-        .height(this.veilHeight)
+        .height(this.effectiveVeilHeight())
         .linearGradient({
           angle: 180,
           colors: [
@@ -181,12 +201,18 @@ export struct NativeTopStatusBarBlur {
           ]
         })
         .opacity(this.clampedProgress())
-        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+        .expandSafeArea(
+          [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+          [SafeAreaEdge.TOP, SafeAreaEdge.START, SafeAreaEdge.END]
+        )
     }
     .width('100%')
-    .height(this.veilHeight)
+    .height(this.effectiveVeilHeight())
     .hitTestBehavior(HitTestMode.None)
-    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+    .expandSafeArea(
+      [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+      [SafeAreaEdge.TOP, SafeAreaEdge.START, SafeAreaEdge.END]
+    )
   }
 }
 
@@ -198,6 +224,8 @@ export struct NativeBackHeader {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) dynamicLight: boolean = true;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_TOP_VP) safeTopVp: number = 38;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
   @Prop title: string = '';
   @Prop subtitle: string = '';
   @Prop trailingText: string = '';
@@ -210,24 +238,35 @@ export struct NativeBackHeader {
   onTrailingClick: () => void = () => {};
   onSecondaryClick: () => void = () => {};
 
+  private isCompact(): boolean {
+    return this.windowHeightVp > 0 && this.windowHeightVp < 480;
+  }
+
   build() {
     Row({ space: 10 }) {
       Button({ type: ButtonType.Circle }) {
         SymbolGlyph($r('sys.symbol.chevron_left'))
-          .fontSize(20)
+          .fontSize(this.isCompact() ? 18 : 20)
           .fontColor([mpPrimaryText(this.isDark)])
       }
-      .width(40)
-      .height(40)
+      .width(this.isCompact() ? 36 : 40)
+      .height(this.isCompact() ? 36 : 40)
       .backgroundColor(Color.Transparent)
-      .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 20, this.accentHex, true, this.dynamicLight))
+      .attributeModifier(new HarmonySurfaceModifier(
+        this.isDark,
+        'pill',
+        this.isCompact() ? 18 : 20,
+        this.accentHex,
+        true,
+        this.dynamicLight
+      ))
       .hoverEffect(HoverEffect.Highlight)
       .accessibilityText('返回上一级')
       .onClick(() => this.onBack())
 
       Column({ space: 1 }) {
         Text(this.title)
-          .fontSize(20)
+          .fontSize(this.isCompact() ? 18 : 20)
           .fontWeight(FontWeight.Bold)
           .fontColor(mpPrimaryText(this.isDark))
           .maxLines(1)
@@ -246,13 +285,20 @@ export struct NativeBackHeader {
       if (this.secondarySymbol.length > 0) {
         Button({ type: ButtonType.Circle }) {
           SymbolGlyph($r(this.secondarySymbol))
-            .fontSize(19)
+            .fontSize(this.isCompact() ? 17 : 19)
             .fontColor([mpPrimaryText(this.isDark)])
         }
-        .width(40)
-        .height(40)
+        .width(this.isCompact() ? 36 : 40)
+        .height(this.isCompact() ? 36 : 40)
         .backgroundColor(Color.Transparent)
-        .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 20, this.accentHex, true, this.dynamicLight))
+        .attributeModifier(new HarmonySurfaceModifier(
+          this.isDark,
+          'pill',
+          this.isCompact() ? 18 : 20,
+          this.accentHex,
+          true,
+          this.dynamicLight
+        ))
         .hoverEffect(HoverEffect.Highlight)
         .accessibilityText(this.secondaryAccessibility)
         .onClick(() => this.onSecondaryClick())
@@ -261,13 +307,20 @@ export struct NativeBackHeader {
       if (this.trailingSymbol.length > 0) {
         Button({ type: ButtonType.Circle }) {
           SymbolGlyph($r(this.trailingSymbol))
-            .fontSize(19)
+            .fontSize(this.isCompact() ? 17 : 19)
             .fontColor([mpPrimaryText(this.isDark)])
         }
-        .width(40)
-        .height(40)
+        .width(this.isCompact() ? 36 : 40)
+        .height(this.isCompact() ? 36 : 40)
         .backgroundColor(Color.Transparent)
-        .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 20, this.accentHex, true, this.dynamicLight))
+        .attributeModifier(new HarmonySurfaceModifier(
+          this.isDark,
+          'pill',
+          this.isCompact() ? 18 : 20,
+          this.accentHex,
+          true,
+          this.dynamicLight
+        ))
         .hoverEffect(HoverEffect.Highlight)
         .accessibilityText(this.trailingAccessibility)
         .onClick(() => this.onTrailingClick())
@@ -276,19 +329,31 @@ export struct NativeBackHeader {
           .fontSize(13)
           .fontWeight(FontWeight.Bold)
           .fontColor(this.trailingPrimary ? Color.White : mpPrimaryText(this.isDark))
-          .height(38)
+          .height(this.isCompact() ? 34 : 38)
           .padding({ left: 16, right: 16 })
-          .borderRadius(19)
+          .borderRadius(this.isCompact() ? 17 : 19)
           .backgroundColor(this.trailingPrimary ? this.accentHex : Color.Transparent)
           .attributeModifier(this.trailingPrimary
             ? undefined
-            : new HarmonySurfaceModifier(this.isDark, 'pill', 19, this.accentHex, true, this.dynamicLight))
+            : new HarmonySurfaceModifier(
+              this.isDark,
+              'pill',
+              this.isCompact() ? 17 : 19,
+              this.accentHex,
+              true,
+              this.dynamicLight
+            ))
           .hoverEffect(HoverEffect.Highlight)
           .onClick(() => this.onTrailingClick())
       }
     }
     .width('100%')
-    .padding({ left: 16, right: 16, top: 44, bottom: 8 })
+    .padding({
+      left: 16,
+      right: 16,
+      top: Math.max(10, this.safeTopVp + 4),
+      bottom: this.isCompact() ? 4 : 8
+    })
   }
 }
 
@@ -300,6 +365,8 @@ export struct HarmonyPageHeader {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) dynamicLight: boolean = true;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_TOP_VP) safeTopVp: number = 38;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
   @Prop title: string = '';
   @Prop subtitle: string = '';
   @Prop primarySymbol: string = '';
@@ -312,11 +379,15 @@ export struct HarmonyPageHeader {
   onSecondaryClick: () => void = () => {};
   onTertiaryClick: () => void = () => {};
 
+  private isCompact(): boolean {
+    return this.windowHeightVp > 0 && this.windowHeightVp < 480;
+  }
+
   build() {
     Row({ space: 8 }) {
       Column({ space: 2 }) {
         Text(this.title)
-          .fontSize(28)
+          .fontSize(this.isCompact() ? 22 : 28)
           .fontWeight(FontWeight.Bold)
           .fontColor(mpPrimaryText(this.isDark))
           .maxLines(1)
@@ -334,13 +405,20 @@ export struct HarmonyPageHeader {
       if (this.tertiarySymbol.length > 0) {
         Button({ type: ButtonType.Circle }) {
           SymbolGlyph($r(this.tertiarySymbol))
-            .fontSize(19)
+            .fontSize(this.isCompact() ? 17 : 19)
             .fontColor([mpPrimaryText(this.isDark)])
         }
-        .width(40)
-        .height(40)
+        .width(this.isCompact() ? 36 : 40)
+        .height(this.isCompact() ? 36 : 40)
         .backgroundColor(Color.Transparent)
-        .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 20, this.accentHex, true, this.dynamicLight))
+        .attributeModifier(new HarmonySurfaceModifier(
+          this.isDark,
+          'pill',
+          this.isCompact() ? 18 : 20,
+          this.accentHex,
+          true,
+          this.dynamicLight
+        ))
         .hoverEffect(HoverEffect.Highlight)
         .accessibilityText(this.tertiaryAccessibility)
         .onClick(() => this.onTertiaryClick())
@@ -349,13 +427,20 @@ export struct HarmonyPageHeader {
       if (this.secondarySymbol.length > 0) {
         Button({ type: ButtonType.Circle }) {
           SymbolGlyph($r(this.secondarySymbol))
-            .fontSize(19)
+            .fontSize(this.isCompact() ? 17 : 19)
             .fontColor([mpPrimaryText(this.isDark)])
         }
-        .width(40)
-        .height(40)
+        .width(this.isCompact() ? 36 : 40)
+        .height(this.isCompact() ? 36 : 40)
         .backgroundColor(Color.Transparent)
-        .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 20, this.accentHex, true, this.dynamicLight))
+        .attributeModifier(new HarmonySurfaceModifier(
+          this.isDark,
+          'pill',
+          this.isCompact() ? 18 : 20,
+          this.accentHex,
+          true,
+          this.dynamicLight
+        ))
         .hoverEffect(HoverEffect.Highlight)
         .accessibilityText(this.secondaryAccessibility)
         .onClick(() => this.onSecondaryClick())
@@ -364,20 +449,32 @@ export struct HarmonyPageHeader {
       if (this.primarySymbol.length > 0) {
         Button({ type: ButtonType.Circle }) {
           SymbolGlyph($r(this.primarySymbol))
-            .fontSize(19)
+            .fontSize(this.isCompact() ? 17 : 19)
             .fontColor([mpPrimaryText(this.isDark)])
         }
-        .width(40)
-        .height(40)
+        .width(this.isCompact() ? 36 : 40)
+        .height(this.isCompact() ? 36 : 40)
         .backgroundColor(Color.Transparent)
-        .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 20, this.accentHex, true, this.dynamicLight))
+        .attributeModifier(new HarmonySurfaceModifier(
+          this.isDark,
+          'pill',
+          this.isCompact() ? 18 : 20,
+          this.accentHex,
+          true,
+          this.dynamicLight
+        ))
         .hoverEffect(HoverEffect.Highlight)
         .accessibilityText(this.primaryAccessibility)
         .onClick(() => this.onPrimaryClick())
       }
     }
     .width('100%')
-    .padding({ left: 16, right: 16, top: 44, bottom: 8 })
+    .padding({
+      left: 16,
+      right: 16,
+      top: Math.max(10, this.safeTopVp + 4),
+      bottom: this.isCompact() ? 4 : 8
+    })
   }
 }
 
@@ -598,6 +695,8 @@ export struct HarmonyBottomNavBar {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) dynamicLight: boolean = true;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_BOTTOM_VP) safeBottomVp: number = 16;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
   @Prop selectedTab: HarmonyMainTab = 'discover';
   @Prop userInitial: string = 'A';
   @Prop userAvatar: string = '';
@@ -616,6 +715,10 @@ export struct HarmonyBottomNavBar {
     if (tab === 'explore') { return 'sys.symbol.compass'; }
     if (tab === 'subscribe') { return active ? 'sys.symbol.bookmark_fill' : 'sys.symbol.bookmark'; }
     return 'sys.symbol.dot_grid_2x2';
+  }
+
+  private isCompact(): boolean {
+    return this.windowHeightVp > 0 && this.windowHeightVp < 480;
   }
 
   build() {
@@ -657,15 +760,19 @@ export struct HarmonyBottomNavBar {
               .fontColor(this.selectedTab === tab ? this.accentHex : mpSecondaryText(this.isDark))
           }
           .layoutWeight(1)
-          .height(50)
+          .height(this.isCompact() ? 44 : 50)
           .justifyContent(FlexAlign.Center)
-          .borderRadius(25)
+          .borderRadius(this.isCompact() ? 22 : 25)
           .backgroundColor(this.selectedTab === tab
             ? HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '34' : '1E')
             : Color.Transparent)
           .border(this.selectedTab === tab
-            ? { width: 0.6, color: HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '50' : '2E'), radius: 25 }
-            : { width: 0, color: Color.Transparent, radius: 25 })
+            ? {
+              width: 0.6,
+              color: HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '50' : '2E'),
+              radius: this.isCompact() ? 22 : 25
+            }
+            : { width: 0, color: Color.Transparent, radius: this.isCompact() ? 22 : 25 })
           .animation({ duration: HarmonyMotionTokens.DURATION_SHORT, curve: HarmonyMotionTokens.CURVE_STANDARD })
           .hoverEffect(HoverEffect.Highlight)
           .focusable(true)
@@ -674,14 +781,21 @@ export struct HarmonyBottomNavBar {
         })
       }
       .width('100%')
-      .height(62)
+      .height(this.isCompact() ? 54 : 62)
       .padding({ left: 6, right: 6 })
-      .borderRadius(31)
+      .borderRadius(this.isCompact() ? 27 : 31)
       .clip(true)
-      .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'bar', 31, this.accentHex, true, this.dynamicLight))
+      .attributeModifier(new HarmonySurfaceModifier(
+        this.isDark,
+        'bar',
+        this.isCompact() ? 27 : 31,
+        this.accentHex,
+        true,
+        this.dynamicLight
+      ))
     }
     .width('100%')
-    .padding({ left: 16, right: 16, bottom: 18 })
+    .padding({ left: 16, right: 16, bottom: Math.max(10, this.safeBottomVp + 2) })
   }
 }
 
@@ -693,6 +807,10 @@ export struct HarmonySideNavRail {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) dynamicLight: boolean = true;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_TOP_VP) safeTopVp: number = 38;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_BOTTOM_VP) safeBottomVp: number = 16;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_LEFT_VP) safeLeftVp: number = 0;
   @Prop selectedTab: HarmonyMainTab = 'discover';
   @Prop userInitial: string = 'A';
   @Prop userAvatar: string = '';
@@ -714,59 +832,88 @@ export struct HarmonySideNavRail {
     return 'sys.symbol.dot_grid_2x2';
   }
 
+  private isCompact(): boolean {
+    return this.windowHeightVp > 0 && this.windowHeightVp < 480;
+  }
+
   build() {
-    Column({ space: 10 }) {
+    Column({ space: this.isCompact() ? 4 : 10 }) {
       Button({ type: ButtonType.Circle }) {
         SymbolGlyph($r('sys.symbol.magnifyingglass'))
-          .fontSize(20)
+          .fontSize(this.isCompact() ? 18 : 20)
           .fontColor([Color.White])
       }
-      .width(44)
-      .height(44)
+      .width(this.isCompact() ? 38 : 44)
+      .height(this.isCompact() ? 38 : 44)
       .backgroundColor(this.accentHex)
-      .margin({ top: 48, bottom: 12 })
+      .margin({
+        top: this.isCompact() ? Math.max(10, this.safeTopVp) : Math.max(20, this.safeTopVp + 10),
+        bottom: this.isCompact() ? 4 : 12
+      })
       .accessibilityText('全局搜索')
       .hoverEffect(HoverEffect.Highlight)
       .onClick(() => this.onSearchClick())
 
-      ForEach(['discover', 'explore', 'subscribe', 'more', 'dashboard'] as HarmonyMainTab[], (tab: HarmonyMainTab) => {
-        Column({ space: 4 }) {
-          if (tab === 'dashboard') {
-            if (this.userAvatar.length > 0) {
-              Image(this.userAvatar).width(24).height(24).borderRadius(12).objectFit(ImageFit.Cover)
-            } else {
-              Text(this.userInitial)
-                .fontSize(11).fontWeight(FontWeight.Bold).fontColor(Color.White)
-                .width(24).height(24).textAlign(TextAlign.Center).borderRadius(12).backgroundColor(this.accentHex)
+      Scroll() {
+        Column({ space: this.isCompact() ? 4 : 10 }) {
+          ForEach(['discover', 'explore', 'subscribe', 'more', 'dashboard'] as HarmonyMainTab[], (tab: HarmonyMainTab) => {
+            Column({ space: this.isCompact() ? 2 : 4 }) {
+              if (tab === 'dashboard') {
+                if (this.userAvatar.length > 0) {
+                  Image(this.userAvatar)
+                    .width(this.isCompact() ? 20 : 24)
+                    .height(this.isCompact() ? 20 : 24)
+                    .borderRadius(this.isCompact() ? 10 : 12)
+                    .objectFit(ImageFit.Cover)
+                } else {
+                  Text(this.userInitial)
+                    .fontSize(this.isCompact() ? 10 : 11)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(Color.White)
+                    .width(this.isCompact() ? 20 : 24)
+                    .height(this.isCompact() ? 20 : 24)
+                    .textAlign(TextAlign.Center)
+                    .borderRadius(this.isCompact() ? 10 : 12)
+                    .backgroundColor(this.accentHex)
+                }
+              } else {
+                SymbolGlyph($r(this.tabSymbol(tab, this.selectedTab === tab)))
+                  .fontSize(this.isCompact() ? 19 : 22)
+                  .fontColor([this.selectedTab === tab ? this.accentHex : mpSecondaryText(this.isDark)])
+              }
+              Text(this.tabLabel(tab))
+                .fontSize(this.isCompact() ? 10 : 11)
+                .fontWeight(this.selectedTab === tab ? FontWeight.Bold : FontWeight.Regular)
+                .fontColor(this.selectedTab === tab ? this.accentHex : mpSecondaryText(this.isDark))
             }
-          } else {
-            SymbolGlyph($r(this.tabSymbol(tab, this.selectedTab === tab)))
-              .fontSize(22)
-              .fontColor([this.selectedTab === tab ? this.accentHex : mpSecondaryText(this.isDark)])
-          }
-          Text(this.tabLabel(tab))
-            .fontSize(11)
-            .fontWeight(this.selectedTab === tab ? FontWeight.Bold : FontWeight.Regular)
-            .fontColor(this.selectedTab === tab ? this.accentHex : mpSecondaryText(this.isDark))
+            .width(this.isCompact() ? 60 : 64)
+            .height(this.isCompact() ? 44 : 56)
+            .justifyContent(FlexAlign.Center)
+            .borderRadius(this.isCompact() ? 14 : 18)
+            .backgroundColor(this.selectedTab === tab
+              ? HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '30' : '1E')
+              : Color.Transparent)
+            .hoverEffect(HoverEffect.Highlight)
+            .focusable(true)
+            .accessibilityText(`${this.tabLabel(tab)}${this.selectedTab === tab ? '，已选中' : ''}`)
+            .onClick(() => this.onTabClick(tab))
+          })
         }
-        .width(64)
-        .height(56)
-        .justifyContent(FlexAlign.Center)
-        .borderRadius(18)
-        .backgroundColor(this.selectedTab === tab
-          ? HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '30' : '1E')
-          : Color.Transparent)
-        .hoverEffect(HoverEffect.Highlight)
-        .focusable(true)
-        .accessibilityText(`${this.tabLabel(tab)}${this.selectedTab === tab ? '，已选中' : ''}`)
-        .onClick(() => this.onTabClick(tab))
-      })
-
-      Blank()
+        .width('100%')
+        .alignItems(HorizontalAlign.Center)
+      }
+      .scrollBar(BarState.Off)
+      .align(Alignment.Top)
+      .layoutWeight(1)
+      .width('100%')
     }
-    .width(84)
+    .width(84 + this.safeLeftVp)
     .height('100%')
-    .padding({ bottom: 24 })
+    .padding({ left: this.safeLeftVp, bottom: Math.max(8, this.safeBottomVp) })
+    .expandSafeArea(
+      [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+      [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START]
+    )
     .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'bar', 0, this.accentHex, false, this.dynamicLight))
   }
 }
@@ -778,9 +925,12 @@ export struct HarmonySideNavRail {
  */
 @Component
 export struct FloatingAiMascotButton {
-  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
-  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) @Watch('onViewportChanged') windowWidthVp: number = 412;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) @Watch('onViewportChanged') windowHeightVp: number = 892;
   @StorageLink(HarmonyAppearanceStore.KEY_BREAKPOINT) breakpoint: string = 'sm';
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_TOP_VP) @Watch('onViewportChanged') safeTopVp: number = 38;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_LEFT_VP) @Watch('onViewportChanged') safeLeftVp: number = 0;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_RIGHT_VP) @Watch('onViewportChanged') safeRightVp: number = 0;
   @Prop miniMusicVisible: boolean = false;
   @Prop baseRight: number = 14;
   @Prop baseBottom: number = 94;
@@ -791,6 +941,11 @@ export struct FloatingAiMascotButton {
   private mascotSettings: RenderingContextSettings = new RenderingContextSettings(true);
   private mascotCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.mascotSettings);
   onTap: () => void = () => {};
+
+  onViewportChanged(): void {
+    this.dragDx = this.clampDx(this.dragDx);
+    this.dragDy = this.clampDy(this.dragDy);
+  }
 
   private roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
     const rad = Math.min(r, w / 2, h / 2);
@@ -906,17 +1061,20 @@ export struct FloatingAiMascotButton {
   }
 
   private clampDx(rawDx: number): number {
-    const railWidth = (this.breakpoint === 'md' || this.breakpoint === 'lg') ? 84 : 0;
-    const availW = Math.max(260, this.windowWidthVp - railWidth);
-    const minDx = -(availW - 44 - this.baseRight - 10);
+    const railWidth = (this.breakpoint === 'md' || this.breakpoint === 'lg')
+      ? (84 + this.safeLeftVp)
+      : this.safeLeftVp;
+    const availW = Math.max(200, this.windowWidthVp - railWidth - this.safeRightVp);
+    const minDx = Math.min(0, -(availW - 44 - this.baseRight - 10));
     const maxDx = Math.max(0, this.baseRight - 8);
     return Math.max(minDx, Math.min(maxDx, rawDx));
   }
 
   private clampDy(rawDy: number): number {
-    const availH = Math.max(480, this.windowHeightVp);
-    const minDy = -(availH - 52 - this.effectiveBottomVp() - 56);
-    return Math.max(Math.min(0, minDy), Math.min(0, rawDy));
+    const availH = Math.max(220, this.windowHeightVp);
+    const topReserve = Math.max(12, this.safeTopVp + 10);
+    const minDy = Math.min(0, -(availH - 52 - this.effectiveBottomVp() - topReserve));
+    return Math.max(minDy, Math.min(0, rawDy));
   }
 
   build() {

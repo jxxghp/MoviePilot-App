@@ -41,6 +41,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
@@ -88,6 +89,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
@@ -768,9 +770,10 @@ fun AgentChatScreen(
                                 AgentAttachmentsRow(msg.attachments, onImageClick = { previewImageUrl = it })
                             }
                             if (msg.content.isNotBlank()) {
+                                val userMaxWidth = if (AdaptiveDeviceLayout.isWideCanvas()) 520.dp else 310.dp
                                 Box(
                                     modifier = Modifier
-                                        .widthIn(max = 310.dp)
+                                        .widthIn(max = userMaxWidth)
                                         .clip(RoundedCornerShape(20.dp))
                                         .background(colors.accent)
                                         .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -1117,7 +1120,7 @@ fun AgentChatScreen(
                     }
                 } else {
                     LazyColumn(
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp),
+                        modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(sessions, key = { it.sessionId }) { sess ->
@@ -1179,7 +1182,10 @@ fun AgentChatScreen(
     if (showAttachSheet) {
         NativeGlassSheet(onDismissRequest = { showAttachSheet = false }) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Text("添加附件或快捷命令", color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
@@ -1255,8 +1261,9 @@ fun AgentChatScreen(
         }
     }
 
-    // 图片放大预览弹窗
+    // 图片放大预览弹窗（高度自适应当前视口 82%，防止短屏横屏溢出裁切）
     previewImageUrl?.let { imgUrl ->
+        val maxPreviewHeight = (LocalConfiguration.current.screenHeightDp * 0.82f).coerceIn(180f, 520f).dp
         Dialog(onDismissRequest = { previewImageUrl = null }) {
             Box(
                 modifier = Modifier
@@ -1271,7 +1278,7 @@ fun AgentChatScreen(
                     model = imgUrl,
                     contentDescription = "图片预览",
                     contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp, max = 520.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp, max = maxPreviewHeight),
                 )
             }
         }

@@ -10,11 +10,24 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
@@ -497,11 +510,12 @@ fun MoviePilotRootShell(
     val showBottomNav = authSession != null && isTopLevelTab && !isWideCanvas && activeMedalShowcase == null && activePlayerRequest == null
     val showMiniMusicBar = bgAudioRequest != null && activeMedalShowcase == null && activePlayerRequest == null
 
+    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottomOverlayInset = when {
-        showBottomNav && showMiniMusicBar -> 172.dp
-        showBottomNav -> 96.dp
-        showMiniMusicBar -> 88.dp
-        else -> 16.dp
+        showBottomNav && showMiniMusicBar -> 160.dp + navBarBottom
+        showBottomNav -> 92.dp + navBarBottom
+        showMiniMusicBar -> 78.dp + navBarBottom
+        else -> 12.dp + navBarBottom
     }
 
     CompositionLocalProvider(
@@ -509,11 +523,31 @@ fun MoviePilotRootShell(
         LocalBottomOverlayInset provides bottomOverlayInset,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            val railStartPadding = if (showWideRail) 80.dp else 0.dp
-            Box(modifier = Modifier.fillMaxSize()) {
-                CinematicAmbientGradient()
+            CinematicAmbientGradient()
 
-                Box(modifier = Modifier.fillMaxSize().padding(start = railStartPadding)) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                // 1. 宽屏（>= 600dp）常驻左侧 NavigationRail（跨一级 Tab 与全部深层子路由可见，自带左侧刘海与上下系统栏避让）
+                if (showWideRail && authSession != null) {
+                    FloatingNavigationRail(
+                        selectedTab = selectedTab,
+                        onTabClick = ::onTabBarClick,
+                        onSearchClick = { pushRoute(AppRoute.GlobalSearch()) },
+                        userAvatarUrl = repository.resolveImageUrl(authSession.identity.avatar),
+                        userInitial = authSession.identity.name.ifBlank { "M" },
+                    )
+                }
+
+                // 2. 主内容与底部浮层区域（自动避让右侧或双侧系统导航栏与摄像头挖孔）
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .windowInsetsPadding(
+                            WindowInsets.systemBars
+                                .union(WindowInsets.displayCutout)
+                                .only(if (showWideRail) WindowInsetsSides.End else WindowInsetsSides.Horizontal),
+                        ),
+                ) {
                     when (val s = session) {
                         is SessionState.Unconnected -> {
                             ServerConnectionScreen(
@@ -748,103 +782,93 @@ fun MoviePilotRootShell(
                             }
                         }
                     }
-                }
-            }
 
-            // 2. 宽屏（>= 600dp）常驻左侧 NavigationRail（跨一级 Tab 与全部深层子路由可见）
-            if (showWideRail && authSession != null) {
-                FloatingNavigationRail(
-                    selectedTab = selectedTab,
-                    onTabClick = ::onTabBarClick,
-                    onSearchClick = { pushRoute(AppRoute.GlobalSearch()) },
-                    userAvatarUrl = repository.resolveImageUrl(authSession.identity.avatar),
-                    userInitial = authSession.identity.name.ifBlank { "M" },
-                    modifier = Modifier.align(Alignment.CenterStart),
-                )
-            }
+                    // 3. 一级主 Tab 右下角 AI 助手入口（受外观开关控制，自动避让底部导航栏与悬浮迷你播控条）
+                    if (authSession != null && isTopLevelTab && appearanceStore.showAgentMascot && activeMedalShowcase == null && activePlayerRequest == null) {
+                        val mascotBottom = when {
+                            isWideCanvas && showMiniMusicBar -> 96.dp
+                            isWideCanvas -> 24.dp
+                            showMiniMusicBar -> 168.dp
+                            else -> 96.dp
+                        }
+                        FloatingAgentMascot(
+                            onClick = { pushRoute(AppRoute.Agent()) },
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .navigationBarsPadding()
+                                .padding(end = 16.dp, bottom = mascotBottom),
+                        )
+                    }
 
-            // 3. 一级主 Tab 右下角 AI 助手入口（受外观开关控制，自动避让底部导航栏与悬浮迷你播控条）
-            if (authSession != null && isTopLevelTab && appearanceStore.showAgentMascot && activeMedalShowcase == null && activePlayerRequest == null) {
-                val mascotBottom = when {
-                    isWideCanvas && showMiniMusicBar -> 96.dp
-                    isWideCanvas -> 24.dp
-                    showMiniMusicBar -> 168.dp
-                    else -> 96.dp
-                }
-                FloatingAgentMascot(
-                    onClick = { pushRoute(AppRoute.Agent()) },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .navigationBarsPadding()
-                        .padding(end = 16.dp, bottom = mascotBottom),
-                )
-            }
+                    // 4. 底部悬浮区域：迷你音乐播控条（含未登录本地音频，宽屏限宽 560dp）+ 手机态贴底 5 Tab NavigationBar
+                    if (showMiniMusicBar || showBottomNav) {
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            if (showMiniMusicBar) {
+                                bgAudioRequest?.let { req ->
+                                    FloatingMiniMusicBar(
+                                        request = req,
+                                        isPlaying = bgAudioPlaying,
+                                        onTogglePlay = {
+                                            bgAudioPlayer?.let { p ->
+                                                if (p.isPlaying) p.pause() else p.play()
+                                            }
+                                        },
+                                        onNext = {
+                                            if (req.queue.size > 1) {
+                                                val nextIdx = (req.queueIndex + 1) % req.queue.size
+                                                startPlayback(req.queue[nextIdx].copy(queue = req.queue, queueIndex = nextIdx))
+                                                activePlayerRequest = null
+                                            }
+                                        },
+                                        onExpand = { activePlayerRequest = req },
+                                        onClose = { releaseBackgroundAudio() },
+                                        modifier = Modifier
+                                            .widthIn(max = 560.dp)
+                                            .then(
+                                                if (!showBottomNav) Modifier.navigationBarsPadding().padding(bottom = 10.dp) else Modifier,
+                                            ),
+                                    )
+                                    if (showBottomNav) Spacer(Modifier.height(6.dp))
+                                }
+                            }
 
-            // 4. 底部悬浮区域：迷你音乐播控条（含未登录本地音频！）+ 手机态贴底 5 Tab NavigationBar
-            if (showMiniMusicBar || showBottomNav) {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(start = railStartPadding),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    if (showMiniMusicBar) {
-                        bgAudioRequest?.let { req ->
-                            FloatingMiniMusicBar(
-                                request = req,
-                                isPlaying = bgAudioPlaying,
-                                onTogglePlay = {
-                                    bgAudioPlayer?.let { p ->
-                                        if (p.isPlaying) p.pause() else p.play()
-                                    }
-                                },
-                                onNext = {
-                                    if (req.queue.size > 1) {
-                                        val nextIdx = (req.queueIndex + 1) % req.queue.size
-                                        startPlayback(req.queue[nextIdx].copy(queue = req.queue, queueIndex = nextIdx))
-                                        activePlayerRequest = null
-                                    }
-                                },
-                                onExpand = { activePlayerRequest = req },
-                                onClose = { releaseBackgroundAudio() },
-                                modifier = Modifier.then(
-                                    if (!showBottomNav) Modifier.navigationBarsPadding().padding(bottom = 10.dp) else Modifier,
-                                ),
-                            )
-                            if (showBottomNav) Spacer(Modifier.height(6.dp))
+                            if (showBottomNav && authSession != null) {
+                                MoviePilotBottomNavigationBar(
+                                    selectedTab = selectedTab,
+                                    onTabClick = ::onTabBarClick,
+                                    userAvatarUrl = repository.resolveImageUrl(authSession.identity.avatar),
+                                    userInitial = authSession.identity.name.ifBlank { "M" },
+                                )
+                            }
                         }
                     }
 
-                    if (showBottomNav && authSession != null) {
-                        MoviePilotBottomNavigationBar(
-                            selectedTab = selectedTab,
-                            onTabClick = ::onTabBarClick,
-                            userAvatarUrl = repository.resolveImageUrl(authSession.identity.avatar),
-                            userInitial = authSession.identity.name.ifBlank { "M" },
+                    // 5. Android Material 3 全局非阻塞 Snackbar 宿主（宽屏限宽 560dp）
+                    SnackbarHost(
+                        hostState = snackbarHostState,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .widthIn(max = 560.dp)
+                            .padding(
+                                start = 16.dp,
+                                end = 16.dp,
+                                bottom = bottomOverlayInset + 8.dp,
+                            ),
+                    ) { data ->
+                        Snackbar(
+                            snackbarData = data,
+                            shape = RoundedCornerShape(18.dp),
+                            containerColor = colors.surfaceContainerHigh,
+                            contentColor = colors.textPrimary,
+                            actionColor = colors.accent,
                         )
                     }
                 }
-            }
-
-            // 5. Android Material 3 全局非阻塞 Snackbar 宿主
-            SnackbarHost(
-                hostState = snackbarHostState,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(
-                        start = railStartPadding + 16.dp,
-                        end = 16.dp,
-                        bottom = bottomOverlayInset + 8.dp,
-                    ),
-            ) { data ->
-                Snackbar(
-                    snackbarData = data,
-                    shape = RoundedCornerShape(18.dp),
-                    containerColor = colors.surfaceContainerHigh,
-                    contentColor = colors.textPrimary,
-                    actionColor = colors.accent,
-                )
             }
 
             // 6. 全屏 OpenGL ES 3D 社区勋章互动舞台

@@ -1671,9 +1671,12 @@ private class AndroidVuePluginChromeHost(
     private fun layoutPayload(): JsonObject {
         layoutRevision += 1
         val wv = webView
+        val cfg = wv?.resources?.configuration
         val density = wv?.resources?.displayMetrics?.density?.takeIf { it > 0f } ?: 3f
-        val widthDp = ((wv?.width ?: 0) / density).toDouble().takeIf { it > 0 } ?: 390.0
-        val heightDp = ((wv?.height ?: 0) / density).toDouble().takeIf { it > 0 } ?: 844.0
+        val fallbackWidthDp = cfg?.screenWidthDp?.takeIf { it > 0 }?.toDouble() ?: 390.0
+        val fallbackHeightDp = cfg?.screenHeightDp?.takeIf { it > 0 }?.toDouble() ?: 844.0
+        val widthDp = ((wv?.width ?: 0) / density).toDouble().takeIf { it > 0 } ?: fallbackWidthDp
+        val heightDp = ((wv?.height ?: 0) / density).toDouble().takeIf { it > 0 } ?: fallbackHeightDp
         val zero = buildJsonObject {
             put("top", 0)
             put("left", 0)

@@ -16,6 +16,7 @@ import {
   HarmonySheetHeader,
   HarmonyEntityLogo,
   HarmonyEntityLogoPill,
+  HarmonyAdaptiveLayout,
   HarmonyAppearanceStore,
   HarmonyThemeColors,
   mpPrimaryText,
@@ -44,6 +45,8 @@ const ENCODE_FILTER_OPTIONS: string[] = ['H265', 'H264', 'HEVC', 'AV1'];
 export struct HarmonyResourceSearchPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
   @Prop initialKeyword: string = '';
   @State private keyword: string = '';
   @State private sites: MpSiteItem[] = [];
@@ -331,25 +334,37 @@ export struct HarmonyResourceSearchPage {
         cancelText: '关闭',
         onCancel: () => { this.showSortSheet = false; }
       })
-      ForEach(SORT_MODES, (m: string[]) => {
-        Column() {
-          CinematicPanel({ panelPadding: 14, cornerRadius: 16, interactive: true }) {
-            Row() {
-              Text(m[1]).fontSize(15).fontWeight(this.sortKey === m[0] ? FontWeight.Bold : FontWeight.Medium)
-                .fontColor(this.sortKey === m[0] ? this.accentHex : mpPrimaryText(this.isDark)).layoutWeight(1)
-              if (this.sortKey === m[0]) {
-                SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor([this.accentHex])
+      Scroll() {
+        Column({ space: 10 }) {
+          ForEach(SORT_MODES, (m: string[]) => {
+            Column() {
+              CinematicPanel({ panelPadding: 14, cornerRadius: 16, interactive: true }) {
+                Row() {
+                  Text(m[1]).fontSize(15).fontWeight(this.sortKey === m[0] ? FontWeight.Bold : FontWeight.Medium)
+                    .fontColor(this.sortKey === m[0] ? this.accentHex : mpPrimaryText(this.isDark)).layoutWeight(1)
+                  if (this.sortKey === m[0]) {
+                    SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor([this.accentHex])
+                  }
+                }.width('100%')
               }
-            }.width('100%')
-          }
+            }
+            .width('100%')
+            .onClick(() => {
+              this.sortKey = m[0];
+              this.showSortSheet = false;
+            })
+          }, (m: string[]) => m[0])
         }
         .width('100%')
-        .onClick(() => {
-          this.sortKey = m[0];
-          this.showSortSheet = false;
-        })
-      }, (m: string[]) => m[0])
-    }.padding(20).width('100%')
+        .padding({ bottom: 16 })
+      }
+      .scrollBar(BarState.Off)
+      .layoutWeight(1)
+      .width('100%')
+    }
+    .padding(20)
+    .width('100%')
+    .height('100%')
   }
 
   @Builder
@@ -629,9 +644,9 @@ export struct HarmonyResourceSearchPage {
           Text('暂无符合筛选条件的站点资源').fontSize(13.5).fontColor(mpSecondaryText(this.isDark))
         }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
       } else {
-        Scroll() {
-          Column({ space: 10 }) {
-            ForEach(this.filteredResources().slice(0, 80), (row: MpResourceItem, idx: number) => {
+        Grid() {
+          ForEach(this.filteredResources().slice(0, 80), (row: MpResourceItem, idx: number) => {
+            GridItem() {
               Column() {
                 CinematicPanel({ panelPadding: 14, cornerRadius: 18, interactive: true }) {
                   Column({ space: 7 }) {
@@ -699,22 +714,28 @@ export struct HarmonyResourceSearchPage {
                 this.selectedItem = row;
                 this.showDownloadSheet = true;
               })
-            }, (row: MpResourceItem, idx: number) => `${idx}_${row.siteName}_${row.title}`)
-          }.padding({ left: 16, right: 16, bottom: 40 })
+            }
+          }, (row: MpResourceItem, idx: number) => `${idx}_${row.siteName}_${row.title}`)
         }
+        .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
+        .columnsGap(12)
+        .rowsGap(10)
+        .padding({ left: 16, right: 16, bottom: 40 })
         .scrollBar(BarState.Off)
         .layoutWeight(1)
       }
 
       Blank().width(0).height(0).bindSheet($$this.showSiteSheet, this.sitePickerSheetBuilder(), {
-        detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showSortSheet, this.sortSheetBuilder(), {
-        detents: [SheetSize.FIT_CONTENT],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
@@ -722,13 +743,15 @@ export struct HarmonyResourceSearchPage {
       })
       Blank().width(0).height(0).bindSheet($$this.showFilterSheet, this.filterSheetBuilder(), {
         detents: [SheetSize.LARGE],
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showDownloadSheet, this.downloadConfirmBuilder(), {
-        detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
@@ -745,6 +768,7 @@ export struct HarmonyResourceSearchPage {
 export struct HarmonyDownloadsPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
   @State private tasks: MpDownloadTask[] = [];
   @State private downloaders: MpServiceConfig[] = [];
   @State private loading: boolean = true;
@@ -812,9 +836,9 @@ export struct HarmonyDownloadsPage {
         }
         .padding({ left: 16, right: 16, top: 20 })
       } else {
-        Scroll() {
-          Column({ space: 12 }) {
-            ForEach(this.tasks, (task: MpDownloadTask) => {
+        Grid() {
+          ForEach(this.tasks, (task: MpDownloadTask) => {
+            GridItem() {
               CinematicPanel({ panelPadding: 15, cornerRadius: 18 }) {
                 Column({ space: 8 }) {
                   Row({ space: 8 }) {
@@ -864,9 +888,15 @@ export struct HarmonyDownloadsPage {
                   }.width('100%')
                 }
               }
-            }, (task: MpDownloadTask) => task.hash || task.title)
-          }.padding({ left: 16, right: 16, bottom: 40 })
-        }.scrollBar(BarState.Off).layoutWeight(1)
+            }
+          }, (task: MpDownloadTask) => task.hash || task.title)
+        }
+        .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
+        .columnsGap(12)
+        .rowsGap(12)
+        .padding({ left: 16, right: 16, bottom: 40 })
+        .scrollBar(BarState.Off)
+        .layoutWeight(1)
       }
     }.width('100%').height('100%')
   }

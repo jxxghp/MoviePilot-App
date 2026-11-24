@@ -19,6 +19,7 @@ import {
 import {
   HARMONY_PALETTES,
   HarmonyPalettePreset,
+  HarmonyAdaptiveLayout,
   HarmonyAppearanceStore,
   HarmonyDynamicLight,
   HarmonyThemeColors,
@@ -81,6 +82,7 @@ const NOTIFICATION_TYPES: string[][] = [
 export struct HarmonyPluginsPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
   @StorageProp('mp_plugin_detail_close_req') @Watch('onExternalCloseDetailReq') closeDetailReq: number = 0;
   @Prop serverUrl: string = '';
   @Prop userName: string = 'admin';
@@ -412,9 +414,9 @@ export struct HarmonyPluginsPage {
           Column() { LoadingProgress().width(32).height(32).color(this.accentHex) }
             .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         } else {
-          Scroll() {
-            Column({ space: 10 }) {
-              ForEach(this.filteredPlugins(), (pl: MpPluginItem) => {
+          Grid() {
+            ForEach(this.filteredPlugins(), (pl: MpPluginItem) => {
+              GridItem() {
                 Column() {
                   CinematicPanel({ panelPadding: 14, cornerRadius: 18, interactive: this.activeTabIdx === 0 }) {
                     Row({ space: 12 }) {
@@ -480,10 +482,15 @@ export struct HarmonyPluginsPage {
                     if (installed) { this.openPluginDetail(installed); }
                   }
                 })
-              }, (pl: MpPluginItem) => `${this.activeTabIdx}_${pl.id}_${this.isInstalledInList(pl.id)}`)
-            }
-            .padding({ left: 16, right: 16, top: 2, bottom: 44 })
-          }.scrollBar(BarState.Off).layoutWeight(1)
+              }
+            }, (pl: MpPluginItem) => `${this.activeTabIdx}_${pl.id}_${this.isInstalledInList(pl.id)}`)
+          }
+          .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
+          .columnsGap(10)
+          .rowsGap(10)
+          .padding({ left: 16, right: 16, top: 2, bottom: 44 })
+          .scrollBar(BarState.Off)
+          .layoutWeight(1)
         }
       }
       .width('100%')
@@ -556,6 +563,8 @@ export struct HarmonySettingsHubPage {
   @StorageLink(HarmonyAppearanceStore.KEY_ANIMATE_BG) animateBg: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) dynamicLight: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_SHOW_AI_MASCOT) showAiMascot: boolean = true;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
   @Prop serverUrl: string = '';
   @Prop userName: string = 'admin';
   @State private stats: MpDashboardStats = {
@@ -1354,7 +1363,7 @@ export struct HarmonySettingsHubPage {
               }
             }, (p: HarmonyPalettePreset) => p.id)
           }
-          .columnsTemplate('1fr 1fr')
+          .columnsTemplate(this.windowWidthVp >= 680 ? '1fr 1fr 1fr' : '1fr 1fr')
           .columnsGap(10)
           .rowsGap(10)
           .width('100%')
@@ -1901,42 +1910,114 @@ export struct HarmonySettingsHubPage {
     }.padding(20).width('100%').height('100%')
   }
 
+  private isMedalShortLandscape(): boolean {
+    return this.windowWidthVp > this.windowHeightVp && this.windowHeightVp > 0 && this.windowHeightVp < 520;
+  }
+
   @Builder
   playbackSheetBuilder() {
-    Column({ space: 14 }) {
+    Column({ space: 12 }) {
       HarmonySheetHeader({
         title: '播放偏好',
         cancelText: '完成',
         onCancel: () => { this.showPlaybackSheet = false; }
       })
-      Text('默认清晰度').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
-      HarmonySegmentedSwitch({
-        options: ['自适应', '原画直出', '1080p'],
-        selectedIndex: this.playbackQualityIdx,
-        onSelect: (idx: number) => { this.playbackQualityIdx = idx; }
-      })
-      Text('默认倍速').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
-      HarmonySegmentedSwitch({
-        options: ['0.75x', '1.0x', '1.25x', '1.5x'],
-        selectedIndex: this.playbackSpeedIdx,
-        onSelect: (idx: number) => { this.playbackSpeedIdx = idx; }
-      })
-      CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
-        Row() {
-          Column({ space: 2 }) {
-            Text('画中画浮窗续播').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
-            Text('退至后台时自动切入小窗继续播放').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
-          }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-          Toggle({ type: ToggleType.Switch, isOn: this.playbackPip }).selectedColor(this.accentHex)
-            .onChange((v: boolean) => { this.playbackPip = v; })
-        }.width('100%')
+      Scroll() {
+        Column({ space: 14 }) {
+          Text('默认清晰度').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
+          HarmonySegmentedSwitch({
+            options: ['自适应', '原画直出', '1080p'],
+            selectedIndex: this.playbackQualityIdx,
+            onSelect: (idx: number) => { this.playbackQualityIdx = idx; }
+          })
+          Text('默认倍速').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
+          HarmonySegmentedSwitch({
+            options: ['0.75x', '1.0x', '1.25x', '1.5x'],
+            selectedIndex: this.playbackSpeedIdx,
+            onSelect: (idx: number) => { this.playbackSpeedIdx = idx; }
+          })
+          CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
+            Row() {
+              Column({ space: 2 }) {
+                Text('画中画浮窗续播').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                Text('退至后台时自动切入小窗继续播放').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+              }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+              Toggle({ type: ToggleType.Switch, isOn: this.playbackPip }).selectedColor(this.accentHex)
+                .onChange((v: boolean) => { this.playbackPip = v; })
+            }.width('100%')
+          }
+        }
+        .width('100%')
+        .padding({ bottom: 20 })
       }
-    }.padding(20).width('100%')
+      .scrollBar(BarState.Off)
+      .layoutWeight(1)
+      .width('100%')
+    }
+    .padding(20)
+    .width('100%')
+    .height('100%')
+  }
+
+  @Builder
+  medalDetailActionBodyBuilder(medal: MpCommunityMedal) {
+    Column({ space: 12 }) {
+      Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
+        NativeAdaptiveBadge({
+          text: `Tier ${medal.tier}`,
+          tintHex: '#FFCC6B'
+        })
+        NativeAdaptiveBadge({
+          text: medal.category,
+          tintHex: this.accentHex
+        })
+        NativeAdaptiveBadge({
+          text: medal.earned ? '已解锁' : '待解锁',
+          tintHex: medal.earned ? '#34C759' : '#9AA4B2'
+        })
+        if (medal.worn || this.community.wornMedalId === medal.id) {
+          NativeAdaptiveBadge({ text: '当前佩戴', tintHex: this.accentHex, filled: true })
+        }
+      }
+
+      CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
+        Column({ space: 6 }) {
+          Text('解锁条件与记录')
+            .fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
+          Text(medal.criteria || medal.subtitle)
+            .fontSize(12.5).fontColor(mpSecondaryText(this.isDark)).lineHeight(18).width('100%')
+          if ((medal.facts ?? []).length > 0) {
+            ForEach(medal.facts ?? [], (fact: string, fIdx: number) => {
+              Text(`• ${fact}`).fontSize(12).fontColor(this.accentHex).width('100%')
+            }, (fact: string, fIdx: number) => `mf_${fIdx}_${fact}`)
+          }
+        }.alignItems(HorizontalAlign.Start)
+      }
+
+      Button((medal.worn || this.community.wornMedalId === medal.id) ? '已佩戴此勋章' : '佩戴勋章')
+        .width('100%').height(44).borderRadius(22)
+        .backgroundColor(this.accentHex).fontColor(Color.White).fontWeight(FontWeight.Bold)
+        .enabled(!this.medalBusy && Boolean(medal.earned))
+        .opacity(medal.earned ? 1 : 0.45)
+        .onClick(async () => {
+          this.medalBusy = true;
+          const ok = await MoviePilotRepository.shared().wearCommunityMedal(medal.id);
+          if (ok) {
+            this.community = await MoviePilotRepository.shared().fetchCommunityMedals();
+            this.medalNotice = `已佩戴「${medal.title}」`;
+          } else {
+            this.medalNotice = '佩戴勋章失败，请确认已绑定 GitHub 社区账号';
+          }
+          this.medalBusy = false;
+        })
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
   }
 
   @Builder
   medalsSheetBuilder() {
-    Column({ space: 12 }) {
+    Column({ space: 10 }) {
       HarmonySheetHeader({
         title: `社区勋章 (${this.community.earnedCount}/${this.community.totalCount})`,
         cancelText: '关闭',
@@ -1956,95 +2037,96 @@ export struct HarmonySettingsHubPage {
       }
 
       if (this.community.medals.length > 0) {
-        Scroll() {
-          Row({ space: 8 }) {
-            ForEach(this.community.medals, (m: MpCommunityMedal, idx: number) => {
-              NativeAdaptivePill({
-                title: m.title,
-                selected: this.activeMedalIdx === idx,
-                onTap: () => {
-                  this.activeMedalIdx = idx;
-                  this.medalNotice = '';
-                }
-              })
-            }, (m: MpCommunityMedal) => m.id)
-          }
-        }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
-
-        Scroll() {
-          Column({ space: 14 }) {
-            Row({ space: 8 }) {
-              NativeAdaptiveBadge({
-                text: `Tier ${this.community.medals[this.activeMedalIdx].tier}`,
-                tintHex: '#FFCC6B'
-              })
-              NativeAdaptiveBadge({
-                text: this.community.medals[this.activeMedalIdx].category,
-                tintHex: this.accentHex
-              })
-              NativeAdaptiveBadge({
-                text: this.community.medals[this.activeMedalIdx].earned ? '已解锁' : '待解锁',
-                tintHex: this.community.medals[this.activeMedalIdx].earned ? '#34C759' : '#9AA4B2'
-              })
-              if (this.community.medals[this.activeMedalIdx].worn
-                || this.community.wornMedalId === this.community.medals[this.activeMedalIdx].id) {
-                NativeAdaptiveBadge({ text: '当前佩戴', tintHex: this.accentHex, filled: true })
+        if (this.isMedalShortLandscape()) {
+          Row({ space: 18 }) {
+            Scroll() {
+              Column() {
+                CommunityMedal3DComponent({
+                  medalId: this.community.medals[this.activeMedalIdx].id,
+                  frontAsset: this.community.medals[this.activeMedalIdx].frontAsset,
+                  backAsset: this.community.medals[this.activeMedalIdx].backAsset,
+                  title: this.community.medals[this.activeMedalIdx].title,
+                  subtitle: this.community.medals[this.activeMedalIdx].subtitle,
+                  ownerName: this.community.githubLogin,
+                  earnedDate: this.community.medals[this.activeMedalIdx].earnedDate,
+                  medalSize: 164
+                })
               }
+              .padding({ bottom: 12 })
             }
+            .scrollBar(BarState.Off)
+            .width(204)
+            .height('100%')
 
-            CommunityMedal3DComponent({
-              medalId: this.community.medals[this.activeMedalIdx].id,
-              frontAsset: this.community.medals[this.activeMedalIdx].frontAsset,
-              backAsset: this.community.medals[this.activeMedalIdx].backAsset,
-              title: this.community.medals[this.activeMedalIdx].title,
-              subtitle: this.community.medals[this.activeMedalIdx].subtitle,
-              ownerName: this.community.githubLogin,
-              earnedDate: this.community.medals[this.activeMedalIdx].earnedDate
-            })
-
-            CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
-              Column({ space: 6 }) {
-                Text('解锁条件与记录')
-                  .fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
-                Text(this.community.medals[this.activeMedalIdx].criteria
-                  || this.community.medals[this.activeMedalIdx].subtitle)
-                  .fontSize(12.5).fontColor(mpSecondaryText(this.isDark)).lineHeight(18).width('100%')
-                if ((this.community.medals[this.activeMedalIdx].facts ?? []).length > 0) {
-                  ForEach(this.community.medals[this.activeMedalIdx].facts ?? [], (fact: string, fIdx: number) => {
-                    Text(`• ${fact}`).fontSize(12).fontColor(this.accentHex).width('100%')
-                  }, (fact: string, fIdx: number) => `mf_${fIdx}_${fact}`)
+            Scroll() {
+              Column({ space: 12 }) {
+                Scroll() {
+                  Row({ space: 8 }) {
+                    ForEach(this.community.medals, (m: MpCommunityMedal, idx: number) => {
+                      NativeAdaptivePill({
+                        title: m.title,
+                        selected: this.activeMedalIdx === idx,
+                        onTap: () => {
+                          this.activeMedalIdx = idx;
+                          this.medalNotice = '';
+                        }
+                      })
+                    }, (m: MpCommunityMedal) => m.id)
+                  }
                 }
-              }.alignItems(HorizontalAlign.Start)
+                .scrollable(ScrollDirection.Horizontal)
+                .scrollBar(BarState.Off)
+                .width('100%')
+
+                this.medalDetailActionBodyBuilder(this.community.medals[this.activeMedalIdx])
+              }
+              .width('100%')
+              .padding({ bottom: 20 })
             }
-
-            Button(
-              (this.community.medals[this.activeMedalIdx].worn
-                || this.community.wornMedalId === this.community.medals[this.activeMedalIdx].id)
-                ? '已佩戴此勋章'
-                : '佩戴勋章'
-            )
-              .width('100%').height(44).borderRadius(22)
-              .backgroundColor(this.accentHex).fontColor(Color.White).fontWeight(FontWeight.Bold)
-              .enabled(!this.medalBusy && Boolean(this.community.medals[this.activeMedalIdx].earned))
-              .opacity(this.community.medals[this.activeMedalIdx].earned ? 1 : 0.45)
-              .onClick(async () => {
-                const target = this.community.medals[this.activeMedalIdx];
-                this.medalBusy = true;
-                const ok = await MoviePilotRepository.shared().wearCommunityMedal(target.id);
-                if (ok) {
-                  this.community = await MoviePilotRepository.shared().fetchCommunityMedals();
-                  this.medalNotice = `已佩戴「${target.title}」`;
-                } else {
-                  this.medalNotice = '佩戴勋章失败，请确认已绑定 GitHub 社区账号';
-                }
-                this.medalBusy = false;
-              })
+            .scrollBar(BarState.Off)
+            .layoutWeight(1)
+            .height('100%')
           }
-          .alignItems(HorizontalAlign.Center)
-          .padding({ bottom: 24 })
+          .width('100%')
+          .layoutWeight(1)
+        } else {
+          Scroll() {
+            Row({ space: 8 }) {
+              ForEach(this.community.medals, (m: MpCommunityMedal, idx: number) => {
+                NativeAdaptivePill({
+                  title: m.title,
+                  selected: this.activeMedalIdx === idx,
+                  onTap: () => {
+                    this.activeMedalIdx = idx;
+                    this.medalNotice = '';
+                  }
+                })
+              }, (m: MpCommunityMedal) => m.id)
+            }
+          }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%')
+
+          Scroll() {
+            Column({ space: 14 }) {
+              CommunityMedal3DComponent({
+                medalId: this.community.medals[this.activeMedalIdx].id,
+                frontAsset: this.community.medals[this.activeMedalIdx].frontAsset,
+                backAsset: this.community.medals[this.activeMedalIdx].backAsset,
+                title: this.community.medals[this.activeMedalIdx].title,
+                subtitle: this.community.medals[this.activeMedalIdx].subtitle,
+                ownerName: this.community.githubLogin,
+                earnedDate: this.community.medals[this.activeMedalIdx].earnedDate,
+                medalSize: 240
+              })
+
+              this.medalDetailActionBodyBuilder(this.community.medals[this.activeMedalIdx])
+            }
+            .alignItems(HorizontalAlign.Center)
+            .padding({ bottom: 24 })
+          }
+          .scrollBar(BarState.Off)
+          .layoutWeight(1)
+          .width('100%')
         }
-        .scrollBar(BarState.Off)
-        .layoutWeight(1)
       }
     }.padding(20).width('100%').height('100%').alignItems(HorizontalAlign.Center)
   }
@@ -2062,8 +2144,9 @@ export struct HarmonySettingsHubPage {
       }
 
       Scroll() {
-        Column({ space: 16 }) {
-          CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
+        Column() {
+          Column({ space: 16 }) {
+            CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
             Column({ space: 8 }) {
               Row() {
                 Text(`● ${this.serverUrl.replace(/^https?:\/\//, '') || '127.0.0.1'}`)
@@ -2226,28 +2309,37 @@ export struct HarmonySettingsHubPage {
               .onClick(() => this.onLogout())
             }
           }
+          }
+          .width('100%')
+          .constraintSize({ maxWidth: 820 })
+          .padding({ left: 16, right: 16, top: 6, bottom: 44 })
         }
-        .padding({ left: 16, right: 16, top: 6, bottom: 44 })
+        .width('100%')
+        .alignItems(HorizontalAlign.Center)
       }
       .scrollBar(BarState.Off)
       .layoutWeight(1)
+      .width('100%')
 
       Blank().width(0).height(0).bindSheet($$this.showAppearanceSheet, this.appearanceSheetBuilder(), {
         detents: [SheetSize.LARGE],
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showUsersSheet, this.usersSheetBuilder(), {
-        detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showAuthorizationSheet, this.authorizationSheetBuilder(), {
-        detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
@@ -2255,27 +2347,31 @@ export struct HarmonySettingsHubPage {
       })
       Blank().width(0).height(0).bindSheet($$this.showMediaSourcesSheet, this.mediaSourcesSheetBuilder(), {
         detents: [SheetSize.LARGE],
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showSubscribeSearchSheet, this.subscribeSearchSheetBuilder(), {
-        detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showDownloadersSheet, this.downloadersSheetBuilder(), {
-        detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showMediaServersSheet, this.mediaServersSheetBuilder(), {
-        detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
@@ -2283,13 +2379,15 @@ export struct HarmonySettingsHubPage {
       })
       Blank().width(0).height(0).bindSheet($$this.showDirectoriesSheet, this.directoriesSheetBuilder(), {
         detents: [SheetSize.LARGE],
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showNotificationsSheet, this.notificationsSheetBuilder(), {
-        detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
@@ -2297,13 +2395,15 @@ export struct HarmonySettingsHubPage {
       })
       Blank().width(0).height(0).bindSheet($$this.showNotifEditorSheet, this.notifEditorSheetBuilder(), {
         detents: [SheetSize.LARGE],
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showPlaybackSheet, this.playbackSheetBuilder(), {
-        detents: [SheetSize.MEDIUM],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
@@ -2311,6 +2411,7 @@ export struct HarmonySettingsHubPage {
       })
       Blank().width(0).height(0).bindSheet($$this.showCrudEditor, this.crudEditorSheetBuilder(), {
         detents: [SheetSize.LARGE],
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
@@ -2318,6 +2419,7 @@ export struct HarmonySettingsHubPage {
       })
       Blank().width(0).height(0).bindSheet($$this.showMedalsSheet, this.medalsSheetBuilder(), {
         detents: [SheetSize.LARGE],
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,

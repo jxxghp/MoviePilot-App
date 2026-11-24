@@ -17,6 +17,7 @@ export {
 
 export {
   HarmonyBreakpoint,
+  HarmonySheetDetents,
   HarmonyAdaptiveLayout
 } from './src/main/ets/components/AdaptiveBreakpoints';
 

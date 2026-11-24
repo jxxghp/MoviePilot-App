@@ -442,7 +442,7 @@ struct NativeMediaServerLibraryPage: View {
   @ViewBuilder
   private var contentBody: some View {
     if isLoading && items.isEmpty {
-      NativePosterGridSkeletonView(columns: 3, count: 9)
+      NativePosterGridSkeletonView(columns: gridColumns.count, count: gridColumns.count * 3)
         .padding(.horizontal, CinematicStyle.margin)
     } else if loadFailed && items.isEmpty {
       CinematicPanel {

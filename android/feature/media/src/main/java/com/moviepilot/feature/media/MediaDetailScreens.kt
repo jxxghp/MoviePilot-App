@@ -11,14 +11,21 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -125,8 +132,17 @@ fun MediaDetailScreen(
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val config = LocalConfiguration.current
-    val isPortraitPhone = config.screenWidthDp < config.screenHeightDp && config.screenWidthDp < 680
-    val heroHeight = if (isPortraitPhone) 450.dp else 400.dp
+    val w = config.screenWidthDp
+    val h = config.screenHeightDp
+    val isLandscape = w > h
+    val isCompactLandscape = isLandscape && h < 480
+    val isPortraitPhone = !isLandscape && w < 680
+    val heroHeight = when {
+        isCompactLandscape -> (h * 0.54f).coerceIn(196f, 248f).dp
+        isLandscape -> (h * 0.52f).coerceIn(320f, 420f).dp
+        isPortraitPhone -> 450.dp
+        else -> 420.dp
+    }
     val density = LocalDensity.current
     val heroHeightPx = with(density) { heroHeight.toPx().coerceAtLeast(1f) }
     val scope = rememberCoroutineScope()
@@ -325,8 +341,8 @@ fun MediaDetailScreen(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 48.dp + bottomOverlayInset),
-                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                    contentPadding = PaddingValues(bottom = 28.dp + bottomOverlayInset),
+                    verticalArrangement = Arrangement.spacedBy(if (isCompactLandscape) 12.dp else 18.dp),
                 ) {
                     // 1. 前景透明片名 Logo / 标题、元数据、评分与类型胶囊（1.0x 随正文自然上滚）
                     item {
@@ -339,9 +355,9 @@ fun MediaDetailScreen(
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
-                                    .padding(horizontal = margin, vertical = 14.dp),
+                                    .padding(horizontal = margin, vertical = if (isCompactLandscape) 8.dp else 14.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(if (isCompactLandscape) 4.dp else 8.dp),
                             ) {
                                 var logoReady by remember(detail.logoPath) { mutableStateOf(false) }
                                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -349,10 +365,11 @@ fun MediaDetailScreen(
                                         Text(
                                             text = detail.title,
                                             color = if (colors.isDark) Color.White else colors.textPrimary,
-                                            fontSize = 28.sp,
+                                            fontSize = if (isCompactLandscape) 22.sp else 28.sp,
                                             fontWeight = FontWeight.ExtraBold,
                                             textAlign = TextAlign.Center,
-                                            maxLines = 2,
+                                            maxLines = if (isCompactLandscape) 1 else 2,
+                                            overflow = TextOverflow.Ellipsis,
                                         )
                                     }
                                     if (!detail.logoPath.isNullOrBlank()) {
@@ -362,8 +379,8 @@ fun MediaDetailScreen(
                                             contentScale = ContentScale.Fit,
                                             onSuccess = { logoReady = true },
                                             modifier = Modifier
-                                                .fillMaxWidth(0.74f)
-                                                .height(74.dp),
+                                                .fillMaxWidth(if (isCompactLandscape) 0.54f else 0.74f)
+                                                .height(if (isCompactLandscape) 48.dp else 74.dp),
                                         )
                                     }
                                 }
@@ -414,8 +431,49 @@ fun MediaDetailScreen(
                         }
                     }
 
-                    // 2. 核心操作栏（深浅双模高对比度主按钮 + 玻璃次按钮 + 媒体库直放）
+                    // 2. 核心操作栏（深浅双模高对比度主按钮 + 玻璃次按钮 + 媒体库直放；宽横屏三键同行直达）
                     item {
+                        val actionBtnHeight = if (isCompactLandscape) 44.dp else 50.dp
+                        val canPlayNow = detail.inLibrary || libraryStatus.inLibrary
+                        val inlinePlayInRow = canPlayNow && isLandscape
+                        val triggerPlayNow: () -> Unit = {
+                            scope.launch {
+                                feedback = null
+                                val candidateId = libraryStatus.itemId.takeIf { it.isNotBlank() }
+                                    ?: detail.mediaId?.takeIf { it.isNotBlank() && !it.contains(":") }
+                                    ?: repository.searchMedia(detail.title, "library", 1).firstOrNull()?.mediaId
+                                val targetSrv = libraryStatus.server.takeIf { it.isNotBlank() }
+                                val manifest = candidateId?.let { repository.fetchVideoStreamInfo(it, targetSrv) }
+                                if (manifest != null) {
+                                    val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
+                                    onPlayMedia(
+                                        MediaPlaybackRequest(
+                                            url = manifest.contentUrl,
+                                            title = manifest.title.ifBlank { detail.title },
+                                            subtitle = listOfNotNull(
+                                                manifest.server.ifBlank { targetSrv },
+                                                detail.year.ifBlank { null },
+                                                detail.type.ifBlank { null },
+                                            ).joinToString(" · "),
+                                            artworkUrl = detail.posterPath,
+                                            isAudio = manifest.mediaType == "audio",
+                                            lyricsLrc = lrc,
+                                            headers = manifest.headers,
+                                            itemId = manifest.itemId,
+                                            server = manifest.server,
+                                            resumePositionMs = manifest.resumePositionMs,
+                                            subtitles = manifest.subtitles.map {
+                                                SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
+                                            },
+                                        ),
+                                    )
+                                } else {
+                                    feedbackIsError = true
+                                    feedback = "当前媒体服务器未找到该条目的直放流"
+                                }
+                            }
+                        }
+
                         Column(
                             modifier = Modifier.padding(horizontal = margin),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -462,7 +520,7 @@ fun MediaDetailScreen(
                                         contentColor = primaryBtnFg,
                                     ),
                                     shape = CircleShape,
-                                    modifier = Modifier.weight(1f).height(50.dp),
+                                    modifier = Modifier.weight(1f).height(actionBtnHeight),
                                 ) {
                                     Icon(
                                         if (primarySubscribed) Icons.Rounded.BookmarkAdded else Icons.Outlined.BookmarkBorder,
@@ -476,8 +534,10 @@ fun MediaDetailScreen(
                                             isTv -> "订阅第 $primarySeason 季"
                                             else -> "添加订阅"
                                         },
-                                        fontSize = 15.sp,
+                                        fontSize = if (isCompactLandscape) 14.sp else 15.sp,
                                         fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                 }
 
@@ -487,7 +547,7 @@ fun MediaDetailScreen(
                                     useLiveBackdropBlur = false,
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(50.dp)
+                                        .height(actionBtnHeight)
                                         .clickable { onSearchResource(detail.title) },
                                 ) {
                                     Row(
@@ -497,50 +557,43 @@ fun MediaDetailScreen(
                                     ) {
                                         Icon(Icons.Rounded.Search, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(19.dp))
                                         Spacer(Modifier.width(6.dp))
-                                        Text("搜索资源", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("搜索资源", color = colors.textPrimary, fontSize = if (isCompactLandscape) 14.sp else 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                    }
+                                }
+
+                                if (inlinePlayInRow) {
+                                    Button(
+                                        onClick = triggerPlayNow,
+                                        colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.primaryButtonFg),
+                                        shape = CircleShape,
+                                        modifier = Modifier.weight(1f).height(actionBtnHeight),
+                                    ) {
+                                        if (libraryStatus.server.isNotBlank()) {
+                                            NativeEntityLogo(
+                                                kind = "mediaserver",
+                                                value = libraryStatus.serverType.ifBlank { libraryStatus.server },
+                                                size = 17.dp,
+                                                cornerRadius = 5.dp,
+                                            )
+                                            Spacer(Modifier.width(6.dp))
+                                        } else {
+                                            Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(19.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                        }
+                                        Text(
+                                            text = if (libraryStatus.server.isNotBlank()) "立即播放 · ${libraryStatus.server}" else "立即播放",
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = if (isCompactLandscape) 14.sp else 15.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
                                     }
                                 }
                             }
 
-                            if (detail.inLibrary || libraryStatus.inLibrary) {
+                            if (canPlayNow && !inlinePlayInRow) {
                                 Button(
-                                    onClick = {
-                                        scope.launch {
-                                            feedback = null
-                                            val candidateId = libraryStatus.itemId.takeIf { it.isNotBlank() }
-                                                ?: detail.mediaId?.takeIf { it.isNotBlank() && !it.contains(":") }
-                                                ?: repository.searchMedia(detail.title, "library", 1).firstOrNull()?.mediaId
-                                            val targetSrv = libraryStatus.server.takeIf { it.isNotBlank() }
-                                            val manifest = candidateId?.let { repository.fetchVideoStreamInfo(it, targetSrv) }
-                                            if (manifest != null) {
-                                                val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
-                                                onPlayMedia(
-                                                    MediaPlaybackRequest(
-                                                        url = manifest.contentUrl,
-                                                        title = manifest.title.ifBlank { detail.title },
-                                                        subtitle = listOfNotNull(
-                                                            manifest.server.ifBlank { targetSrv },
-                                                            detail.year.ifBlank { null },
-                                                            detail.type.ifBlank { null },
-                                                        ).joinToString(" · "),
-                                                        artworkUrl = detail.posterPath,
-                                                        isAudio = manifest.mediaType == "audio",
-                                                        lyricsLrc = lrc,
-                                                        headers = manifest.headers,
-                                                        itemId = manifest.itemId,
-                                                        server = manifest.server,
-                                                        resumePositionMs = manifest.resumePositionMs,
-                                                        subtitles = manifest.subtitles.map {
-                                                            SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
-                                                        },
-                                                    ),
-                                                )
-                                            } else {
-                                                feedbackIsError = true
-                                                feedback = "当前媒体服务器未找到该条目的直放流"
-                                            }
-                                        }
-                                    },
+                                    onClick = triggerPlayNow,
                                     colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.primaryButtonFg),
                                     shape = CircleShape,
                                     modifier = Modifier.fillMaxWidth().height(46.dp),
@@ -833,22 +886,27 @@ fun MediaDetailScreen(
             modifier = Modifier.align(Alignment.TopCenter),
         )
 
-        // 左上角悬浮磨砂返回按钮（Android 标准 ArrowBack Up 图标）
+        // 左上角悬浮磨砂返回按钮（Android 标准 ArrowBack Up 图标，自动避让状态栏与左侧刘海）
         CinematicCircleButton(
             icon = Icons.AutoMirrored.Rounded.ArrowBack,
             contentDescription = "返回",
             onClick = onBack,
+            size = if (isCompactLandscape) 40.dp else 44.dp,
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(start = 16.dp, top = 8.dp),
+                .windowInsetsPadding(
+                    WindowInsets.statusBars
+                        .union(WindowInsets.displayCutout)
+                        .only(WindowInsetsSides.Top + WindowInsetsSides.Start),
+                )
+                .padding(start = 16.dp, top = if (isCompactLandscape) 6.dp else 8.dp),
         )
     }
 }
 
 /**
  * 独立原生人物详情页（1:1 复刻 iOS `NativePersonDetailPage.swift` + Android 独立路由压栈）：
- * 居中 116dp 圆形人物肖像、职业/生日/出生地履历、可展开人物简介玻璃卡、3 列参演作品海报网格，
+ * 居中 116dp 圆形人物肖像（短屏横屏自动切换紧凑横排肖像栏）、职业/生日/出生地履历、可展开人物简介玻璃卡、自适应参演作品海报网格，
  * 点击任意作品继续推入下一部影视详情页，并由顶部状态栏渐进模糊护航滚动。
  */
 @Composable
@@ -861,6 +919,7 @@ fun PersonDetailScreen(
     val colors = LocalMoviePilotColors.current
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
+    val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
     val columns = AdaptiveDeviceLayout.posterGridColumns()
     val gridState = rememberLazyGridState()
 
@@ -886,56 +945,102 @@ fun PersonDetailScreen(
             contentPadding = PaddingValues(
                 start = margin,
                 end = margin,
-                top = 20.dp,
-                bottom = 48.dp + bottomOverlayInset,
+                top = if (compactHeight) 12.dp else 20.dp,
+                bottom = 28.dp + bottomOverlayInset,
             ),
             horizontalArrangement = Arrangement.spacedBy(11.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // 居中人物头像与履历信息
+            // 人物头像与履历信息（短高度横屏切换紧凑横排布局，避免 116dp 竖向堆叠吞噬网格）
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(116.dp)
-                            .clip(CircleShape)
-                            .background(colors.chipFill)
-                            .border(1.dp, colors.borderSubtle.copy(alpha = 0.45f), CircleShape),
-                        contentAlignment = Alignment.Center,
+                val facts = listOfNotNull(
+                    person.department.ifBlank { null },
+                    person.birthday.ifBlank { null },
+                    person.placeOfBirth.ifBlank { null },
+                ).joinToString(" · ")
+                if (compactHeight) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        Icon(Icons.Rounded.Person, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(46.dp))
-                        if (!person.profilePath.isNullOrBlank()) {
-                            AsyncImage(
-                                model = person.profilePath,
-                                contentDescription = person.name,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
+                        Box(
+                            modifier = Modifier
+                                .size(72.dp)
+                                .clip(CircleShape)
+                                .background(colors.chipFill)
+                                .border(1.dp, colors.borderSubtle.copy(alpha = 0.45f), CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Rounded.Person, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(30.dp))
+                            if (!person.profilePath.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = person.profilePath,
+                                    contentDescription = person.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = person.name,
+                                color = colors.textPrimary,
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
+                            if (facts.isNotBlank()) {
+                                Text(
+                                    text = facts,
+                                    color = colors.textSecondary,
+                                    fontSize = 13.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
-                    Text(
-                        text = person.name,
-                        color = colors.textPrimary,
-                        fontSize = 23.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        textAlign = TextAlign.Center,
-                    )
-                    val facts = listOfNotNull(
-                        person.department.ifBlank { null },
-                        person.birthday.ifBlank { null },
-                        person.placeOfBirth.ifBlank { null },
-                    ).joinToString(" · ")
-                    if (facts.isNotBlank()) {
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(116.dp)
+                                .clip(CircleShape)
+                                .background(colors.chipFill)
+                                .border(1.dp, colors.borderSubtle.copy(alpha = 0.45f), CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Rounded.Person, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(46.dp))
+                            if (!person.profilePath.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = person.profilePath,
+                                    contentDescription = person.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
                         Text(
-                            text = facts,
-                            color = colors.textSecondary,
-                            fontSize = 13.sp,
+                            text = person.name,
+                            color = colors.textPrimary,
+                            fontSize = 23.sp,
+                            fontWeight = FontWeight.ExtraBold,
                             textAlign = TextAlign.Center,
                         )
+                        if (facts.isNotBlank()) {
+                            Text(
+                                text = facts,
+                                color = colors.textSecondary,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
                     }
                 }
             }

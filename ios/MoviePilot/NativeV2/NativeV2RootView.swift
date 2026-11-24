@@ -842,9 +842,11 @@ struct NativeV2RootView: View {
       .onTapGesture {
         playbackLauncher.expandMinimizedAudio()
       }
+      .frame(maxWidth: 520)
       .padding(.horizontal, 16)
       .padding(.bottom, 14)
     }
+    .frame(maxWidth: .infinity)
   }
 
   /// 登录前工具栏和登录后账号页提供同一组系统语言选项。

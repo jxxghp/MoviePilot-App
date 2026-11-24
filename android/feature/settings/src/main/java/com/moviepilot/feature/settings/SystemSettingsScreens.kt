@@ -535,7 +535,7 @@ fun SubscribeSearchSettingsScreen(
         NativeGlassSheet(onDismissRequest = { pickerTarget = null }) {
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(if (target == "rss") "选择订阅站点" else "选择搜索站点", color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                LazyColumn(modifier = Modifier.height(360.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(allSites, key = { it.id }) { site ->
                         LaunchedEffect(site.id) {
                             if (!siteIcons.containsKey(site.id)) {

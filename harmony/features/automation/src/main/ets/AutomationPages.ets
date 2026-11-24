@@ -16,6 +16,7 @@ import {
   HarmonyPillTabBar,
   HarmonySheetHeader,
   HarmonyEntityLogo,
+  HarmonyAdaptiveLayout,
   HarmonyAppearanceStore,
   HarmonyThemeColors,
   mpPrimaryText,
@@ -42,6 +43,7 @@ const NODE_CARD_H: number = 50;
 export struct HarmonyWorkflowCanvasPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
   @State private wfTabIdx: number = 0; // 0: 我的工作流, 1: 工作流广场
   @State private workflows: MpWorkflowItem[] = [];
   @State private shares: MpWorkflowShareItem[] = [];
@@ -316,86 +318,94 @@ export struct HarmonyWorkflowCanvasPage {
                 }.width('100%').alignItems(HorizontalAlign.Center)
               }
             } else {
-              ForEach(this.workflows, (wf: MpWorkflowItem) => {
-                CinematicPanel({ panelPadding: 14, cornerRadius: 18 }) {
-                  Column({ space: 8 }) {
-                    Row({ space: 8 }) {
-                      Text(wf.name)
-                        .fontSize(15)
-                        .fontWeight(FontWeight.Bold)
-                        .fontColor(mpPrimaryText(this.isDark))
-                        .maxLines(1)
-                        .textOverflow({ overflow: TextOverflow.Ellipsis })
-                        .layoutWeight(1)
-                      NativeAdaptiveBadge({
-                        text: this.isPaused(wf) ? '已暂停' : '已启用',
-                        tintHex: this.isPaused(wf) ? '#F29B38' : '#34C759'
-                      })
-                      NativeAdaptiveBadge({ text: `${wf.actionCount} 节点`, tintHex: this.accentHex })
-                    }.width('100%')
+              Grid() {
+                ForEach(this.workflows, (wf: MpWorkflowItem) => {
+                  GridItem() {
+                    CinematicPanel({ panelPadding: 14, cornerRadius: 18 }) {
+                      Column({ space: 8 }) {
+                        Row({ space: 8 }) {
+                          Text(wf.name)
+                            .fontSize(15)
+                            .fontWeight(FontWeight.Bold)
+                            .fontColor(mpPrimaryText(this.isDark))
+                            .maxLines(1)
+                            .textOverflow({ overflow: TextOverflow.Ellipsis })
+                            .layoutWeight(1)
+                          NativeAdaptiveBadge({
+                            text: this.isPaused(wf) ? '已暂停' : '已启用',
+                            tintHex: this.isPaused(wf) ? '#F29B38' : '#34C759'
+                          })
+                          NativeAdaptiveBadge({ text: `${wf.actionCount} 节点`, tintHex: this.accentHex })
+                        }.width('100%')
 
-                    if (wf.description.length > 0) {
-                      Text(wf.description).fontSize(12).fontColor(mpSecondaryText(this.isDark)).maxLines(2).width('100%')
-                    }
-                    Row({ space: 8 }) {
-                      if (wf.timer.length > 0) {
-                        Text(`定时：${RustCoreBridge.analyzeCron(wf.timer).descriptionZh}`)
-                          .fontSize(11.5).fontColor(this.accentHex)
-                      }
-                      if (wf.runCount > 0) {
-                        Text(`已执行 ${wf.runCount} 次`).fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
-                      }
-                    }.width('100%')
-
-                    Row({ space: 8 }) {
-                      Row({ space: 4 }) {
-                        SymbolGlyph($r('sys.symbol.play_fill')).fontSize(12).fontColor([Color.White])
-                        Text('运行').fontSize(12).fontWeight(FontWeight.Bold).fontColor(Color.White)
-                      }
-                      .padding({ left: 10, right: 12, top: 6, bottom: 6 })
-                      .borderRadius(14)
-                      .backgroundColor(this.accentHex)
-                      .opacity(this.busyWfId === wf.id ? 0.6 : 1)
-                      .onClick(() => { this.handleRun(wf); })
-
-                      Row({ space: 4 }) {
-                        SymbolGlyph($r(this.isPaused(wf) ? 'sys.symbol.play_fill' : 'sys.symbol.pause_fill'))
-                          .fontSize(12).fontColor([mpPrimaryText(this.isDark)])
-                        Text(this.isPaused(wf) ? '启用' : '暂停')
-                          .fontSize(12).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
-                      }
-                      .padding({ left: 10, right: 12, top: 6, bottom: 6 })
-                      .borderRadius(14)
-                      .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-                      .onClick(() => { this.handleToggleState(wf); })
-
-                      NativeAdaptivePill({
-                        title: '画布',
-                        selected: (this.activeWorkflow()?.id ?? -1) === wf.id,
-                        onTap: () => {
-                          this.activeWorkflowId = wf.id;
-                          this.offsetX = 12;
-                          this.offsetY = 18;
-                          this.scaleVal = 1.0;
-                          const nodes = this.activeNodes();
-                          this.selectedNode = nodes.length > 0 ? nodes[0].name : '';
-                          this.drawEdges();
+                        if (wf.description.length > 0) {
+                          Text(wf.description).fontSize(12).fontColor(mpSecondaryText(this.isDark)).maxLines(2).width('100%')
                         }
-                      })
+                        Row({ space: 8 }) {
+                          if (wf.timer.length > 0) {
+                            Text(`定时：${RustCoreBridge.analyzeCron(wf.timer).descriptionZh}`)
+                              .fontSize(11.5).fontColor(this.accentHex)
+                          }
+                          if (wf.runCount > 0) {
+                            Text(`已执行 ${wf.runCount} 次`).fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                          }
+                        }.width('100%')
 
-                      Blank()
+                        Row({ space: 8 }) {
+                          Row({ space: 4 }) {
+                            SymbolGlyph($r('sys.symbol.play_fill')).fontSize(12).fontColor([Color.White])
+                            Text('运行').fontSize(12).fontWeight(FontWeight.Bold).fontColor(Color.White)
+                          }
+                          .padding({ left: 10, right: 12, top: 6, bottom: 6 })
+                          .borderRadius(14)
+                          .backgroundColor(this.accentHex)
+                          .opacity(this.busyWfId === wf.id ? 0.6 : 1)
+                          .onClick(() => { this.handleRun(wf); })
 
-                      Button({ type: ButtonType.Circle }) {
-                        SymbolGlyph($r('sys.symbol.trash')).fontSize(14).fontColor(['#E84855'])
+                          Row({ space: 4 }) {
+                            SymbolGlyph($r(this.isPaused(wf) ? 'sys.symbol.play_fill' : 'sys.symbol.pause_fill'))
+                              .fontSize(12).fontColor([mpPrimaryText(this.isDark)])
+                            Text(this.isPaused(wf) ? '启用' : '暂停')
+                              .fontSize(12).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                          }
+                          .padding({ left: 10, right: 12, top: 6, bottom: 6 })
+                          .borderRadius(14)
+                          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                          .onClick(() => { this.handleToggleState(wf); })
+
+                          NativeAdaptivePill({
+                            title: '画布',
+                            selected: (this.activeWorkflow()?.id ?? -1) === wf.id,
+                            onTap: () => {
+                              this.activeWorkflowId = wf.id;
+                              this.offsetX = 12;
+                              this.offsetY = 18;
+                              this.scaleVal = 1.0;
+                              const nodes = this.activeNodes();
+                              this.selectedNode = nodes.length > 0 ? nodes[0].name : '';
+                              this.drawEdges();
+                            }
+                          })
+
+                          Blank()
+
+                          Button({ type: ButtonType.Circle }) {
+                            SymbolGlyph($r('sys.symbol.trash')).fontSize(14).fontColor(['#E84855'])
+                          }
+                          .width(32).height(32)
+                          .backgroundColor(HarmonyThemeColors.softDangerBg(this.isDark))
+                          .accessibilityText('删除工作流')
+                          .onClick(() => this.confirmDeleteWorkflow(wf))
+                        }.width('100%')
                       }
-                      .width(32).height(32)
-                      .backgroundColor(HarmonyThemeColors.softDangerBg(this.isDark))
-                      .accessibilityText('删除工作流')
-                      .onClick(() => this.confirmDeleteWorkflow(wf))
-                    }.width('100%')
+                    }
                   }
-                }
-              }, (wf: MpWorkflowItem) => `${wf.id}_${wf.state}_${wf.runCount}`)
+                }, (wf: MpWorkflowItem) => `${wf.id}_${wf.state}_${wf.runCount}`)
+              }
+              .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
+              .columnsGap(12)
+              .rowsGap(12)
+              .width('100%')
             }
 
             // 交互式工作流节点画布
@@ -502,9 +512,9 @@ export struct HarmonyWorkflowCanvasPage {
             Text('暂无社区共享工作流').fontSize(14).fontColor(mpSecondaryText(this.isDark))
           }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         } else {
-          Scroll() {
-            Column({ space: 10 }) {
-              ForEach(this.shares, (sh: MpWorkflowShareItem) => {
+          Grid() {
+            ForEach(this.shares, (sh: MpWorkflowShareItem) => {
+              GridItem() {
                 CinematicPanel({ panelPadding: 14, cornerRadius: 18 }) {
                   Column({ space: 6 }) {
                     Row({ space: 8 }) {
@@ -531,9 +541,15 @@ export struct HarmonyWorkflowCanvasPage {
                     }.width('100%')
                   }
                 }
-              }, (sh: MpWorkflowShareItem) => `${sh.id}_${sh.count}`)
-            }.padding({ left: 16, right: 16, bottom: 44 })
-          }.scrollBar(BarState.Off).layoutWeight(1)
+              }
+            }, (sh: MpWorkflowShareItem) => `${sh.id}_${sh.count}`)
+          }
+          .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
+          .columnsGap(12)
+          .rowsGap(10)
+          .padding({ left: 16, right: 16, bottom: 44 })
+          .scrollBar(BarState.Off)
+          .layoutWeight(1)
         }
       }
     }.width('100%').height('100%')
@@ -547,6 +563,8 @@ export struct HarmonyWorkflowCanvasPage {
 export struct HarmonySitesPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
   @State private sites: MpSiteItem[] = [];
   @State private loading: boolean = true;
   @State private notice: string = '';
@@ -726,7 +744,7 @@ export struct HarmonySitesPage {
 
   @Builder
   siteDetailSheetBuilder() {
-    Column({ space: 14 }) {
+    Column({ space: 12 }) {
       if (this.selectedSite) {
         HarmonySheetHeader({
           title: this.selectedSite.name,
@@ -739,66 +757,79 @@ export struct HarmonySitesPage {
             if (s) { this.openEditSite(s); }
           }
         })
-        Row({ space: 10 }) {
-          HarmonyEntityLogo({
-            kind: 'site',
-            value: this.selectedSite.name,
-            dataUri: this.selectedSite.iconDataUri,
-            logoSize: 28,
-            cornerRadius: 7
-          })
-          Text(this.selectedSite.domain).fontSize(12.5).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
-        }.width('100%')
 
-        Row({ space: 10 }) {
-          Column() {
-            CinematicPanel({ panelPadding: 12 }) {
-              Column({ space: 3 }) {
-                Text('累计上传').fontSize(11).fontColor(mpSecondaryText(this.isDark))
-                Text(formatByteSize(this.selectedSite.uploadBytes)).fontSize(15).fontWeight(FontWeight.Bold).fontColor('#34C759')
-              }.alignItems(HorizontalAlign.Start)
-            }
-          }.layoutWeight(1)
-          Column() {
-            CinematicPanel({ panelPadding: 12 }) {
-              Column({ space: 3 }) {
-                Text('累计下载').fontSize(11).fontColor(mpSecondaryText(this.isDark))
-                Text(formatByteSize(this.selectedSite.downloadBytes)).fontSize(15).fontWeight(FontWeight.Bold).fontColor('#EE6896')
-              }.alignItems(HorizontalAlign.Start)
-            }
-          }.layoutWeight(1)
-        }
-        Row({ space: 10 }) {
-          Column() {
-            CinematicPanel({ panelPadding: 12 }) {
-              Column({ space: 3 }) {
-                Text('分享率').fontSize(11).fontColor(mpSecondaryText(this.isDark))
-                Text(this.selectedSite.ratio > 0 ? this.selectedSite.ratio.toFixed(2) : '--').fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
-              }.alignItems(HorizontalAlign.Start)
-            }
-          }.layoutWeight(1)
-          Column() {
-            CinematicPanel({ panelPadding: 12 }) {
-              Column({ space: 3 }) {
-                Text('做种数 / 体积').fontSize(11).fontColor(mpSecondaryText(this.isDark))
-                Text(`${this.selectedSite.seeding} · ${formatByteSize(this.selectedSite.seedingSizeBytes)}`).fontSize(13).fontWeight(FontWeight.Bold).fontColor(this.accentHex)
-              }.alignItems(HorizontalAlign.Start)
-            }
-          }.layoutWeight(1)
-        }
+        Scroll() {
+          Column({ space: 14 }) {
+            Row({ space: 10 }) {
+              HarmonyEntityLogo({
+                kind: 'site',
+                value: this.selectedSite.name,
+                dataUri: this.selectedSite.iconDataUri,
+                logoSize: 28,
+                cornerRadius: 7
+              })
+              Text(this.selectedSite.domain).fontSize(12.5).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
+            }.width('100%')
 
-        Button('测试站点连通性')
-          .width('100%').height(44).borderRadius(22)
-          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-          .fontColor(mpPrimaryText(this.isDark))
-          .onClick(async () => {
-            if (!this.selectedSite) { return; }
-            const msg = await MoviePilotRepository.shared().testSiteConnectivity(this.selectedSite.id);
-            this.notice = `${this.selectedSite.name}：${msg}`;
-            this.showDetail = false;
-          })
+            Row({ space: 10 }) {
+              Column() {
+                CinematicPanel({ panelPadding: 12 }) {
+                  Column({ space: 3 }) {
+                    Text('累计上传').fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                    Text(formatByteSize(this.selectedSite.uploadBytes)).fontSize(15).fontWeight(FontWeight.Bold).fontColor('#34C759')
+                  }.alignItems(HorizontalAlign.Start)
+                }
+              }.layoutWeight(1)
+              Column() {
+                CinematicPanel({ panelPadding: 12 }) {
+                  Column({ space: 3 }) {
+                    Text('累计下载').fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                    Text(formatByteSize(this.selectedSite.downloadBytes)).fontSize(15).fontWeight(FontWeight.Bold).fontColor('#EE6896')
+                  }.alignItems(HorizontalAlign.Start)
+                }
+              }.layoutWeight(1)
+            }
+            Row({ space: 10 }) {
+              Column() {
+                CinematicPanel({ panelPadding: 12 }) {
+                  Column({ space: 3 }) {
+                    Text('分享率').fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                    Text(this.selectedSite.ratio > 0 ? this.selectedSite.ratio.toFixed(2) : '--').fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                  }.alignItems(HorizontalAlign.Start)
+                }
+              }.layoutWeight(1)
+              Column() {
+                CinematicPanel({ panelPadding: 12 }) {
+                  Column({ space: 3 }) {
+                    Text('做种数 / 体积').fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                    Text(`${this.selectedSite.seeding} · ${formatByteSize(this.selectedSite.seedingSizeBytes)}`).fontSize(13).fontWeight(FontWeight.Bold).fontColor(this.accentHex)
+                  }.alignItems(HorizontalAlign.Start)
+                }
+              }.layoutWeight(1)
+            }
+
+            Button('测试站点连通性')
+              .width('100%').height(44).borderRadius(22)
+              .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+              .fontColor(mpPrimaryText(this.isDark))
+              .onClick(async () => {
+                if (!this.selectedSite) { return; }
+                const msg = await MoviePilotRepository.shared().testSiteConnectivity(this.selectedSite.id);
+                this.notice = `${this.selectedSite.name}：${msg}`;
+                this.showDetail = false;
+              })
+          }
+          .width('100%')
+          .padding({ bottom: 20 })
+        }
+        .scrollBar(BarState.Off)
+        .layoutWeight(1)
+        .width('100%')
       }
-    }.padding(20).width('100%')
+    }
+    .padding(20)
+    .width('100%')
+    .height('100%')
   }
 
   @Builder
@@ -918,9 +949,9 @@ export struct HarmonySitesPage {
         Column() { LoadingProgress().width(32).height(32).color(this.accentHex) }
           .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
       } else {
-        Scroll() {
-          Column({ space: 12 }) {
-            ForEach(this.sites, (s: MpSiteItem) => {
+        Grid() {
+          ForEach(this.sites, (s: MpSiteItem) => {
+            GridItem() {
               Column() {
                 CinematicPanel({ panelPadding: 15, cornerRadius: 20, interactive: true }) {
                   Column({ space: 8 }) {
@@ -964,13 +995,20 @@ export struct HarmonySitesPage {
                 this.selectedSite = s;
                 this.showDetail = true;
               })
-            }, (s: MpSiteItem) => `${s.id}_${s.name}_${s.isActive}_${s.iconDataUri.length}`)
-          }.padding({ left: 16, right: 16, bottom: 44 })
-        }.scrollBar(BarState.Off).layoutWeight(1)
+            }
+          }, (s: MpSiteItem) => `${s.id}_${s.name}_${s.isActive}_${s.iconDataUri.length}`)
+        }
+        .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
+        .columnsGap(12)
+        .rowsGap(12)
+        .padding({ left: 16, right: 16, bottom: 44 })
+        .scrollBar(BarState.Off)
+        .layoutWeight(1)
       }
 
       Blank().width(0).height(0).bindSheet($$this.showDetail, this.siteDetailSheetBuilder(), {
-        detents: [SheetSize.MEDIUM],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
@@ -978,6 +1016,7 @@ export struct HarmonySitesPage {
       })
       Blank().width(0).height(0).bindSheet($$this.showEditor, this.siteEditorSheetBuilder(), {
         detents: [SheetSize.LARGE],
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,

@@ -24,15 +24,19 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -77,10 +81,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.moviepilot.designsystem.AdaptiveDeviceLayout
 import com.moviepilot.designsystem.CinematicAmbientGradient
 import com.moviepilot.designsystem.CinematicGlassSurface
 import com.moviepilot.designsystem.CinematicPanel
 import com.moviepilot.designsystem.LocalMoviePilotColors
+import com.moviepilot.designsystem.NativeAdaptivePill
 import com.moviepilot.designsystem.NativeGlassSheet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -188,9 +194,17 @@ fun NativeCommunityMedalsWidget(
             Text(rightText, color = colors.textSecondary, fontSize = 12.sp)
         }
 
+        val medalCols = AdaptiveDeviceLayout.effectiveContentWidthDp().let { w ->
+            when {
+                w >= 1000 -> 8
+                w >= 680 -> 6
+                else -> 4
+            }
+        }
+
         CinematicPanel(padding = 14.dp) {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                medals.chunked(4).forEach { rowItems ->
+                medals.chunked(medalCols).forEach { rowItems ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -204,7 +218,7 @@ fun NativeCommunityMedalsWidget(
                                 modifier = Modifier.weight(1f),
                             )
                         }
-                        repeat(4 - rowItems.size) {
+                        repeat(medalCols - rowItems.size) {
                             Spacer(Modifier.weight(1f))
                         }
                     }
@@ -356,7 +370,73 @@ fun NativeCommunityMedalShowcaseOverlay(
     }
 
     val config = LocalConfiguration.current
-    val stageSizeDp = minOf(config.screenWidthDp - 24, (config.screenHeightDp * 0.44f).toInt(), 380).dp
+    val isShortLandscape = config.screenWidthDp > config.screenHeightDp && config.screenHeightDp < 560
+    val stageSizeDp = if (isShortLandscape) {
+        (config.screenHeightDp * 0.62f).coerceIn(160f, 250f).dp
+    } else {
+        minOf(config.screenWidthDp - 24, (config.screenHeightDp * 0.44f).toInt(), 380).dp
+    }
+
+    @Composable
+    fun MedalSwitcherChips(centerAligned: Boolean, modifier: Modifier = Modifier) {
+        if (medals.size <= 1) return
+        FlowRow(
+            modifier = modifier,
+            horizontalArrangement = if (centerAligned) {
+                Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+            } else {
+                Arrangement.spacedBy(8.dp)
+            },
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            medals.forEach { item ->
+                val selected = item.key == activeKey
+                val itemTone = CommunityMedalCatalog.parseColor(item.spec?.toneHex ?: "#9b7bff")
+                val badgeBmp = remember(item.key, item.normalizedTier) {
+                    CommunityMedalAssetEngine.loadBadgeBitmap(context, item)
+                }
+                val itemUnseen = store.isUnseen(item, currentProfile.userId)
+                Row(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(
+                            if (selected) itemTone.copy(alpha = if (colors.isDark) 0.28f else 0.22f)
+                            else colors.chipFill,
+                        )
+                        .border(
+                            width = 0.75.dp,
+                            color = if (selected) itemTone.copy(alpha = 0.65f) else colors.chipBorder,
+                            shape = CircleShape,
+                        )
+                        .clickable {
+                            activeKey = item.key
+                            store.markSeen(item, currentProfile.userId)
+                        }
+                        .padding(horizontal = 11.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    if (badgeBmp != null) {
+                        Image(
+                            bitmap = badgeBmp.asImageBitmap(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.size(19.dp),
+                        )
+                    }
+                    Text(
+                        text = item.spec?.name ?: item.key,
+                        color = colors.textPrimary.copy(alpha = if (selected) 0.98f else 0.76f),
+                        fontSize = 12.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                    )
+                    if (itemUnseen) {
+                        Box(Modifier.size(6.dp).clip(CircleShape).background(Color(0xFFFF3B30)))
+                    }
+                }
+            }
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // 深浅自适应通透暗幕
@@ -370,35 +450,38 @@ fun NativeCommunityMedalShowcaseOverlay(
                 ),
         )
 
-        // 勋章背后径向主色氛围光晕
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 110.dp)
-                .size(stageSizeDp * 1.15f)
-                .blur(26.dp)
-                .background(
-                    Brush.radialGradient(
-                        listOf(
-                            tone.copy(alpha = if (colors.isDark) 0.28f else 0.32f),
-                            tone.copy(alpha = 0.08f),
-                            Color.Transparent,
+        // 竖屏/高屏下居顶的勋章径向主色氛围光晕
+        if (!isShortLandscape) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 110.dp)
+                    .size(stageSizeDp * 1.15f)
+                    .blur(26.dp)
+                    .background(
+                        Brush.radialGradient(
+                            listOf(
+                                tone.copy(alpha = if (colors.isDark) 0.28f else 0.32f),
+                                tone.copy(alpha = 0.08f),
+                                Color.Transparent,
+                            ),
                         ),
+                        CircleShape,
                     ),
-                    CircleShape,
-                ),
-        )
+            )
+        }
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding(),
+                .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // 顶部栏：左上 @login 菜单胶囊，右上 X 关闭按钮
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = if (isShortLandscape) 6.dp else 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
@@ -411,7 +494,7 @@ fun NativeCommunityMedalShowcaseOverlay(
                             modifier = Modifier.clickable { showMenu = true },
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = if (isShortLandscape) 6.dp else 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
@@ -509,118 +592,203 @@ fun NativeCommunityMedalShowcaseOverlay(
                 Text(it, color = tone, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             }
 
-            Spacer(Modifier.weight(0.5f))
-
-            // 中央 OpenGL ES 真 3D 雕刻勋章舞台
-            if (activeRecord != null) {
-                NativeMedal3DStageView(
-                    record = activeRecord,
-                    login = currentProfile.login,
-                    modifier = Modifier.size(stageSizeDp),
-                )
-            }
-
-            // 交互提示
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                modifier = Modifier.padding(top = 4.dp),
-            ) {
-                Icon(Icons.Rounded.TouchApp, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(14.dp))
-                Text("轻点翻面 · 拖动转动", color = colors.textMuted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            }
-
-            // 标题、金属档位铭牌与致敬文案
-            if (activeRecord != null) {
-                Column(
-                    modifier = Modifier.padding(top = 12.dp, start = 28.dp, end = 28.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+            if (isShortLandscape) {
+                // 横屏左右分栏：左侧 3D 雕刻金属舞台 + 径向光晕，右侧可纵向滚动勋章信息、佩戴操作与多枚切换胶囊
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = spec?.name ?: activeRecord.key,
-                        color = colors.textPrimary,
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    val tier = activeRecord.normalizedTier
-                    val tierLine = CommunityMedalCatalog.tierLine(activeRecord)
-                    val timeLine = CommunityMedalCatalog.timeLine(activeRecord)
-                    if (tier != null && tierLine != null) {
-                        NativeMedalTierNameplate(tier = tier, text = tierLine, compact = false)
-                    } else if (timeLine != null) {
-                        Text(timeLine, color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Box(
+                        modifier = Modifier
+                            .weight(0.46f)
+                            .fillMaxHeight(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(stageSizeDp * 1.18f)
+                                .blur(24.dp)
+                                .background(
+                                    Brush.radialGradient(
+                                        listOf(
+                                            tone.copy(alpha = if (colors.isDark) 0.28f else 0.32f),
+                                            tone.copy(alpha = 0.08f),
+                                            Color.Transparent,
+                                        ),
+                                    ),
+                                    CircleShape,
+                                ),
+                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            if (activeRecord != null) {
+                                NativeMedal3DStageView(
+                                    record = activeRecord,
+                                    login = currentProfile.login,
+                                    modifier = Modifier.size(stageSizeDp),
+                                )
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                modifier = Modifier.padding(top = 4.dp),
+                            ) {
+                                Icon(Icons.Rounded.TouchApp, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(14.dp))
+                                Text("轻点翻面 · 拖动转动", color = colors.textMuted, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
                     }
-                    spec?.summary?.let {
-                        Text(
-                            text = it,
-                            color = colors.textSecondary,
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                            maxLines = 2,
+
+                    Column(
+                        modifier = Modifier
+                            .weight(0.54f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState())
+                            .padding(vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        if (activeRecord != null) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(
+                                    text = spec?.name ?: activeRecord.key,
+                                    color = colors.textPrimary,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                val tier = activeRecord.normalizedTier
+                                val tierLine = CommunityMedalCatalog.tierLine(activeRecord)
+                                if (tier != null && tierLine != null) {
+                                    NativeMedalTierNameplate(tier = tier, text = tierLine, compact = false)
+                                }
+                            }
+                            val timeLine = CommunityMedalCatalog.timeLine(activeRecord)
+                            if (activeRecord.normalizedTier == null && timeLine != null) {
+                                Text(timeLine, color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            }
+                            spec?.summary?.let {
+                                Text(
+                                    text = it,
+                                    color = colors.textSecondary,
+                                    fontSize = 13.sp,
+                                    lineHeight = 19.sp,
+                                )
+                            }
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                NativeAdaptivePill(
+                                    title = if (isWorn) "已佩戴 · 取消" else "佩戴勋章",
+                                    selected = isWorn,
+                                    icon = Icons.Rounded.Verified,
+                                    tint = tone,
+                                    onClick = {
+                                        store.toggleWear(activeRecord.key, currentProfile.userId)
+                                        noticeText = if (isWorn) "已取消佩戴勋章" else "已佩戴「${spec?.name ?: activeRecord.key}」勋章"
+                                    },
+                                )
+                                NativeAdaptivePill(
+                                    title = "勋章详情",
+                                    selected = false,
+                                    icon = Icons.Outlined.Info,
+                                    onClick = { showDetailSheet = true },
+                                )
+                                if (onRefreshProfile != null) {
+                                    NativeAdaptivePill(
+                                        title = if (isRefreshing) "刷新中…" else "刷新数据",
+                                        selected = false,
+                                        icon = Icons.Rounded.Refresh,
+                                        onClick = {
+                                            if (!isRefreshing) {
+                                                scope.launch {
+                                                    isRefreshing = true
+                                                    onRefreshProfile()?.let { currentProfile = it }
+                                                    isRefreshing = false
+                                                }
+                                            }
+                                        },
+                                    )
+                                }
+                            }
+                        }
+
+                        MedalSwitcherChips(
+                            centerAligned = false,
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 12.dp),
                         )
                     }
                 }
-            }
+            } else {
+                Spacer(Modifier.weight(0.5f))
 
-            Spacer(Modifier.weight(1f))
+                // 中央 OpenGL ES 真 3D 雕刻勋章舞台
+                if (activeRecord != null) {
+                    NativeMedal3DStageView(
+                        record = activeRecord,
+                        login = currentProfile.login,
+                        modifier = Modifier.size(stageSizeDp),
+                    )
+                }
 
-            // 底部流式居中多枚勋章胶囊切换栏（带 -badge.webp 微型图标）
-            if (medals.size > 1) {
-                FlowRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 18.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                // 交互提示
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    modifier = Modifier.padding(top = 4.dp),
                 ) {
-                    medals.forEach { item ->
-                        val selected = item.key == activeKey
-                        val itemTone = CommunityMedalCatalog.parseColor(item.spec?.toneHex ?: "#9b7bff")
-                        val badgeBmp = remember(item.key, item.normalizedTier) {
-                            CommunityMedalAssetEngine.loadBadgeBitmap(context, item)
+                    Icon(Icons.Rounded.TouchApp, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(14.dp))
+                    Text("轻点翻面 · 拖动转动", color = colors.textMuted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                }
+
+                // 标题、金属档位铭牌与致敬文案
+                if (activeRecord != null) {
+                    Column(
+                        modifier = Modifier.padding(top = 12.dp, start = 28.dp, end = 28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = spec?.name ?: activeRecord.key,
+                            color = colors.textPrimary,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        val tier = activeRecord.normalizedTier
+                        val tierLine = CommunityMedalCatalog.tierLine(activeRecord)
+                        val timeLine = CommunityMedalCatalog.timeLine(activeRecord)
+                        if (tier != null && tierLine != null) {
+                            NativeMedalTierNameplate(tier = tier, text = tierLine, compact = false)
+                        } else if (timeLine != null) {
+                            Text(timeLine, color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         }
-                        val itemUnseen = store.isUnseen(item, currentProfile.userId)
-                        Row(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(
-                                    if (selected) itemTone.copy(alpha = if (colors.isDark) 0.28f else 0.22f)
-                                    else colors.chipFill,
-                                )
-                                .border(
-                                    width = 0.75.dp,
-                                    color = if (selected) itemTone.copy(alpha = 0.65f) else colors.chipBorder,
-                                    shape = CircleShape,
-                                )
-                                .clickable {
-                                    activeKey = item.key
-                                    store.markSeen(item, currentProfile.userId)
-                                }
-                                .padding(horizontal = 11.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        ) {
-                            if (badgeBmp != null) {
-                                Image(
-                                    bitmap = badgeBmp.asImageBitmap(),
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier.size(19.dp),
-                                )
-                            }
+                        spec?.summary?.let {
                             Text(
-                                text = item.spec?.name ?: item.key,
-                                color = colors.textPrimary.copy(alpha = if (selected) 0.98f else 0.76f),
-                                fontSize = 12.sp,
-                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                text = it,
+                                color = colors.textSecondary,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
                             )
-                            if (itemUnseen) {
-                                Box(Modifier.size(6.dp).clip(CircleShape).background(Color(0xFFFF3B30)))
-                            }
                         }
                     }
                 }
+
+                Spacer(Modifier.weight(1f))
+
+                // 底部流式居中多枚勋章胶囊切换栏（带 -badge.webp 微型图标）
+                MedalSwitcherChips(
+                    centerAligned = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+                )
             }
         }
     }

@@ -386,6 +386,7 @@ struct NativeDiscoverPage: View {
   var body: some View {
     GeometryReader { viewport in
       let viewportWidth = viewport.size.width
+      let isCompactLandscape = viewportWidth > viewport.size.height && viewport.size.height < 500
       let hasHorizontalInset =
         viewport.safeAreaInsets.leading > 0 || viewport.safeAreaInsets.trailing > 0
       let backdropWidth =
@@ -433,7 +434,7 @@ struct NativeDiscoverPage: View {
           }
         }
         ScrollView {
-          VStack(spacing: 24) {
+          VStack(spacing: isCompactLandscape ? 16 : 24) {
             if !hasContent && content.isLoading {
               NativeDiscoverSkeletonView(
                 heroHeight: heroHeight, posterWidth: posterWidth, cardWidth: cardWidth
@@ -441,7 +442,7 @@ struct NativeDiscoverPage: View {
               .transition(.opacity)
             } else {
               if !content.featuredItems.isEmpty {
-                heroCarousel(height: heroHeight)
+                heroCarousel(height: heroHeight, isCompactLandscape: isCompactLandscape)
               }
               LazyVStack(alignment: .leading, spacing: 26) {
                 if isPreview, content.featuredItems.isEmpty {
@@ -492,7 +493,10 @@ struct NativeDiscoverPage: View {
         .ignoresSafeArea(edges: .top)
         .modifier(NativeDiscoverScrollObservation(offset: $scrollOffset))
         if eased > 0.005 {
-          topSafeAreaVeil(progress: eased, height: max(viewport.safeAreaInsets.top, 48) + 42)
+          topSafeAreaVeil(
+            progress: eased,
+            height: viewport.safeAreaInsets.top > 0 ? viewport.safeAreaInsets.top + 42 : 44
+          )
         }
       }
     }
@@ -563,14 +567,6 @@ struct NativeDiscoverPage: View {
     guard !content.featuredItems.isEmpty else { return nil }
     let clamped = min(max(selectedFeatureIndex, 0), content.featuredItems.count - 1)
     return content.featuredItems[clamped]
-  }
-
-  /// 首屏主视觉占约三分之二高度，使首条海报栏在首屏底部自然露出。
-  private func resolvedHeroHeight(viewportHeight: CGFloat) -> CGFloat {
-    if dynamicTypeSize.isAccessibilitySize {
-      return max(580, viewportHeight * 0.78)
-    }
-    return min(max(viewportHeight * 0.67, 470), 640)
   }
 
   /// 预览主视觉缺席时仍清楚标明演示数据边界。
@@ -680,27 +676,30 @@ struct NativeDiscoverPage: View {
       ], startPoint: .top, endPoint: .bottom
     )
     .frame(height: height)
-    .ignoresSafeArea(edges: .top)
+    .ignoresSafeArea(edges: [.top, .horizontal])
     .allowsHitTesting(false)
     .accessibilityHidden(true)
   }
 
   /// 多条推荐支持横向滑动切换，底部圆点指示器与 Cinematic 发现首屏一致。
-  private func heroCarousel(height: CGFloat) -> some View {
-    VStack(spacing: 10) {
+  private func heroCarousel(height: CGFloat, isCompactLandscape: Bool = false) -> some View {
+    VStack(spacing: isCompactLandscape ? 6 : 10) {
       if content.featuredItems.count > 1 {
+        let pageHeight = max(height - (isCompactLandscape ? 16 : 22), 140)
         TabView(selection: $selectedFeatureIndex) {
           ForEach(Array(content.featuredItems.enumerated()), id: \.element.id) { index, item in
-            featureForeground(item, height: height - 22)
-              .tag(index)
+            featureForeground(
+              item, height: pageHeight, isCompactLandscape: isCompactLandscape
+            )
+            .tag(index)
           }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .frame(height: height - 22)
+        .frame(height: pageHeight)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: selectedFeatureIndex)
         carouselIndicators
       } else if let item = content.featuredItems.first {
-        featureForeground(item, height: height)
+        featureForeground(item, height: height, isCompactLandscape: isCompactLandscape)
       }
     }
     .frame(maxWidth: .infinity)
@@ -726,13 +725,15 @@ struct NativeDiscoverPage: View {
   }
 
   /// 标题、评分与简介浮于独立背景上方，随列表正常上移，深浅色自适应高对比前景。
-  private func featureForeground(_ item: NativeDiscoverFeature, height: CGFloat) -> some View {
+  private func featureForeground(
+    _ item: NativeDiscoverFeature, height: CGFloat, isCompactLandscape: Bool = false
+  ) -> some View {
     Button {
       onOpenMedia(item.id)
     } label: {
       VStack(spacing: 0) {
-        Spacer(minLength: 0)
-        featureInformation(item)
+        Spacer(minLength: isCompactLandscape ? 36 : 0)
+        featureInformation(item, isCompactLandscape: isCompactLandscape)
           .padding(.horizontal, CinematicStyle.margin + 4)
       }
       .frame(maxWidth: .infinity)
@@ -745,10 +746,12 @@ struct NativeDiscoverPage: View {
   }
 
   /// 海报前景优先展示后端中文透明媒体标题 Logo，无中文 Logo 时以海报级大字标题自然降级，下方紧凑排布类型、简介与多维评分标。
-  private func featureInformation(_ item: NativeDiscoverFeature) -> some View {
+  private func featureInformation(
+    _ item: NativeDiscoverFeature, isCompactLandscape: Bool = false
+  ) -> some View {
     let isLight = colorScheme == .light
     let isWide = containerWidth >= 680
-    return VStack(alignment: .center, spacing: 8) {
+    return VStack(alignment: .center, spacing: isCompactLandscape ? 5 : 8) {
       if let logoRef = item.logoReference, !logoRef.isEmpty {
         NativeDiscoverLogoBanner(
           session: session,
@@ -757,7 +760,10 @@ struct NativeDiscoverPage: View {
           isAccessibilitySize: dynamicTypeSize.isAccessibilitySize,
           logoLanguage: item.logoLanguage,
           originalLanguage: item.originalLanguage,
+          maxWidth: isCompactLandscape ? 220 : 278,
+          maxHeight: isCompactLandscape ? 48 : 76,
           isWide: isWide,
+          isCompactLandscape: isCompactLandscape,
           fallbackColor: isLight ? Color.primary : Color.white
         )
       } else {
@@ -765,20 +771,22 @@ struct NativeDiscoverPage: View {
           title: item.title,
           isAccessibilitySize: dynamicTypeSize.isAccessibilitySize,
           isWide: isWide,
+          isCompactLandscape: isCompactLandscape,
           textAlignment: .center,
           color: isLight ? Color.primary : Color.white
         )
       }
       if !item.subtitle.isEmpty {
         Text(item.subtitle)
-          .font(.subheadline.weight(.medium))
+          .font(isCompactLandscape ? .footnote.weight(.medium) : .subheadline.weight(.medium))
           .foregroundStyle(isLight ? Color.primary.opacity(0.80) : Color.white.opacity(0.86))
+          .lineLimit(1)
       }
       if !item.synopsis.isEmpty {
         Text(item.synopsis)
           .font(.footnote)
           .foregroundStyle(isLight ? Color.secondary : Color.white.opacity(0.76))
-          .lineLimit(2)
+          .lineLimit(isCompactLandscape ? 1 : 2)
       }
       ViewThatFits(in: .horizontal) {
         HStack(spacing: 12) { featureLabels(item) }
@@ -786,11 +794,11 @@ struct NativeDiscoverPage: View {
       }
       .font(.caption.weight(.semibold))
       .foregroundStyle(isLight ? Color.primary : Color.white)
-      .padding(.top, 2)
+      .padding(.top, isCompactLandscape ? 0 : 2)
     }
     .multilineTextAlignment(.center)
     .frame(maxWidth: 680, alignment: .center)
-    .padding(.bottom, 10)
+    .padding(.bottom, isCompactLandscape ? 6 : 10)
   }
 
   /// 紧凑评分微标排布：深/浅色均保持高对比可读性。
@@ -1580,6 +1588,7 @@ struct NativeHeroPosterTitleView: View {
   let title: String
   let isAccessibilitySize: Bool
   var isWide: Bool = false
+  var isCompactLandscape: Bool = false
   var textAlignment: TextAlignment = .center
   var color: Color? = nil
 
@@ -1591,7 +1600,15 @@ struct NativeHeroPosterTitleView: View {
     let isLight = colorScheme == .light
     let resolvedColor = color ?? (isLight ? Color.primary : Color.white)
     let pointSize: CGFloat =
-      if count <= 4 {
+      if isCompactLandscape {
+        if count <= 4 {
+          30
+        } else if count <= 8 {
+          26
+        } else {
+          22
+        }
+      } else if count <= 4 {
         isWide ? 48 : 42
       } else if count <= 8 {
         isWide ? 42 : 36
@@ -1600,9 +1617,9 @@ struct NativeHeroPosterTitleView: View {
       }
     let tracking: CGFloat =
       if count <= 4 {
-        5
+        isCompactLandscape ? 3 : 5
       } else if count <= 8 {
-        2.5
+        isCompactLandscape ? 1.5 : 2.5
       } else {
         1
       }
@@ -1610,15 +1627,15 @@ struct NativeHeroPosterTitleView: View {
     Text(trimmed.isEmpty ? title : trimmed)
       .font(
         isAccessibilitySize
-          ? .system(.largeTitle, design: .serif).weight(.bold)
+          ? .system(isCompactLandscape ? .title2 : .largeTitle, design: .serif).weight(.bold)
           : .system(size: pointSize, weight: count <= 4 ? .heavy : .bold, design: .serif)
       )
       .tracking(isAccessibilitySize ? 1 : tracking)
       .foregroundStyle(resolvedColor)
       .multilineTextAlignment(textAlignment)
-      .lineSpacing(3)
-      .lineLimit(isAccessibilitySize ? nil : 2)
-      .minimumScaleFactor(isAccessibilitySize ? 1.0 : 0.74)
+      .lineSpacing(isCompactLandscape ? 1.5 : 3)
+      .lineLimit(isAccessibilitySize ? nil : (isCompactLandscape ? 1 : 2))
+      .minimumScaleFactor(isAccessibilitySize ? 1.0 : 0.72)
       .shadow(color: isLight ? .clear : .black.opacity(0.68), radius: 14, y: 4)
       .shadow(color: isLight ? .clear : .black.opacity(0.32), radius: 4, y: 1)
       .fixedSize(horizontal: false, vertical: true)
@@ -1652,6 +1669,7 @@ struct NativeDiscoverLogoBanner: View {
   var maxWidth: CGFloat = 278
   var maxHeight: CGFloat = 76
   var isWide: Bool = false
+  var isCompactLandscape: Bool = false
   var textAlignment: TextAlignment = .center
   var fallbackColor: Color? = nil
   @ObservedObject private var mediaLanguageStore = NativeMediaLanguageStore.shared
@@ -1692,6 +1710,7 @@ struct NativeDiscoverLogoBanner: View {
           title: fallbackTitle,
           isAccessibilitySize: isAccessibilitySize,
           isWide: isWide,
+          isCompactLandscape: isCompactLandscape,
           textAlignment: textAlignment,
           color: fallbackColor
         )

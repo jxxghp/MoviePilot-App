@@ -44,6 +44,7 @@ export struct HarmonySubscriptionsPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
   @Prop showBack: boolean = false;
   @Prop initialTitle: string = '订阅';
   @Prop initialMode: string = 'mine'; // 'mine' | 'square' | 'calendar'
@@ -644,39 +645,43 @@ export struct HarmonySubscriptionsPage {
 
   @Builder
   deleteConfirmSheetBuilder() {
-    Column({ space: 16 }) {
-      Text('确认删除订阅')
-        .fontSize(18)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(mpPrimaryText(this.isDark))
-        .width('100%')
-      Text(`确定要删除订阅「${this.confirmDeleteSub?.name ?? ''}」吗？此操作无法撤销。`)
-        .fontSize(14)
-        .fontColor(mpSecondaryText(this.isDark))
-        .width('100%')
-      Row({ space: 12 }) {
-        Button('取消')
-          .layoutWeight(1).height(46).borderRadius(23)
-          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-          .fontColor(mpPrimaryText(this.isDark))
-          .onClick(() => { this.showDeleteConfirm = false; })
-        Button('确认删除')
-          .layoutWeight(1).height(46).borderRadius(23)
-          .backgroundColor('#E84855')
-          .fontColor(Color.White)
+    Scroll() {
+      Column({ space: 16 }) {
+        Text('确认删除订阅')
+          .fontSize(18)
           .fontWeight(FontWeight.Bold)
-          .onClick(async () => {
-            const target = this.confirmDeleteSub;
-            this.showDeleteConfirm = false;
-            if (target) {
-              const ok = await MoviePilotRepository.shared().deleteSubscribe(target.id);
-              this.feedbackMsg = ok ? `已删除订阅「${target.name}」` : '删除失败';
-              await this.loadSubscriptions();
-            }
-          })
-      }.width('100%')
+          .fontColor(mpPrimaryText(this.isDark))
+          .width('100%')
+        Text(`确定要删除订阅「${this.confirmDeleteSub?.name ?? ''}」吗？此操作无法撤销。`)
+          .fontSize(14)
+          .fontColor(mpSecondaryText(this.isDark))
+          .width('100%')
+        Row({ space: 12 }) {
+          Button('取消')
+            .layoutWeight(1).height(46).borderRadius(23)
+            .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+            .fontColor(mpPrimaryText(this.isDark))
+            .onClick(() => { this.showDeleteConfirm = false; })
+          Button('确认删除')
+            .layoutWeight(1).height(46).borderRadius(23)
+            .backgroundColor('#E84855')
+            .fontColor(Color.White)
+            .fontWeight(FontWeight.Bold)
+            .onClick(async () => {
+              const target = this.confirmDeleteSub;
+              this.showDeleteConfirm = false;
+              if (target) {
+                const ok = await MoviePilotRepository.shared().deleteSubscribe(target.id);
+                this.feedbackMsg = ok ? `已删除订阅「${target.name}」` : '删除失败';
+                await this.loadSubscriptions();
+              }
+            })
+        }.width('100%')
+      }
+      .padding(22)
+      .width('100%')
     }
-    .padding(22)
+    .scrollBar(BarState.Off)
     .width('100%')
   }
 
@@ -746,9 +751,9 @@ export struct HarmonySubscriptionsPage {
       .layoutWeight(1)
       .justifyContent(FlexAlign.Center)
     } else if (this.calendarItems.length > 0) {
-      Scroll() {
-        Column({ space: 12 }) {
-          ForEach(this.calendarItems, (ep: MpCalendarEpisodeItem) => {
+      Grid() {
+        ForEach(this.calendarItems, (ep: MpCalendarEpisodeItem) => {
+          GridItem() {
             Column() {
               CinematicPanel({ panelPadding: 13, cornerRadius: 18, interactive: true }) {
                 Row({ space: 12 }) {
@@ -816,10 +821,13 @@ export struct HarmonySubscriptionsPage {
             }
             .width('100%')
             .onClick(() => this.openCalendarMediaDetail(ep))
-          }, (ep: MpCalendarEpisodeItem) => ep.id)
-        }
-        .padding({ left: 16, right: 16, top: 4, bottom: 44 })
+          }
+        }, (ep: MpCalendarEpisodeItem) => ep.id)
       }
+      .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
+      .columnsGap(12)
+      .rowsGap(12)
+      .padding({ left: 16, right: 16, top: 4, bottom: 44 })
       .scrollBar(BarState.Off)
       .layoutWeight(1)
     } else if (this.filteredItems().length > 0) {
@@ -830,33 +838,41 @@ export struct HarmonySubscriptionsPage {
             .fontSize(12)
             .fontColor(mpSecondaryText(this.isDark))
             .width('100%')
-          ForEach(this.filteredItems(), (sub: MpSubscribeItem) => {
-            Column() {
-              CinematicPanel({ panelPadding: 13, cornerRadius: 18, interactive: true }) {
-                Row({ space: 12 }) {
-                  if (sub.posterUrl.length > 0) {
-                    MpRemoteImage({
-                      src: sub.posterUrl,
-                      imgWidth: 58,
-                      imgHeight: 86,
-                      imgRadius: 10,
-                      placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
-                    })
+          Grid() {
+            ForEach(this.filteredItems(), (sub: MpSubscribeItem) => {
+              GridItem() {
+                Column() {
+                  CinematicPanel({ panelPadding: 13, cornerRadius: 18, interactive: true }) {
+                    Row({ space: 12 }) {
+                      if (sub.posterUrl.length > 0) {
+                        MpRemoteImage({
+                          src: sub.posterUrl,
+                          imgWidth: 58,
+                          imgHeight: 86,
+                          imgRadius: 10,
+                          placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                        })
+                      }
+                      Column({ space: 5 }) {
+                        Text(`${sub.name}${sub.season > 0 ? ' S' + String(sub.season).padStart(2, '0') : ''}`)
+                          .fontSize(14.5).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).maxLines(1).width('100%')
+                        if (sub.totalEpisode > 0) {
+                          Text(`已更新 ${RustCoreBridge.computeSubscribeProgress(sub.totalEpisode, sub.lackEpisode).label}`)
+                            .fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                        }
+                      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                    }.width('100%')
                   }
-                  Column({ space: 5 }) {
-                    Text(`${sub.name}${sub.season > 0 ? ' S' + String(sub.season).padStart(2, '0') : ''}`)
-                      .fontSize(14.5).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).maxLines(1).width('100%')
-                    if (sub.totalEpisode > 0) {
-                      Text(`已更新 ${RustCoreBridge.computeSubscribeProgress(sub.totalEpisode, sub.lackEpisode).label}`)
-                        .fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
-                    }
-                  }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-                }.width('100%')
+                }
+                .width('100%')
+                .onClick(() => this.openSubMediaDetail(sub))
               }
-            }
-            .width('100%')
-            .onClick(() => this.openSubMediaDetail(sub))
-          }, (sub: MpSubscribeItem) => `cal_fallback_${sub.id}`)
+            }, (sub: MpSubscribeItem) => `cal_fallback_${sub.id}`)
+          }
+          .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
+          .columnsGap(12)
+          .rowsGap(12)
+          .width('100%')
         }
         .padding({ left: 16, right: 16, top: 4, bottom: 44 })
       }
@@ -953,9 +969,9 @@ export struct HarmonySubscriptionsPage {
             .layoutWeight(1)
             .justifyContent(FlexAlign.Center)
           } else {
-            Scroll() {
-              Column({ space: 12 }) {
-                ForEach(this.filteredItems(), (sub: MpSubscribeItem) => {
+            Grid() {
+              ForEach(this.filteredItems(), (sub: MpSubscribeItem) => {
+                GridItem() {
                   CinematicPanel({ panelPadding: 13, cornerRadius: 18 }) {
                     Row({ space: 12 }) {
                       Column() {
@@ -1085,10 +1101,13 @@ export struct HarmonySubscriptionsPage {
                     }
                     .width('100%')
                   }
-                }, (sub: MpSubscribeItem) => `${sub.id}_${sub.state}_${sub.lackEpisode}`)
-              }
-              .padding({ left: 16, right: 16, top: 4, bottom: this.showBack ? 40 : 128 })
+                }
+              }, (sub: MpSubscribeItem) => `${sub.id}_${sub.state}_${sub.lackEpisode}`)
             }
+            .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
+            .columnsGap(12)
+            .rowsGap(12)
+            .padding({ left: 16, right: 16, top: 4, bottom: this.showBack ? 40 : 128 })
             .scrollBar(BarState.Off)
             .layoutWeight(1)
           }
@@ -1117,9 +1136,9 @@ export struct HarmonySubscriptionsPage {
           } else if (this.squareModeIndex === 1) {
             this.popularGrid(this.popularTvs)
           } else {
-            Scroll() {
-              Column({ space: 10 }) {
-                ForEach(this.shares, (sh: MpSubscribeShareItem) => {
+            Grid() {
+              ForEach(this.shares, (sh: MpSubscribeShareItem) => {
+                GridItem() {
                   CinematicPanel({ panelPadding: 13, cornerRadius: 18 }) {
                     Row({ space: 12 }) {
                       Column() {
@@ -1192,10 +1211,13 @@ export struct HarmonySubscriptionsPage {
                       .layoutWeight(1)
                     }.width('100%')
                   }
-                }, (sh: MpSubscribeShareItem) => `${sh.id}_${sh.count}`)
-              }
-              .padding({ left: 16, right: 16, top: 6, bottom: this.showBack ? 40 : 128 })
+                }
+              }, (sh: MpSubscribeShareItem) => `${sh.id}_${sh.count}`)
             }
+            .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
+            .columnsGap(12)
+            .rowsGap(10)
+            .padding({ left: 16, right: 16, top: 6, bottom: this.showBack ? 40 : 128 })
             .scrollBar(BarState.Off)
             .layoutWeight(1)
           }
@@ -1204,13 +1226,17 @@ export struct HarmonySubscriptionsPage {
 
       Blank().width(0).height(0).bindSheet($$this.showEditor, this.editorSheetBuilder(), {
         detents: [SheetSize.LARGE],
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showDeleteConfirm, this.deleteConfirmSheetBuilder(), {
-        detents: [SheetSize.FIT_CONTENT],
+        detents: (this.windowHeightVp > 0 && this.windowHeightVp < 500)
+          ? [SheetSize.LARGE]
+          : [SheetSize.FIT_CONTENT, SheetSize.MEDIUM],
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,

@@ -20,13 +20,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Notifications
@@ -183,6 +189,9 @@ fun DashboardScreen(
     val colors = LocalMoviePilotColors.current
     val context = LocalContext.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
+    val effectiveWidth = AdaptiveDeviceLayout.effectiveContentWidthDp()
+    val wideStatsRow = effectiveWidth >= 640
+    val cardCols = AdaptiveDeviceLayout.cardGridColumns()
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val medalJson = remember { Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true } }
     val scope = rememberCoroutineScope()
@@ -288,6 +297,199 @@ fun DashboardScreen(
             },
             modifier = Modifier.fillMaxSize(),
         ) {
+            @Composable
+            fun RenderPairableDashboardModule(modId: String) {
+                when (modId) {
+                    "storage" -> {
+                        val ratio = if (stats.totalBytes > 0) (stats.usedBytes / stats.totalBytes).toFloat().coerceIn(0f, 1f) else 0f
+                        val freeBytes = (stats.totalBytes - stats.usedBytes).coerceAtLeast(0.0)
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            NativeSectionHeader(title = "存储空间", subtitle = "服务器")
+                            CinematicPanel(padding = 18.dp) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                                ) {
+                                    Box(modifier = Modifier.size(92.dp), contentAlignment = Alignment.Center) {
+                                        Canvas(modifier = Modifier.fillMaxSize()) {
+                                            val stroke = 10.dp.toPx()
+                                            val inset = stroke / 2f
+                                            drawArc(
+                                                color = if (colors.isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.09f),
+                                                startAngle = 0f,
+                                                sweepAngle = 360f,
+                                                useCenter = false,
+                                                topLeft = Offset(inset, inset),
+                                                size = Size(size.width - stroke, size.height - stroke),
+                                                style = Stroke(stroke, cap = StrokeCap.Round),
+                                            )
+                                            drawArc(
+                                                brush = Brush.sweepGradient(listOf(colors.accent, colors.pink, colors.accent)),
+                                                startAngle = -90f,
+                                                sweepAngle = ratio * 360f,
+                                                useCenter = false,
+                                                topLeft = Offset(inset, inset),
+                                                size = Size(size.width - stroke, size.height - stroke),
+                                                style = Stroke(stroke, cap = StrokeCap.Round),
+                                            )
+                                        }
+                                        Text(
+                                            text = String.format("%.1f%%", ratio * 100f),
+                                            color = colors.textPrimary,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            text = "${formatStorage(stats.usedBytes)} / ${formatStorage(stats.totalBytes)}",
+                                            color = colors.textPrimary,
+                                            fontSize = 17.sp,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                        Text("已用 / 总容量", color = colors.textSecondary, fontSize = 13.sp)
+                                        Text("剩余 ${formatStorage(freeBytes)}", color = colors.success, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "downloader" -> {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            NativeSectionHeader(
+                                title = "下载器",
+                                subtitle = if (stats.downloadSpeed > 0 || stats.uploadSpeed > 0) "运行中" else "空闲",
+                            )
+                            CinematicPanel(padding = 16.dp) {
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        SpeedSubBox(
+                                            speed = formatSpeed(stats.downloadSpeed),
+                                            label = "实时下载",
+                                            icon = Icons.Rounded.ArrowDownward,
+                                            tint = colors.success,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        SpeedSubBox(
+                                            speed = formatSpeed(stats.uploadSpeed),
+                                            label = "实时上传",
+                                            icon = Icons.Rounded.ArrowUpward,
+                                            tint = colors.info,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Icon(Icons.Rounded.CloudDownload, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(15.dp))
+                                        Text("累计下载 ${formatStorage(stats.totalDownloadBytes)}", color = colors.textSecondary, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "memory" -> {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            NativeSectionHeader(title = "内存占用", subtitle = "CPU ${stats.cpuPercent.toInt()}%")
+                            CinematicPanel(padding = 16.dp, showsShadow = false) {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Text(String.format("%.1f%%", stats.memoryPercent), color = colors.accent, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                                        Text("CPU ${String.format("%.1f%%", stats.cpuPercent)}", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    }
+                                    Box(modifier = Modifier.fillMaxWidth().height(7.dp).clip(CircleShape).background(colors.chipFill)) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth((stats.memoryPercent / 100.0).toFloat().coerceIn(0.03f, 1f))
+                                                .height(7.dp)
+                                                .clip(CircleShape)
+                                                .background(Brush.horizontalGradient(listOf(colors.accent, colors.pink))),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "trend" -> {
+                        val values = stats.transfer7Days.ifEmpty { listOf(0, 0, 0, 0, 0, 0, 0) }
+                        val sum = values.sum()
+                        val maxVal = (values.maxOrNull() ?: 1).coerceAtLeast(1)
+                        val today = remember { LocalDate.now() }
+                        val fmt = remember { DateTimeFormatter.ofPattern("MM/dd") }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            NativeSectionHeader(title = "整理趋势", subtitle = "近 ${values.size} 天共 $sum 项")
+                            CinematicPanel(padding = 16.dp, showsShadow = false) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().height(132.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.Bottom,
+                                ) {
+                                    values.forEachIndexed { idx, v ->
+                                        val frac = (v.toFloat() / maxVal.toFloat()).coerceIn(0.08f, 1f)
+                                        val dayOffset = (values.size - 1 - idx).toLong()
+                                        val dayLabel = if (dayOffset == 0L) "今天" else today.minusDays(dayOffset).format(fmt)
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Bottom,
+                                        ) {
+                                            Text("$v", color = colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                            Spacer(Modifier.height(6.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height((78f * frac).dp)
+                                                    .clip(RoundedCornerShape(topStart = 7.dp, topEnd = 7.dp, bottomStart = 4.dp, bottomEnd = 4.dp))
+                                                    .background(Brush.verticalGradient(listOf(colors.accent, colors.pink.copy(alpha = 0.78f)))),
+                                            )
+                                            Spacer(Modifier.height(6.dp))
+                                            Text(dayLabel, color = colors.textMuted, fontSize = 10.sp, maxLines = 1)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "bg_services" -> {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            NativeSectionHeader(
+                                title = "后台服务",
+                                subtitle = "${bgServices.size} 项 · 查看全部",
+                                onClickMore = { onOpenDiagnosticTab("定时服务") },
+                            )
+                            CinematicPanel(padding = 14.dp, showsShadow = false) {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    bgServices.take(5).forEach { svc ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().clickable { onOpenDiagnosticTab("定时服务") },
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        ) {
+                                            Icon(Icons.Rounded.History, contentDescription = null, tint = colors.info, modifier = Modifier.size(20.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                    Text(svc.name, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                                    NativeAdaptiveBadge(svc.provider.ifBlank { "系统" }, tint = colors.info)
+                                                }
+                                                Text(svc.nextRun.ifBlank { svc.status }, color = colors.textMuted, fontSize = 12.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            fun isPairableModule(id: String): Boolean = when (id) {
+                "storage", "downloader", "memory", "trend" -> true
+                "bg_services" -> bgServices.isNotEmpty()
+                else -> false
+            }
+
+            val enabledModules = modules.filter { it.enabled }
+
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
@@ -299,136 +501,117 @@ fun DashboardScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                modules.filter { it.enabled }.forEach { mod ->
+                var idx = 0
+                while (idx < enabledModules.size) {
+                    val mod = enabledModules[idx]
+                    val nextMod = enabledModules.getOrNull(idx + 1)
+                    if (cardCols >= 2 && isPairableModule(mod.id) && nextMod != null && isPairableModule(nextMod.id)) {
+                        val firstId = mod.id
+                        val secondId = nextMod.id
+                        item(key = "dash_pair_${firstId}_${secondId}") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.Top,
+                            ) {
+                                Box(modifier = Modifier.weight(1f)) { RenderPairableDashboardModule(firstId) }
+                                Box(modifier = Modifier.weight(1f)) { RenderPairableDashboardModule(secondId) }
+                            }
+                        }
+                        idx += 2
+                        continue
+                    }
+
                     when (mod.id) {
                         "media_stats" -> item(key = "dash_media_stats") {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 NativeSectionHeader(title = "媒体库统计", subtitle = "本月入库")
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    StatGridCard(
-                                        count = formatNumber(stats.movieCount),
-                                        label = "电影",
-                                        delta = "本月 +${stats.movieCountMonth}",
-                                        icon = Icons.Rounded.Movie,
-                                        tint = colors.warning,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    StatGridCard(
-                                        count = formatNumber(stats.tvCount),
-                                        label = "剧集",
-                                        delta = "本月 +${stats.tvCountMonth}",
-                                        icon = Icons.Rounded.Tv,
-                                        tint = colors.brand,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    StatGridCard(
-                                        count = stats.episodeCount?.let(::formatNumber) ?: "--",
-                                        label = "剧集单集",
-                                        delta = "本月 +${stats.episodeCountMonth}",
-                                        icon = Icons.Rounded.Layers,
-                                        tint = colors.cyan,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    StatGridCard(
-                                        count = formatNumber(stats.musicCount),
-                                        label = "音乐",
-                                        delta = "本月 +${stats.musicCountMonth}",
-                                        icon = Icons.Rounded.MusicNote,
-                                        tint = colors.pink,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                            }
-                        }
-
-                        "storage" -> item(key = "dash_storage") {
-                            val ratio = if (stats.totalBytes > 0) (stats.usedBytes / stats.totalBytes).toFloat().coerceIn(0f, 1f) else 0f
-                            val freeBytes = (stats.totalBytes - stats.usedBytes).coerceAtLeast(0.0)
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                NativeSectionHeader(title = "存储空间", subtitle = "服务器")
-                                CinematicPanel(padding = 18.dp) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(18.dp),
-                                    ) {
-                                        Box(modifier = Modifier.size(92.dp), contentAlignment = Alignment.Center) {
-                                            Canvas(modifier = Modifier.fillMaxSize()) {
-                                                val stroke = 10.dp.toPx()
-                                                val inset = stroke / 2f
-                                                drawArc(
-                                                    color = if (colors.isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.09f),
-                                                    startAngle = 0f,
-                                                    sweepAngle = 360f,
-                                                    useCenter = false,
-                                                    topLeft = Offset(inset, inset),
-                                                    size = Size(size.width - stroke, size.height - stroke),
-                                                    style = Stroke(stroke, cap = StrokeCap.Round),
-                                                )
-                                                drawArc(
-                                                    brush = Brush.sweepGradient(listOf(colors.accent, colors.pink, colors.accent)),
-                                                    startAngle = -90f,
-                                                    sweepAngle = ratio * 360f,
-                                                    useCenter = false,
-                                                    topLeft = Offset(inset, inset),
-                                                    size = Size(size.width - stroke, size.height - stroke),
-                                                    style = Stroke(stroke, cap = StrokeCap.Round),
-                                                )
-                                            }
-                                            Text(
-                                                text = String.format("%.1f%%", ratio * 100f),
-                                                color = colors.textPrimary,
-                                                fontSize = 15.sp,
-                                                fontWeight = FontWeight.Bold,
-                                            )
-                                        }
-                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text(
-                                                text = "${formatStorage(stats.usedBytes)} / ${formatStorage(stats.totalBytes)}",
-                                                color = colors.textPrimary,
-                                                fontSize = 17.sp,
-                                                fontWeight = FontWeight.Bold,
-                                            )
-                                            Text("已用 / 总容量", color = colors.textSecondary, fontSize = 13.sp)
-                                            Text("剩余 ${formatStorage(freeBytes)}", color = colors.success, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                        }
+                                if (wideStatsRow) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        StatGridCard(
+                                            count = formatNumber(stats.movieCount),
+                                            label = "电影",
+                                            delta = "本月 +${stats.movieCountMonth}",
+                                            icon = Icons.Rounded.Movie,
+                                            tint = colors.warning,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        StatGridCard(
+                                            count = formatNumber(stats.tvCount),
+                                            label = "剧集",
+                                            delta = "本月 +${stats.tvCountMonth}",
+                                            icon = Icons.Rounded.Tv,
+                                            tint = colors.brand,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        StatGridCard(
+                                            count = stats.episodeCount?.let(::formatNumber) ?: "--",
+                                            label = "剧集单集",
+                                            delta = "本月 +${stats.episodeCountMonth}",
+                                            icon = Icons.Rounded.Layers,
+                                            tint = colors.cyan,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        StatGridCard(
+                                            count = formatNumber(stats.musicCount),
+                                            label = "音乐",
+                                            delta = "本月 +${stats.musicCountMonth}",
+                                            icon = Icons.Rounded.MusicNote,
+                                            tint = colors.pink,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                } else {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        StatGridCard(
+                                            count = formatNumber(stats.movieCount),
+                                            label = "电影",
+                                            delta = "本月 +${stats.movieCountMonth}",
+                                            icon = Icons.Rounded.Movie,
+                                            tint = colors.warning,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        StatGridCard(
+                                            count = formatNumber(stats.tvCount),
+                                            label = "剧集",
+                                            delta = "本月 +${stats.tvCountMonth}",
+                                            icon = Icons.Rounded.Tv,
+                                            tint = colors.brand,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        StatGridCard(
+                                            count = stats.episodeCount?.let(::formatNumber) ?: "--",
+                                            label = "剧集单集",
+                                            delta = "本月 +${stats.episodeCountMonth}",
+                                            icon = Icons.Rounded.Layers,
+                                            tint = colors.cyan,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        StatGridCard(
+                                            count = formatNumber(stats.musicCount),
+                                            label = "音乐",
+                                            delta = "本月 +${stats.musicCountMonth}",
+                                            icon = Icons.Rounded.MusicNote,
+                                            tint = colors.pink,
+                                            modifier = Modifier.weight(1f),
+                                        )
                                     }
                                 }
                             }
                         }
 
-                        "downloader" -> item(key = "dash_downloader") {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                NativeSectionHeader(
-                                    title = "下载器",
-                                    subtitle = if (stats.downloadSpeed > 0 || stats.uploadSpeed > 0) "运行中" else "空闲",
-                                )
-                                CinematicPanel(padding = 16.dp) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                            SpeedSubBox(
-                                                speed = formatSpeed(stats.downloadSpeed),
-                                                label = "实时下载",
-                                                icon = Icons.Rounded.ArrowDownward,
-                                                tint = colors.success,
-                                                modifier = Modifier.weight(1f),
-                                            )
-                                            SpeedSubBox(
-                                                speed = formatSpeed(stats.uploadSpeed),
-                                                label = "实时上传",
-                                                icon = Icons.Rounded.ArrowUpward,
-                                                tint = colors.info,
-                                                modifier = Modifier.weight(1f),
-                                            )
-                                        }
-                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Icon(Icons.Rounded.CloudDownload, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(15.dp))
-                                            Text("累计下载 ${formatStorage(stats.totalDownloadBytes)}", color = colors.textSecondary, fontSize = 12.sp)
-                                        }
-                                    }
-                                }
+                        "storage", "downloader", "memory", "trend" -> {
+                            val singleId = mod.id
+                            item(key = "dash_$singleId") {
+                                RenderPairableDashboardModule(singleId)
+                            }
+                        }
+
+                        "bg_services" -> if (bgServices.isNotEmpty()) {
+                            item(key = "dash_bg_services") {
+                                RenderPairableDashboardModule("bg_services")
                             }
                         }
 
@@ -438,103 +621,6 @@ fun DashboardScreen(
                                     profile = profile,
                                     onSelectMedal = { record -> onOpenMedalShowcase(profile, record.key) },
                                 )
-                            }
-                        }
-
-                        "memory" -> item(key = "dash_memory") {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                NativeSectionHeader(title = "内存占用", subtitle = "CPU ${stats.cpuPercent.toInt()}%")
-                                CinematicPanel(padding = 16.dp, showsShadow = false) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                            Text(String.format("%.1f%%", stats.memoryPercent), color = colors.accent, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-                                            Text("CPU ${String.format("%.1f%%", stats.cpuPercent)}", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                        }
-                                        Box(modifier = Modifier.fillMaxWidth().height(7.dp).clip(CircleShape).background(colors.chipFill)) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth((stats.memoryPercent / 100.0).toFloat().coerceIn(0.03f, 1f))
-                                                    .height(7.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Brush.horizontalGradient(listOf(colors.accent, colors.pink))),
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        "trend" -> item(key = "dash_trend") {
-                            val values = stats.transfer7Days.ifEmpty { listOf(0, 0, 0, 0, 0, 0, 0) }
-                            val sum = values.sum()
-                            val maxVal = (values.maxOrNull() ?: 1).coerceAtLeast(1)
-                            val today = remember { LocalDate.now() }
-                            val fmt = remember { DateTimeFormatter.ofPattern("MM/dd") }
-
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                NativeSectionHeader(title = "整理趋势", subtitle = "近 ${values.size} 天共 $sum 项")
-                                CinematicPanel(padding = 16.dp, showsShadow = false) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().height(132.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.Bottom,
-                                    ) {
-                                        values.forEachIndexed { idx, v ->
-                                            val frac = (v.toFloat() / maxVal.toFloat()).coerceIn(0.08f, 1f)
-                                            val dayOffset = (values.size - 1 - idx).toLong()
-                                            val dayLabel = if (dayOffset == 0L) "今天" else today.minusDays(dayOffset).format(fmt)
-                                            Column(
-                                                modifier = Modifier.weight(1f),
-                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                verticalArrangement = Arrangement.Bottom,
-                                            ) {
-                                                Text("$v", color = colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                                Spacer(Modifier.height(6.dp))
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .height((78f * frac).dp)
-                                                        .clip(RoundedCornerShape(topStart = 7.dp, topEnd = 7.dp, bottomStart = 4.dp, bottomEnd = 4.dp))
-                                                        .background(Brush.verticalGradient(listOf(colors.accent, colors.pink.copy(alpha = 0.78f)))),
-                                                )
-                                                Spacer(Modifier.height(6.dp))
-                                                Text(dayLabel, color = colors.textMuted, fontSize = 10.sp, maxLines = 1)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        "bg_services" -> if (bgServices.isNotEmpty()) {
-                            item(key = "dash_bg_services") {
-                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    NativeSectionHeader(
-                                        title = "后台服务",
-                                        subtitle = "${bgServices.size} 项 · 查看全部",
-                                        onClickMore = { onOpenDiagnosticTab("定时服务") },
-                                    )
-                                    CinematicPanel(padding = 14.dp, showsShadow = false) {
-                                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                            bgServices.take(5).forEach { svc ->
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth().clickable { onOpenDiagnosticTab("定时服务") },
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                                ) {
-                                                    Icon(Icons.Rounded.History, contentDescription = null, tint = colors.info, modifier = Modifier.size(20.dp))
-                                                    Column(modifier = Modifier.weight(1f)) {
-                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                            Text(svc.name, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                                            NativeAdaptiveBadge(svc.provider.ifBlank { "系统" }, tint = colors.info)
-                                                        }
-                                                        Text(svc.nextRun.ifBlank { svc.status }, color = colors.textMuted, fontSize = 12.sp)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
                             }
                         }
 
@@ -551,6 +637,7 @@ fun DashboardScreen(
                             }
                         }
                     }
+                    idx += 1
                 }
 
                 // 底部自定义模块入口（与发现页完全统一）
@@ -606,7 +693,7 @@ fun DashboardScreen(
                 }
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth().height(390.dp),
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                 ) {
                     items(modules.size, key = { modules[it].id }) { idx ->
                         val mod = modules[idx]
@@ -673,11 +760,23 @@ fun DashboardScreen(
         }
     }
 
-    // 2×3 Material 3 Expressive 捷径菜单 BottomSheet
+    // Material 3 Expressive 捷径菜单 BottomSheet（宽屏 3 列自适应 + 可纵向滚动防截断）
     if (showShortcutsSheet) {
+        val shortcutCols = if (effectiveWidth >= 640) 3 else 2
+        val shortcutItems: List<@Composable (Modifier) -> Unit> = listOf(
+            { mod -> ShortcutCard("系统检查", "组件健康与运行状态", Icons.Rounded.Shield, colors.success, mod) { showShortcutsSheet = false; onOpenDiagnosticTab("健康检查") } },
+            { mod -> ShortcutCard("网络测试", "自动测速与连通检测", Icons.Rounded.Language, colors.info, mod) { showShortcutsSheet = false; onOpenDiagnosticTab("网络测试") } },
+            { mod -> ShortcutCard("识别与规则", "名称识别与规则验证", Icons.Rounded.Search, colors.brand, mod) { showShortcutsSheet = false; onOpenDiagnosticTab("名称识别") } },
+            { mod -> ShortcutCard("词表", "识别词、屏蔽词与剧集规则", Icons.Rounded.Book, colors.cyan, mod) { showShortcutsSheet = false; onOpenDiagnosticTab("词表") } },
+            { mod -> ShortcutCard("实时日志", "结构化查看与级别过滤", Icons.Rounded.Terminal, colors.warning, mod) { showShortcutsSheet = false; onOpenDiagnosticTab("实时日志") } },
+            { mod -> ShortcutCard("定时服务", "系统与插件任务手动触发", Icons.Rounded.History, colors.pink, mod) { showShortcutsSheet = false; onOpenDiagnosticTab("定时服务") } },
+        )
         NativeGlassSheet(onDismissRequest = { showShortcutsSheet = false }) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp, vertical = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -692,28 +791,12 @@ fun DashboardScreen(
                     )
                     Spacer(Modifier.width(38.dp))
                 }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ShortcutCard("系统检查", "组件健康与运行状态", Icons.Rounded.Shield, colors.success, Modifier.weight(1f)) {
-                        showShortcutsSheet = false; onOpenDiagnosticTab("健康检查")
-                    }
-                    ShortcutCard("网络测试", "自动测速与连通检测", Icons.Rounded.Language, colors.info, Modifier.weight(1f)) {
-                        showShortcutsSheet = false; onOpenDiagnosticTab("网络测试")
-                    }
-                }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ShortcutCard("识别与规则", "名称识别与规则验证", Icons.Rounded.Search, colors.brand, Modifier.weight(1f)) {
-                        showShortcutsSheet = false; onOpenDiagnosticTab("名称识别")
-                    }
-                    ShortcutCard("词表", "识别词、屏蔽词与剧集规则", Icons.Rounded.Book, colors.cyan, Modifier.weight(1f)) {
-                        showShortcutsSheet = false; onOpenDiagnosticTab("词表")
-                    }
-                }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ShortcutCard("实时日志", "结构化查看与级别过滤", Icons.Rounded.Terminal, colors.warning, Modifier.weight(1f)) {
-                        showShortcutsSheet = false; onOpenDiagnosticTab("实时日志")
-                    }
-                    ShortcutCard("定时服务", "系统与插件任务手动触发", Icons.Rounded.History, colors.pink, Modifier.weight(1f)) {
-                        showShortcutsSheet = false; onOpenDiagnosticTab("定时服务")
+                shortcutItems.chunked(shortcutCols).forEach { rowItems ->
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        rowItems.forEach { item -> item(Modifier.weight(1f)) }
+                        repeat(shortcutCols - rowItems.size) {
+                            Spacer(Modifier.weight(1f))
+                        }
                     }
                 }
                 Spacer(Modifier.height(22.dp))
@@ -736,6 +819,8 @@ fun MessagesCenterScreen(
 ) {
     val colors = LocalMoviePilotColors.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
+    val cardCols = AdaptiveDeviceLayout.cardGridColumns()
+    val bottomOverlayInset = LocalBottomOverlayInset.current
     val scope = rememberCoroutineScope()
     val categories = remember { listOf("全部", "订阅", "整理", "下载", "站点") }
     val pagerState = rememberPagerState(pageCount = { categories.size })
@@ -804,12 +889,14 @@ fun MessagesCenterScreen(
                             }
                         }
                     } else {
-                        LazyColumn(
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(cardCols),
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = margin, end = margin, top = 8.dp, bottom = 42.dp),
+                            contentPadding = PaddingValues(start = margin, end = margin, top = 8.dp, bottom = bottomOverlayInset + 28.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            itemsIndexed(filtered, key = { idx, item -> "${item.id}_$idx" }) { idx, msg ->
+                            gridItemsIndexed(filtered, key = { idx, item -> "${item.id}_$idx" }) { idx, msg ->
                                 if (idx >= filtered.size - 3 && hasMore && !isLoadingMore) {
                                     LaunchedEffect(page) {
                                         isLoadingMore = true
@@ -824,7 +911,7 @@ fun MessagesCenterScreen(
                                 }
                                 CinematicPanel(padding = 13.dp, cornerRadius = 20.dp) {
                                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        // 1:1 复刻 iOS `NativeMessagesPage`: 媒体配图置顶呈现（156dp 全宽圆角）
+                                        // 1:1 复刻 iOS `NativeMessagesPage`: 媒体配图置顶呈现，宽屏双列网格避免细条裁切
                                         if (!msg.image.isNullOrBlank()) {
                                             AsyncImage(
                                                 model = msg.image,
@@ -832,7 +919,7 @@ fun MessagesCenterScreen(
                                                 contentScale = ContentScale.Crop,
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .height(156.dp)
+                                                    .height(if (cardCols >= 2) 144.dp else 156.dp)
                                                     .clip(RoundedCornerShape(12.dp))
                                                     .background(colors.chipFill)
                                                     .border(0.6.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(12.dp)),
@@ -873,7 +960,7 @@ fun MessagesCenterScreen(
                                 }
                             }
                             if (isLoadingMore) {
-                                item {
+                                item(span = { GridItemSpan(maxLineSpan) }) {
                                     Box(modifier = Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
                                         CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(22.dp))
                                     }

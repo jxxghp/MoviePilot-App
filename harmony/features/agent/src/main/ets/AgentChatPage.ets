@@ -20,6 +20,7 @@ import {
   NativeAdaptivePill,
   NativeBackHeader,
   HarmonySheetHeader,
+  HarmonyAdaptiveLayout,
   HarmonyAppearanceStore,
   HarmonySurfaceModifier,
   HarmonyThemeColors,
@@ -343,6 +344,9 @@ export struct HarmonyAgentChatPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) dynamicLight: boolean = true;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_BOTTOM_VP) safeBottomVp: number = 16;
   @State private activeSessionId: string = `harmony-${Date.now()}`;
   @State private activeSessionTitle: string = '新对话';
   @State private sessions: MpAgentSessionSummary[] = [];
@@ -748,53 +752,63 @@ export struct HarmonyAgentChatPage {
 
   @Builder
   attachSheetBuilder() {
-    Column({ space: 14 }) {
+    Column({ space: 12 }) {
       HarmonySheetHeader({
         title: '添加附件与命令',
         cancelText: '关闭',
         onCancel: () => { this.showAttachSheet = false; }
       })
-      Row({ space: 12 }) {
-        Column({ space: 8 }) {
-          Stack() {
-            SymbolGlyph($r('sys.symbol.picture')).fontSize(24).fontColor([this.accentHex])
-          }.width(52).height(52).borderRadius(16)
-            .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '28' : '18'))
-          Text('选择图片').fontSize(13).fontColor(mpPrimaryText(this.isDark))
-        }
-        .layoutWeight(1).padding(12).borderRadius(16).backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-        .onClick(() => this.pickImageAttachment())
+      Scroll() {
+        Column({ space: 14 }) {
+          Row({ space: 12 }) {
+            Column({ space: 8 }) {
+              Stack() {
+                SymbolGlyph($r('sys.symbol.picture')).fontSize(24).fontColor([this.accentHex])
+              }.width(52).height(52).borderRadius(16)
+                .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '28' : '18'))
+              Text('选择图片').fontSize(13).fontColor(mpPrimaryText(this.isDark))
+            }
+            .layoutWeight(1).padding(12).borderRadius(16).backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+            .onClick(() => this.pickImageAttachment())
 
-        Column({ space: 8 }) {
-          Stack() {
-            SymbolGlyph($r('sys.symbol.doc_text')).fontSize(24).fontColor(['#26B8A8'])
-          }.width(52).height(52).borderRadius(16)
-            .backgroundColor(HarmonyAppearanceStore.withAlpha('#26B8A8', this.isDark ? '28' : '18'))
-          Text('选择文件').fontSize(13).fontColor(mpPrimaryText(this.isDark))
-        }
-        .layoutWeight(1).padding(12).borderRadius(16).backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-        .onClick(() => this.pickFileAttachment())
-      }.width('100%')
+            Column({ space: 8 }) {
+              Stack() {
+                SymbolGlyph($r('sys.symbol.doc_text')).fontSize(24).fontColor(['#26B8A8'])
+              }.width(52).height(52).borderRadius(16)
+                .backgroundColor(HarmonyAppearanceStore.withAlpha('#26B8A8', this.isDark ? '28' : '18'))
+              Text('选择文件').fontSize(13).fontColor(mpPrimaryText(this.isDark))
+            }
+            .layoutWeight(1).padding(12).borderRadius(16).backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+            .onClick(() => this.pickFileAttachment())
+          }.width('100%')
 
-      if (this.commands.length > 0) {
-        Text('斜杠快捷命令').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
-        Scroll() {
-          Column({ space: 8 }) {
-            ForEach(this.commands, (cmd: MpAgentCommand) => {
-              Row({ space: 10 }) {
-                NativeAdaptiveBadge({ text: cmd.command, tintHex: this.accentHex })
-                Text(cmd.description).fontSize(12.5).fontColor(mpSecondaryText(this.isDark)).maxLines(1).layoutWeight(1)
-              }
-              .width('100%').padding(12).borderRadius(14).backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-              .onClick(() => {
-                this.showAttachSheet = false;
-                this.prompt = `${cmd.command} `;
-              })
-            }, (cmd: MpAgentCommand) => cmd.command)
+          if (this.commands.length > 0) {
+            Text('斜杠快捷命令').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
+            Column({ space: 8 }) {
+              ForEach(this.commands, (cmd: MpAgentCommand) => {
+                Row({ space: 10 }) {
+                  NativeAdaptiveBadge({ text: cmd.command, tintHex: this.accentHex })
+                  Text(cmd.description).fontSize(12.5).fontColor(mpSecondaryText(this.isDark)).maxLines(1).layoutWeight(1)
+                }
+                .width('100%').padding(12).borderRadius(14).backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                .onClick(() => {
+                  this.showAttachSheet = false;
+                  this.prompt = `${cmd.command} `;
+                })
+              }, (cmd: MpAgentCommand) => cmd.command)
+            }.width('100%')
           }
-        }.scrollBar(BarState.Off).layoutWeight(1)
+        }
+        .width('100%')
+        .padding({ bottom: 20 })
       }
-    }.padding(20).width('100%')
+      .scrollBar(BarState.Off)
+      .layoutWeight(1)
+      .width('100%')
+    }
+    .padding(20)
+    .width('100%')
+    .height('100%')
   }
 
   build() {
@@ -815,55 +829,70 @@ export struct HarmonyAgentChatPage {
       })
 
       if (this.notice.length > 0) {
-        Text(this.notice).fontSize(12).fontColor('#34C759').padding({ left: 16, right: 16, bottom: 4 }).width('100%')
+        Text(this.notice)
+          .fontSize(12)
+          .fontColor('#34C759')
+          .padding({ left: 16, right: 16, bottom: 4 })
+          .width('100%')
+          .constraintSize({ maxWidth: 780 })
       }
 
       Scroll(this.msgScroller) {
-        Column({ space: 14 }) {
-          if (this.messages.length === 0) {
-            Column({ space: 12 }) {
-              Stack({ alignContent: Alignment.Center }) {
-                Column()
-                  .width(64).height(64).borderRadius(32)
-                  .linearGradient({ angle: 135, colors: [[this.accentHex, 0], ['#FF5B8DFF', 0.55], ['#FF26B8A8', 1]] })
-                  .shadow({ radius: 18, color: HarmonyAppearanceStore.withAlpha(this.accentHex, '66'), offsetY: 6 })
-                SymbolGlyph($r('sys.symbol.ai_edit')).fontSize(28).fontColor([Color.White])
-              }
-              Text('MoviePilot 智能助手')
-                .fontSize(20).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
-              Text('检索资源、创建订阅、管理站点、识别文件与排查下载任务')
-                .fontSize(13).fontColor(mpSecondaryText(this.isDark)).textAlign(TextAlign.Center)
+        Column() {
+          Column({ space: 14 }) {
+            if (this.messages.length === 0) {
+              Column({ space: 12 }) {
+                Stack({ alignContent: Alignment.Center }) {
+                  Column()
+                    .width(64).height(64).borderRadius(32)
+                    .linearGradient({ angle: 135, colors: [[this.accentHex, 0], ['#FF5B8DFF', 0.55], ['#FF26B8A8', 1]] })
+                    .shadow({ radius: 18, color: HarmonyAppearanceStore.withAlpha(this.accentHex, '66'), offsetY: 6 })
+                  SymbolGlyph($r('sys.symbol.ai_edit')).fontSize(28).fontColor([Color.White])
+                }
+                Text('MoviePilot 智能助手')
+                  .fontSize(20).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                Text('检索资源、创建订阅、管理站点、识别文件与排查下载任务')
+                  .fontSize(13).fontColor(mpSecondaryText(this.isDark)).textAlign(TextAlign.Center)
 
-              Column({ space: 10 }) {
-                ForEach(this.quickSkills, (skill: string) => {
-                  Column() {
-                    CinematicPanel({ panelPadding: 14, cornerRadius: 18, interactive: true }) {
-                      Row({ space: 10 }) {
-                        SymbolGlyph($r('sys.symbol.ai_edit')).fontSize(16).fontColor([this.accentHex])
-                        Text(skill).fontSize(14).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
-                        Text('›').fontSize(18).fontColor(mpSecondaryText(this.isDark))
-                      }.width('100%')
+                Column({ space: 10 }) {
+                  ForEach(this.quickSkills, (skill: string) => {
+                    Column() {
+                      CinematicPanel({ panelPadding: 14, cornerRadius: 18, interactive: true }) {
+                        Row({ space: 10 }) {
+                          SymbolGlyph($r('sys.symbol.ai_edit')).fontSize(16).fontColor([this.accentHex])
+                          Text(skill).fontSize(14).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                          Text('›').fontSize(18).fontColor(mpSecondaryText(this.isDark))
+                        }.width('100%')
+                      }
                     }
-                  }
-                  .width('100%')
-                  .onClick(() => this.send(skill))
-                }, (skill: string) => skill)
-              }.width('100%').margin({ top: 10 })
-            }.width('100%').padding({ top: 32 }).alignItems(HorizontalAlign.Center)
-          } else {
-            ForEach(this.messages, (msg: ObservableAgentMessage) => {
-              AgentMessageItemView({
-                msg: msg,
-                sending: this.sending,
-                activeSessionId: this.activeSessionId,
-                toolsExpanded: this.expandedToolMsgIds.includes(msg.id),
-                onToggleTools: (id: string) => this.toggleToolsExpanded(id),
-                onNotice: (txt: string) => { this.notice = txt; }
-              })
-            }, (msg: ObservableAgentMessage) => msg.id)
+                    .width('100%')
+                    .onClick(() => this.send(skill))
+                  }, (skill: string) => skill)
+                }.width('100%').margin({ top: 10 })
+              }
+              .width('100%')
+              .padding({ top: HarmonyAdaptiveLayout.isShortLandscape(this.windowWidthVp, this.windowHeightVp) ? 10 : 32 })
+              .alignItems(HorizontalAlign.Center)
+            } else {
+              ForEach(this.messages, (msg: ObservableAgentMessage) => {
+                AgentMessageItemView({
+                  msg: msg,
+                  sending: this.sending,
+                  activeSessionId: this.activeSessionId,
+                  toolsExpanded: this.expandedToolMsgIds.includes(msg.id),
+                  onToggleTools: (id: string) => this.toggleToolsExpanded(id),
+                  onNotice: (txt: string) => { this.notice = txt; }
+                })
+              }, (msg: ObservableAgentMessage) => msg.id)
+            }
           }
-        }.padding({ left: 16, right: 16, bottom: 16 })
-      }.scrollBar(BarState.Off).layoutWeight(1)
+          .width('100%')
+          .constraintSize({ maxWidth: 780 })
+          .padding({ left: 16, right: 16, bottom: 16 })
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Center)
+      }.scrollBar(BarState.Off).layoutWeight(1).width('100%')
 
       if (this.pendingAttachments.length > 0 || this.uploading || this.recording) {
         Row({ space: 8 }) {
@@ -888,6 +917,7 @@ export struct HarmonyAgentChatPage {
           }, (att: MpAgentAttachment) => att.id)
         }
         .width('92%')
+        .constraintSize({ maxWidth: 748 })
         .margin({ bottom: 6 })
       }
 
@@ -932,20 +962,23 @@ export struct HarmonyAgentChatPage {
         })
       }
       .width('92%')
+      .constraintSize({ maxWidth: 748 })
       .padding({ left: 8, right: 8, top: 6, bottom: 6 })
-      .margin({ bottom: 20 })
+      .margin({ bottom: Math.max(12, this.safeBottomVp + 4) })
       .borderRadius(26)
       .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'bar', 26, this.accentHex, true, this.dynamicLight))
 
       Blank().width(0).height(0).bindSheet($$this.showHistorySheet, this.historySheetBuilder(), {
-        detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showAttachSheet, this.attachSheetBuilder(), {
-        detents: [SheetSize.MEDIUM],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
@@ -954,5 +987,6 @@ export struct HarmonyAgentChatPage {
     }
     .width('100%')
     .height('100%')
+    .alignItems(HorizontalAlign.Center)
   }
 }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,6 +27,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -80,8 +83,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -854,34 +859,51 @@ fun FloatingAgentMascot(
     modifier: Modifier = Modifier,
 ) {
     val view = LocalView.current
+    val cfg = LocalConfiguration.current
+    val layoutDir = LocalLayoutDirection.current
     val density = LocalDensity.current
-    val statusTopPx = with(density) { WindowInsets.statusBars.asPaddingValues().calculateTopPadding().toPx() }
-    val navBottomPx = with(density) { WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding().toPx() }
+    val safePadding = WindowInsets.systemBars.union(WindowInsets.displayCutout).asPaddingValues()
+    val safeLeftPx = with(density) { safePadding.calculateLeftPadding(layoutDir).toPx() }
+    val safeRightPx = with(density) { safePadding.calculateRightPadding(layoutDir).toPx() }
+    val statusTopPx = with(density) { safePadding.calculateTopPadding().toPx() }
+    val navBottomPx = with(density) { safePadding.calculateBottomPadding().toPx() }
     val safeMarginPx = with(density) { 8.dp.toPx() }
     val mascotWidthPx = with(density) { 56.dp.toPx() }
     val mascotHeightPx = with(density) { 68.dp.toPx() }
+    val screenSizeKey = cfg.screenWidthDp to cfg.screenHeightDp
 
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
     var anchorX by remember { mutableFloatStateOf(-1f) }
     var anchorY by remember { mutableFloatStateOf(-1f) }
+    var rootWidthPx by remember { mutableFloatStateOf(0f) }
+    var rootHeightPx by remember { mutableFloatStateOf(0f) }
+    var lastOrientation by remember { mutableStateOf(cfg.orientation) }
     var isDragging by remember { mutableStateOf(false) }
     var isBlinking by remember { mutableStateOf(false) }
 
     fun clampOffsets(rawX: Float, rawY: Float): Pair<Float, Float> {
-        val vw = view.width.toFloat()
-        val vh = view.height.toFloat()
+        val vw = if (rootWidthPx > 0f) rootWidthPx else view.width.toFloat()
+        val vh = if (rootHeightPx > 0f) rootHeightPx else view.height.toFloat()
         if (vw <= 0f || vh <= 0f || anchorX < 0f || anchorY < 0f) return rawX to rawY
-        val minX = safeMarginPx - anchorX
-        val maxX = (vw - mascotWidthPx - safeMarginPx) - anchorX
+        val minX = (safeLeftPx + safeMarginPx) - anchorX
+        val maxX = (vw - safeRightPx - mascotWidthPx - safeMarginPx) - anchorX
         val minY = (statusTopPx + safeMarginPx) - anchorY
         val maxY = (vh - navBottomPx - mascotHeightPx - safeMarginPx) - anchorY
-        val cx = if (maxX >= minX) rawX.coerceIn(minX, maxX) else rawX
-        val cy = if (maxY >= minY) rawY.coerceIn(minY, maxY) else rawY
+        val cx = if (maxX >= minX) rawX.coerceIn(minX, maxX) else 0f
+        val cy = if (maxY >= minY) rawY.coerceIn(minY, maxY) else 0f
         return cx to cy
     }
 
-    LaunchedEffect(view.width, view.height, anchorX, anchorY) {
+    LaunchedEffect(cfg.orientation) {
+        if (cfg.orientation != lastOrientation) {
+            lastOrientation = cfg.orientation
+            offsetX = 0f
+            offsetY = 0f
+        }
+    }
+
+    LaunchedEffect(screenSizeKey, rootWidthPx, rootHeightPx, anchorX, anchorY) {
         if (anchorX >= 0f && anchorY >= 0f) {
             val (cx, cy) = clampOffsets(offsetX, offsetY)
             offsetX = cx
@@ -915,8 +937,10 @@ fun FloatingAgentMascot(
         modifier = modifier
             .onGloballyPositioned { coords ->
                 val rootPos = coords.positionInRoot()
-                anchorX = rootPos.x - offsetX
-                anchorY = rootPos.y - offsetY
+                anchorX = rootPos.x
+                anchorY = rootPos.y
+                rootWidthPx = view.width.toFloat()
+                rootHeightPx = view.height.toFloat()
             }
             .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
             .size(width = 56.dp, height = 68.dp)

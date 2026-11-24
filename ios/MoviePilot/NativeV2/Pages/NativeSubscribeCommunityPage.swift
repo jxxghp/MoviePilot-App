@@ -49,7 +49,7 @@ struct NativeSubscribeCommunityPage: View {
               NativeCardListSkeletonView(count: 4, style: .posterRow)
                 .transition(.opacity)
             } else {
-              NativePosterGridSkeletonView(columns: 3, count: 9)
+              NativePosterGridSkeletonView(columns: columns.count, count: columns.count * 3)
                 .transition(.opacity)
             }
           } else if loadFailed && isCurrentEmpty {

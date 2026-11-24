@@ -37,6 +37,7 @@ export default class EntryAbility extends UIAbility {
 
   onCreate(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
     HarmonyAppearanceStore.initDefaults();
+    HarmonyAppearanceStore.ensureAppStorageDefaults();
     EntryAbility.appCtx = this.context;
     EntryAbility.storeInitPromise = NativeHuksStore.shared().init(this.context);
     this.syncSystemColorMode(this.context.config.colorMode);
@@ -62,20 +63,80 @@ export default class EntryAbility extends UIAbility {
     }
   }
 
-  private updateWindowMetricsFromPx(widthPx: number, heightPx: number = 0): void {
+  private pxToVp(px: number, win?: window.Window | null): number {
+    if (!Number.isFinite(px) || px <= 0) {
+      return 0;
+    }
+    if (win) {
+      try {
+        const vpVal = win.getUIContext().px2vp(px);
+        if (Number.isFinite(vpVal) && vpVal > 0) {
+          return Math.round(vpVal);
+        }
+      } catch {
+        // UIContext 尚未就绪时回退至屏幕像素密度换算
+      }
+    }
     try {
       const disp = display.getDefaultDisplaySync();
       const density = disp.densityPixels > 0 ? disp.densityPixels : 3;
-      const widthVp = Math.round(widthPx / density);
-      const bp = HarmonyAdaptiveLayout.resolveBreakpoint(widthVp);
-      AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP, widthVp);
-      AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_BREAKPOINT, bp);
+      return Math.round(px / density);
+    } catch {
+      return Math.round(px / 3);
+    }
+  }
+
+  private updateWindowMetricsFromPx(widthPx: number, heightPx: number = 0, win?: window.Window | null): void {
+    try {
+      const widthVp = this.pxToVp(widthPx, win);
+      if (widthVp > 0) {
+        const bp = HarmonyAdaptiveLayout.resolveBreakpoint(widthVp);
+        AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP, widthVp);
+        AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_BREAKPOINT, bp);
+      }
       if (heightPx > 0) {
-        const heightVp = Math.round(heightPx / density);
-        AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP, heightVp);
+        const heightVp = this.pxToVp(heightPx, win);
+        if (heightVp > 0) {
+          AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP, heightVp);
+        }
       }
     } catch {
       // ignore display query failure
+    }
+  }
+
+  private updateAvoidAreas(win: window.Window): void {
+    try {
+      const types: window.AvoidAreaType[] = [
+        window.AvoidAreaType.TYPE_SYSTEM,
+        window.AvoidAreaType.TYPE_CUTOUT,
+        window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR
+      ];
+      let topPx = 0;
+      let bottomPx = 0;
+      let leftPx = 0;
+      let rightPx = 0;
+      for (let i = 0; i < types.length; i++) {
+        try {
+          const area = win.getWindowAvoidArea(types[i]);
+          if (area) {
+            topPx = Math.max(topPx, area.topRect ? area.topRect.height : 0);
+            bottomPx = Math.max(bottomPx, area.bottomRect ? area.bottomRect.height : 0);
+            leftPx = Math.max(leftPx, area.leftRect ? area.leftRect.width : 0);
+            rightPx = Math.max(rightPx, area.rightRect ? area.rightRect.width : 0);
+          }
+        } catch {
+          // ignore unsupported avoid area type on older runtimes
+        }
+      }
+      AppStorage.setOrCreate('mp_top_avoid_px', topPx);
+      AppStorage.setOrCreate('mp_bottom_avoid_px', bottomPx);
+      AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_SAFE_TOP_VP, this.pxToVp(topPx, win));
+      AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_SAFE_BOTTOM_VP, this.pxToVp(bottomPx, win));
+      AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_SAFE_LEFT_VP, this.pxToVp(leftPx, win));
+      AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_SAFE_RIGHT_VP, this.pxToVp(rightPx, win));
+    } catch {
+      // ignore avoid area query failure
     }
   }
 
@@ -86,6 +147,11 @@ export default class EntryAbility extends UIAbility {
         EntryAbility.mainWin = syncWin;
         syncWin.setWindowLayoutFullScreen(true).catch(() => {});
         EntryAbility.syncWindowAppearance(AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_IS_DARK) ?? true);
+        const syncProps = syncWin.getWindowProperties();
+        if (syncProps && syncProps.windowRect && syncProps.windowRect.width > 0) {
+          this.updateWindowMetricsFromPx(syncProps.windowRect.width, syncProps.windowRect.height, syncWin);
+        }
+        this.updateAvoidAreas(syncWin);
       }
     } catch {
       // fallback to async main window
@@ -102,19 +168,22 @@ export default class EntryAbility extends UIAbility {
           try {
             win.setWindowLayoutFullScreen(true).then(() => {
               EntryAbility.syncWindowAppearance(AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_IS_DARK) ?? true);
+              this.updateAvoidAreas(win);
             }).catch(() => {});
             EntryAbility.syncWindowAppearance(AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_IS_DARK) ?? true);
-            const avoid = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
-            AppStorage.setOrCreate('mp_top_avoid_px', avoid.topRect.height);
-            AppStorage.setOrCreate('mp_bottom_avoid_px', avoid.bottomRect.height);
             const props = win.getWindowProperties();
             if (props && props.windowRect && props.windowRect.width > 0) {
-              this.updateWindowMetricsFromPx(props.windowRect.width, props.windowRect.height);
+              this.updateWindowMetricsFromPx(props.windowRect.width, props.windowRect.height, win);
             }
+            this.updateAvoidAreas(win);
             win.on('windowSizeChange', (size: window.Size) => {
               if (size && size.width > 0) {
-                this.updateWindowMetricsFromPx(size.width, size.height);
+                this.updateWindowMetricsFromPx(size.width, size.height, win);
+                this.updateAvoidAreas(win);
               }
+            });
+            win.on('avoidAreaChange', (_opts: window.AvoidAreaOptions) => {
+              this.updateAvoidAreas(win);
             });
           } catch {
             // ignore avoid area or listener setup failure

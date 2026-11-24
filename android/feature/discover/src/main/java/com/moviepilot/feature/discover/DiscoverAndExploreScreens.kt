@@ -14,14 +14,22 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -33,9 +41,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
@@ -194,6 +204,14 @@ fun DiscoverScreen(
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val context = LocalContext.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
+    val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
+    val categoryCols = AdaptiveDeviceLayout.effectiveContentWidthDp().let { w ->
+        when {
+            w >= 960 -> 4
+            w >= 640 -> 3
+            else -> 2
+        }
+    }
     val heroHeight = AdaptiveDeviceLayout.discoverHeroHeight()
     val posterWidth = AdaptiveDeviceLayout.discoverPosterWidth()
     val density = LocalDensity.current
@@ -436,8 +454,8 @@ fun DiscoverScreen(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 132.dp + bottomOverlayInset),
-                    verticalArrangement = Arrangement.spacedBy(22.dp),
+                    contentPadding = PaddingValues(bottom = bottomOverlayInset + 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (compactHeight) 16.dp else 22.dp),
                 ) {
                     // 1. 前景主视觉轮播（始终作为 index 0 顶部锚点，避免异步模块加载后列表自动跳滚）
                     item(key = "discover_hero") {
@@ -459,7 +477,7 @@ fun DiscoverScreen(
                                             modifier = Modifier
                                                 .align(Alignment.BottomCenter)
                                                 .fillMaxWidth()
-                                                .padding(horizontal = margin, vertical = 22.dp),
+                                                .padding(horizontal = margin, vertical = if (compactHeight) 12.dp else 22.dp),
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                         ) {
                                             var logoReady by remember(logoUrl) { mutableStateOf(false) }
@@ -471,10 +489,11 @@ fun DiscoverScreen(
                                                     Text(
                                                         text = item.title,
                                                         color = if (colors.isDark) Color.White else colors.textPrimary,
-                                                        fontSize = 26.sp,
+                                                        fontSize = if (compactHeight) 20.sp else 26.sp,
                                                         fontWeight = FontWeight.ExtraBold,
                                                         textAlign = TextAlign.Center,
-                                                        maxLines = 2,
+                                                        maxLines = if (compactHeight) 1 else 2,
+                                                        overflow = TextOverflow.Ellipsis,
                                                     )
                                                 }
                                                 if (!logoUrl.isNullOrBlank()) {
@@ -484,34 +503,37 @@ fun DiscoverScreen(
                                                         contentScale = ContentScale.Fit,
                                                         onSuccess = { logoReady = true },
                                                         modifier = Modifier
-                                                            .fillMaxWidth(0.72f)
-                                                            .height(66.dp),
+                                                            .fillMaxWidth(if (compactHeight) 0.56f else 0.72f)
+                                                            .height(if (compactHeight) 44.dp else 66.dp),
                                                     )
                                                 }
                                             }
-                                            Spacer(Modifier.height(8.dp))
+                                            Spacer(Modifier.height(if (compactHeight) 4.dp else 8.dp))
                                             Text(
                                                 text = listOfNotNull(
                                                     item.genres.take(3).joinToString(" ").ifBlank { item.type },
                                                     item.releaseDate?.takeIf { it.isNotBlank() } ?: item.year.ifBlank { null },
                                                 ).joinToString(" · "),
                                                 color = if (colors.isDark) Color.White.copy(alpha = 0.90f) else colors.textPrimary.copy(alpha = 0.85f),
-                                                fontSize = 13.sp,
+                                                fontSize = if (compactHeight) 12.sp else 13.sp,
                                                 fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
                                             )
                                             if (item.overview.isNotBlank()) {
-                                                Spacer(Modifier.height(6.dp))
+                                                Spacer(Modifier.height(if (compactHeight) 3.dp else 6.dp))
                                                 Text(
                                                     text = item.overview,
                                                     color = if (colors.isDark) Color.White.copy(alpha = 0.78f) else colors.textSecondary,
                                                     fontSize = 12.sp,
-                                                    maxLines = 2,
+                                                    maxLines = if (compactHeight) 1 else 2,
                                                     overflow = TextOverflow.Ellipsis,
                                                     textAlign = TextAlign.Center,
                                                     lineHeight = 18.sp,
+                                                    modifier = Modifier.widthIn(max = 580.dp),
                                                 )
                                             }
-                                            Spacer(Modifier.height(12.dp))
+                                            Spacer(Modifier.height(if (compactHeight) 6.dp else 12.dp))
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1110,7 +1132,7 @@ fun DiscoverScreen(
                                         modifier = Modifier.padding(horizontal = margin),
                                     ) {
                                         NativeSectionHeader(title = "分类浏览")
-                                        categoryEntries.chunked(2).forEach { row ->
+                                        categoryEntries.chunked(categoryCols).forEach { row ->
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1124,7 +1146,9 @@ fun DiscoverScreen(
                                                         onClick = { onOpenExplore(sourceKey) },
                                                     )
                                                 }
-                                                if (row.size == 1) Spacer(Modifier.weight(1f))
+                                                repeat(categoryCols - row.size) {
+                                                    Spacer(Modifier.weight(1f))
+                                                }
                                             }
                                         }
                                     }
@@ -1169,15 +1193,20 @@ fun DiscoverScreen(
             modifier = Modifier.align(Alignment.TopCenter),
         )
 
-        // Android 顶栏右上角搜索入口（悬浮半透玻璃圆钮，既不遮挡全幅海报又保持 1 键可达）
+        // Android 顶栏右上角搜索入口（悬浮半透玻璃圆钮，自动避让状态栏与右侧挖孔）
         com.moviepilot.designsystem.CinematicCircleButton(
             icon = Icons.Rounded.Search,
             contentDescription = "全局搜索",
             onClick = onOpenSearch,
+            size = if (compactHeight) 40.dp else 44.dp,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(top = 8.dp, end = 16.dp),
+                .windowInsetsPadding(
+                    WindowInsets.statusBars
+                        .union(WindowInsets.displayCutout)
+                        .only(WindowInsetsSides.Top + WindowInsetsSides.End),
+                )
+                .padding(top = if (compactHeight) 6.dp else 8.dp, end = 16.dp),
         )
     }
 
@@ -1210,7 +1239,7 @@ fun DiscoverScreen(
                 }
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth().height(420.dp),
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                 ) {
                     items(modules.size, key = { modules[it].id }) { idx ->
                         val mod = modules[idx]
@@ -1286,17 +1315,19 @@ fun DiscoverScreen(
     // 发现页点击「热门音乐」方卡后的专辑详情与试听弹层
     selectedAlbum?.let { album ->
         var subMsg by remember(album.id) { mutableStateOf<String?>(null) }
+        val coverSize = if (compactHeight) 120.dp else 176.dp
         NativeGlassSheet(onDismissRequest = { selectedAlbum = null }) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(if (compactHeight) 10.dp else 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(
                     modifier = Modifier
-                        .size(176.dp)
+                        .size(coverSize)
                         .clip(RoundedCornerShape(22.dp))
                         .background(colors.surfaceContainerHigh),
                     contentAlignment = Alignment.Center,
@@ -1464,6 +1495,7 @@ fun ExploreScreen(
     val colors = LocalMoviePilotColors.current
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
+    val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
     val columns = AdaptiveDeviceLayout.posterGridColumns()
     val musicColumns = AdaptiveDeviceLayout.squareGridColumns()
     val scope = rememberCoroutineScope()
@@ -1587,7 +1619,7 @@ fun ExploreScreen(
         },
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(if (compactHeight) 6.dp else 12.dp))
 
         if (activeSource == "music") {
             LazyRow(
@@ -1610,7 +1642,7 @@ fun ExploreScreen(
                     )
                 }
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(if (compactHeight) 6.dp else 10.dp))
             if (isLoading && musicAlbums.isEmpty()) {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = colors.accent)
@@ -1619,7 +1651,7 @@ fun ExploreScreen(
                 LazyVerticalGrid(
                     state = musicGridState,
                     columns = GridCells.Fixed(musicColumns),
-                    contentPadding = PaddingValues(start = margin, end = margin, top = 4.dp, bottom = 128.dp + bottomOverlayInset),
+                    contentPadding = PaddingValues(start = margin, end = margin, top = 4.dp, bottom = bottomOverlayInset + 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                     modifier = Modifier.weight(1f),
@@ -1691,12 +1723,12 @@ fun ExploreScreen(
             LazyRow(contentPadding = PaddingValues(horizontal = margin), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(tmdbSorts) { s -> NativeAdaptivePill(s, selected = s == activeSort, onClick = { activeSort = s }) }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(if (compactHeight) 5.dp else 8.dp))
             if (activeSource.startsWith("tmdb")) {
                 LazyRow(contentPadding = PaddingValues(horizontal = margin), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(tmdbGenres) { g -> NativeAdaptivePill(g, selected = g == activeGenre, onClick = { activeGenre = g }) }
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(if (compactHeight) 5.dp else 8.dp))
                 LazyRow(contentPadding = PaddingValues(horizontal = margin), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(tmdbLangs) { l -> NativeAdaptivePill(l, selected = l == activeLang, onClick = { activeLang = l }) }
                 }
@@ -1706,7 +1738,7 @@ fun ExploreScreen(
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(if (compactHeight) 6.dp else 12.dp))
 
             // 响应式 3~6 列自动分页海报网格 + 原生下拉刷新
             PullToRefreshBox(
@@ -1720,7 +1752,7 @@ fun ExploreScreen(
                 LazyVerticalGrid(
                     state = posterGridState,
                     columns = GridCells.Fixed(columns),
-                    contentPadding = PaddingValues(start = margin, end = margin, top = 4.dp, bottom = 128.dp + bottomOverlayInset),
+                    contentPadding = PaddingValues(start = margin, end = margin, top = 4.dp, bottom = bottomOverlayInset + 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxSize(),
@@ -1777,17 +1809,19 @@ fun ExploreScreen(
     // 音乐专辑详情与订阅/试听弹窗
     selectedAlbum?.let { album ->
         var subMsg by remember(album.id) { mutableStateOf<String?>(null) }
+        val coverSize = if (compactHeight) 124.dp else 188.dp
         NativeGlassSheet(onDismissRequest = { selectedAlbum = null }) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(if (compactHeight) 10.dp else 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(
                     modifier = Modifier
-                        .size(188.dp)
+                        .size(coverSize)
                         .clip(RoundedCornerShape(22.dp))
                         .background(Brush.linearGradient(listOf(colors.accent.copy(alpha = 0.55f), Color(0xFF281F3D)))),
                     contentAlignment = Alignment.Center,
@@ -1890,7 +1924,9 @@ fun GlobalSearchScreen(
     onPlayLibraryItem: (MediaPlaybackRequest) -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
+    val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
     val columns = AdaptiveDeviceLayout.posterGridColumns()
     val scope = rememberCoroutineScope()
 
@@ -2011,7 +2047,7 @@ fun GlobalSearchScreen(
             } else if (kind == "person") {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(columns),
-                    contentPadding = PaddingValues(start = margin, end = margin, bottom = 128.dp),
+                    contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomOverlayInset + 24.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.weight(1f),
@@ -2051,7 +2087,7 @@ fun GlobalSearchScreen(
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(columns),
-                    contentPadding = PaddingValues(start = margin, end = margin, bottom = 128.dp),
+                    contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomOverlayInset + 24.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.weight(1f),
@@ -2111,6 +2147,7 @@ fun MusicDiscoveryScreen(
     repository: MoviePilotRepository? = null,
 ) {
     val colors = LocalMoviePilotColors.current
+    val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val cols = AdaptiveDeviceLayout.squareGridColumns()
     val scope = rememberCoroutineScope()
@@ -2130,7 +2167,7 @@ fun MusicDiscoveryScreen(
             }
             LazyVerticalGrid(
                 columns = GridCells.Fixed(cols),
-                contentPadding = PaddingValues(start = margin, end = margin, top = 16.dp, bottom = 128.dp),
+                contentPadding = PaddingValues(start = margin, end = margin, top = 16.dp, bottom = bottomOverlayInset + 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {

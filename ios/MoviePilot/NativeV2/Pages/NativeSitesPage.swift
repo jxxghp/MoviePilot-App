@@ -669,7 +669,9 @@ private struct NativeSiteDataSheet: View {
               }
             }
           }
+          .frame(maxWidth: 680)
           .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
+          .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.hidden)
         .accessibilityIdentifier("native-site-data-scroll")
@@ -692,6 +694,7 @@ private struct NativeSiteDataSheet: View {
       .task { await loadUserData() }
     }
     .nativeGlassSheet()
+    .nativeAdaptiveSheetSizing()
   }
 
   /// 历史流量双曲线面积图（上传量绿色 + 下载量琥珀色，支持手指滑动查看每日明细）。
@@ -837,8 +840,11 @@ private struct NativeSiteDataSheet: View {
               .fill(.clear)
               .contentShape(Rectangle())
               .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(minimumDistance: 12)
                   .onChanged { value in
+                    guard abs(value.translation.width) > abs(value.translation.height) else {
+                      return
+                    }
                     let origin = geo[proxy.plotAreaFrame].origin
                     let xPos = value.location.x - origin.x
                     if let rawIndex: Double = proxy.value(atX: xPos) {
@@ -952,8 +958,11 @@ private struct NativeSiteDataSheet: View {
               .fill(.clear)
               .contentShape(Rectangle())
               .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(minimumDistance: 12)
                   .onChanged { value in
+                    guard abs(value.translation.width) > abs(value.translation.height) else {
+                      return
+                    }
                     let origin = geo[proxy.plotAreaFrame].origin
                     let xPos = value.location.x - origin.x
                     if let targetX: Double = proxy.value(atX: xPos) {
@@ -1211,7 +1220,9 @@ private struct NativeSiteEditorSheet: View {
               }
             }
           }
+          .frame(maxWidth: 680)
           .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
+          .frame(maxWidth: .infinity)
         }
       }
       .navigationTitle(isCreate ? "新增站点" : "编辑站点")
@@ -1256,6 +1267,7 @@ private struct NativeSiteEditorSheet: View {
       }
     }
     .nativeGlassSheet()
+    .nativeAdaptiveSheetSizing()
   }
 
   private func rowField(_ label: String, placeholder: String, text: Binding<String>) -> some View {

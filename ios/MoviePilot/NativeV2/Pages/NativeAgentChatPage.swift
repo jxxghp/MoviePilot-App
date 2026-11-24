@@ -1384,7 +1384,9 @@ struct NativeAgentChatPage: View {
               }
             }
           }
+          .frame(maxWidth: 680)
           .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
+          .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.hidden)
       }
@@ -1416,6 +1418,7 @@ struct NativeAgentChatPage: View {
       }
     }
     .nativeGlassSheet()
+    .nativeAdaptiveSheetSizing()
   }
 
   private func feedbackBanner(_ feedback: NativeAgentFeedback) -> some View {

@@ -21,6 +21,7 @@ import {
   HarmonyPageHeader,
   HarmonyPillTabBar,
   HarmonySheetHeader,
+  HarmonyAdaptiveLayout,
   HarmonyThemeColors,
   GeneratedDesignTokens,
   HarmonyAppearanceStore,
@@ -136,6 +137,8 @@ export struct HarmonyDashboardPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_DASHBOARD_MODULES) modulesRaw: string = '';
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
   @Prop userName: string = 'admin';
   @Prop serverUrl: string = '';
   @State private stats: MpDashboardStats = {
@@ -247,6 +250,10 @@ export struct HarmonyDashboardPage {
     return fallback;
   }
 
+  private isMedalShortLandscape(): boolean {
+    return this.windowWidthVp > this.windowHeightVp && this.windowHeightVp > 0 && this.windowHeightVp < 520;
+  }
+
   @Builder
   shortcutsPopupSheetBuilder() {
     Column({ space: 12 }) {
@@ -260,39 +267,53 @@ export struct HarmonyDashboardPage {
         .fontColor(mpSecondaryText(this.isDark))
         .width('100%')
 
-      Column({ space: 10 }) {
-        ForEach(SHORTCUT_ENTRIES, (entry: ShortcutEntryDef) => {
-          Column() {
-            CinematicPanel({ panelPadding: 13, cornerRadius: 16, interactive: true }) {
-              Row({ space: 12 }) {
-                Stack() {
-                  SymbolGlyph($r(entry.symbol)).fontSize(19).fontColor([entry.tint])
-                }
-                .width(38).height(38).borderRadius(19)
-                .backgroundColor(HarmonyAppearanceStore.withAlpha(entry.tint, this.isDark ? '28' : '18'))
+      Scroll() {
+        Grid() {
+          ForEach(SHORTCUT_ENTRIES, (entry: ShortcutEntryDef) => {
+            GridItem() {
+              Column() {
+                CinematicPanel({ panelPadding: 13, cornerRadius: 16, interactive: true }) {
+                  Row({ space: 12 }) {
+                    Stack() {
+                      SymbolGlyph($r(entry.symbol)).fontSize(19).fontColor([entry.tint])
+                    }
+                    .width(38).height(38).borderRadius(19)
+                    .backgroundColor(HarmonyAppearanceStore.withAlpha(entry.tint, this.isDark ? '28' : '18'))
 
-                Column({ space: 2 }) {
-                  Text(entry.title).fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
-                  Text(entry.subtitle).fontSize(11.5).fontColor(mpSecondaryText(this.isDark)).maxLines(1)
-                }
-                .alignItems(HorizontalAlign.Start)
-                .layoutWeight(1)
+                    Column({ space: 2 }) {
+                      Text(entry.title).fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                      Text(entry.subtitle).fontSize(11.5).fontColor(mpSecondaryText(this.isDark)).maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    }
+                    .alignItems(HorizontalAlign.Start)
+                    .layoutWeight(1)
 
-                SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(15).fontColor([mpSecondaryText(this.isDark)])
+                    SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(15).fontColor([mpSecondaryText(this.isDark)])
+                  }
+                  .width('100%')
+                }
               }
               .width('100%')
+              .onClick(() => {
+                this.showShortcutsSheet = false;
+                this.onOpenShortcutRoute(entry.routeId);
+              })
             }
-          }
-          .width('100%')
-          .onClick(() => {
-            this.showShortcutsSheet = false;
-            this.onOpenShortcutRoute(entry.routeId);
-          })
-        }, (entry: ShortcutEntryDef) => entry.routeId)
+          }, (entry: ShortcutEntryDef) => entry.routeId)
+        }
+        .columnsTemplate(this.windowWidthVp >= 600 ? '1fr 1fr' : '1fr')
+        .columnsGap(10)
+        .rowsGap(10)
+        .width('100%')
+        .padding({ bottom: 20 })
       }
+      .scrollBar(BarState.Off)
+      .layoutWeight(1)
+      .width('100%')
     }
     .padding(20)
     .width('100%')
+    .height('100%')
   }
 
   @Builder
@@ -444,6 +465,62 @@ export struct HarmonyDashboardPage {
   }
 
   @Builder
+  medalDetailActionBodyBuilder(medal: MpCommunityMedal) {
+    Column({ space: 12 }) {
+      Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
+        NativeAdaptiveBadge({ text: `Tier ${medal.tier}`, tintHex: '#FFCC6B' })
+        NativeAdaptiveBadge({ text: medal.category, tintHex: this.accentHex })
+        NativeAdaptiveBadge({
+          text: medal.earned ? '已解锁' : '未解锁',
+          tintHex: medal.earned ? '#34C759' : '#9AA4B2'
+        })
+        if (medal.worn || this.community.wornMedalId === medal.id) {
+          NativeAdaptiveBadge({ text: '当前佩戴', tintHex: this.accentHex, filled: true })
+        }
+      }
+
+      CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
+        Column({ space: 6 }) {
+          Text('解锁条件与里程碑')
+            .fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
+          Text(medal.criteria || medal.subtitle)
+            .fontSize(12.5).fontColor(mpSecondaryText(this.isDark)).lineHeight(18).width('100%')
+          if ((medal.facts ?? []).length > 0) {
+            ForEach(medal.facts ?? [], (fact: string, fIdx: number) => {
+              Text(`• ${fact}`).fontSize(12).fontColor(this.accentHex).width('100%')
+            }, (fact: string, fIdx: number) => `dmf_${fIdx}_${fact}`)
+          }
+        }.alignItems(HorizontalAlign.Start)
+      }
+
+      Button((medal.worn || this.community.wornMedalId === medal.id) ? '已佩戴此勋章' : '佩戴勋章')
+        .width('100%').height(44).borderRadius(22)
+        .backgroundColor(this.accentHex).fontColor(Color.White).fontWeight(FontWeight.Bold)
+        .enabled(!this.medalBusy && medal.earned)
+        .opacity(medal.earned ? 1 : 0.45)
+        .onClick(async () => {
+          if (!this.selectedMedal) { return; }
+          const targetId = this.selectedMedal.id;
+          const targetTitle = this.selectedMedal.title;
+          this.medalBusy = true;
+          const ok = await MoviePilotRepository.shared().wearCommunityMedal(targetId);
+          if (ok) {
+            const nextState = await MoviePilotRepository.shared().fetchCommunityMedals();
+            this.community = nextState;
+            const updated = nextState.medals.find((x: MpCommunityMedal) => x.id === targetId);
+            if (updated) { this.selectedMedal = updated; }
+            this.medalFeedback = `已佩戴「${targetTitle}」`;
+          } else {
+            this.medalFeedback = '佩戴勋章失败，请确认已关联 GitHub 账号';
+          }
+          this.medalBusy = false;
+        })
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
   medalShowcaseSheetBuilder() {
     Column({ space: 12 }) {
       if (this.selectedMedal) {
@@ -469,72 +546,63 @@ export struct HarmonyDashboardPage {
           Text(this.medalFeedback).fontSize(12).fontColor('#34C759').width('100%')
         }
 
-        Scroll() {
-          Column({ space: 14 }) {
-            Row({ space: 8 }) {
-              NativeAdaptiveBadge({ text: `Tier ${this.selectedMedal.tier}`, tintHex: '#FFCC6B' })
-              NativeAdaptiveBadge({ text: this.selectedMedal.category, tintHex: this.accentHex })
-              NativeAdaptiveBadge({
-                text: this.selectedMedal.earned ? '已解锁' : '未解锁',
-                tintHex: this.selectedMedal.earned ? '#34C759' : '#9AA4B2'
-              })
-              if (this.selectedMedal.worn || this.community.wornMedalId === this.selectedMedal.id) {
-                NativeAdaptiveBadge({ text: '当前佩戴', tintHex: this.accentHex, filled: true })
+        if (this.isMedalShortLandscape()) {
+          Row({ space: 18 }) {
+            Scroll() {
+              Column() {
+                CommunityMedal3DComponent({
+                  medalId: this.selectedMedal.id,
+                  frontAsset: this.selectedMedal.frontAsset,
+                  backAsset: this.selectedMedal.backAsset,
+                  title: this.selectedMedal.title,
+                  subtitle: this.selectedMedal.subtitle,
+                  ownerName: this.community.githubLogin,
+                  earnedDate: this.selectedMedal.earnedDate,
+                  medalSize: 164
+                })
               }
+              .padding({ bottom: 12 })
             }
+            .scrollBar(BarState.Off)
+            .width(204)
+            .height('100%')
 
-            CommunityMedal3DComponent({
-              medalId: this.selectedMedal.id,
-              frontAsset: this.selectedMedal.frontAsset,
-              backAsset: this.selectedMedal.backAsset,
-              title: this.selectedMedal.title,
-              subtitle: this.selectedMedal.subtitle,
-              ownerName: this.community.githubLogin,
-              earnedDate: this.selectedMedal.earnedDate
-            })
-
-            CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
-              Column({ space: 6 }) {
-                Text('解锁条件与里程碑')
-                  .fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
-                Text(this.selectedMedal.criteria || this.selectedMedal.subtitle)
-                  .fontSize(12.5).fontColor(mpSecondaryText(this.isDark)).lineHeight(18).width('100%')
-                if ((this.selectedMedal.facts ?? []).length > 0) {
-                  ForEach(this.selectedMedal.facts ?? [], (fact: string, fIdx: number) => {
-                    Text(`• ${fact}`).fontSize(12).fontColor(this.accentHex).width('100%')
-                  }, (fact: string, fIdx: number) => `dmf_${fIdx}_${fact}`)
-                }
-              }.alignItems(HorizontalAlign.Start)
+            Scroll() {
+              Column({ space: 12 }) {
+                this.medalDetailActionBodyBuilder(this.selectedMedal)
+              }
+              .width('100%')
+              .padding({ bottom: 20 })
             }
-
-            Button((this.selectedMedal.worn || this.community.wornMedalId === this.selectedMedal.id) ? '已佩戴此勋章' : '佩戴勋章')
-              .width('100%').height(44).borderRadius(22)
-              .backgroundColor(this.accentHex).fontColor(Color.White).fontWeight(FontWeight.Bold)
-              .enabled(!this.medalBusy && this.selectedMedal.earned)
-              .opacity(this.selectedMedal.earned ? 1 : 0.45)
-              .onClick(async () => {
-                if (!this.selectedMedal) { return; }
-                const targetId = this.selectedMedal.id;
-                const targetTitle = this.selectedMedal.title;
-                this.medalBusy = true;
-                const ok = await MoviePilotRepository.shared().wearCommunityMedal(targetId);
-                if (ok) {
-                  const nextState = await MoviePilotRepository.shared().fetchCommunityMedals();
-                  this.community = nextState;
-                  const updated = nextState.medals.find((x: MpCommunityMedal) => x.id === targetId);
-                  if (updated) { this.selectedMedal = updated; }
-                  this.medalFeedback = `已佩戴「${targetTitle}」`;
-                } else {
-                  this.medalFeedback = '佩戴勋章失败，请确认已关联 GitHub 账号';
-                }
-                this.medalBusy = false;
-              })
+            .scrollBar(BarState.Off)
+            .layoutWeight(1)
+            .height('100%')
           }
-          .alignItems(HorizontalAlign.Center)
-          .padding({ bottom: 24 })
+          .width('100%')
+          .layoutWeight(1)
+        } else {
+          Scroll() {
+            Column({ space: 14 }) {
+              CommunityMedal3DComponent({
+                medalId: this.selectedMedal.id,
+                frontAsset: this.selectedMedal.frontAsset,
+                backAsset: this.selectedMedal.backAsset,
+                title: this.selectedMedal.title,
+                subtitle: this.selectedMedal.subtitle,
+                ownerName: this.community.githubLogin,
+                earnedDate: this.selectedMedal.earnedDate,
+                medalSize: 240
+              })
+
+              this.medalDetailActionBodyBuilder(this.selectedMedal)
+            }
+            .alignItems(HorizontalAlign.Center)
+            .padding({ bottom: 24 })
+          }
+          .scrollBar(BarState.Off)
+          .layoutWeight(1)
+          .width('100%')
         }
-        .scrollBar(BarState.Off)
-        .layoutWeight(1)
       }
     }
     .padding(20)
@@ -548,8 +616,8 @@ export struct HarmonyDashboardPage {
     if (modId === 'media_stats') {
       Column({ space: 12 }) {
         Text('媒体库统计').fontSize(18).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
-        Row({ space: 12 }) {
-          Column() {
+        Grid() {
+          GridItem() {
             CinematicPanel({ panelPadding: 15, cornerRadius: 18 }) {
               Column({ space: 6 }) {
                 Row() {
@@ -564,8 +632,8 @@ export struct HarmonyDashboardPage {
                 NativeAdaptiveBadge({ text: this.monthlyBadgeText(this.stats.movieMonthly, '电影库'), tintHex: '#F29B38' })
               }.alignItems(HorizontalAlign.Start)
             }
-          }.layoutWeight(1)
-          Column() {
+          }
+          GridItem() {
             CinematicPanel({ panelPadding: 15, cornerRadius: 18 }) {
               Column({ space: 6 }) {
                 Row() {
@@ -580,10 +648,8 @@ export struct HarmonyDashboardPage {
                 NativeAdaptiveBadge({ text: this.monthlyBadgeText(this.stats.tvMonthly, '自动追更'), tintHex: this.accentHex })
               }.alignItems(HorizontalAlign.Start)
             }
-          }.layoutWeight(1)
-        }
-        Row({ space: 12 }) {
-          Column() {
+          }
+          GridItem() {
             CinematicPanel({ panelPadding: 15, cornerRadius: 18 }) {
               Column({ space: 6 }) {
                 Row() {
@@ -598,8 +664,8 @@ export struct HarmonyDashboardPage {
                 NativeAdaptiveBadge({ text: this.monthlyBadgeText(this.stats.episodeMonthly, '已刮削'), tintHex: '#26B8A8' })
               }.alignItems(HorizontalAlign.Start)
             }
-          }.layoutWeight(1)
-          Column() {
+          }
+          GridItem() {
             CinematicPanel({ panelPadding: 15, cornerRadius: 18 }) {
               Column({ space: 6 }) {
                 Row() {
@@ -614,8 +680,12 @@ export struct HarmonyDashboardPage {
                 NativeAdaptiveBadge({ text: this.monthlyBadgeText(this.stats.musicMonthly, '音乐库'), tintHex: '#EE6896' })
               }.alignItems(HorizontalAlign.Start)
             }
-          }.layoutWeight(1)
+          }
         }
+        .columnsTemplate(this.windowWidthVp >= 680 ? '1fr 1fr 1fr 1fr' : '1fr 1fr')
+        .columnsGap(12)
+        .rowsGap(12)
+        .width('100%')
       }
     } else if (modId === 'storage') {
       Column({ space: 10 }) {
@@ -807,21 +877,24 @@ export struct HarmonyDashboardPage {
       .layoutWeight(1)
 
       Blank().width(0).height(0).bindSheet($$this.showMessagesSheet, this.messagesSheetBuilder(), {
-        detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showShortcutsSheet, this.shortcutsPopupSheetBuilder(), {
-        detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showModulesSheet, this.modulesSheetBuilder(), {
-        detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
@@ -829,6 +902,7 @@ export struct HarmonyDashboardPage {
       })
       Blank().width(0).height(0).bindSheet($$this.showMedalSheet, this.medalShowcaseSheetBuilder(), {
         detents: [SheetSize.LARGE],
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
@@ -853,6 +927,7 @@ export struct HarmonyDashboardPage {
 export struct HarmonyDiagnosticsPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
   @Prop initialSection: string = 'schedulers'; // 'check' | 'schedulers' | 'logs' | 'words' | 'recognize' | 'network'
   @State private loading: boolean = true;
   @State private notice: string = '';
@@ -993,132 +1068,146 @@ export struct HarmonyDiagnosticsPage {
         })
 
         Scroll() {
-          Column({ space: 14 }) {
-            CinematicPanel({ panelPadding: 16, cornerRadius: 20 }) {
-              Column({ space: 10 }) {
-                Row() {
-                  Text(this.activeWordCategory().title)
-                    .fontSize(16)
+          Column() {
+            Column({ space: 14 }) {
+              CinematicPanel({ panelPadding: 16, cornerRadius: 20 }) {
+                Column({ space: 10 }) {
+                  Row() {
+                    Text(this.activeWordCategory().title)
+                      .fontSize(16)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor(mpPrimaryText(this.isDark))
+                      .layoutWeight(1)
+                    NativeAdaptiveBadge({ text: `${this.wordLineCount()} 条`, tintHex: this.accentHex })
+                  }.width('100%')
+
+                  Text(this.activeWordCategory().description)
+                    .fontSize(12.5)
+                    .fontColor(mpSecondaryText(this.isDark))
+                    .lineHeight(18)
+                    .width('100%')
+
+                  TextArea({
+                    placeholder: this.activeWordCategory().placeholder,
+                    text: this.wordContent
+                  })
+                    .width('100%')
+                    .height(170)
+                    .fontSize(13.5)
+                    .fontColor(mpPrimaryText(this.isDark))
+                    .placeholderColor(mpSecondaryText(this.isDark))
+                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                    .borderRadius(12)
+                    .onChange((v: string) => { this.wordContent = v; })
+
+                  Text(`ⓘ ${this.activeWordCategory().inlineHint}`)
+                    .fontSize(11.5)
+                    .fontColor(mpSecondaryText(this.isDark))
+                    .width('100%')
+                }
+              }
+
+              CinematicPanel({ panelPadding: 16, cornerRadius: 20 }) {
+                Column({ space: 10 }) {
+                  Text(`ⓘ ${this.activeWordCategory().exampleTitle}`)
+                    .fontSize(14)
                     .fontWeight(FontWeight.Bold)
                     .fontColor(mpPrimaryText(this.isDark))
-                    .layoutWeight(1)
-                  NativeAdaptiveBadge({ text: `${this.wordLineCount()} 条`, tintHex: this.accentHex })
-                }.width('100%')
+                    .width('100%')
 
-                Text(this.activeWordCategory().description)
-                  .fontSize(12.5)
-                  .fontColor(mpSecondaryText(this.isDark))
-                  .lineHeight(18)
-                  .width('100%')
+                  Text(this.activeWordCategory().examples)
+                    .fontSize(12.5)
+                    .fontColor(mpPrimaryText(this.isDark))
+                    .lineHeight(21)
+                    .width('100%')
+                    .padding(12)
+                    .borderRadius(12)
+                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
 
-                TextArea({
-                  placeholder: this.activeWordCategory().placeholder,
-                  text: this.wordContent
-                })
-                  .width('100%')
-                  .height(170)
-                  .fontSize(13.5)
-                  .fontColor(mpPrimaryText(this.isDark))
-                  .placeholderColor(mpSecondaryText(this.isDark))
-                  .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-                  .borderRadius(12)
-                  .onChange((v: string) => { this.wordContent = v; })
-
-                Text(`ⓘ ${this.activeWordCategory().inlineHint}`)
-                  .fontSize(11.5)
-                  .fontColor(mpSecondaryText(this.isDark))
-                  .width('100%')
+                  Text(this.activeWordCategory().guideNote)
+                    .fontSize(12)
+                    .fontColor(mpSecondaryText(this.isDark))
+                    .lineHeight(18)
+                    .width('100%')
+                }
               }
             }
-
-            CinematicPanel({ panelPadding: 16, cornerRadius: 20 }) {
-              Column({ space: 10 }) {
-                Text(`ⓘ ${this.activeWordCategory().exampleTitle}`)
-                  .fontSize(14)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor(mpPrimaryText(this.isDark))
-                  .width('100%')
-
-                Text(this.activeWordCategory().examples)
-                  .fontSize(12.5)
-                  .fontColor(mpPrimaryText(this.isDark))
-                  .lineHeight(21)
-                  .width('100%')
-                  .padding(12)
-                  .borderRadius(12)
-                  .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-
-                Text(this.activeWordCategory().guideNote)
-                  .fontSize(12)
-                  .fontColor(mpSecondaryText(this.isDark))
-                  .lineHeight(18)
-                  .width('100%')
-              }
-            }
+            .width('100%')
+            .constraintSize({ maxWidth: 820 })
+            .padding({ left: 16, right: 16, bottom: 44 })
           }
-          .padding({ left: 16, right: 16, bottom: 44 })
+          .width('100%')
+          .alignItems(HorizontalAlign.Center)
         }
         .scrollBar(BarState.Off)
         .layoutWeight(1)
+        .width('100%')
       } else if (this.initialSection === 'recognize') {
         Scroll() {
-          Column({ space: 14 }) {
-            CinematicPanel({ panelPadding: 16, cornerRadius: 20 }) {
-              Column({ space: 10 }) {
-                Text('输入种子标题或文件名').fontSize(14).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
-                TextInput({ placeholder: '例如：Dune.Part.Two.2024.2160p.BluRay.x265-GROUP', text: this.recTitle })
-                  .fontColor(mpPrimaryText(this.isDark)).placeholderColor(mpSecondaryText(this.isDark))
-                  .backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(12)
-                  .onChange((v: string) => { this.recTitle = v; })
-                TextInput({ placeholder: '副标题（可选）', text: this.recSubtitle })
-                  .fontColor(mpPrimaryText(this.isDark)).placeholderColor(mpSecondaryText(this.isDark))
-                  .backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(12)
-                  .onChange((v: string) => { this.recSubtitle = v; })
-                Button(this.recognizing ? '识别中…' : '立即识别')
-                  .width('100%').height(44).borderRadius(22)
-                  .backgroundColor(this.accentHex).fontColor(Color.White).fontWeight(FontWeight.Bold)
-                  .enabled(!this.recognizing && this.recTitle.trim().length > 0)
-                  .onClick(async () => {
-                    this.recognizing = true;
-                    this.recResult = await MoviePilotRepository.shared().recognizeTitle(this.recTitle, this.recSubtitle);
-                    this.recognizing = false;
-                  })
-              }
-            }
-
-            if (this.recResult) {
+          Column() {
+            Column({ space: 14 }) {
               CinematicPanel({ panelPadding: 16, cornerRadius: 20 }) {
-                Row({ space: 12 }) {
-                  if (this.recResult.posterUrl.length > 0) {
-                    MpRemoteImage({
-                      src: this.recResult.posterUrl,
-                      imgWidth: 72,
-                      imgHeight: 106,
-                      imgRadius: 10,
-                      placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                Column({ space: 10 }) {
+                  Text('输入种子标题或文件名').fontSize(14).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
+                  TextInput({ placeholder: '例如：Dune.Part.Two.2024.2160p.BluRay.x265-GROUP', text: this.recTitle })
+                    .fontColor(mpPrimaryText(this.isDark)).placeholderColor(mpSecondaryText(this.isDark))
+                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(12)
+                    .onChange((v: string) => { this.recTitle = v; })
+                  TextInput({ placeholder: '副标题（可选）', text: this.recSubtitle })
+                    .fontColor(mpPrimaryText(this.isDark)).placeholderColor(mpSecondaryText(this.isDark))
+                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(12)
+                    .onChange((v: string) => { this.recSubtitle = v; })
+                  Button(this.recognizing ? '识别中…' : '立即识别')
+                    .width('100%').height(44).borderRadius(22)
+                    .backgroundColor(this.accentHex).fontColor(Color.White).fontWeight(FontWeight.Bold)
+                    .enabled(!this.recognizing && this.recTitle.trim().length > 0)
+                    .onClick(async () => {
+                      this.recognizing = true;
+                      this.recResult = await MoviePilotRepository.shared().recognizeTitle(this.recTitle, this.recSubtitle);
+                      this.recognizing = false;
                     })
-                  }
-                  Column({ space: 5 }) {
-                    Text(this.recResult.title || '未匹配到媒体')
-                      .fontSize(16).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
-                    Text(`${this.recResult.type}${this.recResult.year ? ' · ' + this.recResult.year : ''}${this.recResult.tmdbId ? ' · TMDB ' + this.recResult.tmdbId : ''}`)
-                      .fontSize(12).fontColor(this.accentHex)
-                    if (this.recResult.season || this.recResult.episode) {
-                      Text(`季/集：${this.recResult.season} ${this.recResult.episode}`).fontSize(12).fontColor(mpSecondaryText(this.isDark))
+                }
+              }
+
+              if (this.recResult) {
+                CinematicPanel({ panelPadding: 16, cornerRadius: 20 }) {
+                  Row({ space: 12 }) {
+                    if (this.recResult.posterUrl.length > 0) {
+                      MpRemoteImage({
+                        src: this.recResult.posterUrl,
+                        imgWidth: 72,
+                        imgHeight: 106,
+                        imgRadius: 10,
+                        placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                      })
                     }
-                    if (this.recResult.resolution || this.recResult.videoEncode || this.recResult.releaseGroup) {
-                      Text([this.recResult.resolution, this.recResult.videoEncode, this.recResult.releaseGroup].filter((x: string) => x.length > 0).join(' · '))
-                        .fontSize(12).fontColor('#34C759')
-                    }
-                  }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-                }.width('100%')
+                    Column({ space: 5 }) {
+                      Text(this.recResult.title || '未匹配到媒体')
+                        .fontSize(16).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                      Text(`${this.recResult.type}${this.recResult.year ? ' · ' + this.recResult.year : ''}${this.recResult.tmdbId ? ' · TMDB ' + this.recResult.tmdbId : ''}`)
+                        .fontSize(12).fontColor(this.accentHex)
+                      if (this.recResult.season || this.recResult.episode) {
+                        Text(`季/集：${this.recResult.season} ${this.recResult.episode}`).fontSize(12).fontColor(mpSecondaryText(this.isDark))
+                      }
+                      if (this.recResult.resolution || this.recResult.videoEncode || this.recResult.releaseGroup) {
+                        Text([this.recResult.resolution, this.recResult.videoEncode, this.recResult.releaseGroup].filter((x: string) => x.length > 0).join(' · '))
+                          .fontSize(12).fontColor('#34C759')
+                      }
+                    }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                  }.width('100%')
+                }
               }
             }
+            .width('100%')
+            .constraintSize({ maxWidth: 760 })
+            .padding({ left: 16, right: 16, bottom: 44 })
           }
-          .padding({ left: 16, right: 16, bottom: 44 })
+          .width('100%')
+          .alignItems(HorizontalAlign.Center)
         }
         .scrollBar(BarState.Off)
         .layoutWeight(1)
+        .width('100%')
       } else if (this.initialSection === 'network') {
         if (this.loading || this.testingNet) {
           Column({ space: 10 }) {
@@ -1126,9 +1215,9 @@ export struct HarmonyDiagnosticsPage {
             Text('正在检测上游节点连通性与延迟…').fontSize(13).fontColor(mpSecondaryText(this.isDark))
           }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         } else {
-          Scroll() {
-            Column({ space: 10 }) {
-              ForEach(this.netItems, (item: MpNetworkCheckItem) => {
+          Grid() {
+            ForEach(this.netItems, (item: MpNetworkCheckItem) => {
+              GridItem() {
                 CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
                   Row({ space: 10 }) {
                     Column({ space: 3 }) {
@@ -1141,46 +1230,59 @@ export struct HarmonyDiagnosticsPage {
                     })
                   }.width('100%')
                 }
-              }, (item: MpNetworkCheckItem) => item.name)
-            }.padding({ left: 16, right: 16, bottom: 44 })
-          }.scrollBar(BarState.Off).layoutWeight(1)
+              }
+            }, (item: MpNetworkCheckItem) => item.name)
+          }
+          .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
+          .columnsGap(10)
+          .rowsGap(10)
+          .padding({ left: 16, right: 16, bottom: 44 })
+          .scrollBar(BarState.Off)
+          .layoutWeight(1)
         }
       } else if (this.initialSection === 'check') {
         Scroll() {
-          Column({ space: 12 }) {
-            CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
-              Column({ space: 10 }) {
-                Row() {
-                  Text('服务端连接状态').fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
-                  NativeAdaptiveBadge({ text: '运行正常', tintHex: '#34C759' })
-                }.width('100%')
-                Divider().color(HarmonyThemeColors.divider(this.isDark))
-                Row() {
-                  Text('已启用站点').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
-                  Text(`${this.sitesCount} 个`).fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
-                }.width('100%')
-                Row() {
-                  Text('已启用下载器').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
-                  Text(`${this.downloadersCount} 个`).fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
-                }.width('100%')
-                Row() {
-                  Text('已连接媒体服务器').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
-                  Text(`${this.mediaServersCount} 个`).fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
-                }.width('100%')
-                Row() {
-                  Text('后台内存使用').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
-                  Text(`${formatByteSize(this.stats.memoryUsedBytes)} (${this.stats.memoryPercent.toFixed(1)}%)`)
-                    .fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
-                }.width('100%')
-                Row() {
-                  Text('存储空间占用').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
-                  Text(`${formatByteSize(this.stats.storageUsedBytes)} / ${formatByteSize(this.stats.storageTotalBytes)}`)
-                    .fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
-                }.width('100%')
+          Column() {
+            Column({ space: 12 }) {
+              CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
+                Column({ space: 10 }) {
+                  Row() {
+                    Text('服务端连接状态').fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                    NativeAdaptiveBadge({ text: '运行正常', tintHex: '#34C759' })
+                  }.width('100%')
+                  Divider().color(HarmonyThemeColors.divider(this.isDark))
+                  Row() {
+                    Text('已启用站点').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
+                    Text(`${this.sitesCount} 个`).fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                  }.width('100%')
+                  Row() {
+                    Text('已启用下载器').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
+                    Text(`${this.downloadersCount} 个`).fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                  }.width('100%')
+                  Row() {
+                    Text('已连接媒体服务器').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
+                    Text(`${this.mediaServersCount} 个`).fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                  }.width('100%')
+                  Row() {
+                    Text('后台内存使用').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
+                    Text(`${formatByteSize(this.stats.memoryUsedBytes)} (${this.stats.memoryPercent.toFixed(1)}%)`)
+                      .fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                  }.width('100%')
+                  Row() {
+                    Text('存储空间占用').fontSize(14).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
+                    Text(`${formatByteSize(this.stats.storageUsedBytes)} / ${formatByteSize(this.stats.storageTotalBytes)}`)
+                      .fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                  }.width('100%')
+                }
               }
             }
-          }.padding({ left: 16, right: 16, bottom: 44 })
-        }.scrollBar(BarState.Off).layoutWeight(1)
+            .width('100%')
+            .constraintSize({ maxWidth: 760 })
+            .padding({ left: 16, right: 16, bottom: 44 })
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Center)
+        }.scrollBar(BarState.Off).layoutWeight(1).width('100%')
       } else if (this.initialSection === 'logs') {
         Column({ space: 10 }) {
           Row() {
@@ -1216,9 +1318,9 @@ export struct HarmonyDiagnosticsPage {
           Column() { LoadingProgress().width(32).height(32).color(this.accentHex) }
             .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         } else {
-          Scroll() {
-            Column({ space: 10 }) {
-              ForEach(this.schedulers, (s: MpSchedulerItem) => {
+          Grid() {
+            ForEach(this.schedulers, (s: MpSchedulerItem) => {
+              GridItem() {
                 CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
                   Row({ space: 10 }) {
                     Column({ space: 3 }) {
@@ -1236,9 +1338,15 @@ export struct HarmonyDiagnosticsPage {
                       })
                   }.width('100%')
                 }
-              }, (s: MpSchedulerItem) => s.id)
-            }.padding({ left: 16, right: 16, bottom: 44 })
-          }.scrollBar(BarState.Off).layoutWeight(1)
+              }
+            }, (s: MpSchedulerItem) => s.id)
+          }
+          .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
+          .columnsGap(10)
+          .rowsGap(10)
+          .padding({ left: 16, right: 16, bottom: 44 })
+          .scrollBar(BarState.Off)
+          .layoutWeight(1)
         }
       }
     }

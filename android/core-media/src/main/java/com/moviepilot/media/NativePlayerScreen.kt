@@ -3,6 +3,7 @@ package com.moviepilot.media
 import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
@@ -28,19 +29,28 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -54,6 +64,8 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ClosedCaption
 import androidx.compose.material.icons.rounded.Forward10
+import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Lock
@@ -387,7 +399,10 @@ fun NativeMediaPlayerOverlay(
     val hostView = LocalView.current
     val colors = LocalMoviePilotColors.current
     val playerPalette = rememberArtworkPlayerPalette(request.artworkUrl)
-    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val cfg = LocalConfiguration.current
+    val isLandscape = cfg.orientation == Configuration.ORIENTATION_LANDSCAPE || cfg.screenWidthDp > cfg.screenHeightDp
+    val compactHeight = cfg.screenHeightDp < 480
+    val compactVideoHeight = isLandscape && cfg.screenHeightDp < 460
     val playbackPrefs = remember(context) { PlaybackPreferencesStore(context) }
 
     val ownsPlayer = sharedPlayer == null
@@ -424,6 +439,10 @@ fun NativeMediaPlayerOverlay(
     var tracksVersion by remember { mutableIntStateOf(0) }
 
     val activity = context as? Activity
+    val initialOrientation = remember(activity) {
+        activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    }
+    var preLockOrientation by remember { mutableIntStateOf(initialOrientation) }
     var isInPipMode by remember(activity) {
         mutableStateOf(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) activity?.isInPictureInPictureMode == true else false)
     }
@@ -437,7 +456,7 @@ fun NativeMediaPlayerOverlay(
         if (request.isAudio && onMinimizeToMiniBar != null) onMinimizeToMiniBar() else onClose()
     }
 
-    // 保持屏幕常亮、监听画中画模式，并在退出播放页时自动还原窗口亮度
+    // 保持屏幕常亮、监听画中画模式，并在退出播放页时自动还原窗口亮度与屏幕方向
     DisposableEffect(hostView, activity, request.isAudio) {
         val prevKeepScreenOn = hostView.keepScreenOn
         if (!request.isAudio) {
@@ -457,6 +476,9 @@ fun NativeMediaPlayerOverlay(
             compActivity?.removeOnPictureInPictureModeChangedListener(pipListener)
             hostView.keepScreenOn = prevKeepScreenOn
             if (activity != null) {
+                if (!request.isAudio) {
+                    activity.requestedOrientation = initialOrientation
+                }
                 val lp = activity.window.attributes
                 if (lp.screenBrightness >= 0f) {
                     lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
@@ -569,151 +591,402 @@ fun NativeMediaPlayerOverlay(
 
     if (request.isAudio) {
         // ═══════════════════════════════════════════════════════════════
-        // Material 3 Expressive 音频全屏播放页（波浪进度条、形变播控键与连体胶囊坞）
+        // Material 3 Expressive 音频全屏播放页（横屏自动切换左封面右播控双栏，杜绝短高度挤压）
         // ═══════════════════════════════════════════════════════════════
+        val audioDockActions = listOf(
+            ExpressiveDockAction(
+                icon = Icons.Rounded.Shuffle,
+                contentDescription = "随机播放",
+                active = shuffleEnabled,
+                onClick = {
+                    shuffleEnabled = !shuffleEnabled
+                    exoPlayer.shuffleModeEnabled = shuffleEnabled
+                    hudMessage = if (shuffleEnabled) "已开启随机播放" else "已关闭随机播放"
+                },
+            ),
+            ExpressiveDockAction(
+                icon = if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                contentDescription = "循环模式",
+                active = repeatMode != Player.REPEAT_MODE_OFF,
+                onClick = {
+                    repeatMode = when (repeatMode) {
+                        Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                        Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                        else -> Player.REPEAT_MODE_OFF
+                    }
+                    exoPlayer.repeatMode = repeatMode
+                    hudMessage = when (repeatMode) {
+                        Player.REPEAT_MODE_ALL -> "列表循环"
+                        Player.REPEAT_MODE_ONE -> "单曲循环"
+                        else -> "顺序播放"
+                    }
+                },
+            ),
+            ExpressiveDockAction(
+                icon = Icons.Rounded.Speed,
+                contentDescription = "播放倍速",
+                active = speedIndex != 1,
+                onClick = {
+                    speedIndex = (speedIndex + 1) % speeds.size
+                    val spd = speeds[speedIndex]
+                    exoPlayer.playbackParameters = PlaybackParameters(spd)
+                    hudMessage = "倍速：${spd}x"
+                },
+            ),
+        )
+
+        @Composable
+        fun AudioTopBar(compact: Boolean) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Surface(
+                    onClick = {
+                        if (onMinimizeToMiniBar != null) onMinimizeToMiniBar() else onClose()
+                    },
+                    shape = CircleShape,
+                    color = playerPalette.dock,
+                    modifier = Modifier.size(if (compact) 38.dp else 44.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = "收起至迷你播放条",
+                            tint = Color.White,
+                            modifier = Modifier.size(if (compact) 22.dp else 26.dp),
+                        )
+                    }
+                }
+
+                Text(
+                    text = "正在播放",
+                    color = Color.White.copy(alpha = 0.92f),
+                    fontSize = if (compact) 15.sp else 17.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+
+                ExpressiveSplitIconPair(
+                    firstIcon = Icons.Rounded.Lyrics,
+                    firstDesc = "同步歌词",
+                    firstActive = showLyricsView,
+                    onFirstClick = { showLyricsView = !showLyricsView },
+                    secondIcon = Icons.AutoMirrored.Rounded.QueueMusic,
+                    secondDesc = "播放队列",
+                    secondActive = showQueueSheet,
+                    onSecondClick = { showQueueSheet = true },
+                    containerColor = playerPalette.dock,
+                    activeContainerColor = playerPalette.accent,
+                    contentColor = Color.White.copy(alpha = 0.90f),
+                    activeContentColor = playerPalette.onAccent,
+                )
+            }
+        }
+
+        @Composable
+        fun AudioTransportRow(compact: Boolean) {
+            val sideBtnSz = if (compact) 54.dp else 72.dp
+            val sideIconSz = if (compact) 24.dp else 28.dp
+            val playW = if (compact) 72.dp else 88.dp
+            val playH = if (compact) 60.dp else 78.dp
+            val playIconSz = if (compact) 30.dp else 36.dp
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 16.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    onClick = {
+                        if (request.queue.size > 1 && onSwitchRequest != null) {
+                            val prevIdx = (request.queueIndex - 1 + request.queue.size) % request.queue.size
+                            onSwitchRequest(request.queue[prevIdx].copy(queue = request.queue, queueIndex = prevIdx))
+                        } else {
+                            exoPlayer.seekTo((exoPlayer.currentPosition - 15_000L).coerceAtLeast(0L))
+                            hudMessage = "快退 15 秒"
+                        }
+                    },
+                    shape = CircleShape,
+                    color = playerPalette.buttonBg,
+                    modifier = Modifier.size(sideBtnSz),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (request.queue.size > 1) Icons.Rounded.SkipPrevious else Icons.Rounded.Replay10,
+                            contentDescription = "上一首",
+                            tint = Color.White,
+                            modifier = Modifier.size(sideIconSz),
+                        )
+                    }
+                }
+
+                ExpressiveMorphingPlayButton(
+                    isPlaying = isPlaying,
+                    onClick = {
+                        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                    },
+                    containerColor = playerPalette.accent,
+                    contentColor = playerPalette.onAccent,
+                    width = playW,
+                    height = playH,
+                    iconSize = playIconSz,
+                )
+
+                Surface(
+                    onClick = {
+                        if (request.queue.size > 1 && onSwitchRequest != null) {
+                            val nextIdx = (request.queueIndex + 1) % request.queue.size
+                            onSwitchRequest(request.queue[nextIdx].copy(queue = request.queue, queueIndex = nextIdx))
+                        } else {
+                            exoPlayer.seekTo((exoPlayer.currentPosition + 15_000L).coerceAtMost(durationMs))
+                            hudMessage = "快进 15 秒"
+                        }
+                    },
+                    shape = CircleShape,
+                    color = playerPalette.buttonBg,
+                    modifier = Modifier.size(sideBtnSz),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (request.queue.size > 1) Icons.Rounded.SkipNext else Icons.Rounded.Forward10,
+                            contentDescription = "下一首",
+                            tint = Color.White,
+                            modifier = Modifier.size(sideIconSz),
+                        )
+                    }
+                }
+            }
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(playerPalette.canvas),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 24.dp, vertical = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                // 1. 顶栏：左侧圆形下拉收起键 + 居中「正在播放」+ 右上角连体双圆钮（歌词 + 队列）
+            if (isLandscape) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Surface(
-                        onClick = {
-                            if (onMinimizeToMiniBar != null) onMinimizeToMiniBar() else onClose()
-                        },
-                        shape = CircleShape,
-                        color = playerPalette.dock,
-                        modifier = Modifier.size(44.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Rounded.KeyboardArrowDown,
-                                contentDescription = "收起至迷你播放条",
-                                tint = Color.White,
-                                modifier = Modifier.size(26.dp),
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = "正在播放",
-                        color = Color.White.copy(alpha = 0.92f),
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-
-                    ExpressiveSplitIconPair(
-                        firstIcon = Icons.Rounded.Lyrics,
-                        firstDesc = "同步歌词",
-                        firstActive = showLyricsView,
-                        onFirstClick = { showLyricsView = !showLyricsView },
-                        secondIcon = Icons.AutoMirrored.Rounded.QueueMusic,
-                        secondDesc = "播放队列",
-                        secondActive = showQueueSheet,
-                        onSecondClick = { showQueueSheet = true },
-                        containerColor = playerPalette.dock,
-                        activeContainerColor = playerPalette.accent,
-                        contentColor = Color.White.copy(alpha = 0.90f),
-                        activeContentColor = playerPalette.onAccent,
-                    )
-                }
-
-                Spacer(Modifier.height(22.dp))
-
-                // 2. 中央舞台：28dp 大圆角专辑主视觉 ↔ 交互式同步歌词视图
-                AnimatedContent(
-                    targetState = showLyricsView,
-                    transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(180)) },
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    label = "audioPlayerStage",
-                ) { lyricsMode ->
-                    if (!lyricsMode) {
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
+                        .padding(horizontal = 20.dp, vertical = if (compactHeight) 8.dp else 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(22.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // 左栏：等比方形专辑主视觉封面
+                    BoxWithConstraints(
+                        modifier = Modifier
+                            .weight(0.44f)
+                            .fillMaxHeight(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        val artSide = minOf(maxWidth * 0.90f, maxHeight * 0.82f)
+                        Box(
+                            modifier = Modifier
+                                .size(artSide)
+                                .shadow(
+                                    elevation = 16.dp,
+                                    shape = RoundedCornerShape(26.dp),
+                                    ambientColor = Color.Black.copy(alpha = 0.45f),
+                                    spotColor = Color.Black.copy(alpha = 0.45f),
+                                )
+                                .clip(RoundedCornerShape(26.dp))
+                                .background(playerPalette.buttonBg),
+                            contentAlignment = Alignment.Center,
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth(0.84f)
-                                    .aspectRatio(1f)
-                                    .shadow(
-                                        elevation = 18.dp,
-                                        shape = RoundedCornerShape(28.dp),
-                                        ambientColor = Color.Black.copy(alpha = 0.45f),
-                                        spotColor = Color.Black.copy(alpha = 0.45f),
-                                    )
-                                    .clip(RoundedCornerShape(28.dp))
-                                    .background(playerPalette.buttonBg),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (!request.artworkUrl.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = request.artworkUrl,
-                                        contentDescription = request.title,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize(),
-                                    )
-                                } else {
-                                    Icon(
-                                        Icons.Rounded.MusicNote,
-                                        contentDescription = null,
-                                        tint = playerPalette.accent,
-                                        modifier = Modifier.size(84.dp),
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.height(26.dp))
-                            Text(
-                                text = request.title,
-                                color = Color.White,
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = TextAlign.Center,
-                            )
-                            if (request.subtitle.isNotBlank()) {
-                                Spacer(Modifier.height(6.dp))
-                                Text(
-                                    text = request.subtitle,
-                                    color = Color.White.copy(alpha = 0.72f),
-                                    fontSize = 15.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    textAlign = TextAlign.Center,
+                            if (!request.artworkUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = request.artworkUrl,
+                                    contentDescription = request.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Rounded.MusicNote,
+                                    contentDescription = null,
+                                    tint = playerPalette.accent,
+                                    modifier = Modifier.size(72.dp),
                                 )
                             }
                         }
-                    } else {
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                    }
+
+                    // 右栏：紧凑顶栏 + 曲名/同步歌词舞台 + 内联波浪进度条 + 播控与功能胶囊坞
+                    Column(
+                        modifier = Modifier
+                            .weight(0.56f)
+                            .fillMaxHeight(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(if (compactHeight) 6.dp else 12.dp),
+                    ) {
+                        AudioTopBar(compact = compactHeight)
+
+                        AnimatedContent(
+                            targetState = showLyricsView,
+                            transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            label = "audioLandscapeStage",
+                        ) { lyricsMode ->
+                            if (!lyricsMode) {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    Text(
+                                        text = request.title,
+                                        color = Color.White,
+                                        fontSize = if (compactHeight) 20.sp else 24.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center,
+                                    )
+                                    if (request.subtitle.isNotBlank()) {
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(
+                                            text = request.subtitle,
+                                            color = Color.White.copy(alpha = 0.72f),
+                                            fontSize = if (compactHeight) 13.5.sp else 15.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            textAlign = TextAlign.Center,
+                                        )
+                                    }
+                                    if (lrcLines.isNotEmpty()) {
+                                        val curLine = lrcLines.getOrNull(activeLrcIdx)?.text.orEmpty()
+                                        if (curLine.isNotBlank()) {
+                                            Spacer(Modifier.height(8.dp))
+                                            Text(
+                                                text = curLine,
+                                                color = playerPalette.accent,
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.clickable { showLyricsView = true },
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Text(
+                                        text = listOfNotNull(request.title, request.subtitle.takeIf { it.isNotBlank() }).joinToString(" · "),
+                                        color = Color.White.copy(alpha = 0.88f),
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    if (lrcLines.isNotEmpty()) {
+                                        LazyColumn(
+                                            state = lrcListState,
+                                            modifier = Modifier.fillMaxWidth().weight(1f),
+                                            contentPadding = PaddingValues(vertical = 8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            itemsIndexed(lrcLines) { idx, line ->
+                                                val active = idx == activeLrcIdx
+                                                Text(
+                                                    text = line.text,
+                                                    color = if (active) Color.White else Color.White.copy(alpha = 0.44f),
+                                                    fontSize = if (active) (if (compactHeight) 17.sp else 20.sp) else 14.sp,
+                                                    fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                                                    lineHeight = if (compactHeight) 22.sp else 26.sp,
+                                                    modifier = Modifier.clickable { exoPlayer.seekTo(line.timeMs) },
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                                            Text("当前曲目暂未附带同步歌词", color = Color.White.copy(alpha = 0.60f), fontSize = 14.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.78f), fontSize = 11.5.sp)
+                            ExpressiveWavySlider(
+                                value = if (draggingProgress >= 0f) draggingProgress else progress,
+                                onValueChange = { draggingProgress = it },
+                                onValueChangeFinished = {
+                                    if (draggingProgress >= 0f) {
+                                        exoPlayer.seekTo((draggingProgress * durationMs).toLong())
+                                        draggingProgress = -1f
+                                    }
+                                },
+                                isPlaying = isPlaying,
+                                activeColor = playerPalette.accent,
+                                inactiveColor = Color.White.copy(alpha = 0.24f),
+                                modifier = Modifier.weight(1f).height(28.dp),
+                            )
+                            Text(formatDurationMs(durationMs), color = Color.White.copy(alpha = 0.72f), fontSize = 11.5.sp)
+                        }
+
+                        AudioTransportRow(compact = compactHeight)
+
+                        ExpressiveGroupedActionDock(
+                            actions = audioDockActions,
+                            dockColor = playerPalette.dock,
+                            buttonColor = playerPalette.buttonBg.copy(alpha = 0.55f),
+                            activeButtonColor = playerPalette.accent,
+                            iconColor = Color.White.copy(alpha = 0.88f),
+                            activeIconColor = playerPalette.onAccent,
+                            modifier = Modifier.fillMaxWidth(0.90f),
+                        )
+                    }
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
+                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    AudioTopBar(compact = false)
+
+                    Spacer(Modifier.height(22.dp))
+
+                    // 中央舞台：28dp 大圆角专辑主视觉 ↔ 交互式同步歌词视图
+                    AnimatedContent(
+                        targetState = showLyricsView,
+                        transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(180)) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        label = "audioPlayerStage",
+                    ) { lyricsMode ->
+                        if (!lyricsMode) {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(54.dp)
-                                        .clip(RoundedCornerShape(14.dp))
+                                        .fillMaxWidth(0.84f)
+                                        .aspectRatio(1f)
+                                        .shadow(
+                                            elevation = 18.dp,
+                                            shape = RoundedCornerShape(28.dp),
+                                            ambientColor = Color.Black.copy(alpha = 0.45f),
+                                            spotColor = Color.Black.copy(alpha = 0.45f),
+                                        )
+                                        .clip(RoundedCornerShape(28.dp))
                                         .background(playerPalette.buttonBg),
                                     contentAlignment = Alignment.Center,
                                 ) {
@@ -725,202 +998,151 @@ fun NativeMediaPlayerOverlay(
                                             modifier = Modifier.fillMaxSize(),
                                         )
                                     } else {
-                                        Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = playerPalette.accent)
-                                    }
-                                }
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(request.title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    if (request.subtitle.isNotBlank()) {
-                                        Text(request.subtitle, color = Color.White.copy(alpha = 0.72f), fontSize = 13.sp, maxLines = 1)
-                                    }
-                                }
-                            }
-                            if (lrcLines.isNotEmpty()) {
-                                LazyColumn(
-                                    state = lrcListState,
-                                    modifier = Modifier.fillMaxWidth().weight(1f),
-                                    contentPadding = PaddingValues(vertical = 24.dp),
-                                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                                    horizontalAlignment = Alignment.Start,
-                                ) {
-                                    itemsIndexed(lrcLines) { idx, line ->
-                                        val active = idx == activeLrcIdx
-                                        Text(
-                                            text = line.text,
-                                            color = if (active) Color.White else Color.White.copy(alpha = 0.42f),
-                                            fontSize = if (active) 21.sp else 16.sp,
-                                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                                            lineHeight = 28.sp,
-                                            modifier = Modifier.clickable { exoPlayer.seekTo(line.timeMs) },
+                                        Icon(
+                                            Icons.Rounded.MusicNote,
+                                            contentDescription = null,
+                                            tint = playerPalette.accent,
+                                            modifier = Modifier.size(84.dp),
                                         )
                                     }
                                 }
-                            } else {
-                                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                                    Text("当前曲目暂未附带同步歌词", color = Color.White.copy(alpha = 0.60f), fontSize = 15.sp)
+                                Spacer(Modifier.height(26.dp))
+                                Text(
+                                    text = request.title,
+                                    color = Color.White,
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center,
+                                )
+                                if (request.subtitle.isNotBlank()) {
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        text = request.subtitle,
+                                        color = Color.White.copy(alpha = 0.72f),
+                                        fontSize = 15.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center,
+                                    )
+                                }
+                            }
+                        } else {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(14.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(54.dp)
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .background(playerPalette.buttonBg),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        if (!request.artworkUrl.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = request.artworkUrl,
+                                                contentDescription = request.title,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        } else {
+                                            Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = playerPalette.accent)
+                                        }
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(request.title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        if (request.subtitle.isNotBlank()) {
+                                            Text(request.subtitle, color = Color.White.copy(alpha = 0.72f), fontSize = 13.sp, maxLines = 1)
+                                        }
+                                    }
+                                }
+                                if (lrcLines.isNotEmpty()) {
+                                    LazyColumn(
+                                        state = lrcListState,
+                                        modifier = Modifier.fillMaxWidth().weight(1f),
+                                        contentPadding = PaddingValues(vertical = 24.dp),
+                                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                                        horizontalAlignment = Alignment.Start,
+                                    ) {
+                                        itemsIndexed(lrcLines) { idx, line ->
+                                            val active = idx == activeLrcIdx
+                                            Text(
+                                                text = line.text,
+                                                color = if (active) Color.White else Color.White.copy(alpha = 0.42f),
+                                                fontSize = if (active) 21.sp else 16.sp,
+                                                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                                                lineHeight = 28.sp,
+                                                modifier = Modifier.clickable { exoPlayer.seekTo(line.timeMs) },
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                                        Text("当前曲目暂未附带同步歌词", color = Color.White.copy(alpha = 0.60f), fontSize = 15.sp)
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                Spacer(Modifier.height(14.dp))
+                    Spacer(Modifier.height(14.dp))
 
-                // 3. 流动正弦波浪进度条 + 时间戳
-                ExpressiveWavySlider(
-                    value = if (draggingProgress >= 0f) draggingProgress else progress,
-                    onValueChange = { draggingProgress = it },
-                    onValueChangeFinished = {
-                        if (draggingProgress >= 0f) {
-                            exoPlayer.seekTo((draggingProgress * durationMs).toLong())
-                            draggingProgress = -1f
-                        }
-                    },
-                    isPlaying = isPlaying,
-                    activeColor = playerPalette.accent,
-                    inactiveColor = Color.White.copy(alpha = 0.24f),
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
-                    Text(formatDurationMs(durationMs), color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
-                }
-
-                Spacer(Modifier.height(22.dp))
-
-                // 4. 三联主播控：大圆上一首 + 形变方圆暂停/播放主按钮 + 大圆下一首
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Surface(
-                        onClick = {
-                            if (request.queue.size > 1 && onSwitchRequest != null) {
-                                val prevIdx = (request.queueIndex - 1 + request.queue.size) % request.queue.size
-                                onSwitchRequest(request.queue[prevIdx].copy(queue = request.queue, queueIndex = prevIdx))
-                            } else {
-                                exoPlayer.seekTo((exoPlayer.currentPosition - 15_000L).coerceAtLeast(0L))
-                                hudMessage = "快退 15 秒"
+                    ExpressiveWavySlider(
+                        value = if (draggingProgress >= 0f) draggingProgress else progress,
+                        onValueChange = { draggingProgress = it },
+                        onValueChangeFinished = {
+                            if (draggingProgress >= 0f) {
+                                exoPlayer.seekTo((draggingProgress * durationMs).toLong())
+                                draggingProgress = -1f
                             }
                         },
-                        shape = CircleShape,
-                        color = playerPalette.buttonBg,
-                        modifier = Modifier.size(72.dp),
+                        isPlaying = isPlaying,
+                        activeColor = playerPalette.accent,
+                        inactiveColor = Color.White.copy(alpha = 0.24f),
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = if (request.queue.size > 1) Icons.Rounded.SkipPrevious else Icons.Rounded.Replay10,
-                                contentDescription = "上一首",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp),
-                            )
-                        }
+                        Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
+                        Text(formatDurationMs(durationMs), color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
                     }
 
-                    ExpressiveMorphingPlayButton(
-                        isPlaying = isPlaying,
-                        onClick = {
-                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                        },
-                        containerColor = playerPalette.accent,
-                        contentColor = playerPalette.onAccent,
-                        width = 88.dp,
-                        height = 78.dp,
-                        iconSize = 36.dp,
+                    Spacer(Modifier.height(22.dp))
+
+                    AudioTransportRow(compact = false)
+
+                    Spacer(Modifier.height(24.dp))
+
+                    ExpressiveGroupedActionDock(
+                        actions = audioDockActions,
+                        dockColor = playerPalette.dock,
+                        buttonColor = playerPalette.buttonBg.copy(alpha = 0.55f),
+                        activeButtonColor = playerPalette.accent,
+                        iconColor = Color.White.copy(alpha = 0.88f),
+                        activeIconColor = playerPalette.onAccent,
+                        modifier = Modifier.fillMaxWidth(0.84f),
                     )
 
-                    Surface(
-                        onClick = {
-                            if (request.queue.size > 1 && onSwitchRequest != null) {
-                                val nextIdx = (request.queueIndex + 1) % request.queue.size
-                                onSwitchRequest(request.queue[nextIdx].copy(queue = request.queue, queueIndex = nextIdx))
-                            } else {
-                                exoPlayer.seekTo((exoPlayer.currentPosition + 15_000L).coerceAtMost(durationMs))
-                                hudMessage = "快进 15 秒"
-                            }
-                        },
-                        shape = CircleShape,
-                        color = playerPalette.buttonBg,
-                        modifier = Modifier.size(72.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = if (request.queue.size > 1) Icons.Rounded.SkipNext else Icons.Rounded.Forward10,
-                                contentDescription = "下一首",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp),
-                            )
-                        }
-                    }
+                    Spacer(Modifier.height(8.dp))
                 }
-
-                Spacer(Modifier.height(24.dp))
-
-                // 5. 底部沉入式连体胶囊坞（随机 / 循环 / 倍速）
-                ExpressiveGroupedActionDock(
-                    actions = listOf(
-                        ExpressiveDockAction(
-                            icon = Icons.Rounded.Shuffle,
-                            contentDescription = "随机播放",
-                            active = shuffleEnabled,
-                            onClick = {
-                                shuffleEnabled = !shuffleEnabled
-                                exoPlayer.shuffleModeEnabled = shuffleEnabled
-                                hudMessage = if (shuffleEnabled) "已开启随机播放" else "已关闭随机播放"
-                            },
-                        ),
-                        ExpressiveDockAction(
-                            icon = if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                            contentDescription = "循环模式",
-                            active = repeatMode != Player.REPEAT_MODE_OFF,
-                            onClick = {
-                                repeatMode = when (repeatMode) {
-                                    Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
-                                    Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
-                                    else -> Player.REPEAT_MODE_OFF
-                                }
-                                exoPlayer.repeatMode = repeatMode
-                                hudMessage = when (repeatMode) {
-                                    Player.REPEAT_MODE_ALL -> "列表循环"
-                                    Player.REPEAT_MODE_ONE -> "单曲循环"
-                                    else -> "顺序播放"
-                                }
-                            },
-                        ),
-                        ExpressiveDockAction(
-                            icon = Icons.Rounded.Speed,
-                            contentDescription = "播放倍速",
-                            active = speedIndex != 1,
-                            onClick = {
-                                speedIndex = (speedIndex + 1) % speeds.size
-                                val spd = speeds[speedIndex]
-                                exoPlayer.playbackParameters = PlaybackParameters(spd)
-                                hudMessage = "倍速：${spd}x"
-                            },
-                        ),
-                    ),
-                    dockColor = playerPalette.dock,
-                    buttonColor = playerPalette.buttonBg.copy(alpha = 0.55f),
-                    activeButtonColor = playerPalette.accent,
-                    iconColor = Color.White.copy(alpha = 0.88f),
-                    activeIconColor = playerPalette.onAccent,
-                    modifier = Modifier.fillMaxWidth(0.84f),
-                )
-
-                Spacer(Modifier.height(8.dp))
             }
 
             hudMessage?.let { msg ->
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .statusBarsPadding()
-                        .padding(top = 66.dp)
+                        .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                        .padding(top = if (compactHeight) 48.dp else 66.dp)
                         .clip(CircleShape)
                         .background(playerPalette.dock.copy(alpha = 0.92f))
                         .padding(horizontal = 16.dp, vertical = 7.dp),
@@ -946,7 +1168,7 @@ fun NativeMediaPlayerOverlay(
                     )
                     val list = if (request.queue.isNotEmpty()) request.queue else listOf(request)
                     LazyColumn(
-                        modifier = Modifier.height(320.dp),
+                        modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         itemsIndexed(list) { idx, track ->
@@ -1106,13 +1328,15 @@ fun NativeMediaPlayerOverlay(
             modifier = Modifier.fillMaxSize(),
         )
 
+        val safePlayerInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
+
         if (!isInPipMode) {
             hudMessage?.let { msg ->
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .statusBarsPadding()
-                        .padding(top = 66.dp)
+                        .windowInsetsPadding(safePlayerInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                        .padding(top = if (compactVideoHeight) 52.dp else 66.dp)
                         .clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.72f))
                         .padding(horizontal = 16.dp, vertical = 7.dp),
@@ -1122,14 +1346,28 @@ fun NativeMediaPlayerOverlay(
             }
         }
 
-        // 横屏锁定/解锁纯图标按钮（居中靠右，严格仅横屏且非画中画显示）
+        // 横屏锁定/解锁纯图标按钮（居中靠右，自动避让右侧三键导航栏与摄像头挖孔）
         if (!isInPipMode && isLandscape && controlsVisible) {
             Surface(
-                onClick = { isLocked = !isLocked },
+                onClick = {
+                    val nextLocked = !isLocked
+                    isLocked = nextLocked
+                    if (activity != null) {
+                        if (nextLocked) {
+                            preLockOrientation = activity.requestedOrientation
+                            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED
+                            hudMessage = "已锁定当前屏幕与方向"
+                        } else {
+                            activity.requestedOrientation = preLockOrientation
+                            hudMessage = "已解除锁定"
+                        }
+                    }
+                },
                 shape = CircleShape,
                 color = Color.Black.copy(alpha = 0.56f),
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
+                    .windowInsetsPadding(safePlayerInsets.only(WindowInsetsSides.End))
                     .padding(end = 20.dp)
                     .size(48.dp),
             ) {
@@ -1144,22 +1382,22 @@ fun NativeMediaPlayerOverlay(
         }
 
         if (!isInPipMode && controlsVisible && !isLocked) {
-            // 顶部栏：圆形返回 + 标题 + 右上角画中画圆钮
+            // 顶部栏：圆形返回 + 标题 + 横竖屏切换圆钮 + 右上角画中画圆钮（完整避让顶栏与左右挖孔）
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
                     .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.72f), Color.Transparent)))
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .windowInsetsPadding(safePlayerInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                    .padding(horizontal = 16.dp, vertical = if (compactVideoHeight) 8.dp else 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Surface(
                     onClick = onClose,
                     shape = CircleShape,
                     color = Color.Black.copy(alpha = 0.45f),
-                    modifier = Modifier.size(42.dp),
+                    modifier = Modifier.size(if (compactVideoHeight) 38.dp else 42.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = Color.White)
@@ -1168,7 +1406,7 @@ fun NativeMediaPlayerOverlay(
                 Text(
                     text = request.title,
                     color = Color.White,
-                    fontSize = 16.sp,
+                    fontSize = if (compactVideoHeight) 15.sp else 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1176,7 +1414,30 @@ fun NativeMediaPlayerOverlay(
                 )
                 Surface(
                     onClick = {
-                        val activity = context as? Activity
+                        if (activity != null) {
+                            if (isLandscape) {
+                                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                hudMessage = "已切换竖屏"
+                            } else {
+                                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                hudMessage = "已切换全屏横屏"
+                            }
+                        }
+                    },
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.45f),
+                    modifier = Modifier.size(if (compactVideoHeight) 38.dp else 42.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (isLandscape) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
+                            contentDescription = if (isLandscape) "退出全屏横屏" else "全屏横屏播放",
+                            tint = Color.White,
+                        )
+                    }
+                }
+                Surface(
+                    onClick = {
                         if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             val params = PictureInPictureParams.Builder()
                                 .setAspectRatio(Rational(16, 9))
@@ -1186,7 +1447,7 @@ fun NativeMediaPlayerOverlay(
                     },
                     shape = CircleShape,
                     color = Color.Black.copy(alpha = 0.45f),
-                    modifier = Modifier.size(42.dp),
+                    modifier = Modifier.size(if (compactVideoHeight) 38.dp else 42.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(Icons.Rounded.PictureInPictureAlt, contentDescription = "画中画", tint = Color.White)
@@ -1198,7 +1459,7 @@ fun NativeMediaPlayerOverlay(
             Row(
                 modifier = Modifier.align(Alignment.Center),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (compactVideoHeight) 18.dp else 20.dp),
             ) {
                 Surface(
                     onClick = {
@@ -1207,10 +1468,10 @@ fun NativeMediaPlayerOverlay(
                     },
                     shape = CircleShape,
                     color = Color.Black.copy(alpha = 0.48f),
-                    modifier = Modifier.size(54.dp),
+                    modifier = Modifier.size(if (compactVideoHeight) 48.dp else 54.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Replay10, contentDescription = "快退10秒", tint = Color.White, modifier = Modifier.size(26.dp))
+                        Icon(Icons.Rounded.Replay10, contentDescription = "快退10秒", tint = Color.White, modifier = Modifier.size(if (compactVideoHeight) 24.dp else 26.dp))
                     }
                 }
 
@@ -1221,9 +1482,9 @@ fun NativeMediaPlayerOverlay(
                     },
                     containerColor = colors.accent,
                     contentColor = colors.primaryButtonFg,
-                    width = 76.dp,
-                    height = 68.dp,
-                    iconSize = 34.dp,
+                    width = if (compactVideoHeight) 70.dp else 76.dp,
+                    height = if (compactVideoHeight) 60.dp else 68.dp,
+                    iconSize = if (compactVideoHeight) 32.dp else 34.dp,
                 )
 
                 Surface(
@@ -1233,43 +1494,68 @@ fun NativeMediaPlayerOverlay(
                     },
                     shape = CircleShape,
                     color = Color.Black.copy(alpha = 0.48f),
-                    modifier = Modifier.size(54.dp),
+                    modifier = Modifier.size(if (compactVideoHeight) 48.dp else 54.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Forward10, contentDescription = "快进10秒", tint = Color.White, modifier = Modifier.size(26.dp))
+                        Icon(Icons.Rounded.Forward10, contentDescription = "快进10秒", tint = Color.White, modifier = Modifier.size(if (compactVideoHeight) 24.dp else 26.dp))
                     }
                 }
             }
 
-            // 底部波浪进度条 + 连体播控胶囊坞（字幕 / 音轨 / 填充 / 倍速）
+            // 底部波浪进度条 + 连体播控胶囊坞（短屏横屏时间戳同行内联，避免与中央播放键重叠）
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.80f))))
-                    .navigationBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                    .windowInsetsPadding(safePlayerInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+                    .padding(horizontal = 20.dp, vertical = if (compactVideoHeight) 8.dp else 14.dp),
+                verticalArrangement = Arrangement.spacedBy(if (compactVideoHeight) 6.dp else 10.dp),
             ) {
-                ExpressiveWavySlider(
-                    value = if (draggingProgress >= 0f) draggingProgress else progress,
-                    onValueChange = { draggingProgress = it },
-                    onValueChangeFinished = {
-                        if (draggingProgress >= 0f) {
-                            exoPlayer.seekTo((draggingProgress * durationMs).toLong())
-                            draggingProgress = -1f
-                        }
-                    },
-                    isPlaying = isPlaying,
-                    activeColor = colors.accent,
-                    inactiveColor = Color.White.copy(alpha = 0.28f),
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.86f), fontSize = 12.sp)
-                    Text(formatDurationMs(durationMs), color = Color.White.copy(alpha = 0.68f), fontSize = 12.sp)
+                if (compactVideoHeight) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.86f), fontSize = 11.5.sp)
+                        ExpressiveWavySlider(
+                            value = if (draggingProgress >= 0f) draggingProgress else progress,
+                            onValueChange = { draggingProgress = it },
+                            onValueChangeFinished = {
+                                if (draggingProgress >= 0f) {
+                                    exoPlayer.seekTo((draggingProgress * durationMs).toLong())
+                                    draggingProgress = -1f
+                                }
+                            },
+                            isPlaying = isPlaying,
+                            activeColor = colors.accent,
+                            inactiveColor = Color.White.copy(alpha = 0.28f),
+                            modifier = Modifier.weight(1f).height(28.dp),
+                        )
+                        Text(formatDurationMs(durationMs), color = Color.White.copy(alpha = 0.68f), fontSize = 11.5.sp)
+                    }
+                } else {
+                    ExpressiveWavySlider(
+                        value = if (draggingProgress >= 0f) draggingProgress else progress,
+                        onValueChange = { draggingProgress = it },
+                        onValueChangeFinished = {
+                            if (draggingProgress >= 0f) {
+                                exoPlayer.seekTo((draggingProgress * durationMs).toLong())
+                                draggingProgress = -1f
+                            }
+                        },
+                        isPlaying = isPlaying,
+                        activeColor = colors.accent,
+                        inactiveColor = Color.White.copy(alpha = 0.28f),
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.86f), fontSize = 12.sp)
+                        Text(formatDurationMs(durationMs), color = Color.White.copy(alpha = 0.68f), fontSize = 12.sp)
+                    }
                 }
                 ExpressiveGroupedActionDock(
                     actions = listOf(
@@ -1324,36 +1610,41 @@ fun NativeMediaPlayerOverlay(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("选择字幕轨道", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                subtitleChoices.forEach { choice ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(if (choice.selected) colors.activeIndicator else colors.surfaceContainerLow)
-                            .clickable {
-                                val builder = exoPlayer.trackSelectionParameters.buildUpon()
-                                if (choice.group == null) {
-                                    builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-                                } else {
-                                    builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                                        .setOverrideForType(TrackSelectionOverride(choice.group.mediaTrackGroup, choice.trackIndex))
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    itemsIndexed(subtitleChoices) { _, choice ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (choice.selected) colors.activeIndicator else colors.surfaceContainerLow)
+                                .clickable {
+                                    val builder = exoPlayer.trackSelectionParameters.buildUpon()
+                                    if (choice.group == null) {
+                                        builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                                    } else {
+                                        builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                                            .setOverrideForType(TrackSelectionOverride(choice.group.mediaTrackGroup, choice.trackIndex))
+                                    }
+                                    exoPlayer.trackSelectionParameters = builder.build()
+                                    tracksVersion++
+                                    hudMessage = "字幕：${choice.label}"
+                                    showSubtitleSheet = false
                                 }
-                                exoPlayer.trackSelectionParameters = builder.build()
-                                tracksVersion++
-                                hudMessage = "字幕：${choice.label}"
-                                showSubtitleSheet = false
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(choice.label, color = colors.textPrimary, fontSize = 15.sp, fontWeight = if (choice.selected) FontWeight.Bold else FontWeight.Normal)
+                            if (choice.selected) {
+                                Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
                             }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(choice.label, color = colors.textPrimary, fontSize = 15.sp, fontWeight = if (choice.selected) FontWeight.Bold else FontWeight.Normal)
-                        if (choice.selected) {
-                            Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(14.dp))
             }
         }
     }
@@ -1368,35 +1659,40 @@ fun NativeMediaPlayerOverlay(
                 if (audioChoices.isEmpty()) {
                     Text("当前流仅包含默认音轨", color = colors.textSecondary, fontSize = 14.sp)
                 } else {
-                    audioChoices.forEach { choice ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(if (choice.selected) colors.activeIndicator else colors.surfaceContainerLow)
-                                .clickable {
-                                    choice.group?.let { grp ->
-                                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                                            .buildUpon()
-                                            .setOverrideForType(TrackSelectionOverride(grp.mediaTrackGroup, choice.trackIndex))
-                                            .build()
-                                        tracksVersion++
-                                        hudMessage = "音轨：${choice.label}"
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        itemsIndexed(audioChoices) { _, choice ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(if (choice.selected) colors.activeIndicator else colors.surfaceContainerLow)
+                                    .clickable {
+                                        choice.group?.let { grp ->
+                                            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                                                .buildUpon()
+                                                .setOverrideForType(TrackSelectionOverride(grp.mediaTrackGroup, choice.trackIndex))
+                                                .build()
+                                            tracksVersion++
+                                            hudMessage = "音轨：${choice.label}"
+                                        }
+                                        showAudioTrackSheet = false
                                     }
-                                    showAudioTrackSheet = false
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(choice.label, color = colors.textPrimary, fontSize = 15.sp, fontWeight = if (choice.selected) FontWeight.Bold else FontWeight.Normal)
+                                if (choice.selected) {
+                                    Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
                                 }
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text(choice.label, color = colors.textPrimary, fontSize = 15.sp, fontWeight = if (choice.selected) FontWeight.Bold else FontWeight.Normal)
-                            if (choice.selected) {
-                                Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
                 }
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(14.dp))
             }
         }
     }

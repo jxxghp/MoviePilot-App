@@ -634,6 +634,34 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
   private let positionSlider = UISlider()
 
+  // MARK: - Responsive Audio & Video Layout Constraints
+  private struct AudioLayoutSignature: Equatable {
+    let isCompactLandscape: Bool
+    let showsLyrics: Bool
+  }
+
+  private let audioLeftColumnGuide = UILayoutGuide()
+  private let audioRightColumnGuide = UILayoutGuide()
+  private var audioPortraitConstraints: [NSLayoutConstraint] = []
+  private var audioCompactLandscapeBaseConstraints: [NSLayoutConstraint] = []
+  private var audioCompactLandscapeCoverConstraints: [NSLayoutConstraint] = []
+  private var audioCompactLandscapeLyricsConstraints: [NSLayoutConstraint] = []
+  private var audioTopBarTopConstraint: NSLayoutConstraint?
+  private var positionSliderHeightConstraint: NSLayoutConstraint?
+  private var audioControlsRootStack: UIStackView?
+  private var audioMetadataStack: UIStackView?
+  private var artworkContainerTopConstraint: NSLayoutConstraint?
+  private var artworkContainerBottomConstraint: NSLayoutConstraint?
+  private var metadataBottomConstraint: NSLayoutConstraint?
+  private var audioPlaySizeConstraints: [NSLayoutConstraint] = []
+  private var audioSkipSizeConstraints: [NSLayoutConstraint] = []
+  private var audioUtilitySizeConstraints: [NSLayoutConstraint] = []
+  private var lyricsStackTopConstraint: NSLayoutConstraint?
+  private var lyricsStackBottomConstraint: NSLayoutConstraint?
+  private var activeAudioLayoutSignature: AudioLayoutSignature?
+  private var lockButtonCenterYConstraint: NSLayoutConstraint?
+  private var lockButtonCompactTopConstraint: NSLayoutConstraint?
+
   // MARK: - State
   private var pictureInPictureAvailable = false
   private var isLocked = false
@@ -760,11 +788,25 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
     player.play()
     if isAudioPlayback {
+      if #available(iOS 17.0, *) {
+        registerForTraitChanges([UITraitVerticalSizeClass.self, UITraitHorizontalSizeClass.self]) {
+          (self: Self, _) in
+          self.updateAudioLayoutForViewportIfNeeded(animated: false)
+        }
+      }
       if let initialArtwork {
         applyResolvedArtwork(initialArtwork, animated: false)
       }
       loadLyrics()
       loadArtwork()
+    }
+  }
+
+  /// 横竖屏与窗口尺寸变化时在布局前切换紧凑横屏双栏或竖屏单栏音频约束，避免任何瞬态约束冲突。
+  override func viewWillLayoutSubviews() {
+    super.viewWillLayoutSubviews()
+    if isAudioPlayback {
+      updateAudioLayoutForViewportIfNeeded(animated: false)
     }
   }
 
@@ -789,9 +831,12 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     scheduleControlsHide()
   }
 
-  /// 音乐与全屏视频在 iPad 上支持全部四个方向，在 iPhone 上保持 `.allButUpsideDown`。
+  /// 视频防误触锁屏时锁定横屏方向；其余情况下在 iPad 支持四向，在 iPhone 保持 `.allButUpsideDown`。
   override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-    UIDevice.current.userInterfaceIdiom == .pad ? .all : .allButUpsideDown
+    if isLocked && !isAudioPlayback {
+      return .landscape
+    }
+    return UIDevice.current.userInterfaceIdiom == .pad ? .all : .allButUpsideDown
   }
 
   /// 沉浸播放页始终使用浅色状态栏图标。
@@ -854,6 +899,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
     if isAudioPlayback {
       configureMusicStage(below: topBar)
+      view.bringSubviewToFront(controls)
+      view.bringSubviewToFront(topBar)
+      updateAudioLayoutForViewportIfNeeded(animated: false)
       let swipeDown = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipeDown))
       swipeDown.direction = .down
       swipeDown.delegate = self
@@ -1019,13 +1067,17 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
 
     view.addSubview(topBar)
+    let topBarTop = topBar.topAnchor.constraint(
+      equalTo: view.safeAreaLayoutGuide.topAnchor, constant: isAudioPlayback ? 18 : 10)
+    if isAudioPlayback {
+      audioTopBarTopConstraint = topBarTop
+    }
     NSLayoutConstraint.activate([
       topBar.leadingAnchor.constraint(
         equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 18),
       topBar.trailingAnchor.constraint(
         equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -18),
-      topBar.topAnchor.constraint(
-        equalTo: view.safeAreaLayoutGuide.topAnchor, constant: isAudioPlayback ? 18 : 10),
+      topBarTop,
     ])
   }
 
@@ -1051,7 +1103,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       seekHudLabel.heightAnchor.constraint(equalToConstant: 36),
     ])
 
-    // 仅横屏显示于右侧居中的纯图标锁屏/解锁按钮（锁定与解锁复用同一位置，无任何文字）
+    // 仅横屏显示于右侧的纯图标锁屏/解锁按钮（紧凑横屏贴近顶栏下方以避让底部连播浮层，大屏居中）
     configureGlassButton(
       lockTopButton, symbol: "lock.open", accessibility: L10n.text("锁定屏幕"), diameter: 44,
       pointSize: 16)
@@ -1069,10 +1121,16 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         self.setLocked(!self.isLocked)
       }, for: .touchUpInside)
     view.addSubview(lockTopButton)
+    let lockCenterY = lockTopButton.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+    let lockCompactTop = lockTopButton.topAnchor.constraint(
+      equalTo: topBar.bottomAnchor, constant: 12)
+    lockButtonCenterYConstraint = lockCenterY
+    lockButtonCompactTopConstraint = lockCompactTop
+    let useCompactLockTop = view.bounds.height > 0 && view.bounds.height < 520
     NSLayoutConstraint.activate([
       lockTopButton.trailingAnchor.constraint(
         equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -18),
-      lockTopButton.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+      useCompactLockTop ? lockCompactTop : lockCenterY,
     ])
 
     let doubleTap = UITapGestureRecognizer(
@@ -1266,16 +1324,22 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   }
 
   /// 将播放控制固定在正方形触控槽内，阻止玻璃按钮在水平布局里被拉宽。
-  private func fixedSquareControl(_ control: UIView, diameter: CGFloat) -> UIView {
+  private func fixedSquareControl(
+    _ control: UIView, diameter: CGFloat,
+    storingSizeConstraintsIn bucket: inout [NSLayoutConstraint]
+  ) -> UIView {
     let slot = UIView()
     slot.translatesAutoresizingMaskIntoConstraints = false
     slot.addSubview(control)
     control.translatesAutoresizingMaskIntoConstraints = false
     control.setContentHuggingPriority(.required, for: .horizontal)
     control.setContentCompressionResistancePriority(.required, for: .horizontal)
+    let widthConstraint = slot.widthAnchor.constraint(equalToConstant: diameter)
+    let heightConstraint = slot.heightAnchor.constraint(equalToConstant: diameter)
+    bucket.append(contentsOf: [widthConstraint, heightConstraint])
     NSLayoutConstraint.activate([
-      slot.widthAnchor.constraint(equalToConstant: diameter),
-      slot.heightAnchor.constraint(equalToConstant: diameter),
+      widthConstraint,
+      heightConstraint,
       control.leadingAnchor.constraint(equalTo: slot.leadingAnchor),
       control.trailingAnchor.constraint(equalTo: slot.trailingAnchor),
       control.topAnchor.constraint(equalTo: slot.topAnchor),
@@ -1284,11 +1348,18 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     return slot
   }
 
-  /// 配置音乐页的主播放圆键和玻璃辅助圆键。
+  /// 将播放控制固定在正方形触控槽内，阻止玻璃按钮在水平布局里被拉宽。
+  private func fixedSquareControl(_ control: UIView, diameter: CGFloat) -> UIView {
+    var unused: [NSLayoutConstraint] = []
+    return fixedSquareControl(control, diameter: diameter, storingSizeConstraintsIn: &unused)
+  }
+
+  /// 配置音乐页的主播放圆键和玻璃辅助圆键，并可选记录尺寸约束以支持横竖屏平滑缩放。
+  @discardableResult
   private func configureMusicCircleButton(
     _ button: UIButton, symbol: String, accessibility: String, diameter: CGFloat,
     pointSize: CGFloat, primary: Bool
-  ) {
+  ) -> [NSLayoutConstraint] {
     button.translatesAutoresizingMaskIntoConstraints = false
     var configuration = UIButton.Configuration.filled()
     if !primary {
@@ -1313,10 +1384,12 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     button.tintColor = primary ? .black : .white
     button.setContentHuggingPriority(.required, for: .horizontal)
     button.setContentCompressionResistancePriority(.required, for: .horizontal)
-    NSLayoutConstraint.activate([
+    let sizeConstraints = [
       button.widthAnchor.constraint(equalToConstant: diameter),
       button.heightAnchor.constraint(equalToConstant: diameter),
-    ])
+    ]
+    NSLayoutConstraint.activate(sizeConstraints)
+    return sizeConstraints
   }
 
   /// 正确更新 iOS 16–26 `UIButton.Configuration` 主播放键图标，避免旧版 `setImage` 丢失字重与着色。
@@ -1340,14 +1413,16 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     controls.translatesAutoresizingMaskIntoConstraints = false
     controls.backgroundColor = .clear
     view.addSubview(controls)
-    NSLayoutConstraint.activate([
-      controls.leadingAnchor.constraint(
-        equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: isAudioPlayback ? 26 : 18),
-      controls.trailingAnchor.constraint(
-        equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: isAudioPlayback ? -26 : -18),
-      controls.bottomAnchor.constraint(
-        equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: isAudioPlayback ? -14 : -10),
-    ])
+    if !isAudioPlayback {
+      NSLayoutConstraint.activate([
+        controls.leadingAnchor.constraint(
+          equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 18),
+        controls.trailingAnchor.constraint(
+          equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -18),
+        controls.bottomAnchor.constraint(
+          equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -10),
+      ])
+    }
 
     positionSlider.minimumValue = 0
     positionSlider.maximumValue = 1
@@ -1363,7 +1438,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     positionSlider.addTarget(self, action: #selector(scrubbingChanged), for: .valueChanged)
     positionSlider.addTarget(
       self, action: #selector(endScrubbing), for: [.touchUpInside, .touchUpOutside, .touchCancel])
-    positionSlider.heightAnchor.constraint(equalToConstant: 26).isActive = true
+    let sliderHeight = positionSlider.heightAnchor.constraint(equalToConstant: 26)
+    sliderHeight.isActive = true
+    positionSliderHeightConstraint = sliderHeight
 
     elapsedLabel.text = Self.format(milliseconds: 0)
     durationLabel.text = Self.format(milliseconds: 0)
@@ -1395,17 +1472,20 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     progressStack.spacing = 4
     progressStack.translatesAutoresizingMaskIntoConstraints = false
 
-    configureMusicCircleButton(
-      skipBackButton, symbol: "backward.fill", accessibility: L10n.text("上一首"),
-      diameter: 50, pointSize: 20, primary: false)
+    audioSkipSizeConstraints.append(
+      contentsOf: configureMusicCircleButton(
+        skipBackButton, symbol: "backward.fill", accessibility: L10n.text("上一首"),
+        diameter: 50, pointSize: 20, primary: false))
     skipBackButton.accessibilityIdentifier = "music-playback-back"
-    configureMusicCircleButton(
-      playButton, symbol: "pause.fill", accessibility: L10n.text("暂停"),
-      diameter: 70, pointSize: 26, primary: true)
+    audioPlaySizeConstraints.append(
+      contentsOf: configureMusicCircleButton(
+        playButton, symbol: "pause.fill", accessibility: L10n.text("暂停"),
+        diameter: 70, pointSize: 26, primary: true))
     playButton.accessibilityIdentifier = "music-playback-toggle"
-    configureMusicCircleButton(
-      skipForwardButton, symbol: "forward.fill", accessibility: L10n.text("下一首"),
-      diameter: 50, pointSize: 20, primary: false)
+    audioSkipSizeConstraints.append(
+      contentsOf: configureMusicCircleButton(
+        skipForwardButton, symbol: "forward.fill", accessibility: L10n.text("下一首"),
+        diameter: 50, pointSize: 20, primary: false))
     skipForwardButton.accessibilityIdentifier = "music-playback-forward"
 
     skipBackButton.addAction(
@@ -1419,9 +1499,15 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     transport.distribution = .equalSpacing
     transport.spacing = 30
     transport.translatesAutoresizingMaskIntoConstraints = false
-    transport.addArrangedSubview(fixedSquareControl(skipBackButton, diameter: 50))
-    transport.addArrangedSubview(fixedSquareControl(playButton, diameter: 70))
-    transport.addArrangedSubview(fixedSquareControl(skipForwardButton, diameter: 50))
+    transport.addArrangedSubview(
+      fixedSquareControl(
+        skipBackButton, diameter: 50, storingSizeConstraintsIn: &audioSkipSizeConstraints))
+    transport.addArrangedSubview(
+      fixedSquareControl(
+        playButton, diameter: 70, storingSizeConstraintsIn: &audioPlaySizeConstraints))
+    transport.addArrangedSubview(
+      fixedSquareControl(
+        skipForwardButton, diameter: 50, storingSizeConstraintsIn: &audioSkipSizeConstraints))
 
     // 底部三联实用按钮：歌词视图切换、AirPlay 输出、队列/倍速
     configureMusicUtilityButton(
@@ -1446,11 +1532,14 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       }, for: .touchUpInside)
 
     let utilityBar = UIStackView(arrangedSubviews: [
-      fixedSquareControl(lyricsToggleButton, diameter: 42),
+      fixedSquareControl(
+        lyricsToggleButton, diameter: 42, storingSizeConstraintsIn: &audioUtilitySizeConstraints),
       UIView(),
-      fixedSquareControl(routePicker, diameter: 42),
+      fixedSquareControl(
+        routePicker, diameter: 42, storingSizeConstraintsIn: &audioUtilitySizeConstraints),
       UIView(),
-      fixedSquareControl(musicQueueButton, diameter: 42),
+      fixedSquareControl(
+        musicQueueButton, diameter: 42, storingSizeConstraintsIn: &audioUtilitySizeConstraints),
     ])
     utilityBar.axis = .horizontal
     utilityBar.alignment = .center
@@ -1460,6 +1549,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     rootStack.alignment = .center
     rootStack.spacing = 20
     rootStack.translatesAutoresizingMaskIntoConstraints = false
+    audioControlsRootStack = rootStack
     controls.addSubview(rootStack)
     NSLayoutConstraint.activate([
       rootStack.leadingAnchor.constraint(equalTo: controls.leadingAnchor),
@@ -1638,19 +1728,13 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     ])
   }
 
-  /// 双模式音乐主舞台：默认展示高质感悬浮专辑大封面 + 曲目信息 + 单行动态歌词预览；一键平滑切入全屏同步歌词滚动舞台。
+  /// 双模式音乐主舞台：竖屏默认展示悬浮专辑大封面 + 曲目信息 + 单行动态歌词预览并支持切入全屏同步歌词舞台；手机紧凑横屏自动切换为左栏封面与曲目信息、右栏控制坞与滚动歌词的双栏布局。
   private func configureMusicStage(below topBar: UIView) {
     musicStage.translatesAutoresizingMaskIntoConstraints = false
     musicStage.accessibilityIdentifier = "music-playback-stage"
     view.addSubview(musicStage)
-    NSLayoutConstraint.activate([
-      musicStage.leadingAnchor.constraint(
-        equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 26),
-      musicStage.trailingAnchor.constraint(
-        equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -26),
-      musicStage.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 12),
-      musicStage.bottomAnchor.constraint(equalTo: controls.topAnchor, constant: -14),
-    ])
+    view.addLayoutGuide(audioLeftColumnGuide)
+    view.addLayoutGuide(audioRightColumnGuide)
 
     // MARK: 封面主舞台
     musicCoverStage.translatesAutoresizingMaskIntoConstraints = false
@@ -1720,7 +1804,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     metadataStack.alignment = .fill
     metadataStack.spacing = 6
     metadataStack.setCustomSpacing(12, after: musicArtistLabel)
+    metadataStack.setContentCompressionResistancePriority(.defaultHigh, for: .vertical)
     metadataStack.translatesAutoresizingMaskIntoConstraints = false
+    audioMetadataStack = metadataStack
 
     let artworkContainer = UIView()
     artworkContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -1732,23 +1818,39 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     let preferredArtWidth = musicArtworkShadowView.widthAnchor.constraint(
       equalTo: artworkContainer.widthAnchor, multiplier: 0.92)
     preferredArtWidth.priority = .defaultHigh
+    let squareAspect = musicArtworkShadowView.heightAnchor.constraint(
+      equalTo: musicArtworkShadowView.widthAnchor)
+    squareAspect.priority = UILayoutPriority(999)
+    let artTop = artworkContainer.topAnchor.constraint(
+      equalTo: musicCoverStage.topAnchor, constant: 6)
+    let artBottom = artworkContainer.bottomAnchor.constraint(
+      equalTo: metadataStack.topAnchor, constant: -20)
+    artBottom.priority = UILayoutPriority(999)
+    let metaBottom = metadataStack.bottomAnchor.constraint(
+      equalTo: musicCoverStage.bottomAnchor, constant: -4)
+    artworkContainerTopConstraint = artTop
+    artworkContainerBottomConstraint = artBottom
+    metadataBottomConstraint = metaBottom
+
+    let placeholderWidth = musicArtworkPlaceholder.widthAnchor.constraint(equalToConstant: 64)
+    placeholderWidth.priority = .defaultHigh
+    let placeholderHeight = musicArtworkPlaceholder.heightAnchor.constraint(equalToConstant: 72)
+    placeholderHeight.priority = .defaultHigh
 
     NSLayoutConstraint.activate([
-      musicCoverStage.leadingAnchor.constraint(equalTo: musicStage.leadingAnchor),
-      musicCoverStage.trailingAnchor.constraint(equalTo: musicStage.trailingAnchor),
-      musicCoverStage.topAnchor.constraint(equalTo: musicStage.topAnchor),
-      musicCoverStage.bottomAnchor.constraint(equalTo: musicStage.bottomAnchor),
-
       artworkContainer.leadingAnchor.constraint(equalTo: musicCoverStage.leadingAnchor),
       artworkContainer.trailingAnchor.constraint(equalTo: musicCoverStage.trailingAnchor),
-      artworkContainer.topAnchor.constraint(equalTo: musicCoverStage.topAnchor, constant: 6),
-      artworkContainer.bottomAnchor.constraint(equalTo: metadataStack.topAnchor, constant: -20),
+      artworkContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
+      artTop,
+      artBottom,
 
       musicArtworkShadowView.centerXAnchor.constraint(equalTo: artworkContainer.centerXAnchor),
       musicArtworkShadowView.centerYAnchor.constraint(equalTo: artworkContainer.centerYAnchor),
       preferredArtWidth,
       musicArtworkShadowView.widthAnchor.constraint(lessThanOrEqualToConstant: 316),
-      musicArtworkShadowView.heightAnchor.constraint(equalTo: musicArtworkShadowView.widthAnchor),
+      musicArtworkShadowView.widthAnchor.constraint(
+        lessThanOrEqualTo: artworkContainer.widthAnchor),
+      squareAspect,
       musicArtworkShadowView.heightAnchor.constraint(
         lessThanOrEqualTo: artworkContainer.heightAnchor),
 
@@ -1759,12 +1861,14 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
       musicArtworkPlaceholder.centerXAnchor.constraint(equalTo: musicArtwork.centerXAnchor),
       musicArtworkPlaceholder.centerYAnchor.constraint(equalTo: musicArtwork.centerYAnchor),
-      musicArtworkPlaceholder.widthAnchor.constraint(equalToConstant: 64),
-      musicArtworkPlaceholder.heightAnchor.constraint(equalToConstant: 72),
+      placeholderWidth,
+      placeholderHeight,
+      musicArtworkPlaceholder.widthAnchor.constraint(lessThanOrEqualTo: musicArtwork.widthAnchor),
+      musicArtworkPlaceholder.heightAnchor.constraint(lessThanOrEqualTo: musicArtwork.heightAnchor),
 
       metadataStack.leadingAnchor.constraint(equalTo: musicCoverStage.leadingAnchor),
       metadataStack.trailingAnchor.constraint(equalTo: musicCoverStage.trailingAnchor),
-      metadataStack.bottomAnchor.constraint(equalTo: musicCoverStage.bottomAnchor, constant: -4),
+      metaBottom,
     ])
 
     // MARK: 全屏歌词舞台（默认隐藏，点击歌词图标或单行预览平滑切换）
@@ -1830,12 +1934,14 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     musicLyricsStage.addSubview(musicMiniHeader)
     musicLyricsStage.addSubview(lyricsContainer)
 
-    NSLayoutConstraint.activate([
-      musicLyricsStage.leadingAnchor.constraint(equalTo: musicStage.leadingAnchor),
-      musicLyricsStage.trailingAnchor.constraint(equalTo: musicStage.trailingAnchor),
-      musicLyricsStage.topAnchor.constraint(equalTo: musicStage.topAnchor),
-      musicLyricsStage.bottomAnchor.constraint(equalTo: musicStage.bottomAnchor),
+    let stackTop = lyricsStack.topAnchor.constraint(
+      equalTo: lyricsScroll.contentLayoutGuide.topAnchor, constant: 28)
+    let stackBottom = lyricsStack.bottomAnchor.constraint(
+      equalTo: lyricsScroll.contentLayoutGuide.bottomAnchor, constant: -48)
+    lyricsStackTopConstraint = stackTop
+    lyricsStackBottomConstraint = stackBottom
 
+    NSLayoutConstraint.activate([
       musicMiniHeader.leadingAnchor.constraint(equalTo: musicLyricsStage.leadingAnchor),
       musicMiniHeader.trailingAnchor.constraint(equalTo: musicLyricsStage.trailingAnchor),
       musicMiniHeader.topAnchor.constraint(equalTo: musicLyricsStage.topAnchor, constant: 4),
@@ -1848,7 +1954,6 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
       lyricsContainer.leadingAnchor.constraint(equalTo: musicLyricsStage.leadingAnchor),
       lyricsContainer.trailingAnchor.constraint(equalTo: musicLyricsStage.trailingAnchor),
-      lyricsContainer.topAnchor.constraint(equalTo: musicMiniHeader.bottomAnchor, constant: 14),
       lyricsContainer.bottomAnchor.constraint(equalTo: musicLyricsStage.bottomAnchor),
 
       lyricsScroll.leadingAnchor.constraint(equalTo: lyricsContainer.leadingAnchor),
@@ -1859,13 +1964,193 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       lyricsStack.leadingAnchor.constraint(equalTo: lyricsScroll.contentLayoutGuide.leadingAnchor),
       lyricsStack.trailingAnchor.constraint(
         equalTo: lyricsScroll.contentLayoutGuide.trailingAnchor),
-      lyricsStack.topAnchor.constraint(
-        equalTo: lyricsScroll.contentLayoutGuide.topAnchor, constant: 28),
-      lyricsStack.bottomAnchor.constraint(
-        equalTo: lyricsScroll.contentLayoutGuide.bottomAnchor, constant: -48),
+      stackTop,
+      stackBottom,
       lyricsStack.widthAnchor.constraint(equalTo: lyricsScroll.frameLayoutGuide.widthAnchor),
     ])
+
+    // 竖屏 / 宽高度常规单栏约束集
+    audioPortraitConstraints = [
+      controls.leadingAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 26),
+      controls.trailingAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -26),
+      controls.bottomAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -14),
+      musicStage.leadingAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 26),
+      musicStage.trailingAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -26),
+      musicStage.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 12),
+      musicStage.bottomAnchor.constraint(equalTo: controls.topAnchor, constant: -14),
+      musicCoverStage.leadingAnchor.constraint(equalTo: musicStage.leadingAnchor),
+      musicCoverStage.trailingAnchor.constraint(equalTo: musicStage.trailingAnchor),
+      musicCoverStage.topAnchor.constraint(equalTo: musicStage.topAnchor),
+      musicCoverStage.bottomAnchor.constraint(equalTo: musicStage.bottomAnchor),
+      musicLyricsStage.leadingAnchor.constraint(equalTo: musicStage.leadingAnchor),
+      musicLyricsStage.trailingAnchor.constraint(equalTo: musicStage.trailingAnchor),
+      musicLyricsStage.topAnchor.constraint(equalTo: musicStage.topAnchor),
+      musicLyricsStage.bottomAnchor.constraint(equalTo: musicStage.bottomAnchor),
+      lyricsContainer.topAnchor.constraint(equalTo: musicMiniHeader.bottomAnchor, constant: 14),
+    ]
+
+    // 紧凑横屏双栏基础约束集（左栏约 38% 宽展示封面与元数据，右栏展示控制坞或歌词+控制坞）
+    audioCompactLandscapeBaseConstraints = [
+      musicStage.leadingAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
+      musicStage.trailingAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
+      musicStage.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 8),
+      musicStage.bottomAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+      audioLeftColumnGuide.leadingAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
+      audioLeftColumnGuide.widthAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.widthAnchor, multiplier: 0.38),
+      audioLeftColumnGuide.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 8),
+      audioLeftColumnGuide.bottomAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+      audioRightColumnGuide.leadingAnchor.constraint(
+        equalTo: audioLeftColumnGuide.trailingAnchor, constant: 28),
+      audioRightColumnGuide.trailingAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
+      audioRightColumnGuide.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 8),
+      audioRightColumnGuide.bottomAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+      musicCoverStage.leadingAnchor.constraint(equalTo: audioLeftColumnGuide.leadingAnchor),
+      musicCoverStage.trailingAnchor.constraint(equalTo: audioLeftColumnGuide.trailingAnchor),
+      musicCoverStage.topAnchor.constraint(equalTo: audioLeftColumnGuide.topAnchor),
+      musicCoverStage.bottomAnchor.constraint(equalTo: audioLeftColumnGuide.bottomAnchor),
+      controls.leadingAnchor.constraint(equalTo: audioRightColumnGuide.leadingAnchor),
+      controls.trailingAnchor.constraint(equalTo: audioRightColumnGuide.trailingAnchor),
+      lyricsContainer.topAnchor.constraint(equalTo: musicLyricsStage.topAnchor),
+    ]
+
+    let rightControlsCenterY = controls.centerYAnchor.constraint(
+      equalTo: audioRightColumnGuide.centerYAnchor)
+    rightControlsCenterY.priority = .defaultHigh
+    let hiddenLyricsHeight = musicLyricsStage.heightAnchor.constraint(
+      equalTo: audioRightColumnGuide.heightAnchor, multiplier: 0.58)
+    hiddenLyricsHeight.priority = .defaultHigh
+    audioCompactLandscapeCoverConstraints = [
+      rightControlsCenterY,
+      controls.topAnchor.constraint(greaterThanOrEqualTo: audioRightColumnGuide.topAnchor),
+      controls.bottomAnchor.constraint(lessThanOrEqualTo: audioRightColumnGuide.bottomAnchor),
+      musicLyricsStage.leadingAnchor.constraint(equalTo: audioRightColumnGuide.leadingAnchor),
+      musicLyricsStage.trailingAnchor.constraint(equalTo: audioRightColumnGuide.trailingAnchor),
+      musicLyricsStage.topAnchor.constraint(equalTo: audioRightColumnGuide.topAnchor),
+      hiddenLyricsHeight,
+    ]
+
+    let preferredLyricsHeight = musicLyricsStage.heightAnchor.constraint(
+      equalTo: audioRightColumnGuide.heightAnchor, multiplier: 0.60)
+    preferredLyricsHeight.priority = .defaultHigh
+    audioCompactLandscapeLyricsConstraints = [
+      musicLyricsStage.leadingAnchor.constraint(equalTo: audioRightColumnGuide.leadingAnchor),
+      musicLyricsStage.trailingAnchor.constraint(equalTo: audioRightColumnGuide.trailingAnchor),
+      musicLyricsStage.topAnchor.constraint(equalTo: audioRightColumnGuide.topAnchor),
+      musicLyricsStage.bottomAnchor.constraint(equalTo: controls.topAnchor, constant: -10),
+      preferredLyricsHeight,
+      controls.bottomAnchor.constraint(equalTo: audioRightColumnGuide.bottomAnchor),
+      controls.topAnchor.constraint(greaterThanOrEqualTo: audioRightColumnGuide.topAnchor),
+    ]
+
     appendLyricPlaceholder(L10n.text("正在读取歌词…"))
+  }
+
+  /// 当前音频播放器是否应采用紧凑横屏双栏布局。
+  private var shouldUseCompactAudioLandscapeLayout: Bool {
+    guard isAudioPlayback else { return false }
+    if view.bounds.width > 0 && view.bounds.height > 0 {
+      return view.bounds.width > view.bounds.height
+        && (view.bounds.height < 520 || traitCollection.verticalSizeClass == .compact)
+    }
+    return traitCollection.verticalSizeClass == .compact
+  }
+
+  /// 按当前视口与歌词展开状态无冲突切换竖屏单栏或紧凑横屏双栏 Auto Layout 约束集。
+  private func updateAudioLayoutForViewportIfNeeded(animated: Bool) {
+    guard isAudioPlayback, !audioPortraitConstraints.isEmpty else { return }
+    let target = AudioLayoutSignature(
+      isCompactLandscape: shouldUseCompactAudioLandscapeLayout,
+      showsLyrics: showsFullLyrics
+    )
+    guard activeAudioLayoutSignature != target else { return }
+    activeAudioLayoutSignature = target
+
+    NSLayoutConstraint.deactivate(
+      audioPortraitConstraints
+        + audioCompactLandscapeBaseConstraints
+        + audioCompactLandscapeCoverConstraints
+        + audioCompactLandscapeLyricsConstraints
+    )
+
+    let isCompact = target.isCompactLandscape
+    audioTopBarTopConstraint?.constant = isCompact ? 6 : 18
+    positionSliderHeightConstraint?.constant = isCompact ? 20 : 26
+    artworkContainerTopConstraint?.constant = isCompact ? 0 : 6
+    artworkContainerBottomConstraint?.constant = isCompact ? -8 : -20
+    metadataBottomConstraint?.constant = isCompact ? 0 : -4
+    lyricsStackTopConstraint?.constant = isCompact ? 12 : 28
+    lyricsStackBottomConstraint?.constant = isCompact ? -20 : -48
+    lyricsStack.spacing = isCompact ? 12 : 16
+
+    let playDiameter: CGFloat = isCompact ? (target.showsLyrics ? 50 : 58) : 70
+    let skipDiameter: CGFloat = isCompact ? (target.showsLyrics ? 40 : 44) : 50
+    let utilityDiameter: CGFloat = isCompact ? 34 : 42
+    for constraint in audioPlaySizeConstraints { constraint.constant = playDiameter }
+    for constraint in audioSkipSizeConstraints { constraint.constant = skipDiameter }
+    for constraint in audioUtilitySizeConstraints { constraint.constant = utilityDiameter }
+    if #unavailable(iOS 26.0) {
+      skipBackButton.layer.cornerRadius = skipDiameter / 2
+      skipForwardButton.layer.cornerRadius = skipDiameter / 2
+    }
+    audioControlsRootStack?.spacing = isCompact ? (target.showsLyrics ? 6 : 12) : 20
+    audioMetadataStack?.spacing = isCompact ? 4 : 6
+    audioMetadataStack?.setCustomSpacing(isCompact ? 8 : 12, after: musicArtistLabel)
+
+    musicGrabber.isHidden = isCompact
+    musicMiniHeader.isHidden = isCompact
+    musicTitleLabel.font = .systemFont(ofSize: isCompact ? 17 : 23, weight: .bold)
+    musicTitleLabel.numberOfLines = isCompact ? 1 : 2
+    musicTitleLabel.textAlignment = isCompact ? .center : .left
+    musicArtistLabel.font = .systemFont(ofSize: isCompact ? 13.5 : 16, weight: .medium)
+    musicArtistLabel.textAlignment = isCompact ? .center : .left
+    musicLyricPreviewButton.isHidden = lyricCues.isEmpty || (isCompact && target.showsLyrics)
+
+    if isCompact {
+      if target.showsLyrics {
+        NSLayoutConstraint.activate(
+          audioCompactLandscapeBaseConstraints + audioCompactLandscapeLyricsConstraints)
+      } else {
+        NSLayoutConstraint.activate(
+          audioCompactLandscapeBaseConstraints + audioCompactLandscapeCoverConstraints)
+      }
+    } else {
+      NSLayoutConstraint.activate(audioPortraitConstraints)
+    }
+
+    let targetCoverAlpha: CGFloat = (isCompact || !target.showsLyrics) ? 1 : 0
+    let targetLyricsAlpha: CGFloat = target.showsLyrics ? 1 : 0
+    if targetCoverAlpha > 0 { musicCoverStage.isHidden = false }
+    if targetLyricsAlpha > 0 { musicLyricsStage.isHidden = false }
+
+    if animated {
+      UIView.animate(withDuration: 0.28, delay: 0, options: [.curveEaseInOut]) {
+        self.musicCoverStage.alpha = targetCoverAlpha
+        self.musicLyricsStage.alpha = targetLyricsAlpha
+        self.view.layoutIfNeeded()
+      } completion: { _ in
+        self.musicCoverStage.isHidden = targetCoverAlpha == 0
+        self.musicLyricsStage.isHidden = targetLyricsAlpha == 0
+        self.lyricsFadeMask.frame = self.lyricsContainer.bounds
+      }
+    } else {
+      musicCoverStage.alpha = targetCoverAlpha
+      musicLyricsStage.alpha = targetLyricsAlpha
+      musicCoverStage.isHidden = targetCoverAlpha == 0
+      musicLyricsStage.isHidden = targetLyricsAlpha == 0
+    }
   }
 
   /// 在封面主舞台与全屏同步歌词舞台之间平滑切换。
@@ -1873,8 +2158,6 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     guard isAudioPlayback else { return }
     showsFullLyrics.toggle()
     let showLyrics = showsFullLyrics
-    musicLyricsStage.isHidden = false
-    musicCoverStage.isHidden = false
     var config = lyricsToggleButton.configuration
     config?.image = UIImage(
       systemName: showLyrics ? "quote.bubble.fill" : "quote.bubble",
@@ -1882,14 +2165,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     config?.baseForegroundColor = showLyrics ? .white : UIColor.white.withAlphaComponent(0.76)
     lyricsToggleButton.configuration = config
     playbackMenuButton?.menu = makeMusicMenu()
-
-    UIView.animate(withDuration: 0.28, delay: 0, options: [.curveEaseInOut]) {
-      self.musicCoverStage.alpha = showLyrics ? 0 : 1
-      self.musicLyricsStage.alpha = showLyrics ? 1 : 0
-    } completion: { _ in
-      self.musicCoverStage.isHidden = showLyrics
-      self.musicLyricsStage.isHidden = !showLyrics
-    }
+    updateAudioLayoutForViewportIfNeeded(animated: true)
   }
 
   /// 随播放/暂停为音乐封面增加苹果音乐同款弹性缩放反馈。
@@ -2027,7 +2303,12 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       nextItem.subtitle.map { "\($0) · \(nextItem.title)" } ?? nextItem.title
     upNextCountdownLabel.text = L10n.format("%d 秒后自动播放", 5)
     upNextOverlay.isHidden = false
-    UIView.animate(withDuration: 0.24) { self.upNextOverlay.alpha = 1 }
+    UIView.animate(withDuration: 0.24) {
+      self.upNextOverlay.alpha = 1
+      if !self.isLocked && self.view.bounds.height < 520 {
+        self.lockTopButton.alpha = 0
+      }
+    }
 
     upNextTask = Task { [weak self] in
       for remaining in stride(from: 5, through: 1, by: -1) {
@@ -2057,6 +2338,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       self.upNextOverlay.alpha = 0
     } completion: { _ in
       self.upNextOverlay.isHidden = true
+      self.updateLockButtonVisibilityForOrientation()
     }
   }
 
@@ -2342,7 +2624,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       appendLyricPlaceholder(L10n.text("暂无同名 LRC 歌词"))
       return
     }
-    musicLyricPreviewButton.isHidden = false
+    musicLyricPreviewButton.isHidden = shouldUseCompactAudioLandscapeLayout && showsFullLyrics
     updateLyricPreview(cues.first?.text ?? "")
     for (index, cue) in cues.enumerated() {
       let button = UIButton(type: .system)
@@ -2776,16 +3058,35 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     !isAudioPlayback && view.bounds.width > view.bounds.height
   }
 
-  /// 根据横竖屏方向自动显隐右侧居中锁定按钮；切回竖屏时自动解除锁屏防止用户被卡住。
+  /// 根据横竖屏方向与紧凑高度自动定位和显隐右侧锁定按钮；切回竖屏时自动解除锁屏防止用户被卡住。
   private func updateLockButtonVisibilityForOrientation() {
     guard !isAudioPlayback else { return }
+    let useCompactLockTop = view.bounds.height > 0 && view.bounds.height < 520
+    if useCompactLockTop {
+      if lockButtonCenterYConstraint?.isActive == true {
+        lockButtonCenterYConstraint?.isActive = false
+      }
+      if lockButtonCompactTopConstraint?.isActive == false {
+        lockButtonCompactTopConstraint?.isActive = true
+      }
+    } else {
+      if lockButtonCompactTopConstraint?.isActive == true {
+        lockButtonCompactTopConstraint?.isActive = false
+      }
+      if lockButtonCenterYConstraint?.isActive == false {
+        lockButtonCenterYConstraint?.isActive = true
+      }
+    }
+
     if isVideoLandscape {
-      lockTopButton.isHidden = false
-      lockTopButton.alpha = (controlsVisible || isLocked) ? 1 : 0
+      let suppressedByUpNext = useCompactLockTop && !upNextOverlay.isHidden && !isLocked
+      lockTopButton.isHidden = suppressedByUpNext
+      lockTopButton.alpha = (!suppressedByUpNext && (controlsVisible || isLocked)) ? 1 : 0
     } else {
       if isLocked {
         isLocked = false
         updateLockButtonSymbol(locked: false)
+        setNeedsUpdateOfSupportedInterfaceOrientations()
       }
       lockTopButton.isHidden = true
       lockTopButton.alpha = 0
@@ -2812,11 +3113,12 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 切换视频防误触锁屏状态（仅横屏生效，锁屏与解锁复用右侧居中纯图标按钮）。
+  /// 切换视频防误触锁屏状态并同步系统方向锁定（仅横屏生效，锁屏与解锁复用右侧纯图标按钮）。
   private func setLocked(_ locked: Bool) {
     guard !isAudioPlayback else { return }
     if locked && !isVideoLandscape { return }
     isLocked = locked
+    setNeedsUpdateOfSupportedInterfaceOrientations()
     updateLockButtonSymbol(locked: locked)
     hideControlsTask?.cancel()
     hideControlsTask = nil
@@ -3188,8 +3490,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       self.bottomScrimView.alpha = 1
       self.transport.alpha = 1
       if self.isVideoLandscape {
-        self.lockTopButton.isHidden = false
-        self.lockTopButton.alpha = 1
+        let suppressed = self.view.bounds.height < 520 && !self.upNextOverlay.isHidden
+        self.lockTopButton.isHidden = suppressed
+        self.lockTopButton.alpha = suppressed ? 0 : 1
       }
     }
     setNeedsStatusBarAppearanceUpdate()

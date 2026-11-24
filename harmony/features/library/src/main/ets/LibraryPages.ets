@@ -20,6 +20,7 @@ import {
   HarmonySheetHeader,
   HarmonyEntityLogo,
   HarmonyEntityLogoPill,
+  HarmonyAdaptiveLayout,
   HarmonyThemeColors,
   HarmonyAppearanceStore,
   mpPrimaryText,
@@ -84,6 +85,8 @@ const HISTORY_DELETE_MODES: DeleteModeOption[] = [
 export struct HarmonyLibraryPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
   @StorageProp('mp_file_navigate_up_req') @Watch('onExternalNavUpReq') navUpReq: number = 0;
   @Prop initialMode: string = 'files';
   @State private activeTabIdx: number = 0; // 0: 文件管理, 1: 整理历史
@@ -355,48 +358,58 @@ export struct HarmonyLibraryPage {
           .width('100%')
       }
 
-      ForEach(HISTORY_DELETE_MODES, (opt: DeleteModeOption) => {
-        Column() {
-          CinematicPanel({ panelPadding: 14, cornerRadius: 16, interactive: true }) {
-            Row({ space: 10 }) {
-              SymbolGlyph($r('sys.symbol.trash'))
-                .fontSize(18)
-                .fontColor([opt.danger ? '#E84855' : this.accentHex])
-              Column({ space: 3 }) {
-                Text(opt.label)
-                  .fontSize(14.5)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor(opt.danger ? '#E84855' : mpPrimaryText(this.isDark))
-                  .width('100%')
-                Text(opt.desc)
-                  .fontSize(11.5)
-                  .fontColor(mpSecondaryText(this.isDark))
-                  .width('100%')
+      Scroll() {
+        Column({ space: 10 }) {
+          ForEach(HISTORY_DELETE_MODES, (opt: DeleteModeOption) => {
+            Column() {
+              CinematicPanel({ panelPadding: 14, cornerRadius: 16, interactive: true }) {
+                Row({ space: 10 }) {
+                  SymbolGlyph($r('sys.symbol.trash'))
+                    .fontSize(18)
+                    .fontColor([opt.danger ? '#E84855' : this.accentHex])
+                  Column({ space: 3 }) {
+                    Text(opt.label)
+                      .fontSize(14.5)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor(opt.danger ? '#E84855' : mpPrimaryText(this.isDark))
+                      .width('100%')
+                    Text(opt.desc)
+                      .fontSize(11.5)
+                      .fontColor(mpSecondaryText(this.isDark))
+                      .width('100%')
+                  }
+                  .layoutWeight(1)
+                  .alignItems(HorizontalAlign.Start)
+                }
+                .width('100%')
               }
-              .layoutWeight(1)
-              .alignItems(HorizontalAlign.Start)
             }
             .width('100%')
-          }
+            .opacity(this.deletingHistoryBusy ? 0.55 : 1)
+            .onClick(async () => {
+              const target = this.deletingHistoryItem;
+              if (!target || this.deletingHistoryBusy) { return; }
+              this.deletingHistoryBusy = true;
+              const ok = await MoviePilotRepository.shared().deleteTransferHistory(target, opt.deleteSrc, opt.deleteDest);
+              this.deletingHistoryBusy = false;
+              this.showDeleteHistorySheet = false;
+              this.notice = ok ? `已执行「${opt.label}」` : '删除整理记录失败';
+              if (ok) {
+                await this.loadData();
+              }
+            })
+          }, (opt: DeleteModeOption) => opt.label)
         }
         .width('100%')
-        .opacity(this.deletingHistoryBusy ? 0.55 : 1)
-        .onClick(async () => {
-          const target = this.deletingHistoryItem;
-          if (!target || this.deletingHistoryBusy) { return; }
-          this.deletingHistoryBusy = true;
-          const ok = await MoviePilotRepository.shared().deleteTransferHistory(target, opt.deleteSrc, opt.deleteDest);
-          this.deletingHistoryBusy = false;
-          this.showDeleteHistorySheet = false;
-          this.notice = ok ? `已执行「${opt.label}」` : '删除整理记录失败';
-          if (ok) {
-            await this.loadData();
-          }
-        })
-      }, (opt: DeleteModeOption) => opt.label)
+        .padding({ bottom: 20 })
+      }
+      .scrollBar(BarState.Off)
+      .layoutWeight(1)
+      .width('100%')
     }
     .padding(20)
     .width('100%')
+    .height('100%')
   }
 
   @Builder
@@ -862,10 +875,10 @@ export struct HarmonyLibraryPage {
         Column() { LoadingProgress().width(32).height(32).color(this.accentHex) }
           .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
       } else {
-        Scroll() {
-          Column({ space: 10 }) {
-            if (this.activeTabIdx === 0) {
-              ForEach(this.files, (f: MpStorageFile) => {
+        Grid() {
+          if (this.activeTabIdx === 0) {
+            ForEach(this.files, (f: MpStorageFile) => {
+              GridItem() {
                 Column() {
                   CinematicPanel({ panelPadding: 13, cornerRadius: 16, interactive: true }) {
                     Row({ space: 10 }) {
@@ -922,9 +935,11 @@ export struct HarmonyLibraryPage {
                     this.openManualTransfer(f, null, this.activeStorage, f.name, f.path);
                   }
                 })
-              }, (f: MpStorageFile) => `${f.storage}_${f.path}`)
-            } else {
-              ForEach(this.filteredHistory(), (h: MpTransferHistoryItem) => {
+              }
+            }, (f: MpStorageFile) => `${f.storage}_${f.path}`)
+          } else {
+            ForEach(this.filteredHistory(), (h: MpTransferHistoryItem) => {
+              GridItem() {
                 CinematicPanel({ panelPadding: 13, cornerRadius: 18 }) {
                   Row({ space: 12 }) {
                     Column() {
@@ -1001,21 +1016,29 @@ export struct HarmonyLibraryPage {
                     }.layoutWeight(1).alignItems(HorizontalAlign.Start)
                   }.width('100%')
                 }
-              }, (h: MpTransferHistoryItem) => String(h.id))
-            }
-          }.padding({ left: 16, right: 16, bottom: 40 })
-        }.scrollBar(BarState.Off).layoutWeight(1)
+              }
+            }, (h: MpTransferHistoryItem) => String(h.id))
+          }
+        }
+        .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
+        .columnsGap(10)
+        .rowsGap(10)
+        .padding({ left: 16, right: 16, bottom: 40 })
+        .scrollBar(BarState.Off)
+        .layoutWeight(1)
       }
 
       Blank().width(0).height(0).bindSheet($$this.showTransferSheet, this.manualTransferSheetBuilder(), {
         detents: [SheetSize.LARGE],
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showDeleteHistorySheet, this.deleteHistorySheetBuilder(), {
-        detents: [SheetSize.FIT_CONTENT, SheetSize.MEDIUM],
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,

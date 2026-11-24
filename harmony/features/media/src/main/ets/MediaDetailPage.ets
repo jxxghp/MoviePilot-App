@@ -34,6 +34,9 @@ export struct HarmonyMediaDetailPage {
   @StorageLink(HarmonyAppearanceStore.KEY_PALETTE_ID) paletteId: string = 'harmony_blue';
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) dynamicLight: boolean = true;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_TOP_VP) safeTopVp: number = 38;
   @Prop @Watch('onItemChanged') item: MpMediaItem = {
     id: '', mediaId: '', tmdbId: '', doubanId: '', title: '', enTitle: '', year: '', type: '电影',
     overview: '', vote: 0, posterUrl: '', backdropUrl: '', logoUrl: '', source: 'themoviedb',
@@ -131,29 +134,43 @@ export struct HarmonyMediaDetailPage {
     return 'TMDB';
   }
 
+  private isShortLandscape(): boolean {
+    return HarmonyAdaptiveLayout.isShortLandscape(this.windowWidthVp, this.windowHeightVp);
+  }
+
+  private heroHeightVp(): number {
+    if (this.isShortLandscape()) {
+      return Math.max(188, Math.round(this.windowHeightVp * 0.50));
+    }
+    if (this.windowWidthVp >= 840 && this.windowHeightVp >= 480) {
+      return 340;
+    }
+    return 380;
+  }
+
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
       Scroll(this.scroller) {
-        Column({ space: 18 }) {
+        Column({ space: this.isShortLandscape() ? 14 : 18 }) {
           // 全幅主视觉
           Stack({ alignContent: Alignment.BottomStart }) {
             if (this.activeMedia().backdropUrl || this.activeMedia().posterUrl) {
               MpRemoteImage({
                 src: this.activeMedia().backdropUrl || this.activeMedia().posterUrl,
                 imgWidth: '100%',
-                imgHeight: 380,
+                imgHeight: this.heroHeightVp(),
                 placeholderColor: HarmonyThemeColors.card(this.isDark, this.paletteId)
               })
             } else {
               Column()
                 .width('100%')
-                .height(380)
+                .height(this.heroHeightVp())
                 .backgroundColor(HarmonyThemeColors.card(this.isDark, this.paletteId))
             }
 
             Column()
               .width('100%')
-              .height(380)
+              .height(this.heroHeightVp())
               .linearGradient({
                 angle: 180,
                 colors: this.isDark
@@ -171,21 +188,22 @@ export struct HarmonyMediaDetailPage {
                   ]
               })
 
-            Column({ space: 8 }) {
+            Column({ space: this.isShortLandscape() ? 5 : 8 }) {
               if (this.activeMedia().logoUrl.length > 0) {
                 MpRemoteImage({
                   src: this.activeMedia().logoUrl,
-                  imgWidth: 190,
-                  imgHeight: 62,
+                  imgWidth: this.isShortLandscape() ? 156 : 190,
+                  imgHeight: this.isShortLandscape() ? 46 : 62,
                   fit: ImageFit.Contain,
                   placeholderColor: Color.Transparent
                 })
               } else {
                 Text(this.activeMedia().title)
-                  .fontSize(26)
+                  .fontSize(this.isShortLandscape() ? 21 : 26)
                   .fontWeight(FontWeight.Bold)
                   .fontColor(Color.White)
                   .textAlign(TextAlign.Start)
+                  .maxLines(this.isShortLandscape() ? 1 : 2)
               }
 
               Row({ space: 8 }) {
@@ -219,7 +237,7 @@ export struct HarmonyMediaDetailPage {
             }
             .width('100%')
             .alignItems(HorizontalAlign.Start)
-            .padding(20)
+            .padding(this.isShortLandscape() ? 14 : 20)
           }
 
           // 操作按钮（带清晰语义图标）
@@ -457,14 +475,21 @@ export struct HarmonyMediaDetailPage {
       NativeTopStatusBarBlur({ visibilityProgress: Math.min(1, Math.max(0, this.scrollOffsetY / 150)) })
 
       Button({ type: ButtonType.Circle }) {
-        SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(20).fontColor([Color.White])
+        SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(this.isShortLandscape() ? 18 : 20).fontColor([Color.White])
       }
-      .width(40)
-      .height(40)
+      .width(this.isShortLandscape() ? 36 : 40)
+      .height(this.isShortLandscape() ? 36 : 40)
       .backgroundColor(Color.Transparent)
-      .attributeModifier(new HarmonySurfaceModifier(true, 'pill', 20, this.accentHex, true, this.dynamicLight))
+      .attributeModifier(new HarmonySurfaceModifier(
+        true,
+        'pill',
+        this.isShortLandscape() ? 18 : 20,
+        this.accentHex,
+        true,
+        this.dynamicLight
+      ))
       .accessibilityText('返回上一级')
-      .position({ left: 16, top: 44 })
+      .position({ left: 16, top: Math.max(10, this.safeTopVp + 4) })
       .onClick(() => this.onBack())
     }
     .width('100%')

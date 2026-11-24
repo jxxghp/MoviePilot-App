@@ -133,6 +133,7 @@ fun SubscriptionsScreen(
 ) {
     val colors = LocalMoviePilotColors.current
     val bottomOverlayInset = LocalBottomOverlayInset.current
+    val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val scope = rememberCoroutineScope()
     val snackbar = LocalSnackbarHostState.current
@@ -205,7 +206,7 @@ fun SubscriptionsScreen(
                 SubscribeCommunityContent(
                     repository = repository,
                     onOpenMedia = onOpenMedia,
-                    bottomPadding = (if (onBack == null) 120.dp else 48.dp) + bottomOverlayInset,
+                    bottomPadding = bottomOverlayInset + 20.dp,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
@@ -229,7 +230,7 @@ fun SubscriptionsScreen(
 
                 Column(modifier = Modifier.fillMaxSize()) {
                     LazyRow(
-                        contentPadding = PaddingValues(horizontal = margin, vertical = 10.dp),
+                        contentPadding = PaddingValues(horizontal = margin, vertical = if (compactHeight) 6.dp else 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(filterChips) { (key, label) ->
@@ -254,7 +255,7 @@ fun SubscriptionsScreen(
                             contentPadding = PaddingValues(
                                 start = margin,
                                 end = margin,
-                                bottom = (if (onBack == null) 120.dp else 48.dp) + bottomOverlayInset,
+                                bottom = bottomOverlayInset + 20.dp,
                             ),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                             modifier = Modifier.fillMaxSize(),
@@ -869,6 +870,7 @@ fun CalendarScreen(
 ) {
     val colors = LocalMoviePilotColors.current
     val bottomOverlayInset = LocalBottomOverlayInset.current
+    val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val scope = rememberCoroutineScope()
     val today = remember { LocalDate.now() }
@@ -1017,7 +1019,7 @@ fun CalendarScreen(
                     }
                 } else if (dayItems.isEmpty()) {
                     LazyColumn(
-                        contentPadding = PaddingValues(start = margin, end = margin, bottom = 128.dp + bottomOverlayInset),
+                        contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomOverlayInset + 24.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         item {
@@ -1036,7 +1038,7 @@ fun CalendarScreen(
                     }
                 } else {
                     LazyColumn(
-                        contentPadding = PaddingValues(start = margin, end = margin, bottom = 128.dp + bottomOverlayInset),
+                        contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomOverlayInset + 24.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {

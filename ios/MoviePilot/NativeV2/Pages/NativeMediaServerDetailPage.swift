@@ -88,6 +88,7 @@ struct NativeMediaServerDetailPage: View {
         : viewportWidth
       let margin = NativeDeviceLayout.horizontalMargin(for: viewportWidth)
       let isPortraitPhone = viewportWidth < viewport.size.height && viewportWidth < 680
+      let isCompactLandscape = viewportWidth > viewport.size.height && viewport.size.height < 500
       let isWide = viewportWidth >= 680
       let heroHeight = NativeDeviceLayout.detailHeroHeight(
         width: viewportWidth,
@@ -132,11 +133,17 @@ struct NativeMediaServerDetailPage: View {
         ScrollView {
           VStack(alignment: .leading, spacing: 0) {
             if let detail {
-              heroHeaderOverlay(detail, height: heroHeight, margin: margin, isWide: isWide)
-                .frame(maxWidth: 1020, alignment: .center)
-                .frame(maxWidth: .infinity)
+              heroHeaderOverlay(
+                detail,
+                height: heroHeight,
+                margin: margin,
+                isWide: isWide,
+                isCompactLandscape: isCompactLandscape
+              )
+              .frame(maxWidth: 1020, alignment: .center)
+              .frame(maxWidth: .infinity)
 
-              VStack(alignment: .leading, spacing: 22) {
+              VStack(alignment: .leading, spacing: isCompactLandscape ? 16 : 22) {
                 if let feedbackMessage {
                   feedbackBanner(feedbackMessage.text, isError: feedbackMessage.isError)
                 }
@@ -145,7 +152,7 @@ struct NativeMediaServerDetailPage: View {
                   hierarchyBreadcrumb(detail)
                 }
 
-                actionBar(detail)
+                actionBar(detail, isCompactLandscape: isCompactLandscape)
 
                 if detail.kind.isDirectlyPlayable, let source = activeMediaSource {
                   prePlayTrackSelectorCard(detail: detail, source: source)
@@ -312,7 +319,7 @@ struct NativeMediaServerDetailPage: View {
 
   private func heroHeaderOverlay(
     _ detail: MediaServerItemDetailDTO, height: CGFloat, margin: CGFloat = CinematicStyle.margin,
-    isWide: Bool = false
+    isWide: Bool = false, isCompactLandscape: Bool = false
   ) -> some View {
     let isLight = colorScheme == .light
     let titleText = heroDisplayTitle(detail)
@@ -320,8 +327,8 @@ struct NativeMediaServerDetailPage: View {
     let logoRef = directLogo ?? (fetchedLogo?.url.isEmpty == false ? fetchedLogo?.url : nil)
     let logoLanguage = directLogo != nil ? detail.logoLanguage : fetchedLogo?.logoLanguage
     let originalLanguage = fetchedLogo?.originalLanguage
-    return VStack(alignment: .center, spacing: 10) {
-      Spacer(minLength: 0)
+    return VStack(alignment: .center, spacing: isCompactLandscape ? 5 : 10) {
+      Spacer(minLength: isCompactLandscape ? 44 : 0)
 
       if let logoRef, !logoRef.isEmpty {
         NativeDiscoverLogoBanner(
@@ -331,9 +338,10 @@ struct NativeMediaServerDetailPage: View {
           isAccessibilitySize: dynamicTypeSize.isAccessibilitySize,
           logoLanguage: logoLanguage,
           originalLanguage: originalLanguage,
-          maxWidth: isWide ? 340 : 284,
-          maxHeight: isWide ? 104 : 88,
+          maxWidth: isCompactLandscape ? 228 : (isWide ? 340 : 284),
+          maxHeight: isCompactLandscape ? 48 : (isWide ? 104 : 88),
           isWide: isWide,
+          isCompactLandscape: isCompactLandscape,
           textAlignment: .center,
           fallbackColor: isLight ? Color.primary : Color.white
         )
@@ -343,6 +351,7 @@ struct NativeMediaServerDetailPage: View {
           title: titleText,
           isAccessibilitySize: dynamicTypeSize.isAccessibilitySize,
           isWide: isWide,
+          isCompactLandscape: isCompactLandscape,
           textAlignment: .center,
           color: isLight ? Color.primary : Color.white
         )
@@ -352,9 +361,10 @@ struct NativeMediaServerDetailPage: View {
       let meta = metadataLineParts(detail)
       if !meta.isEmpty {
         Text(meta.joined(separator: " · "))
-          .font(.subheadline.weight(.medium))
+          .font(isCompactLandscape ? .footnote.weight(.medium) : .subheadline.weight(.medium))
           .foregroundStyle(isLight ? Color.primary.opacity(0.82) : Color.white.opacity(0.86))
           .multilineTextAlignment(.center)
+          .lineLimit(isCompactLandscape ? 1 : 2)
       }
 
       HStack(spacing: 6) {
@@ -362,7 +372,7 @@ struct NativeMediaServerDetailPage: View {
           .font(.caption2.weight(.bold))
           .foregroundStyle(.white)
           .padding(.horizontal, 9)
-          .padding(.vertical, 4)
+          .padding(.vertical, isCompactLandscape ? 3 : 4)
           .background(appearance.accentColor.opacity(0.88), in: Capsule())
 
         if let serverName = resolvedServer, !serverName.isEmpty {
@@ -370,7 +380,7 @@ struct NativeMediaServerDetailPage: View {
             .font(.caption2.weight(.semibold))
             .foregroundStyle(.primary.opacity(0.84))
             .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.vertical, isCompactLandscape ? 3 : 4)
             .background(.primary.opacity(0.12), in: Capsule())
         }
 
@@ -393,14 +403,14 @@ struct NativeMediaServerDetailPage: View {
               .lineLimit(1)
               .foregroundStyle(.primary.opacity(0.82))
               .padding(.horizontal, 9)
-              .padding(.vertical, 4)
+              .padding(.vertical, isCompactLandscape ? 3 : 4)
               .background(.primary.opacity(0.10), in: Capsule())
           }
         }
       }
     }
     .padding(.horizontal, margin)
-    .padding(.bottom, 16)
+    .padding(.bottom, isCompactLandscape ? 8 : 16)
     .frame(maxWidth: .infinity, minHeight: height, alignment: .bottom)
   }
 
@@ -478,12 +488,19 @@ struct NativeMediaServerDetailPage: View {
 
   // MARK: - Action Bar (Play / Subscribe / Search)
 
-  private func actionBar(_ detail: MediaServerItemDetailDTO) -> some View {
+  private func actionBar(
+    _ detail: MediaServerItemDetailDTO, isCompactLandscape: Bool = false
+  ) -> some View {
     let hasPlayAction = canInitiatePlayback(detail)
     let subscribeTarget = detail.resolvedExternalIdentity
     let externalURL = detail.playUrl.flatMap(URL.init(string:))
     let hasOverflowActions = subscribeTarget != nil || externalURL != nil
-    return VStack(spacing: 10) {
+    let useSingleRow = isCompactLandscape && !dynamicTypeSize.isAccessibilitySize
+    let layout =
+      useSingleRow
+      ? AnyLayout(HStackLayout(spacing: 10))
+      : AnyLayout(VStackLayout(spacing: 10))
+    return layout {
       if hasPlayAction {
         HStack(spacing: 10) {
           Button {
@@ -515,14 +532,14 @@ struct NativeMediaServerDetailPage: View {
           .disabled(isLaunchingPlayback)
           .accessibilityIdentifier("native-mediaserver-detail-play")
 
-          if hasOverflowActions {
+          if hasOverflowActions && !useSingleRow {
             overflowActionMenu(detail: detail, external: subscribeTarget, externalURL: externalURL)
           }
         }
       }
 
       if (canSubscribe && subscribeTarget != nil) || canSearchResources
-        || (!hasPlayAction && hasOverflowActions)
+        || ((!hasPlayAction || useSingleRow) && hasOverflowActions)
       {
         HStack(spacing: 10) {
           if canSubscribe, let ext = subscribeTarget {
@@ -560,7 +577,7 @@ struct NativeMediaServerDetailPage: View {
                 subscribedNow ? Color(red: 0.44, green: 0.90, blue: 0.66) : .primary
               )
               .frame(maxWidth: .infinity)
-              .frame(height: 46)
+              .frame(height: useSingleRow ? 48 : 46)
               .background {
                 Capsule()
                   .fill(
@@ -596,7 +613,7 @@ struct NativeMediaServerDetailPage: View {
               }
               .foregroundStyle(.primary)
               .frame(maxWidth: .infinity)
-              .frame(height: 46)
+              .frame(height: useSingleRow ? 48 : 46)
               .background {
                 Capsule()
                   .fill(.primary.opacity(colorScheme == .light ? 0.08 : 0.13))
@@ -607,7 +624,7 @@ struct NativeMediaServerDetailPage: View {
             .accessibilityIdentifier("native-mediaserver-detail-search")
           }
 
-          if !hasPlayAction && hasOverflowActions {
+          if (!hasPlayAction || useSingleRow) && hasOverflowActions {
             overflowActionMenu(detail: detail, external: subscribeTarget, externalURL: externalURL)
           }
         }

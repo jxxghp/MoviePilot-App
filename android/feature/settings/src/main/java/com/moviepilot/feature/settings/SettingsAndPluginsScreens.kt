@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -90,6 +91,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -208,9 +210,10 @@ fun SettingsHubScreen(
             },
             modifier = Modifier.fillMaxSize(),
         ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.widthIn(max = 860.dp).fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = margin,
                     end = margin,
@@ -348,6 +351,7 @@ fun SettingsHubScreen(
                     }
                 }
             }
+            }
         }
     }
 }
@@ -436,6 +440,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
     val colors = LocalMoviePilotColors.current
     val store = LocalAppearanceStore.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
+    val paletteCols = if (LocalConfiguration.current.screenWidthDp >= 680) 3 else 2
     var previewPlaying by remember { mutableStateOf(true) }
     var previewProgress by remember { mutableStateOf(0.58f) }
 
@@ -451,8 +456,9 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
             )
         },
     ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.widthIn(max = 860.dp).fillMaxSize(),
             contentPadding = PaddingValues(start = margin, end = margin, top = 16.dp, bottom = 56.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
@@ -612,11 +618,11 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
                 }
             }
 
-            // 3. 精选 Material 3 Expressive 主题色板（5 套高辨识度双色调色板）
+            // 3. 精选 Material 3 Expressive 主题色板（5 套高辨识度双色调色板，宽屏 3 列自适应）
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("表现力主题色板", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
-                    ExpressivePalettes.all.chunked(2).forEach { row ->
+                    ExpressivePalettes.all.chunked(paletteCols).forEach { row ->
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             row.forEach { preset ->
                                 val selected = !store.dynamicColorEnabled && store.paletteId == preset.id
@@ -684,7 +690,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
                                     }
                                 }
                             }
-                            if (row.size == 1) {
+                            repeat(paletteCols - row.size) {
                                 Spacer(Modifier.weight(1f))
                             }
                         }
@@ -796,6 +802,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
                         }
                     }
                 }
+            }
             }
         }
     }

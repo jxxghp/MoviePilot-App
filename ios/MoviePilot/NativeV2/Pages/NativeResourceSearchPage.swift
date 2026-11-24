@@ -51,6 +51,7 @@ struct NativeResourceSearchPage: View {
   let target: NativeResourceSearchTarget
 
   @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @Environment(\.verticalSizeClass) private var verticalSizeClass
   @State private var keyword: String
   @State private var sites: [NativeSearchSite] = []
   @State private var siteScope: SiteScopeSelection = .systemDefault
@@ -225,7 +226,10 @@ struct NativeResourceSearchPage: View {
         feedback = NativeResourceFeedback(isError: false, message: message)
       }
       .nativeGlassSheet()
-      .presentationDetents([.fraction(2.0 / 3.0), .large])
+      .nativeAdaptiveSheetSizing()
+      .presentationDetents(
+        verticalSizeClass == .compact ? [.large] : [.fraction(2.0 / 3.0), .large]
+      )
       .presentationDragIndicator(.visible)
     }
   }
@@ -1046,7 +1050,9 @@ private struct NativeResourceAllFiltersSheet: View {
             facetGroup("流媒体来源", options: facets.webSources, selection: $filter.webSources)
             facetGroup("制作组", options: facets.releaseGroups, selection: $filter.releaseGroups)
           }
+          .frame(maxWidth: 680)
           .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
+          .frame(maxWidth: .infinity)
         }
       }
       .navigationTitle("全部筛选 (\(filter.activeCount))")
@@ -1066,6 +1072,7 @@ private struct NativeResourceAllFiltersSheet: View {
       }
     }
     .nativeGlassSheet()
+    .nativeAdaptiveSheetSizing()
   }
 
   @ViewBuilder
@@ -1345,8 +1352,10 @@ private struct NativeDownloadConfirmSheet: View {
             .disabled(isSubmitting)
             .accessibilityIdentifier("native-download-confirm-submit")
           }
+          .frame(maxWidth: 680)
           .padding(.horizontal, CinematicStyle.margin)
           .padding(.vertical, 14)
+          .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.hidden)
       }
@@ -1367,6 +1376,7 @@ private struct NativeDownloadConfirmSheet: View {
       }
       .task { await loadOptions() }
     }
+    .nativeAdaptiveSheetSizing()
   }
 
   private func loadOptions() async {

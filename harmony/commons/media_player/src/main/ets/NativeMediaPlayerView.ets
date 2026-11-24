@@ -1,6 +1,7 @@
 import { media } from '@kit.MediaKit';
 import { avSession } from '@kit.AVSessionKit';
 import { common } from '@kit.AbilityKit';
+import { window } from '@kit.ArkUI';
 
 /** 鸿蒙原生音视频播放请求模型（与 Rust/iOS/Android 清单一致）。 */
 export interface HarmonyPlaybackRequest {
@@ -298,6 +299,12 @@ export class HarmonyAudioSession {
  */
 @Component
 export struct NativeMediaPlayerView {
+  @StorageLink('mp_window_width_vp') windowWidthVp: number = 412;
+  @StorageLink('mp_window_height_vp') windowHeightVp: number = 892;
+  @StorageLink('mp_safe_top_vp') safeTopVp: number = 38;
+  @StorageLink('mp_safe_bottom_vp') safeBottomVp: number = 16;
+  @StorageLink('mp_safe_left_vp') safeLeftVp: number = 0;
+  @StorageLink('mp_safe_right_vp') safeRightVp: number = 0;
   @Prop request: HarmonyPlaybackRequest = { url: '', title: '', subtitle: '', isAudio: false };
   @Prop isLandscape: boolean = false;
   @State private isPlaying: boolean = true;
@@ -309,6 +316,9 @@ export struct NativeMediaPlayerView {
   @State private isDraggingSlider: boolean = false;
   @State private speedIndex: number = 1;
   @State private subtitleEnabled: boolean = true;
+  @State private videoAspect: number = 16 / 9;
+  @State private videoFillMode: boolean = false;
+  private orientationOverridden: boolean = false;
   private xComponentController: XComponentController = new XComponentController();
   private videoPlayer: media.AVPlayer | null = null;
   private audioListener: AudioStateListener = () => {
@@ -316,6 +326,92 @@ export struct NativeMediaPlayerView {
   };
   onClose: () => void = () => {};
   onMinimizeToMiniBar: () => void = () => {};
+
+  private effectiveLandscape(): boolean {
+    if (this.windowWidthVp > 0 && this.windowHeightVp > 0) {
+      return this.windowWidthVp > this.windowHeightVp;
+    }
+    return this.isLandscape;
+  }
+
+  private isShortLandscape(): boolean {
+    return this.effectiveLandscape() && this.windowHeightVp > 0 && this.windowHeightVp < 480;
+  }
+
+  private applyWindowOrientation(target: window.Orientation): void {
+    try {
+      const ctx = this.getUIContext().getHostContext();
+      if (!ctx) { return; }
+      window.getLastWindow(ctx).then((win: window.Window) => {
+        win.setPreferredOrientation(target).catch(() => {});
+      }).catch(() => {});
+    } catch {
+      // ignore orientation error on unsupported targets
+    }
+  }
+
+  private handleToggleFullscreenOrientation(): void {
+    if (this.isLocked) { return; }
+    this.orientationOverridden = true;
+    if (this.effectiveLandscape()) {
+      this.applyWindowOrientation(window.Orientation.PORTRAIT);
+    } else {
+      this.applyWindowOrientation(window.Orientation.AUTO_ROTATION_LANDSCAPE);
+    }
+  }
+
+  private handleToggleScreenLock(): void {
+    const nextLocked = !this.isLocked;
+    this.isLocked = nextLocked;
+    if (nextLocked) {
+      this.orientationOverridden = true;
+      this.applyWindowOrientation(
+        this.effectiveLandscape()
+          ? window.Orientation.AUTO_ROTATION_LANDSCAPE
+          : window.Orientation.PORTRAIT
+      );
+    } else {
+      this.orientationOverridden = false;
+      this.applyWindowOrientation(window.Orientation.AUTO_ROTATION_RESTRICTED);
+    }
+  }
+
+  private isWiderThanVideo(): boolean {
+    const vw = Math.max(1, this.windowWidthVp);
+    const vh = Math.max(1, this.windowHeightVp);
+    const aspect = this.videoAspect > 0.1 ? this.videoAspect : (16 / 9);
+    return (vw / vh) > aspect;
+  }
+
+  private videoSurfaceWidth(): Length {
+    const aspect = this.videoAspect > 0.1 ? this.videoAspect : (16 / 9);
+    const wider = this.isWiderThanVideo();
+    if (!this.videoFillMode) {
+      if (wider && this.windowHeightVp > 0) {
+        return Math.round(this.windowHeightVp * aspect);
+      }
+      return '100%';
+    }
+    if (!wider && this.windowHeightVp > 0) {
+      return Math.round(this.windowHeightVp * aspect);
+    }
+    return '100%';
+  }
+
+  private videoSurfaceHeight(): Length {
+    const aspect = this.videoAspect > 0.1 ? this.videoAspect : (16 / 9);
+    const wider = this.isWiderThanVideo();
+    if (!this.videoFillMode) {
+      if (!wider && this.windowWidthVp > 0) {
+        return Math.round(this.windowWidthVp / aspect);
+      }
+      return '100%';
+    }
+    if (wider && this.windowWidthVp > 0) {
+      return Math.round(this.windowWidthVp / aspect);
+    }
+    return '100%';
+  }
 
   aboutToAppear(): void {
     if (this.request.isAudio) {
@@ -330,6 +426,10 @@ export struct NativeMediaPlayerView {
   }
 
   aboutToDisappear(): void {
+    if (this.orientationOverridden || this.isLocked) {
+      this.applyWindowOrientation(window.Orientation.AUTO_ROTATION_RESTRICTED);
+      this.orientationOverridden = false;
+    }
     if (this.request.isAudio) {
       // 仅解绑 UI 监听，保持后台音频在迷你音乐条中无缝续播
       HarmonyAudioSession.shared().unsubscribe(this.audioListener);
@@ -358,6 +458,11 @@ export struct NativeMediaPlayerView {
     try {
       const player = await media.createAVPlayer();
       this.videoPlayer = player;
+      player.on('videoSizeChange', (w: number, h: number) => {
+        if (w > 0 && h > 0) {
+          this.videoAspect = w / h;
+        }
+      });
       player.on('durationUpdate', (dur: number) => {
         this.durationMs = Math.max(0, dur);
       });
@@ -455,9 +560,50 @@ export struct NativeMediaPlayerView {
           type: XComponentType.SURFACE,
           controller: this.xComponentController
         })
-          .width('100%')
-          .height('100%')
+          .width(this.videoSurfaceWidth())
+          .height(this.videoSurfaceHeight())
           .backgroundColor(Color.Black)
+      } else if (this.isShortLandscape()) {
+        Row() {
+          Row({ space: 16 }) {
+            Stack() {
+              SymbolGlyph($r('sys.symbol.music'))
+                .fontSize(40)
+                .fontColor(['#317AF7'])
+            }
+            .width(96)
+            .height(96)
+            .borderRadius(20)
+            .backgroundColor('#22FFFFFF')
+
+            Column({ space: 6 }) {
+              Text(this.request.title)
+                .fontSize(17)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(Color.White)
+                .maxLines(2)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text(this.request.subtitle)
+                .fontSize(12.5)
+                .fontColor('#B8FFFFFF')
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+          }
+          .width('50%')
+          .padding({ left: Math.max(24, 16 + this.safeLeftVp), right: 44, bottom: 20 })
+          Blank()
+        }
+        .width('100%')
+        .height('100%')
+        .alignItems(VerticalAlign.Center)
+        .linearGradient({ angle: 160, colors: [['#13203A', 0], ['#1D3461', 0.55], ['#0B0E14', 1]] })
+        .expandSafeArea(
+          [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+          [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END]
+        )
       } else {
         Column({ space: 14 }) {
           Stack() {
@@ -482,9 +628,13 @@ export struct NativeMediaPlayerView {
         .height('100%')
         .justifyContent(FlexAlign.Center)
         .linearGradient({ angle: 160, colors: [['#13203A', 0], ['#1D3461', 0.55], ['#0B0E14', 1]] })
+        .expandSafeArea(
+          [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+          [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END]
+        )
       }
 
-      if (this.isLandscape && this.controlsVisible) {
+      if (this.effectiveLandscape() && this.controlsVisible) {
         Stack() {
           SymbolGlyph($r(this.isLocked ? 'sys.symbol.lock_fill' : 'sys.symbol.lock_open_fill'))
             .fontSize(22)
@@ -495,17 +645,26 @@ export struct NativeMediaPlayerView {
         .borderRadius(22)
         .backgroundColor('#70000000')
         .align(Alignment.End)
-        .position({ right: 20, y: '46%' })
-        .onClick(() => { this.isLocked = !this.isLocked; })
+        .position({ right: 20 + this.safeRightVp, y: '44%' })
+        .accessibilityText(this.isLocked ? '解锁屏幕控制' : '锁定屏幕控制')
+        .onClick(() => this.handleToggleScreenLock())
       }
 
       if (this.controlsVisible && !this.isLocked) {
         Column() {
           Row({ space: 10 }) {
-            SymbolGlyph($r(this.request.isAudio ? 'sys.symbol.chevron_down' : 'sys.symbol.chevron_left'))
-              .fontSize(22)
-              .fontColor([Color.White])
-              .onClick(() => this.request.isAudio ? this.onMinimizeToMiniBar() : this.onClose())
+            Stack() {
+              SymbolGlyph($r(this.request.isAudio ? 'sys.symbol.chevron_down' : 'sys.symbol.chevron_left'))
+                .fontSize(22)
+                .fontColor([Color.White])
+            }
+            .width(36)
+            .height(36)
+            .borderRadius(18)
+            .backgroundColor('#42000000')
+            .accessibilityText(this.request.isAudio ? '收起至迷你播放条' : '返回')
+            .onClick(() => this.request.isAudio ? this.onMinimizeToMiniBar() : this.onClose())
+
             Text(this.request.title)
               .fontSize(16)
               .fontWeight(FontWeight.Medium)
@@ -513,12 +672,26 @@ export struct NativeMediaPlayerView {
               .layoutWeight(1)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
-            SymbolGlyph($r('sys.symbol.full_screen_tv'))
-              .fontSize(22)
-              .fontColor([Color.White])
+
+            Stack() {
+              SymbolGlyph($r('sys.symbol.full_screen_tv'))
+                .fontSize(20)
+                .fontColor([Color.White])
+            }
+            .width(36)
+            .height(36)
+            .borderRadius(18)
+            .backgroundColor('#42000000')
+            .accessibilityText(this.effectiveLandscape() ? '切换竖屏播放' : '切换横屏全屏播放')
+            .onClick(() => this.handleToggleFullscreenOrientation())
           }
           .width('100%')
-          .padding({ left: 16, right: 16, top: 44, bottom: 12 })
+          .padding({
+            left: 16 + this.safeLeftVp,
+            right: 16 + this.safeRightVp,
+            top: Math.max(12, this.safeTopVp + 4),
+            bottom: this.isShortLandscape() ? 6 : 12
+          })
 
           Blank()
 
@@ -531,11 +704,12 @@ export struct NativeMediaPlayerView {
           .height(64)
           .borderRadius(32)
           .backgroundColor('#66000000')
+          .accessibilityText(this.isPlaying ? '暂停' : '播放')
           .onClick(() => this.handleTogglePlay())
 
           Blank()
 
-          Column({ space: 6 }) {
+          Column({ space: this.isShortLandscape() ? 2 : 6 }) {
             Row() {
               Text(formatDurationMs(this.positionMs)).fontSize(11.5).fontColor('#CCFFFFFF')
               Blank()
@@ -559,9 +733,20 @@ export struct NativeMediaPlayerView {
               }
               Blank()
               Row({ space: 14 }) {
-                SymbolGlyph($r('sys.symbol.aspect_ratio'))
-                  .fontSize(20)
-                  .fontColor([Color.White])
+                Row({ space: 4 }) {
+                  SymbolGlyph($r('sys.symbol.aspect_ratio'))
+                    .fontSize(20)
+                    .fontColor([this.videoFillMode ? '#317AF7' : Color.White])
+                  if (this.videoFillMode) {
+                    Text('铺满')
+                      .fontSize(11)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor('#317AF7')
+                  }
+                }
+                .accessibilityText(this.videoFillMode ? '切换原始比例适应' : '切换铺满裁切模式')
+                .onClick(() => { this.videoFillMode = !this.videoFillMode; })
+
                 Row({ space: 4 }) {
                   SymbolGlyph($r('sys.symbol.timer'))
                     .fontSize(19)
@@ -577,7 +762,11 @@ export struct NativeMediaPlayerView {
             .width('100%')
           }
           .width('100%')
-          .padding({ left: 18, right: 18, bottom: 26 })
+          .padding({
+            left: 18 + this.safeLeftVp,
+            right: 18 + this.safeRightVp,
+            bottom: Math.max(14, this.safeBottomVp + (this.isShortLandscape() ? 4 : 10))
+          })
         }
         .width('100%')
         .height('100%')
@@ -585,6 +774,12 @@ export struct NativeMediaPlayerView {
     }
     .width('100%')
     .height('100%')
+    .backgroundColor(Color.Black)
+    .clip(true)
+    .expandSafeArea(
+      [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+      [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END]
+    )
     .onClick(() => { this.controlsVisible = !this.controlsVisible; })
   }
 }
@@ -631,6 +826,7 @@ export struct FloatingMiniMusicBar {
       .onClick(() => this.onClose())
     }
     .width('92%')
+    .constraintSize({ maxWidth: 480 })
     .padding({ left: 12, right: 10, top: 8, bottom: 8 })
     .borderRadius(20)
     .backgroundColor('#E01A1A22')

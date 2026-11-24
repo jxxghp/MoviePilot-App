@@ -150,8 +150,41 @@ export class HarmonyAppearanceStore {
   static readonly KEY_WINDOW_WIDTH_VP = 'mp_window_width_vp';
   static readonly KEY_WINDOW_HEIGHT_VP = 'mp_window_height_vp';
   static readonly KEY_BREAKPOINT = 'mp_breakpoint';
+  static readonly KEY_SAFE_TOP_VP = 'mp_safe_top_vp';
+  static readonly KEY_SAFE_BOTTOM_VP = 'mp_safe_bottom_vp';
+  static readonly KEY_SAFE_LEFT_VP = 'mp_safe_left_vp';
+  static readonly KEY_SAFE_RIGHT_VP = 'mp_safe_right_vp';
   static readonly KEY_DISCOVER_MODULES = 'mp_discover_modules_v2';
   static readonly KEY_DASHBOARD_MODULES = 'mp_dashboard_modules_v2';
+
+  /** 确保 AppStorage 中存在全部外观、窗口与安全避让区默认键值（已存在时不覆盖）。 */
+  static ensureAppStorageDefaults(): void {
+    const ensure = <T>(key: string, val: T): void => {
+      if (!AppStorage.has(key)) {
+        AppStorage.setOrCreate(key, val);
+      }
+    };
+    ensure<boolean>(HarmonyAppearanceStore.KEY_IS_DARK, true);
+    ensure<string>(HarmonyAppearanceStore.KEY_MODE, 'dark');
+    ensure<string>(HarmonyAppearanceStore.KEY_PALETTE_ID, 'harmony_blue');
+    ensure<string>(HarmonyAppearanceStore.KEY_BG_PRESET, GeneratedDesignTokens.DEFAULT_BACKGROUND_PRESET);
+    ensure<string>(HarmonyAppearanceStore.KEY_ACCENT_HEX, '#317AF7');
+    ensure<boolean>(HarmonyAppearanceStore.KEY_ANIMATE_BG, true);
+    ensure<boolean>(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT, true);
+    ensure<boolean>(HarmonyAppearanceStore.KEY_PURE_BLACK, false);
+    ensure<boolean>(HarmonyAppearanceStore.KEY_SHOW_AI_MASCOT, true);
+    ensure<string>(HarmonyAppearanceStore.KEY_LOCALE, 'zh-CN');
+    ensure<boolean>(HarmonyAppearanceStore.KEY_ALLOW_SELF_SIGNED, false);
+    ensure<number>(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP, 412);
+    ensure<number>(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP, 892);
+    ensure<string>(HarmonyAppearanceStore.KEY_BREAKPOINT, 'sm');
+    ensure<number>(HarmonyAppearanceStore.KEY_SAFE_TOP_VP, 38);
+    ensure<number>(HarmonyAppearanceStore.KEY_SAFE_BOTTOM_VP, 16);
+    ensure<number>(HarmonyAppearanceStore.KEY_SAFE_LEFT_VP, 0);
+    ensure<number>(HarmonyAppearanceStore.KEY_SAFE_RIGHT_VP, 0);
+    ensure<string>(HarmonyAppearanceStore.KEY_DISCOVER_MODULES, JSON.stringify(DEFAULT_DISCOVER_MODULES));
+    ensure<string>(HarmonyAppearanceStore.KEY_DASHBOARD_MODULES, JSON.stringify(DEFAULT_DASHBOARD_MODULES));
+  }
 
   static initDefaults(): void {
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_IS_DARK, true);
@@ -168,6 +201,10 @@ export class HarmonyAppearanceStore {
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP, 412);
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP, 892);
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_BREAKPOINT, 'sm');
+    AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_SAFE_TOP_VP, 38);
+    AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_SAFE_BOTTOM_VP, 16);
+    AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_SAFE_LEFT_VP, 0);
+    AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_SAFE_RIGHT_VP, 0);
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_DISCOVER_MODULES, JSON.stringify(DEFAULT_DISCOVER_MODULES));
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_DASHBOARD_MODULES, JSON.stringify(DEFAULT_DASHBOARD_MODULES));
   }
