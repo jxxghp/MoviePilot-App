@@ -724,20 +724,26 @@ private struct APIResourceCookie: Equatable, Sendable {
   let expires: Date
   let secure: Bool
 
-  /// MoviePilot 以配置的项目名签发 host-only、HttpOnly JWT；拒绝外部域和其他 Cookie。
+  /// MoviePilot 以配置的项目名签发 host-only、HttpOnly JWT；只接收唯一的资源 Cookie。
   init?(response: HTTPURLResponse) {
     guard let url = response.url, let host = url.host?.lowercased(),
-      let raw = response.value(forHTTPHeaderField: "Set-Cookie"), raw.utf8.count <= 16_384,
-      !raw.split(separator: ";").dropFirst().contains(where: {
+      let raw = response.value(forHTTPHeaderField: "Set-Cookie"), raw.utf8.count <= 16_384
+    else { return nil }
+    let candidates = Self.cookieFields(raw).filter { field in
+      field.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).first?
+        .trimmingCharacters(in: .whitespaces) == "MoviePilot"
+    }
+    guard candidates.count == 1, let candidate = candidates.first,
+      !candidate.split(separator: ";").dropFirst().contains(where: {
         $0.split(separator: "=", maxSplits: 1).first?
           .trimmingCharacters(in: .whitespaces).lowercased() == "domain"
       })
     else { return nil }
-    let cookies = HTTPCookie.cookies(withResponseHeaderFields: ["Set-Cookie": raw], for: url)
+    let cookies = HTTPCookie.cookies(
+      withResponseHeaderFields: ["Set-Cookie": String(candidate)], for: url)
     guard cookies.count == 1, let cookie = cookies.first, cookie.isHTTPOnly,
       cookie.domain.lowercased() == host,
       cookie.name == "MoviePilot",
-      !cookie.name.isEmpty,
       cookie.name.utf8.allSatisfy({ Self.tokenByte($0) }),
       let expiration = Self.expiration(cookie.value), expiration > Date()
     else { return nil }
@@ -745,6 +751,20 @@ private struct APIResourceCookie: Equatable, Sendable {
     path = cookie.path
     expires = min(expiration, cookie.expiresDate ?? expiration)
     secure = cookie.isSecure
+  }
+
+  /// Foundation 可能合并多行 Set-Cookie；仅在引号外、下一个 cookie-pair 之前分隔。
+  /// Expires 的星期后逗号不是分隔符，不要让其他 Cookie 的属性影响资源凭据。
+  private static func cookieFields(_ raw: String) -> [Substring] {
+    let boundary = #/"[^"]*"|,(?=[ \t]*[!#$%&'*+\-.^_`|~0-9A-Za-z]+[ \t]*=)/#
+    var start = raw.startIndex
+    var fields: [Substring] = []
+    for match in raw.matches(of: boundary) where raw[match.range.lowerBound] == "," {
+      fields.append(raw[start..<match.range.lowerBound])
+      start = match.range.upperBound
+    }
+    fields.append(raw[start...])
+    return fields
   }
 
   /// 暂存的作用域不能超过 Set-Cookie 声明，即使反向代理重写了 Path。

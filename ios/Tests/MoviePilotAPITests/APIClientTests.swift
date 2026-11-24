@@ -97,6 +97,54 @@ struct APIClientTests {
     #expect(requests.count == 2)
   }
 
+  /// Foundation 可能把多行 Set-Cookie 合成一个值；两个顺序都只把资源凭据送往图片代理。
+  @Test func acceptsExactlyOneResourceCookieAmongCombinedSetCookies() async throws {
+    let resource = try Self.resourceCookie()
+    let resourceHeader =
+      "\(resource); Path=/; HttpOnly; Secure; Expires=Wed, 01 Jan 2050 00:00:00 GMT"
+    let edgeHeader =
+      "acw_tc=synthetic; Path=/; Domain=example.test; Expires=Wed, 01 Jan 2050 00:00:00 GMT"
+    let secondEdgeHeader = "cdn_sec_tc=synthetic; Path=/; HttpOnly; Secure"
+    let source = try #require(URL(string: "https://images.example/poster.png"))
+    for value in [
+      [resourceHeader, edgeHeader, secondEdgeHeader].joined(separator: ", "),
+      [edgeHeader, secondEdgeHeader, resourceHeader].joined(separator: ","),
+    ] {
+      APIURLProtocol.state.prepare(
+        body: Data([0x89, 0x50]), headers: ["Content-Type": "image/png"], refreshCookie: value)
+      let image = try await Self.client().requestImage(source)
+      let requests = APIURLProtocol.state.requests().map(\.request)
+      #expect(image.data == Data([0x89, 0x50]))
+      #expect(requests.count == 2)
+      #expect(requests.last?.url?.path.hasSuffix("/system/img/0") == true)
+      #expect(requests.last?.value(forHTTPHeaderField: "Cookie") == resource)
+      #expect(requests.last?.value(forHTTPHeaderField: "Authorization") == nil)
+    }
+  }
+
+  /// 无精确匹配、同名重复或资源凭据声明 Domain 时均不发送图片请求。
+  @Test func rejectsMissingDuplicateOrDomainResourceCookieInCombinedHeader() async throws {
+    let resource = try Self.resourceCookie()
+    let lowercaseResource = try Self.resourceCookie(name: "moviepilot")
+    let valid = "\(resource); Path=/; HttpOnly; Secure"
+    let edge = "acw_tc=synthetic; HttpOnly; Path=/"
+    let source = try #require(URL(string: "https://images.example/poster.png"))
+    for value in [
+      "\(edge), \(lowercaseResource); Path=/; HttpOnly",
+      "\(valid), \(edge), \(valid)",
+      "\(valid), \(edge), \(valid); Domain=outside.test",
+      "\(edge), \(valid); DoMaIn = example.test",
+      "\(edge), \(resource); Path=/other; HttpOnly",
+      "\(edge), \(resource); Path=/; HttpOnly; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+      "acw_tc=\"synthetic, \(valid)\"",
+    ] {
+      APIURLProtocol.state.prepare(body: Data(), refreshCookie: value)
+      await #expect(throws: APIError.unauthorized) { try await Self.client().requestImage(source) }
+      let requests = APIURLProtocol.state.requests().map(\.request)
+      #expect(requests.count == 1 && requests.first?.url?.path.hasSuffix("/media/source") == true)
+    }
+  }
+
   /// 普通 GET 只读取资源 Cookie，不发送它；同源新客户端也不能复用另一个会话的 Cookie。
   @Test func scopesResourceCookieToTheClientAndImageEndpoint() async throws {
     let cookie = try Self.resourceCookie()
