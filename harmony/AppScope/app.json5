@@ -2,8 +2,8 @@
   "app": {
     "bundleName": "com.moviepilot.app",
     "vendor": "MoviePilot",
-    "versionCode": 1000001,
-    "versionName": "1.0.0",
+    "versionCode": 2000301,
+    "versionName": "2.0.3",
     "icon": "$media:appicon",
     "label": "$string:app_name"
   }

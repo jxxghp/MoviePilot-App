@@ -37,8 +37,8 @@ android {
         applicationId = "com.moviepilot.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = (project.findProperty("MOVIEPILOT_VERSION_CODE") as String?)?.toIntOrNull() ?: 1000001
-        versionName = (project.findProperty("MOVIEPILOT_VERSION_NAME") as String?) ?: "1.0.0"
+        versionCode = (project.findProperty("MOVIEPILOT_VERSION_CODE") as String?)?.toIntOrNull() ?: 2000301
+        versionName = (project.findProperty("MOVIEPILOT_VERSION_NAME") as String?) ?: "2.0.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {

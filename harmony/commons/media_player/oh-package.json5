@@ -1,6 +1,6 @@
 {
   "name": "@moviepilot/media_player",
-  "version": "1.0.0",
+  "version": "2.0.3",
   "description": "MoviePilot HarmonyOS NEXT media_player HAR",
   "main": "Index.ets",
   "dependencies": {

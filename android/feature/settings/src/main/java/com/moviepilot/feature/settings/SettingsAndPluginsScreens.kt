@@ -178,7 +178,7 @@ fun SettingsHubScreen(
     val appVersion = remember(context) {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
-        }.getOrNull()?.takeIf { it.isNotBlank() } ?: "1.0.0"
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: "2.0.3"
     }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
