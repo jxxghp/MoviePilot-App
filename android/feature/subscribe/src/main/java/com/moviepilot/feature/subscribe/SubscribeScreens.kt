@@ -22,7 +22,9 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -66,9 +68,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,15 +95,16 @@ import com.moviepilot.designsystem.CinematicPanel
 import com.moviepilot.designsystem.ExpressiveHeaderActionButton
 import com.moviepilot.designsystem.ExpressivePillTabRow
 import com.moviepilot.designsystem.ExpressiveTintedScaffold
+import com.moviepilot.designsystem.LocalBottomOverlayInset
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.LocalSnackbarHostState
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
+import com.moviepilot.designsystem.NativeEntityLogo
 import com.moviepilot.designsystem.NativeGlassSheet
-import com.moviepilot.designsystem.NativeGlassTopBar
+import com.moviepilot.designsystem.NativeNetworkEntityLogo
 import com.moviepilot.designsystem.NativePosterCard
-import com.moviepilot.designsystem.NativePrimaryTabBar
-import com.moviepilot.designsystem.NativeSegmentedControl
+import com.moviepilot.rustbridge.CalendarEntryDto
 import com.moviepilot.rustbridge.MediaCardItem
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.RustCoreBridge
@@ -124,29 +129,34 @@ fun SubscriptionsScreen(
     onOpenSearch: () -> Unit = {},
     onOpenCalendar: () -> Unit,
     onOpenCommunity: () -> Unit,
+    onOpenMedia: (MediaCardItem) -> Unit = {},
 ) {
     val colors = LocalMoviePilotColors.current
+    val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val scope = rememberCoroutineScope()
     val snackbar = LocalSnackbarHostState.current
+    val listState = rememberLazyListState()
 
     val filterKeys = remember { listOf("all", "movie", "tv", "music") }
-    var selectedCategory by remember(initialCategory) {
+    var selectedCategory by rememberSaveable(initialCategory) {
         mutableStateOf(if (initialCategory in filterKeys) initialCategory!! else "all")
     }
     val rootPagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
 
-    var items by remember { mutableStateOf<List<SubscribeItemDto>>(emptyList()) }
+    var items by remember { mutableStateOf(repository.cachedSubscriptions.orEmpty()) }
     var isRefreshing by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<SubscribeItemDto?>(null) }
     var confirmDeleteItem by remember { mutableStateOf<SubscribeItemDto?>(null) }
 
-    suspend fun loadSubs() {
-        items = repository.fetchSubscriptions()
+    suspend fun loadSubs(forceRefresh: Boolean = true) {
+        items = repository.fetchSubscriptions(forceRefresh = forceRefresh)
         isRefreshing = false
     }
 
-    LaunchedEffect(Unit) { loadSubs() }
+    LaunchedEffect(Unit) {
+        loadSubs(forceRefresh = items.isEmpty())
+    }
 
     fun toggleSubWithUndo(sub: SubscribeItemDto) {
         val prevState = sub.state
@@ -194,7 +204,8 @@ fun SubscriptionsScreen(
             if (rootIdx == 1) {
                 SubscribeCommunityContent(
                     repository = repository,
-                    bottomPadding = if (onBack == null) 120.dp else 48.dp,
+                    onOpenMedia = onOpenMedia,
+                    bottomPadding = (if (onBack == null) 120.dp else 48.dp) + bottomOverlayInset,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
@@ -234,12 +245,17 @@ fun SubscriptionsScreen(
                         isRefreshing = isRefreshing,
                         onRefresh = {
                             isRefreshing = true
-                            scope.launch { loadSubs() }
+                            scope.launch { loadSubs(forceRefresh = true) }
                         },
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                     ) {
                         LazyColumn(
-                            contentPadding = PaddingValues(start = margin, end = margin, bottom = if (onBack == null) 120.dp else 48.dp),
+                            state = listState,
+                            contentPadding = PaddingValues(
+                                start = margin,
+                                end = margin,
+                                bottom = (if (onBack == null) 120.dp else 48.dp) + bottomOverlayInset,
+                            ),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                             modifier = Modifier.fillMaxSize(),
                         ) {
@@ -394,10 +410,14 @@ fun SubscriptionsScreen(
             },
             onSave = { updated ->
                 scope.launch {
-                    val ok = repository.createOrUpdateSubscription(updated, isUpdate = true)
-                    items = items.map { if (it.id == current.id) updated else it }
-                    editingItem = null
-                    snackbar?.showSnackbar(if (ok) "已保存「${updated.name}」订阅配置" else "保存失败，请重试")
+                    val (ok, msg) = repository.createOrUpdateSubscriptionWithMessage(updated, isUpdate = true)
+                    if (ok) {
+                        items = items.map { if (it.id == current.id) updated else it }
+                        editingItem = null
+                        snackbar?.showSnackbar("已保存「${updated.name}」订阅配置")
+                    } else {
+                        snackbar?.showSnackbar(msg)
+                    }
                 }
             },
         )
@@ -466,13 +486,23 @@ private fun SubscribeEditorSheet(
     var customWords by remember(item) { mutableStateOf(item.customWords) }
 
     var allSites by remember { mutableStateOf<List<com.moviepilot.rustbridge.SiteItemDto>>(emptyList()) }
+    val siteIcons = remember { mutableStateMapOf<Int, String>() }
     var allRuleGroups by remember { mutableStateOf<List<String>>(emptyList()) }
-    var allDownloaders by remember { mutableStateOf<List<String>>(emptyList()) }
+    var allDownloaders by remember { mutableStateOf<List<com.moviepilot.rustbridge.ServiceConfigDto>>(emptyList()) }
 
     LaunchedEffect(Unit) {
-        allSites = repository.fetchSites().filter { it.isActive }
+        val activeSites = repository.fetchSites().filter { it.isActive }
+        allSites = activeSites
+        activeSites.forEach { s ->
+            s.iconUrl?.takeIf { it.isNotBlank() }?.let { siteIcons[s.id] = it }
+            launch {
+                repository.fetchSiteIcon(s.id)?.let { icon ->
+                    repository.resolveImageUrl(icon)?.let { siteIcons[s.id] = it }
+                }
+            }
+        }
         allRuleGroups = repository.fetchSubscribeSearchSettings().filterRuleGroups.map { it.name }.filter { it.isNotBlank() }
-        allDownloaders = repository.fetchDownloaders().filter { it.enabled }.map { it.name }
+        allDownloaders = repository.fetchDownloaders().filter { it.enabled }
     }
 
     NativeGlassSheet(onDismissRequest = onDismiss) {
@@ -568,17 +598,41 @@ private fun SubscribeEditorSheet(
                 }
             }
 
-            // 分组 2：下载器与保存路径
+            // 分组 2：下载器与保存路径（带下载器品牌图标）
             Text("下载与保存", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
             CinematicPanel(padding = 0.dp, showsShadow = false) {
                 Column {
-                    EditorPickerRow("下载器", downloader, listOf("默认") + allDownloaders) { downloader = it }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("下载器", color = colors.textPrimary, fontSize = 15.sp)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            NativeAdaptivePill(
+                                title = "默认",
+                                leadingContent = { NativeEntityLogo("downloader", "default", size = 16.dp, cornerRadius = 4.dp) },
+                                selected = downloader == "默认",
+                                onClick = { downloader = "默认" },
+                            )
+                            allDownloaders.forEach { dl ->
+                                NativeAdaptivePill(
+                                    title = dl.name,
+                                    leadingContent = {
+                                        NativeEntityLogo("downloader", dl.type.ifBlank { dl.name }, size = 16.dp, cornerRadius = 4.dp)
+                                    },
+                                    selected = downloader == dl.name,
+                                    onClick = { downloader = dl.name },
+                                )
+                            }
+                        }
+                    }
                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
                     EditorInlineInputRow("保存路径", savePath, "留空遵循目录配置") { savePath = it }
                 }
             }
 
-            // 分组 3：站点与优先级规则（支持真实展开多选！）
+            // 分组 3：站点与优先级规则（支持真实站点 Favicon + logo_site 兜底多选！）
             Text("站点与优先级规则", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
             CinematicPanel(padding = 0.dp, showsShadow = false) {
                 Column {
@@ -605,9 +659,23 @@ private fun SubscribeEditorSheet(
                             NativeAdaptivePill("跟随系统", selected = selectedSiteIds.isEmpty(), onClick = { selectedSiteIds = emptySet() })
                             allSites.forEach { s ->
                                 val picked = s.id in selectedSiteIds
-                                NativeAdaptivePill(s.name, selected = picked, onClick = {
-                                    selectedSiteIds = if (picked) selectedSiteIds - s.id else selectedSiteIds + s.id
-                                })
+                                val resolvedIcon = siteIcons[s.id] ?: repository.resolveImageUrl(s.iconUrl)
+                                NativeAdaptivePill(
+                                    title = s.name,
+                                    leadingContent = {
+                                        NativeNetworkEntityLogo(
+                                            imageUrl = resolvedIcon,
+                                            kind = "site",
+                                            value = s.name,
+                                            size = 16.dp,
+                                            cornerRadius = 4.dp,
+                                        )
+                                    },
+                                    selected = picked,
+                                    onClick = {
+                                        selectedSiteIds = if (picked) selectedSiteIds - s.id else selectedSiteIds + s.id
+                                    },
+                                )
                             }
                         }
                     }
@@ -789,25 +857,40 @@ private fun EditorInlineInputRow(
 }
 
 /**
- * 追剧日历页面（1:1 复刻 iOS 黄金截图 `native-v2-live-calendar.jpg`）：
- * 顶部 `追剧日历 · X月` + 右侧 `今天` 玻璃胶囊，7 天周条带小紫点与选中磨砂框，下方显示真实在追剧集海报卡。
+ * 追剧日历页面（升级为统一 `ExpressiveTintedScaffold`，接入真实 `GET /api/v1/subscribe/calendar`）：
+ * 7 天周条在真实有更新的日期显示圆点指示，点击任意播映卡片直达影视详情页。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CalendarScreen(
     repository: MoviePilotRepository? = null,
     onBack: () -> Unit,
+    onOpenMedia: (MediaCardItem) -> Unit = {},
 ) {
     val colors = LocalMoviePilotColors.current
+    val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
+    val scope = rememberCoroutineScope()
     val today = remember { LocalDate.now() }
-    var weekOffset by remember { mutableIntStateOf(0) }
-    var selectedDate by remember { mutableStateOf(today) }
-    var tvSubs by remember { mutableStateOf<List<SubscribeItemDto>>(emptyList()) }
+    var weekOffset by rememberSaveable { mutableIntStateOf(0) }
+    var selectedDateStr by rememberSaveable { mutableStateOf(today.toString()) }
+    val selectedDate = remember(selectedDateStr) {
+        runCatching { LocalDate.parse(selectedDateStr) }.getOrDefault(today)
+    }
+    var calendarEntries by remember { mutableStateOf<List<CalendarEntryDto>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var isRefreshing by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
+    suspend fun reloadCalendar() {
         if (repository != null) {
-            tvSubs = repository.fetchSubscriptions().filter { it.type == "电视剧" }
+            calendarEntries = repository.fetchSubscribeCalendar()
         }
+        isLoading = false
+        isRefreshing = false
+    }
+
+    LaunchedEffect(repository) {
+        reloadCalendar()
     }
 
     val weekStart = remember(today, weekOffset) {
@@ -817,145 +900,217 @@ fun CalendarScreen(
     val weekDates = remember(weekStart) { (0L..6L).map { weekStart.plusDays(it) } }
     val weekdayLabels = listOf("日", "一", "二", "三", "四", "五", "六")
     val dateFmt = remember { DateTimeFormatter.ofPattern("yyyy-MM-dd") }
+    val entriesByDate = remember(calendarEntries) {
+        calendarEntries.groupBy { it.airDate.take(10) }
+    }
+    val dayItems = entriesByDate[selectedDate.format(dateFmt)].orEmpty()
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        NativeGlassTopBar(
-            title = "追剧日历 · ${selectedDate.monthValue}月",
-            onBack = onBack,
-            trailing = {
-                CinematicGlassSurface(
-                    shape = CircleShape,
-                    blurRadiusDp = 18.dp,
-                    modifier = Modifier.clickable { weekOffset = 0; selectedDate = today },
-                ) {
-                    Text(
-                        text = "今天",
-                        color = colors.textPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                    )
+    ExpressiveTintedScaffold(
+        title = "追剧日历 · ${selectedDate.monthValue}月",
+        subtitle = if (calendarEntries.isNotEmpty()) "近期共 ${calendarEntries.size} 集待播/更新" else null,
+        onBack = onBack,
+        actions = {
+            NativeAdaptivePill(
+                title = "今天",
+                selected = selectedDate == today && weekOffset == 0,
+                onClick = {
+                    weekOffset = 0
+                    selectedDateStr = today.toString()
+                },
+            )
+        },
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Spacer(Modifier.height(10.dp))
+
+            // 周视图日期条
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = { weekOffset-- }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, contentDescription = "上一周", tint = colors.textSecondary)
                 }
-            },
-        )
-
-        // 周视图日期条
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = { weekOffset-- }, modifier = Modifier.size(30.dp)) {
-                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, contentDescription = "上一周", tint = colors.textSecondary)
-            }
-            weekDates.forEachIndexed { idx, d ->
-                val isSelected = d == selectedDate
-                val isToday = d == today
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(if (isSelected) colors.chipFill else Color.Transparent)
-                        .border(
-                            width = if (isSelected) 0.9.dp else 0.dp,
-                            color = if (isSelected) colors.chipBorder else Color.Transparent,
-                            shape = RoundedCornerShape(14.dp),
-                        )
-                        .clickable { selectedDate = d }
-                        .padding(vertical = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    Text(
-                        text = d.dayOfMonth.toString(),
-                        color = if (isToday) Color(0xFFFF8A8A) else colors.textPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = weekdayLabels[idx],
-                        color = if (isToday) Color(0xFFFF8A8A) else colors.textSecondary,
-                        fontSize = 11.sp,
-                    )
-                    Box(
+                weekDates.forEachIndexed { idx, d ->
+                    val dKey = d.format(dateFmt)
+                    val isSelected = d == selectedDate
+                    val isToday = d == today
+                    val hasAiring = !entriesByDate[dKey].isNullOrEmpty()
+                    Column(
                         modifier = Modifier
-                            .size(5.dp)
-                            .clip(CircleShape)
-                            .background(if (isSelected) Color.White else colors.accent.copy(alpha = 0.75f)),
-                    )
-                }
-            }
-            IconButton(onClick = { weekOffset++ }, modifier = Modifier.size(30.dp)) {
-                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = "下一周", tint = colors.textSecondary)
-            }
-        }
-
-        Spacer(Modifier.height(10.dp))
-        Text(
-            text = "${selectedDate.format(dateFmt)} 播出",
-            color = colors.textPrimary,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = margin),
-        )
-        Spacer(Modifier.height(10.dp))
-
-        val dayItems = remember(tvSubs, selectedDate) {
-            if (tvSubs.isEmpty()) emptyList()
-            else {
-                val shift = (selectedDate.dayOfMonth % tvSubs.size.coerceAtLeast(1))
-                (tvSubs.drop(shift) + tvSubs.take(shift)).take(10)
-            }
-        }
-
-        LazyColumn(
-            contentPadding = PaddingValues(start = margin, end = margin, bottom = 128.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            items(dayItems, key = { "${it.id}-${selectedDate}" }) { sub ->
-                val prog = remember(sub.totalEpisode, sub.lackEpisode) {
-                    RustCoreBridge.subscribeProgress(sub.totalEpisode, sub.lackEpisode)
-                }
-                val nextEp = (prog.completed + 1).coerceAtMost(prog.total.coerceAtLeast(1))
-                CinematicPanel(padding = 14.dp) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                            .weight(1f)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (isSelected) colors.activeIndicator else Color.Transparent)
+                            .border(
+                                width = if (isSelected) 1.dp else 0.dp,
+                                color = if (isSelected) colors.accent.copy(alpha = 0.55f) else Color.Transparent,
+                                shape = RoundedCornerShape(14.dp),
+                            )
+                            .clickable { selectedDateStr = d.toString() }
+                            .padding(vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
+                        Text(
+                            text = d.dayOfMonth.toString(),
+                            color = when {
+                                isToday -> colors.pink
+                                isSelected -> colors.accent
+                                else -> colors.textPrimary
+                            },
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = weekdayLabels[idx],
+                            color = if (isToday) colors.pink else colors.textSecondary,
+                            fontSize = 11.sp,
+                        )
                         Box(
                             modifier = Modifier
-                                .width(66.dp)
-                                .height(98.dp)
-                                .clip(RoundedCornerShape(11.dp))
-                                .background(colors.chipFill),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (!sub.poster.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = sub.poster,
-                                    contentDescription = sub.name,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            } else {
-                                Text(sub.name.take(2), color = colors.textPrimary, fontWeight = FontWeight.Bold)
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    when {
+                                        hasAiring && isSelected -> colors.accent
+                                        hasAiring -> colors.accent.copy(alpha = 0.78f)
+                                        else -> Color.Transparent
+                                    },
+                                ),
+                        )
+                    }
+                }
+                IconButton(onClick = { weekOffset++ }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = "下一周", tint = colors.textSecondary)
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = margin),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "${selectedDate.format(dateFmt)} 播出",
+                    color = colors.textPrimary,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                if (dayItems.isNotEmpty()) {
+                    NativeAdaptiveBadge("${dayItems.size} 部更新", tint = colors.accent)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    isRefreshing = true
+                    scope.launch { reloadCalendar() }
+                },
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            ) {
+                if (isLoading && calendarEntries.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        androidx.compose.material3.CircularProgressIndicator(color = colors.accent)
+                    }
+                } else if (dayItems.isEmpty()) {
+                    LazyColumn(
+                        contentPadding = PaddingValues(start = margin, end = margin, bottom = 128.dp + bottomOverlayInset),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        item {
+                            CinematicPanel(padding = 22.dp) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Icon(Icons.Rounded.CalendarMonth, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(34.dp))
+                                    Text("当日暂无订阅剧集更新", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                    Text("可切换上方带圆点的日期查看近期排播单集", color = colors.textMuted, fontSize = 12.5.sp)
+                                }
                             }
                         }
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(
-                                    text = "${sub.name} S%02d".format(sub.season ?: 1),
-                                    color = colors.textPrimary,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Text(selectedDate.format(dateFmt), color = colors.textMuted, fontSize = 12.sp)
+                    }
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(start = margin, end = margin, bottom = 128.dp + bottomOverlayInset),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        items(dayItems, key = { "${it.id}-${it.airDate}" }) { entry ->
+                            CinematicPanel(
+                                padding = 14.dp,
+                                modifier = Modifier.clickable { onOpenMedia(entry.toMediaCardItem()) },
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(66.dp)
+                                            .height(98.dp)
+                                            .clip(RoundedCornerShape(11.dp))
+                                            .background(colors.chipFill),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        if (!entry.poster.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = entry.poster,
+                                                contentDescription = entry.title,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        } else {
+                                            Text(entry.title.take(2), color = colors.textPrimary, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                            val headerTitle = if (entry.season != null) {
+                                                "${entry.title} S%02d".format(entry.season)
+                                            } else {
+                                                entry.title
+                                            }
+                                            Text(
+                                                text = headerTitle,
+                                                color = colors.textPrimary,
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                            NativeEntityLogo(
+                                                kind = "datasource",
+                                                value = entry.source,
+                                                size = 18.dp,
+                                                cornerRadius = 5.dp,
+                                            )
+                                        }
+                                        val epLine = buildString {
+                                            if (entry.episode != null) append("E%02d".format(entry.episode))
+                                            if (entry.episodeTitle.isNotBlank()) {
+                                                if (isNotEmpty()) append(" · ")
+                                                append(entry.episodeTitle)
+                                            } else if (entry.episode != null) {
+                                                append(" 第 ${entry.episode} 集")
+                                            }
+                                        }.ifBlank { entry.type }
+                                        Text(epLine, color = colors.textPrimary.copy(alpha = 0.90f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(
+                                            text = entry.airDate,
+                                            color = colors.textSecondary,
+                                            fontSize = 12.sp,
+                                        )
+                                    }
+                                }
                             }
-                            Text("E%02d 第 $nextEp 集".format(nextEp), color = colors.textPrimary.copy(alpha = 0.88f), fontSize = 14.sp)
-                            Text("已更新 ${prog.completed}/${prog.total.coerceAtLeast(1)} 集", color = colors.textSecondary, fontSize = 12.sp)
                         }
                     }
                 }
@@ -965,21 +1120,39 @@ fun CalendarScreen(
 }
 
 /**
- * 订阅广场页面（1:1 复刻 iOS `native-v2-live-community-popular.jpg` & `native-v2-live-community-shares.jpg`）：
- * 热门电影 / 热门剧集（3 列海报网格 + 左下火焰热度角标 + 右上已入库绿勾）+ 社区分享列表。
+ * 订阅广场页面（统一升级为 `ExpressiveTintedScaffold` + `ExpressivePillTabRow`）：
+ * 热门电影 / 热门剧集点击直达详情页，社区分享支持真实 `POST /api/v1/subscribe/fork` 一键复用订阅。
  */
 @Composable
 fun SubscribeCommunityScreen(
     repository: MoviePilotRepository,
     onBack: () -> Unit,
+    onOpenMedia: (MediaCardItem) -> Unit = {},
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        NativeGlassTopBar(title = "订阅广场", onBack = onBack)
+    val bottomOverlayInset = LocalBottomOverlayInset.current
+    val tabLabels = remember { listOf("热门电影", "热门剧集", "社区分享") }
+    var selectedIdx by rememberSaveable { mutableIntStateOf(0) }
+
+    ExpressiveTintedScaffold(
+        title = "订阅广场",
+        onBack = onBack,
+        headerExtra = {
+            ExpressivePillTabRow(
+                tabs = tabLabels,
+                selectedIndex = selectedIdx,
+                onSelect = { selectedIdx = it },
+                onTintedHeader = true,
+            )
+        },
+    ) {
         SubscribeCommunityContent(
             repository = repository,
-            bottomPadding = 52.dp,
-            usePrimaryTabBar = true,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
+            onOpenMedia = onOpenMedia,
+            externalTabIndex = selectedIdx,
+            onExternalTabSelect = { selectedIdx = it },
+            hideInternalTabRow = true,
+            bottomPadding = 52.dp + bottomOverlayInset,
+            modifier = Modifier.fillMaxSize(),
         )
     }
 }
@@ -987,52 +1160,78 @@ fun SubscribeCommunityScreen(
 @Composable
 private fun SubscribeCommunityContent(
     repository: MoviePilotRepository,
+    onOpenMedia: (MediaCardItem) -> Unit = {},
+    externalTabIndex: Int? = null,
+    onExternalTabSelect: ((Int) -> Unit)? = null,
+    hideInternalTabRow: Boolean = false,
     bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
-    usePrimaryTabBar: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalMoviePilotColors.current
+    val snackbar = LocalSnackbarHostState.current
+    val scope = rememberCoroutineScope()
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val cols = AdaptiveDeviceLayout.posterGridColumns()
     val tabKeys = remember { listOf("popular_movie", "popular_tv", "shares") }
     val tabLabels = remember { listOf("热门电影", "热门剧集", "社区分享") }
-    var selectedIdx by remember { mutableStateOf(0) }
-    val tab = tabKeys[selectedIdx]
-    var items by remember { mutableStateOf<List<MediaCardItem>>(emptyList()) }
+    var internalIdx by rememberSaveable { mutableIntStateOf(0) }
+    val selectedIdx = externalTabIndex ?: internalIdx
+    val tab = tabKeys[selectedIdx.coerceIn(0, tabKeys.lastIndex)]
+    var items by remember(tab) { mutableStateOf<List<MediaCardItem>>(emptyList()) }
+    var isLoading by remember(tab) { mutableStateOf(true) }
+    var forkedIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
+    var forkingId by remember { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
+    val gridState = rememberLazyGridState()
 
     LaunchedEffect(tab) {
+        isLoading = true
         items = when (tab) {
             "popular_movie" -> repository.fetchSubscribePopular("电影", 1)
             "popular_tv" -> repository.fetchSubscribePopular("电视剧", 1)
             else -> repository.fetchSubscribeShares(1)
         }
+        isLoading = false
     }
 
     Column(modifier = modifier) {
-        if (usePrimaryTabBar) {
-            NativePrimaryTabBar(
-                tabs = tabLabels,
-                selectedIndex = selectedIdx,
-                onSelect = { selectedIdx = it },
-            )
-            Spacer(Modifier.height(12.dp))
+        if (!hideInternalTabRow) {
+            Spacer(Modifier.height(10.dp))
+            Box(modifier = Modifier.padding(horizontal = margin)) {
+                ExpressivePillTabRow(
+                    tabs = tabLabels,
+                    selectedIndex = selectedIdx,
+                    onSelect = {
+                        internalIdx = it
+                        onExternalTabSelect?.invoke(it)
+                    },
+                    onTintedHeader = false,
+                )
+            }
+            Spacer(Modifier.height(10.dp))
         } else {
-            NativeSegmentedControl(
-                options = tabLabels,
-                selectedIndex = selectedIdx,
-                onSelect = { selectedIdx = it },
-                modifier = Modifier.padding(horizontal = margin, vertical = 10.dp),
-            )
+            Spacer(Modifier.height(14.dp))
         }
 
-        if (tab == "shares") {
+        if (isLoading && items.isEmpty()) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                androidx.compose.material3.CircularProgressIndicator(color = colors.accent)
+            }
+        } else if (tab == "shares") {
             LazyColumn(
+                state = listState,
                 contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomPadding),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.weight(1f),
             ) {
-                items(items) { share ->
-                    CinematicPanel(padding = 14.dp) {
+                items(items, key = { "${it.resolvedId}-${it.shareUser}" }) { share ->
+                    val shareKey = "${share.resolvedId}_${share.shareUser}"
+                    val isForked = shareKey in forkedIds
+                    val isForking = forkingId == shareKey
+                    CinematicPanel(
+                        padding = 14.dp,
+                        modifier = Modifier.clickable { onOpenMedia(share) },
+                    ) {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier.width(58.dp).height(86.dp).clip(RoundedCornerShape(10.dp)).background(colors.chipFill),
@@ -1055,19 +1254,41 @@ private fun SubscribeCommunityContent(
                                     }
                                 }
                             }
+                            NativeAdaptivePill(
+                                title = when {
+                                    isForked -> "已复用"
+                                    isForking -> "复用中…"
+                                    else -> "复用订阅"
+                                },
+                                selected = !isForked,
+                                onClick = {
+                                    if (!isForked && !isForking) {
+                                        forkingId = shareKey
+                                        scope.launch {
+                                            val (ok, msg) = repository.forkSubscribeShare(share)
+                                            forkingId = null
+                                            if (ok) {
+                                                forkedIds = forkedIds + shareKey
+                                            }
+                                            snackbar?.showSnackbar(msg)
+                                        }
+                                    }
+                                },
+                            )
                         }
                     }
                 }
             }
         } else {
             LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Fixed(cols),
                 contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomPadding),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.weight(1f),
             ) {
-                items(items) { item ->
+                items(items, key = { "${it.resolvedId}-${it.title}" }) { item ->
                     val hotText = when {
                         item.popularityCount >= 1000 -> "🔥 ${String.format("%.1fk", item.popularityCount / 1000.0)}"
                         item.popularityCount > 0 -> "🔥 ${item.popularityCount}"
@@ -1080,7 +1301,7 @@ private fun SubscribeCommunityContent(
                         voteAverage = item.voteAverage,
                         inLibrary = item.inLibrary,
                         bottomBadgeText = hotText,
-                        onClick = {},
+                        onClick = { onOpenMedia(item) },
                     )
                 }
             }

@@ -13,11 +13,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def read_version_info(root: Path = ROOT) -> tuple[str, int]:
-    """读取根 VERSION（MAJOR.MINOR.PATCH）与 BUILD_NUMBER（正整数）。"""
+    """读取根 VERSION（MAJOR.MINOR.PATCH）与可选 BUILD_NUMBER（缺省为 1）。"""
     version = (root / "VERSION").read_text(encoding="utf-8").strip()
     if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
         raise ValueError(f"VERSION 必须符合 MAJOR.MINOR.PATCH 格式，当前值：{version!r}")
-    build_raw = (root / "BUILD_NUMBER").read_text(encoding="utf-8").strip()
+    build_file = root / "BUILD_NUMBER"
+    if not build_file.exists():
+        return version, 1
+    build_raw = build_file.read_text(encoding="utf-8").strip()
     if not build_raw.isdigit() or int(build_raw) <= 0:
         raise ValueError(f"BUILD_NUMBER 必须为正整数，当前值：{build_raw!r}")
     return version, int(build_raw)
@@ -94,6 +97,18 @@ def sync_version(root: Path = ROOT, check: bool = False) -> list[str]:
         data["app"]["versionCode"] = version_code
         data["app"]["versionName"] = version
         apply_or_check(harmony_app, json.dumps(data, ensure_ascii=False, indent=2) + "\n", check, drifted)
+
+    # 4. Rust workspace Cargo.toml
+    cargo_toml = root / "shared/core-rust/Cargo.toml"
+    if cargo_toml.exists():
+        cargo_text = cargo_toml.read_text(encoding="utf-8")
+        cargo_text = re.sub(
+            r'(\[workspace\.package\]\s*\nversion\s*=\s*")[^"]+(")',
+            rf"\g<1>{version}\2",
+            cargo_text,
+            count=1,
+        )
+        apply_or_check(cargo_toml, cargo_text, check, drifted)
 
     return drifted
 

@@ -46,26 +46,38 @@ impl ApiEndpoint {
     }
 
     fn valid_segment(value: &str) -> bool {
+        let lower = value.to_ascii_lowercase();
         !value.is_empty()
             && value.len() <= 1024
             && value != "."
             && value != ".."
-            && value
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~' | b':'))
+            && !lower.contains("%2e%2e")
+            && !lower.contains("%2f")
+            && !lower.contains("%5c")
+            && !lower.contains("%00")
+            && !value
+                .chars()
+                .any(|ch| ch.is_control() || matches!(ch, '/' | '\\' | '?' | '#'))
     }
 
-    /// 基于规范化实例地址拼接最终 V3 请求 URL。
+    /// 基于规范化实例地址拼接最终 V3 请求 URL（支持中文与 UTF-8 路径段安全编码）。
     pub fn build_url(&self, address: &ServerAddress) -> Result<String, ApiEndpointError> {
-        let mut base = format!("{}/api/v1", address.as_str());
-        for seg in &self.segments {
-            base.push('/');
-            base.push_str(seg);
+        let mut parsed =
+            Url::parse(address.as_str()).map_err(|_| ApiEndpointError::EscapedServerBoundary)?;
+        {
+            let mut path_segs = parsed
+                .path_segments_mut()
+                .map_err(|_| ApiEndpointError::EscapedServerBoundary)?;
+            path_segs.pop_if_empty();
+            path_segs.push("api");
+            path_segs.push("v1");
+            for seg in &self.segments {
+                path_segs.push(seg);
+            }
+            if self.trailing_slash {
+                path_segs.push("");
+            }
         }
-        if self.trailing_slash {
-            base.push('/');
-        }
-        let mut parsed = Url::parse(&base).map_err(|_| ApiEndpointError::EscapedServerBoundary)?;
         if !self.query.is_empty() {
             {
                 let mut pairs = parsed.query_pairs_mut();
@@ -73,7 +85,7 @@ impl ApiEndpoint {
                     pairs.append_pair(k, v);
                 }
             }
-            // 与 iOS APIEndpoint 对齐：把表单式编码中的 '+' 规范化为 %2B 避免后端误解为空格
+            // 与 iOS APIEndpoint 对齐：把表单式编码中的 '+' 规范化为 %20 避免后端误解为字面加号
             if let Some(q) = parsed.query().map(|q| q.replace('+', "%20")) {
                 parsed.set_query(Some(&q));
             }
@@ -102,6 +114,26 @@ mod tests {
         assert_eq!(
             ep.build_url(&addr).unwrap(),
             "http://127.0.0.1:3001/a/api/v1/plugin/?state=installed"
+        );
+    }
+
+    #[test]
+    fn encodes_cjk_path_segments_within_server_boundary() {
+        let addr = ServerAddress::parse("https://nas.example.com:3000/mp").unwrap();
+        let ep = ApiEndpoint::new(
+            vec![
+                "tmdb".into(),
+                "credits".into(),
+                "1399".into(),
+                "电视剧".into(),
+            ],
+            vec![],
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            ep.build_url(&addr).unwrap(),
+            "https://nas.example.com:3000/mp/api/v1/tmdb/credits/1399/%E7%94%B5%E8%A7%86%E5%89%A7"
         );
     }
 

@@ -17,10 +17,13 @@ pub struct CommunityMedalPalette {
 pub struct CommunityMedalsModel;
 
 impl CommunityMedalsModel {
-    /// 根据勋章标识确定性计算金属材质配色（金/银/玫瑰金/星耀紫铜），确保三端背面雕刻视觉一致。
+    /// 根据真实 MoviePilot 社区勋章标识（7 大家族 / 13 款变体）计算金属材质与三遍凹雕配色。
     pub fn palette_for_medal(medal_id: &str) -> CommunityMedalPalette {
         let lower = medal_id.to_ascii_lowercase();
-        if lower.contains("gold")
+        if lower.contains("t4")
+            || lower.contains("sponsor")
+            || lower.contains("pioneer")
+            || lower.contains("gold")
             || lower.contains("legend")
             || lower.contains("master")
             || lower.contains("lv5")
@@ -33,7 +36,35 @@ impl CommunityMedalsModel {
                 engrave_light_hex: "#FFF4C2".to_string(),
                 tier: "gold".to_string(),
             }
-        } else if lower.contains("silver") || lower.contains("lv3") || lower.contains("lv4") {
+        } else if lower.contains("code") || lower.contains("security") || lower.contains("emerald")
+        {
+            CommunityMedalPalette {
+                medal_id: medal_id.to_string(),
+                base_hex: "#2EA88A".to_string(),
+                rim_hex: "#E6D39A".to_string(),
+                engrave_dark_hex: "#193D34".to_string(),
+                engrave_light_hex: "#E8FFF7".to_string(),
+                tier: "emerald".to_string(),
+            }
+        } else if lower.contains("plugin")
+            || lower.contains("helper")
+            || lower.contains("wiki")
+            || lower.contains("amber")
+        {
+            CommunityMedalPalette {
+                medal_id: medal_id.to_string(),
+                base_hex: "#C9853B".to_string(),
+                rim_hex: "#F5D096".to_string(),
+                engrave_dark_hex: "#4E2D0C".to_string(),
+                engrave_light_hex: "#FFF0D6".to_string(),
+                tier: "amber".to_string(),
+            }
+        } else if lower.contains("silver")
+            || lower.contains("t3")
+            || lower.contains("translate")
+            || lower.contains("lv3")
+            || lower.contains("lv4")
+        {
             CommunityMedalPalette {
                 medal_id: medal_id.to_string(),
                 base_hex: "#B8C1CC".to_string(),
@@ -43,6 +74,8 @@ impl CommunityMedalsModel {
                 tier: "silver".to_string(),
             }
         } else if lower.contains("rose")
+            || lower.contains("issue")
+            || lower.contains("tester")
             || lower.contains("community")
             || lower.contains("contributor")
         {

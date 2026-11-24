@@ -77,7 +77,9 @@ class MainActivity : ComponentActivity() {
                 .build(),
         )
         appearanceStore = NativeAppearanceStore(applicationContext)
-        handleIntent(intent)
+        if (savedInstanceState == null) {
+            handleIntent(intent)
+        }
 
         setContent {
             MoviePilotTheme(appearanceStore = appearanceStore) {
@@ -92,10 +94,8 @@ class MainActivity : ComponentActivity() {
                     repository = repository,
                     incomingDeepLink = pendingDeepLink,
                     incomingExternalMedia = pendingExternalMedia,
-                    onConsumeIncoming = {
-                        pendingDeepLink = null
-                        pendingExternalMedia = null
-                    },
+                    onConsumeDeepLink = { pendingDeepLink = null },
+                    onConsumeExternalMedia = { pendingExternalMedia = null },
                 )
             }
         }

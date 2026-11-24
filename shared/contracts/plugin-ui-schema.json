@@ -3,24 +3,37 @@
   "title": "MoviePilot Dynamic Plugin UI Schema",
   "type": "object",
   "properties": {
+    "success": { "type": "boolean" },
+    "message": { "type": ["string", "null"] },
+    "data": { "type": ["object", "array", "null"] },
     "render_mode": { "type": "string", "enum": ["vuetify", "vue"] },
     "conf": {
-      "type": "array",
+      "type": ["array", "null"],
       "items": { "$ref": "#/$defs/node" }
     },
-    "model": { "type": "object" }
+    "page": {
+      "type": ["array", "null"],
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "elements": {
+      "type": ["array", "null"],
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "model": { "type": ["object", "null"] }
   },
   "$defs": {
     "node": {
       "type": "object",
-      "required": ["component"],
       "properties": {
-        "component": { "type": "string" },
-        "props": { "type": "object" },
+        "component": { "type": ["string", "null"] },
+        "props": { "type": ["object", "null"] },
         "text": { "type": ["string", "number", "boolean", "null"] },
-        "html": { "type": "string" },
-        "content": { "type": "array", "items": { "$ref": "#/$defs/node" } },
-        "events": { "type": "object" }
+        "html": { "type": ["string", "null"] },
+        "content": {
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/node" }
+        },
+        "events": { "type": ["object", "null"] }
       }
     }
   }

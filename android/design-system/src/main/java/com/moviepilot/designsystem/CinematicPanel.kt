@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.CircleShape
@@ -192,8 +194,14 @@ fun NativeGlassSheet(
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         contentColor = colors.textPrimary,
         scrimColor = Color.Black.copy(alpha = if (colors.isDark) 0.54f else 0.32f),
-        content = content,
-    )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .imePadding(),
+            content = content,
+        )
+    }
 }
 
 /**

@@ -1,6 +1,8 @@
 package com.moviepilot.rustbridge
 
+import android.appwidget.AppWidgetManager
 import android.content.Context
+import android.content.Intent
 import com.moviepilot.rustcore.PermissionsFfi
 import com.moviepilot.rustcore.SseEventFfi
 import kotlinx.coroutines.flow.Flow
@@ -62,10 +64,39 @@ class MoviePilotRepository(context: Context) {
 
     private val siteIconCache = ConcurrentHashMap<Int, String>()
     private val mediaLogoCache = ConcurrentHashMap<String, String>()
+    private val resourceRawCache = ConcurrentHashMap<String, JsonObject>()
     @Volatile
     private var resourceCookiePrimed = false
 
+    /** 发现页、探索页、订阅页、工作台与仪表盘的内存会话缓存（切 Tab 与详情返回时零重拉、保留滚动位置）。 */
+    @Volatile
+    var cachedDiscover: DiscoverSessionSnapshot? = null
+    val cachedExplore = ConcurrentHashMap<String, ExploreSessionSnapshot>()
+    @Volatile
+    var cachedSubscriptions: List<SubscribeItemDto>? = null
+    @Volatile
+    var cachedDashboard: DashboardSessionSnapshot? = null
+    @Volatile
+    var cachedWorkspace: WorkspaceSessionSnapshot? = null
+
+    /** 清空当前会话内存数据缓存（在登出、切换实例或遗忘实例时调用）。 */
+    fun clearSessionCaches() {
+        cachedDiscover = null
+        cachedExplore.clear()
+        cachedSubscriptions = null
+        cachedDashboard = null
+        cachedWorkspace = null
+        siteIconCache.clear()
+        mediaLogoCache.clear()
+        resourceRawCache.clear()
+    }
+
     init {
+        transport.onAuthClassified = { decision, _, _ ->
+            if (decision == "logout" && _session.value is SessionState.Authenticated) {
+                logout("登录状态已过期，请重新登录")
+            }
+        }
         restoreSessionIfPossible()
     }
 
@@ -143,6 +174,7 @@ class MoviePilotRepository(context: Context) {
         )
         secretStore.setActiveServerUrl(normalized)
         _savedServers.value = secretStore.loadServers()
+        clearSessionCaches()
         _session.value = SessionState.NeedsLogin(normalized)
         return Result.success(normalized)
     }
@@ -151,6 +183,7 @@ class MoviePilotRepository(context: Context) {
     fun selectSavedServer(entry: SavedServerEntry) {
         secretStore.setActiveServerUrl(entry.url)
         resourceCookiePrimed = false
+        clearSessionCaches()
         val existingToken = secretStore.loadToken(entry.url)
         if (!existingToken.isNullOrBlank() && !RustCoreBridge.decodeJwt(existingToken).isExpired) {
             val claims = RustCoreBridge.decodeJwt(existingToken)
@@ -175,6 +208,7 @@ class MoviePilotRepository(context: Context) {
         if ((_session.value as? SessionState.NeedsLogin)?.serverUrl == url ||
             (_session.value as? SessionState.Authenticated)?.serverUrl == url
         ) {
+            clearSessionCaches()
             _session.value = SessionState.Unconnected
         }
     }
@@ -280,6 +314,7 @@ class MoviePilotRepository(context: Context) {
     fun logout(notice: String? = null) {
         transport.clearCookies()
         resourceCookiePrimed = false
+        clearSessionCaches()
         val current = _session.value
         val url = when (current) {
             is SessionState.Authenticated -> current.serverUrl
@@ -580,11 +615,16 @@ class MoviePilotRepository(context: Context) {
         }
     }
 
-    /** 拉取已启用媒体服务器的真实「继续观看」列表（精确还原小数进度百分比）。 */
+    /** 拉取所有已启用媒体服务器的真实「继续观看」列表（聚合多媒体服务器，精确还原小数进度百分比）。 */
     suspend fun fetchContinueWatching(): List<ContinueWatchingItem> {
-        val servers = fetchMediaServers().filter { it.enabled }.map { it.name }.ifEmpty { listOf("Emby", "Jellyfin", "Plex") }
+        val configs = fetchMediaServers().filter { it.enabled }
+        val servers = if (configs.isNotEmpty()) {
+            configs.map { it.name to it.type }
+        } else {
+            listOf("Emby" to "emby", "Jellyfin" to "jellyfin", "Plex" to "plex")
+        }
         val result = mutableListOf<ContinueWatchingItem>()
-        for (srv in servers) {
+        for ((srv, srvType) in servers) {
             val resp = authedRequest(listOf("mediaserver", "playing"), query = listOf("server" to srv)).getOrNull()
             val arr = extractArray(resp?.body)
             arr.forEach { el ->
@@ -596,40 +636,40 @@ class MoviePilotRepository(context: Context) {
                     image = resolveImageUrl(obj.str("image") ?: obj.str("backdrop_path"), maxWidth = 720),
                     percent = (obj.dbl("percent") ?: 0.0).roundToInt().coerceIn(0, 100),
                     server = obj.str("server") ?: srv,
+                    serverType = obj.str("server_type")?.takeIf { it.isNotBlank() } ?: srvType,
                     type = obj.str("type") ?: "电视剧",
                     link = obj.str("link"),
                 )
             }
-            if (result.isNotEmpty()) break
         }
-        return result
+        return result.distinctBy { "${it.server}:${it.id}:${it.title}" }
     }
 
-    /** 拉取媒体服务器「最近入库」列表（用于发现页与仪表盘最近入库卡片）。 */
+    /** 拉取所有已启用媒体服务器的「最近入库」列表（聚合多媒体服务器，用于发现页与仪表盘卡片）。 */
     suspend fun fetchMediaServerLatest(): List<MediaCardItem> {
         val servers = fetchMediaServers().filter { it.enabled }.map { it.name }.ifEmpty { listOf("Emby", "Jellyfin", "Plex") }
+        val result = mutableListOf<MediaCardItem>()
         for (srv in servers) {
             val resp = authedRequest(listOf("mediaserver", "latest"), query = listOf("server" to srv)).getOrNull()
             val arr = extractArray(resp?.body)
-            if (arr.isNotEmpty()) {
-                return arr.mapNotNull { el ->
-                    val obj = el.asObj() ?: return@mapNotNull null
-                    val title = obj.str("title") ?: return@mapNotNull null
-                    MediaCardItem(
-                        title = title,
-                        year = obj.str("year") ?: obj.str("subtitle")?.take(4) ?: "",
-                        type = obj.str("type") ?: "电影",
-                        overview = obj.str("subtitle") ?: "",
-                        posterPath = resolveImageUrl(obj.str("image"), maxWidth = 450),
-                        backdropPath = resolveImageUrl(obj.str("image"), maxWidth = 900),
-                        mediaId = obj.str("item_id") ?: obj.str("id"),
-                        source = obj.str("server") ?: srv,
-                        inLibrary = true,
-                    )
-                }
+            arr.forEach { el ->
+                val obj = el.asObj() ?: return@forEach
+                val title = obj.str("title") ?: return@forEach
+                result += MediaCardItem(
+                    title = title,
+                    year = obj.str("year") ?: obj.str("subtitle")?.take(4) ?: "",
+                    type = obj.str("type") ?: "电影",
+                    overview = obj.str("subtitle") ?: "",
+                    posterPath = resolveImageUrl(obj.str("image"), maxWidth = 450),
+                    backdropPath = resolveImageUrl(obj.str("image"), maxWidth = 900),
+                    mediaId = obj.str("item_id") ?: obj.str("id"),
+                    source = obj.str("server") ?: srv,
+                    inLibrary = true,
+                    rawJson = obj.toString(),
+                )
             }
         }
-        return emptyList()
+        return result.distinctBy { "${it.source}:${it.resolvedId}" }
     }
 
     private suspend fun fetchMediaList(segments: List<String>, query: List<Pair<String, String>>): List<MediaCardItem> {
@@ -640,7 +680,7 @@ class MoviePilotRepository(context: Context) {
 
     private fun parseMediaCard(el: JsonElement): MediaCardItem? {
         val obj = el.asObj() ?: return null
-        val title = obj.str("title") ?: obj.str("name") ?: return null
+        val title = obj.str("title") ?: obj.str("name") ?: obj.str("share_title") ?: return null
         val explicitGenres = obj["genres"].asArr()?.mapNotNull { g ->
             when (g) {
                 is JsonPrimitive -> g.content.takeIf { it != "null" && it.isNotBlank() }
@@ -653,7 +693,7 @@ class MoviePilotRepository(context: Context) {
         }.orEmpty()
         val genres = explicitGenres.ifEmpty { mappedGenreIds }
 
-        val tmdbId = obj.int("tmdb_id")
+        val tmdbId = obj.int("tmdb_id") ?: obj.int("tmdbid")
         val mediaId = obj.str("media_id") ?: obj.str("id")
         val src = obj.str("source") ?: obj.str("media_source") ?: "themoviedb"
         val cachedLogo = mediaLogoCache["$src:${tmdbId ?: mediaId}"]
@@ -668,8 +708,9 @@ class MoviePilotRepository(context: Context) {
             voteAverage = obj.dbl("vote_average") ?: obj.dbl("vote") ?: 0.0,
             source = src,
             tmdbId = tmdbId,
-            doubanId = obj.str("douban_id"),
-            bangumiId = obj.int("bangumi_id"),
+            doubanId = obj.str("douban_id") ?: obj.str("doubanid"),
+            bangumiId = obj.int("bangumi_id") ?: obj.int("bangumiid"),
+            mediaIdPrefix = obj.str("mediaid_prefix"),
             mediaId = mediaId,
             logoPath = resolveImageUrl(obj.str("logo_path"), maxWidth = 720) ?: cachedLogo,
             genres = genres,
@@ -681,6 +722,7 @@ class MoviePilotRepository(context: Context) {
             popularityCount = obj.int("count") ?: 0,
             shareUser = obj.str("share_user"),
             shareComment = obj.str("share_comment"),
+            rawJson = obj.toString(),
         )
     }
 
@@ -697,10 +739,13 @@ class MoviePilotRepository(context: Context) {
 
     // ==================== 订阅 / 日历 / 社区 ====================
 
-    suspend fun fetchSubscriptions(): List<SubscribeItemDto> {
-        val resp = authedRequest(listOf("subscribe"), trailingSlash = true).getOrNull() ?: return emptyList()
-        if (resp.status !in 200..299) return emptyList()
-        return extractArray(resp.body).mapNotNull { el ->
+    suspend fun fetchSubscriptions(forceRefresh: Boolean = true): List<SubscribeItemDto> {
+        if (!forceRefresh) {
+            cachedSubscriptions?.let { return it }
+        }
+        val resp = authedRequest(listOf("subscribe"), trailingSlash = true).getOrNull() ?: return cachedSubscriptions ?: emptyList()
+        if (resp.status !in 200..299) return cachedSubscriptions ?: emptyList()
+        val parsed = extractArray(resp.body).mapNotNull { el ->
             val obj = el.asObj() ?: return@mapNotNull null
             SubscribeItemDto(
                 id = obj.int("id") ?: 0,
@@ -715,7 +760,7 @@ class MoviePilotRepository(context: Context) {
                 totalEpisode = obj.int("total_episode") ?: 0,
                 lackEpisode = obj.int("lack_episode") ?: 0,
                 mediaSource = obj.str("media_source") ?: "themoviedb",
-                mediaId = obj.str("media_id") ?: "",
+                mediaId = obj.str("media_id") ?: obj.int("tmdbid")?.toString() ?: "",
                 quality = obj.str("quality") ?: "",
                 resolution = obj.str("resolution") ?: "",
                 effect = obj.str("effect") ?: "",
@@ -739,6 +784,8 @@ class MoviePilotRepository(context: Context) {
                 rawJson = obj.toString(),
             )
         }
+        cachedSubscriptions = parsed
+        return parsed
     }
 
     suspend fun fetchSubscribePopular(stype: String = "电影", page: Int = 1): List<MediaCardItem> =
@@ -747,16 +794,231 @@ class MoviePilotRepository(context: Context) {
     suspend fun fetchSubscribeShares(page: Int = 1): List<MediaCardItem> =
         fetchMediaList(listOf("subscribe", "shares"), listOf("page" to page.toString()))
 
+    /** 拉取真实播映日历（优先 `GET /api/v1/subscribe/calendar`；若服务端无此路由则聚合真实 TMDB 单集 air_date）。 */
+    suspend fun fetchSubscribeCalendar(): List<CalendarEntryDto> {
+        val resp = authedRequest(listOf("subscribe", "calendar")).getOrNull()
+        if (resp != null && resp.status in 200..299) {
+            return extractArray(resp.body).mapNotNull { el ->
+                val obj = el.asObj() ?: return@mapNotNull null
+                val title = obj.str("name") ?: obj.str("title") ?: obj.str("show_name") ?: return@mapNotNull null
+                val airDate = obj.str("air_date") ?: obj.str("release_date") ?: obj.str("date") ?: return@mapNotNull null
+                val tmdbId = obj.int("tmdbid") ?: obj.int("tmdb_id")
+                val season = obj.int("season") ?: obj.int("season_number")
+                val episode = obj.int("episode") ?: obj.int("episode_number")
+                CalendarEntryDto(
+                    id = obj.str("id") ?: "${tmdbId ?: title}_S${season ?: 1}E${episode ?: 1}_$airDate",
+                    subscribeId = obj.int("subscribe_id") ?: obj.int("id") ?: 0,
+                    title = title,
+                    year = obj.str("year") ?: airDate.take(4),
+                    type = obj.str("type") ?: "电视剧",
+                    season = season,
+                    episode = episode,
+                    episodeTitle = obj.str("episode_title") ?: obj.str("episode_name") ?: "",
+                    airDate = airDate.take(10),
+                    poster = resolveImageUrl(obj.str("poster") ?: obj.str("poster_path") ?: obj.str("still_path") ?: obj.str("image"), maxWidth = 400),
+                    backdrop = resolveImageUrl(obj.str("backdrop") ?: obj.str("backdrop_path") ?: obj.str("still_path"), maxWidth = 720),
+                    voteAverage = obj.dbl("vote_average") ?: obj.dbl("vote") ?: 0.0,
+                    source = obj.str("media_source") ?: obj.str("source") ?: "themoviedb",
+                    tmdbId = tmdbId,
+                    doubanId = obj.str("doubanid") ?: obj.str("douban_id"),
+                    bangumiId = obj.int("bangumiid") ?: obj.int("bangumi_id"),
+                    mediaId = obj.str("media_id"),
+                    overview = obj.str("overview") ?: obj.str("description") ?: "",
+                )
+            }
+        }
+        // 兼容未提供 `/subscribe/calendar` 的后端版本：按已订阅剧集拉取真实 TMDB 分集 air_date（绝不使用取模伪造日期）
+        val tvSubs = fetchSubscriptions(forceRefresh = false).filter { it.type != "电影" }
+        if (tvSubs.isEmpty()) return emptyList()
+        return coroutineScope {
+            tvSubs.take(16).map { sub ->
+                async {
+                    val tmdbId = sub.mediaId.removePrefix("tmdb:").toIntOrNull()
+                        ?: runCatching { json.parseToJsonElement(sub.rawJson).asObj()?.int("tmdbid") }.getOrNull()
+                        ?: return@async emptyList()
+                    val sNum = sub.season ?: 1
+                    fetchSeasonEpisodes(tmdbId, sNum).mapNotNull { ep ->
+                        if (ep.airDate.isBlank()) return@mapNotNull null
+                        CalendarEntryDto(
+                            id = "${sub.id}_S${sNum}E${ep.episodeNumber}",
+                            subscribeId = sub.id,
+                            title = sub.name,
+                            year = sub.year,
+                            type = sub.type,
+                            season = sNum,
+                            episode = ep.episodeNumber,
+                            episodeTitle = ep.name,
+                            airDate = ep.airDate.take(10),
+                            poster = sub.poster ?: ep.stillPath,
+                            backdrop = sub.backdrop ?: ep.stillPath,
+                            voteAverage = if (ep.voteAverage > 0.0) ep.voteAverage else sub.vote,
+                            source = sub.mediaSource,
+                            tmdbId = tmdbId,
+                            mediaId = sub.mediaId,
+                            overview = ep.overview,
+                        )
+                    }
+                }
+            }.flatMap { it.await() }
+        }
+    }
+
+    /** 复用社区订阅分享（`POST /api/v1/subscribe/fork`）。 */
+    suspend fun forkSubscribeShare(share: MediaCardItem): Pair<Boolean, String> {
+        val bodyJson = share.rawJson.takeIf { it.isNotBlank() } ?: run {
+            val m = mutableMapOf<String, JsonElement>(
+                "share_title" to JsonPrimitive(share.title),
+                "name" to JsonPrimitive(share.title),
+                "year" to JsonPrimitive(share.year),
+                "type" to JsonPrimitive(share.type),
+            )
+            share.tmdbId?.let { m["tmdbid"] = JsonPrimitive(it) }
+            share.doubanId?.let { m["doubanid"] = JsonPrimitive(it) }
+            share.bangumiId?.let { m["bangumiid"] = JsonPrimitive(it) }
+            share.mediaId?.toIntOrNull()?.let { m["id"] = JsonPrimitive(it) }
+            JsonObject(m).toString()
+        }
+        val resp = authedRequest(
+            segments = listOf("subscribe", "fork"),
+            method = "POST",
+            body = bodyJson,
+        ).getOrNull() ?: return false to "网络请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        if (ok) cachedSubscriptions = null
+        val msg = obj?.str("message") ?: if (ok) "已复用订阅《${share.title}》" else "复用订阅失败（HTTP ${resp.status}）"
+        return ok to msg
+    }
+
+    /** 查询媒体真实订阅状态（调用 `GET /api/v1/subscribe/media/{mediaid}` 并结合已订阅分季集合）。 */
+    suspend fun checkMediaSubscribed(item: MediaCardItem, season: Int? = null): Pair<Boolean, Set<Int>> {
+        val prefixedMediaId = when {
+            !item.mediaId.isNullOrBlank() && item.mediaId.contains(":") -> item.mediaId
+            item.tmdbId != null -> "tmdb:${item.tmdbId}"
+            !item.doubanId.isNullOrBlank() -> "douban:${item.doubanId}"
+            item.bangumiId != null -> "bangumi:${item.bangumiId}"
+            !item.mediaId.isNullOrBlank() -> "tmdb:${item.mediaId}"
+            else -> ""
+        }
+        var directSubscribed = false
+        val subscribedSeasons = mutableSetOf<Int>()
+        if (prefixedMediaId.isNotBlank()) {
+            val q = buildList {
+                if (season != null) add("season" to season.toString())
+                if (item.title.isNotBlank()) add("title" to item.title)
+            }
+            val resp = authedRequest(listOf("subscribe", "media", prefixedMediaId), query = q).getOrNull()
+            if (resp != null && resp.status in 200..299) {
+                val obj = extractObject(resp.body)
+                val subId = obj?.int("id") ?: 0
+                if (subId > 0) {
+                    directSubscribed = true
+                    obj?.int("season")?.let { subscribedSeasons += it }
+                }
+            }
+        }
+        val allSubs = fetchSubscriptions(forceRefresh = false)
+        allSubs.forEach { sub ->
+            val sameMedia = (item.tmdbId != null && (sub.mediaId == item.tmdbId.toString() || sub.mediaId == "tmdb:${item.tmdbId}" || sub.rawJson.contains("\"tmdbid\":${item.tmdbId}"))) ||
+                (!item.doubanId.isNullOrBlank() && sub.rawJson.contains("\"doubanid\":\"${item.doubanId}\"")) ||
+                (sub.name == item.title && (item.year.isBlank() || sub.year == item.year))
+            if (sameMedia) {
+                if (item.type == "电影") directSubscribed = true
+                sub.season?.let { subscribedSeasons += it }
+            }
+        }
+        if (season != null && season in subscribedSeasons) {
+            directSubscribed = true
+        }
+        return directSubscribed to subscribedSeasons
+    }
+
+    /** 查询媒体真实入库状态与可播放条目 ID（调用 `POST /api/v1/media/status` 并匹配媒体服务器条目）。 */
+    suspend fun checkMediaInLibraryStatus(item: MediaCardItem): MediaLibraryStatusDto {
+        val bodyMap = mutableMapOf<String, JsonElement>(
+            "title" to JsonPrimitive(item.title),
+            "year" to JsonPrimitive(item.year),
+            "type" to JsonPrimitive(item.type.ifBlank { "电影" }),
+        )
+        item.tmdbId?.let { bodyMap["tmdb_id"] = JsonPrimitive(it); bodyMap["tmdbid"] = JsonPrimitive(it) }
+        item.doubanId?.let { bodyMap["douban_id"] = JsonPrimitive(it) }
+        item.bangumiId?.let { bodyMap["bangumi_id"] = JsonPrimitive(it) }
+        item.mediaId?.let { bodyMap["media_id"] = JsonPrimitive(it) }
+
+        var inLib = item.inLibrary
+        var server = ""
+        var serverType = ""
+        var itemId = ""
+        val seasonsMap = mutableMapOf<Int, List<Int>>()
+
+        val resp = authedRequest(
+            segments = listOf("media", "status"),
+            method = "POST",
+            body = JsonObject(bodyMap).toString(),
+        ).getOrNull()
+        if (resp != null && resp.status in 200..299) {
+            val obj = extractObject(resp.body)
+            if (obj != null) {
+                inLib = obj.bool("in_library") ?: obj.bool("exists") ?: (!obj.str("item_id").isNullOrBlank()) || inLib
+                server = obj.str("server").orEmpty()
+                serverType = obj.str("server_type").orEmpty()
+                itemId = obj.str("item_id") ?: obj.str("id").orEmpty()
+                obj["seasons"].asObj()?.forEach { (k, v) ->
+                    val sNum = k.toIntOrNull() ?: return@forEach
+                    val eps = v.asArr()?.mapNotNull { it.asPrim()?.intOrNull }.orEmpty()
+                    seasonsMap[sNum] = eps
+                }
+                if (seasonsMap.isNotEmpty()) inLib = true
+            }
+        }
+
+        // 若已知入库但缺少直放 itemId，或条目本身来自媒体服务器浏览，尝试从已启用媒体服务器精准定位 itemId
+        val mediaServers = fetchMediaServers().filter { it.enabled }
+        if (itemId.isBlank() && !item.mediaId.isNullOrBlank() && mediaServers.any { it.name.equals(item.source, ignoreCase = true) }) {
+            val matchedSrv = mediaServers.first { it.name.equals(item.source, ignoreCase = true) }
+            inLib = true
+            server = matchedSrv.name
+            serverType = matchedSrv.type
+            itemId = item.mediaId
+        } else if (itemId.isBlank() && item.title.isNotBlank() && mediaServers.isNotEmpty()) {
+            for (srv in mediaServers) {
+                val page = fetchMediaServerBrowse(server = srv.name, keyword = item.title, limit = 6)
+                val hit = page.items.firstOrNull { cand ->
+                    (item.tmdbId != null && cand.tmdbId == item.tmdbId) ||
+                        (cand.title.equals(item.title, ignoreCase = true) && (item.year.isBlank() || cand.year.isBlank() || cand.year == item.year))
+                }
+                if (hit != null) {
+                    inLib = true
+                    server = hit.server.ifBlank { srv.name }
+                    serverType = hit.serverType.ifBlank { srv.type }
+                    itemId = hit.itemId
+                    break
+                }
+            }
+        }
+        return MediaLibraryStatusDto(
+            inLibrary = inLib,
+            server = server,
+            serverType = serverType,
+            itemId = itemId,
+            existingEpisodesBySeason = seasonsMap,
+        )
+    }
+
     suspend fun toggleSubscriptionState(id: Int, targetState: String): Boolean {
         val resp = authedRequest(
             segments = listOf("subscribe", "status", id.toString()),
             method = "PUT",
             query = listOf("state" to targetState),
         ).getOrNull()
-        return resp != null && resp.status in 200..299
+        val ok = resp != null && resp.status in 200..299 &&
+            (runCatching { json.parseToJsonElement(resp.body).asObj()?.bool("success") }.getOrNull() != false)
+        if (ok) cachedSubscriptions = null
+        return ok
     }
 
-    suspend fun createOrUpdateSubscription(item: SubscribeItemDto, isUpdate: Boolean = false): Boolean {
+    /** 创建或更新订阅，返回 `(是否成功, 服务端提示文案)`。 */
+    suspend fun createOrUpdateSubscriptionWithMessage(item: SubscribeItemDto, isUpdate: Boolean = false): Pair<Boolean, String> {
         val baseMap = runCatching {
             if (isUpdate && item.rawJson.isNotBlank()) json.parseToJsonElement(item.rawJson).asObj()?.toMutableMap() else null
         }.getOrNull() ?: mutableMapOf()
@@ -766,7 +1028,10 @@ class MoviePilotRepository(context: Context) {
         baseMap["type"] = JsonPrimitive(item.type)
         if (item.season != null) baseMap["season"] = JsonPrimitive(item.season) else baseMap.remove("season")
         baseMap["media_source"] = JsonPrimitive(item.mediaSource)
-        if (item.mediaId.isNotBlank()) baseMap["media_id"] = JsonPrimitive(item.mediaId)
+        if (item.mediaId.isNotBlank()) {
+            baseMap["media_id"] = JsonPrimitive(item.mediaId)
+            item.mediaId.removePrefix("tmdb:").toIntOrNull()?.let { baseMap["tmdbid"] = JsonPrimitive(it) }
+        }
         baseMap["total_episode"] = JsonPrimitive(item.totalEpisode)
         if (item.startEpisode != null) baseMap["start_episode"] = JsonPrimitive(item.startEpisode) else baseMap.remove("start_episode")
         baseMap["quality"] = JsonPrimitive(item.quality)
@@ -790,13 +1055,23 @@ class MoviePilotRepository(context: Context) {
             method = if (isUpdate) "PUT" else "POST",
             body = JsonObject(baseMap).toString(),
             trailingSlash = true,
-        ).getOrNull()
-        return resp != null && resp.status in 200..299
+        ).getOrNull() ?: return false to "网络请求失败"
+        val rootObj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = rootObj?.bool("success") ?: (resp.status in 200..299)
+        if (ok) cachedSubscriptions = null
+        val msg = rootObj?.str("message") ?: if (ok) "订阅已保存" else "操作失败（HTTP ${resp.status}）"
+        return ok to msg
     }
+
+    suspend fun createOrUpdateSubscription(item: SubscribeItemDto, isUpdate: Boolean = false): Boolean =
+        createOrUpdateSubscriptionWithMessage(item, isUpdate).first
 
     suspend fun deleteSubscription(id: Int): Boolean {
         val resp = authedRequest(listOf("subscribe", id.toString()), method = "DELETE").getOrNull()
-        return resp != null && resp.status in 200..299
+        val ok = resp != null && resp.status in 200..299 &&
+            (runCatching { json.parseToJsonElement(resp.body).asObj()?.bool("success") }.getOrNull() != false)
+        if (ok) cachedSubscriptions = null
+        return ok
     }
 
     // ==================== 站点资源（Rust 9 维筛选分组） & 下载 ====================
@@ -807,8 +1082,12 @@ class MoviePilotRepository(context: Context) {
             val torrent = obj["torrent_info"].asObj() ?: obj
             val meta = obj["meta_info"].asObj()
             val media = obj["media_info"].asObj()
+            val id = torrent.str("id") ?: torrent.str("enclosure") ?: torrent.str("page_url") ?: torrent.str("title") ?: ""
+            if (id.isNotBlank()) {
+                resourceRawCache[id] = obj
+            }
             ResourceItemDto(
-                id = torrent.str("id") ?: torrent.str("enclosure") ?: torrent.str("title") ?: "",
+                id = id,
                 title = torrent.str("title") ?: return@mapNotNull null,
                 siteName = torrent.str("site_name") ?: "站点",
                 size = torrent.lng("size") ?: (torrent.dbl("size") ?: 0.0).toLong(),
@@ -859,14 +1138,77 @@ class MoviePilotRepository(context: Context) {
             .getOrDefault(ResourceFilterResultDto())
     }
 
-    suspend fun fetchDownloads(): List<DownloadTaskDto> {
-        val resp = authedRequest(listOf("download"), trailingSlash = true).getOrNull() ?: return emptyList()
+    /** 提交真实站点种子下载请求（调用 `POST /api/v1/download/add`，无损携带服务端原始 `torrent_info`）。 */
+    suspend fun addDownload(
+        item: ResourceItemDto,
+        downloader: String? = null,
+        savePath: String? = null,
+    ): Pair<Boolean, String> {
+        val rawWrapper = resourceRawCache[item.id]
+        val torrentObj = rawWrapper?.get("torrent_info").asObj() ?: rawWrapper ?: JsonObject(
+            mapOf(
+                "title" to JsonPrimitive(item.title),
+                "description" to JsonPrimitive(item.description),
+                "enclosure" to JsonPrimitive(item.enclosure),
+                "site_name" to JsonPrimitive(item.siteName),
+                "size" to JsonPrimitive(item.size),
+                "seeders" to JsonPrimitive(item.seeders),
+                "peers" to JsonPrimitive(item.peers),
+                "downloadvolumefactor" to JsonPrimitive(item.downloadvolumefactor),
+                "uploadvolumefactor" to JsonPrimitive(item.uploadvolumefactor),
+                "labels" to JsonArray(item.labels.map { JsonPrimitive(it) }),
+            ),
+        )
+        val payloadMap = mutableMapOf<String, JsonElement>(
+            "torrent_in" to torrentObj,
+        )
+        val dlClean = downloader?.trim().orEmpty()
+        val pathClean = savePath?.trim().orEmpty()
+        if (dlClean.isNotBlank() && dlClean != "默认下载器") {
+            payloadMap["downloader"] = JsonPrimitive(dlClean)
+        }
+        if (pathClean.isNotBlank() && pathClean != "自动目录") {
+            payloadMap["save_path"] = JsonPrimitive(pathClean)
+        }
+        var resp = authedRequest(
+            segments = listOf("download", "add"),
+            method = "POST",
+            body = JsonObject(payloadMap).toString(),
+        ).getOrNull()
+        // 兼容直接接收扁平 TorrentInfo + Query 参数的实例签名
+        val firstObj = runCatching { resp?.body?.let { json.parseToJsonElement(it).asObj() } }.getOrNull()
+        val firstOk = firstObj?.bool("success") ?: (resp != null && resp.status in 200..299)
+        if (resp != null && (resp.status == 422 || (!firstOk && (firstObj?.str("message")?.contains("为空") == true)))) {
+            val flatMap = torrentObj.toMutableMap()
+            if (dlClean.isNotBlank() && dlClean != "默认下载器") flatMap["downloader"] = JsonPrimitive(dlClean)
+            if (pathClean.isNotBlank() && pathClean != "自动目录") flatMap["save_path"] = JsonPrimitive(pathClean)
+            val fallbackQuery = buildList {
+                if (dlClean.isNotBlank() && dlClean != "默认下载器") add("downloader" to dlClean)
+                if (pathClean.isNotBlank() && pathClean != "自动目录") add("save_path" to pathClean)
+            }
+            resp = authedRequest(
+                segments = listOf("download", "add"),
+                method = "POST",
+                query = fallbackQuery,
+                body = JsonObject(flatMap).toString(),
+            ).getOrNull()
+        }
+        if (resp == null) return false to "下载请求发送失败，请检查网络连接"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        val msg = obj?.str("message") ?: if (ok) "已添加下载任务：${item.title}" else "添加下载失败（HTTP ${resp.status}）"
+        return ok to msg
+    }
+
+    suspend fun fetchDownloads(downloaderName: String? = null): List<DownloadTaskDto> {
+        val query = if (!downloaderName.isNullOrBlank()) listOf("name" to downloaderName) else emptyList()
+        val resp = authedRequest(listOf("download"), query = query, trailingSlash = true).getOrNull() ?: return emptyList()
         return extractArray(resp.body).mapNotNull { el ->
             val obj = el.asObj() ?: return@mapNotNull null
             val media = obj["media"].asObj()
             DownloadTaskDto(
                 hash = obj.str("hash") ?: "",
-                downloader = obj.str("downloader") ?: "qBittorrent",
+                downloader = obj.str("downloader") ?: downloaderName?.takeIf { it.isNotBlank() } ?: "qBittorrent",
                 title = obj.str("title") ?: return@mapNotNull null,
                 name = obj.str("name") ?: media?.str("title") ?: obj.str("title") ?: "",
                 year = obj.str("year") ?: "",
@@ -881,6 +1223,39 @@ class MoviePilotRepository(context: Context) {
                 poster = resolveImageUrl(media?.str("poster") ?: media?.str("backdrop"), maxWidth = 360),
             )
         }
+    }
+
+    /** 恢复指定下载任务（`GET /api/v1/download/start/{hash}?name=...`）。 */
+    suspend fun startDownload(hash: String, downloaderName: String? = null): Pair<Boolean, String> {
+        if (hash.isBlank()) return false to "任务缺少 Hash 标识"
+        val q = if (!downloaderName.isNullOrBlank()) listOf("name" to downloaderName) else emptyList()
+        val resp = authedRequest(listOf("download", "start", hash), method = "GET", query = q).getOrNull()
+            ?: return false to "网络请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        return ok to (obj?.str("message") ?: if (ok) "已恢复下载任务" else "恢复失败（HTTP ${resp.status}）")
+    }
+
+    /** 暂停指定下载任务（`GET /api/v1/download/stop/{hash}?name=...`）。 */
+    suspend fun stopDownload(hash: String, downloaderName: String? = null): Pair<Boolean, String> {
+        if (hash.isBlank()) return false to "任务缺少 Hash 标识"
+        val q = if (!downloaderName.isNullOrBlank()) listOf("name" to downloaderName) else emptyList()
+        val resp = authedRequest(listOf("download", "stop", hash), method = "GET", query = q).getOrNull()
+            ?: return false to "网络请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        return ok to (obj?.str("message") ?: if (ok) "已暂停下载任务" else "暂停失败（HTTP ${resp.status}）")
+    }
+
+    /** 删除指定下载任务（`DELETE /api/v1/download/{hash}?name=...`）。 */
+    suspend fun removeDownload(hash: String, downloaderName: String? = null): Pair<Boolean, String> {
+        if (hash.isBlank()) return false to "任务缺少 Hash 标识"
+        val q = if (!downloaderName.isNullOrBlank()) listOf("name" to downloaderName) else emptyList()
+        val resp = authedRequest(listOf("download", hash), method = "DELETE", query = q).getOrNull()
+            ?: return false to "网络请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        return ok to (obj?.str("message") ?: if (ok) "已移除下载任务" else "移除失败（HTTP ${resp.status}）")
     }
 
     // ==================== 文件 / 整理历史 / 队列 ====================
@@ -924,13 +1299,55 @@ class MoviePilotRepository(context: Context) {
                 errmsg = obj.str("errmsg"),
                 src = obj.str("src") ?: "",
                 dest = obj.str("dest") ?: "",
-                srcStorage = srcFile?.str("storage") ?: "local",
-                destStorage = destFile?.str("storage") ?: "local",
+                srcStorage = srcFile?.str("storage") ?: obj.str("src_storage") ?: "local",
+                destStorage = destFile?.str("storage") ?: obj.str("dest_storage") ?: "local",
                 sizeBytes = srcFile?.lng("size") ?: 0L,
                 image = resolveImageUrl(obj.str("image"), maxWidth = 320),
+                rawJson = obj.toString(),
             )
         }
         return (if (total > 0) total else list.size) to list
+    }
+
+    /**
+     * 删除整理历史记录并按需清理源文件/目标文件（调用 `DELETE /api/v1/history/transfer?deletesrc=...&deletedest=...`，
+     * 请求体完整携带服务端 `TransferHistory` JSON 对象，1:1 对齐 MoviePilot `history.py`）。
+     */
+    suspend fun deleteTransferHistory(
+        record: TransferHistoryDto,
+        deleteSrc: Boolean,
+        deleteDest: Boolean,
+    ): Pair<Boolean, String> {
+        val bodyJson = record.rawJson.takeIf { it.isNotBlank() } ?: JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(record.id),
+                "title" to JsonPrimitive(record.title),
+                "type" to JsonPrimitive(record.type),
+                "year" to JsonPrimitive(record.year),
+                "seasons" to JsonPrimitive(record.seasons),
+                "episodes" to JsonPrimitive(record.episodes),
+                "src" to JsonPrimitive(record.src),
+                "dest" to JsonPrimitive(record.dest),
+                "src_storage" to JsonPrimitive(record.srcStorage),
+                "dest_storage" to JsonPrimitive(record.destStorage),
+                "mode" to JsonPrimitive(record.mode),
+                "status" to JsonPrimitive(record.status),
+                "date" to JsonPrimitive(record.date),
+            ),
+        ).toString()
+        val resp = authedRequest(
+            segments = listOf("history", "transfer"),
+            method = "DELETE",
+            query = listOf(
+                "deletesrc" to deleteSrc.toString(),
+                "deletedest" to deleteDest.toString(),
+            ),
+            body = bodyJson,
+        ).getOrNull() ?: return false to "删除请求失败，请检查网络连接"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        val msg = obj?.str("message") ?: if (ok) "整理记录已移除" else "删除失败（HTTP ${resp.status}）"
+        return ok to msg
     }
 
     suspend fun fetchTransferQueue(): List<TransferQueueItemDto> {
@@ -949,7 +1366,7 @@ class MoviePilotRepository(context: Context) {
         }
     }
 
-    // ==================== 仪表盘 / 定时服务 / 插件图表 / 系统日志 ====================
+    // ==================== 仪表盘 / 定时服务 / 插件图表 / 系统日志 / 真实诊断 ====================
 
     suspend fun fetchDashboardStats(): DashboardStatsDto {
         val statObj = extractObject(authedRequest(listOf("dashboard", "statistic")).getOrNull()?.body)
@@ -977,7 +1394,7 @@ class MoviePilotRepository(context: Context) {
 
         val days = transferArr.mapNotNull { it.asPrim()?.intOrNull }
 
-        return DashboardStatsDto(
+        val stats = DashboardStatsDto(
             movieCount = statObj?.int("movie_count") ?: 0,
             tvCount = statObj?.int("tv_count") ?: 0,
             episodeCount = statObj?.int("episode_count"),
@@ -994,6 +1411,139 @@ class MoviePilotRepository(context: Context) {
             cpuPercent = cpuVal,
             memoryPercent = memUsage,
             transfer7Days = days,
+        )
+        persistWidgetSnapshot(stats)
+        return stats
+    }
+
+    private fun persistWidgetSnapshot(stats: DashboardStatsDto) {
+        runCatching {
+            val serverHost = (_session.value as? SessionState.Authenticated)?.serverUrl
+                ?.substringAfter("://")
+                ?.substringBefore("/")
+                ?.ifBlank { "MoviePilot" } ?: "MoviePilot"
+            val speedStr = when {
+                stats.downloadSpeed >= 1024 * 1024 * 1024 -> String.format("%.1f GB/s", stats.downloadSpeed / (1024 * 1024 * 1024))
+                stats.downloadSpeed >= 1024 * 1024 -> String.format("%.1f MB/s", stats.downloadSpeed / (1024 * 1024))
+                stats.downloadSpeed >= 1024 -> String.format("%.1f KB/s", stats.downloadSpeed / 1024)
+                stats.downloadSpeed > 0 -> String.format("%.0f B/s", stats.downloadSpeed)
+                else -> "0 B/s"
+            }
+            appContext.getSharedPreferences("mp_widget_snapshot_v1", Context.MODE_PRIVATE)
+                .edit()
+                .putInt("movies", stats.movieCount)
+                .putInt("tvs", stats.tvCount)
+                .putString("speed", speedStr)
+                .putString("server", serverHost)
+                .apply()
+            val updateIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
+                setPackage(appContext.packageName)
+            }
+            appContext.sendBroadcast(updateIntent)
+        }
+    }
+
+    /** 拉取系统模块列表（`GET /api/v1/module/modulelist`）。 */
+    suspend fun fetchSystemModules(): List<SystemModuleStatusDto> {
+        val resp = authedRequest(listOf("module", "modulelist")).getOrNull() ?: return emptyList()
+        return extractArray(resp.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            val id = obj.str("id") ?: return@mapNotNull null
+            SystemModuleStatusDto(
+                id = id,
+                name = obj.str("name") ?: id,
+                moduleType = obj.str("module_type") ?: obj.str("type").orEmpty(),
+                subType = obj.str("module_subtype") ?: obj.str("sub_type").orEmpty(),
+            )
+        }
+    }
+
+    /** 对单个系统模块执行真实连通/健康自检（`GET /api/v1/module/moduletest/{id}`）。 */
+    suspend fun testSystemModule(moduleId: String): Pair<Boolean, String> {
+        val resp = authedRequest(listOf("module", "moduletest", moduleId)).getOrNull()
+            ?: return false to "请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        val msg = obj?.str("message") ?: if (ok) "模块运行正常" else "检测未通过（HTTP ${resp.status}）"
+        return ok to msg
+    }
+
+    /** 调用服务端真实媒体名称识别接口（`GET /api/v1/media/recognize`）。 */
+    suspend fun recognizeMediaTitle(title: String, subtitle: String = ""): RecognizeResultDto? {
+        val clean = title.trim()
+        if (clean.isEmpty()) return null
+        val q = buildList {
+            add("title" to clean)
+            if (subtitle.isNotBlank()) add("subtitle" to subtitle.trim())
+        }
+        val resp = authedRequest(listOf("media", "recognize"), query = q).getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val root = extractObject(resp.body) ?: return null
+        val meta = root["meta_info"].asObj() ?: root
+        val media = root["media_info"].asObj()
+        val seasonEp = buildString {
+            val s = meta.str("season_episode") ?: media?.str("season_episode").orEmpty()
+            if (s.isNotBlank()) {
+                append(s)
+            } else {
+                meta.int("begin_season")?.let { append("S%02d".format(it)) }
+                meta.int("begin_episode")?.let { append("E%02d".format(it)) }
+            }
+        }
+        return RecognizeResultDto(
+            rawTitle = clean,
+            cnName = meta.str("cn_name").orEmpty(),
+            enName = meta.str("en_name").orEmpty(),
+            recognizedTitle = media?.str("title") ?: meta.str("name") ?: meta.str("cn_name") ?: meta.str("en_name").orEmpty(),
+            year = media?.str("year") ?: meta.str("year").orEmpty(),
+            type = media?.str("type") ?: meta.str("type").orEmpty(),
+            category = media?.str("category").orEmpty(),
+            tmdbId = media?.int("tmdb_id") ?: media?.int("tmdbid"),
+            seasonEpisode = seasonEp,
+            resourcePix = meta.str("resource_pix").orEmpty(),
+            resourceType = meta.str("resource_type").orEmpty(),
+            videoEncode = meta.str("video_encode").orEmpty(),
+            audioEncode = meta.str("audio_encode").orEmpty(),
+            resourceTeam = meta.str("resource_team").orEmpty(),
+            voteAverage = media?.dbl("vote_average") ?: 0.0,
+            posterPath = resolveImageUrl(media?.str("poster_path") ?: media?.str("backdrop_path"), maxWidth = 400),
+            overview = media?.str("overview").orEmpty(),
+        )
+    }
+
+    /** 调用服务端真实网络连通性测试接口（`GET /api/v1/system/nettest`）。 */
+    suspend fun runNetworkTest(url: String, proxy: Boolean = true, name: String = ""): NetTestResultDto {
+        val targetUrl = url.trim()
+        val startMs = System.currentTimeMillis()
+        val resp = authedRequest(
+            segments = listOf("system", "nettest"),
+            query = listOf("url" to targetUrl, "proxy" to proxy.toString()),
+        ).getOrNull()
+        val elapsed = (System.currentTimeMillis() - startMs).coerceAtLeast(1L)
+        if (resp == null) {
+            return NetTestResultDto(
+                name = name.ifBlank { targetUrl },
+                url = targetUrl,
+                proxy = proxy,
+                ok = false,
+                latencyMs = null,
+                message = "请求超时或网络不可达",
+            )
+        }
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val dataObj = obj?.get("data").asObj()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        val serverTimeMs = dataObj?.dbl("time")?.let {
+            if (it < 30.0) (it * 1000.0).toLong() else it.toLong()
+        } ?: dataObj?.lng("latency") ?: if (ok) elapsed else null
+        val msg = obj?.str("message") ?: if (ok) "连通正常" else "连接失败（HTTP ${resp.status}）"
+        return NetTestResultDto(
+            name = name.ifBlank { targetUrl },
+            url = targetUrl,
+            proxy = proxy,
+            ok = ok,
+            latencyMs = serverTimeMs,
+            message = msg,
         )
     }
 
@@ -1176,6 +1726,50 @@ class MoviePilotRepository(context: Context) {
         }
     }
 
+    /** 新增用户账号（`POST /api/v1/user/`）。 */
+    suspend fun createUser(
+        name: String,
+        password: String,
+        email: String = "",
+        isSuperuser: Boolean = false,
+        isActive: Boolean = true,
+        permissions: Map<String, Boolean> = emptyMap(),
+    ): Pair<Boolean, String> {
+        val permsJson = JsonObject(permissions.mapValues { JsonPrimitive(it.value) })
+        val payload = JsonObject(
+            buildMap {
+                put("name", JsonPrimitive(name.trim()))
+                put("password", JsonPrimitive(password))
+                put("email", JsonPrimitive(email.trim()))
+                put("is_superuser", JsonPrimitive(isSuperuser))
+                put("is_active", JsonPrimitive(isActive))
+                put("permissions", permsJson)
+            },
+        )
+        val resp = authedRequest(
+            segments = listOf("user"),
+            method = "POST",
+            body = payload.toString(),
+            trailingSlash = true,
+        ).getOrNull() ?: return false to "创建用户失败，请检查网络连接"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        val msg = obj?.str("message") ?: obj?.str("detail") ?: if (ok) "已创建用户 ${name.trim()}" else "创建失败（HTTP ${resp.status}）"
+        return ok to msg
+    }
+
+    /** 按用户 ID 删除账号（`DELETE /api/v1/user/id/{id}`）。 */
+    suspend fun deleteUserById(userId: Int): Pair<Boolean, String> {
+        val resp = authedRequest(
+            segments = listOf("user", "id", userId.toString()),
+            method = "DELETE",
+        ).getOrNull() ?: return false to "删除请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        val msg = obj?.str("message") ?: obj?.str("detail") ?: if (ok) "已删除该用户" else "删除失败（HTTP ${resp.status}）"
+        return ok to msg
+    }
+
     // ==================== 全量系统设置模块 ====================
 
     private suspend fun fetchSettingValue(key: String): JsonElement? {
@@ -1350,13 +1944,126 @@ class MoviePilotRepository(context: Context) {
         val arr = fetchSettingValue("Notifications").asArr() ?: return emptyList()
         return arr.mapNotNull { el ->
             val obj = el.asObj() ?: return@mapNotNull null
+            val cfgObj = obj["config"].asObj()
+            val cfgMap = mutableMapOf<String, String>()
+            cfgObj?.forEach { (k, v) ->
+                val prim = v.asPrim()
+                if (prim != null && prim.content != "null") {
+                    cfgMap[k] = prim.content
+                }
+            }
             ServiceConfigDto(
                 name = obj.str("name") ?: return@mapNotNull null,
-                type = obj.str("type") ?: "",
+                type = obj.str("type") ?: "telegram",
                 enabled = obj.bool("enabled") ?: true,
                 switchs = obj["switchs"].asArr()?.mapNotNull { it.asPrim()?.content?.takeIf { s -> s != "null" } } ?: emptyList(),
+                config = cfgMap,
+                rawJson = obj.toString(),
             )
         }
+    }
+
+    /** 新增或更新通知渠道配置（写入 `/api/v1/system/setting/Notifications`，无损保留未知 config 键）。 */
+    suspend fun saveNotificationChannel(item: ServiceConfigDto, originalName: String? = null): Boolean {
+        val existing = fetchSettingValue("Notifications").asArr()?.mapNotNull { it.asObj() }.orEmpty().toMutableList()
+        val matchIdx = originalName?.let { orig -> existing.indexOfFirst { it.str("name") == orig } } ?: -1
+        val baseMap = if (matchIdx >= 0) existing[matchIdx].toMutableMap() else mutableMapOf()
+        val cfgMap = (baseMap["config"].asObj() ?: JsonObject(emptyMap())).toMutableMap()
+        item.config.forEach { (k, v) ->
+            if (k.isNotBlank()) {
+                cfgMap[k] = JsonPrimitive(v.trim())
+            }
+        }
+        baseMap["name"] = JsonPrimitive(item.name.trim())
+        baseMap["type"] = JsonPrimitive(item.type.trim().ifBlank { "telegram" })
+        baseMap["enabled"] = JsonPrimitive(item.enabled)
+        baseMap["switchs"] = JsonArray(item.switchs.map { JsonPrimitive(it) })
+        baseMap["config"] = JsonObject(cfgMap)
+        val updatedObj = JsonObject(baseMap)
+        if (matchIdx >= 0) existing[matchIdx] = updatedObj else existing.add(updatedObj)
+        return saveSettingValue("Notifications", JsonArray(existing).toString())
+    }
+
+    /** 删除指定通知渠道配置（写入 `/api/v1/system/setting/Notifications`）。 */
+    suspend fun deleteNotificationChannel(name: String): Boolean {
+        val remaining = fetchSettingValue("Notifications").asArr()?.mapNotNull { it.asObj() }
+            ?.filterNot { it.str("name") == name } ?: return false
+        return saveSettingValue("Notifications", JsonArray(remaining).toString())
+    }
+
+    // ==================== 渠道授权（`/api/v1/authorization` 5 分钟绑定码 + 审批/解绑） ====================
+
+    /** 拉取已授权与待审批的消息渠道用户绑定列表（`GET /api/v1/authorization`）。 */
+    suspend fun fetchChannelAuthorizations(): List<ChannelAuthRecordDto> {
+        val resp = authedRequest(listOf("authorization")).getOrNull()
+            ?.takeIf { it.status != 404 }
+            ?: authedRequest(listOf("authorization"), trailingSlash = true).getOrNull()
+            ?: return emptyList()
+        return extractArray(resp.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            val id = obj.str("id") ?: obj.str("auth_id") ?: obj.str("key") ?: obj.str("userid") ?: return@mapNotNull null
+            val rawStatus = obj.str("status") ?: obj.str("state") ?: if (obj.bool("approved") == false) "pending" else "approved"
+            ChannelAuthRecordDto(
+                id = id,
+                channel = obj.str("channel") ?: obj.str("source") ?: obj.str("type") ?: "notification",
+                channelUserId = obj.str("channel_user_id") ?: obj.str("userid") ?: obj.str("external_id") ?: id,
+                channelUsername = obj.str("channel_username") ?: obj.str("nickname") ?: obj.str("username") ?: "",
+                boundUsername = obj.str("bound_user") ?: obj.str("user_name") ?: obj.str("mp_username") ?: "",
+                status = if (rawStatus.lowercase() in setOf("pending", "wait", "waiting", "unapproved", "0")) "pending" else "approved",
+                createdAt = obj.str("created_at") ?: obj.str("updated_at") ?: obj.str("date") ?: "",
+            )
+        }
+    }
+
+    /** 生成 5 分钟短效渠道绑定授权码（调用 `POST /api/v1/authorization/code`，兼容回退 `POST /api/v1/authorization`）。 */
+    suspend fun generateChannelBindingCode(): Result<ChannelBindingCodeDto> {
+        var resp = authedRequest(listOf("authorization", "code"), method = "POST", body = "{}").getOrNull()
+        if (resp == null || resp.status in setOf(404, 405)) {
+            resp = authedRequest(listOf("authorization"), method = "POST", body = "{}").getOrNull()
+        }
+        if (resp == null) return Result.failure(IllegalStateException("请求失败，请检查网络连接"))
+        val root = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val data = root?.get("data").asObj() ?: root
+        val code = data?.str("code") ?: data?.str("bind_code") ?: data?.str("token").orEmpty()
+        if (resp.status !in 200..299 || code.isBlank()) {
+            val errMsg = root?.str("message") ?: root?.str("detail") ?: "服务端暂未开启渠道授权码接口（HTTP ${resp.status}）"
+            return Result.failure(IllegalStateException(errMsg))
+        }
+        val ttl = data?.int("expires_in") ?: data?.int("ttl") ?: 300
+        val cmd = data?.str("command") ?: data?.str("instruction") ?: "/bind $code"
+        return Result.success(
+            ChannelBindingCodeDto(
+                code = code,
+                expiresInSeconds = ttl.coerceAtLeast(30),
+                commandHint = cmd,
+                createdAtEpochMs = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    /** 管理员批准待审核渠道绑定请求（`POST /api/v1/authorization/{id}/approve` 兼容 `PUT /api/v1/authorization/{id}`）。 */
+    suspend fun approveChannelAuthorization(id: String): Pair<Boolean, String> {
+        var resp = authedRequest(listOf("authorization", id, "approve"), method = "POST", body = "{}").getOrNull()
+        if (resp == null || resp.status in setOf(404, 405)) {
+            resp = authedRequest(
+                segments = listOf("authorization", id),
+                method = "PUT",
+                body = """{"status":"approved","approved":true}""",
+            ).getOrNull()
+        }
+        if (resp == null) return false to "审批请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        return ok to (obj?.str("message") ?: if (ok) "已批准该渠道授权" else "审批失败（HTTP ${resp.status}）")
+    }
+
+    /** 删除/解除渠道绑定记录（`DELETE /api/v1/authorization/{id}`）。 */
+    suspend fun deleteChannelAuthorization(id: String): Pair<Boolean, String> {
+        val resp = authedRequest(listOf("authorization", id), method = "DELETE").getOrNull()
+            ?: return false to "解绑请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        return ok to (obj?.str("message") ?: if (ok) "已移除该渠道绑定" else "移除失败（HTTP ${resp.status}）")
     }
 
     suspend fun fetchSearchSources(): Set<String> {
@@ -1436,8 +2143,67 @@ class MoviePilotRepository(context: Context) {
                 shareUser = obj.str("share_user") ?: "",
                 count = obj.int("count") ?: 0,
                 date = obj.str("date") ?: "",
+                rawJson = obj.toString(),
             )
         }
+    }
+
+    /** 立即执行指定工作流（`POST /api/v1/workflow/{id}/run`）。 */
+    suspend fun runWorkflow(workflowId: Int): Pair<Boolean, String> {
+        val resp = authedRequest(listOf("workflow", workflowId.toString(), "run"), method = "POST").getOrNull()
+            ?: return false to "请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        return ok to (obj?.str("message") ?: if (ok) "工作流已触发执行" else "触发失败（HTTP ${resp.status}）")
+    }
+
+    /** 启用指定工作流调度（`POST /api/v1/workflow/{id}/start`）。 */
+    suspend fun startWorkflow(workflowId: Int): Pair<Boolean, String> {
+        val resp = authedRequest(listOf("workflow", workflowId.toString(), "start"), method = "POST").getOrNull()
+            ?: return false to "请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        return ok to (obj?.str("message") ?: if (ok) "工作流已启用" else "启用失败（HTTP ${resp.status}）")
+    }
+
+    /** 暂停指定工作流调度（`POST /api/v1/workflow/{id}/pause`）。 */
+    suspend fun pauseWorkflow(workflowId: Int): Pair<Boolean, String> {
+        val resp = authedRequest(listOf("workflow", workflowId.toString(), "pause"), method = "POST").getOrNull()
+            ?: return false to "请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        return ok to (obj?.str("message") ?: if (ok) "工作流已暂停" else "暂停失败（HTTP ${resp.status}）")
+    }
+
+    /** 删除指定工作流（`DELETE /api/v1/workflow/{id}`）。 */
+    suspend fun deleteWorkflow(workflowId: Int): Pair<Boolean, String> {
+        val resp = authedRequest(listOf("workflow", workflowId.toString()), method = "DELETE").getOrNull()
+            ?: return false to "删除请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        return ok to (obj?.str("message") ?: if (ok) "工作流已删除" else "删除失败（HTTP ${resp.status}）")
+    }
+
+    /** 复用社区分享工作流（`POST /api/v1/workflow/fork`）。 */
+    suspend fun forkWorkflowShare(share: WorkflowShareDto): Pair<Boolean, String> {
+        val bodyJson = share.rawJson.takeIf { it.isNotBlank() } ?: JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(share.id),
+                "name" to JsonPrimitive(share.name),
+                "description" to JsonPrimitive(share.description),
+                "share_title" to JsonPrimitive(share.shareTitle),
+                "share_comment" to JsonPrimitive(share.shareComment),
+                "share_user" to JsonPrimitive(share.shareUser),
+            ),
+        ).toString()
+        val resp = authedRequest(
+            segments = listOf("workflow", "fork"),
+            method = "POST",
+            body = bodyJson,
+        ).getOrNull() ?: return false to "网络请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        return ok to (obj?.str("message") ?: if (ok) "已复用工作流「${share.shareTitle.ifBlank { share.name }}」" else "复用失败（HTTP ${resp.status}）")
     }
 
     suspend fun fetchPlugins(installedOnly: Boolean): List<PluginItemDto> {
@@ -1464,8 +2230,40 @@ class MoviePilotRepository(context: Context) {
                 hasPage = obj.bool("has_page") ?: false,
                 hasUpdate = obj.bool("has_update") ?: false,
                 renderMode = obj.str("render_mode") ?: "vuetify",
+                repoUrl = obj.str("repo_url").orEmpty(),
             )
         }.distinctBy { it.id }
+    }
+
+    /** 从市场安装或更新插件（`GET /api/v1/plugin/install/{plugin_id}?repo_url=...&force=...`）。 */
+    suspend fun installPlugin(pluginId: String, repoUrl: String = "", force: Boolean = false): Pair<Boolean, String> {
+        val q = buildList {
+            if (repoUrl.isNotBlank()) add("repo_url" to repoUrl)
+            add("force" to force.toString())
+        }
+        val resp = authedRequest(listOf("plugin", "install", pluginId), method = "GET", query = q).getOrNull()
+            ?: return false to "安装请求失败，请检查网络连接"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        return ok to (obj?.str("message") ?: if (ok) (if (force) "插件更新成功" else "插件安装成功") else "安装失败（HTTP ${resp.status}）")
+    }
+
+    /** 卸载指定插件（`DELETE /api/v1/plugin/{plugin_id}`）。 */
+    suspend fun uninstallPlugin(pluginId: String): Pair<Boolean, String> {
+        val resp = authedRequest(listOf("plugin", pluginId), method = "DELETE").getOrNull()
+            ?: return false to "卸载请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        return ok to (obj?.str("message") ?: if (ok) "插件已卸载" else "卸载失败（HTTP ${resp.status}）")
+    }
+
+    /** 重置指定插件配置与运行数据（`GET /api/v1/plugin/reset/{plugin_id}`）。 */
+    suspend fun resetPlugin(pluginId: String): Pair<Boolean, String> {
+        val resp = authedRequest(listOf("plugin", "reset", pluginId), method = "GET").getOrNull()
+            ?: return false to "重置请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        return ok to (obj?.str("message") ?: if (ok) "插件已重置" else "重置失败（HTTP ${resp.status}）")
     }
 
     suspend fun fetchPluginFormJson(pluginId: String): String? {

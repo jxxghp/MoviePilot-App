@@ -18,6 +18,8 @@ import {
   HarmonyPillTabBar,
   HarmonySegmentedSwitch,
   HarmonySheetHeader,
+  HarmonyEntityLogo,
+  HarmonyEntityLogoPill,
   HarmonyThemeColors,
   HarmonyAppearanceStore,
   mpPrimaryText,
@@ -53,19 +55,36 @@ const MEDIA_SOURCES: string[][] = [
   ['', '默认数据源'],
   ['themoviedb', 'TheMovieDB'],
   ['douban', '豆瓣'],
-  ['bangumi', 'Bangumi']
+  ['bangumi', 'Bangumi'],
+  ['musicbrainz', 'MusicBrainz']
+];
+
+interface DeleteModeOption {
+  label: string;
+  desc: string;
+  deleteSrc: boolean;
+  deleteDest: boolean;
+  danger: boolean;
+}
+
+const HISTORY_DELETE_MODES: DeleteModeOption[] = [
+  { label: '仅删除历史记录', desc: '保留源文件与媒体库整理文件', deleteSrc: false, deleteDest: false, danger: false },
+  { label: '删除历史记录及源文件', desc: '同时清理下载目录中的源文件', deleteSrc: true, deleteDest: false, danger: true },
+  { label: '删除历史记录及媒体库文件', desc: '同时移除目标媒体库已整理文件', deleteSrc: false, deleteDest: true, danger: true },
+  { label: '同时删除源文件与媒体库文件', desc: '彻底删除记录、源文件与媒体库文件', deleteSrc: true, deleteDest: true, danger: true }
 ];
 
 /**
  * 鸿蒙多存储文件管理、整理历史与 1:1 对齐 iOS 的全量「手动识别整理」页：
- * - 文件管理支持全部已挂载存储切换、目录浏览、播放音视频与单文件/目录发起手动整理；
- * - 整理历史点击任意记录即可进入手动重整理（自动命中 `target-path` 与 `history` 接口）；
- * - 手动整理完整覆盖 iOS 全部字段与「预览整理 / 立即整理」真实提交。
+ * - 文件管理搭载真实存储品牌图标（115/阿里云盘/Rclone/SMB/本地），支持系统侧滑返回上级目录；
+ * - 整理历史支持点击重整理，并配备 4 模式精准删除弹窗（`DELETE /api/v1/history/transfer`）；
+ * - 手动整理完整覆盖数据源与存储品牌图标及「预览整理 / 立即整理」真实提交。
  */
 @Component
 export struct HarmonyLibraryPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
+  @StorageProp('mp_file_navigate_up_req') @Watch('onExternalNavUpReq') navUpReq: number = 0;
   @Prop initialMode: string = 'files';
   @State private activeTabIdx: number = 0; // 0: 文件管理, 1: 整理历史
   @State private historyFilterIdx: number = 0; // 0: 全部, 1: 成功, 2: 失败
@@ -77,6 +96,11 @@ export struct HarmonyLibraryPage {
   @State private historyQuery: string = '';
   @State private loading: boolean = true;
   @State private notice: string = '';
+
+  // 整理历史 4 模式删除弹窗状态
+  @State private showDeleteHistorySheet: boolean = false;
+  @State private deletingHistoryItem: MpTransferHistoryItem | null = null;
+  @State private deletingHistoryBusy: boolean = false;
 
   // 手动识别整理全量弹窗状态
   @State private showTransferSheet: boolean = false;
@@ -128,7 +152,31 @@ export struct HarmonyLibraryPage {
 
   aboutToAppear(): void {
     this.activeTabIdx = this.initialMode === 'history' ? 1 : 0;
+    this.syncBackInterceptFlag();
     this.initAndLoad();
+  }
+
+  aboutToDisappear(): void {
+    AppStorage.setOrCreate('mp_file_can_navigate_up', false);
+  }
+
+  private syncBackInterceptFlag(): void {
+    const canUp = this.activeTabIdx === 0 && this.currentPath !== '/';
+    AppStorage.setOrCreate('mp_file_can_navigate_up', canUp);
+  }
+
+  onExternalNavUpReq(): void {
+    if (this.activeTabIdx === 0 && this.currentPath !== '/') {
+      this.navigateUpDirectory();
+    }
+  }
+
+  private navigateUpDirectory(): void {
+    const parts = this.currentPath.split('/').filter((p: string) => p.length > 0);
+    parts.pop();
+    this.currentPath = parts.length > 0 ? '/' + parts.join('/') + '/' : '/';
+    this.syncBackInterceptFlag();
+    this.loadData();
   }
 
   private async initAndLoad(): Promise<void> {
@@ -148,6 +196,7 @@ export struct HarmonyLibraryPage {
 
   private async loadData(): Promise<void> {
     this.loading = true;
+    this.syncBackInterceptFlag();
     const repo = MoviePilotRepository.shared();
     try {
       if (this.activeTabIdx === 0) {
@@ -291,6 +340,66 @@ export struct HarmonyLibraryPage {
   }
 
   @Builder
+  deleteHistorySheetBuilder() {
+    Column({ space: 12 }) {
+      HarmonySheetHeader({
+        title: '删除整理历史',
+        cancelText: '取消',
+        onCancel: () => { this.showDeleteHistorySheet = false; }
+      })
+      if (this.deletingHistoryItem) {
+        Text(`「${this.deletingHistoryItem.title}」· 请选择删除范围：`)
+          .fontSize(13)
+          .fontColor(mpSecondaryText(this.isDark))
+          .maxLines(2)
+          .width('100%')
+      }
+
+      ForEach(HISTORY_DELETE_MODES, (opt: DeleteModeOption) => {
+        Column() {
+          CinematicPanel({ panelPadding: 14, cornerRadius: 16, interactive: true }) {
+            Row({ space: 10 }) {
+              SymbolGlyph($r('sys.symbol.trash'))
+                .fontSize(18)
+                .fontColor([opt.danger ? '#E84855' : this.accentHex])
+              Column({ space: 3 }) {
+                Text(opt.label)
+                  .fontSize(14.5)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(opt.danger ? '#E84855' : mpPrimaryText(this.isDark))
+                  .width('100%')
+                Text(opt.desc)
+                  .fontSize(11.5)
+                  .fontColor(mpSecondaryText(this.isDark))
+                  .width('100%')
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+            }
+            .width('100%')
+          }
+        }
+        .width('100%')
+        .opacity(this.deletingHistoryBusy ? 0.55 : 1)
+        .onClick(async () => {
+          const target = this.deletingHistoryItem;
+          if (!target || this.deletingHistoryBusy) { return; }
+          this.deletingHistoryBusy = true;
+          const ok = await MoviePilotRepository.shared().deleteTransferHistory(target, opt.deleteSrc, opt.deleteDest);
+          this.deletingHistoryBusy = false;
+          this.showDeleteHistorySheet = false;
+          this.notice = ok ? `已执行「${opt.label}」` : '删除整理记录失败';
+          if (ok) {
+            await this.loadData();
+          }
+        })
+      }, (opt: DeleteModeOption) => opt.label)
+    }
+    .padding(20)
+    .width('100%')
+  }
+
+  @Builder
   manualTransferSheetBuilder() {
     Column({ space: 12 }) {
       HarmonySheetHeader({
@@ -301,25 +410,34 @@ export struct HarmonyLibraryPage {
 
       Scroll() {
         Column({ space: 12 }) {
-          // 源信息卡片
           CinematicPanel({ panelPadding: 13, cornerRadius: 16 }) {
             Column({ space: 4 }) {
               Text(this.mtSrcTitle).fontSize(14.5).fontWeight(FontWeight.Bold)
                 .fontColor(mpPrimaryText(this.isDark)).maxLines(2).width('100%')
-              Text(`${this.mtSrcStorage} · ${this.mtSrcPath}`).fontSize(11.5)
-                .fontColor(mpSecondaryText(this.isDark)).maxLines(2).width('100%')
+              Row({ space: 6 }) {
+                HarmonyEntityLogo({
+                  kind: 'storage',
+                  value: this.mtSrcStorage,
+                  logoSize: 15,
+                  cornerRadius: 4
+                })
+                Text(`${this.mtSrcStorage} · ${this.mtSrcPath}`).fontSize(11.5)
+                  .fontColor(mpSecondaryText(this.isDark)).maxLines(2).layoutWeight(1)
+              }.width('100%')
               if (this.mtMatchedHistoryCount > 0) {
                 NativeAdaptiveBadge({ text: `已匹配历史整理 ${this.mtMatchedHistoryCount} 条`, tintHex: '#F29B38' })
               }
             }.alignItems(HorizontalAlign.Start)
           }
 
-          // 1. 目标存储与路径
+          // 1. 目标存储与路径（搭载存储品牌图标）
           Text('目标存储').fontSize(12.5).fontWeight(FontWeight.Medium).fontColor(mpSecondaryText(this.isDark)).width('100%')
           Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
             ForEach(this.storages, (st: MpStorageConfig) => {
-              NativeAdaptivePill({
-                title: st.type,
+              HarmonyEntityLogoPill({
+                kind: 'storage',
+                value: st.type,
+                title: st.name || st.type,
                 selected: this.mtTargetStorage === st.type,
                 onTap: () => { this.mtTargetStorage = st.type; }
               })
@@ -330,7 +448,9 @@ export struct HarmonyLibraryPage {
             Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
               ForEach(this.mtDirectories, (d: MpDirectoryConfig) => {
                 if (d.libraryPath.length > 0) {
-                  NativeAdaptivePill({
+                  HarmonyEntityLogoPill({
+                    kind: 'storage',
+                    value: d.libraryStorage || d.storage || 'local',
                     title: d.name,
                     selected: this.mtTargetPath === d.libraryPath,
                     onTap: () => {
@@ -373,7 +493,7 @@ export struct HarmonyLibraryPage {
             }, (m: string[]) => `om_${m[0]}`)
           }.width('100%')
 
-          // 3. 媒体识别与在线检索指定 ID
+          // 3. 媒体识别与数据源品牌图标
           Text('媒体识别').fontSize(12.5).fontWeight(FontWeight.Medium).fontColor(mpSecondaryText(this.isDark)).width('100%')
           Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
             ForEach(MEDIA_TYPES, (m: string[]) => {
@@ -387,11 +507,21 @@ export struct HarmonyLibraryPage {
 
           Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
             ForEach(MEDIA_SOURCES, (s: string[]) => {
-              NativeAdaptivePill({
-                title: s[1],
-                selected: this.mtMediaSource === s[0],
-                onTap: () => { this.mtMediaSource = s[0]; }
-              })
+              if (s[0].length === 0) {
+                NativeAdaptivePill({
+                  title: s[1],
+                  selected: this.mtMediaSource === s[0],
+                  onTap: () => { this.mtMediaSource = s[0]; }
+                })
+              } else {
+                HarmonyEntityLogoPill({
+                  kind: 'media_source',
+                  value: s[0],
+                  title: s[1],
+                  selected: this.mtMediaSource === s[0],
+                  onTap: () => { this.mtMediaSource = s[0]; }
+                })
+              }
             }, (s: string[]) => `msrc_${s[0]}`)
           }.width('100%')
 
@@ -417,7 +547,7 @@ export struct HarmonyLibraryPage {
             CinematicPanel({ panelPadding: 12, cornerRadius: 16 }) {
               Column({ space: 8 }) {
                 Row({ space: 8 }) {
-                  TextInput({ placeholder: '输入片名检索 TMDB / 豆瓣 ID…', text: this.mtSearchQuery })
+                  TextInput({ placeholder: '输入片名检索 TMDB / 豆瓣 / Bangumi ID…', text: this.mtSearchQuery })
                     .layoutWeight(1)
                     .fontColor(mpPrimaryText(this.isDark)).placeholderColor(mpSecondaryText(this.isDark))
                     .backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(10)
@@ -427,7 +557,11 @@ export struct HarmonyLibraryPage {
                     .onClick(async () => {
                       if (this.mtSearchQuery.trim().length === 0) { return; }
                       this.mtSearching = true;
-                      this.mtSearchResults = (await MoviePilotRepository.shared().searchMedia(this.mtSearchQuery, 'media')).slice(0, 6);
+                      this.mtSearchResults = (await MoviePilotRepository.shared().searchMedia(
+                        this.mtSearchQuery,
+                        this.mtMediaType === '音乐' ? 'music' : 'media',
+                        this.mtMediaSource
+                      )).slice(0, 6);
                       this.mtSearching = false;
                     })
                 }.width('100%')
@@ -445,16 +579,16 @@ export struct HarmonyLibraryPage {
                     }
                     Column({ space: 2 }) {
                       Text(m.title).fontSize(13).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).maxLines(1)
-                      Text(`${m.type}${m.year ? ' · ' + m.year : ''} · ID: ${m.tmdbId || m.doubanId || m.id}`)
+                      Text(`${m.type}${m.year ? ' · ' + m.year : ''} · ID: ${m.tmdbId || m.doubanId || m.mediaId || m.id}`)
                         .fontSize(11).fontColor(mpSecondaryText(this.isDark))
                     }.alignItems(HorizontalAlign.Start).layoutWeight(1)
                     Text('选用').fontSize(12).fontColor(this.accentHex).fontWeight(FontWeight.Bold)
                   }
                   .width('100%').padding({ top: 4, bottom: 4 })
                   .onClick(() => {
-                    this.mtMediaId = m.tmdbId || m.doubanId || m.id;
-                    this.mtMediaSource = m.tmdbId ? 'themoviedb' : (m.doubanId ? 'douban' : this.mtMediaSource);
-                    if (m.type === '电影' || m.type === '电视剧') { this.mtMediaType = m.type; }
+                    this.mtMediaId = m.tmdbId || m.doubanId || m.mediaId || m.id;
+                    this.mtMediaSource = m.tmdbId ? 'themoviedb' : (m.doubanId ? 'douban' : (m.source || this.mtMediaSource));
+                    if (m.type === '电影' || m.type === '电视剧' || m.type === '音乐') { this.mtMediaType = m.type; }
                     this.mtSelectedMediaTitle = m.title;
                     this.mtShowSearch = false;
                   })
@@ -580,7 +714,6 @@ export struct HarmonyLibraryPage {
             }
           }
 
-          // 反馈与预览结果
           if (this.mtFeedback.length > 0) {
             Text(this.mtFeedback)
               .fontSize(12.5)
@@ -607,7 +740,6 @@ export struct HarmonyLibraryPage {
         }.padding({ bottom: 16 })
       }.scrollBar(BarState.Off).layoutWeight(1)
 
-      // 底部操作按钮：预览整理 + 立即整理
       Row({ space: 10 }) {
         Button(this.mtPreviewing ? '预览中…' : '预览整理')
           .layoutWeight(1).height(46).borderRadius(23)
@@ -653,7 +785,13 @@ export struct HarmonyLibraryPage {
         title: this.activeTabIdx === 0 ? `文件管理 (${this.files.length})` : `整理历史 (${this.history.length})`,
         trailingSymbol: 'sys.symbol.arrow_clockwise',
         trailingAccessibility: '刷新列表',
-        onBack: () => this.onBack(),
+        onBack: () => {
+          if (this.activeTabIdx === 0 && this.currentPath !== '/') {
+            this.navigateUpDirectory();
+          } else {
+            this.onBack();
+          }
+        },
         onTrailingClick: () => this.loadData()
       })
 
@@ -662,6 +800,7 @@ export struct HarmonyLibraryPage {
         selectedIndex: this.activeTabIdx,
         onSelect: (idx: number) => {
           this.activeTabIdx = idx;
+          this.syncBackInterceptFlag();
           this.loadData();
         }
       })
@@ -671,16 +810,19 @@ export struct HarmonyLibraryPage {
       }
 
       if (this.activeTabIdx === 0) {
-        // 多存储切换胶囊行
+        // 多存储切换胶囊行（搭载真实存储品牌图标）
         Scroll() {
           Row({ space: 8 }) {
             ForEach(this.storages, (st: MpStorageConfig) => {
-              NativeAdaptivePill({
+              HarmonyEntityLogoPill({
+                kind: 'storage',
+                value: st.type,
                 title: st.name,
                 selected: this.activeStorage === st.type,
                 onTap: () => {
                   this.activeStorage = st.type;
                   this.currentPath = '/';
+                  this.syncBackInterceptFlag();
                   this.loadData();
                 }
               })
@@ -695,12 +837,7 @@ export struct HarmonyLibraryPage {
           if (this.currentPath !== '/') {
             Text('返回上级')
               .fontSize(12.5).fontWeight(FontWeight.Bold).fontColor(this.accentHex)
-              .onClick(() => {
-                const parts = this.currentPath.split('/').filter((p: string) => p.length > 0);
-                parts.pop();
-                this.currentPath = parts.length > 0 ? '/' + parts.join('/') + '/' : '/';
-                this.loadData();
-              })
+              .onClick(() => this.navigateUpDirectory())
           }
         }.width('100%').padding({ left: 16, right: 16 })
       } else {
@@ -750,11 +887,17 @@ export struct HarmonyLibraryPage {
                           onTap: () => {
                             const kind = RustCoreBridge.detectPlayableMediaKind(f.name);
                             const repo = MoviePilotRepository.shared();
-                            const streamUrl = `${repo.baseUrl}/api/v1/storage/download?path=${encodeURIComponent(f.path)}&storage=${encodeURIComponent(f.storage)}&token=${encodeURIComponent(repo.token)}`;
+                            const queryMap: Record<string, string> = {};
+                            queryMap['path'] = f.path;
+                            queryMap['storage'] = f.storage || this.activeStorage;
+                            if (repo.token.length > 0) {
+                              queryMap['token'] = repo.token;
+                            }
+                            const streamUrl = RustCoreBridge.buildV3EndpointUrl(repo.baseUrl, ['storage', 'download'], queryMap);
                             this.onPlayMedia({
                               url: streamUrl,
                               title: f.name,
-                              subtitle: `${f.storage} · ${formatByteSize(f.sizeBytes)}`,
+                              subtitle: `${f.storage || this.activeStorage} · ${formatByteSize(f.sizeBytes)}`,
                               isAudio: kind === 'audio'
                             });
                           }
@@ -773,6 +916,7 @@ export struct HarmonyLibraryPage {
                 .onClick(() => {
                   if (f.type === 'dir') {
                     this.currentPath = f.path.endsWith('/') ? f.path : f.path + '/';
+                    this.syncBackInterceptFlag();
                     this.loadData();
                   } else {
                     this.openManualTransfer(f, null, this.activeStorage, f.name, f.path);
@@ -781,9 +925,9 @@ export struct HarmonyLibraryPage {
               }, (f: MpStorageFile) => `${f.storage}_${f.path}`)
             } else {
               ForEach(this.filteredHistory(), (h: MpTransferHistoryItem) => {
-                Column() {
-                  CinematicPanel({ panelPadding: 13, cornerRadius: 18, interactive: true }) {
-                    Row({ space: 12 }) {
+                CinematicPanel({ panelPadding: 13, cornerRadius: 18 }) {
+                  Row({ space: 12 }) {
+                    Column() {
                       if (h.posterUrl.length > 0) {
                         MpRemoteImage({
                           src: h.posterUrl,
@@ -792,40 +936,92 @@ export struct HarmonyLibraryPage {
                           imgRadius: 10,
                           placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
                         })
+                      } else {
+                        Column()
+                          .width(58)
+                          .height(84)
+                          .borderRadius(10)
+                          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
                       }
-                      Column({ space: 5 }) {
-                        Row({ space: 6 }) {
-                          Text(`${h.title}${h.seasons ? ' ' + h.seasons : ''}${h.episodes ? h.episodes : ''}`)
-                            .fontSize(14.5).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
-                            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
-                          NativeAdaptiveBadge({
-                            text: h.status ? '成功' : '失败',
-                            tintHex: h.status ? '#34C759' : '#E84855'
-                          })
-                        }.width('100%')
+                    }
+                    .onClick(() => this.openManualTransfer(null, h.id, h.srcStorage, h.title, h.src))
 
-                        Text(`${h.mode} · ${h.date}`).fontSize(11).fontColor(mpSecondaryText(this.isDark)).width('100%')
-                        Text(`○ ${h.srcStorage}：${h.src}`).fontSize(11).fontColor(mpSecondaryText(this.isDark)).maxLines(1).width('100%')
-                        Text(`● ${h.destStorage}：${h.dest}`).fontSize(11).fontColor(this.accentHex).maxLines(1).width('100%')
-                      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-                    }.width('100%')
-                  }
+                    Column({ space: 5 }) {
+                      Row({ space: 6 }) {
+                        Text(`${h.title}${h.seasons ? ' ' + h.seasons : ''}${h.episodes ? h.episodes : ''}`)
+                          .fontSize(14.5).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+                          .onClick(() => this.openManualTransfer(null, h.id, h.srcStorage, h.title, h.src))
+                        NativeAdaptiveBadge({
+                          text: h.status ? '成功' : '失败',
+                          tintHex: h.status ? '#34C759' : '#E84855'
+                        })
+                      }.width('100%')
+
+                      Text(`${h.mode} · ${h.date}`).fontSize(11).fontColor(mpSecondaryText(this.isDark)).width('100%')
+
+                      Row({ space: 5 }) {
+                        HarmonyEntityLogo({ kind: 'storage', value: h.srcStorage, logoSize: 13, cornerRadius: 3 })
+                        Text(`${h.srcStorage}：${h.src}`)
+                          .fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+                      }.width('100%')
+
+                      Row({ space: 5 }) {
+                        HarmonyEntityLogo({ kind: 'storage', value: h.destStorage, logoSize: 13, cornerRadius: 3 })
+                        Text(`${h.destStorage}：${h.dest}`)
+                          .fontSize(11).fontColor(this.accentHex)
+                          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+                      }.width('100%')
+
+                      Row({ space: 8 }) {
+                        Row({ space: 4 }) {
+                          SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(12).fontColor([this.accentHex])
+                          Text('重新整理').fontSize(12).fontWeight(FontWeight.Medium).fontColor(this.accentHex)
+                        }
+                        .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+                        .borderRadius(12)
+                        .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '24' : '16'))
+                        .onClick(() => this.openManualTransfer(null, h.id, h.srcStorage, h.title, h.src))
+
+                        Blank()
+
+                        Button({ type: ButtonType.Circle }) {
+                          SymbolGlyph($r('sys.symbol.trash')).fontSize(14).fontColor(['#E84855'])
+                        }
+                        .width(32)
+                        .height(32)
+                        .backgroundColor(HarmonyThemeColors.softDangerBg(this.isDark))
+                        .accessibilityText('删除整理记录')
+                        .onClick(() => {
+                          this.deletingHistoryItem = h;
+                          this.showDeleteHistorySheet = true;
+                        })
+                      }.width('100%').margin({ top: 2 })
+                    }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                  }.width('100%')
                 }
-                .width('100%')
-                .onClick(() => this.openManualTransfer(null, h.id, h.srcStorage, h.title, h.src))
               }, (h: MpTransferHistoryItem) => String(h.id))
             }
           }.padding({ left: 16, right: 16, bottom: 40 })
         }.scrollBar(BarState.Off).layoutWeight(1)
       }
-    }
-    .bindSheet($$this.showTransferSheet, this.manualTransferSheetBuilder(), {
-      detents: [SheetSize.LARGE],
-      blurStyle: BlurStyle.COMPONENT_REGULAR,
-      dragBar: true,
+
+      Blank().width(0).height(0).bindSheet($$this.showTransferSheet, this.manualTransferSheetBuilder(), {
+        detents: [SheetSize.LARGE],
+        blurStyle: BlurStyle.COMPONENT_REGULAR,
+        dragBar: true,
         showClose: false,
-      backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
-    })
+        backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
+      })
+      Blank().width(0).height(0).bindSheet($$this.showDeleteHistorySheet, this.deleteHistorySheetBuilder(), {
+        detents: [SheetSize.FIT_CONTENT, SheetSize.MEDIUM],
+        blurStyle: BlurStyle.COMPONENT_REGULAR,
+        dragBar: true,
+        showClose: false,
+        backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
+      })
+    }
     .width('100%')
     .height('100%')
   }

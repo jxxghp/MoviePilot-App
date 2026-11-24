@@ -10,9 +10,9 @@ import androidx.compose.ui.unit.dp
  */
 object AdaptiveDeviceLayout {
 
-    /** 当前窗口是否达到宽屏阈值（切换侧边玻璃 NavigationRail 与双列卡片）。 */
+    /** 当前窗口是否达到宽屏阈值（>= 600dp 切换并常驻侧边 NavigationRail）。 */
     @Composable
-    fun isWideCanvas(): Boolean = LocalConfiguration.current.screenWidthDp >= GeneratedDesignTokens.BREAKPOINT_WIDE_DP
+    fun isWideCanvas(): Boolean = LocalConfiguration.current.screenWidthDp >= 600
 
     /** 当前窗口是否达到超宽桌面/平板横屏阈值。 */
     @Composable

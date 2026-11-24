@@ -1,6 +1,15 @@
 package com.moviepilot.medal3d
 
+import android.content.ClipData
+import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.net.Uri
+import android.os.Environment
+import android.provider.MediaStore
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -449,13 +458,24 @@ fun NativeCommunityMedalShowcaseOverlay(
                                             CommunityMedalAssetEngine.renderSharePoster(context, activeRecord, currentProfile.login)
                                         }
                                         if (poster != null) {
-                                            noticeText = "已生成 1080×1350 荣誉海报"
-                                            runCatching {
-                                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                                    type = "text/plain"
-                                                    putExtra(Intent.EXTRA_TEXT, "我在 MoviePilot 获得了「${spec?.name ?: activeRecord.key}」社区勋章！")
+                                            val savedUri = withContext(Dispatchers.IO) {
+                                                persistHonorPosterBitmap(context, poster, activeRecord.key)
+                                            }
+                                            if (savedUri != null) {
+                                                noticeText = "已保存 1080×1350 荣誉海报至相册"
+                                                runCatching {
+                                                    val caption = "我在 MoviePilot 获得了「${spec?.name ?: activeRecord.key}」社区勋章！"
+                                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                        type = "image/png"
+                                                        putExtra(Intent.EXTRA_STREAM, savedUri)
+                                                        putExtra(Intent.EXTRA_TEXT, caption)
+                                                        clipData = ClipData.newRawUri("MoviePilot Honor Poster", savedUri)
+                                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                    }
+                                                    context.startActivity(Intent.createChooser(shareIntent, "分享社区荣誉海报"))
                                                 }
-                                                context.startActivity(Intent.createChooser(shareIntent, "分享社区勋章"))
+                                            } else {
+                                                noticeText = "海报保存失败，请稍后重试"
                                             }
                                         }
                                     }
@@ -862,4 +882,43 @@ private fun NativeCommunityMedalDetailSheet(
             Spacer(Modifier.height(24.dp))
         }
     }
+}
+
+/**
+ * 将 1080×1350 荣誉海报 Bitmap 写入系统相册（`Pictures/MoviePilot`）并返回可分享的 `image/png` URI；
+ * 若设备外部存储不可用，自动回退至应用受管 `cacheDir/medal_posters` 经 `FileProvider` 授权分享。
+ */
+private fun persistHonorPosterBitmap(context: Context, bitmap: Bitmap, medalKey: String): Uri? {
+    val fileName = "moviepilot_medal_${medalKey}_${System.currentTimeMillis()}.png"
+    val mediaStoreUri = runCatching {
+        val resolver = context.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/MoviePilot")
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return@runCatching null
+        val wrote = resolver.openOutputStream(uri)?.use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        } ?: false
+        if (!wrote) {
+            resolver.delete(uri, null, null)
+            return@runCatching null
+        }
+        values.clear()
+        values.put(MediaStore.Images.Media.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+        uri
+    }.getOrNull()
+    if (mediaStoreUri != null) return mediaStoreUri
+
+    return runCatching {
+        val dir = File(context.cacheDir, "medal_posters").apply { mkdirs() }
+        val file = File(dir, fileName)
+        file.outputStream().use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    }.getOrNull()
 }

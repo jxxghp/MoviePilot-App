@@ -15,26 +15,34 @@ import {
   HarmonyAppearanceStore,
   HarmonySurfaceModifier,
   HarmonyThemeColors,
+  HarmonyEntityLogo,
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
 import { HarmonyPlaybackRequest } from '@moviepilot/media_player';
 
 /**
- * 鸿蒙沉浸式影视/剧集详情页（真实海报主视觉 + 动态光感悬浮返回 + 分季信息 + 演职员下钻人物页 + 真实订阅提交）。
+ * 鸿蒙沉浸式影视/剧集详情页：
+ * - 主视觉标题与徽标列严格左对齐（`HorizontalAlign.Start`）并展示数据源品牌 Logo；
+ * - 支持豆瓣 / Bangumi 条目（`GET /api/v1/media/{mediaId}`）完整加载简介、演职员与分季；
+ * - 自动查询 `/api/v1/subscribe/media/{mediaid}` 订阅状态；
+ * - 剧情简介支持 3 行折叠 + 「展开 / 收起」切换，「添加订阅 / 搜索资源」配备语义图标。
  */
 @Component
 export struct HarmonyMediaDetailPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
-  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @StorageLink(HarmonyAppearanceStore.KEY_PALETTE_ID) paletteId: string = 'harmony_blue';
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) dynamicLight: boolean = true;
-  @Prop item: MpMediaItem = {
+  @Prop @Watch('onItemChanged') item: MpMediaItem = {
     id: '', mediaId: '', tmdbId: '', doubanId: '', title: '', enTitle: '', year: '', type: '电影',
     overview: '', vote: 0, posterUrl: '', backdropUrl: '', logoUrl: '', source: 'themoviedb',
     inLibrary: false, subtitle: '', percent: 0, serverName: '', playUrl: ''
   };
+  @State private hydratedItem: MpMediaItem | null = null;
   @State private scrollOffsetY: number = 0;
   @State private subscribed: boolean = false;
+  @State private overviewExpanded: boolean = false;
   @State private cast: MpCastMember[] = [];
   @State private seasons: MpSeasonInfo[] = [];
   @State private statusMsg: string = '';
@@ -48,23 +56,79 @@ export struct HarmonyMediaDetailPage {
     this.loadMeta();
   }
 
+  onItemChanged(): void {
+    this.hydratedItem = null;
+    this.overviewExpanded = false;
+    this.cast = [];
+    this.seasons = [];
+    this.statusMsg = '';
+    this.loadMeta();
+  }
+
+  private activeMedia(): MpMediaItem {
+    return this.hydratedItem ?? this.item;
+  }
+
   private async loadMeta(): Promise<void> {
-    if (!this.item.tmdbId) { return; }
     const repo = MoviePilotRepository.shared();
-    try {
-      this.cast = await repo.fetchMediaCredits(this.item.tmdbId, this.item.type);
-      if (this.item.type === '电视剧' || this.item.type.toLowerCase() === 'tv') {
-        this.seasons = await repo.fetchMediaSeasons(this.item.tmdbId);
+    let workingItem: MpMediaItem = this.item;
+
+    // 1. 当 tmdbId 为空（如豆瓣 / Bangumi 条目）或缺少简介时，调用 GET /api/v1/media/{mediaId} 补全详情与演职员
+    if (!workingItem.tmdbId || workingItem.overview.trim().length === 0) {
+      try {
+        const bundle = await repo.fetchMediaDetailBundle(workingItem);
+        if (bundle) {
+          workingItem = bundle.item;
+          this.hydratedItem = bundle.item;
+          if (bundle.cast.length > 0) {
+            this.cast = bundle.cast;
+          }
+          if (bundle.seasons.length > 0) {
+            this.seasons = bundle.seasons;
+          }
+        }
+      } catch {
+        // keep base item
       }
+    }
+
+    // 2. 查询真实订阅状态 GET /api/v1/subscribe/media/{mediaid}
+    try {
+      this.subscribed = await repo.checkMediaSubscribed(workingItem);
     } catch {
-      // ignore
+      // ignore check error
+    }
+
+    // 3. 若有 tmdbId，补充演职员与分季详情
+    if (workingItem.tmdbId.length > 0) {
+      try {
+        if (this.cast.length === 0) {
+          this.cast = await repo.fetchMediaCredits(workingItem.tmdbId, workingItem.type);
+        }
+        if (this.seasons.length === 0 && (workingItem.type === '电视剧' || workingItem.type.toLowerCase() === 'tv')) {
+          this.seasons = await repo.fetchMediaSeasons(workingItem.tmdbId);
+        }
+      } catch {
+        // ignore
+      }
     }
   }
 
   private async triggerSubscribe(): Promise<void> {
-    const ok = await MoviePilotRepository.shared().addSubscribe(this.item);
-    this.subscribed = ok;
-    this.statusMsg = ok ? '已添加至 MoviePilot 订阅队列' : '订阅请求未确认，请检查是否已存在';
+    const media = this.activeMedia();
+    const ok = await MoviePilotRepository.shared().addSubscribe(media);
+    if (ok) {
+      this.subscribed = true;
+    }
+    this.statusMsg = ok ? '已添加至 MoviePilot 订阅队列' : (this.subscribed ? '当前已在订阅队列中' : '订阅请求未确认，请检查是否已存在');
+  }
+
+  private sourceDisplayLabel(src: string): string {
+    const lower = (src ?? '').toLowerCase();
+    if (lower.includes('douban')) { return '豆瓣'; }
+    if (lower.includes('bangumi')) { return 'Bangumi'; }
+    if (lower.includes('music')) { return 'MusicBrainz'; }
+    return 'TMDB';
   }
 
   build() {
@@ -73,18 +137,18 @@ export struct HarmonyMediaDetailPage {
         Column({ space: 18 }) {
           // 全幅主视觉
           Stack({ alignContent: Alignment.BottomStart }) {
-            if (this.item.backdropUrl || this.item.posterUrl) {
+            if (this.activeMedia().backdropUrl || this.activeMedia().posterUrl) {
               MpRemoteImage({
-                src: this.item.backdropUrl || this.item.posterUrl,
+                src: this.activeMedia().backdropUrl || this.activeMedia().posterUrl,
                 imgWidth: '100%',
                 imgHeight: 380,
-                placeholderColor: HarmonyThemeColors.card(this.isDark)
+                placeholderColor: HarmonyThemeColors.card(this.isDark, this.paletteId)
               })
             } else {
               Column()
                 .width('100%')
                 .height(380)
-                .backgroundColor(HarmonyThemeColors.card(this.isDark))
+                .backgroundColor(HarmonyThemeColors.card(this.isDark, this.paletteId))
             }
 
             Column()
@@ -93,86 +157,148 @@ export struct HarmonyMediaDetailPage {
               .linearGradient({
                 angle: 180,
                 colors: this.isDark
-                  ? [['#55000000', 0], ['#10000000', 0.35], ['#CC0D0D11', 0.8], ['#FF0D0D11', 1]]
-                  : [['#40000000', 0], ['#10000000', 0.35], ['#B80D0D11', 0.78], ['#FFF1F3F5', 1]]
+                  ? [
+                    ['#55000000', 0],
+                    ['#10000000', 0.35],
+                    [HarmonyAppearanceStore.withAlpha(HarmonyThemeColors.canvas(true, this.paletteId), 'D4'), 0.80],
+                    [HarmonyThemeColors.canvas(true, this.paletteId), 1]
+                  ]
+                  : [
+                    ['#40000000', 0],
+                    ['#10000000', 0.35],
+                    ['#C0141822', 0.78],
+                    [HarmonyThemeColors.canvas(false, this.paletteId), 1]
+                  ]
               })
 
             Column({ space: 8 }) {
-              Text(this.item.title)
-                .fontSize(26)
-                .fontWeight(FontWeight.Bold)
-                .fontColor(Color.White)
+              if (this.activeMedia().logoUrl.length > 0) {
+                MpRemoteImage({
+                  src: this.activeMedia().logoUrl,
+                  imgWidth: 190,
+                  imgHeight: 62,
+                  fit: ImageFit.Contain,
+                  placeholderColor: Color.Transparent
+                })
+              } else {
+                Text(this.activeMedia().title)
+                  .fontSize(26)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(Color.White)
+                  .textAlign(TextAlign.Start)
+              }
+
               Row({ space: 8 }) {
-                NativeAdaptiveBadge({ text: this.item.type || '影视', tintHex: this.accentHex, filled: true })
-                if (this.item.year.length > 0) {
-                  NativeAdaptiveBadge({ text: this.item.year })
+                Row({ space: 4 }) {
+                  HarmonyEntityLogo({
+                    kind: 'media_source',
+                    value: this.activeMedia().source || 'themoviedb',
+                    logoSize: 14,
+                    cornerRadius: 3
+                  })
+                  Text(this.sourceDisplayLabel(this.activeMedia().source))
+                    .fontSize(11)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(Color.White)
                 }
-                if (this.item.vote > 0) {
-                  NativeAdaptiveBadge({ text: `★ ${this.item.vote.toFixed(1)}`, tintHex: '#FFC845' })
+                .padding({ left: 7, right: 8, top: 3, bottom: 3 })
+                .borderRadius(10)
+                .backgroundColor('#55000000')
+
+                NativeAdaptiveBadge({ text: this.activeMedia().type || '影视', tintHex: this.accentHex, filled: true })
+                if (this.activeMedia().year.length > 0) {
+                  NativeAdaptiveBadge({ text: this.activeMedia().year })
                 }
-                if (this.item.inLibrary) {
+                if (this.activeMedia().vote > 0) {
+                  NativeAdaptiveBadge({ text: `★ ${this.activeMedia().vote.toFixed(1)}`, tintHex: '#FFC845' })
+                }
+                if (this.activeMedia().inLibrary) {
                   NativeAdaptiveBadge({ text: '已入库', tintHex: '#52C41A', filled: true })
                 }
               }
             }
+            .width('100%')
+            .alignItems(HorizontalAlign.Start)
             .padding(20)
           }
 
-          // 操作按钮（已入库时提供「立即播放」+ 订阅/搜索资源）
+          // 操作按钮（带清晰语义图标）
           Column({ space: 10 }) {
-            if (this.item.inLibrary || this.item.playUrl.length > 0) {
-              Button('立即播放')
-                .width('100%')
-                .height(48)
-                .borderRadius(24)
-                .backgroundColor(this.accentHex)
-                .fontColor(Color.White)
-                .fontWeight(FontWeight.Bold)
-                .onClick(async () => {
-                  try {
-                    const manifest = await MoviePilotRepository.shared().fetchVideoStreamInfo(this.item.id, this.item.serverName);
-                    if (manifest && manifest.contentUrl.length > 0) {
-                      this.onPlayMedia({
-                        url: manifest.contentUrl,
-                        title: manifest.title || this.item.title,
-                        subtitle: this.item.subtitle || this.item.year,
-                        isAudio: manifest.mediaType === 'audio'
-                      });
-                      return;
-                    }
-                  } catch {
-                    // fallback to item.playUrl
-                  }
-                  if (this.item.playUrl.length > 0) {
+            if (this.activeMedia().inLibrary || this.activeMedia().playUrl.length > 0) {
+              Button() {
+                Row({ space: 6 }) {
+                  SymbolGlyph($r('sys.symbol.play_fill')).fontSize(16).fontColor([Color.White])
+                  Text('立即播放').fontSize(15).fontWeight(FontWeight.Bold).fontColor(Color.White)
+                }
+              }
+              .width('100%')
+              .height(48)
+              .borderRadius(24)
+              .backgroundColor(this.accentHex)
+              .onClick(async () => {
+                const cur = this.activeMedia();
+                try {
+                  const manifest = await MoviePilotRepository.shared().fetchVideoStreamInfo(cur.id, cur.serverName);
+                  if (manifest && manifest.contentUrl.length > 0) {
                     this.onPlayMedia({
-                      url: this.item.playUrl,
-                      title: this.item.title,
-                      subtitle: this.item.year,
-                      isAudio: false
+                      url: manifest.contentUrl,
+                      title: manifest.title || cur.title,
+                      subtitle: cur.subtitle || cur.year,
+                      isAudio: manifest.mediaType === 'audio'
                     });
-                  } else {
-                    this.statusMsg = '暂未获取到媒体服务器直连播放地址';
+                    return;
                   }
-                })
+                } catch {
+                  // fallback to item.playUrl
+                }
+                if (cur.playUrl.length > 0) {
+                  this.onPlayMedia({
+                    url: cur.playUrl,
+                    title: cur.title,
+                    subtitle: cur.year,
+                    isAudio: false
+                  });
+                } else {
+                  this.statusMsg = '暂未获取到媒体服务器直连播放地址';
+                }
+              })
             }
 
             Row({ space: 10 }) {
-              Button(this.subscribed ? '已订阅 ✓' : '添加订阅')
-                .layoutWeight(1)
-                .height(46)
-                .borderRadius(23)
-                .backgroundColor(this.subscribed ? '#34C759' : (this.item.inLibrary ? HarmonyThemeColors.chipFill(this.isDark) : this.accentHex))
-                .fontColor(this.subscribed || !this.item.inLibrary ? Color.White : mpPrimaryText(this.isDark))
-                .fontWeight(FontWeight.Medium)
-                .onClick(() => this.triggerSubscribe())
-              Button('搜索资源')
-                .layoutWeight(1)
-                .height(46)
-                .borderRadius(23)
-                .backgroundColor(Color.Transparent)
-                .fontColor(mpPrimaryText(this.isDark))
-                .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 23, this.accentHex, true, this.dynamicLight))
-                .onClick(() => this.onSearchResource(this.item.title))
+              Button() {
+                Row({ space: 6 }) {
+                  SymbolGlyph($r(this.subscribed ? 'sys.symbol.checkmark' : 'sys.symbol.bookmark_fill'))
+                    .fontSize(16)
+                    .fontColor([this.subscribed || !this.activeMedia().inLibrary ? Color.White : mpPrimaryText(this.isDark)])
+                  Text(this.subscribed ? '已订阅' : '添加订阅')
+                    .fontSize(14.5)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(this.subscribed || !this.activeMedia().inLibrary ? Color.White : mpPrimaryText(this.isDark))
+                }
+              }
+              .layoutWeight(1)
+              .height(46)
+              .borderRadius(23)
+              .backgroundColor(this.subscribed ? '#34C759' : (this.activeMedia().inLibrary ? HarmonyThemeColors.chipFill(this.isDark) : this.accentHex))
+              .onClick(() => this.triggerSubscribe())
+
+              Button() {
+                Row({ space: 6 }) {
+                  SymbolGlyph($r('sys.symbol.magnifyingglass'))
+                    .fontSize(16)
+                    .fontColor([mpPrimaryText(this.isDark)])
+                  Text('搜索资源')
+                    .fontSize(14.5)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(mpPrimaryText(this.isDark))
+                }
+              }
+              .layoutWeight(1)
+              .height(46)
+              .borderRadius(23)
+              .backgroundColor(Color.Transparent)
+              .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 23, this.accentHex, true, this.dynamicLight))
+              .onClick(() => this.onSearchResource(this.activeMedia().title))
             }
           }
           .padding({ left: 16, right: 16 })
@@ -181,17 +307,41 @@ export struct HarmonyMediaDetailPage {
             Text(this.statusMsg).fontSize(12).fontColor('#52C41A').padding({ left: 16, right: 16 }).width('100%')
           }
 
-          // 简介
+          // 可折叠剧情简介（默认 3 行 + 展开/收起）
           Column() {
             CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
               Column({ space: 8 }) {
-                Text('剧情简介').fontSize(16).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
-                Text(this.item.overview || '暂无剧情简介，可添加自动追剧订阅或检索 4K 高清片源。')
+                Row() {
+                  Text('剧情简介')
+                    .fontSize(16)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(mpPrimaryText(this.isDark))
+                    .layoutWeight(1)
+                  if ((this.activeMedia().overview || '').length > 68) {
+                    Text(this.overviewExpanded ? '收起 ▴' : '展开 ▾')
+                      .fontSize(12.5)
+                      .fontWeight(FontWeight.Medium)
+                      .fontColor(this.accentHex)
+                      .onClick(() => { this.overviewExpanded = !this.overviewExpanded; })
+                  }
+                }
+                .width('100%')
+
+                Text(this.activeMedia().overview || '暂无剧情简介，可添加自动追剧订阅或检索 4K 高清片源。')
                   .fontSize(14)
                   .fontColor(mpSecondaryText(this.isDark))
                   .lineHeight(22)
+                  .maxLines(this.overviewExpanded ? 99 : 3)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .width('100%')
+                  .onClick(() => {
+                    if ((this.activeMedia().overview || '').length > 68) {
+                      this.overviewExpanded = !this.overviewExpanded;
+                    }
+                  })
               }
               .alignItems(HorizontalAlign.Start)
+              .width('100%')
             }
           }
           .width('100%')
@@ -212,7 +362,7 @@ export struct HarmonyMediaDetailPage {
                   ForEach(this.seasons, (s: MpSeasonInfo) => {
                     Column({ space: 6 }) {
                       MpRemoteImage({
-                        src: s.posterUrl || this.item.posterUrl,
+                        src: s.posterUrl || this.activeMedia().posterUrl,
                         imgWidth: 108,
                         imgHeight: 156,
                         imgRadius: 12,
@@ -254,7 +404,7 @@ export struct HarmonyMediaDetailPage {
                           placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
                         })
                       } else {
-                        Text(c.name.substring(0, 1))
+                        Text((c.name || '演').substring(0, 1))
                           .width(66)
                           .height(66)
                           .borderRadius(33)
@@ -280,7 +430,11 @@ export struct HarmonyMediaDetailPage {
                     }
                     .alignItems(HorizontalAlign.Center)
                     .hoverEffect(HoverEffect.Highlight)
-                    .onClick(() => this.onOpenPerson(c))
+                    .onClick(() => {
+                      if (c.id.length > 0 && !c.id.startsWith('actor_')) {
+                        this.onOpenPerson(c);
+                      }
+                    })
                   }, (c: MpCastMember) => `${c.id}_${c.name}`)
                 }
                 .padding({ left: 16, right: 16 })
@@ -300,7 +454,7 @@ export struct HarmonyMediaDetailPage {
       .width('100%')
       .height('100%')
 
-      NativeTopStatusBarBlur({ visibilityProgress: Math.min(1, Math.max(0, this.scrollOffsetY / 140)) })
+      NativeTopStatusBarBlur({ visibilityProgress: Math.min(1, Math.max(0, this.scrollOffsetY / 150)) })
 
       Button({ type: ButtonType.Circle }) {
         SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(20).fontColor([Color.White])
@@ -322,9 +476,9 @@ export struct HarmonyMediaDetailPage {
 @Component
 export struct HarmonyPersonDetailPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
-  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#9E7AF5';
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
-  @Prop person: MpCastMember = { id: '', name: '', character: '', profileUrl: '' };
+  @Prop @Watch('onPersonChanged') person: MpCastMember = { id: '', name: '', character: '', profileUrl: '' };
   @State private detail: MpPersonDetail | null = null;
   @State private credits: MpMediaItem[] = [];
   @State private loading: boolean = true;
@@ -332,6 +486,10 @@ export struct HarmonyPersonDetailPage {
   onOpenMedia: (item: MpMediaItem) => void = () => {};
 
   aboutToAppear(): void {
+    this.loadPerson();
+  }
+
+  onPersonChanged(): void {
     this.loadPerson();
   }
 

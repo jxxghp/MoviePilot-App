@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
@@ -68,6 +69,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,19 +99,21 @@ import com.moviepilot.designsystem.ExpressiveHeaderActionButton
 import com.moviepilot.designsystem.ExpressiveMixCollageHeader
 import com.moviepilot.designsystem.ExpressivePillTabRow
 import com.moviepilot.designsystem.ExpressiveTintedScaffold
+import com.moviepilot.designsystem.LocalBottomOverlayInset
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
 import com.moviepilot.designsystem.NativeBrandDrawable
+import com.moviepilot.designsystem.NativeEntityLogo
 import com.moviepilot.designsystem.NativeGlassSheet
-import com.moviepilot.designsystem.NativeGlassTopBar
 import com.moviepilot.designsystem.NativePosterCard
-import com.moviepilot.designsystem.NativePrimaryTabBar
 import com.moviepilot.designsystem.NativeSectionHeader
 import com.moviepilot.designsystem.NativeTopStatusBarProgressiveBlur
 import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.rustbridge.ContinueWatchingItem
+import com.moviepilot.rustbridge.DiscoverSessionSnapshot
+import com.moviepilot.rustbridge.ExploreSessionSnapshot
 import com.moviepilot.rustbridge.MediaCardItem
 import com.moviepilot.rustbridge.MediaServerLibraryDto
 import com.moviepilot.rustbridge.MoviePilotRepository
@@ -187,6 +191,7 @@ fun DiscoverScreen(
     onPlayMedia: (MediaPlaybackRequest) -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    val bottomOverlayInset = LocalBottomOverlayInset.current
     val context = LocalContext.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val heroHeight = AdaptiveDeviceLayout.discoverHeroHeight()
@@ -197,17 +202,22 @@ fun DiscoverScreen(
     val listState = rememberLazyListState()
     val localHaze = remember { HazeState() }
 
-    var trending by remember { mutableStateOf<List<MediaCardItem>>(emptyList()) }
-    var movies by remember { mutableStateOf<List<MediaCardItem>>(emptyList()) }
-    var tvs by remember { mutableStateOf<List<MediaCardItem>>(emptyList()) }
-    var musicAlbums by remember { mutableStateOf<List<MusicAlbumDto>>(emptyList()) }
-    var doubanShowing by remember { mutableStateOf<List<MediaCardItem>>(emptyList()) }
-    var doubanTop250 by remember { mutableStateOf<List<MediaCardItem>>(emptyList()) }
-    var continueItems by remember { mutableStateOf<List<ContinueWatchingItem>>(emptyList()) }
-    var latestItems by remember { mutableStateOf<List<MediaCardItem>>(emptyList()) }
-    var mediaLibraries by remember { mutableStateOf<List<MediaServerLibraryDto>>(emptyList()) }
+    val initialSnapshot = remember { repository.cachedDiscover }
+    var trending by remember { mutableStateOf(initialSnapshot?.trending.orEmpty()) }
+    var movies by remember { mutableStateOf(initialSnapshot?.movies.orEmpty()) }
+    var tvs by remember { mutableStateOf(initialSnapshot?.tvs.orEmpty()) }
+    var musicAlbums by remember { mutableStateOf(initialSnapshot?.musicAlbums.orEmpty()) }
+    var doubanShowing by remember { mutableStateOf(initialSnapshot?.showing.orEmpty()) }
+    var doubanTop250 by remember { mutableStateOf(initialSnapshot?.top250.orEmpty()) }
+    var continueItems by remember { mutableStateOf(initialSnapshot?.continueWatching.orEmpty()) }
+    var latestItems by remember { mutableStateOf(initialSnapshot?.latestItems.orEmpty()) }
+    var mediaLibraries by remember { mutableStateOf(initialSnapshot?.libraries.orEmpty()) }
     var selectedAlbum by remember { mutableStateOf<MusicAlbumDto?>(null) }
-    val heroLogos = remember { mutableStateMapOf<String, String>() }
+    val heroLogos = remember {
+        mutableStateMapOf<String, String>().apply {
+            initialSnapshot?.heroLogos?.let { putAll(it) }
+        }
+    }
     var showModulesSheet by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
 
@@ -215,6 +225,21 @@ fun DiscoverScreen(
         mutableStateListOf<DiscoverModuleToggle>().apply {
             addAll(loadPersistedDiscoverModules(context))
         }
+    }
+
+    fun syncDiscoverCache() {
+        repository.cachedDiscover = DiscoverSessionSnapshot(
+            trending = trending,
+            movies = movies,
+            tvs = tvs,
+            musicAlbums = musicAlbums,
+            showing = doubanShowing,
+            top250 = doubanTop250,
+            continueWatching = continueItems,
+            latestItems = latestItems,
+            libraries = mediaLibraries,
+            heroLogos = heroLogos.toMap(),
+        )
     }
 
     suspend fun loadAll() {
@@ -241,6 +266,7 @@ fun DiscoverScreen(
             showingDef?.await()?.let { doubanShowing = it }
             top250Def?.await()?.let { doubanTop250 = it }
             isRefreshing = false
+            syncDiscoverCache()
 
             // 异步并发补拉前 6 条 Hero 的透明片名 Logo（对齐 iOS `hydrateHeroLogos`）
             fetchedTrending.take(6).forEach { hero ->
@@ -248,13 +274,18 @@ fun DiscoverScreen(
                     val logo = repository.fetchHeroLogo(hero)
                     if (!logo.isNullOrBlank()) {
                         heroLogos[hero.resolvedId] = logo
+                        syncDiscoverCache()
                     }
                 }
             }
         }
     }
 
-    LaunchedEffect(Unit) { loadAll() }
+    LaunchedEffect(Unit) {
+        if (trending.isEmpty()) {
+            loadAll()
+        }
+    }
 
     // 开启按需榜单（如豆瓣热映 / 豆瓣 Top250 / 热门音乐）时自动懒加载数据
     val showingEnabled = modules.any { it.id == "douban_showing" && it.enabled }
@@ -405,7 +436,7 @@ fun DiscoverScreen(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 132.dp),
+                    contentPadding = PaddingValues(bottom = 132.dp + bottomOverlayInset),
                     verticalArrangement = Arrangement.spacedBy(22.dp),
                 ) {
                     // 1. 前景主视觉轮播（始终作为 index 0 顶部锚点，避免异步模块加载后列表自动跳滚）
@@ -485,17 +516,31 @@ fun DiscoverScreen(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                             ) {
-                                                Box(
+                                                val srcName = when {
+                                                    item.source.contains("douban", true) -> "豆瓣"
+                                                    item.source.contains("bangumi", true) -> "Bangumi"
+                                                    else -> "TMDB"
+                                                }
+                                                Row(
                                                     modifier = Modifier
-                                                        .clip(RoundedCornerShape(5.dp))
-                                                        .background(Color(0xFF42C997))
-                                                        .padding(horizontal = 7.dp, vertical = 2.dp),
+                                                        .clip(RoundedCornerShape(7.dp))
+                                                        .background(Color.Black.copy(alpha = if (colors.isDark) 0.45f else 0.08f))
+                                                        .border(0.6.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(7.dp))
+                                                        .padding(horizontal = 6.dp, vertical = 3.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                                                 ) {
+                                                    NativeEntityLogo(
+                                                        kind = "datasource",
+                                                        value = item.source,
+                                                        size = 16.dp,
+                                                        cornerRadius = 4.dp,
+                                                    )
                                                     Text(
-                                                        text = if (item.source == "douban") "豆瓣" else "TheMovieDB",
-                                                        color = Color(0xFF0A1A14),
+                                                        text = srcName,
+                                                        color = if (colors.isDark) Color.White else colors.textPrimary,
                                                         fontSize = 11.sp,
-                                                        fontWeight = FontWeight.ExtraBold,
+                                                        fontWeight = FontWeight.Bold,
                                                     )
                                                 }
                                                 if (item.voteAverage > 0.0) {
@@ -632,6 +677,26 @@ fun DiscoverScreen(
                                                                 .fillMaxSize()
                                                                 .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.65f)))),
                                                         )
+                                                        if (cw.server.isNotBlank()) {
+                                                            Row(
+                                                                modifier = Modifier
+                                                                    .align(Alignment.TopStart)
+                                                                    .padding(8.dp)
+                                                                    .clip(CircleShape)
+                                                                    .background(Color.Black.copy(alpha = 0.56f))
+                                                                    .padding(horizontal = 6.dp, vertical = 3.dp),
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                            ) {
+                                                                NativeEntityLogo(
+                                                                    kind = "mediaserver",
+                                                                    value = cw.serverType.ifBlank { cw.server },
+                                                                    size = 15.dp,
+                                                                    cornerRadius = 4.dp,
+                                                                )
+                                                                Text(cw.server, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                                                            }
+                                                        }
                                                         Column(
                                                             modifier = Modifier
                                                                 .align(Alignment.BottomStart)
@@ -926,11 +991,22 @@ fun DiscoverScreen(
 
                             "libraries" -> if (mediaLibraries.isNotEmpty()) {
                                 item(key = "mod_libraries") {
+                                    val firstLib = mediaLibraries.first()
                                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                         NativeSectionHeader(
                                             title = "我的媒体库",
-                                            subtitle = mediaLibraries.firstOrNull()?.server,
-                                            onClickMore = { onOpenMediaLibrary(mediaLibraries.first()) },
+                                            subtitle = firstLib.server,
+                                            subtitleLeading = if (firstLib.server.isNotBlank()) {
+                                                {
+                                                    NativeEntityLogo(
+                                                        kind = "mediaserver",
+                                                        value = firstLib.serverType.ifBlank { firstLib.server },
+                                                        size = 16.dp,
+                                                        cornerRadius = 4.dp,
+                                                    )
+                                                }
+                                            } else null,
+                                            onClickMore = { onOpenMediaLibrary(firstLib) },
                                             modifier = Modifier.padding(horizontal = margin),
                                         )
                                         LazyRow(
@@ -938,7 +1014,7 @@ fun DiscoverScreen(
                                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                                         ) {
                                             items(mediaLibraries, key = { "${it.server}_${it.id}" }) { lib ->
-                                                // 纯净封面呈现（不叠标题遮罩避免挡住封面自带文字），右上角以轻透角标展示入库数量
+                                                // 纯净封面呈现（不叠标题遮罩避免挡住封面自带文字），左上角展示服务器品牌图标，右上角展示入库数量
                                                 Box(
                                                     modifier = Modifier
                                                         .width(204.dp)
@@ -961,11 +1037,11 @@ fun DiscoverScreen(
                                                             horizontalAlignment = Alignment.CenterHorizontally,
                                                             verticalArrangement = Arrangement.spacedBy(6.dp),
                                                         ) {
-                                                            Icon(
-                                                                Icons.Rounded.FolderSpecial,
-                                                                contentDescription = lib.name,
-                                                                tint = colors.accent,
-                                                                modifier = Modifier.size(28.dp),
+                                                            NativeEntityLogo(
+                                                                kind = "mediaserver",
+                                                                value = lib.serverType.ifBlank { lib.server },
+                                                                size = 30.dp,
+                                                                cornerRadius = 8.dp,
                                                             )
                                                             Text(
                                                                 lib.name,
@@ -974,6 +1050,23 @@ fun DiscoverScreen(
                                                                 fontWeight = FontWeight.SemiBold,
                                                                 maxLines = 1,
                                                                 overflow = TextOverflow.Ellipsis,
+                                                            )
+                                                        }
+                                                    }
+                                                    if (lib.server.isNotBlank()) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .align(Alignment.TopStart)
+                                                                .padding(8.dp)
+                                                                .clip(RoundedCornerShape(7.dp))
+                                                                .background(Color.Black.copy(alpha = 0.52f))
+                                                                .padding(3.dp),
+                                                        ) {
+                                                            NativeEntityLogo(
+                                                                kind = "mediaserver",
+                                                                value = lib.serverType.ifBlank { lib.server },
+                                                                size = 18.dp,
+                                                                cornerRadius = 4.dp,
                                                             )
                                                         }
                                                     }
@@ -1025,6 +1118,7 @@ fun DiscoverScreen(
                                                 row.forEach { (title, sourceKey, poster) ->
                                                     CategoryPosterTile(
                                                         title = title,
+                                                        sourceKey = sourceKey,
                                                         posterUrl = poster,
                                                         modifier = Modifier.weight(1f),
                                                         onClick = { onOpenExplore(sourceKey) },
@@ -1222,10 +1316,10 @@ fun DiscoverScreen(
                     Button(
                         onClick = {
                             scope.launch {
-                                val ok = repository.createOrUpdateSubscription(
+                                val (ok, msg) = repository.createOrUpdateSubscriptionWithMessage(
                                     SubscribeItemDto(name = album.title, year = album.year, type = "音乐", mediaSource = album.source, mediaId = album.id),
                                 )
-                                subMsg = if (ok) "已添加音乐专辑订阅" else "订阅请求已提交"
+                                subMsg = if (ok) "已添加音乐专辑订阅" else msg
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = colors.surfaceContainerHigh, contentColor = colors.textPrimary),
@@ -1280,6 +1374,7 @@ fun DiscoverScreen(
 @Composable
 private fun CategoryPosterTile(
     title: String,
+    sourceKey: String,
     posterUrl: String?,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
@@ -1300,7 +1395,12 @@ private fun CategoryPosterTile(
                     .background(colors.surfaceContainerHigh),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Rounded.LocalFireDepartment, contentDescription = null, tint = colors.accent, modifier = Modifier.size(20.dp))
+                NativeEntityLogo(
+                    kind = "datasource",
+                    value = sourceKey,
+                    size = 28.dp,
+                    cornerRadius = 8.dp,
+                )
                 if (!posterUrl.isNullOrBlank()) {
                     AsyncImage(
                         model = posterUrl,
@@ -1308,6 +1408,21 @@ private fun CategoryPosterTile(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                     )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(2.dp)
+                            .clip(RoundedCornerShape(5.dp))
+                            .background(Color.Black.copy(alpha = 0.65f))
+                            .padding(1.5.dp),
+                    ) {
+                        NativeEntityLogo(
+                            kind = "datasource",
+                            value = sourceKey,
+                            size = 15.dp,
+                            cornerRadius = 4.dp,
+                        )
+                    }
                 }
             }
             Text(
@@ -1318,6 +1433,12 @@ private fun CategoryPosterTile(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
+            )
+            NativeEntityLogo(
+                kind = "datasource",
+                value = sourceKey,
+                size = 20.dp,
+                cornerRadius = 6.dp,
             )
         }
     }
@@ -1341,10 +1462,13 @@ fun ExploreScreen(
     onPlayAudio: (MediaPlaybackRequest) -> Unit = {},
 ) {
     val colors = LocalMoviePilotColors.current
+    val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val columns = AdaptiveDeviceLayout.posterGridColumns()
     val musicColumns = AdaptiveDeviceLayout.squareGridColumns()
     val scope = rememberCoroutineScope()
+    val posterGridState = rememberLazyGridState()
+    val musicGridState = rememberLazyGridState()
 
     val sources = remember {
         listOf(
@@ -1362,29 +1486,46 @@ fun ExploreScreen(
     val doubanTags = listOf("全部", "华语", "欧美", "韩国", "日本", "动作", "喜剧", "科幻", "悬疑")
     val musicFeeds = listOf("douban" to "豆瓣音乐", "weekly" to "本周榜单", "popular" to "热门专辑", "latest" to "近期新发")
 
-    var activeSource by remember { mutableStateOf(initialSource) }
-    LaunchedEffect(initialSource) { activeSource = initialSource }
-    var activeSort by remember { mutableStateOf("热门") }
-    var activeGenre by remember { mutableStateOf("全部类型") }
-    var activeLang by remember { mutableStateOf("全部语言") }
-    var activeDoubanTag by remember { mutableStateOf("全部") }
-    var activeMusicFeed by remember { mutableStateOf("douban") }
+    var activeSource by rememberSaveable { mutableStateOf(initialSource) }
+    var lastAppliedInitial by rememberSaveable { mutableStateOf(initialSource) }
+    LaunchedEffect(initialSource) {
+        if (initialSource != lastAppliedInitial) {
+            activeSource = initialSource
+            lastAppliedInitial = initialSource
+        }
+    }
+    var activeSort by rememberSaveable { mutableStateOf("热门") }
+    var activeGenre by rememberSaveable { mutableStateOf("全部类型") }
+    var activeLang by rememberSaveable { mutableStateOf("全部语言") }
+    var activeDoubanTag by rememberSaveable { mutableStateOf("全部") }
+    var activeMusicFeed by rememberSaveable { mutableStateOf("douban") }
 
-    var page by remember { mutableIntStateOf(1) }
+    val cacheKey = remember(activeSource, activeSort, activeGenre, activeLang, activeDoubanTag, activeMusicFeed) {
+        if (activeSource == "music") "music|$activeMusicFeed"
+        else "$activeSource|$activeSort|$activeGenre|$activeLang|$activeDoubanTag"
+    }
+    val initialCached = remember(cacheKey) { repository.cachedExplore[cacheKey] }
+
+    var page by remember(cacheKey) { mutableIntStateOf(initialCached?.page ?: 1) }
     var isLoading by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
-    var canLoadMore by remember { mutableStateOf(true) }
-    var items by remember { mutableStateOf<List<MediaCardItem>>(emptyList()) }
-    var musicAlbums by remember { mutableStateOf<List<MusicAlbumDto>>(emptyList()) }
+    var canLoadMore by remember(cacheKey) { mutableStateOf(initialCached?.hasMore ?: true) }
+    var items by remember(cacheKey) { mutableStateOf(initialCached?.items.orEmpty()) }
+    var musicAlbums by remember(cacheKey) { mutableStateOf(initialCached?.musicAlbums.orEmpty()) }
     var selectedAlbum by remember { mutableStateOf<MusicAlbumDto?>(null) }
-    val localHaze = remember { HazeState() }
 
     suspend fun reloadCurrent(showMainLoader: Boolean = true) {
         if (showMainLoader) isLoading = true
         page = 1
         canLoadMore = true
         if (activeSource == "music") {
-            musicAlbums = repository.fetchMusicFeed(activeMusicFeed, 1)
+            val fetchedMusic = repository.fetchMusicFeed(activeMusicFeed, 1)
+            musicAlbums = fetchedMusic
+            repository.cachedExplore[cacheKey] = ExploreSessionSnapshot(
+                musicAlbums = fetchedMusic,
+                page = 1,
+                hasMore = false,
+            )
         } else {
             val fetched = repository.fetchExplore(
                 source = activeSource,
@@ -1396,13 +1537,23 @@ fun ExploreScreen(
             )
             items = fetched
             canLoadMore = fetched.size >= 15
+            repository.cachedExplore[cacheKey] = ExploreSessionSnapshot(
+                items = fetched,
+                page = 1,
+                hasMore = canLoadMore,
+            )
         }
         isLoading = false
         isRefreshing = false
     }
 
-    LaunchedEffect(activeSource, activeSort, activeGenre, activeLang, activeDoubanTag, activeMusicFeed) {
-        reloadCurrent(showMainLoader = true)
+    LaunchedEffect(cacheKey) {
+        val existing = repository.cachedExplore[cacheKey]
+        val alreadyLoaded = if (activeSource == "music") existing?.musicAlbums?.isNotEmpty() == true
+        else existing?.items?.isNotEmpty() == true
+        if (!alreadyLoaded) {
+            reloadCurrent(showMainLoader = true)
+        }
     }
 
     val activeSourceIdx = sources.indexOfFirst { it.id == activeSource }.coerceAtLeast(0)
@@ -1422,10 +1573,20 @@ fun ExploreScreen(
                 onSelect = { idx -> activeSource = sources[idx].id },
                 scrollable = true,
                 onTintedHeader = true,
+                tabIcons = sources.map { src ->
+                    {
+                        NativeEntityLogo(
+                            kind = "datasource",
+                            value = src.id,
+                            size = 18.dp,
+                            cornerRadius = 5.dp,
+                        )
+                    }
+                },
             )
         },
     ) {
-        Column(modifier = Modifier.fillMaxSize().hazeSource(localHaze)) {
+        Column(modifier = Modifier.fillMaxSize()) {
             Spacer(Modifier.height(12.dp))
 
         if (activeSource == "music") {
@@ -1436,6 +1597,14 @@ fun ExploreScreen(
                 items(musicFeeds) { (key, label) ->
                     NativeAdaptivePill(
                         title = label,
+                        leadingContent = {
+                            NativeEntityLogo(
+                                kind = "datasource",
+                                value = if (key == "douban") "douban" else "musicbrainz",
+                                size = 16.dp,
+                                cornerRadius = 4.dp,
+                            )
+                        },
                         selected = key == activeMusicFeed,
                         onClick = { activeMusicFeed = key },
                     )
@@ -1448,8 +1617,9 @@ fun ExploreScreen(
                 }
             } else {
                 LazyVerticalGrid(
+                    state = musicGridState,
                     columns = GridCells.Fixed(musicColumns),
-                    contentPadding = PaddingValues(start = margin, end = margin, top = 4.dp, bottom = 128.dp),
+                    contentPadding = PaddingValues(start = margin, end = margin, top = 4.dp, bottom = 128.dp + bottomOverlayInset),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                     modifier = Modifier.weight(1f),
@@ -1548,8 +1718,9 @@ fun ExploreScreen(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             ) {
                 LazyVerticalGrid(
+                    state = posterGridState,
                     columns = GridCells.Fixed(columns),
-                    contentPadding = PaddingValues(start = margin, end = margin, top = 4.dp, bottom = 128.dp),
+                    contentPadding = PaddingValues(start = margin, end = margin, top = 4.dp, bottom = 128.dp + bottomOverlayInset),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxSize(),
@@ -1569,10 +1740,21 @@ fun ExploreScreen(
                                 )
                                 if (more.isNotEmpty()) {
                                     val seen = items.map { it.resolvedId }.toHashSet()
-                                    items = items + more.filter { seen.add(it.resolvedId) }
+                                    val merged = items + more.filter { seen.add(it.resolvedId) }
+                                    items = merged
                                     page = nextPage
+                                    repository.cachedExplore[cacheKey] = ExploreSessionSnapshot(
+                                        items = merged,
+                                        page = nextPage,
+                                        hasMore = canLoadMore,
+                                    )
                                 } else {
                                     canLoadMore = false
+                                    repository.cachedExplore[cacheKey] = ExploreSessionSnapshot(
+                                        items = items,
+                                        page = page,
+                                        hasMore = false,
+                                    )
                                 }
                                 isLoading = false
                             }
@@ -1625,10 +1807,10 @@ fun ExploreScreen(
                     Button(
                         onClick = {
                             scope.launch {
-                                val ok = repository.createOrUpdateSubscription(
+                                val (ok, msg) = repository.createOrUpdateSubscriptionWithMessage(
                                     SubscribeItemDto(name = album.title, year = album.year, type = "音乐", mediaSource = album.source, mediaId = album.id),
                                 )
-                                subMsg = if (ok) "已添加音乐专辑订阅" else "订阅请求已提交"
+                                subMsg = if (ok) "已添加音乐专辑订阅" else msg
                             }
                         },
                         colors = ButtonDefaults.buttonColors(

@@ -51,3 +51,10 @@ export {
   NativeAdaptiveBadge,
   NativeAdaptivePill
 } from './src/main/ets/components/CinematicSurfaces';
+
+export {
+  resolveEntityLogoAsset,
+  clearEntityLogoCache,
+  HarmonyEntityLogo,
+  HarmonyEntityLogoPill
+} from './src/main/ets/components/HarmonyEntityLogo';

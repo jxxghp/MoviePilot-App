@@ -6,14 +6,28 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RUST_DIR="$ROOT/shared/core-rust"
 OUT_FW="$ROOT/ios/Frameworks/MoviePilotRustCore.xcframework"
 SWIFT_OUT="$ROOT/ios/Sources/MoviePilotRustBridge/Generated"
-export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/Volumes/DISK/TmpBuild/moviepilot-rust-target}"
+
+if [[ -z "${CARGO_TARGET_DIR:-}" ]]; then
+  if [[ -d "/Volumes/DISK/TmpBuild" ]]; then
+    export CARGO_TARGET_DIR="/Volumes/DISK/TmpBuild/moviepilot-rust-target"
+  else
+    export CARGO_TARGET_DIR="${RUNNER_TEMP:-$RUST_DIR/target}/moviepilot-rust-target"
+  fi
+fi
+
+if [[ -d "/Volumes/DISK/TmpBuild" ]]; then
+  STAGE="${IOS_XCFRAMEWORK_STAGE_DIR:-/Volumes/DISK/TmpBuild/moviepilot-ios-xcframework}"
+else
+  STAGE="${IOS_XCFRAMEWORK_STAGE_DIR:-${RUNNER_TEMP:-$RUST_DIR/target}/moviepilot-ios-xcframework}"
+fi
+trap 'rm -rf "$STAGE"' EXIT
 
 cd "$RUST_DIR"
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim >/dev/null 2>&1 || true
 cargo build --release -p mp-ffi-uniffi --target aarch64-apple-ios
 cargo build --release -p mp-ffi-uniffi --target aarch64-apple-ios-sim
 
 mkdir -p "$SWIFT_OUT"
-STAGE="/Volumes/DISK/TmpBuild/moviepilot-ios-xcframework"
 rm -rf "$STAGE" "$OUT_FW"
 mkdir -p "$STAGE/headers"
 

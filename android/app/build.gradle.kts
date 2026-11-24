@@ -5,6 +5,29 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// 解析构建参数 MOVIEPILOT_ABI_FILTERS，未指定时自动扫描 core-rust-bridge 已同步的真实 libmoviepilot_core.so 架构目录，
+// 严格锁定打包 ABI，防止 JNA AAR 注入孤立 x86_64/mips 空壳目录引发 UnsatisfiedLinkError。
+val requestedAbiFilters = (project.findProperty("MOVIEPILOT_ABI_FILTERS") as String?)
+    ?.split(",")
+    ?.map { it.trim() }
+    ?.filter { it.isNotEmpty() }
+    .orEmpty()
+val detectedRustAbis = file("../core-rust-bridge/src/main/jniLibs")
+    .listFiles()
+    ?.filter { dir -> dir.isDirectory && File(dir, "libmoviepilot_core.so").isFile }
+    ?.map { it.name }
+    ?.sorted()
+    .orEmpty()
+val effectiveAbiFilters = when {
+    requestedAbiFilters.isNotEmpty() -> requestedAbiFilters
+    detectedRustAbis.isNotEmpty() -> detectedRustAbis
+    else -> listOf("arm64-v8a")
+}
+
+val releaseKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")?.trim().orEmpty()
+val releaseKeystoreFile = releaseKeystorePath.takeIf { it.isNotEmpty() }?.let { file(it) }
+val hasReleaseKeystore = releaseKeystoreFile != null && releaseKeystoreFile.isFile
+
 android {
     namespace = "com.moviepilot.app"
     compileSdk = 35
@@ -12,15 +35,35 @@ android {
 
     defaultConfig {
         applicationId = "com.moviepilot.app"
-        minSdk = 28
+        minSdk = 29
         targetSdk = 35
         versionCode = (project.findProperty("MOVIEPILOT_VERSION_CODE") as String?)?.toIntOrNull() ?: 2000201
         versionName = (project.findProperty("MOVIEPILOT_VERSION_NAME") as String?) ?: "2.0.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters.addAll(effectiveAbiFilters)
+        }
+    }
+
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = releaseKeystoreFile
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD").orEmpty()
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS").orEmpty()
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD").orEmpty()
+            }
+        }
     }
 
     buildTypes {
         release {
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

@@ -16,16 +16,28 @@ export interface SseEventChunk {
 
 /**
  * 鸿蒙原生网络传输层（基于 `@kit.NetworkKit` 系统 HTTP 栈）：
- * - 完整保持同源 Cookie（登录态与图片代理 session cookie）；
- * - 支持 Bearer Token 鉴权、自定义请求头、表单、JSON、二进制 Multipart 文件上传；
- * - 支持真实 `requestInStream` 分块流式 SSE 解析（供 AI 智能助手实时输出与工具事件）。
+ * - 严格通过 `RustCoreBridge.serverAddressContains(baseUrl, url)` 守卫同源边界，绝不向第三方外链泄露 JWT 或 Cookie；
+ * - 识别 401 与过期型 403（`RustCoreBridge.classifyAuthStatus === 'logout'`）并触发全局过期登出回调；
+ * - 支持自签名 HTTPS 开关、表单、JSON、Multipart 上传与 `requestInStream` 分块流式 SSE。
  */
 export class NativeRcpTransport {
+  private baseUrl: string = '';
   private allowSelfSigned: boolean = false;
   private cookieJar: Map<string, string> = new Map<string, string>();
+  onAuthExpired: (() => void) | null = null;
 
+  /** 绑定当前受信任的 MoviePilot 实例根地址（用于同源凭据守卫）。 */
+  setBaseUrl(url: string): void {
+    this.baseUrl = url.trim();
+  }
+
+  /** 设置是否信任自签名 HTTPS 证书。 */
   setAllowSelfSigned(allow: boolean): void {
     this.allowSelfSigned = allow;
+  }
+
+  isAllowSelfSigned(): boolean {
+    return this.allowSelfSigned;
   }
 
   clearCookies(): void {
@@ -40,7 +52,29 @@ export class NativeRcpTransport {
     return parts.join('; ');
   }
 
-  private captureSetCookies(headerObj: Object | undefined, rawCookies: string = ''): void {
+  /** 严格校验候选 URL 是否归属当前实例同源与子路径边界。 */
+  isSameOriginUrl(candidateUrl: string): boolean {
+    if (!this.baseUrl || !candidateUrl) {
+      return false;
+    }
+    return RustCoreBridge.serverAddressContains(this.baseUrl, candidateUrl);
+  }
+
+  private notifyAuthIfExpired(url: string, token: string, status: number, body: string): void {
+    if (!token || !this.isSameOriginUrl(url) || url.includes('/login/access-token')) {
+      return;
+    }
+    if (RustCoreBridge.classifyAuthStatus(status, body) === 'logout') {
+      if (this.onAuthExpired) {
+        this.onAuthExpired();
+      }
+    }
+  }
+
+  private captureSetCookies(url: string, headerObj: Object | undefined, rawCookies: string = ''): void {
+    if (!this.isSameOriginUrl(url)) {
+      return;
+    }
     if (headerObj) {
       const headers = headerObj as Record<string, Object>;
       const raw = headers['set-cookie'] ?? headers['Set-Cookie'];
@@ -87,7 +121,7 @@ export class NativeRcpTransport {
     }
   }
 
-  /** 执行 REST JSON / Form 请求（支持额外自定义请求头）。 */
+  /** 执行 REST JSON / Form 请求（仅对同源实例附加 Authorization 与 Cookie）。 */
   async execute(
     url: string,
     method: string = 'GET',
@@ -99,15 +133,19 @@ export class NativeRcpTransport {
     const client = http.createHttp();
     const header: Record<string, string> = {};
     header['Accept'] = 'application/json, text/plain, */*';
-    if (body.length > 0 || method.toUpperCase() === 'POST' || method.toUpperCase() === 'PUT') {
+    const upper = method.toUpperCase();
+    if (body.length > 0 || upper === 'POST' || upper === 'PUT') {
       header['Content-Type'] = contentType;
     }
-    if (token.length > 0) {
+    const sameOrigin = this.isSameOriginUrl(url);
+    if (sameOrigin && token.length > 0) {
       header['Authorization'] = `Bearer ${token}`;
     }
-    const cookieStr = this.getCookieHeader();
-    if (cookieStr.length > 0) {
-      header['Cookie'] = cookieStr;
+    if (sameOrigin) {
+      const cookieStr = this.getCookieHeader();
+      if (cookieStr.length > 0) {
+        header['Cookie'] = cookieStr;
+      }
     }
     if (extraHeaders) {
       const keys = Object.keys(extraHeaders);
@@ -117,7 +155,6 @@ export class NativeRcpTransport {
     }
 
     let httpMethod: http.RequestMethod = http.RequestMethod.GET;
-    const upper = method.toUpperCase();
     if (upper === 'POST') {
       httpMethod = http.RequestMethod.POST;
     } else if (upper === 'PUT') {
@@ -126,18 +163,24 @@ export class NativeRcpTransport {
       httpMethod = http.RequestMethod.DELETE;
     }
 
+    const reqOpts: http.HttpRequestOptions = {
+      method: httpMethod,
+      header: header,
+      extraData: body.length > 0 ? body : undefined,
+      expectDataType: http.HttpDataType.STRING,
+      connectTimeout: 15000,
+      readTimeout: 35000,
+      usingCache: false
+    };
+    if (this.allowSelfSigned) {
+      reqOpts.remoteValidation = 'skip';
+    }
+
     try {
-      const resp = await client.request(url, {
-        method: httpMethod,
-        header: header,
-        extraData: body.length > 0 ? body : undefined,
-        expectDataType: http.HttpDataType.STRING,
-        connectTimeout: 15000,
-        readTimeout: 35000,
-        usingCache: false
-      });
-      this.captureSetCookies(resp.header, resp.cookies ?? '');
+      const resp = await client.request(url, reqOpts);
+      this.captureSetCookies(url, resp.header, resp.cookies ?? '');
       const text = typeof resp.result === 'string' ? resp.result : JSON.stringify(resp.result ?? '');
+      this.notifyAuthIfExpired(url, token, resp.responseCode, text);
       return {
         status: resp.responseCode,
         body: text
@@ -147,27 +190,37 @@ export class NativeRcpTransport {
     }
   }
 
-  /** 拉取受鉴权保护的二进制资源（自动携带 resource_token Cookie 与 Bearer Token，供图片解码使用）。 */
+  /** 拉取二进制图片资源（仅在同源时携带 Bearer Token 与 Cookie，防止跨源泄露凭据）。 */
   async fetchBinary(url: string, token: string = ''): Promise<ArrayBuffer | null> {
     const client = http.createHttp();
     const header: Record<string, string> = {};
     header['Accept'] = 'image/*, */*';
-    if (token.length > 0) {
+    const sameOrigin = this.isSameOriginUrl(url);
+    if (sameOrigin && token.length > 0) {
       header['Authorization'] = `Bearer ${token}`;
     }
-    const cookieStr = this.getCookieHeader();
-    if (cookieStr.length > 0) {
-      header['Cookie'] = cookieStr;
+    if (sameOrigin) {
+      const cookieStr = this.getCookieHeader();
+      if (cookieStr.length > 0) {
+        header['Cookie'] = cookieStr;
+      }
+    }
+    const reqOpts: http.HttpRequestOptions = {
+      method: http.RequestMethod.GET,
+      header: header,
+      expectDataType: http.HttpDataType.ARRAY_BUFFER,
+      connectTimeout: 12000,
+      readTimeout: 25000,
+      usingCache: true
+    };
+    if (this.allowSelfSigned) {
+      reqOpts.remoteValidation = 'skip';
     }
     try {
-      const resp = await client.request(url, {
-        method: http.RequestMethod.GET,
-        header: header,
-        expectDataType: http.HttpDataType.ARRAY_BUFFER,
-        connectTimeout: 12000,
-        readTimeout: 25000,
-        usingCache: true
-      });
+      const resp = await client.request(url, reqOpts);
+      if (resp.responseCode === 401 && sameOrigin && token.length > 0) {
+        this.notifyAuthIfExpired(url, token, 401, '');
+      }
       if (resp.responseCode >= 200 && resp.responseCode < 300 && resp.result instanceof ArrayBuffer && resp.result.byteLength > 0) {
         return resp.result as ArrayBuffer;
       }
@@ -179,7 +232,7 @@ export class NativeRcpTransport {
     }
   }
 
-  /** 上传 Multipart 二进制文件（用于 AI 助手图片、文档与录音附件）。 */
+  /** 上传 Multipart 二进制文件（同源凭据守卫）。 */
   async uploadMultipart(
     url: string,
     token: string,
@@ -204,26 +257,35 @@ export class NativeRcpTransport {
     const header: Record<string, string> = {};
     header['Accept'] = 'application/json, */*';
     header['Content-Type'] = `multipart/form-data; boundary=${boundary}`;
-    if (token.length > 0) {
+    const sameOrigin = this.isSameOriginUrl(url);
+    if (sameOrigin && token.length > 0) {
       header['Authorization'] = `Bearer ${token}`;
     }
-    const cookieStr = this.getCookieHeader();
-    if (cookieStr.length > 0) {
-      header['Cookie'] = cookieStr;
+    if (sameOrigin) {
+      const cookieStr = this.getCookieHeader();
+      if (cookieStr.length > 0) {
+        header['Cookie'] = cookieStr;
+      }
+    }
+
+    const reqOpts: http.HttpRequestOptions = {
+      method: http.RequestMethod.POST,
+      header: header,
+      extraData: combined.buffer,
+      expectDataType: http.HttpDataType.STRING,
+      connectTimeout: 20000,
+      readTimeout: 60000,
+      usingCache: false
+    };
+    if (this.allowSelfSigned) {
+      reqOpts.remoteValidation = 'skip';
     }
 
     try {
-      const resp = await client.request(url, {
-        method: http.RequestMethod.POST,
-        header: header,
-        extraData: combined.buffer,
-        expectDataType: http.HttpDataType.STRING,
-        connectTimeout: 20000,
-        readTimeout: 60000,
-        usingCache: false
-      });
-      this.captureSetCookies(resp.header);
+      const resp = await client.request(url, reqOpts);
+      this.captureSetCookies(url, resp.header);
       const text = typeof resp.result === 'string' ? resp.result : JSON.stringify(resp.result ?? '');
+      this.notifyAuthIfExpired(url, token, resp.responseCode, text);
       return { status: resp.responseCode, body: text };
     } finally {
       client.destroy();
@@ -231,8 +293,7 @@ export class NativeRcpTransport {
   }
 
   /**
-   * 发起真实 SSE 流式 POST 请求（基于 `requestInStream` 增量分块解码），
-   * 兼容标准 `event:` + `data:` 行及纯 JSON 降级返回。
+   * 发起真实 SSE 流式 POST 请求（基于 `requestInStream` 增量分块解码 + 同源凭据守卫）。
    */
   async streamSsePost(
     url: string,
@@ -245,12 +306,15 @@ export class NativeRcpTransport {
     const header: Record<string, string> = {};
     header['Accept'] = 'text/event-stream, application/json, */*';
     header['Content-Type'] = 'application/json';
-    if (token.length > 0) {
+    const sameOrigin = this.isSameOriginUrl(url);
+    if (sameOrigin && token.length > 0) {
       header['Authorization'] = `Bearer ${token}`;
     }
-    const cookieStr = this.getCookieHeader();
-    if (cookieStr.length > 0) {
-      header['Cookie'] = cookieStr;
+    if (sameOrigin) {
+      const cookieStr = this.getCookieHeader();
+      if (cookieStr.length > 0) {
+        header['Cookie'] = cookieStr;
+      }
     }
     const keys = Object.keys(extraHeaders);
     for (let i = 0; i < keys.length; i++) {
@@ -294,26 +358,32 @@ export class NativeRcpTransport {
     };
 
     client.on('headersReceive', (hdr: Object) => {
-      this.captureSetCookies(hdr);
+      this.captureSetCookies(url, hdr);
     });
     client.on('dataReceive', (buf: ArrayBuffer) => {
       const chunkStr = decoder.decodeToString(new Uint8Array(buf), { stream: true });
       consumeLines(chunkStr);
     });
 
+    const streamOpts: http.HttpRequestOptions = {
+      method: http.RequestMethod.POST,
+      header: header,
+      extraData: payloadJson,
+      connectTimeout: 20000,
+      readTimeout: 180000,
+      usingCache: false
+    };
+    if (this.allowSelfSigned) {
+      streamOpts.remoteValidation = 'skip';
+    }
+
     try {
-      const code = await client.requestInStream(url, {
-        method: http.RequestMethod.POST,
-        header: header,
-        extraData: payloadJson,
-        connectTimeout: 20000,
-        readTimeout: 180000,
-        usingCache: false
-      });
+      const code = await client.requestInStream(url, streamOpts);
       if (pending.length > 0) {
         consumeLines('\n');
       }
       flushEvent();
+      this.notifyAuthIfExpired(url, token, code, rawFallback);
       if (!emittedAny && rawFallback.trim().length > 0) {
         onEvent({ event: 'message', data: rawFallback.trim() });
       }
@@ -336,6 +406,7 @@ export class NativeRcpTransport {
     prompt: string,
     onChunk: (delta: string) => void
   ): Promise<void> {
+    this.setBaseUrl(baseUrl);
     const url = RustCoreBridge.buildV3EndpointUrl(baseUrl, ['message', 'agent', 'stream']);
     const payload = JSON.stringify({
       text: prompt,

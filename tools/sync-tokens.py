@@ -56,10 +56,14 @@ def generate_swift(palette: dict, surfaces: dict, layout: dict, icons: dict) -> 
     ]
     for preset in palette["backgroundPresets"]:
         pid = preset["id"]
-        dark_list = ", ".join(hex_to_swift_color(c) for c in preset["darkStops"])
-        light_list = ", ".join(hex_to_swift_color(c) for c in preset["lightStops"])
-        lines.append(f"    static let {pid}Dark: [Color] = [{dark_list}]")
-        lines.append(f"    static let {pid}Light: [Color] = [{light_list}]")
+        lines.append(f"    static let {pid}Dark: [Color] = [")
+        for c in preset["darkStops"]:
+            lines.append(f"      {hex_to_swift_color(c)},")
+        lines.append("    ]")
+        lines.append(f"    static let {pid}Light: [Color] = [")
+        for c in preset["lightStops"]:
+            lines.append(f"      {hex_to_swift_color(c)},")
+        lines.append("    ]")
     lines.append("  }")
     lines.append("")
     lines.append("  /// 主题强调前景色。")
@@ -71,9 +75,13 @@ def generate_swift(palette: dict, surfaces: dict, layout: dict, icons: dict) -> 
     lines.append("  /// 自适应语义状态色。")
     lines.append("  enum Semantic {")
     for key, pair in palette["semantic"].items():
-        lines.append(
-            f"    static let {key} = Color(uiColor: UIColor {{ $0.userInterfaceStyle == .dark ? {hex_to_swift_rgba(pair['dark'])} : {hex_to_swift_rgba(pair['light'])} }})"
-        )
+        lines.append(f"    static let {key} = Color(")
+        lines.append("      uiColor: UIColor {")
+        lines.append("        $0.userInterfaceStyle == .dark")
+        lines.append(f"          ? {hex_to_swift_rgba(pair['dark'])}")
+        lines.append(f"          : {hex_to_swift_rgba(pair['light'])}")
+        lines.append("      }")
+        lines.append("    )")
     lines.append("  }")
     lines.append("")
     lines.append("  /// 玻璃面板与布局圆角/边距常量。")

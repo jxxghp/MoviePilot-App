@@ -24,6 +24,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /** Material 3 Expressive 排版体系（醒目加粗展示标题 + 清晰层级与数字可读性）。 */
@@ -519,6 +521,10 @@ class NativeAppearanceStore(context: Context? = null) {
     var animateBackground by mutableStateOf(prefs?.getBoolean("animate_bg", false) ?: false)
         private set
 
+    /** 一级主页面右下角 AI 助手悬浮球显隐开关。 */
+    var showAgentMascot by mutableStateOf(prefs?.getBoolean("show_agent_mascot", true) ?: true)
+        private set
+
     // 兼容旧属性读取
     val backgroundPresetId: String get() = paletteId
     val accentPresetId: String get() = paletteId
@@ -563,6 +569,11 @@ class NativeAppearanceStore(context: Context? = null) {
         prefs?.edit()?.putBoolean("animate_bg", enabled)?.apply()
     }
 
+    fun updateShowAgentMascot(enabled: Boolean) {
+        showAgentMascot = enabled
+        prefs?.edit()?.putBoolean("show_agent_mascot", enabled)?.apply()
+    }
+
     fun updateBackgroundPreset(id: String) = updatePalette(id)
     fun updateAccentPreset(id: String) = updatePalette(id)
 
@@ -575,6 +586,7 @@ class NativeAppearanceStore(context: Context? = null) {
         updateCornerStyle(ExpressiveCornerStyle.Expressive)
         updateNavBarStyle(ExpressiveNavBarStyle.FloatingPill)
         updateAnimateBackground(false)
+        updateShowAgentMascot(true)
     }
 
     val currentPreset: ExpressivePalettePreset
@@ -619,6 +631,7 @@ data class MoviePilotColors(
     val cyan: Color,
     val chipFill: Color,
     val chipBorder: Color,
+    val borderSubtle: Color,
     val chipText: Color,
     val badgeFill: Color,
     val fieldFill: Color,
@@ -652,8 +665,74 @@ fun Color.contrastingForeground(): Color =
     if (luminance() > 0.44f) Color(0xFF0C152B) else Color.White
 
 val LocalAppearanceStore = compositionLocalOf { NativeAppearanceStore(null) }
+/** 底部悬浮覆盖物（导航栏 + 迷你音乐播放条）动态占高，供列表尾部与 FAB 避让。 */
+val LocalBottomOverlayInset = compositionLocalOf { 0.dp }
 val LocalMoviePilotColors = compositionLocalOf {
     resolveMoviePilotColors(isDark = true, store = NativeAppearanceStore(null))
+}
+
+/**
+ * 原生播放器持久化偏好存储（`SharedPreferences` 单一事实源）：
+ * 由「播放偏好」页面写入，`NativeMediaPlayerOverlay` 与 `buildConfiguredExoPlayer` 实时读取生效。
+ */
+@Stable
+class PlaybackPreferencesStore(context: Context?) {
+    private val prefs = context?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    var hwDecode by mutableStateOf(prefs?.getBoolean(KEY_HW_DECODE, true) ?: true)
+        private set
+
+    var autoPip by mutableStateOf(prefs?.getBoolean(KEY_AUTO_PIP, true) ?: true)
+        private set
+
+    var defaultQuality by mutableStateOf(prefs?.getString(KEY_QUALITY, "自适应原画") ?: "自适应原画")
+        private set
+
+    var defaultSpeed by mutableStateOf(prefs?.getFloat(KEY_SPEED, 1.0f) ?: 1.0f)
+        private set
+
+    var defaultResizeMode by mutableStateOf(prefs?.getInt(KEY_RESIZE_MODE, 0) ?: 0)
+        private set
+
+    fun updateHwDecode(enabled: Boolean) {
+        hwDecode = enabled
+        prefs?.edit()?.putBoolean(KEY_HW_DECODE, enabled)?.apply()
+    }
+
+    fun updateAutoPip(enabled: Boolean) {
+        autoPip = enabled
+        prefs?.edit()?.putBoolean(KEY_AUTO_PIP, enabled)?.apply()
+    }
+
+    fun updateDefaultQuality(quality: String) {
+        defaultQuality = quality
+        prefs?.edit()?.putString(KEY_QUALITY, quality)?.apply()
+    }
+
+    fun updateDefaultSpeed(speed: Float) {
+        defaultSpeed = speed
+        prefs?.edit()?.putFloat(KEY_SPEED, speed)?.apply()
+    }
+
+    fun updateDefaultResizeMode(modeIndex: Int) {
+        defaultResizeMode = modeIndex
+        prefs?.edit()?.putInt(KEY_RESIZE_MODE, modeIndex)?.apply()
+    }
+
+    val summaryText: String
+        get() {
+            val spdText = if (defaultSpeed % 1f == 0f) String.format("%.1fx", defaultSpeed) else "${defaultSpeed}x"
+            return "$defaultQuality · $spdText"
+        }
+
+    companion object {
+        const val PREFS_NAME = "mp_playback_prefs_v1"
+        const val KEY_HW_DECODE = "hw_decode"
+        const val KEY_AUTO_PIP = "auto_pip"
+        const val KEY_QUALITY = "default_quality"
+        const val KEY_SPEED = "default_speed"
+        const val KEY_RESIZE_MODE = "default_resize_mode"
+    }
 }
 
 fun resolveMoviePilotColors(
@@ -720,7 +799,7 @@ fun resolveMoviePilotColors(
         palette = listOf(baseBg, surfLow, surfMid, baseBg),
         textPrimary = dynamicScheme?.onSurface ?: if (isDark) Color(0xFFF0F2F8) else Color(0xFF121622),
         textSecondary = dynamicScheme?.onSurfaceVariant ?: if (isDark) Color(0xFFB3BCCF) else Color(0xFF4B556B),
-        textMuted = dynamicScheme?.outline ?: if (isDark) Color(0xFF818BA3) else Color(0xFF727C94),
+        textMuted = if (isDark) (dynamicScheme?.outline ?: Color(0xFF818BA3)) else Color(0xFF5B647A),
         success = s.success.resolve(isDark),
         warning = s.warning.resolve(isDark),
         danger = dynamicScheme?.error ?: s.danger.resolve(isDark),
@@ -730,6 +809,7 @@ fun resolveMoviePilotColors(
         cyan = s.cyan.resolve(isDark),
         chipFill = surfHigh,
         chipBorder = dynamicScheme?.outlineVariant ?: tone.outline.copy(alpha = 0.55f),
+        borderSubtle = if (isDark) Color(0xFF5E6A85) else Color(0xFF838FA8),
         chipText = dynamicScheme?.onSurface ?: if (isDark) Color(0xFFEAF0FA) else Color(0xFF161C2C),
         badgeFill = dynamicScheme?.secondaryContainer ?: tone.secondaryContainer,
         fieldFill = dynamicScheme?.surfaceContainerHighest ?: surfHigh,

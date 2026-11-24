@@ -1,17 +1,18 @@
 import { UIAbility, Want, AbilityConstant, Configuration, ConfigurationConstant, common } from '@kit.AbilityKit';
-import { display, window } from '@kit.ArkUI';
+import { display, window, KeyboardAvoidMode } from '@kit.ArkUI';
 import { HarmonyAdaptiveLayout, HarmonyAppearanceStore } from '@moviepilot/design_system';
-import { RustCoreBridge } from '@moviepilot/core_rust_bridge';
+import { RustCoreBridge, NativeHuksStore } from '@moviepilot/core_rust_bridge';
 
 /**
  * MoviePilot HarmonyOS NEXT / HarmonyOS 7 主 EntryAbility：
- * - 开启全屏沉浸式布局（`setWindowLayoutFullScreen(true)`）与安全避让区感知；
- * - 实时追踪窗口宽度（vp）与折叠屏/平板/2in1 断点（`sm / md / lg`），驱动「一次开发、多端部署」导航转换；
- * - 跟随系统深浅色配置更新，拦截并分发 `moviepilot://` 深度链接与音视频文件直放请求。
+ * - 初始化 `NativeHuksStore` 安全凭据与持久化存储，开启 `KeyboardAvoidMode.RESIZE` 软键盘避让；
+ * - 实时追踪窗口宽高（vp）与多端自适应断点（`sm / md / lg`）；
+ * - 拦截并分发 `moviepilot://` 深度链接、桌面卡片路由参数与音视频文件直放请求。
  */
 export default class EntryAbility extends UIAbility {
   private static mainWin: window.Window | null = null;
   private static appCtx: common.UIAbilityContext | null = null;
+  static storeInitPromise: Promise<void> | null = null;
 
   static syncWindowAppearance(isDark: boolean): void {
     try {
@@ -37,6 +38,7 @@ export default class EntryAbility extends UIAbility {
   onCreate(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
     HarmonyAppearanceStore.initDefaults();
     EntryAbility.appCtx = this.context;
+    EntryAbility.storeInitPromise = NativeHuksStore.shared().init(this.context);
     this.syncSystemColorMode(this.context.config.colorMode);
     EntryAbility.syncWindowAppearance(AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_IS_DARK) ?? true);
     this.handleIncomingWant(want);
@@ -60,7 +62,7 @@ export default class EntryAbility extends UIAbility {
     }
   }
 
-  private updateBreakpointFromPx(widthPx: number): void {
+  private updateWindowMetricsFromPx(widthPx: number, heightPx: number = 0): void {
     try {
       const disp = display.getDefaultDisplaySync();
       const density = disp.densityPixels > 0 ? disp.densityPixels : 3;
@@ -68,6 +70,10 @@ export default class EntryAbility extends UIAbility {
       const bp = HarmonyAdaptiveLayout.resolveBreakpoint(widthVp);
       AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP, widthVp);
       AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_BREAKPOINT, bp);
+      if (heightPx > 0) {
+        const heightVp = Math.round(heightPx / density);
+        AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP, heightVp);
+      }
     } catch {
       // ignore display query failure
     }
@@ -89,6 +95,11 @@ export default class EntryAbility extends UIAbility {
         if (!err && win) {
           EntryAbility.mainWin = win;
           try {
+            win.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+          } catch {
+            // ignore keyboard avoid mode error on older runtimes
+          }
+          try {
             win.setWindowLayoutFullScreen(true).then(() => {
               EntryAbility.syncWindowAppearance(AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_IS_DARK) ?? true);
             }).catch(() => {});
@@ -98,11 +109,11 @@ export default class EntryAbility extends UIAbility {
             AppStorage.setOrCreate('mp_bottom_avoid_px', avoid.bottomRect.height);
             const props = win.getWindowProperties();
             if (props && props.windowRect && props.windowRect.width > 0) {
-              this.updateBreakpointFromPx(props.windowRect.width);
+              this.updateWindowMetricsFromPx(props.windowRect.width, props.windowRect.height);
             }
             win.on('windowSizeChange', (size: window.Size) => {
               if (size && size.width > 0) {
-                this.updateBreakpointFromPx(size.width);
+                this.updateWindowMetricsFromPx(size.width, size.height);
               }
             });
           } catch {
@@ -114,12 +125,15 @@ export default class EntryAbility extends UIAbility {
   }
 
   private handleIncomingWant(want: Want): void {
-    const uri = want.uri ?? '';
-    if (!uri) { return; }
-    if (uri.startsWith('moviepilot://')) {
-      AppStorage.setOrCreate('mp_pending_deeplink', RustCoreBridge.parseDeepLinkJson(uri));
-    } else if (RustCoreBridge.detectPlayableMediaKind(uri, true).length > 0) {
-      AppStorage.setOrCreate('mp_pending_media_uri', uri);
+    let rawTarget = want.uri ?? '';
+    if (rawTarget.length === 0 && want.parameters && want.parameters['uri'] !== undefined) {
+      rawTarget = String(want.parameters['uri']);
+    }
+    if (!rawTarget) { return; }
+    if (rawTarget.startsWith('moviepilot://')) {
+      AppStorage.setOrCreate('mp_pending_deeplink', RustCoreBridge.parseDeepLinkJson(rawTarget));
+    } else if (RustCoreBridge.detectPlayableMediaKind(rawTarget, true).length > 0) {
+      AppStorage.setOrCreate('mp_pending_media_uri', rawTarget);
     }
   }
 }

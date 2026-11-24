@@ -23,6 +23,12 @@ pub mod bridge {
             .map_err(|e| e.to_string())
     }
 
+    pub fn server_address_contains(base_url: &str, candidate_url: &str) -> bool {
+        ServerAddress::parse(base_url)
+            .map(|addr| addr.contains(candidate_url))
+            .unwrap_or(false)
+    }
+
     pub fn build_v3_endpoint_url(
         base_url: &str,
         segments: Vec<String>,
@@ -153,6 +159,22 @@ mod napi_exports {
     }
 
     #[napi]
+    pub fn server_address_contains(base_url: String, candidate_url: String) -> bool {
+        bridge::server_address_contains(&base_url, &candidate_url)
+    }
+
+    #[napi]
+    pub fn build_v3_endpoint_url(
+        base_url: String,
+        segments: Vec<String>,
+        query_json: String,
+        trailing_slash: bool,
+    ) -> Result<String> {
+        bridge::build_v3_endpoint_url(&base_url, segments, &query_json, trailing_slash)
+            .map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
     pub fn parse_deep_link_json(raw_url: String) -> String {
         bridge::parse_deep_link_json(&raw_url)
     }
@@ -184,6 +206,11 @@ mod napi_exports {
     #[napi]
     pub fn evaluate_permissions_json(permissions_json: String, is_superuser: bool) -> String {
         bridge::evaluate_permissions_json(&permissions_json, is_superuser)
+    }
+
+    #[napi]
+    pub fn classify_auth_status_str(status: u16, body: String) -> String {
+        bridge::classify_auth_status_str(status, &body)
     }
 
     #[napi]

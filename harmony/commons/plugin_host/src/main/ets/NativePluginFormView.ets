@@ -1,5 +1,5 @@
 import { webview } from '@kit.ArkWeb';
-import { RustCoreBridge } from '@moviepilot/core_rust_bridge';
+import { RustCoreBridge, MpRemoteImage } from '@moviepilot/core_rust_bridge';
 import {
   CinematicPanel,
   NativeAdaptiveBadge,
@@ -21,6 +21,7 @@ export interface PluginFieldPlan {
   label: string;
   hint: string;
   visible: boolean;
+  visibleExpr?: string;
   text: string;
   multiple?: boolean;
   items?: PluginSelectOption[];
@@ -42,12 +43,24 @@ export interface VueChromeConfirmation {
   destructive: boolean;
 }
 
+export interface PluginStatCell {
+  label: string;
+  value: string;
+  sub: string;
+}
+
 export interface PluginDataBlock {
   id: string;
-  kind: string;
+  kind: string; // 'alert' | 'heading' | 'chip' | 'text' | 'card' | 'image' | 'table' | 'stat_grid'
   title: string;
+  subtitle?: string;
   body: string;
   tone: string;
+  imageUrl?: string;
+  chips?: string[];
+  headers?: string[];
+  rows?: string[][];
+  stats?: PluginStatCell[];
 }
 
 /**
@@ -114,6 +127,16 @@ function readBool(obj: Record<string, Object> | null, key: string, fallback: boo
   return String(v).toLowerCase() === 'true';
 }
 
+function copyRecord(src: Record<string, Object>): Record<string, Object> {
+  const next: Record<string, Object> = {};
+  const keys = Object.keys(src);
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    next[k] = src[k];
+  }
+  return next;
+}
+
 function unwrapV3Envelope(rawJson: string): Record<string, Object> | null {
   try {
     if (!rawJson || rawJson.trim().length === 0) { return null; }
@@ -156,7 +179,61 @@ function isNonVisualPluginTag(comp: string): boolean {
   return lower === 'style' || lower === 'script' || lower === 'link' || lower === 'meta' || lower === 'vdialogclosebtn';
 }
 
-function extractFallbackFormFields(nodes: Object[], out: PluginFieldPlan[]): void {
+function extractNodeConditionExpr(node: Record<string, Object>, props: Record<string, Object> | null): string {
+  const parts: string[] = [];
+  const candidates: string[] = [
+    readStr(props, 'v-if'),
+    readStr(props, 'v-show'),
+    readStr(props, 'vIf'),
+    readStr(props, 'vShow'),
+    readStr(node, 'v-if'),
+    readStr(node, 'v-show')
+  ];
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i].trim();
+    if (c.length > 0 && !parts.includes(c)) {
+      parts.push(`(${c})`);
+    }
+  }
+  const directives = asList(node['directives']);
+  for (let d = 0; d < directives.length; d++) {
+    const dir = asObj(directives[d]);
+    const name = readStr(dir, 'name').toLowerCase();
+    const expr = readStr(dir, 'expression') || readStr(dir, 'value');
+    if ((name === 'if' || name === 'v-if' || name === 'show' || name === 'v-show') && expr.trim().length > 0) {
+      parts.push(`(${expr.trim()})`);
+    }
+  }
+  return parts.join(' && ');
+}
+
+function combineExpr(parentExpr: string, selfExpr: string): string {
+  if (parentExpr.length > 0 && selfExpr.length > 0) {
+    return `${parentExpr} && ${selfExpr}`;
+  }
+  return parentExpr.length > 0 ? parentExpr : selfExpr;
+}
+
+function collectModelVisibilityExprs(nodes: Object[], inheritedExpr: string, outMap: Map<string, string>): void {
+  for (let i = 0; i < nodes.length; i++) {
+    const node = asObj(nodes[i]);
+    if (!node) { continue; }
+    const comp = readStr(node, 'component');
+    if (isNonVisualPluginTag(comp)) { continue; }
+    const props = asObj(node['props']);
+    const merged = combineExpr(inheritedExpr, extractNodeConditionExpr(node, props));
+    const modelKey = readStr(props, 'model') || readStr(props, 'v-model');
+    if (modelKey.length > 0 && merged.length > 0) {
+      outMap.set(modelKey, merged);
+    }
+    const content = asList(node['content']);
+    if (content.length > 0) {
+      collectModelVisibilityExprs(content, merged, outMap);
+    }
+  }
+}
+
+function extractFallbackFormFields(nodes: Object[], out: PluginFieldPlan[], inheritedExpr: string = ''): void {
   const fieldKinds: string[] = [
     'VSwitch', 'VCheckbox', 'VCronField', 'VSelect', 'VAutocomplete',
     'VCombobox', 'VTextField', 'VTextarea', 'VAceEditor', 'VAlert'
@@ -167,9 +244,10 @@ function extractFallbackFormFields(nodes: Object[], out: PluginFieldPlan[]): voi
     const comp = readStr(node, 'component');
     if (isNonVisualPluginTag(comp)) { continue; }
     const props = asObj(node['props']);
+    const mergedExpr = combineExpr(inheritedExpr, extractNodeConditionExpr(node, props));
     const text = typeof node['text'] === 'string' ? (node['text'] as string) : '';
     if (comp.length > 0 && fieldKinds.includes(comp)) {
-      const modelKey = readStr(props, 'model');
+      const modelKey = readStr(props, 'model') || readStr(props, 'v-model');
       const label = readStr(props, 'label') || readStr(props, 'title') || readStr(props, 'placeholder') || modelKey;
       const hint = readStr(props, 'hint');
       const items = parseSelectItems(props ? props['items'] : undefined);
@@ -179,6 +257,7 @@ function extractFallbackFormFields(nodes: Object[], out: PluginFieldPlan[]): voi
         label: label,
         hint: hint,
         visible: true,
+        visibleExpr: mergedExpr.length > 0 ? mergedExpr : undefined,
         text: text || readStr(props, 'text'),
         multiple: readBool(props, 'multiple', false) || readBool(props, 'chips', false),
         items: items
@@ -186,21 +265,266 @@ function extractFallbackFormFields(nodes: Object[], out: PluginFieldPlan[]): voi
     }
     const content = asList(node['content']);
     if (content.length > 0) {
-      extractFallbackFormFields(content, out);
+      extractFallbackFormFields(content, out, mergedExpr);
     }
   }
 }
 
-function extractDataBlocks(nodes: Object[], out: PluginDataBlock[]): void {
+function collectPlainText(node: Record<string, Object> | null): string {
+  if (!node) { return ''; }
+  const comp = readStr(node, 'component');
+  if (isNonVisualPluginTag(comp)) { return ''; }
+  const parts: string[] = [];
+  const direct = typeof node['text'] === 'string' ? (node['text'] as string).trim() : '';
+  if (direct.length > 0 && !direct.startsWith('.') && !direct.includes('{display:')) {
+    parts.push(direct);
+  }
+  const props = asObj(node['props']);
+  const propTitle = readStr(props, 'title').trim();
+  const propText = readStr(props, 'text').trim();
+  if (propTitle.length > 0 && !parts.includes(propTitle)) { parts.push(propTitle); }
+  if (propText.length > 0 && !parts.includes(propText)) { parts.push(propText); }
+  const children = asList(node['content']);
+  for (let i = 0; i < children.length; i++) {
+    const childText = collectPlainText(asObj(children[i]));
+    if (childText.length > 0) {
+      parts.push(childText);
+    }
+  }
+  return parts.join(' ').trim();
+}
+
+function resolvePluginAssetUrl(rawSrc: string, serverUrl: string): string {
+  const s = rawSrc.trim();
+  if (s.length === 0) { return ''; }
+  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:image/')) {
+    return s;
+  }
+  const cleanBase = serverUrl.replace(/\/+$/, '');
+  if (cleanBase.length === 0) { return s; }
+  return s.startsWith('/') ? `${cleanBase}${s}` : `${cleanBase}/${s}`;
+}
+
+function extractTableBlock(node: Record<string, Object>, id: string): PluginDataBlock | null {
+  const headers: string[] = [];
+  const rows: string[][] = [];
+
+  const walkTable = (cur: Record<string, Object> | null, inHead: boolean): void => {
+    if (!cur) { return; }
+    const tag = readStr(cur, 'component').toLowerCase();
+    if (tag === 'thead') {
+      const ch = asList(cur['content']);
+      for (let i = 0; i < ch.length; i++) { walkTable(asObj(ch[i]), true); }
+      return;
+    }
+    if (tag === 'tr') {
+      const cells = asList(cur['content']);
+      const rowCells: string[] = [];
+      let isHeaderRow = inHead;
+      for (let c = 0; c < cells.length; c++) {
+        const cellObj = asObj(cells[c]);
+        if (!cellObj) { continue; }
+        const cTag = readStr(cellObj, 'component').toLowerCase();
+        if (cTag === 'th') { isHeaderRow = true; }
+        if (cTag === 'th' || cTag === 'td') {
+          rowCells.push(collectPlainText(cellObj));
+        }
+      }
+      if (rowCells.length > 0) {
+        if (isHeaderRow && headers.length === 0) {
+          for (let h = 0; h < rowCells.length; h++) { headers.push(rowCells[h]); }
+        } else {
+          rows.push(rowCells);
+        }
+      }
+      return;
+    }
+    const ch = asList(cur['content']);
+    for (let i = 0; i < ch.length; i++) { walkTable(asObj(ch[i]), inHead); }
+  };
+
+  walkTable(node, false);
+  if (headers.length === 0 && rows.length === 0) { return null; }
+  return {
+    id: id,
+    kind: 'table',
+    title: '',
+    body: '',
+    tone: 'default',
+    headers: headers,
+    rows: rows
+  };
+}
+
+function extractCardSummary(cardNode: Record<string, Object>, serverUrl: string, id: string): PluginDataBlock | null {
+  const props = asObj(cardNode['props']);
+  let title = readStr(props, 'title').trim();
+  let subtitle = readStr(props, 'subtitle').trim();
+  const bodyLines: string[] = [];
+  const chips: string[] = [];
+  let imageUrl = '';
+
+  const walkCard = (cur: Record<string, Object> | null): void => {
+    if (!cur) { return; }
+    const comp = readStr(cur, 'component');
+    if (isNonVisualPluginTag(comp)) { return; }
+    const cProps = asObj(cur['props']);
+    const lower = comp.toLowerCase();
+    if (lower === 'vimg' || lower === 'img') {
+      const src = readStr(cProps, 'src') || readStr(cProps, 'lazy-src');
+      if (src.length > 0 && imageUrl.length === 0) {
+        imageUrl = resolvePluginAssetUrl(src, serverUrl);
+      }
+      return;
+    }
+    if (comp === 'VCardTitle' || lower === 'h1' || lower === 'h2' || lower === 'h3' || lower === 'h4') {
+      const t = collectPlainText(cur);
+      if (t.length > 0) {
+        if (title.length === 0) { title = t; } else if (!bodyLines.includes(t)) { bodyLines.push(t); }
+      }
+      return;
+    }
+    if (comp === 'VCardSubtitle') {
+      const s = collectPlainText(cur);
+      if (s.length > 0 && subtitle.length === 0) { subtitle = s; }
+      return;
+    }
+    if (comp === 'VChip') {
+      const ch = collectPlainText(cur);
+      if (ch.length > 0 && !chips.includes(ch)) { chips.push(ch); }
+      return;
+    }
+    const direct = typeof cur['text'] === 'string' ? (cur['text'] as string).trim() : '';
+    if (direct.length > 0 && !direct.startsWith('.') && !direct.includes('{display:') && !bodyLines.includes(direct)) {
+      bodyLines.push(direct);
+    }
+    const ch = asList(cur['content']);
+    for (let i = 0; i < ch.length; i++) {
+      walkCard(asObj(ch[i]));
+    }
+  };
+
+  const children = asList(cardNode['content']);
+  for (let i = 0; i < children.length; i++) {
+    walkCard(asObj(children[i]));
+  }
+
+  if (title.length === 0 && subtitle.length === 0 && bodyLines.length === 0 && chips.length === 0 && imageUrl.length === 0) {
+    return null;
+  }
+  return {
+    id: id,
+    kind: 'card',
+    title: title,
+    subtitle: subtitle,
+    body: bodyLines.join('\n'),
+    tone: readStr(props, 'color', 'default'),
+    imageUrl: imageUrl.length > 0 ? imageUrl : undefined,
+    chips: chips.length > 0 ? chips : undefined
+  };
+}
+
+function tryExtractStatGridFromRow(rowNode: Record<string, Object>, id: string): PluginDataBlock | null {
+  const cols = asList(rowNode['content']);
+  if (cols.length < 2) { return null; }
+  const stats: PluginStatCell[] = [];
+  for (let i = 0; i < cols.length; i++) {
+    const col = asObj(cols[i]);
+    if (!col) { return null; }
+    const comp = readStr(col, 'component');
+    if (comp !== 'VCol' && comp !== 'div') { return null; }
+    const textSegs: string[] = [];
+    const gather = (n: Record<string, Object> | null): void => {
+      if (!n) { return; }
+      const c = readStr(n, 'component');
+      if (isNonVisualPluginTag(c)) { return; }
+      if (c === 'VTable' || c === 'table' || c === 'VAlert') { return; }
+      const p = asObj(n['props']);
+      const pt = readStr(p, 'title').trim();
+      const ps = readStr(p, 'subtitle').trim();
+      const dt = typeof n['text'] === 'string' ? (n['text'] as string).trim() : '';
+      if (pt.length > 0 && !textSegs.includes(pt)) { textSegs.push(pt); }
+      if (ps.length > 0 && !textSegs.includes(ps)) { textSegs.push(ps); }
+      if (dt.length > 0 && !dt.startsWith('.') && !textSegs.includes(dt)) { textSegs.push(dt); }
+      const kids = asList(n['content']);
+      for (let k = 0; k < kids.length; k++) { gather(asObj(kids[k])); }
+    };
+    gather(col);
+    if (textSegs.length < 2 || textSegs.length > 4) { return null; }
+    // KPI 指标卡通常包含简短标题与数值
+    if (textSegs[0].length > 26 || textSegs[1].length > 32) { return null; }
+    stats.push({
+      label: textSegs[0],
+      value: textSegs[1],
+      sub: textSegs.length >= 3 ? textSegs.slice(2).join(' · ') : ''
+    });
+  }
+  if (stats.length < 2) { return null; }
+  return {
+    id: id,
+    kind: 'stat_grid',
+    title: '',
+    body: '',
+    tone: 'default',
+    stats: stats
+  };
+}
+
+function extractDataBlocks(nodes: Object[], out: PluginDataBlock[], serverUrl: string = ''): void {
   for (let i = 0; i < nodes.length; i++) {
     const node = asObj(nodes[i]);
     if (!node) { continue; }
     const comp = readStr(node, 'component');
     if (isNonVisualPluginTag(comp)) { continue; }
+    const lower = comp.toLowerCase();
     const props = asObj(node['props']);
     const text = typeof node['text'] === 'string' ? (node['text'] as string) : '';
+
+    if (comp === 'VTable' || comp === 'VSimpleTable' || lower === 'table') {
+      const tbl = extractTableBlock(node, `b_${out.length}`);
+      if (tbl) {
+        out.push(tbl);
+        continue;
+      }
+    }
+
+    if (comp === 'VRow') {
+      const statGrid = tryExtractStatGridFromRow(node, `b_${out.length}`);
+      if (statGrid) {
+        out.push(statGrid);
+        continue;
+      }
+    }
+
+    if (lower === 'vimg' || lower === 'img') {
+      const src = resolvePluginAssetUrl(readStr(props, 'src') || readStr(props, 'lazy-src'), serverUrl);
+      if (src.length > 0) {
+        out.push({
+          id: `b_${out.length}`,
+          kind: 'image',
+          title: readStr(props, 'alt') || readStr(props, 'title'),
+          body: '',
+          tone: 'default',
+          imageUrl: src
+        });
+        continue;
+      }
+    }
+
+    if (comp === 'VCard') {
+      // 如果 VCard 内不含嵌套表格，则聚合为结构化原生卡片
+      const rawCardJson = JSON.stringify(node);
+      if (!rawCardJson.includes('"VTable"') && !rawCardJson.includes('"table"')) {
+        const cardBlk = extractCardSummary(node, serverUrl, `b_${out.length}`);
+        if (cardBlk) {
+          out.push(cardBlk);
+          continue;
+        }
+      }
+    }
+
     if (comp === 'VAlert') {
-      const body = text || readStr(props, 'text') || readStr(props, 'title');
+      const body = text || readStr(props, 'text') || collectPlainText(node);
       if (body.length > 0) {
         out.push({
           id: `b_${out.length}`,
@@ -209,22 +533,26 @@ function extractDataBlocks(nodes: Object[], out: PluginDataBlock[]): void {
           body: body,
           tone: readStr(props, 'type', 'info')
         });
+        continue;
       }
-    } else if (comp === 'VChip' || comp === 'VCardTitle' || comp === 'VCardSubtitle' || comp === 'VCardText' || comp === 'span' || comp === 'p' || comp === 'div' || comp === 'h1' || comp === 'h2' || comp === 'h3' || comp === 'h4') {
+    } else if (comp === 'VChip' || comp === 'VCardTitle' || comp === 'VCardSubtitle' || comp === 'VCardText'
+      || lower === 'span' || lower === 'p' || lower === 'div'
+      || lower === 'h1' || lower === 'h2' || lower === 'h3' || lower === 'h4') {
       const trimmed = text.trim();
       if (trimmed.length > 0 && !trimmed.startsWith('.') && !trimmed.includes('{display:') && !trimmed.includes('!important')) {
         out.push({
           id: `b_${out.length}`,
-          kind: comp === 'VChip' ? 'chip' : ((comp === 'VCardTitle' || comp.startsWith('h')) ? 'heading' : 'text'),
-          title: (comp === 'VCardTitle' || comp.startsWith('h')) ? trimmed : '',
+          kind: comp === 'VChip' ? 'chip' : ((comp === 'VCardTitle' || lower.startsWith('h')) ? 'heading' : 'text'),
+          title: (comp === 'VCardTitle' || lower.startsWith('h')) ? trimmed : '',
           body: trimmed,
           tone: readStr(props, 'color', 'default')
         });
       }
     }
+
     const content = asList(node['content']);
     if (content.length > 0) {
-      extractDataBlocks(content, out);
+      extractDataBlocks(content, out, serverUrl);
     }
   }
 }
@@ -239,7 +567,7 @@ function jsEscape(raw: string): string {
 
 /**
  * 鸿蒙原生 Vuetify 插件数据页渲染器（消费 `/api/v1/plugin/page/{id}`）：
- * 自动解包 V3 信封，若为 Vue 模块联邦插件或无原生块则无缝切入隔离联邦容器。
+ * 支持结构化 KPI 指标网格、表格、图片、聚合卡片与告警块；若为 Vue 联邦插件则无缝切入隔离容器。
  */
 @Component
 export struct NativePluginDataPageView {
@@ -267,9 +595,17 @@ export struct NativePluginDataPageView {
     if (mode !== 'vue' && unwrapped) {
       const pageNodes = asList(unwrapped['page']);
       const parsed: PluginDataBlock[] = [];
-      extractDataBlocks(pageNodes, parsed);
+      extractDataBlocks(pageNodes, parsed, this.serverUrl);
       this.blocks = parsed;
     }
+  }
+
+  private alertTint(tone: string): string {
+    const t = tone.toLowerCase();
+    if (t === 'error' || t === 'danger') { return '#E84855'; }
+    if (t === 'warning' || t === 'warn') { return '#F29B38'; }
+    if (t === 'success') { return '#34C759'; }
+    return this.accentHex;
   }
 
   build() {
@@ -291,11 +627,137 @@ export struct NativePluginDataPageView {
       Scroll() {
         Column({ space: 10 }) {
           ForEach(this.blocks, (blk: PluginDataBlock) => {
-            if (blk.kind === 'alert') {
+            if (blk.kind === 'stat_grid' && blk.stats && blk.stats.length > 0) {
+              Grid() {
+                ForEach(blk.stats, (st: PluginStatCell, sIdx: number) => {
+                  GridItem() {
+                    CinematicPanel({ panelPadding: 13, cornerRadius: 16 }) {
+                      Column({ space: 4 }) {
+                        Text(st.label)
+                          .fontSize(11.5)
+                          .fontColor(mpSecondaryText(this.isDark))
+                          .maxLines(1)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          .width('100%')
+                        Text(st.value)
+                          .fontSize(18)
+                          .fontWeight(FontWeight.Bold)
+                          .fontColor(mpPrimaryText(this.isDark))
+                          .maxLines(1)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          .width('100%')
+                        if (st.sub.length > 0) {
+                          Text(st.sub)
+                            .fontSize(10.5)
+                            .fontColor(this.accentHex)
+                            .maxLines(1)
+                            .width('100%')
+                        }
+                      }.alignItems(HorizontalAlign.Start).width('100%')
+                    }
+                  }
+                }, (st: PluginStatCell, sIdx: number) => `${blk.id}_st_${sIdx}_${st.label}`)
+              }
+              .columnsTemplate('1fr 1fr')
+              .columnsGap(10)
+              .rowsGap(10)
+              .width('100%')
+            } else if (blk.kind === 'table') {
+              CinematicPanel({ panelPadding: 12, cornerRadius: 16 }) {
+                Scroll() {
+                  Column({ space: 6 }) {
+                    if (blk.headers && blk.headers.length > 0) {
+                      Row({ space: 8 }) {
+                        ForEach(blk.headers, (hd: string, hIdx: number) => {
+                          Text(hd)
+                            .fontSize(12)
+                            .fontWeight(FontWeight.Bold)
+                            .fontColor(mpSecondaryText(this.isDark))
+                            .width(108)
+                            .maxLines(1)
+                            .textOverflow({ overflow: TextOverflow.Ellipsis })
+                        }, (hd: string, hIdx: number) => `${blk.id}_th_${hIdx}_${hd}`)
+                      }
+                      .padding({ top: 4, bottom: 6 })
+                      Divider().color(HarmonyThemeColors.divider(this.isDark))
+                    }
+                    if (blk.rows) {
+                      ForEach(blk.rows.slice(0, 40), (r: string[], rIdx: number) => {
+                        Row({ space: 8 }) {
+                          ForEach(r, (cell: string, cIdx: number) => {
+                            Text(cell)
+                              .fontSize(12)
+                              .fontColor(mpPrimaryText(this.isDark))
+                              .width(108)
+                              .maxLines(2)
+                              .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          }, (_cell: string, cIdx: number) => `${blk.id}_td_${rIdx}_${cIdx}`)
+                        }
+                        .padding({ top: 5, bottom: 5 })
+                        .borderRadius(8)
+                        .backgroundColor(rIdx % 2 === 1 ? (this.isDark ? '#0DFFFFFF' : '#08000000') : Color.Transparent)
+                      }, (_r: string[], rIdx: number) => `${blk.id}_tr_${rIdx}`)
+                    }
+                  }.alignItems(HorizontalAlign.Start)
+                }
+                .scrollable(ScrollDirection.Horizontal)
+                .scrollBar(BarState.Off)
+                .width('100%')
+              }
+            } else if (blk.kind === 'image' && blk.imageUrl && blk.imageUrl.length > 0) {
+              CinematicPanel({ panelPadding: 10, cornerRadius: 16 }) {
+                Column({ space: 6 }) {
+                  MpRemoteImage({
+                    src: blk.imageUrl,
+                    imgWidth: '100%',
+                    imgHeight: 170,
+                    imgRadius: 12,
+                    fit: ImageFit.Contain,
+                    placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                  })
+                  if (blk.title.length > 0) {
+                    Text(blk.title).fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                  }
+                }
+              }
+            } else if (blk.kind === 'card') {
+              CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
+                Column({ space: 6 }) {
+                  if (blk.imageUrl && blk.imageUrl.length > 0) {
+                    MpRemoteImage({
+                      src: blk.imageUrl,
+                      imgWidth: '100%',
+                      imgHeight: 148,
+                      imgRadius: 10,
+                      placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                    })
+                  }
+                  if (blk.title.length > 0) {
+                    Text(blk.title)
+                      .fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
+                  }
+                  if (blk.subtitle && blk.subtitle.length > 0) {
+                    Text(blk.subtitle)
+                      .fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                  }
+                  if (blk.chips && blk.chips.length > 0) {
+                    Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
+                      ForEach(blk.chips, (ch: string, cIdx: number) => {
+                        NativeAdaptiveBadge({ text: ch, tintHex: this.accentHex })
+                      }, (ch: string, cIdx: number) => `${blk.id}_ch_${cIdx}_${ch}`)
+                    }.width('100%')
+                  }
+                  if (blk.body.length > 0) {
+                    Text(blk.body)
+                      .fontSize(13).fontColor(mpSecondaryText(this.isDark)).lineHeight(20).width('100%')
+                  }
+                }.alignItems(HorizontalAlign.Start).width('100%')
+              }
+            } else if (blk.kind === 'alert') {
               CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
                 Column({ space: 4 }) {
                   if (blk.title.length > 0) {
-                    Text(blk.title).fontSize(14).fontWeight(FontWeight.Bold).fontColor(this.accentHex)
+                    Text(blk.title).fontSize(14).fontWeight(FontWeight.Bold).fontColor(this.alertTint(blk.tone))
                   }
                   Text(blk.body).fontSize(13).fontColor(mpPrimaryText(this.isDark)).lineHeight(20)
                 }.alignItems(HorizontalAlign.Start).width('100%')
@@ -329,8 +791,8 @@ export struct NativePluginDataPageView {
 /**
  * 鸿蒙受控隔离 Vue 模块联邦 ArkWeb 容器（1:1 实现 `moviepilot.chrome` v1 + `sheets.v1` + `confirmations.v1`）：
  * - 免二次点击直接进入，免登录自动注入 Pinia `auth`/`user`/`theme`/`MP_LOCALE`；
- * - 完整接管网页弹窗标题栏、操作按钮与关闭按钮，剥离原网页渐变/毛玻璃背景与悬浮球，无缝融入鸿蒙底层画布；
- * - 严格锁定同源导航并在销毁时立即清空 Cookie。
+ * - 使用系统级 `UIContext.showAlertDialog` 响应 `confirmations.v1` 确认对话，零自定义 `Stack` 遮罩；
+ * - 严格使用 `RustCoreBridge.serverAddressContains` 锁定同源导航并在销毁时清空 Cookie。
  */
 @Component
 export struct IsolatedVuePluginWebView {
@@ -349,7 +811,7 @@ export struct IsolatedVuePluginWebView {
   onRequestDismiss: () => void = () => {};
 
   @State private isReady: boolean = false;
-  @State private confirmation: VueChromeConfirmation | null = null;
+  private activeConfirmationId: string = '';
   private webController: webview.WebviewController = new webview.WebviewController();
   private phase: string = 'idle'; // idle | configured | preparing | active | released
   private sessionId: string = '';
@@ -624,20 +1086,46 @@ if(!window.MoviePilotNative&&window.__mpHarmonyChromeHost){
     }
   }
 
+  private presentSystemConfirmation(conf: VueChromeConfirmation): void {
+    if (this.activeConfirmationId === conf.id) { return; }
+    this.activeConfirmationId = conf.id;
+    this.getUIContext().showAlertDialog({
+      title: conf.title,
+      message: conf.message.length > 0 ? conf.message : '请确认是否继续此操作？',
+      autoCancel: true,
+      primaryButton: {
+        value: conf.cancelText,
+        action: () => {
+          this.respondConfirmation(conf.id, false);
+        }
+      },
+      secondaryButton: {
+        value: conf.confirmText,
+        fontColor: conf.destructive ? '#FF5C6C' : this.accentHex,
+        action: () => {
+          this.respondConfirmation(conf.id, true);
+        }
+      },
+      cancel: () => {
+        this.respondConfirmation(conf.id, false);
+      }
+    });
+  }
+
   private applySnapshot(snapshot: Record<string, Object>): void {
     const presentation = asObj(snapshot['presentation']);
     const conf = presentation ? asObj(presentation['confirmation']) : null;
     if (conf && readStr(conf, 'id').length > 0) {
-      this.confirmation = {
+      this.presentSystemConfirmation({
         id: readStr(conf, 'id'),
         title: readStr(conf, 'title', '操作确认'),
         message: readStr(conf, 'message'),
         confirmText: readStr(conf, 'confirmText', '确认'),
         cancelText: readStr(conf, 'cancelText', '取消'),
         destructive: readBool(conf, 'destructive', false)
-      };
+      });
     } else {
-      this.confirmation = null;
+      this.activeConfirmationId = '';
     }
 
     const sheet = presentation ? asObj(presentation['sheet']) : null;
@@ -750,11 +1238,12 @@ if(!window.MoviePilotNative&&window.__mpHarmonyChromeHost){
     return true;
   }
 
-  private respondConfirmation(confirmed: boolean): void {
-    const conf = this.confirmation;
-    this.confirmation = null;
-    if (!conf || this.phase !== 'active') { return; }
-    this.sendChromeEnvelope('confirmation.respond', `{"id":"${jsEscape(conf.id)}","confirmed":${confirmed}}`);
+  private respondConfirmation(confId: string, confirmed: boolean): void {
+    if (this.activeConfirmationId === confId) {
+      this.activeConfirmationId = '';
+    }
+    if (confId.length === 0 || this.phase !== 'active') { return; }
+    this.sendChromeEnvelope('confirmation.respond', `{"id":"${jsEscape(confId)}","confirmed":${confirmed}}`);
   }
 
   private reveal(): void {
@@ -791,7 +1280,7 @@ if(!window.MoviePilotNative&&window.__mpHarmonyChromeHost){
         ])
         .onLoadIntercept((ev) => {
           const target = ev.data.getRequestUrl();
-          return !target.startsWith(this.allowedOrigin());
+          return !RustCoreBridge.serverAddressContains(this.serverUrl, target);
         })
         .opacity(this.isReady ? 1 : 0.01)
         .width('100%')
@@ -803,54 +1292,6 @@ if(!window.MoviePilotNative&&window.__mpHarmonyChromeHost){
           Text('正在接入插件视图…').fontSize(13).fontColor(mpSecondaryText(this.isDark))
         }
       }
-
-      if (this.confirmation) {
-        Stack({ alignContent: Alignment.Center }) {
-          Column()
-            .width('100%')
-            .height('100%')
-            .backgroundColor('#66000000')
-            .onClick(() => this.respondConfirmation(false))
-
-          Column() {
-            CinematicPanel({ panelPadding: 20, cornerRadius: 20, surfaceRole: 'overlay' }) {
-              Column({ space: 12 }) {
-                Text(this.confirmation.title)
-                  .fontSize(17)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor(mpPrimaryText(this.isDark))
-                  .width('100%')
-                if (this.confirmation.message.length > 0) {
-                  Text(this.confirmation.message)
-                    .fontSize(13)
-                    .fontColor(mpSecondaryText(this.isDark))
-                    .lineHeight(20)
-                    .width('100%')
-                }
-                Row({ space: 10 }) {
-                  Button(this.confirmation.cancelText)
-                    .layoutWeight(1)
-                    .height(42)
-                    .borderRadius(21)
-                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-                    .fontColor(mpPrimaryText(this.isDark))
-                    .onClick(() => this.respondConfirmation(false))
-                  Button(this.confirmation.confirmText)
-                    .layoutWeight(1)
-                    .height(42)
-                    .borderRadius(21)
-                    .backgroundColor(this.confirmation.destructive ? '#FF5C6C' : this.accentHex)
-                    .fontColor(Color.White)
-                    .onClick(() => this.respondConfirmation(true))
-                }.width('100%')
-              }
-            }
-          }
-          .width('86%')
-        }
-        .width('100%')
-        .height('100%')
-      }
     }
     .width('100%')
     .height('100%')
@@ -858,9 +1299,9 @@ if(!window.MoviePilotNative&&window.__mpHarmonyChromeHost){
 }
 
 /**
- * 鸿蒙原生动态插件表单宿主（100% 消费 Rust `planPluginFormJson` + `applyPluginFormPatch` + `analyzeCron`）：
- * - 自动解包 MoviePilot V3 `{success, message, data}` 响应信封，支持 `VSwitch`/`VCheckbox`/`VCronField`/`VSelect`/`VAutocomplete`/`VCombobox`/`VAlert`/`VTextarea`/`VTextField`；
- * - 若插件声明 `render_mode == 'vue'` 或无可映射原生字段，零提示直接无缝切入受控隔离 ArkWeb 联邦容器（并由原生接管标题栏、操作按钮、关闭按钮与纯净底色）。
+ * 鸿蒙原生动态插件表单宿主（100% 消费 Rust `planPluginFormJson` + `evaluatePluginExpression` + `applyPluginFormPatch` + `analyzeCron`）：
+ * - 每次修改字段均生成全新 `draftModel` 引用以触发 ArkUI 响应式刷新，并实时重算 `v-if`/`v-show` 条件可见性；
+ * - 若插件声明 `render_mode == 'vue'` 或无可映射原生字段，零提示直接无缝切入受控隔离 ArkWeb 联邦容器。
  */
 @Component
 export struct NativePluginHostView {
@@ -886,11 +1327,19 @@ export struct NativePluginHostView {
   @State private draftVersion: number = 0;
   @State private saving: boolean = false;
   private originalModelJson: string = '{}';
+  private unwrappedTemplate: Record<string, Object> | null = null;
 
   aboutToAppear(): void {
     const unwrapped = unwrapV3Envelope(this.documentJson);
+    this.unwrappedTemplate = unwrapped;
     const unwrappedJson = unwrapped ? JSON.stringify(unwrapped) : this.documentJson;
     const rawRenderMode = readStr(unwrapped, 'render_mode', '').toLowerCase();
+
+    const exprMap = new Map<string, string>();
+    if (unwrapped) {
+      collectModelVisibilityExprs(asList(unwrapped['conf']), '', exprMap);
+    }
+
     try {
       const planned = asObj(JSON.parse(RustCoreBridge.planPluginFormJson(unwrappedJson)) as Object);
       const rustMode = readStr(planned, 'renderMode', 'vuetify').toLowerCase();
@@ -900,48 +1349,102 @@ export struct NativePluginHostView {
       for (let i = 0; i < rustFields.length; i++) {
         const f = asObj(rustFields[i]);
         if (!f) { continue; }
+        const mk = readStr(f, 'modelKey');
+        const expr = readStr(f, 'visibleExpr') || readStr(f, 'vIf') || (mk.length > 0 ? (exprMap.get(mk) ?? '') : '');
         mapped.push({
           component: readStr(f, 'component'),
-          modelKey: readStr(f, 'modelKey') || undefined,
+          modelKey: mk.length > 0 ? mk : undefined,
           label: readStr(f, 'label'),
           hint: readStr(f, 'hint'),
           visible: readBool(f, 'visible', true),
+          visibleExpr: expr.length > 0 ? expr : undefined,
           text: readStr(f, 'text'),
           multiple: readBool(f, 'multiple', false),
           items: parseSelectItems(f['items'])
         });
       }
+      const rustModel = planned ? asObj(planned['model']) : null;
+      const rawModel = unwrapped ? asObj(unwrapped['model']) : null;
+      const modelObj: Record<string, Object> = copyRecord((rustModel && Object.keys(rustModel).length > 0)
+        ? rustModel
+        : (rawModel ?? {}));
+      this.originalModelJson = JSON.stringify(modelObj);
+      this.draftModel = modelObj;
+
       if (mapped.length > 0) {
-        this.fields = mapped;
+        this.fields = this.recomputeFieldVisibility(mapped, modelObj);
       } else if (unwrapped) {
         const fallbackFields: PluginFieldPlan[] = [];
         const confNodes = asList(unwrapped['conf']);
         extractFallbackFormFields(confNodes.length > 0 ? confNodes : asList(unwrapped['page']), fallbackFields);
-        this.fields = fallbackFields;
+        this.fields = this.recomputeFieldVisibility(fallbackFields, modelObj);
       }
-      const rustModel = planned ? asObj(planned['model']) : null;
-      const rawModel = unwrapped ? asObj(unwrapped['model']) : null;
-      const modelObj: Record<string, Object> = (rustModel && Object.keys(rustModel).length > 0)
-        ? rustModel
-        : (rawModel ?? {});
-      this.originalModelJson = JSON.stringify(modelObj);
-      this.draftModel = modelObj;
     } catch {
       this.renderMode = rawRenderMode.length > 0 ? rawRenderMode : 'vuetify';
       const fallbackFields: PluginFieldPlan[] = [];
+      let modelObj: Record<string, Object> = {};
       if (unwrapped) {
         extractFallbackFormFields(asList(unwrapped['conf']), fallbackFields);
-        const rawModel = asObj(unwrapped['model']) ?? {};
-        this.originalModelJson = JSON.stringify(rawModel);
-        this.draftModel = rawModel;
+        modelObj = copyRecord(asObj(unwrapped['model']) ?? {});
+        this.originalModelJson = JSON.stringify(modelObj);
+        this.draftModel = modelObj;
       }
-      this.fields = fallbackFields;
+      this.fields = this.recomputeFieldVisibility(fallbackFields, modelObj);
     }
+  }
+
+  private recomputeFieldVisibility(sourceFields: PluginFieldPlan[], nextModel: Record<string, Object>): PluginFieldPlan[] {
+    const modelJson = JSON.stringify(nextModel);
+    // 同步尝试委托 Rust `planPluginFormJson` 重算含匿名条件块在内的可见性
+    let rustVisibleByIndex: Map<number, boolean> | null = null;
+    if (this.unwrappedTemplate && RustCoreBridge.isNativeLoaded()) {
+      try {
+        const nextDoc = copyRecord(this.unwrappedTemplate);
+        nextDoc['model'] = nextModel;
+        const rePlanned = asObj(JSON.parse(RustCoreBridge.planPluginFormJson(JSON.stringify(nextDoc))) as Object);
+        const reFields = rePlanned ? asList(rePlanned['fields']) : [];
+        if (reFields.length === sourceFields.length) {
+          rustVisibleByIndex = new Map<number, boolean>();
+          for (let i = 0; i < reFields.length; i++) {
+            const rf = asObj(reFields[i]);
+            rustVisibleByIndex.set(i, readBool(rf, 'visible', true));
+          }
+        }
+      } catch {
+        rustVisibleByIndex = null;
+      }
+    }
+
+    const updated: PluginFieldPlan[] = [];
+    for (let i = 0; i < sourceFields.length; i++) {
+      const f = sourceFields[i];
+      let nextVisible = f.visible;
+      if (f.visibleExpr && f.visibleExpr.length > 0) {
+        nextVisible = RustCoreBridge.evaluatePluginExpression(f.visibleExpr, modelJson);
+      } else if (rustVisibleByIndex && rustVisibleByIndex.has(i)) {
+        nextVisible = rustVisibleByIndex.get(i) ?? true;
+      }
+      updated.push({
+        component: f.component,
+        modelKey: f.modelKey,
+        label: f.label,
+        hint: f.hint,
+        visible: nextVisible,
+        visibleExpr: f.visibleExpr,
+        text: f.text,
+        multiple: f.multiple,
+        items: f.items
+      });
+    }
+    return updated;
   }
 
   private setDraftValue(key: string | undefined, value: Object): void {
     if (!key) { return; }
-    this.draftModel[key] = value;
+    const nextModel = copyRecord(this.draftModel);
+    nextModel[key] = value;
+    this.draftModel = nextModel;
+    this.fields = this.recomputeFieldVisibility(this.fields, nextModel);
     this.draftVersion += 1;
   }
 
@@ -1019,7 +1522,10 @@ export struct NativePluginHostView {
                   Toggle({ type: ToggleType.Switch, isOn: Boolean(this.draftModel[field.modelKey ?? '']) })
                     .selectedColor(this.accentHex)
                     .onChange((v: boolean) => {
-                      this.setDraftValue(field.modelKey, v);
+                      const cur = Boolean(this.draftModel[field.modelKey ?? '']);
+                      if (cur !== v) {
+                        this.setDraftValue(field.modelKey, v);
+                      }
                     })
                 }.width('100%')
               }
@@ -1042,7 +1548,9 @@ export struct NativePluginHostView {
                     .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
                     .borderRadius(12)
                     .onChange((val: string) => {
-                      this.setDraftValue(field.modelKey, val);
+                      if (String(this.draftModel[field.modelKey ?? ''] ?? '') !== val) {
+                        this.setDraftValue(field.modelKey, val);
+                      }
                     })
                   Row({ space: 8 }) {
                     NativeAdaptivePill({
@@ -1082,7 +1590,7 @@ export struct NativePluginHostView {
                         selected: this.draftVersion >= 0 && this.isOptionSelected(field.modelKey, opt.value, Boolean(field.multiple)),
                         onTap: () => this.toggleOption(field.modelKey, opt.value, Boolean(field.multiple))
                       })
-                    })
+                    }, (opt: PluginSelectOption) => `${field.modelKey ?? idx}_opt_${opt.value}_${this.draftVersion}`)
                   }
                 }.width('100%').alignItems(HorizontalAlign.Start)
               }
@@ -1093,6 +1601,28 @@ export struct NativePluginHostView {
                   .fontColor('#6EA8FE')
                   .lineHeight(20)
                   .width('100%')
+              }
+            } else if (field.component === 'VTextarea' || field.component === 'VAceEditor') {
+              CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
+                Column({ space: 6 }) {
+                  Text(field.label || field.modelKey || field.component)
+                    .fontSize(14)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(mpPrimaryText(this.isDark))
+                  if (field.hint.length > 0) {
+                    Text(field.hint).fontSize(12).fontColor(mpSecondaryText(this.isDark))
+                  }
+                  TextArea({ text: String(this.draftModel[field.modelKey ?? ''] ?? '') })
+                    .height(96)
+                    .fontColor(mpPrimaryText(this.isDark))
+                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                    .borderRadius(12)
+                    .onChange((val: string) => {
+                      if (String(this.draftModel[field.modelKey ?? ''] ?? '') !== val) {
+                        this.setDraftValue(field.modelKey, val);
+                      }
+                    })
+                }.width('100%').alignItems(HorizontalAlign.Start)
               }
             } else {
               CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
@@ -1109,7 +1639,9 @@ export struct NativePluginHostView {
                     .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
                     .borderRadius(12)
                     .onChange((val: string) => {
-                      this.setDraftValue(field.modelKey, val);
+                      if (String(this.draftModel[field.modelKey ?? ''] ?? '') !== val) {
+                        this.setDraftValue(field.modelKey, val);
+                      }
                     })
                 }.width('100%').alignItems(HorizontalAlign.Start)
               }

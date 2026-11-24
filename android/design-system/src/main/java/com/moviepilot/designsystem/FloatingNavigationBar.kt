@@ -167,21 +167,13 @@ private fun MainTabIcon(
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                if (!userAvatarUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = userAvatarUrl,
-                        contentDescription = tab.label,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(24.dp).clip(CircleShape),
-                    )
-                } else {
-                    Text(
-                        text = userInitial.take(1).uppercase(),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+                NativeNetworkEntityLogo(
+                    imageUrl = userAvatarUrl,
+                    kind = "avatar",
+                    value = userInitial,
+                    size = 24.dp,
+                    cornerRadius = 12.dp,
+                )
             }
         }
     }

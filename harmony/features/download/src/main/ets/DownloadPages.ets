@@ -1,9 +1,11 @@
 import {
+  RustCoreBridge,
   MoviePilotRepository,
   MpResourceItem,
   MpDownloadTask,
   MpSiteItem,
   MpServiceConfig,
+  MpDirectoryConfig,
   formatByteSize
 } from '@moviepilot/core_rust_bridge';
 import {
@@ -12,6 +14,8 @@ import {
   NativeAdaptivePill,
   NativeBackHeader,
   HarmonySheetHeader,
+  HarmonyEntityLogo,
+  HarmonyEntityLogoPill,
   HarmonyAppearanceStore,
   HarmonyThemeColors,
   mpPrimaryText,
@@ -31,10 +35,10 @@ const QUALITY_FILTER_OPTIONS: string[] = ['BluRay', 'REMUX', 'WEB-DL', 'HDTV'];
 const ENCODE_FILTER_OPTIONS: string[] = ['H265', 'H264', 'HEVC', 'AV1'];
 
 /**
- * 鸿蒙「站点资源」页（对齐 iOS 多选站点、清晰文字排序/筛选标注与全量多维筛选弹窗）：
- * - 关键词搜索 + 多选站点弹窗（全站 / 全选 / 多选切换）；
- * - 清晰标注「排序 · <模式>」与「全部筛选 (N)」，绝不出现无说明图标；
- * - 真实推送至所选下载器（`POST /api/v1/download/add`）。
+ * 鸿蒙「站点资源」页（对齐 iOS 多选站点、Rust 9 维筛选分组与真实下载器/保存目录选择）：
+ * - 关键词搜索 + 多选站点弹窗（展示真实 `/api/v1/site/icon/{id}` 图标）；
+ * - 委托 `RustCoreBridge.filterAndGroupResources` 执行多维过滤排序；
+ * - 推送下载弹窗支持选择已配置的下载器与目标保存目录（`POST /api/v1/download/add`）。
  */
 @Component
 export struct HarmonyResourceSearchPage {
@@ -63,6 +67,7 @@ export struct HarmonyResourceSearchPage {
   @State private showDownloadSheet: boolean = false;
   @State private selectedItem: MpResourceItem | null = null;
   @State private downloaders: MpServiceConfig[] = [];
+  @State private directories: MpDirectoryConfig[] = [];
   @State private selectedDownloader: string = '';
   @State private savePath: string = '';
   @State private pushing: boolean = false;
@@ -81,17 +86,21 @@ export struct HarmonyResourceSearchPage {
       const res = await Promise.all([
         repo.fetchSites(),
         repo.fetchDownloaders(),
+        repo.fetchDirectories(),
         this.keyword.trim().length > 0
           ? repo.searchSiteResources(this.keyword, [])
           : repo.fetchCachedResources()
       ]);
       this.sites = res[0].filter((s: MpSiteItem) => s.isActive);
       this.downloaders = res[1].filter((d: MpServiceConfig) => d.enabled);
+      this.directories = res[2].filter((dir: MpDirectoryConfig) =>
+        dir.downloadPath.trim().length > 0 || dir.libraryPath.trim().length > 0
+      );
       if (this.downloaders.length > 0) {
         const def = this.downloaders.find((d: MpServiceConfig) => d.isDefault);
         this.selectedDownloader = def ? def.name : this.downloaders[0].name;
       }
-      this.resources = res[2];
+      this.resources = res[3];
     } catch {
       this.resources = [];
     }
@@ -119,6 +128,11 @@ export struct HarmonyResourceSearchPage {
       this.filterPromos.length + this.filterQualities.length + this.filterEncodes.length;
   }
 
+  private siteIconForName(siteName: string): string {
+    const found = this.sites.find((s: MpSiteItem) => s.name === siteName);
+    return found ? found.iconDataUri : '';
+  }
+
   private resultSiteNames(): string[] {
     const set = new Set<string>();
     for (let i = 0; i < this.resources.length; i++) {
@@ -143,8 +157,8 @@ export struct HarmonyResourceSearchPage {
     this.filterEncodes = [];
   }
 
-  private filteredResources(): MpResourceItem[] {
-    const out = this.resources.filter((r: MpResourceItem) => {
+  private applyLocalFilterAndSort(source: MpResourceItem[]): MpResourceItem[] {
+    const out = source.filter((r: MpResourceItem) => {
       if (this.filterSites.length > 0 && !this.filterSites.includes(r.siteName)) { return false; }
       const hay = `${r.title} ${r.resolution} ${r.resourceType} ${r.videoEncode} ${r.volumeFactor}`.toLowerCase();
       if (this.filterResolutions.length > 0 && !this.filterResolutions.some((x: string) => hay.includes(x.toLowerCase()))) {
@@ -174,6 +188,72 @@ export struct HarmonyResourceSearchPage {
     return sorted;
   }
 
+  private filteredResources(): MpResourceItem[] {
+    if (this.resources.length === 0) {
+      return [];
+    }
+    if (RustCoreBridge.isNativeLoaded()) {
+      try {
+        const rustInputs: Record<string, Object>[] = [];
+        for (let i = 0; i < this.resources.length; i++) {
+          const r = this.resources[i];
+          const itemObj: Record<string, Object> = {};
+          itemObj['id'] = String(i);
+          itemObj['title'] = r.title;
+          itemObj['site_name'] = r.siteName;
+          itemObj['size'] = r.sizeBytes;
+          itemObj['seeders'] = r.seeders;
+          itemObj['peers'] = r.peers;
+          itemObj['resource_pix'] = r.resolution;
+          itemObj['resource_type'] = r.resourceType;
+          itemObj['video_encode'] = r.videoEncode;
+          itemObj['volume_factor'] = r.volumeFactor;
+          itemObj['labels'] = r.volumeFactor.length > 0 ? [r.volumeFactor] : [];
+          itemObj['description'] = r.description;
+          itemObj['enclosure'] = r.enclosure;
+          rustInputs.push(itemObj);
+        }
+        const criteriaObj: Record<string, Object> = {};
+        if (this.filterSites.length > 0) { criteriaObj['sites'] = this.filterSites; }
+        if (this.filterResolutions.length > 0) { criteriaObj['resolutions'] = this.filterResolutions; }
+        if (this.filterQualities.length > 0) { criteriaObj['resourceTypes'] = this.filterQualities; }
+        if (this.filterEncodes.length > 0) { criteriaObj['videoEncodes'] = this.filterEncodes; }
+        if (this.filterPromos.length > 0) { criteriaObj['promotions'] = this.filterPromos; }
+        criteriaObj['sortBy'] = this.sortKey;
+
+        const outJson = RustCoreBridge.filterAndGroupResources(JSON.stringify(rustInputs), JSON.stringify(criteriaObj));
+        const parsed = JSON.parse(outJson) as Record<string, Object>;
+        const groupsVal = parsed['groups'];
+        if (Array.isArray(groupsVal)) {
+          const mapped: MpResourceItem[] = [];
+          for (let g = 0; g < groupsVal.length; g++) {
+            const grp = groupsVal[g] as Record<string, Object>;
+            const grpItems = grp['items'];
+            if (Array.isArray(grpItems)) {
+              for (let k = 0; k < grpItems.length; k++) {
+                const it = grpItems[k] as Record<string, Object>;
+                const idx = Number(it['id']);
+                if (Number.isFinite(idx) && idx >= 0 && idx < this.resources.length) {
+                  mapped.push(this.resources[idx]);
+                }
+              }
+            }
+          }
+          if (mapped.length > 0 || Number(parsed['filteredCount']) === 0) {
+            // 对发布时间与站点排序补充确定性次级顺序
+            if (this.sortKey === 'pubdate' || this.sortKey === 'site') {
+              return this.applyLocalFilterAndSort(mapped);
+            }
+            return mapped;
+          }
+        }
+      } catch {
+        // Rust JSON 协议回退至本地等价筛选
+      }
+    }
+    return this.applyLocalFilterAndSort(this.resources);
+  }
+
   private siteScopeLabel(): string {
     if (this.selectedSiteIds.length === 0) { return '全站 ▾'; }
     if (this.selectedSiteIds.length === 1) {
@@ -181,6 +261,10 @@ export struct HarmonyResourceSearchPage {
       return `${s ? s.name : '1 站'} ▾`;
     }
     return `已选 ${this.selectedSiteIds.length} 站 ▾`;
+  }
+
+  private directoryTargetPath(dir: MpDirectoryConfig): string {
+    return dir.downloadPath.trim().length > 0 ? dir.downloadPath.trim() : dir.libraryPath.trim();
   }
 
   @Builder
@@ -210,7 +294,10 @@ export struct HarmonyResourceSearchPage {
       Scroll() {
         Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
           ForEach(this.sites, (s: MpSiteItem) => {
-            NativeAdaptivePill({
+            HarmonyEntityLogoPill({
+              kind: 'site',
+              value: s.name,
+              dataUri: s.iconDataUri,
               title: s.name,
               selected: this.selectedSiteIds.includes(s.id),
               onTap: () => {
@@ -282,7 +369,10 @@ export struct HarmonyResourceSearchPage {
             Text('结果站点（可多选）').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
             Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
               ForEach(this.resultSiteNames(), (name: string) => {
-                NativeAdaptivePill({
+                HarmonyEntityLogoPill({
+                  kind: 'site',
+                  value: name,
+                  dataUri: this.siteIconForName(name),
                   title: name,
                   selected: this.filterSites.includes(name),
                   onTap: () => { this.filterSites = this.toggleInList(this.filterSites, name); }
@@ -346,40 +436,83 @@ export struct HarmonyResourceSearchPage {
 
   @Builder
   downloadConfirmBuilder() {
-    Column({ space: 14 }) {
+    Column({ space: 12 }) {
       HarmonySheetHeader({
         title: '添加下载任务',
         cancelText: '取消',
         onCancel: () => { this.showDownloadSheet = false; }
       })
-      if (this.selectedItem) {
-        Text(this.selectedItem.title)
-          .fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
-          .maxLines(3).width('100%')
-        Text(`${this.selectedItem.siteName} · ${formatByteSize(this.selectedItem.sizeBytes)} · 做种 ${this.selectedItem.seeders}`)
-          .fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
+
+      Scroll() {
+        Column({ space: 12 }) {
+          if (this.selectedItem) {
+            CinematicPanel({ panelPadding: 12, cornerRadius: 16 }) {
+              Column({ space: 4 }) {
+                Text(this.selectedItem.title)
+                  .fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                  .maxLines(3).width('100%')
+                Row({ space: 6 }) {
+                  HarmonyEntityLogo({
+                    kind: 'site',
+                    value: this.selectedItem.siteName,
+                    dataUri: this.siteIconForName(this.selectedItem.siteName),
+                    logoSize: 15,
+                    cornerRadius: 4
+                  })
+                  Text(`${this.selectedItem.siteName} · ${formatByteSize(this.selectedItem.sizeBytes)} · 做种 ${this.selectedItem.seeders}`)
+                    .fontSize(12).fontColor(mpSecondaryText(this.isDark))
+                }.width('100%')
+              }.alignItems(HorizontalAlign.Start)
+            }
+          }
+
+          Text('选择下载器').fontSize(12.5).fontWeight(FontWeight.Medium).fontColor(mpSecondaryText(this.isDark)).width('100%')
+          Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
+            HarmonyEntityLogoPill({
+              kind: 'downloader',
+              value: 'downloader',
+              title: '默认下载器',
+              selected: this.selectedDownloader.length === 0,
+              onTap: () => { this.selectedDownloader = ''; }
+            })
+            ForEach(this.downloaders, (dl: MpServiceConfig) => {
+              HarmonyEntityLogoPill({
+                kind: 'downloader',
+                value: dl.type || dl.name,
+                title: dl.name,
+                selected: this.selectedDownloader === dl.name,
+                onTap: () => { this.selectedDownloader = dl.name; }
+              })
+            }, (dl: MpServiceConfig) => dl.name)
+          }.width('100%')
+
+          Text('选择目标目录').fontSize(12.5).fontWeight(FontWeight.Medium).fontColor(mpSecondaryText(this.isDark)).width('100%')
+          Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
+            NativeAdaptivePill({
+              title: '自动匹配目录',
+              selected: this.savePath.trim().length === 0,
+              onTap: () => { this.savePath = ''; }
+            })
+            ForEach(this.directories, (dir: MpDirectoryConfig, idx: number) => {
+              HarmonyEntityLogoPill({
+                kind: 'storage',
+                value: dir.storage || 'local',
+                title: `${dir.name || '目录'} (${this.directoryTargetPath(dir)})`,
+                selected: this.savePath === this.directoryTargetPath(dir),
+                onTap: () => { this.savePath = this.directoryTargetPath(dir); }
+              })
+            }, (dir: MpDirectoryConfig, idx: number) => `dl_dir_${idx}_${dir.name}`)
+          }.width('100%')
+
+          TextInput({ placeholder: '自定义保存路径（留空遵循目录配置）', text: this.savePath })
+            .fontColor(mpPrimaryText(this.isDark)).placeholderColor(mpSecondaryText(this.isDark))
+            .backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(12)
+            .onChange((v: string) => { this.savePath = v; })
+        }
+        .padding({ bottom: 8 })
       }
-
-      Text('选择下载器').fontSize(12.5).fontColor(mpSecondaryText(this.isDark)).width('100%')
-      Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
-        NativeAdaptivePill({
-          title: '默认下载器',
-          selected: this.selectedDownloader.length === 0,
-          onTap: () => { this.selectedDownloader = ''; }
-        })
-        ForEach(this.downloaders, (dl: MpServiceConfig) => {
-          NativeAdaptivePill({
-            title: dl.name,
-            selected: this.selectedDownloader === dl.name,
-            onTap: () => { this.selectedDownloader = dl.name; }
-          })
-        }, (dl: MpServiceConfig) => dl.name)
-      }.width('100%')
-
-      TextInput({ placeholder: '保存路径（留空遵循目录配置）', text: this.savePath })
-        .fontColor(mpPrimaryText(this.isDark)).placeholderColor(mpSecondaryText(this.isDark))
-        .backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(12)
-        .onChange((v: string) => { this.savePath = v; })
+      .scrollBar(BarState.Off)
+      .layoutWeight(1)
 
       Button(this.pushing ? '推送中…' : `推送至 ${this.selectedDownloader || '默认下载器'}`)
         .width('100%').height(46).borderRadius(23)
@@ -393,7 +526,7 @@ export struct HarmonyResourceSearchPage {
           this.showDownloadSheet = false;
           this.notice = ok ? '已成功推送至下载器' : '推送失败，请检查下载器配置';
         })
-    }.padding(20).width('100%')
+    }.padding(20).width('100%').height('100%')
   }
 
   build() {
@@ -403,7 +536,6 @@ export struct HarmonyResourceSearchPage {
         onBack: () => this.onBack()
       })
 
-      // 搜索框 + 多选站点触发胶囊 + 浏览/搜索按钮
       Row({ space: 8 }) {
         CinematicPanel({ panelPadding: 6, cornerRadius: 20 }) {
           Row({ space: 6 }) {
@@ -437,7 +569,6 @@ export struct HarmonyResourceSearchPage {
       }
       .padding({ left: 16, right: 16 })
 
-      // 清晰文字标注的排序与筛选工具栏（绝无不明图标）
       Scroll() {
         Row({ space: 8 }) {
           Row({ space: 5 }) {
@@ -505,7 +636,23 @@ export struct HarmonyResourceSearchPage {
                 CinematicPanel({ panelPadding: 14, cornerRadius: 18, interactive: true }) {
                   Column({ space: 7 }) {
                     Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
-                      NativeAdaptiveBadge({ text: row.siteName, tintHex: this.accentHex, filled: true })
+                      Row({ space: 4 }) {
+                        HarmonyEntityLogo({
+                          kind: 'site',
+                          value: row.siteName,
+                          dataUri: this.siteIconForName(row.siteName),
+                          logoSize: 14,
+                          cornerRadius: 3
+                        })
+                        Text(row.siteName)
+                          .fontSize(11)
+                          .fontWeight(FontWeight.Bold)
+                          .fontColor(Color.White)
+                      }
+                      .padding({ left: 6, right: 8, top: 2, bottom: 2 })
+                      .borderRadius(8)
+                      .backgroundColor(this.accentHex)
+
                       if (row.resolution.length > 0) {
                         NativeAdaptiveBadge({ text: row.resolution, tintHex: '#5AC8FA' })
                       }
@@ -581,7 +728,7 @@ export struct HarmonyResourceSearchPage {
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showDownloadSheet, this.downloadConfirmBuilder(), {
-        detents: [SheetSize.MEDIUM],
+        detents: [SheetSize.MEDIUM, SheetSize.LARGE],
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,
         showClose: false,
@@ -593,12 +740,13 @@ export struct HarmonyResourceSearchPage {
   }
 }
 
-/** 鸿蒙「正在下载」管理页（支持真实暂停/恢复与删除任务）。 */
+/** 鸿蒙「正在下载」管理页（搭载真实下载器品牌图标，支持暂停/恢复与删除任务）。 */
 @Component
 export struct HarmonyDownloadsPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @State private tasks: MpDownloadTask[] = [];
+  @State private downloaders: MpServiceConfig[] = [];
   @State private loading: boolean = true;
   @State private notice: string = '';
   onBack: () => void = () => {};
@@ -609,12 +757,23 @@ export struct HarmonyDownloadsPage {
 
   private async loadDownloads(): Promise<void> {
     this.loading = true;
+    const repo = MoviePilotRepository.shared();
     try {
-      this.tasks = await MoviePilotRepository.shared().fetchDownloads();
+      const res = await Promise.all([
+        repo.fetchDownloads(),
+        this.downloaders.length > 0 ? Promise.resolve(this.downloaders) : repo.fetchDownloaders()
+      ]);
+      this.tasks = res[0];
+      this.downloaders = res[1];
     } catch {
       this.tasks = [];
     }
     this.loading = false;
+  }
+
+  private resolveDownloaderType(name: string): string {
+    const found = this.downloaders.find((d: MpServiceConfig) => d.name === name);
+    return found ? (found.type || found.name) : name;
   }
 
   private isPaused(state: string): boolean {
@@ -659,6 +818,12 @@ export struct HarmonyDownloadsPage {
               CinematicPanel({ panelPadding: 15, cornerRadius: 18 }) {
                 Column({ space: 8 }) {
                   Row({ space: 8 }) {
+                    HarmonyEntityLogo({
+                      kind: 'downloader',
+                      value: this.resolveDownloaderType(task.downloader),
+                      logoSize: 22,
+                      cornerRadius: 6
+                    })
                     Text(task.title).fontSize(14.5).fontWeight(FontWeight.Bold)
                       .fontColor(mpPrimaryText(this.isDark)).maxLines(2).layoutWeight(1)
                     if (task.downloader.length > 0) {

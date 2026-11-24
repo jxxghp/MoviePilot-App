@@ -8,7 +8,13 @@ pub struct NativeFormExpression;
 impl NativeFormExpression {
     /// 基于当前表单模型评估 `v-show` / `v-if` 表达式的布尔真值。
     pub fn evaluate(expr: &str, model: &Value) -> bool {
-        let trimmed = expr.trim();
+        let mut trimmed = expr.trim();
+        if let Some(inner) = trimmed
+            .strip_prefix("{{")
+            .and_then(|rest| rest.strip_suffix("}}"))
+        {
+            trimmed = inner.trim();
+        }
         if trimmed.is_empty() {
             return true;
         }
@@ -34,12 +40,37 @@ impl NativeFormExpression {
         if let Some(inner) = s.strip_prefix('!') {
             return !Self::eval_unary(inner, model);
         }
-        for (op, negate) in [("===", false), ("!==", true), ("==", false), ("!=", true)] {
+        for (op, strict, negate) in [
+            ("===", true, false),
+            ("!==", true, true),
+            ("==", false, false),
+            ("!=", false, true),
+        ] {
             if let Some((lhs, rhs)) = Self::split_once_top_level(s, op) {
                 let lv = Self::resolve_value(lhs.trim(), model);
                 let rv = Self::resolve_value(rhs.trim(), model);
-                let eq = Self::values_equal(&lv, &rv);
+                let eq = if strict {
+                    Self::values_strict_equal(&lv, &rv)
+                } else {
+                    Self::values_equal(&lv, &rv)
+                };
                 return if negate { !eq } else { eq };
+            }
+        }
+        for op in ["<=", ">=", "<", ">"] {
+            if let Some((lhs, rhs)) = Self::split_once_top_level(s, op) {
+                let lv = Self::resolve_value(lhs.trim(), model);
+                let rv = Self::resolve_value(rhs.trim(), model);
+                if let (Some(a), Some(b)) = (Self::as_f64(&lv), Self::as_f64(&rv)) {
+                    return match op {
+                        "<=" => a <= b,
+                        ">=" => a >= b,
+                        "<" => a < b,
+                        ">" => a > b,
+                        _ => false,
+                    };
+                }
+                return false;
             }
         }
         let val = Self::resolve_value(s, model);
@@ -80,13 +111,28 @@ impl NativeFormExpression {
         cursor.clone()
     }
 
+    fn as_f64(v: &Value) -> Option<f64> {
+        match v {
+            Value::Number(n) => n.as_f64(),
+            Value::String(s) => s.trim().parse::<f64>().ok(),
+            _ => None,
+        }
+    }
+
+    fn values_strict_equal(a: &Value, b: &Value) -> bool {
+        match (a, b) {
+            (Value::Number(na), Value::Number(nb)) => na.as_f64() == nb.as_f64(),
+            _ => a == b,
+        }
+    }
+
     fn values_equal(a: &Value, b: &Value) -> bool {
-        if a == b {
+        if Self::values_strict_equal(a, b) {
             return true;
         }
         match (a, b) {
-            (Value::Number(na), Value::String(sb)) => sb.parse::<f64>().ok() == na.as_f64(),
-            (Value::String(sa), Value::Number(nb)) => sa.parse::<f64>().ok() == nb.as_f64(),
+            (Value::Number(na), Value::String(sb)) => sb.trim().parse::<f64>().ok() == na.as_f64(),
+            (Value::String(sa), Value::Number(nb)) => sa.trim().parse::<f64>().ok() == nb.as_f64(),
             _ => false,
         }
     }
@@ -95,10 +141,9 @@ impl NativeFormExpression {
         match v {
             Value::Null => false,
             Value::Bool(b) => *b,
-            Value::Number(n) => n.as_f64().is_some_and(|x| x != 0.0),
-            Value::String(s) => !s.is_empty() && s != "false" && s != "0",
-            Value::Array(arr) => !arr.is_empty(),
-            Value::Object(obj) => !obj.is_empty(),
+            Value::Number(n) => n.as_f64().is_some_and(|x| x != 0.0 && !x.is_nan()),
+            Value::String(s) => !s.is_empty(),
+            Value::Array(_) | Value::Object(_) => true,
         }
     }
 

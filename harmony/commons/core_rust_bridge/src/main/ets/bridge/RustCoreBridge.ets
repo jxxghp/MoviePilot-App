@@ -8,12 +8,15 @@ import nativeCore from 'libmoviepilot_core_ohos.so';
 export interface NativeCoreModule {
   coreVersion(): string;
   normalizeServerAddress(raw: string): string;
+  serverAddressContains?(baseUrl: string, candidateUrl: string): boolean;
+  buildV3EndpointUrl?(baseUrl: string, segments: string[], queryJson: string, trailingSlash: boolean): string;
   parseDeepLinkJson(rawUrl: string): string;
   detectPlayableMediaKind(pathOrExt: string, includeStreaming: boolean): string;
   parseAgentMarkdownJson(markdown: string): string;
   filterAndGroupResources(resourcesJson: string, criteriaJson: string): string;
   decodeJwtClaimsJson(token: string, nowEpochSecs: number): string;
   evaluatePermissionsJson(permissionsJson: string, isSuperuser: boolean): string;
+  classifyAuthStatusStr?(status: number, body: string): string;
   planPluginFormJson(documentJson: string): string;
   applyPluginFormPatch(originalModelJson: string, patchJson: string): string;
   evaluatePluginExpression(expr: string, modelJson: string): boolean;
@@ -99,13 +102,38 @@ export class RustCoreBridge {
     return normalized;
   }
 
-  /** 构造 `/api/v1/...` 完整请求 URL（单次 UTF-8 编码，正确支持中文路径段如 `电视剧`）。 */
+  /** 校验候选 URL 是否严格归属于当前 MoviePilot 实例同源与子路径边界（防跨源泄露 JWT/Cookie）。 */
+  static serverAddressContains(baseUrl: string, candidateUrl: string): boolean {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.serverAddressContains) {
+        return RustCoreBridge.nativeLib.serverAddressContains(baseUrl, candidateUrl);
+      }
+    } catch {
+      // fallback
+    }
+    try {
+      const cleanBase = RustCoreBridge.normalizeServerAddress(baseUrl);
+      return candidateUrl === cleanBase || candidateUrl.startsWith(`${cleanBase}/`) || candidateUrl.startsWith(`${cleanBase}?`);
+    } catch {
+      return false;
+    }
+  }
+
+  /** 构造 `/api/v1/...` 完整请求 URL（优先委托 Rust 内核校验边界并编码 UTF-8 中文路径段）。 */
   static buildV3EndpointUrl(
     baseUrl: string,
     segments: string[],
     query: Record<string, string> = {},
     trailingSlash: boolean = false
   ): string {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.buildV3EndpointUrl) {
+        const pairs: Array<[string, string]> = Object.keys(query).map((k: string): [string, string] => [k, query[k]]);
+        return RustCoreBridge.nativeLib.buildV3EndpointUrl(baseUrl, segments, JSON.stringify(pairs), trailingSlash);
+      }
+    } catch {
+      // fallback
+    }
     const cleanBase = RustCoreBridge.normalizeServerAddress(baseUrl);
     const path = segments.map((s: string) => encodeURIComponent(s)).join('/');
     let url = `${cleanBase}/api/v1/${path}${trailingSlash ? '/' : ''}`;
@@ -119,6 +147,39 @@ export class RustCoreBridge {
       url += `?${pairs.join('&')}`;
     }
     return url;
+  }
+
+  /** 识别 HTTP 401 或令牌失效型 403（区分越权 403 与必须登出的过期令牌）。 */
+  static classifyAuthStatus(status: number, body: string): string {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.classifyAuthStatusStr) {
+        return RustCoreBridge.nativeLib.classifyAuthStatusStr(status, body);
+      }
+    } catch {
+      // fallback
+    }
+    if (status === 401) { return 'logout'; }
+    if (status === 403) {
+      const lower = body.toLowerCase();
+      if (lower.includes('could not validate credentials') || lower.includes('token校验不通过') || lower.includes('凭据验证失败')) {
+        return 'logout';
+      }
+      return 'forbidden';
+    }
+    return 'valid';
+  }
+
+  /** 动态评估插件表单 `v-if` / `v-show` 表达式。 */
+  static evaluatePluginExpression(expr: string, modelJson: string): boolean {
+    if (!expr || expr.trim().length === 0) { return true; }
+    try {
+      if (RustCoreBridge.nativeLib) {
+        return RustCoreBridge.nativeLib.evaluatePluginExpression(expr, modelJson);
+      }
+    } catch {
+      // fallback
+    }
+    return true;
   }
 
   static parseDeepLinkJson(rawUrl: string): string {

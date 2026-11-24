@@ -8,12 +8,29 @@ OUT_BRIDGE="$ROOT/android/core-rust-bridge"
 JNI_DIR="$OUT_BRIDGE/src/main/jniLibs"
 KT_DIR="$OUT_BRIDGE/src/main/java"
 
-export ANDROID_HOME="${ANDROID_HOME:-/Volumes/DISK/Android/sdk}"
-export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$(ls -d "$ANDROID_HOME"/ndk/* 2>/dev/null | sort -V | tail -n 1)}"
-export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/Volumes/DISK/TmpBuild/moviepilot-rust-target}"
+if [[ -z "${ANDROID_HOME:-}" ]]; then
+  if [[ -d "/Volumes/DISK/Android/sdk" ]]; then
+    export ANDROID_HOME="/Volumes/DISK/Android/sdk"
+  elif [[ -n "${ANDROID_SDK_ROOT:-}" && -d "${ANDROID_SDK_ROOT}" ]]; then
+    export ANDROID_HOME="$ANDROID_SDK_ROOT"
+  fi
+fi
+export ANDROID_SDK_ROOT="${ANDROID_HOME:-}"
 
-if [[ ! -d "$ANDROID_NDK_HOME" ]]; then
-  echo "未找到 Android NDK，请设置 ANDROID_NDK_HOME。" >&2
+if [[ -z "${ANDROID_NDK_HOME:-}" && -n "${ANDROID_HOME:-}" && -d "${ANDROID_HOME}/ndk" ]]; then
+  export ANDROID_NDK_HOME="$(ls -d "$ANDROID_HOME"/ndk/* 2>/dev/null | sort -V | tail -n 1 || true)"
+fi
+
+if [[ -z "${CARGO_TARGET_DIR:-}" ]]; then
+  if [[ -d "/Volumes/DISK/TmpBuild" ]]; then
+    export CARGO_TARGET_DIR="/Volumes/DISK/TmpBuild/moviepilot-rust-target"
+  else
+    export CARGO_TARGET_DIR="${RUNNER_TEMP:-$RUST_DIR/target}/moviepilot-rust-target"
+  fi
+fi
+
+if [[ -z "${ANDROID_NDK_HOME:-}" || ! -d "$ANDROID_NDK_HOME" ]]; then
+  echo "未找到 Android NDK，请设置 ANDROID_NDK_HOME 或安装 Android SDK NDK。" >&2
   exit 1
 fi
 
@@ -35,7 +52,8 @@ cargo run --release -p mp-ffi-uniffi --bin uniffi-bindgen -- \
   --out-dir "$KT_DIR" \
   --config "$RUST_DIR/crates/mp-ffi-uniffi/uniffi.toml"
 
-# 3. 通过 cargo-ndk 交叉编译 Android .so（受控 Release Profile <= 4 MB）
+# 3. 清理旧 ABI 目录避免残留不一致架构，再通过 cargo-ndk 交叉编译 Android .so
+rm -rf "$JNI_DIR"/*
 NDK_ARGS=()
 for abi in $ABIS; do
   NDK_ARGS+=(-t "$abi")

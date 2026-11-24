@@ -13,14 +13,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -74,7 +78,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -233,7 +241,8 @@ fun NativeSegmentedControl(
 
 /**
  * Material 3 Expressive 筛选与属性芯片（全圆角胶囊）：
- * - 激活态为高辨识度柔和主色或 `secondaryContainer`，未激活态为柔和实色表面胶囊，告别生硬方框。
+ * - 激活态为高辨识度柔和主色或 `secondaryContainer`；
+ * - 未激活态采用柔和实色表面胶囊并配 `0.8.dp` `colors.borderSubtle` 清晰轮廓线（确保浅色与深色模式均满足 >= 3:1 边界对比度）。
  */
 @Composable
 fun NativeAdaptivePill(
@@ -242,6 +251,7 @@ fun NativeAdaptivePill(
     onClick: () -> Unit,
     icon: ImageVector? = null,
     tint: Color? = null,
+    leadingContent: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalMoviePilotColors.current
@@ -252,12 +262,13 @@ fun NativeAdaptivePill(
         scheme.secondaryContainer
     }
     val activeFg = if (tint != null) {
-        if (colors.isDark) tint else tint
+        tint
     } else {
         scheme.onSecondaryContainer
     }
     val bgColor = if (selected) activeBg else scheme.surfaceContainerLow
     val fgColor = if (selected) activeFg else colors.textSecondary
+    val borderColor = if (selected) activeFg.copy(alpha = 0.42f) else colors.borderSubtle
 
     Row(
         modifier = modifier
@@ -265,12 +276,15 @@ fun NativeAdaptivePill(
             .heightIn(min = 38.dp)
             .clip(CircleShape)
             .background(bgColor, CircleShape)
+            .border(0.8.dp, borderColor, CircleShape)
             .clickable(onClick = onClick)
             .padding(horizontal = 15.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        if (icon != null) {
+        if (leadingContent != null) {
+            leadingContent()
+        } else if (icon != null) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
@@ -452,12 +466,14 @@ fun NativeGlassFab(
     }
 }
 
-/** 区块标题行（Material 3 `titleLarge` + 最小 44dp 可点击热区）。 */
+/** 区块标题行（Material 3 `titleLarge` + 最小 44dp 可点击热区，支持品牌图标前缀）。 */
 @Composable
 fun NativeSectionHeader(
     title: String,
     subtitle: String? = null,
     onClickMore: (() -> Unit)? = null,
+    leadingContent: (@Composable () -> Unit)? = null,
+    subtitleLeading: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalMoviePilotColors.current
@@ -470,17 +486,31 @@ fun NativeSectionHeader(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(
-            text = title,
-            color = colors.textPrimary,
-            style = MaterialTheme.typography.titleLarge.copy(fontSize = 19.sp),
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f, fill = false),
+        ) {
+            leadingContent?.invoke()
+            Text(
+                text = title,
+                color = colors.textPrimary,
+                style = MaterialTheme.typography.titleLarge.copy(fontSize = 19.sp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            subtitleLeading?.invoke()
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     text = subtitle,
                     color = colors.textSecondary,
                     style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
                 )
             }
             if (onClickMore != null) {
@@ -499,6 +529,146 @@ fun NativeSectionHeader(
                 )
             }
         }
+    }
+}
+
+/**
+ * 解析 36 枚官方品牌/服务图标资源名：
+ * 完整覆盖 `datasource`（数据源）、`downloader`（下载器）、`mediaserver`（媒体服务器）、
+ * `notification`（11 类通知渠道）、`storage`（本地与网盘存储）、`site`（站点）、`plugin`（插件）与 `avatar`（默认头像）。
+ */
+fun resolveEntityLogoDrawable(kind: String, value: String): String {
+    val normKind = kind.trim().lowercase()
+    val v = value.trim().lowercase()
+
+    fun matchDatasource(): String = when {
+        v.contains("douban") || v.contains("豆瓣") -> "logo_douban"
+        v.contains("bangumi") || v == "bgm" || v.contains("番剧") -> "logo_bangumi"
+        v.contains("musicbrainz") || v == "music" || v.contains("音乐") -> "logo_musicbrainz"
+        else -> "logo_tmdb"
+    }
+
+    fun matchDownloader(): String = when {
+        v.contains("qbittorrent") || v == "qb" -> "logo_qbittorrent"
+        v.contains("transmission") || v == "tr" -> "logo_transmission"
+        v.contains("rtorrent") || v == "rt" || v.contains("rutorrent") -> "logo_rtorrent"
+        else -> "logo_downloader"
+    }
+
+    fun matchMediaServer(): String = when {
+        v.contains("jellyfin") -> "logo_jellyfin"
+        v.contains("plex") -> "logo_plex"
+        v.contains("trimemedia") || v.contains("trim") || v.contains("fnos") || v.contains("feiniu") || v.contains("飞牛") -> "logo_trimemedia"
+        v.contains("ugreen") || v.contains("绿联") -> "logo_ugreen"
+        v.contains("zspace") || v.contains("极空间") -> "logo_zspace"
+        v.contains("vyo") -> "logo_vyo"
+        v.contains("emby") -> "logo_emby"
+        else -> "logo_mediaserver"
+    }
+
+    fun matchNotification(): String = when {
+        v.contains("wechat") || v.contains("wecom") || v.contains("微信") || v.contains("企业微信") -> "logo_wechat"
+        v.contains("clawbot") || v.contains("claw") -> "logo_clawbot"
+        v.contains("feishu") || v.contains("lark") || v.contains("飞书") -> "logo_feishu"
+        v.contains("telegram") || v == "tg" -> "logo_telegram"
+        v.contains("qq") || v.contains("napcat") -> "logo_qq"
+        v.contains("vocechat") || v.contains("voce") -> "logo_vocechat"
+        v.contains("synology") || v.contains("群晖") -> "logo_synologychat"
+        v.contains("slack") -> "logo_slack"
+        v.contains("discord") -> "logo_discord"
+        v.contains("dingtalk") || v.contains("dingding") || v.contains("钉钉") -> "logo_dingtalk"
+        v.contains("webpush") || v.contains("chrome") || v.contains("browser") || v.contains("浏览器") -> "logo_chrome"
+        else -> "logo_notification"
+    }
+
+    fun matchStorage(): String = when {
+        v.contains("u115") || v.contains("115") -> "logo_u115"
+        v.contains("alipan") || v.contains("aliyun") || v.contains("阿里") -> "logo_alipan"
+        v.contains("rclone") -> "logo_rclone"
+        v.contains("smb") || v.contains("cifs") || v.contains("samba") -> "logo_smb"
+        else -> "logo_storage"
+    }
+
+    return when (normKind) {
+        "datasource", "source", "media_source" -> matchDatasource()
+        "downloader" -> matchDownloader()
+        "mediaserver", "media_server", "server" -> matchMediaServer()
+        "notification", "channel" -> matchNotification()
+        "storage", "directory" -> matchStorage()
+        "site" -> "logo_site"
+        "plugin" -> "logo_plugin"
+        "avatar", "user" -> "logo_avatar_default"
+        else -> when {
+            v.startsWith("logo_") -> v
+            v.contains("tmdb") || v.contains("themoviedb") || v.contains("douban") || v.contains("bangumi") || v.contains("musicbrainz") -> matchDatasource()
+            v.contains("qbittorrent") || v.contains("transmission") || v.contains("rtorrent") -> matchDownloader()
+            v.contains("emby") || v.contains("jellyfin") || v.contains("plex") || v.contains("trim") || v.contains("ugreen") || v.contains("zspace") || v.contains("vyo") -> matchMediaServer()
+            v.contains("wechat") || v.contains("telegram") || v.contains("slack") || v.contains("vocechat") || v.contains("synology") || v.contains("feishu") || v.contains("dingtalk") || v.contains("discord") || v.contains("clawbot") || v == "qq" || v.contains("webpush") -> matchNotification()
+            v.contains("u115") || v.contains("115") || v.contains("alipan") || v.contains("rclone") || v.contains("smb") || v == "local" -> matchStorage()
+            else -> "brandmark"
+        }
+    }
+}
+
+/**
+ * 统一实体品牌图标组件：
+ * 根据实体类别（`kind`）与类型值（`value`）自动匹配并渲染全套 36 枚官方高清 PNG 品牌徽标。
+ */
+@Composable
+fun NativeEntityLogo(
+    kind: String,
+    value: String,
+    size: Dp = 36.dp,
+    cornerRadius: Dp = 10.dp,
+    modifier: Modifier = Modifier,
+) {
+    val drawableName = remember(kind, value) { resolveEntityLogoDrawable(kind, value) }
+    NativeBrandDrawable(
+        drawableName = drawableName,
+        size = size,
+        cornerRadius = cornerRadius,
+        modifier = modifier,
+    )
+}
+
+/**
+ * 支持远端图标 URL 优先加载、失败或为空时平滑回退到官方 `NativeEntityLogo` 的组合图标组件：
+ * 专用于 PT 站点 Favicon（回退 `logo_site`）、插件图标（回退 `logo_plugin`）与用户头像（回退 `logo_avatar_default`）。
+ */
+@Composable
+fun NativeNetworkEntityLogo(
+    imageUrl: String?,
+    kind: String,
+    value: String = "",
+    size: Dp = 36.dp,
+    cornerRadius: Dp = 10.dp,
+    modifier: Modifier = Modifier,
+) {
+    var loadFailed by remember(imageUrl) { mutableStateOf(false) }
+    val shape = RoundedCornerShape(cornerRadius)
+    if (!imageUrl.isNullOrBlank() && !loadFailed) {
+        Box(
+            modifier = modifier
+                .size(size)
+                .clip(shape),
+            contentAlignment = Alignment.Center,
+        ) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = value.ifBlank { kind },
+                contentScale = ContentScale.Crop,
+                onError = { loadFailed = true },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    } else {
+        NativeEntityLogo(
+            kind = kind,
+            value = value,
+            size = size,
+            cornerRadius = cornerRadius,
+            modifier = modifier,
+        )
     }
 }
 
@@ -591,7 +761,7 @@ fun NativePosterCard(
                     Spacer(Modifier.height(6.dp))
                     Text(
                         text = title,
-                        color = Color.White.copy(alpha = 0.85f),
+                        color = colors.textPrimary,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 3,
@@ -683,10 +853,41 @@ fun FloatingAgentMascot(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val view = LocalView.current
+    val density = LocalDensity.current
+    val statusTopPx = with(density) { WindowInsets.statusBars.asPaddingValues().calculateTopPadding().toPx() }
+    val navBottomPx = with(density) { WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding().toPx() }
+    val safeMarginPx = with(density) { 8.dp.toPx() }
+    val mascotWidthPx = with(density) { 56.dp.toPx() }
+    val mascotHeightPx = with(density) { 68.dp.toPx() }
+
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
+    var anchorX by remember { mutableFloatStateOf(-1f) }
+    var anchorY by remember { mutableFloatStateOf(-1f) }
     var isDragging by remember { mutableStateOf(false) }
     var isBlinking by remember { mutableStateOf(false) }
+
+    fun clampOffsets(rawX: Float, rawY: Float): Pair<Float, Float> {
+        val vw = view.width.toFloat()
+        val vh = view.height.toFloat()
+        if (vw <= 0f || vh <= 0f || anchorX < 0f || anchorY < 0f) return rawX to rawY
+        val minX = safeMarginPx - anchorX
+        val maxX = (vw - mascotWidthPx - safeMarginPx) - anchorX
+        val minY = (statusTopPx + safeMarginPx) - anchorY
+        val maxY = (vh - navBottomPx - mascotHeightPx - safeMarginPx) - anchorY
+        val cx = if (maxX >= minX) rawX.coerceIn(minX, maxX) else rawX
+        val cy = if (maxY >= minY) rawY.coerceIn(minY, maxY) else rawY
+        return cx to cy
+    }
+
+    LaunchedEffect(view.width, view.height, anchorX, anchorY) {
+        if (anchorX >= 0f && anchorY >= 0f) {
+            val (cx, cy) = clampOffsets(offsetX, offsetY)
+            offsetX = cx
+            offsetY = cy
+        }
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -712,6 +913,11 @@ fun FloatingAgentMascot(
 
     Box(
         modifier = modifier
+            .onGloballyPositioned { coords ->
+                val rootPos = coords.positionInRoot()
+                anchorX = rootPos.x - offsetX
+                anchorY = rootPos.y - offsetY
+            }
             .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
             .size(width = 56.dp, height = 68.dp)
             .graphicsLayer {
@@ -725,8 +931,9 @@ fun FloatingAgentMascot(
                     onDragCancel = { isDragging = false },
                 ) { change, dragAmount ->
                     change.consume()
-                    offsetX += dragAmount.x
-                    offsetY += dragAmount.y
+                    val (cx, cy) = clampOffsets(offsetX + dragAmount.x, offsetY + dragAmount.y)
+                    offsetX = cx
+                    offsetY = cy
                 }
             }
             .clickable(onClick = onClick),

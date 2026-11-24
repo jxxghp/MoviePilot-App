@@ -1,6 +1,7 @@
 import {
   MoviePilotRepository,
   MpMediaItem,
+  MpCastMember,
   MpMediaServerLibrary,
   MpMusicAlbum,
   MpRemoteImage
@@ -20,6 +21,8 @@ import {
   HarmonyAppearanceStore,
   HarmonySurfaceModifier,
   HarmonyThemeColors,
+  HarmonyEntityLogo,
+  HarmonyEntityLogoPill,
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
@@ -604,7 +607,13 @@ export struct HarmonyDiscoverPage {
             .fontWeight(FontWeight.Bold)
             .fontColor(mpPrimaryText(this.isDark))
             .layoutWeight(1)
-          Row({ space: 2 }) {
+          Row({ space: 5 }) {
+            HarmonyEntityLogo({
+              kind: 'mediaserver',
+              value: this.libraries[0].serverType || this.libraries[0].serverName,
+              logoSize: 18,
+              cornerRadius: 5
+            })
             Text(this.libraries[0].serverName || '全部')
               .fontSize(13)
               .fontColor(this.accentHex)
@@ -616,7 +625,7 @@ export struct HarmonyDiscoverPage {
         .width('100%')
         .padding({ left: 16, right: 16 })
 
-        // 封面完全无遮挡：不盖底部渐变、不叠文字标题，仅在右上角精巧显示条目数量角标
+        // 封面完全无遮挡：不盖底部渐变、不叠文字标题，左上角精巧标记媒体服务器品牌、右上角显示条目数
         Scroll() {
           Row({ space: 12 }) {
             ForEach(this.libraries, (lib: MpMediaServerLibrary) => {
@@ -631,16 +640,38 @@ export struct HarmonyDiscoverPage {
                   })
                 } else {
                   Stack() {
-                    Text(lib.name)
-                      .fontSize(15)
-                      .fontWeight(FontWeight.Bold)
-                      .fontColor(mpPrimaryText(this.isDark))
+                    Row({ space: 6 }) {
+                      HarmonyEntityLogo({
+                        kind: 'mediaserver',
+                        value: lib.serverType || lib.serverName,
+                        logoSize: 22,
+                        cornerRadius: 6
+                      })
+                      Text(lib.name)
+                        .fontSize(15)
+                        .fontWeight(FontWeight.Bold)
+                        .fontColor(mpPrimaryText(this.isDark))
+                    }
                   }
                   .width(196)
                   .height(112)
                   .borderRadius(16)
                   .backgroundColor(HarmonyThemeColors.card(this.isDark, this.paletteId))
                 }
+
+                Stack() {
+                  HarmonyEntityLogo({
+                    kind: 'mediaserver',
+                    value: lib.serverType || lib.serverName,
+                    logoSize: 18,
+                    cornerRadius: 5
+                  })
+                }
+                .width(26)
+                .height(26)
+                .borderRadius(8)
+                .backgroundColor('#92000000')
+                .position({ left: 8, top: 8 })
 
                 if (lib.itemCount !== undefined && lib.itemCount >= 0) {
                   Text(formatCommaInt(lib.itemCount))
@@ -679,21 +710,31 @@ export struct HarmonyDiscoverPage {
         ForEach(this.categoryEntries(), (cat: CategoryEntryDef) => {
           GridItem() {
             Column() {
-              CinematicPanel({ panelPadding: 9, cornerRadius: 16, interactive: true }) {
-                Row({ space: 8 }) {
-                  if (cat.posterUrl.length > 0) {
-                    MpRemoteImage({
-                      src: cat.posterUrl,
-                      imgWidth: 36,
-                      imgHeight: 36,
-                      imgRadius: 9,
-                      placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
-                    })
-                  } else {
-                    Stack() {
-                      SymbolGlyph($r('sys.symbol.film')).fontSize(17).fontColor([this.accentHex])
+              CinematicPanel({ panelPadding: 10, cornerRadius: 16, interactive: true }) {
+                Row({ space: 10 }) {
+                  Stack({ alignContent: Alignment.BottomEnd }) {
+                    if (cat.posterUrl.length > 0) {
+                      MpRemoteImage({
+                        src: cat.posterUrl,
+                        imgWidth: 38,
+                        imgHeight: 38,
+                        imgRadius: 10,
+                        placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                      })
+                      HarmonyEntityLogo({
+                        kind: 'media_source',
+                        value: cat.sourceKey,
+                        logoSize: 16,
+                        cornerRadius: 4
+                      })
+                    } else {
+                      HarmonyEntityLogo({
+                        kind: 'media_source',
+                        value: cat.sourceKey,
+                        logoSize: 34,
+                        cornerRadius: 9
+                      })
                     }
-                    .width(36).height(36).borderRadius(9).backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
                   }
                   Text(cat.title)
                     .fontSize(13.5)
@@ -881,15 +922,27 @@ export struct HarmonyDiscoverPage {
                     })
 
                   Column({ space: 8 }) {
-                    Text(hero.title)
-                      .fontSize(26)
-                      .fontWeight(FontWeight.Bold)
-                      .fontColor(Color.White)
-                      .textAlign(TextAlign.Center)
-                      .maxLines(2)
-                    Text(`${hero.type}${hero.year ? ' · ' + hero.year : ''}`)
+                    if (hero.logoUrl.length > 0) {
+                      MpRemoteImage({
+                        src: hero.logoUrl,
+                        imgWidth: 224,
+                        imgHeight: 74,
+                        fit: ImageFit.Contain,
+                        placeholderColor: Color.Transparent
+                      })
+                    } else {
+                      Text(hero.title)
+                        .fontSize(26)
+                        .fontWeight(FontWeight.Bold)
+                        .fontColor(Color.White)
+                        .textAlign(TextAlign.Center)
+                        .maxLines(2)
+                    }
+                    Text([hero.type, hero.year, hero.subtitle].filter((s: string) => s.length > 0).join(' · '))
                       .fontSize(13)
                       .fontColor('#E6FFFFFF')
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
                     if (hero.overview.length > 0) {
                       Text(hero.overview)
                         .fontSize(12)
@@ -899,7 +952,25 @@ export struct HarmonyDiscoverPage {
                         .textOverflow({ overflow: TextOverflow.Ellipsis })
                     }
                     Row({ space: 10 }) {
-                      NativeAdaptiveBadge({ text: 'TheMovieDB', tintHex: '#20B58E', filled: true })
+                      Row({ space: 5 }) {
+                        HarmonyEntityLogo({
+                          kind: 'media_source',
+                          value: hero.source || 'themoviedb',
+                          logoSize: 15,
+                          cornerRadius: 4
+                        })
+                        Text((hero.source || '').toLowerCase().includes('douban')
+                          ? '豆瓣'
+                          : ((hero.source || '').toLowerCase().includes('bangumi') ? 'Bangumi' : 'TheMovieDB'))
+                          .fontSize(11.5)
+                          .fontWeight(FontWeight.Bold)
+                          .fontColor(Color.White)
+                      }
+                      .padding({ left: 8, right: 9, top: 4, bottom: 4 })
+                      .borderRadius(11)
+                      .backgroundColor('#52000000')
+                      .border({ width: 0.6, color: '#38FFFFFF', radius: 11 })
+
                       if (hero.vote > 0) {
                         Text(`★ ${hero.vote.toFixed(1)}`)
                           .fontSize(13)
@@ -961,9 +1032,9 @@ export struct HarmonyDiscoverPage {
           .onClick(() => { this.showModulesSheet = true; })
           .bindSheet($$this.showModulesSheet, this.modulesSheetBuilder(), {
             detents: [SheetSize.MEDIUM, SheetSize.LARGE],
-            blurStyle: BlurStyle.COMPONENT_REGULAR,
+            blurStyle: BlurStyle.COMPONENT_THIN,
             dragBar: true,
-        showClose: false,
+            showClose: false,
             backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
           })
         }
@@ -977,33 +1048,37 @@ export struct HarmonyDiscoverPage {
       .width('100%')
       .height('100%')
 
-      NativeTopStatusBarBlur({ visibilityProgress: Math.min(1, Math.max(0, this.scrollOffsetY / 140)) })
+      // 顶部渐进式模糊/柔光面纱（随 scrollOffsetY / 150 平滑插值并向下衰减至透明，无任何生硬底栏遮挡海报）
+      NativeTopStatusBarBlur({
+        visibilityProgress: Math.min(1, Math.max(0, this.scrollOffsetY / 150)),
+        veilHeight: 92
+      })
 
-      // 顶部栏：位于 Hero 上方时仅右侧悬浮光感搜索圆钮；滚过 Hero 后平滑切换为磨砂导航栏避免遮挡正文
+      // 右上角仅保留单枚悬浮光感搜索圆钮（空白区域穿透手势，不阻挡下方海报滑动）
       Row() {
-        if (this.scrollOffsetY > 240) {
-          Text('发现')
-            .fontSize(20)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(mpPrimaryText(this.isDark))
-        }
         Blank()
         Button({ type: ButtonType.Circle }) {
           SymbolGlyph($r('sys.symbol.magnifyingglass'))
             .fontSize(19)
-            .fontColor([this.scrollOffsetY > 240 ? mpPrimaryText(this.isDark) : Color.White])
+            .fontColor([this.scrollOffsetY > 180 ? mpPrimaryText(this.isDark) : Color.White])
         }
         .width(40)
         .height(40)
         .backgroundColor(Color.Transparent)
-        .attributeModifier(new HarmonySurfaceModifier(this.scrollOffsetY > 240 ? this.isDark : true, 'pill', 20, this.accentHex, true, this.dynamicLight))
+        .attributeModifier(new HarmonySurfaceModifier(
+          this.scrollOffsetY > 180 ? this.isDark : true,
+          'pill',
+          20,
+          this.accentHex,
+          true,
+          this.dynamicLight
+        ))
         .accessibilityText('全局搜索')
         .onClick(() => this.onOpenSearch())
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: 44, bottom: 10 })
-      .backgroundColor(this.scrollOffsetY > 240 ? HarmonyThemeColors.barFallback(this.isDark) : Color.Transparent)
-      .backgroundBlurStyle(this.scrollOffsetY > 240 ? BlurStyle.COMPONENT_THICK : BlurStyle.NONE)
+      .padding({ left: 16, right: 16, top: 44, bottom: 8 })
+      .hitTestBehavior(HitTestMode.Transparent)
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
     }
     .width('100%')
@@ -1031,6 +1106,7 @@ export struct HarmonyMediaServerLibraryPage {
   @State private loading: boolean = true;
   onBack: () => void = () => {};
   onOpenMedia: (item: MpMediaItem) => void = () => {};
+  onOpenPerson: (person: MpCastMember) => void = () => {};
 
   private readonly sortOptions: string[][] = [
     ['DateCreated', '最近入库'],
@@ -1174,11 +1250,20 @@ export struct HarmonyMediaServerLibraryPage {
       .scrollable(ScrollDirection.Horizontal)
       .scrollBar(BarState.Off)
 
-      Text(`共 ${this.activeLib()?.itemCount ?? this.items.length} 项${this.activeLib()?.serverName ? ' · ' + this.activeLib()!.serverName : ''}`)
-        .fontSize(12)
-        .fontColor(mpSecondaryText(this.isDark))
-        .width('100%')
-        .padding({ left: 16, right: 16 })
+      Row({ space: 6 }) {
+        HarmonyEntityLogo({
+          kind: 'mediaserver',
+          value: this.activeLib()?.serverType || this.activeLib()?.serverName || this.initialServerName || 'emby',
+          logoSize: 16,
+          cornerRadius: 4
+        })
+        Text(`共 ${this.activeLib()?.itemCount ?? this.items.length} 项${this.activeLib()?.serverName ? ' · ' + this.activeLib()!.serverName : ''}`)
+          .fontSize(12)
+          .fontColor(mpSecondaryText(this.isDark))
+          .layoutWeight(1)
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16 })
 
       if (this.loading && this.items.length === 0) {
         Column() {
@@ -1279,20 +1364,32 @@ export struct HarmonyExplorePage {
         onPrimaryClick: () => this.onOpenSearch()
       })
 
-      HarmonyPillTabBar({
-        tabs: EXPLORE_SOURCES.map((s: ExploreSourceDef) => s.label),
-        selectedIndex: this.activeSourceIndex(),
-        scrollable: true,
-        onSelect: (idx: number) => {
-          this.activeSource = EXPLORE_SOURCES[idx].key;
-          this.fetchCurrent();
+      Scroll() {
+        Row({ space: 8 }) {
+          ForEach(EXPLORE_SOURCES, (s: ExploreSourceDef) => {
+            HarmonyEntityLogoPill({
+              kind: 'media_source',
+              value: s.key === 'music' ? 'musicbrainz' : s.key,
+              title: s.label,
+              selected: this.activeSource === s.key,
+              logoSize: 16,
+              onTap: () => {
+                this.activeSource = s.key;
+                this.fetchCurrent();
+              }
+            })
+          }, (s: ExploreSourceDef) => s.key)
         }
-      })
+        .padding({ left: 16, right: 16 })
+      }
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Off)
+      .width('100%')
 
       if (this.activeSource === 'music') {
         Scroll() {
           Row({ space: 8 }) {
-            ForEach([['douban', '豆瓣音乐'], ['weekly', '本周榜单'], ['hot', '热门专辑'], ['new', '近期新发']], (f: string[]) => {
+            ForEach([['douban', '豆瓣音乐热榜'], ['listenbrainz', 'ListenBrainz 榜单'], ['chart', 'MusicBrainz 热门'], ['fresh', '近期新发']], (f: string[]) => {
               NativeAdaptivePill({
                 title: f[1],
                 selected: this.activeMusicFeed === f[0],
@@ -1419,6 +1516,7 @@ export struct HarmonyGlobalSearchPage {
   @State private hasSearched: boolean = false;
   onBack: () => void = () => {};
   onOpenMedia: (item: MpMediaItem) => void = () => {};
+  onOpenPerson: (person: MpCastMember) => void = () => {};
 
   private async runSearch(overrideKeyword?: string): Promise<void> {
     const q = (overrideKeyword ?? this.query).trim();
@@ -1510,7 +1608,18 @@ export struct HarmonyGlobalSearchPage {
               PosterCard({
                 item: it,
                 fillWidth: true,
-                onTap: () => this.onOpenMedia(it)
+                onTap: () => {
+                  if (this.scopeIndex === 2 || it.type === '人物') {
+                    this.onOpenPerson({
+                      id: it.tmdbId || it.id,
+                      name: it.title,
+                      character: it.subtitle,
+                      profileUrl: it.posterUrl
+                    });
+                  } else {
+                    this.onOpenMedia(it);
+                  }
+                }
               })
             }
           }, (it: MpMediaItem) => it.id)

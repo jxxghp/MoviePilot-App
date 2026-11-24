@@ -14,9 +14,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -37,14 +37,17 @@ import androidx.compose.material.icons.rounded.Book
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Tv
@@ -61,10 +64,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -72,7 +75,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -89,31 +91,32 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.moviepilot.designsystem.AdaptiveDeviceLayout
 import com.moviepilot.designsystem.CinematicCircleButton
-import com.moviepilot.designsystem.CinematicGlassCapsule
 import com.moviepilot.designsystem.CinematicGlassSurface
 import com.moviepilot.designsystem.CinematicPanel
 import com.moviepilot.designsystem.ExpressiveHeaderActionButton
 import com.moviepilot.designsystem.ExpressivePillTabRow
 import com.moviepilot.designsystem.ExpressiveTintedScaffold
+import com.moviepilot.designsystem.LocalBottomOverlayInset
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
+import com.moviepilot.designsystem.NativeEntityLogo
 import com.moviepilot.designsystem.NativeGlassSheet
-import com.moviepilot.designsystem.NativeGlassTopBar
-import com.moviepilot.designsystem.NativePrimaryTabBar
 import com.moviepilot.designsystem.NativeSectionHeader
-import com.moviepilot.designsystem.NativeSegmentedControl
-import com.moviepilot.designsystem.NativeTopStatusBarProgressiveBlur
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import com.moviepilot.medal3d.CommunityProfile
 import com.moviepilot.medal3d.NativeCommunityMedalsWidget
 import com.moviepilot.pluginhost.NativePluginDataPageView
+import com.moviepilot.rustbridge.DashboardSessionSnapshot
 import com.moviepilot.rustbridge.DashboardStatsDto
+import com.moviepilot.rustbridge.MediaCardItem
 import com.moviepilot.rustbridge.MoviePilotRepository
+import com.moviepilot.rustbridge.NetTestResultDto
 import com.moviepilot.rustbridge.PluginDashboardMetaDto
+import com.moviepilot.rustbridge.RecognizeResultDto
 import com.moviepilot.rustbridge.ScheduledServiceDto
 import com.moviepilot.rustbridge.SystemMessageDto
+import com.moviepilot.rustbridge.SystemModuleStatusDto
+import com.moviepilot.rustcore.PermissionsFfi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -175,19 +178,34 @@ fun DashboardScreen(
     onOpenDiagnosticTab: (String) -> Unit,
     onOpenMedalShowcase: (CommunityProfile, String) -> Unit,
     onOpenSettings: () -> Unit = {},
+    permissions: PermissionsFfi? = null,
 ) {
     val colors = LocalMoviePilotColors.current
     val context = LocalContext.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
+    val bottomOverlayInset = LocalBottomOverlayInset.current
     val medalJson = remember { Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true } }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val localHaze = remember { HazeState() }
+    val isAdmin = permissions?.admin != false
+    val initialCache = remember { repository.cachedDashboard }
 
-    var stats by remember { mutableStateOf(DashboardStatsDto()) }
-    var communityProfile by remember { mutableStateOf<CommunityProfile?>(null) }
-    var bgServices by remember { mutableStateOf<List<ScheduledServiceDto>>(emptyList()) }
-    var pluginWidgets by remember { mutableStateOf<List<Pair<PluginDashboardMetaDto, String>>>(emptyList()) }
+    var stats by remember { mutableStateOf(initialCache?.stats ?: DashboardStatsDto()) }
+    var communityProfile by remember {
+        mutableStateOf(
+            initialCache?.communityProfileJson?.let { raw ->
+                runCatching { medalJson.decodeFromString<CommunityProfile>(raw) }.getOrNull()
+            },
+        )
+    }
+    var bgServices by remember { mutableStateOf(initialCache?.schedules ?: emptyList()) }
+    var pluginWidgets by remember {
+        mutableStateOf<List<Pair<PluginDashboardMetaDto, String>>>(
+            initialCache?.pluginMetas?.mapNotNull { meta ->
+                initialCache.pluginWidgets["${meta.id}:${meta.key}"]?.let { Pair(meta, it) }
+            } ?: emptyList(),
+        )
+    }
     var showShortcutsSheet by remember { mutableStateOf(false) }
     var showModulesSheet by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -201,32 +219,42 @@ fun DashboardScreen(
         coroutineScope {
             val statsDef = async { repository.fetchDashboardStats() }
             val medalDef = async { repository.fetchCommunityProfileJson() }
-            val svcDef = async { repository.fetchScheduledServices() }
+            val svcDef = async { if (isAdmin) repository.fetchScheduledServices() else emptyList() }
             val metaDef = async { repository.fetchPluginDashboardMetas() }
 
-            stats = statsDef.await()
-            medalDef.await()?.let { raw ->
+            val loadedStats = statsDef.await()
+            val rawMedal = medalDef.await()
+            val loadedServices = svcDef.await()
+            val metas = metaDef.await()
+
+            stats = loadedStats
+            rawMedal?.let { raw ->
                 communityProfile = runCatching { medalJson.decodeFromString<CommunityProfile>(raw) }.getOrNull()
             }
-            bgServices = svcDef.await()
-            val metas = metaDef.await()
+            bgServices = loadedServices
             val loaded = mutableListOf<Pair<PluginDashboardMetaDto, String>>()
+            val widgetMap = mutableMapOf<String, String>()
             metas.take(4).forEach { meta ->
                 repository.fetchPluginDashboardWidgetJson(meta.id, meta.key)?.let { body ->
                     loaded += meta to body
+                    widgetMap["${meta.id}:${meta.key}"] = body
                 }
             }
             pluginWidgets = loaded
+            repository.cachedDashboard = DashboardSessionSnapshot(
+                stats = loadedStats,
+                communityProfileJson = rawMedal,
+                schedules = loadedServices,
+                pluginMetas = metas,
+                pluginWidgets = widgetMap,
+            )
             isRefreshing = false
         }
     }
 
-    LaunchedEffect(Unit) { loadDashboard() }
-
-    val topBlurProgress by remember {
-        derivedStateOf {
-            if (listState.firstVisibleItemIndex > 0) 1f
-            else (listState.firstVisibleItemScrollOffset / 96f).coerceIn(0f, 1f)
+    LaunchedEffect(Unit) {
+        if (repository.cachedDashboard == null) {
+            loadDashboard()
         }
     }
 
@@ -238,11 +266,13 @@ fun DashboardScreen(
                 contentDescription = "消息中心",
                 onClick = onOpenMessages,
             )
-            ExpressiveHeaderActionButton(
-                icon = Icons.Outlined.Bolt,
-                contentDescription = "捷径与诊断",
-                onClick = { showShortcutsSheet = true },
-            )
+            if (isAdmin) {
+                ExpressiveHeaderActionButton(
+                    icon = Icons.Outlined.Bolt,
+                    contentDescription = "捷径与诊断",
+                    onClick = { showShortcutsSheet = true },
+                )
+            }
             ExpressiveHeaderActionButton(
                 icon = Icons.Outlined.Settings,
                 contentDescription = "设置",
@@ -256,14 +286,17 @@ fun DashboardScreen(
                 isRefreshing = true
                 scope.launch { loadDashboard() }
             },
-            modifier = Modifier
-                .fillMaxSize()
-                .hazeSource(localHaze),
+            modifier = Modifier.fillMaxSize(),
         ) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = margin, end = margin, top = 16.dp, bottom = 128.dp),
+                contentPadding = PaddingValues(
+                    start = margin,
+                    end = margin,
+                    top = 16.dp,
+                    bottom = bottomOverlayInset + 28.dp,
+                ),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 modules.filter { it.enabled }.forEach { mod ->
@@ -949,24 +982,87 @@ private data class WordCategoryMeta(
     val guideNote: String,
 )
 
+private data class NetTargetPreset(val name: String, val url: String)
+
+private fun resolveModuleLogoKind(mod: SystemModuleStatusDto): Pair<String, String>? {
+    val probe = "${mod.id} ${mod.name} ${mod.moduleType} ${mod.subType}".lowercase()
+    return when {
+        listOf("themoviedb", "tmdb", "douban", "豆瓣", "bangumi", "musicbrainz").any { probe.contains(it) } ->
+            "datasource" to probe
+        listOf("qbittorrent", "transmission", "rtorrent", "downloader").any { probe.contains(it) } ->
+            "downloader" to probe
+        listOf("emby", "jellyfin", "plex", "trimemedia", "飞牛", "ugreen", "绿联", "zspace", "极空间", "mediaserver").any { probe.contains(it) } ->
+            "mediaserver" to probe
+        listOf("wechat", "微信", "telegram", "feishu", "飞书", "slack", "discord", "dingtalk", "钉钉", "vocechat", "synology", "clawbot", "qq", "webpush").any { probe.contains(it) } ->
+            "notification" to probe
+        listOf("u115", "115", "alipan", "阿里云", "rclone", "smb", "storage", "本地").any { probe.contains(it) } ->
+            "storage" to probe
+        else -> null
+    }
+}
+
 /**
- * 单项捷径诊断页面（无页内跨模块互跳，直接从「我的 -> 捷径弹窗」或「更多 -> 系统诊断」进入单项工具）：
- * 接入真实 `/api/v1/dashboard/schedule`（定时服务）、词表 5 类动态提示与保存、实时日志等。
+ * 捷径与系统诊断中心页面（统一采用 `ExpressiveTintedScaffold` + `ExpressivePillTabRow`）：
+ * 全量接入 MoviePilot V3 真实后端接口：
+ * - `健康检查`：`GET /api/v1/module/modulelist` + `GET /api/v1/module/moduletest/{id}`；
+ * - `名称识别`：`GET /api/v1/media/recognize?title=...`（支持副标题、一键执行与跳转影视详情）；
+ * - `网络测试`：`GET /api/v1/system/nettest`（内置常用目标 + 自定义 URL + 代理开关）；
+ * - `实时日志`：`GET /api/v1/system/logging`（支持日志级别胶囊过滤、关键字检索与手动刷新）；
+ * - `定时服务`：`GET /api/v1/dashboard/schedule` + `/api/v1/system/runscheduler`；
+ * - `词表`：5 类识别/屏蔽/剧集规则词表读取与保存。
  */
 @Composable
 fun ShortcutsDiagnosticsScreen(
     repository: MoviePilotRepository,
     initialTab: String = "词表",
     onBack: () -> Unit,
+    onOpenMedia: (MediaCardItem) -> Unit = {},
 ) {
     val colors = LocalMoviePilotColors.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
+    val bottomOverlayInset = LocalBottomOverlayInset.current
     val scope = rememberCoroutineScope()
 
-    val validTools = listOf("词表", "定时服务", "实时日志", "健康检查", "名称识别", "网络测试")
-    val activeTool = remember(initialTab) { if (initialTab in validTools) initialTab else "词表" }
+    val validTools = remember { listOf("健康检查", "名称识别", "网络测试", "实时日志", "定时服务", "词表") }
+    var activeTool by remember(initialTab) {
+        mutableStateOf(if (initialTab in validTools) initialTab else "健康检查")
+    }
     var services by remember { mutableStateOf<List<ScheduledServiceDto>>(emptyList()) }
     var liveLogs by remember { mutableStateOf<List<String>>(emptyList()) }
+    var logLevelFilter by remember { mutableStateOf("全部") }
+    var logKeyword by remember { mutableStateOf("") }
+    var isRefreshingLogs by remember { mutableStateOf(false) }
+
+    // 健康检查真实状态
+    var systemModules by remember { mutableStateOf<List<SystemModuleStatusDto>>(emptyList()) }
+    var isLoadingModules by remember { mutableStateOf(false) }
+    var isTestingAllModules by remember { mutableStateOf(false) }
+    val testingModuleIds = remember { mutableStateMapOf<String, Boolean>() }
+
+    // 名称识别真实状态
+    var recognizeTitle by remember { mutableStateOf("") }
+    var recognizeSubtitle by remember { mutableStateOf("") }
+    var isRecognizing by remember { mutableStateOf(false) }
+    var recognizeResult by remember { mutableStateOf<RecognizeResultDto?>(null) }
+    var recognizeError by remember { mutableStateOf<String?>(null) }
+
+    // 网络测试真实状态
+    val netPresets = remember {
+        listOf(
+            NetTargetPreset("TheMovieDB API", "https://api.themoviedb.org/3/configuration"),
+            NetTargetPreset("TheMovieDB 网站", "https://www.themoviedb.org"),
+            NetTargetPreset("TMDB 图片节点", "https://image.tmdb.org"),
+            NetTargetPreset("GitHub API", "https://api.github.com"),
+            NetTargetPreset("GitHub 主站", "https://github.com"),
+            NetTargetPreset("Telegram API", "https://api.telegram.org"),
+        )
+    }
+    var netUseProxy by remember { mutableStateOf(true) }
+    var customNetUrl by remember { mutableStateOf("") }
+    var isTestingAllNet by remember { mutableStateOf(false) }
+    val testingNetUrls = remember { mutableStateMapOf<String, Boolean>() }
+    val netResults = remember { mutableStateMapOf<String, NetTestResultDto>() }
+
     var activeWordTab by remember { mutableStateOf("识别词") }
     var wordEditorText by remember { mutableStateOf("") }
     var saveMsg by remember { mutableStateOf<String?>(null) }
@@ -1052,14 +1148,48 @@ fun ShortcutsDiagnosticsScreen(
     val wordTabLabels = remember(wordMetas) { wordMetas.keys.toList() }
     val currentWordMeta = wordMetas[activeWordTab] ?: wordMetas.values.first()
 
+    suspend fun testSingleModule(moduleId: String) {
+        testingModuleIds[moduleId] = true
+        val (ok, msg) = repository.testSystemModule(moduleId)
+        systemModules = systemModules.map { m ->
+            if (m.id == moduleId) m.copy(ok = ok, message = msg) else m
+        }
+        testingModuleIds.remove(moduleId)
+    }
+
     LaunchedEffect(activeTool) {
-        if (activeTool == "定时服务") services = repository.fetchScheduledServices()
-        if (activeTool == "实时日志") liveLogs = repository.fetchSystemLogs(80)
+        when (activeTool) {
+            "健康检查" -> if (systemModules.isEmpty()) {
+                isLoadingModules = true
+                systemModules = repository.fetchSystemModules()
+                isLoadingModules = false
+            }
+            "定时服务" -> services = repository.fetchScheduledServices()
+            "实时日志" -> {
+                isRefreshingLogs = true
+                liveLogs = repository.fetchSystemLogs(150)
+                isRefreshingLogs = false
+            }
+        }
     }
     LaunchedEffect(activeWordTab, activeTool) {
         if (activeTool == "词表") {
             val list = repository.fetchCustomWordList(currentWordMeta.key)
             wordEditorText = list.joinToString("\n")
+        }
+    }
+
+    val filteredLogs = remember(liveLogs, logLevelFilter, logKeyword) {
+        liveLogs.filter { line ->
+            val levelOk = when (logLevelFilter) {
+                "ERROR" -> line.contains("ERROR", ignoreCase = true) || line.contains("CRITICAL", ignoreCase = true)
+                "WARNING" -> line.contains("WARN", ignoreCase = true)
+                "INFO" -> line.contains("INFO", ignoreCase = true)
+                "DEBUG" -> line.contains("DEBUG", ignoreCase = true)
+                else -> true
+            }
+            val kwOk = logKeyword.isBlank() || line.contains(logKeyword.trim(), ignoreCase = true)
+            levelOk && kwOk
         }
     }
 
@@ -1074,57 +1204,114 @@ fun ShortcutsDiagnosticsScreen(
     ExpressiveTintedScaffold(
         title = activeTool,
         onBack = onBack,
-        actions = if (activeTool == "词表") {
-            {
-                Surface(
-                    onClick = {
-                        val lines = wordEditorText.lines().map { it.trim() }.filter { it.isNotBlank() }
-                        val body = lines.joinToString(",", "[", "]") { "\"${it.replace("\"", "\\\"")}\"" }
-                        scope.launch {
-                            val ok = repository.saveSettingValue(currentWordMeta.key, body)
-                            saveMsg = if (ok) "已保存「$activeWordTab」(${lines.size} 条)" else "保存失败，请重试"
-                        }
-                    },
-                    shape = CircleShape,
-                    color = colors.accent,
-                    contentColor = colors.primaryButtonFg,
-                ) {
-                    Text(
-                        "保存",
-                        fontSize = 13.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+        actions = when (activeTool) {
+            "词表" -> {
+                {
+                    Surface(
+                        onClick = {
+                            val lines = wordEditorText.lines().map { it.trim() }.filter { it.isNotBlank() }
+                            val body = lines.joinToString(",", "[", "]") { "\"${it.replace("\"", "\\\"")}\"" }
+                            scope.launch {
+                                val ok = repository.saveSettingValue(currentWordMeta.key, body)
+                                saveMsg = if (ok) "已保存「$activeWordTab」(${lines.size} 条)" else "保存失败，请重试"
+                            }
+                        },
+                        shape = CircleShape,
+                        color = colors.accent,
+                        contentColor = colors.primaryButtonFg,
+                    ) {
+                        Text(
+                            "保存",
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+                        )
+                    }
+                }
+            }
+            "健康检查" -> {
+                {
+                    Surface(
+                        onClick = {
+                            if (!isTestingAllModules && systemModules.isNotEmpty()) {
+                                scope.launch {
+                                    isTestingAllModules = true
+                                    systemModules.forEach { mod -> testSingleModule(mod.id) }
+                                    isTestingAllModules = false
+                                }
+                            }
+                        },
+                        shape = CircleShape,
+                        color = colors.accent,
+                        contentColor = colors.primaryButtonFg,
+                    ) {
+                        Text(
+                            if (isTestingAllModules) "检测中…" else "全部自检",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+            }
+            "实时日志" -> {
+                {
+                    ExpressiveHeaderActionButton(
+                        icon = Icons.Rounded.Refresh,
+                        contentDescription = "刷新日志",
+                        onClick = {
+                            scope.launch {
+                                isRefreshingLogs = true
+                                liveLogs = repository.fetchSystemLogs(150)
+                                isRefreshingLogs = false
+                            }
+                        },
                     )
                 }
             }
-        } else {
-            null
+            else -> null
         },
-        headerExtra = if (activeTool == "词表") {
-            {
-                val wIdx = wordTabLabels.indexOf(activeWordTab).coerceAtLeast(0)
+        headerExtra = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val toolIdx = validTools.indexOf(activeTool).coerceAtLeast(0)
                 ExpressivePillTabRow(
-                    tabs = wordTabLabels,
-                    selectedIndex = wIdx,
+                    tabs = validTools,
+                    selectedIndex = toolIdx,
                     onSelect = { idx ->
-                        activeWordTab = wordTabLabels[idx]
+                        activeTool = validTools[idx]
                         saveMsg = null
                     },
                     scrollable = true,
                     onTintedHeader = true,
                 )
+                if (activeTool == "词表") {
+                    val wIdx = wordTabLabels.indexOf(activeWordTab).coerceAtLeast(0)
+                    ExpressivePillTabRow(
+                        tabs = wordTabLabels,
+                        selectedIndex = wIdx,
+                        onSelect = { idx ->
+                            activeWordTab = wordTabLabels[idx]
+                            saveMsg = null
+                        },
+                        scrollable = true,
+                        onTintedHeader = true,
+                    )
+                }
             }
-        } else {
-            null
         },
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().imePadding()) {
             saveMsg?.let {
                 Text(it, color = colors.success, fontSize = 12.5.sp, modifier = Modifier.padding(horizontal = margin, vertical = 8.dp))
             }
 
             LazyColumn(
-                contentPadding = PaddingValues(start = margin, end = margin, top = 14.dp, bottom = 128.dp),
+                contentPadding = PaddingValues(
+                    start = margin,
+                    end = margin,
+                    top = 14.dp,
+                    bottom = bottomOverlayInset + 28.dp,
+                ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.weight(1f),
             ) {
@@ -1180,79 +1367,572 @@ fun ShortcutsDiagnosticsScreen(
                     }
 
                     "定时服务" -> {
-                        items(services, key = { it.id }) { svc ->
-                            CinematicPanel(padding = 14.dp) {
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(svc.name, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                                        Text("${svc.provider} · 下次：${svc.nextRun.ifBlank { svc.status }}", color = colors.textMuted, fontSize = 12.sp)
-                                    }
-                                    NativeAdaptivePill("触发", selected = false, icon = Icons.Rounded.PlayArrow, onClick = {
-                                        scope.launch {
-                                            repository.authedRequest(listOf("system", "runscheduler"), query = listOf("jobid" to svc.id))
-                                            saveMsg = "已触发定时任务：${svc.name}"
+                        if (services.isEmpty()) {
+                            item {
+                                CinematicPanel(padding = 20.dp) {
+                                    Text("暂无已注册的后台定时服务", color = colors.textSecondary, fontSize = 13.5.sp)
+                                }
+                            }
+                        } else {
+                            items(services, key = { it.id }) { svc ->
+                                CinematicPanel(padding = 14.dp) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(svc.name, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                            Text("${svc.provider} · 下次：${svc.nextRun.ifBlank { svc.status }}", color = colors.textMuted, fontSize = 12.sp)
                                         }
-                                    })
+                                        NativeAdaptivePill("触发", selected = false, icon = Icons.Rounded.PlayArrow, onClick = {
+                                            scope.launch {
+                                                repository.authedRequest(listOf("system", "runscheduler"), query = listOf("jobid" to svc.id))
+                                                saveMsg = "已触发定时任务：${svc.name}"
+                                            }
+                                        })
+                                    }
                                 }
                             }
                         }
                     }
 
                     "健康检查" -> {
-                        items(listOf("TheMovieDB 元数据模块", "qBittorrent 下载器", "Emby 媒体服务器", "本地存储监控", "应用核心引擎")) { mod ->
-                            CinematicPanel(padding = 14.dp) {
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = colors.success, modifier = Modifier.size(18.dp))
-                                        Text(mod, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        if (isLoadingModules && systemModules.isEmpty()) {
+                            item {
+                                Box(modifier = Modifier.fillMaxWidth().padding(vertical = 36.dp), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(color = colors.accent)
+                                }
+                            }
+                        } else if (systemModules.isEmpty()) {
+                            item {
+                                CinematicPanel(padding = 20.dp) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("未获取到系统模块列表", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("请检查当前账号是否具备管理员权限，或点击下方重新拉取。", color = colors.textSecondary, fontSize = 13.sp)
+                                        NativeAdaptivePill(
+                                            title = "重新加载模块",
+                                            selected = true,
+                                            icon = Icons.Rounded.Refresh,
+                                            onClick = {
+                                                scope.launch {
+                                                    isLoadingModules = true
+                                                    systemModules = repository.fetchSystemModules()
+                                                    isLoadingModules = false
+                                                }
+                                            },
+                                        )
                                     }
-                                    NativeAdaptiveBadge("健康", tint = colors.success)
+                                }
+                            }
+                        } else {
+                            item(key = "health_summary_header") {
+                                val passCount = systemModules.count { it.ok == true }
+                                val failCount = systemModules.count { it.ok == false }
+                                CinematicPanel(padding = 14.dp, showsShadow = false) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text("共 ${systemModules.size} 个系统组件", color = colors.textPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Bold)
+                                            Text("点击右上角「全部自检」或单项「检测」调用服务端 moduletest", color = colors.textMuted, fontSize = 12.sp)
+                                        }
+                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            if (passCount > 0) NativeAdaptiveBadge("通过 $passCount", tint = colors.success)
+                                            if (failCount > 0) NativeAdaptiveBadge("异常 $failCount", tint = colors.danger)
+                                        }
+                                    }
+                                }
+                            }
+                            items(systemModules, key = { it.id }) { mod ->
+                                val isTesting = testingModuleIds[mod.id] == true
+                                val logoSpec = remember(mod.id, mod.name, mod.moduleType, mod.subType) { resolveModuleLogoKind(mod) }
+                                val badgeTint = when (mod.ok) {
+                                    true -> colors.success
+                                    false -> colors.danger
+                                    null -> colors.textMuted
+                                }
+                                val badgeLabel = when {
+                                    isTesting -> "检测中…"
+                                    mod.ok == true -> "正常"
+                                    mod.ok == false -> "异常"
+                                    else -> "待检测"
+                                }
+                                CinematicPanel(padding = 14.dp) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        if (logoSpec != null) {
+                                            NativeEntityLogo(
+                                                kind = logoSpec.first,
+                                                value = logoSpec.second,
+                                                size = 38.dp,
+                                                cornerRadius = 10.dp,
+                                            )
+                                        } else {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(38.dp)
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .background(badgeTint.copy(alpha = 0.16f)),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (mod.ok == false) Icons.Rounded.ErrorOutline else Icons.Rounded.Shield,
+                                                    contentDescription = null,
+                                                    tint = badgeTint,
+                                                    modifier = Modifier.size(20.dp),
+                                                )
+                                            }
+                                        }
+                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text(mod.name, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                                NativeAdaptiveBadge(badgeLabel, tint = badgeTint)
+                                            }
+                                            val metaLine = listOf(mod.moduleType, mod.subType).filter { it.isNotBlank() }.joinToString(" · ")
+                                            if (metaLine.isNotBlank()) {
+                                                Text(metaLine, color = colors.textMuted, fontSize = 11.5.sp)
+                                            }
+                                            if (mod.message.isNotBlank() && mod.message != "待检测") {
+                                                Text(
+                                                    text = mod.message,
+                                                    color = if (mod.ok == false) colors.danger else colors.textSecondary,
+                                                    fontSize = 12.sp,
+                                                )
+                                            }
+                                        }
+                                        NativeAdaptivePill(
+                                            title = if (isTesting) "…" else "检测",
+                                            selected = false,
+                                            onClick = {
+                                                if (!isTesting) {
+                                                    scope.launch { testSingleModule(mod.id) }
+                                                }
+                                            },
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
 
                     "名称识别" -> {
-                        item {
-                            var testTitle by remember { mutableStateOf("Dune.Part.Two.2024.2160p.UHD.BluRay.REMUX.DV.Atmos") }
+                        item(key = "recognize_input_card") {
                             CinematicPanel(padding = 16.dp) {
                                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    OutlinedTextField(value = testTitle, onValueChange = { testTitle = it }, label = { Text("输入待识别种子/文件名") }, colors = fieldColors, modifier = Modifier.fillMaxWidth())
-                                    Text("识别结果：沙丘2 (2024) · 2160p · BluRay REMUX · 杜比视界 · Atmos", color = colors.success, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    Text("媒体名称与种子元数据识别", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                    Text("调用服务端 /api/v1/media/recognize 实时验证识别词、剧集季集号与 TMDB 匹配结果。", color = colors.textSecondary, fontSize = 12.5.sp)
+                                    OutlinedTextField(
+                                        value = recognizeTitle,
+                                        onValueChange = { recognizeTitle = it },
+                                        label = { Text("输入待识别种子标题或文件名") },
+                                        placeholder = { Text("例如：Dune.Part.Two.2024.2160p.UHD.BluRay.REMUX.DV.Atmos") },
+                                        colors = fieldColors,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    OutlinedTextField(
+                                        value = recognizeSubtitle,
+                                        onValueChange = { recognizeSubtitle = it },
+                                        label = { Text("副标题 / 描述（可选）") },
+                                        placeholder = { Text("例如：第1-12集 全集 简繁字幕") },
+                                        singleLine = true,
+                                        colors = fieldColors,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Surface(
+                                            onClick = {
+                                                val target = recognizeTitle.trim()
+                                                if (target.isBlank()) {
+                                                    recognizeError = "请输入待识别的种子标题或文件名"
+                                                    return@Surface
+                                                }
+                                                scope.launch {
+                                                    isRecognizing = true
+                                                    recognizeError = null
+                                                    val res = repository.recognizeMediaTitle(target, recognizeSubtitle)
+                                                    isRecognizing = false
+                                                    if (res == null || (res.recognizedTitle.isBlank() && res.cnName.isBlank() && res.enName.isBlank() && res.tmdbId == null)) {
+                                                        recognizeResult = res
+                                                        recognizeError = "未能匹配到明确的影视元数据，请检查标题或自定义识别词"
+                                                    } else {
+                                                        recognizeResult = res
+                                                    }
+                                                }
+                                            },
+                                            shape = CircleShape,
+                                            color = colors.accent,
+                                            contentColor = colors.primaryButtonFg,
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            ) {
+                                                if (isRecognizing) {
+                                                    CircularProgressIndicator(
+                                                        color = colors.primaryButtonFg,
+                                                        strokeWidth = 2.dp,
+                                                        modifier = Modifier.size(15.dp),
+                                                    )
+                                                } else {
+                                                    Icon(Icons.Rounded.Search, contentDescription = null, modifier = Modifier.size(17.dp))
+                                                }
+                                                Text(if (isRecognizing) "正在识别…" else "开始识别", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                        if (recognizeTitle.isNotBlank() || recognizeResult != null) {
+                                            NativeAdaptivePill(
+                                                title = "清空",
+                                                selected = false,
+                                                onClick = {
+                                                    recognizeTitle = ""
+                                                    recognizeSubtitle = ""
+                                                    recognizeResult = null
+                                                    recognizeError = null
+                                                },
+                                            )
+                                        }
+                                    }
+                                    recognizeError?.let { err ->
+                                        Text(err, color = colors.warning, fontSize = 12.5.sp)
+                                    }
                                 }
                             }
                         }
-                    }
-                    "网络测试" -> {
-                        item {
-                            CinematicPanel(padding = 16.dp) {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("连通性诊断", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                    Text("当前实例连接正常，可从「站点管理」触发单个站点连通测速。", color = colors.textSecondary, fontSize = 13.sp)
+
+                        recognizeResult?.let { res ->
+                            item(key = "recognize_result_card") {
+                                CinematicPanel(padding = 16.dp) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
+                                            if (!res.posterPath.isNullOrBlank()) {
+                                                AsyncImage(
+                                                    model = res.posterPath,
+                                                    contentDescription = res.recognizedTitle,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier
+                                                        .width(84.dp)
+                                                        .height(122.dp)
+                                                        .clip(RoundedCornerShape(12.dp))
+                                                        .background(colors.chipFill),
+                                                )
+                                            }
+                                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                val displayTitle = res.recognizedTitle.ifBlank { res.cnName.ifBlank { res.enName.ifBlank { res.rawTitle } } }
+                                                Text(
+                                                    text = buildString {
+                                                        append(displayTitle)
+                                                        if (res.year.isNotBlank()) append(" (${res.year})")
+                                                    },
+                                                    color = colors.textPrimary,
+                                                    fontSize = 17.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                )
+                                                if (res.enName.isNotBlank() && res.enName != displayTitle) {
+                                                    Text(res.enName, color = colors.textSecondary, fontSize = 12.5.sp)
+                                                }
+                                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                    if (res.type.isNotBlank()) NativeAdaptiveBadge(res.type, tint = colors.brand)
+                                                    if (res.category.isNotBlank()) NativeAdaptiveBadge(res.category, tint = colors.info)
+                                                    res.tmdbId?.let { id ->
+                                                        NativeAdaptiveBadge("TMDB #$id", tint = colors.success)
+                                                    }
+                                                }
+                                                val specs = listOf(
+                                                    res.seasonEpisode,
+                                                    res.resourcePix,
+                                                    res.resourceType,
+                                                    res.videoEncode,
+                                                    res.audioEncode,
+                                                    res.resourceTeam,
+                                                ).filter { it.isNotBlank() }
+                                                if (specs.isNotEmpty()) {
+                                                    Text(
+                                                        text = specs.joinToString(" · "),
+                                                        color = colors.accent,
+                                                        fontSize = 12.5.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        if (res.overview.isNotBlank()) {
+                                            Text(res.overview, color = colors.textSecondary, fontSize = 12.5.sp, maxLines = 4)
+                                        }
+                                        if (res.tmdbId != null) {
+                                            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                                                NativeAdaptivePill(
+                                                    title = "打开影视详情",
+                                                    selected = true,
+                                                    onClick = { onOpenMedia(res.toMediaCardItem()) },
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
 
-                    else -> {
-                        val lines = liveLogs.ifEmpty {
-                            listOf(
-                                "INFO  MoviePilot 实时日志流就绪",
+                    "网络测试" -> {
+                        item(key = "nettest_controls") {
+                            CinematicPanel(padding = 16.dp) {
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("服务端网络连通测速", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                            Text("由 MoviePilot 后端发起真实 HTTP 连通与耗时探测", color = colors.textSecondary, fontSize = 12.sp)
+                                        }
+                                        Surface(
+                                            onClick = {
+                                                if (!isTestingAllNet) {
+                                                    scope.launch {
+                                                        isTestingAllNet = true
+                                                        netPresets.forEach { target ->
+                                                            testingNetUrls[target.url] = true
+                                                            netResults[target.url] = repository.runNetworkTest(target.url, proxy = netUseProxy, name = target.name)
+                                                            testingNetUrls.remove(target.url)
+                                                        }
+                                                        isTestingAllNet = false
+                                                    }
+                                                }
+                                            },
+                                            shape = CircleShape,
+                                            color = colors.accent,
+                                            contentColor = colors.primaryButtonFg,
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                            ) {
+                                                Icon(Icons.Rounded.Speed, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Text(if (isTestingAllNet) "测速中…" else "全部测速", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text("经由系统代理请求 (proxy)", color = colors.textPrimary, fontSize = 14.sp)
+                                        Switch(
+                                            checked = netUseProxy,
+                                            onCheckedChange = { netUseProxy = it },
+                                            colors = SwitchDefaults.colors(
+                                                checkedTrackColor = colors.accent,
+                                                checkedThumbColor = colors.primaryButtonFg,
+                                            ),
+                                        )
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        OutlinedTextField(
+                                            value = customNetUrl,
+                                            onValueChange = { customNetUrl = it },
+                                            label = { Text("自定义测试 URL") },
+                                            placeholder = { Text("https://...") },
+                                            singleLine = true,
+                                            colors = fieldColors,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        NativeAdaptivePill(
+                                            title = if (testingNetUrls[customNetUrl.trim()] == true) "…" else "测试",
+                                            selected = true,
+                                            onClick = {
+                                                val raw = customNetUrl.trim()
+                                                if (raw.isNotBlank()) {
+                                                    val normalized = if (raw.startsWith("http://") || raw.startsWith("https://")) raw else "https://$raw"
+                                                    scope.launch {
+                                                        testingNetUrls[normalized] = true
+                                                        netResults[normalized] = repository.runNetworkTest(normalized, proxy = netUseProxy, name = "自定义地址")
+                                                        testingNetUrls.remove(normalized)
+                                                    }
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        val customUrlNormalized = customNetUrl.trim().let { raw ->
+                            if (raw.isBlank()) "" else if (raw.startsWith("http://") || raw.startsWith("https://")) raw else "https://$raw"
+                        }
+                        if (customUrlNormalized.isNotBlank() && netResults.containsKey(customUrlNormalized)) {
+                            val customRes = netResults[customUrlNormalized]!!
+                            item(key = "nettest_custom_result") {
+                                NetTestResultCard(
+                                    title = "自定义地址",
+                                    url = customRes.url,
+                                    result = customRes,
+                                    isTesting = testingNetUrls[customUrlNormalized] == true,
+                                    onRetest = {
+                                        scope.launch {
+                                            testingNetUrls[customUrlNormalized] = true
+                                            netResults[customUrlNormalized] = repository.runNetworkTest(customUrlNormalized, proxy = netUseProxy, name = "自定义地址")
+                                            testingNetUrls.remove(customUrlNormalized)
+                                        }
+                                    },
+                                )
+                            }
+                        }
+
+                        items(netPresets, key = { it.url }) { preset ->
+                            NetTestResultCard(
+                                title = preset.name,
+                                url = preset.url,
+                                result = netResults[preset.url],
+                                isTesting = testingNetUrls[preset.url] == true,
+                                onRetest = {
+                                    scope.launch {
+                                        testingNetUrls[preset.url] = true
+                                        netResults[preset.url] = repository.runNetworkTest(preset.url, proxy = netUseProxy, name = preset.name)
+                                        testingNetUrls.remove(preset.url)
+                                    }
+                                },
                             )
                         }
-                        items(lines) { line ->
-                            val tint = when {
-                                line.contains("ERROR", true) -> colors.danger
-                                line.contains("WARN", true) -> colors.warning
-                                else -> colors.textSecondary
+                    }
+
+                    else -> {
+                        item(key = "live_log_filter_bar") {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    val levels = listOf("全部", "INFO", "WARNING", "ERROR", "DEBUG")
+                                    items(levels) { lv ->
+                                        NativeAdaptivePill(
+                                            title = lv,
+                                            selected = logLevelFilter == lv,
+                                            onClick = { logLevelFilter = lv },
+                                        )
+                                    }
+                                }
+                                OutlinedTextField(
+                                    value = logKeyword,
+                                    onValueChange = { logKeyword = it },
+                                    placeholder = { Text("过滤日志关键字（模块名 / 异常信息）", color = colors.textMuted) },
+                                    singleLine = true,
+                                    colors = fieldColors,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
                             }
-                            CinematicPanel(padding = 10.dp, showsShadow = false) {
-                                Text(line, color = tint, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                        }
+                        if (isRefreshingLogs && liveLogs.isEmpty()) {
+                            item {
+                                Box(modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(color = colors.accent)
+                                }
+                            }
+                        } else if (filteredLogs.isEmpty()) {
+                            item {
+                                CinematicPanel(padding = 18.dp, showsShadow = false) {
+                                    Text(
+                                        text = if (liveLogs.isEmpty()) "暂无服务端实时日志输出" else "当前筛选条件下无匹配日志",
+                                        color = colors.textSecondary,
+                                        fontSize = 13.sp,
+                                    )
+                                }
+                            }
+                        } else {
+                            itemsIndexed(filteredLogs) { idx, line ->
+                                val tint = when {
+                                    line.contains("ERROR", true) || line.contains("CRITICAL", true) -> colors.danger
+                                    line.contains("WARN", true) -> colors.warning
+                                    line.contains("DEBUG", true) -> colors.textMuted
+                                    else -> colors.textSecondary
+                                }
+                                CinematicPanel(padding = 10.dp, showsShadow = false) {
+                                    Text(
+                                        text = line,
+                                        color = tint,
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun NetTestResultCard(
+    title: String,
+    url: String,
+    result: NetTestResultDto?,
+    isTesting: Boolean,
+    onRetest: () -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    val statusTint = when {
+        isTesting -> colors.info
+        result == null -> colors.textMuted
+        !result.ok -> colors.danger
+        (result.latencyMs ?: 0L) > 1500L -> colors.warning
+        else -> colors.success
+    }
+    val statusText = when {
+        isTesting -> "测速中…"
+        result == null -> "未测速"
+        result.ok -> result.latencyMs?.let { "${it} ms" } ?: "连通"
+        else -> "不可达"
+    }
+    CinematicPanel(padding = 14.dp) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(statusTint.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = if (result?.ok == true) Icons.Rounded.CheckCircle else Icons.Rounded.Language,
+                    contentDescription = null,
+                    tint = statusTint,
+                    modifier = Modifier.size(19.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(title, color = colors.textPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold)
+                    NativeAdaptiveBadge(statusText, tint = statusTint)
+                    if (result?.proxy == true) {
+                        NativeAdaptiveBadge("代理", tint = colors.info)
+                    }
+                }
+                Text(url, color = colors.textMuted, fontSize = 11.5.sp, maxLines = 1)
+                if (result != null && result.message.isNotBlank()) {
+                    Text(
+                        text = result.message,
+                        color = if (result.ok) colors.textSecondary else colors.danger,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+            NativeAdaptivePill(
+                title = if (isTesting) "…" else "测速",
+                selected = false,
+                onClick = { if (!isTesting) onRetest() },
+            )
         }
     }
 }

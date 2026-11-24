@@ -42,6 +42,7 @@ def sync_assets(root: Path = ROOT, check: bool = False) -> list[str]:
     for src_dir in [assets / "brand", assets / "logos"]:
         if not src_dir.is_dir():
             continue
+        is_logos = src_dir.name == "logos"
         for src in sorted(src_dir.iterdir()):
             if not src.is_file() or src.name == ".DS_Store":
                 continue
@@ -49,6 +50,8 @@ def sync_assets(root: Path = ROOT, check: bool = False) -> list[str]:
                 res_name = android_res_name(src.name)
                 sync_file(src, root / "android/app/src/main/res/drawable" / res_name, check, drifted, root)
                 sync_file(src, root / "harmony/entry/src/main/resources/base/media" / res_name, check, drifted, root)
+                if is_logos:
+                    sync_file(src, root / "harmony/entry/src/main/resources/rawfile/logos" / res_name, check, drifted, root)
 
     # Community medals (73 .webp + .outline.json)
     medals_dir = assets / "community-medals"

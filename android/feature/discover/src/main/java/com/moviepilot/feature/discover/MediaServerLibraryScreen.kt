@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -62,9 +63,11 @@ import com.moviepilot.designsystem.CinematicGlassSurface
 import com.moviepilot.designsystem.CinematicPanel
 import com.moviepilot.designsystem.ExpressivePillTabRow
 import com.moviepilot.designsystem.ExpressiveTintedScaffold
+import com.moviepilot.designsystem.LocalBottomOverlayInset
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
+import com.moviepilot.designsystem.NativeEntityLogo
 import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.rustbridge.MediaCardItem
@@ -95,11 +98,14 @@ fun MediaServerLibraryScreen(
     onPlayMedia: (MediaPlaybackRequest) -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val columns = AdaptiveDeviceLayout.posterGridColumns()
     val scope = rememberCoroutineScope()
+    val gridState = rememberLazyGridState()
 
     var activeServer by remember(initialLibrary) { mutableStateOf(initialLibrary.server) }
+    var activeServerType by remember(initialLibrary) { mutableStateOf(initialLibrary.serverType) }
     var activeLibraryId by remember(initialLibrary) { mutableStateOf(initialLibrary.id) }
     var activeLibraryName by remember(initialLibrary) { mutableStateOf(initialLibrary.name.ifBlank { "媒体库" }) }
     var activeLibraryType by remember(initialLibrary) { mutableStateOf(initialLibrary.type) }
@@ -157,6 +163,9 @@ fun MediaServerLibraryScreen(
                     ?: clients.firstOrNull { it.type.equals(activeServer, ignoreCase = true) }
                     ?: clients.first()
                 activeServer = matched.name
+                activeServerType = matched.type
+            } else {
+                clients.firstOrNull { it.name == activeServer }?.let { activeServerType = it.type }
             }
             libraries = repository.fetchMediaServerLibraries(activeServer.ifBlank { null })
             if (activeLibraryId.isBlank() && libraries.isNotEmpty()) {
@@ -223,29 +232,38 @@ fun MediaServerLibraryScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
             LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Fixed(columns),
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = margin,
                     end = margin,
                     top = 16.dp,
-                    bottom = 42.dp,
+                    bottom = 42.dp + bottomOverlayInset,
                 ),
                 horizontalArrangement = Arrangement.spacedBy(11.dp),
                 verticalArrangement = Arrangement.spacedBy(15.dp),
             ) {
-                // 1. 多服务器切换栏（仅在存在多个服务器时展示）
+                // 1. 多服务器切换栏（展示真实 Emby / Jellyfin / Plex / 飞牛 / 绿联 / 极空间 品牌 Logo）
                 if (clients.size > 1) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(clients) { cli ->
                                 NativeAdaptivePill(
                                     title = cli.name,
-                                    icon = Icons.Rounded.Dns,
+                                    leadingContent = {
+                                        NativeEntityLogo(
+                                            kind = "mediaserver",
+                                            value = cli.type.ifBlank { cli.name },
+                                            size = 18.dp,
+                                            cornerRadius = 5.dp,
+                                        )
+                                    },
                                     selected = cli.name == activeServer,
                                     onClick = {
                                         if (cli.name != activeServer) {
                                             activeServer = cli.name
+                                            activeServerType = cli.type
                                             activeLibraryId = ""
                                             selectedGenre = ""
                                             selectedYear = null
@@ -355,18 +373,31 @@ fun MediaServerLibraryScreen(
                     }
                 }
 
-                // 4. 统计汇总与状态反馈
+                // 4. 统计汇总与状态反馈（带服务器品牌图标）
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = if (totalCount > 0) "共 $totalCount 项 · $activeServer" else activeServer,
-                            color = colors.textSecondary,
-                            fontSize = 12.sp,
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            if (activeServer.isNotBlank()) {
+                                NativeEntityLogo(
+                                    kind = "mediaserver",
+                                    value = activeServerType.ifBlank { activeServer },
+                                    size = 18.dp,
+                                    cornerRadius = 5.dp,
+                                )
+                            }
+                            Text(
+                                text = if (totalCount > 0) "共 $totalCount 项 · $activeServer" else activeServer,
+                                color = colors.textSecondary,
+                                fontSize = 12.sp,
+                            )
+                        }
                         statusTip?.let { tip ->
                             NativeAdaptiveBadge(tip, tint = colors.warning)
                         }

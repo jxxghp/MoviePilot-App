@@ -1,5 +1,6 @@
 package com.moviepilot.widget
 
+import android.content.ComponentName
 import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -7,6 +8,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.action.actionStartActivity
+import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.provideContent
@@ -25,18 +28,27 @@ import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 
 /**
- * Android 原生 Jetpack Glance 桌面小组件：延续星夜紫玫视觉体系，展示媒体库统计与实时下载速览。
+ * Android 原生 Jetpack Glance 桌面小组件：展示已同步的真实媒体库统计与实时下载速览，点击直达主界面。
  */
 class MoviePilotGlanceWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val prefs = context.getSharedPreferences("mp_widget_snapshot_v1", Context.MODE_PRIVATE)
-        val movies = prefs.getInt("movies", 776)
-        val tvs = prefs.getInt("tvs", 1268)
-        val speed = prefs.getString("speed", "12.4 MB/s") ?: "0 B/s"
+        val movies = prefs.getInt("movies", 0)
+        val tvs = prefs.getInt("tvs", 0)
+        val speed = prefs.getString("speed", "0 B/s") ?: "0 B/s"
         val server = prefs.getString("server", "MoviePilot") ?: "MoviePilot"
+        val launchMain = actionStartActivity(
+            ComponentName(context.packageName, "com.moviepilot.app.MainActivity"),
+        )
 
         provideContent {
-            MoviePilotWidgetContent(server = server, movies = movies, tvs = tvs, speed = speed)
+            MoviePilotWidgetContent(
+                server = server,
+                movies = movies,
+                tvs = tvs,
+                speed = speed,
+                modifier = GlanceModifier.clickable(launchMain),
+            )
         }
     }
 }
@@ -47,11 +59,12 @@ private fun MoviePilotWidgetContent(
     movies: Int,
     tvs: Int,
     speed: String,
+    modifier: GlanceModifier = GlanceModifier,
 ) {
     Column(
-        modifier = GlanceModifier
+        modifier = modifier
             .fillMaxSize()
-            .background(ColorProvider(Color(0xFF30334A)))
+            .background(ColorProvider(Color(0xFF0E1117)))
             .padding(14.dp),
         verticalAlignment = Alignment.Vertical.CenterVertically,
     ) {

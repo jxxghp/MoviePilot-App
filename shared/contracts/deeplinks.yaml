@@ -18,9 +18,18 @@ routes:
   - pattern: "moviepilot://media/{source}/{id}?type={mediaType}"
     web_aliases: ["/media"]
     target: "mediaDetail"
+  - pattern: "moviepilot://person/{source}/{id}"
+    web_aliases: ["/person"]
+    target: "personDetail"
+  - pattern: "moviepilot://mediaserver?server={server}&itemid={itemId}"
+    web_aliases: ["/mediaserver"]
+    target: "mediaServerDetail"
   - pattern: "moviepilot://subscribe/{category?}"
-    web_aliases: ["/subscribe/movie", "/subscribe/tv", "/subscribe/music", "/subscribe/popular"]
+    web_aliases: ["/subscribe/movie", "/subscribe/tv", "/subscribe/music"]
     target: "subscriptions"
+  - pattern: "moviepilot://subscribe-community"
+    web_aliases: ["/subscribe/popular", "/subscribe/shares"]
+    target: "subscribeCommunity"
   - pattern: "moviepilot://calendar"
     web_aliases: ["/calendar"]
     target: "calendar"
@@ -56,6 +65,21 @@ routes:
     target: "music"
   - pattern: "moviepilot://shortcuts"
     target: "shortcuts"
+  - pattern: "moviepilot://diagnostics/{section?}"
+    target: "diagnostics"
+  - pattern: "moviepilot://users"
+    target: "users"
+  - pattern: "moviepilot://channel-auth"
+    target: "channelAuth"
+  - pattern: "moviepilot://appearance"
+    target: "appearance"
+  - pattern: "moviepilot://playback-settings"
+    target: "playbackSettings"
+  - pattern: "moviepilot://system-settings"
+    target: "systemSettings"
+  - pattern: "moviepilot://open?path={webPath}"
+    note: "Server push payload web-path router"
+    target: "openWebPath"
   - pattern: "moviepilot://play?url={url}&title={title}&type={video|audio}"
     note: "External direct URL never attaches MoviePilot credentials"
     target: "playDirect"

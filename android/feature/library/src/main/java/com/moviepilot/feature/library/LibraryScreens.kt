@@ -3,6 +3,7 @@ package com.moviepilot.feature.library
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,6 +40,7 @@ import androidx.compose.material.icons.automirrored.rounded.DriveFileMove
 import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.FilterList
@@ -73,6 +76,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -88,17 +92,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.moviepilot.designsystem.AdaptiveDeviceLayout
-import com.moviepilot.designsystem.CinematicCircleButton
-import com.moviepilot.designsystem.CinematicGlassCapsule
 import com.moviepilot.designsystem.CinematicPanel
+import com.moviepilot.designsystem.ExpressiveHeaderActionButton
+import com.moviepilot.designsystem.ExpressivePillTabRow
+import com.moviepilot.designsystem.ExpressiveTintedScaffold
+import com.moviepilot.designsystem.LocalBottomOverlayInset
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.LocalSnackbarHostState
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
+import com.moviepilot.designsystem.NativeEntityLogo
 import com.moviepilot.designsystem.NativeGlassFab
 import com.moviepilot.designsystem.NativeGlassSheet
-import com.moviepilot.designsystem.NativeGlassTopBar
-import com.moviepilot.designsystem.NativeSegmentedControl
 import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.rustbridge.DirectoryConfigDto
 import com.moviepilot.rustbridge.ManualTransferPreviewItemDto
@@ -130,21 +135,28 @@ fun FileManagerScreen(
     onPlayMedia: (MediaPlaybackRequest) -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbar = LocalSnackbarHostState.current
+    val listState = rememberLazyListState()
 
     var storages by remember { mutableStateOf<List<StorageConfigDto>>(listOf(StorageConfigDto("本地", "local"))) }
-    var activeStorage by remember { mutableStateOf(initialStorage) }
-    var currentPath by remember { mutableStateOf(initialPath) }
+    var activeStorage by rememberSaveable { mutableStateOf(initialStorage) }
+    var currentPath by rememberSaveable { mutableStateOf(initialPath) }
     var files by remember { mutableStateOf<List<StorageFileDto>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     var downloadingFileName by remember { mutableStateOf<String?>(null) }
     var showStorageMenu by remember { mutableStateOf(false) }
-    var sortBySize by remember { mutableStateOf(false) }
+    var sortBySize by rememberSaveable { mutableStateOf(false) }
     var actionTarget by remember { mutableStateOf<StorageFileDto?>(null) }
+
+    // 子目录下拦截返回手势逐级返回父目录，根目录再退出文件管理页
+    BackHandler(enabled = currentPath != "/") {
+        currentPath = currentPath.trimEnd('/').substringBeforeLast('/', "").ifBlank { "/" }
+    }
 
     // Android Storage Access Framework 本机音视频文件选择器
     val openLocalMediaLauncher = rememberLauncherForActivityResult(
@@ -215,131 +227,138 @@ fun FileManagerScreen(
     }
 
     val activeStorageLabel = storages.firstOrNull { it.type == activeStorage }?.name
-        ?: when (activeStorage) {
-            "local" -> "本地"
-            "smb" -> "SMB网络共享"
-            else -> activeStorage
-        }
+        ?: storageLabel(activeStorage)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            NativeGlassTopBar(
-                title = "文件管理",
-                onBack = onBack,
-                trailing = {
-                    CinematicCircleButton(
-                        icon = Icons.Rounded.FilterList,
-                        contentDescription = if (sortBySize) "按名称排序" else "按体积排序",
-                        onClick = {
-                            sortBySize = !sortBySize
-                            scope.launch {
-                                snackbar?.showSnackbar(if (sortBySize) "已切换为按文件体积降序" else "已切换为默认目录排序")
-                            }
-                        },
-                    )
-                },
-            )
-
-            // 顶部玻璃存储选择与路径面包屑胶囊
-            CinematicPanel(padding = 10.dp, cornerRadius = 20.dp, showsShadow = false, modifier = Modifier.padding(horizontal = margin)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                        Box {
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(colors.accent.copy(alpha = 0.18f))
-                                    .border(0.7.dp, colors.accent.copy(alpha = 0.42f), RoundedCornerShape(12.dp))
-                                    .clickable { showStorageMenu = true }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Box(
-                                    modifier = Modifier.size(18.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFFFF9800)),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(Icons.Rounded.Storage, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
-                                }
-                                Text(activeStorageLabel, color = colors.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                Icon(Icons.Rounded.UnfoldMore, contentDescription = null, tint = colors.accent, modifier = Modifier.size(15.dp))
-                            }
-                            DropdownMenu(expanded = showStorageMenu, onDismissRequest = { showStorageMenu = false }) {
-                                storages.forEach { st ->
-                                    DropdownMenuItem(
-                                        text = { Text("${st.name} (${st.type})") },
-                                        onClick = {
-                                            activeStorage = st.type
-                                            currentPath = "/"
-                                            showStorageMenu = false
-                                        },
-                                    )
-                                }
-                            }
+        ExpressiveTintedScaffold(
+            title = "文件管理",
+            subtitle = activeStorageLabel,
+            onBack = onBack,
+            actions = {
+                ExpressiveHeaderActionButton(
+                    icon = Icons.Rounded.FilterList,
+                    contentDescription = if (sortBySize) "按名称排序" else "按体积排序",
+                    onClick = {
+                        sortBySize = !sortBySize
+                        scope.launch {
+                            snackbar?.showSnackbar(if (sortBySize) "已切换为按文件体积降序" else "已切换为默认目录排序")
                         }
+                    },
+                )
+            },
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Spacer(Modifier.height(14.dp))
 
-                        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(16.dp))
-
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(colors.chipFill)
-                                .clickable {
-                                    if (currentPath != "/") {
-                                        currentPath = currentPath.trimEnd('/').substringBeforeLast('/', "").ifBlank { "/" }
+                // 顶部玻璃存储选择（带 SMB / 115 / 阿里云盘 / Rclone / 本地 品牌图标）与路径面包屑胶囊
+                CinematicPanel(padding = 10.dp, cornerRadius = 20.dp, showsShadow = false, modifier = Modifier.padding(horizontal = margin)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                            Box {
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(colors.accent.copy(alpha = 0.18f))
+                                        .border(0.7.dp, colors.accent.copy(alpha = 0.42f), RoundedCornerShape(12.dp))
+                                        .clickable { showStorageMenu = true }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    NativeEntityLogo(
+                                        kind = "storage",
+                                        value = activeStorage,
+                                        size = 18.dp,
+                                        cornerRadius = 5.dp,
+                                    )
+                                    Text(activeStorageLabel, color = colors.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                    Icon(Icons.Rounded.UnfoldMore, contentDescription = null, tint = colors.accent, modifier = Modifier.size(15.dp))
+                                }
+                                DropdownMenu(expanded = showStorageMenu, onDismissRequest = { showStorageMenu = false }) {
+                                    storages.forEach { st ->
+                                        DropdownMenuItem(
+                                            leadingIcon = {
+                                                NativeEntityLogo(
+                                                    kind = "storage",
+                                                    value = st.type.ifBlank { st.name },
+                                                    size = 20.dp,
+                                                    cornerRadius = 5.dp,
+                                                )
+                                            },
+                                            text = { Text("${st.name} (${st.type})") },
+                                            onClick = {
+                                                activeStorage = st.type
+                                                currentPath = "/"
+                                                showStorageMenu = false
+                                            },
+                                        )
                                     }
                                 }
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                        ) {
-                            Text(
-                                text = if (currentPath == "/") "根目录" else currentPath.trimEnd('/').substringAfterLast('/'),
-                                color = colors.textPrimary,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            }
+
+                            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(16.dp))
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(colors.chipFill)
+                                    .clickable {
+                                        if (currentPath != "/") {
+                                            currentPath = currentPath.trimEnd('/').substringBeforeLast('/', "").ifBlank { "/" }
+                                        }
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                            ) {
+                                Text(
+                                    text = if (currentPath == "/") "根目录" else currentPath.trimEnd('/').substringAfterLast('/'),
+                                    color = colors.textPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
+                        Text("${files.size} 项", color = colors.textMuted, fontSize = 12.sp)
                     }
-                    Text("${files.size} 项", color = colors.textMuted, fontSize = 12.sp)
                 }
-            }
 
-            downloadingFileName?.let { name ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = margin, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    CircularProgressIndicator(color = colors.accent, strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
-                    Text("正在缓冲存储文件：$name …", color = colors.accent, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            if (isLoading && !isRefreshing) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = colors.accent)
-                }
-            } else {
-                PullToRefreshBox(
-                    isRefreshing = isRefreshing,
-                    onRefresh = {
-                        isRefreshing = true
-                        scope.launch { loadFiles() }
-                    },
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                ) {
-                    LazyColumn(
-                        contentPadding = PaddingValues(start = margin, end = margin, bottom = 96.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxSize(),
+                downloadingFileName?.let { name ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = margin, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        CircularProgressIndicator(color = colors.accent, strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+                        Text("正在缓冲存储文件：$name …", color = colors.accent, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                if (isLoading && !isRefreshing) {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = colors.accent)
+                    }
+                } else {
+                    PullToRefreshBox(
+                        isRefreshing = isRefreshing,
+                        onRefresh = {
+                            isRefreshing = true
+                            scope.launch { loadFiles() }
+                        },
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                    ) {
+                        LazyColumn(
+                            state = listState,
+                            contentPadding = PaddingValues(start = margin, end = margin, bottom = 96.dp + bottomOverlayInset),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
                         items(files, key = { it.path + it.name }) { file ->
                             val playableKind = remember(file.name, file.extension) {
                                 if (file.type == "dir") null
@@ -422,6 +441,7 @@ fun FileManagerScreen(
                             }
                         }
                     }
+                    }
                 }
             }
         }
@@ -434,7 +454,7 @@ fun FileManagerScreen(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
-                .padding(end = margin, bottom = 20.dp),
+                .padding(end = margin, bottom = 20.dp + bottomOverlayInset),
         )
     }
 
@@ -600,20 +620,30 @@ fun ManualTransferSheet(
         ) {
             Text("手动识别整理", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             CinematicPanel(padding = 12.dp, showsShadow = false) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(sourceTitleHint, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text("$sourceStorageHint · $sourcePathHint", color = colors.textMuted, fontSize = 11.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        NativeEntityLogo("storage", sourceStorageHint, size = 16.dp, cornerRadius = 4.dp)
+                        Text("${storageLabel(sourceStorageHint)} · $sourcePathHint", color = colors.textMuted, fontSize = 11.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
                     if (matchedHistoryCount > 0) {
                         NativeAdaptiveBadge("已匹配历史整理 $matchedHistoryCount 条", tint = colors.warning)
                     }
                 }
             }
 
-            // 1. 目标存储与路径
+            // 1. 目标存储与路径（带 SMB / 115 / 阿里云盘 / Rclone / 本地 品牌图标）
             Text("目标存储", color = colors.textSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 storageNames.forEach { st ->
-                    NativeAdaptivePill(st, selected = targetStorage == st, onClick = { targetStorage = st })
+                    NativeAdaptivePill(
+                        title = storageLabel(st),
+                        leadingContent = {
+                            NativeEntityLogo("storage", st, size = 16.dp, cornerRadius = 4.dp)
+                        },
+                        selected = targetStorage == st,
+                        onClick = { targetStorage = st },
+                    )
                 }
             }
             if (libraryDirs.isNotEmpty()) {
@@ -621,6 +651,9 @@ fun ManualTransferSheet(
                     libraryDirs.filter { it.libraryPath.isNotBlank() }.take(6).forEach { dir ->
                         NativeAdaptivePill(
                             title = dir.name,
+                            leadingContent = {
+                                NativeEntityLogo("storage", dir.libraryStorage, size = 15.dp, cornerRadius = 4.dp)
+                            },
                             selected = targetPath == dir.libraryPath,
                             onClick = {
                                 targetStorage = dir.libraryStorage.ifBlank { targetStorage }
@@ -682,7 +715,16 @@ fun ManualTransferSheet(
                     "bangumi" to "Bangumi",
                     "musicbrainz" to "MusicBrainz",
                 ).forEach { (k, lbl) ->
-                    NativeAdaptivePill(lbl, selected = mediaSource == k, onClick = { mediaSource = k })
+                    NativeAdaptivePill(
+                        title = lbl,
+                        leadingContent = if (k.isNotBlank()) {
+                            {
+                                NativeEntityLogo("datasource", k, size = 16.dp, cornerRadius = 4.dp)
+                            }
+                        } else null,
+                        selected = mediaSource == k,
+                        onClick = { mediaSource = k },
+                    )
                 }
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -943,10 +985,9 @@ private fun resolveDisplayName(context: Context, uri: Uri): String {
 }
 
 /**
- * 整理历史页面（1:1 复刻 iOS 黄金截图 `native-v2-live-history.jpg` & `transfer-queue.jpg`）：
- * - 顶栏标题 `整理历史 (2,295)` + 双图标玻璃胶囊 `[📥 ☰]`
- * - 搜索框 + `[全部] [成功] [失败]` 胶囊
- * - 2:3 剧照缩略图 + 片名季集 + 绿成功/红失败胶囊 + 整理模式/体积/时间 + 链式圆点竖线源→目标暗透子卡
+ * 整理历史页面（统一升级为 `ExpressiveTintedScaffold` + `ExpressivePillTabRow`）：
+ * - 每张整理卡片显示源/目标存储品牌图标（SMB / 115 / 阿里云盘 / Rclone / 本地）与显式 `⋮` 溢出菜单；
+ * - 全部 4 种删除选项真实调用 `DELETE /api/v1/history/transfer?deletesrc=...&deletedest=...`（携带服务端完整记录 JSON 请求体）。
  */
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -956,22 +997,31 @@ fun TransferHistoryScreen(
     onBack: () -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val scope = rememberCoroutineScope()
     val snackbar = LocalSnackbarHostState.current
-    var search by remember { mutableStateOf(initialSearch) }
-    var statusFilter by remember { mutableStateOf("全部") }
+    val listState = rememberLazyListState()
+    var search by rememberSaveable { mutableStateOf(initialSearch) }
+    var statusFilter by rememberSaveable { mutableStateOf("全部") }
     var totalCount by remember { mutableStateOf(0) }
     var records by remember { mutableStateOf<List<TransferHistoryDto>>(emptyList()) }
     var queueItems by remember { mutableStateOf<List<TransferQueueItemDto>>(emptyList()) }
     var showQueueSheet by remember { mutableStateOf(false) }
+    var isRefreshing by remember { mutableStateOf(false) }
+    var isDeleting by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<TransferHistoryDto?>(null) }
     var retransferTarget by remember { mutableStateOf<TransferHistoryDto?>(null) }
 
-    LaunchedEffect(search) {
+    suspend fun reloadHistory() {
         val (total, fetched) = repository.fetchTransferHistory(search)
         totalCount = total
         records = fetched
+        isRefreshing = false
+    }
+
+    LaunchedEffect(search) {
+        reloadHistory()
     }
 
     LaunchedEffect(showQueueSheet) {
@@ -980,6 +1030,7 @@ fun TransferHistoryScreen(
         }
     }
 
+    val statusTabs = listOf("全部", "成功", "失败")
     val filtered = remember(records, statusFilter) {
         when (statusFilter) {
             "成功" -> records.filter { it.status }
@@ -988,130 +1039,164 @@ fun TransferHistoryScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        NativeGlassTopBar(
-            title = if (totalCount > 0) "整理历史 (%,d)".format(totalCount) else "整理历史",
-            onBack = onBack,
-            trailing = {
-                CinematicGlassCapsule {
-                    IconButton(onClick = { showQueueSheet = true }, modifier = Modifier.size(38.dp)) {
-                        Icon(Icons.Rounded.Inbox, contentDescription = "整理队列", tint = colors.textPrimary, modifier = Modifier.size(20.dp))
-                    }
-                    IconButton(onClick = { statusFilter = if (statusFilter == "全部") "失败" else "全部" }, modifier = Modifier.size(38.dp)) {
-                        Icon(Icons.Rounded.FilterList, contentDescription = "筛选", tint = colors.textPrimary, modifier = Modifier.size(20.dp))
-                    }
-                }
-            },
-        )
+    ExpressiveTintedScaffold(
+        title = if (totalCount > 0) "整理历史 (%,d)".format(totalCount) else "整理历史",
+        onBack = onBack,
+        actions = {
+            ExpressiveHeaderActionButton(
+                icon = Icons.Rounded.Inbox,
+                contentDescription = "整理队列",
+                onClick = { showQueueSheet = true },
+            )
+        },
+        headerExtra = {
+            ExpressivePillTabRow(
+                tabs = statusTabs,
+                selectedIndex = statusTabs.indexOf(statusFilter).coerceAtLeast(0),
+                onSelect = { idx -> statusFilter = statusTabs[idx] },
+                onTintedHeader = true,
+            )
+        },
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Spacer(Modifier.height(14.dp))
 
-        CinematicPanel(padding = 12.dp, cornerRadius = 16.dp, showsShadow = false, modifier = Modifier.padding(horizontal = margin)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Rounded.Search, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
-                Box(modifier = Modifier.weight(1f)) {
-                    if (search.isEmpty()) Text("搜索片名或路径", color = colors.textMuted, fontSize = 14.sp)
-                    BasicTextField(
-                        value = search,
-                        onValueChange = { search = it },
-                        singleLine = true,
-                        textStyle = TextStyle(color = colors.textPrimary, fontSize = 14.sp),
-                        cursorBrush = SolidColor(colors.accent),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+            CinematicPanel(padding = 12.dp, cornerRadius = 20.dp, showsShadow = false, modifier = Modifier.padding(horizontal = margin)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Rounded.Search, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (search.isEmpty()) Text("搜索片名或路径", color = colors.textMuted, fontSize = 14.sp)
+                        BasicTextField(
+                            value = search,
+                            onValueChange = { search = it },
+                            singleLine = true,
+                            textStyle = TextStyle(color = colors.textPrimary, fontSize = 14.sp),
+                            cursorBrush = SolidColor(colors.accent),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
             }
-        }
 
-        Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(12.dp))
 
-        val statusTabs = listOf("全部", "成功", "失败")
-        NativeSegmentedControl(
-            options = statusTabs,
-            selectedIndex = statusTabs.indexOf(statusFilter).coerceAtLeast(0),
-            onSelect = { idx -> statusFilter = statusTabs[idx] },
-            modifier = Modifier.padding(horizontal = margin),
-        )
-
-        Spacer(Modifier.height(12.dp))
-
-        LazyColumn(
-            contentPadding = PaddingValues(start = margin, end = margin, bottom = 132.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.weight(1f),
-        ) {
-            items(filtered, key = { it.id }) { rec ->
-                CinematicPanel(
-                    padding = 14.dp,
-                    cornerRadius = 22.dp,
-                    showsShadow = false,
-                    modifier = Modifier.combinedClickable(
-                        onClick = { retransferTarget = rec },
-                        onLongClick = { deleteTarget = rec },
-                    ),
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    isRefreshing = true
+                    scope.launch { reloadHistory() }
+                },
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            ) {
+                LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(start = margin, end = margin, bottom = 64.dp + bottomOverlayInset),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize(),
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        // 顶部：2:3 封面 + 片名季集 + 成功/失败状态胶囊 + 模式/体积/时间
-                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Box(
-                                modifier = Modifier
-                                    .width(54.dp)
-                                    .aspectRatio(2f / 3f)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(colors.chipFill),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(Icons.Rounded.Movie, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(22.dp))
-                                if (!rec.image.isNullOrBlank()) {
-                                    AsyncImage(model = rec.image, contentDescription = rec.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                                }
-                            }
-                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    val fullTitle = listOfNotNull(
-                                        rec.title,
-                                        rec.seasons.ifBlank { null },
-                                        rec.episodes.ifBlank { null },
-                                    ).joinToString(" ")
-                                    Text(fullTitle, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                    Spacer(Modifier.width(8.dp))
-                                    NativeAdaptiveBadge(if (rec.status) "成功" else "失败", tint = if (rec.status) colors.success else colors.danger)
-                                }
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    NativeAdaptiveBadge(formatTransferMode(rec.mode), tint = colors.accent)
-                                    val meta = buildList {
-                                        if (rec.sizeBytes > 0L) add(formatFileSize(rec.sizeBytes))
-                                        if (rec.date.isNotBlank()) add(rec.date.take(16))
-                                    }.joinToString(" · ")
-                                    if (meta.isNotBlank()) {
-                                        Text(meta, color = colors.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    items(filtered, key = { it.id }) { rec ->
+                        var rowMenuOpen by remember { mutableStateOf(false) }
+                        CinematicPanel(
+                            padding = 14.dp,
+                            cornerRadius = 22.dp,
+                            showsShadow = false,
+                            modifier = Modifier.combinedClickable(
+                                onClick = { retransferTarget = rec },
+                                onLongClick = { deleteTarget = rec },
+                            ),
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                // 顶部：2:3 封面 + 片名季集 + 成功/失败状态胶囊 + 显式 `⋮` 更多菜单
+                                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(54.dp)
+                                            .aspectRatio(2f / 3f)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(colors.chipFill),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(Icons.Rounded.Movie, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(22.dp))
+                                        if (!rec.image.isNullOrBlank()) {
+                                            AsyncImage(model = rec.image, contentDescription = rec.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                        }
+                                    }
+                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                            val fullTitle = listOfNotNull(
+                                                rec.title,
+                                                rec.seasons.ifBlank { null },
+                                                rec.episodes.ifBlank { null },
+                                            ).joinToString(" ")
+                                            Text(fullTitle, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                            Spacer(Modifier.width(6.dp))
+                                            NativeAdaptiveBadge(if (rec.status) "成功" else "失败", tint = if (rec.status) colors.success else colors.danger)
+                                            Box {
+                                                IconButton(onClick = { rowMenuOpen = true }, modifier = Modifier.size(28.dp)) {
+                                                    Icon(Icons.Rounded.MoreVert, contentDescription = "更多操作", tint = colors.textMuted, modifier = Modifier.size(18.dp))
+                                                }
+                                                DropdownMenu(expanded = rowMenuOpen, onDismissRequest = { rowMenuOpen = false }) {
+                                                    DropdownMenuItem(
+                                                        text = { Text("重新手动识别整理") },
+                                                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.DriveFileMove, contentDescription = null) },
+                                                        onClick = {
+                                                            rowMenuOpen = false
+                                                            retransferTarget = rec
+                                                        },
+                                                    )
+                                                    DropdownMenuItem(
+                                                        text = { Text("删除记录…", color = colors.danger) },
+                                                        leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = colors.danger) },
+                                                        onClick = {
+                                                            rowMenuOpen = false
+                                                            deleteTarget = rec
+                                                        },
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            NativeAdaptiveBadge(formatTransferMode(rec.mode), tint = colors.accent)
+                                            val meta = buildList {
+                                                if (rec.sizeBytes > 0L) add(formatFileSize(rec.sizeBytes))
+                                                if (rec.date.isNotBlank()) add(rec.date.take(16))
+                                            }.joinToString(" · ")
+                                            if (meta.isNotBlank()) {
+                                                Text(meta, color = colors.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                        }
+                                        if (!rec.status && !rec.errmsg.isNullOrBlank()) {
+                                            Text(rec.errmsg!!, color = colors.danger, fontSize = 11.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        }
                                     }
                                 }
-                            }
-                        }
 
-                        // 链式源 → 目标路径暗透子卡（1:1 复刻 iOS `○──●  SMB网络共享 ...`）
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Color.Black.copy(alpha = if (colors.isDark) 0.22f else 0.05f))
-                                .border(0.6.dp, colors.chipBorder, RoundedCornerShape(14.dp))
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Box(modifier = Modifier.size(7.dp).border(1.4.dp, colors.textMuted, CircleShape))
-                                Box(modifier = Modifier.width(1.2.dp).height(14.dp).background(colors.divider))
-                                Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(colors.accent))
-                            }
-                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    StorageTag(storageLabel(rec.srcStorage))
-                                    Text(rec.src.substringAfterLast('/'), color = colors.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                }
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    StorageTag(storageLabel(rec.destStorage))
-                                    Text(rec.dest.substringAfterLast('/'), color = colors.textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                // 链式源 → 目标路径暗透子卡（带真实存储品牌 Logo）
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(Color.Black.copy(alpha = if (colors.isDark) 0.22f else 0.05f))
+                                        .border(0.6.dp, colors.chipBorder, RoundedCornerShape(14.dp))
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Box(modifier = Modifier.size(7.dp).border(1.4.dp, colors.textMuted, CircleShape))
+                                        Box(modifier = Modifier.width(1.2.dp).height(14.dp).background(colors.divider))
+                                        Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(colors.accent))
+                                    }
+                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            StorageTag(rec.srcStorage)
+                                            Text(rec.src.substringAfterLast('/'), color = colors.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                        }
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            StorageTag(rec.destStorage)
+                                            Text(rec.dest.substringAfterLast('/'), color = colors.textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1159,29 +1244,62 @@ fun TransferHistoryScreen(
             onCompleted = { msg ->
                 retransferTarget = null
                 scope.launch {
-                    val (total, fetched) = repository.fetchTransferHistory(search)
-                    totalCount = total
-                    records = fetched
+                    reloadHistory()
                     snackbar?.showSnackbar(msg)
                 }
             },
         )
     }
 
+    // 4 种删除模式全部真实对接 `DELETE /api/v1/history/transfer?deletesrc=...&deletedest=...`
     deleteTarget?.let { rec ->
-        NativeGlassSheet(onDismissRequest = { deleteTarget = null }) {
+        val deleteModes = listOf(
+            Triple("仅删除记录", false, false),
+            Triple("删除记录与源文件", true, false),
+            Triple("删除记录与媒体库目标文件", false, true),
+            Triple("同时删除记录、源与目标文件", true, true),
+        )
+        NativeGlassSheet(onDismissRequest = { if (!isDeleting) deleteTarget = null }) {
             Column(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("删除整理记录：${rec.title}", color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                listOf("仅删除记录", "删除记录与源文件", "删除记录与媒体库目标文件", "同时删除记录、源与目标文件").forEach { option ->
+                Text("操作将同步至 MoviePilot 服务端，请谨慎选择是否连带清理磁盘/网盘文件。", color = colors.textMuted, fontSize = 12.sp)
+                deleteModes.forEach { (optionLabel, deleteSrc, deleteDest) ->
                     CinematicPanel(
                         padding = 14.dp,
                         showsShadow = false,
-                        modifier = Modifier.combinedClickable(onClick = {
-                            records = records.filterNot { it.id == rec.id }
-                            deleteTarget = null
-                        }),
+                        modifier = Modifier.clickable(enabled = !isDeleting) {
+                            isDeleting = true
+                            scope.launch {
+                                val (ok, msg) = repository.deleteTransferHistory(
+                                    record = rec,
+                                    deleteSrc = deleteSrc,
+                                    deleteDest = deleteDest,
+                                )
+                                isDeleting = false
+                                if (ok) {
+                                    records = records.filterNot { it.id == rec.id }
+                                    totalCount = (totalCount - 1).coerceAtLeast(0)
+                                    deleteTarget = null
+                                }
+                                snackbar?.showSnackbar(msg)
+                            }
+                        },
                     ) {
-                        Text(option, color = if (option.contains("同时")) colors.danger else colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = optionLabel,
+                                color = if (deleteSrc && deleteDest) colors.danger else if (deleteSrc || deleteDest) colors.warning else colors.textPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            if (isDeleting) {
+                                CircularProgressIndicator(color = colors.accent, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                            }
+                        }
                     }
                 }
                 Spacer(Modifier.height(20.dp))
@@ -1191,15 +1309,23 @@ fun TransferHistoryScreen(
 }
 
 @Composable
-private fun StorageTag(text: String) {
+private fun StorageTag(rawStorage: String) {
     val colors = LocalMoviePilotColors.current
-    Box(
+    Row(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
             .background(colors.chipFill)
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .padding(horizontal = 6.dp, vertical = 2.5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(text, color = colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        NativeEntityLogo(
+            kind = "storage",
+            value = rawStorage,
+            size = 13.dp,
+            cornerRadius = 3.dp,
+        )
+        Text(storageLabel(rawStorage), color = colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
     }
 }
 

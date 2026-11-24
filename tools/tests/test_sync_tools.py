@@ -28,13 +28,29 @@ class SyncToolsTests(unittest.TestCase):
             self.assertTrue(path.is_file(), f"缺少生成文件：{rel}")
             self.assertIn("GeneratedDesignTokens", path.read_text(encoding="utf-8"))
 
-    def test_medals_and_l10n_synced_to_android_and_harmony(self):
+    def test_medals_logos_and_l10n_synced_to_android_and_harmony(self):
         android_medals = list((ROOT / "android/app/src/main/assets/community_medals").iterdir())
         harmony_medals = list((ROOT / "harmony/entry/src/main/resources/rawfile/community_medals").iterdir())
+        harmony_logos = list((ROOT / "harmony/entry/src/main/resources/rawfile/logos").iterdir())
         self.assertEqual(len(android_medals), 73)
         self.assertEqual(len(harmony_medals), 73)
+        self.assertGreaterEqual(len(harmony_logos), 36)
         self.assertTrue((ROOT / "android/app/src/main/res/values/strings.xml").is_file())
         self.assertTrue((ROOT / "harmony/entry/src/main/resources/base/element/string.json").is_file())
+
+    def test_screenshot_gallery_links_match_files_on_disk(self):
+        import re
+
+        readme = (ROOT / "screenshots/README.md").read_text(encoding="utf-8")
+        refs = set(re.findall(r"!\[[^\]]*\]\(([^)]+)\)", readme))
+        for sub in ("ios", "android", "harmony"):
+            on_disk = {
+                f"{sub}/{p.name}"
+                for p in (ROOT / "screenshots" / sub).iterdir()
+                if p.is_file() and p.name != ".DS_Store"
+            }
+            ref_sub = {r for r in refs if r.startswith(sub + "/")}
+            self.assertEqual(ref_sub, on_disk, f"{sub} 截图引用与磁盘文件不一致")
 
 
 if __name__ == "__main__":

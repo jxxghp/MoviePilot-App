@@ -12,6 +12,9 @@ import android.net.Uri
 import android.os.Build
 import android.util.Rational
 import android.view.ViewGroup
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
@@ -93,12 +96,15 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.app.PictureInPictureModeChangedInfo
+import androidx.core.util.Consumer
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -109,12 +115,13 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import coil.ImageLoader
 import coil.compose.AsyncImage
+import coil.imageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import com.moviepilot.designsystem.ExpressiveDockAction
@@ -125,6 +132,7 @@ import com.moviepilot.designsystem.ExpressiveWavySlider
 import com.moviepilot.designsystem.LocalAppearanceStore
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeGlassSheet
+import com.moviepilot.designsystem.PlaybackPreferencesStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -189,9 +197,10 @@ private fun subtitleMimeTypeForUrl(url: String): String {
     }
 }
 
-/** 根据请求创建带同源 Authorization/Cookie 头与外挂字幕配置的 ExoPlayer 实例。 */
+/** 根据请求创建带同源 Authorization/Cookie 头、解码偏好与外挂字幕配置的 ExoPlayer 实例。 */
 @OptIn(UnstableApi::class)
 fun buildConfiguredExoPlayer(context: Context, request: MediaPlaybackRequest): ExoPlayer {
+    val prefs = PlaybackPreferencesStore(context)
     val httpFactory = DefaultHttpDataSource.Factory()
         .setAllowCrossProtocolRedirects(true)
         .setConnectTimeoutMs(15_000)
@@ -203,6 +212,12 @@ fun buildConfiguredExoPlayer(context: Context, request: MediaPlaybackRequest): E
         }
     val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
     val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+    val renderersFactory = DefaultRenderersFactory(context)
+        .setEnableDecoderFallback(true)
+        .setExtensionRendererMode(
+            if (prefs.hwDecode) DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
+            else DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER,
+        )
     val itemBuilder = MediaItem.Builder().setUri(Uri.parse(request.url))
     if (request.subtitles.isNotEmpty()) {
         val subConfigs = request.subtitles.map { sub ->
@@ -214,11 +229,27 @@ fun buildConfiguredExoPlayer(context: Context, request: MediaPlaybackRequest): E
         }
         itemBuilder.setSubtitleConfigurations(subConfigs)
     }
-    return ExoPlayer.Builder(context)
+    val defaultSpeedVal = prefs.defaultSpeed.coerceIn(0.5f, 3.0f)
+    return ExoPlayer.Builder(context, renderersFactory)
         .setMediaSourceFactory(mediaSourceFactory)
         .build()
         .apply {
             setMediaItem(itemBuilder.build())
+            playbackParameters = PlaybackParameters(defaultSpeedVal)
+            when (prefs.defaultQuality) {
+                "720p", "流畅省流" -> {
+                    trackSelectionParameters = trackSelectionParameters
+                        .buildUpon()
+                        .setMaxVideoSize(1280, 720)
+                        .build()
+                }
+                "1080p" -> {
+                    trackSelectionParameters = trackSelectionParameters
+                        .buildUpon()
+                        .setMaxVideoSize(1920, 1080)
+                        .build()
+                }
+            }
             if (request.resumePositionMs > 0L) {
                 seekTo(request.resumePositionMs)
             }
@@ -265,7 +296,7 @@ private fun rememberArtworkPlayerPalette(artworkUrl: String?): PlayerExpressiveP
         }
         val derived = withContext(Dispatchers.IO) {
             runCatching {
-                val loader = ImageLoader(context)
+                val loader = context.imageLoader
                 val req = ImageRequest.Builder(context)
                     .data(artworkUrl)
                     .size(48)
@@ -353,22 +384,36 @@ fun NativeMediaPlayerOverlay(
     onReportProgress: ((positionMs: Long, durationMs: Long, isPaused: Boolean, state: String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val hostView = LocalView.current
     val colors = LocalMoviePilotColors.current
     val playerPalette = rememberArtworkPlayerPalette(request.artworkUrl)
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val playbackPrefs = remember(context) { PlaybackPreferencesStore(context) }
 
     val ownsPlayer = sharedPlayer == null
     val exoPlayer = remember(request.url, sharedPlayer) {
         sharedPlayer ?: buildConfiguredExoPlayer(context, request)
     }
 
+    val speeds = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+    val resizeModes = listOf(
+        AspectRatioFrameLayout.RESIZE_MODE_FIT to "自适应",
+        AspectRatioFrameLayout.RESIZE_MODE_ZOOM to "铺满裁剪",
+        AspectRatioFrameLayout.RESIZE_MODE_FILL to "拉伸填充",
+    )
+
     var isPlaying by remember { mutableStateOf(true) }
     var positionMs by remember { mutableLongStateOf(request.resumePositionMs) }
     var durationMs by remember { mutableLongStateOf(1L) }
     var controlsVisible by remember { mutableStateOf(true) }
     var isLocked by remember { mutableStateOf(false) }
-    var speedIndex by remember { mutableIntStateOf(1) }
-    var resizeModeIndex by remember { mutableIntStateOf(0) }
+    var speedIndex by remember {
+        val defSpd = playbackPrefs.defaultSpeed
+        mutableIntStateOf(speeds.indexOfFirst { abs(it - defSpd) < 0.05f }.takeIf { it >= 0 } ?: 1)
+    }
+    var resizeModeIndex by remember {
+        mutableIntStateOf(playbackPrefs.defaultResizeMode.coerceIn(0, resizeModes.lastIndex))
+    }
     var shuffleEnabled by remember { mutableStateOf(false) }
     var repeatMode by remember { mutableIntStateOf(Player.REPEAT_MODE_OFF) }
     var showLyricsView by remember { mutableStateOf(false) }
@@ -378,12 +423,49 @@ fun NativeMediaPlayerOverlay(
     var hudMessage by remember { mutableStateOf<String?>(null) }
     var tracksVersion by remember { mutableIntStateOf(0) }
 
-    val speeds = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
-    val resizeModes = listOf(
-        AspectRatioFrameLayout.RESIZE_MODE_FIT to "自适应",
-        AspectRatioFrameLayout.RESIZE_MODE_ZOOM to "铺满裁剪",
-        AspectRatioFrameLayout.RESIZE_MODE_FILL to "拉伸填充",
-    )
+    val activity = context as? Activity
+    var isInPipMode by remember(activity) {
+        mutableStateOf(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) activity?.isInPictureInPictureMode == true else false)
+    }
+
+    // 锁屏状态下拦截系统返回手势并给出解锁提示；未锁屏时返回退出/最小化播放器
+    BackHandler(enabled = isLocked) {
+        controlsVisible = true
+        hudMessage = "屏幕已锁定，请先点击右侧锁图标解锁"
+    }
+    BackHandler(enabled = !isLocked) {
+        if (request.isAudio && onMinimizeToMiniBar != null) onMinimizeToMiniBar() else onClose()
+    }
+
+    // 保持屏幕常亮、监听画中画模式，并在退出播放页时自动还原窗口亮度
+    DisposableEffect(hostView, activity, request.isAudio) {
+        val prevKeepScreenOn = hostView.keepScreenOn
+        if (!request.isAudio) {
+            hostView.keepScreenOn = true
+        }
+        val compActivity = activity as? ComponentActivity
+        val pipListener = Consumer<PictureInPictureModeChangedInfo> { info ->
+            isInPipMode = info.isInPictureInPictureMode
+            if (info.isInPictureInPictureMode) {
+                showSubtitleSheet = false
+                showAudioTrackSheet = false
+                showQueueSheet = false
+            }
+        }
+        compActivity?.addOnPictureInPictureModeChangedListener(pipListener)
+        onDispose {
+            compActivity?.removeOnPictureInPictureModeChangedListener(pipListener)
+            hostView.keepScreenOn = prevKeepScreenOn
+            if (activity != null) {
+                val lp = activity.window.attributes
+                if (lp.screenBrightness >= 0f) {
+                    lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                    activity.window.attributes = lp
+                }
+            }
+        }
+    }
+
     val lrcLines = remember(request.lyricsLrc) { parseLrcLyrics(request.lyricsLrc) }
     val lrcListState = rememberLazyListState()
 
@@ -1009,6 +1091,7 @@ fun NativeMediaPlayerOverlay(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     useController = false
+                    keepScreenOn = true
                     player = exoPlayer
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1023,22 +1106,24 @@ fun NativeMediaPlayerOverlay(
             modifier = Modifier.fillMaxSize(),
         )
 
-        hudMessage?.let { msg ->
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = 66.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.72f))
-                    .padding(horizontal = 16.dp, vertical = 7.dp),
-            ) {
-                Text(msg, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        if (!isInPipMode) {
+            hudMessage?.let { msg ->
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(top = 66.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.72f))
+                        .padding(horizontal = 16.dp, vertical = 7.dp),
+                ) {
+                    Text(msg, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
 
-        // 横屏锁定/解锁纯图标按钮（居中靠右，严格仅横屏显示）
-        if (isLandscape && controlsVisible) {
+        // 横屏锁定/解锁纯图标按钮（居中靠右，严格仅横屏且非画中画显示）
+        if (!isInPipMode && isLandscape && controlsVisible) {
             Surface(
                 onClick = { isLocked = !isLocked },
                 shape = CircleShape,
@@ -1058,7 +1143,7 @@ fun NativeMediaPlayerOverlay(
             }
         }
 
-        if (controlsVisible && !isLocked) {
+        if (!isInPipMode && controlsVisible && !isLocked) {
             // 顶部栏：圆形返回 + 标题 + 右上角画中画圆钮
             Row(
                 modifier = Modifier

@@ -3,6 +3,9 @@ import {
   MoviePilotRepository,
   MpSiteItem,
   MpWorkflowItem,
+  MpWorkflowActionNode,
+  MpWorkflowFlowEdge,
+  MpWorkflowShareItem,
   formatByteSize
 } from '@moviepilot/core_rust_bridge';
 import {
@@ -10,24 +13,54 @@ import {
   NativeAdaptiveBadge,
   NativeAdaptivePill,
   NativeBackHeader,
+  HarmonyPillTabBar,
   HarmonySheetHeader,
+  HarmonyEntityLogo,
   HarmonyAppearanceStore,
   HarmonyThemeColors,
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
 
-/** 鸿蒙工作流列表 + 交互式节点画布（真实 `/api/v1/workflow/`）。 */
+interface CanvasNodeLayout {
+  id: string;
+  name: string;
+  type: string;
+  x: number;
+  y: number;
+}
+
+const NODE_CARD_W: number = 136;
+const NODE_CARD_H: number = 50;
+
+/**
+ * 鸿蒙工作流中心与交互式节点画布：
+ * - 支持真实运行（`/run`）、启停（`/start`、`/pause`）、删除（`DELETE /api/v1/workflow/{id}`）及社区工作流复用（`/workflow/fork`）；
+ * - 修复画布 `PanGesture`/`PinchGesture` 基准偏移并在拖拽时实时重绘三次贝塞尔连线。
+ */
 @Component
 export struct HarmonyWorkflowCanvasPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
+  @State private wfTabIdx: number = 0; // 0: 我的工作流, 1: 工作流广场
   @State private workflows: MpWorkflowItem[] = [];
+  @State private shares: MpWorkflowShareItem[] = [];
+  @State private activeWorkflowId: number = -1;
   @State private loading: boolean = true;
+  @State private loadingShares: boolean = false;
+  @State private busyWfId: number = -1;
+  @State private forkingId: number = -1;
+  @State private notice: string = '';
+
+  // 画布平移与缩放状态（记录起始值，杜绝跳变跑飞）
   @State private scaleVal: number = 1.0;
   @State private offsetX: number = 12;
-  @State private offsetY: number = 16;
-  @State private selectedNode: string = '获取 RSS 资源';
+  @State private offsetY: number = 18;
+  @State private selectedNode: string = '';
+  private panStartX: number = 12;
+  private panStartY: number = 18;
+  private pinchStartScale: number = 1.0;
+  private canvasReady: boolean = false;
   private settings: RenderingContextSettings = new RenderingContextSettings(true);
   private ctx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.settings);
   onBack: () => void = () => {};
@@ -40,100 +73,475 @@ export struct HarmonyWorkflowCanvasPage {
     this.loading = true;
     try {
       this.workflows = await MoviePilotRepository.shared().fetchWorkflows();
+      if (this.workflows.length > 0 && this.activeWorkflowId < 0) {
+        this.activeWorkflowId = this.workflows[0].id;
+      }
     } catch {
       this.workflows = [];
     }
     this.loading = false;
+    this.syncSelectedNodeDefault();
+    this.drawEdges();
+  }
+
+  private async loadSharesIfNeeded(): Promise<void> {
+    if (this.shares.length > 0 || this.loadingShares) { return; }
+    this.loadingShares = true;
+    try {
+      this.shares = await MoviePilotRepository.shared().fetchWorkflowShares();
+    } catch {
+      this.shares = [];
+    }
+    this.loadingShares = false;
+  }
+
+  private activeWorkflow(): MpWorkflowItem | null {
+    if (this.workflows.length === 0) { return null; }
+    const found = this.workflows.find((w: MpWorkflowItem) => w.id === this.activeWorkflowId);
+    return found ?? this.workflows[0];
+  }
+
+  private activeNodes(): CanvasNodeLayout[] {
+    const wf = this.activeWorkflow();
+    const rawActions: MpWorkflowActionNode[] = wf && wf.actions ? wf.actions : [];
+    if (rawActions.length === 0) {
+      return [
+        { id: 'n1', name: '获取 RSS 资源', type: 'FetchRssAction', x: 10, y: 24 },
+        { id: 'n2', name: '过滤与推送下载', type: 'FilterTorrentsAction', x: 184, y: 106 }
+      ];
+    }
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < rawActions.length; i++) {
+      const a = rawActions[i];
+      if (a.posX < minX) { minX = a.posX; }
+      if (a.posX > maxX) { maxX = a.posX; }
+      if (a.posY < minY) { minY = a.posY; }
+      if (a.posY > maxY) { maxY = a.posY; }
+    }
+    const spanX = maxX - minX;
+    const spanY = maxY - minY;
+    const out: CanvasNodeLayout[] = [];
+    for (let i = 0; i < rawActions.length; i++) {
+      const a = rawActions[i];
+      let nx: number;
+      let ny: number;
+      if (spanX > 1 || spanY > 1) {
+        nx = 8 + (spanX > 1 ? ((a.posX - minX) / spanX) * 186 : (i % 2) * 168);
+        ny = 14 + (spanY > 1 ? ((a.posY - minY) / spanY) * 124 : Math.floor(i / 2) * 66);
+      } else {
+        nx = 8 + (i % 2) * 172;
+        ny = 16 + Math.floor(i / 2) * 68;
+      }
+      out.push({
+        id: a.id || `act_${i}`,
+        name: a.name || a.type || `节点 ${i + 1}`,
+        type: a.type || 'Action',
+        x: Math.round(nx),
+        y: Math.round(ny)
+      });
+    }
+    return out;
+  }
+
+  private activeEdges(nodes: CanvasNodeLayout[]): MpWorkflowFlowEdge[] {
+    const wf = this.activeWorkflow();
+    if (wf && wf.flows && wf.flows.length > 0) {
+      return wf.flows;
+    }
+    const fallback: MpWorkflowFlowEdge[] = [];
+    for (let i = 0; i + 1 < nodes.length; i++) {
+      fallback.push({
+        id: `e_${i}`,
+        source: nodes[i].id,
+        target: nodes[i + 1].id
+      });
+    }
+    return fallback;
+  }
+
+  private syncSelectedNodeDefault(): void {
+    const nodes = this.activeNodes();
+    if (nodes.length > 0 && this.selectedNode.length === 0) {
+      this.selectedNode = nodes[0].name;
+    }
   }
 
   private drawEdges(): void {
-    this.ctx.clearRect(0, 0, 360, 220);
+    if (!this.canvasReady) { return; }
+    this.ctx.clearRect(0, 0, 1200, 600);
+    const nodes = this.activeNodes();
+    const edges = this.activeEdges(nodes);
     this.ctx.strokeStyle = this.accentHex;
-    this.ctx.lineWidth = 3;
-    this.ctx.beginPath();
-    this.ctx.moveTo(155, 62);
-    this.ctx.bezierCurveTo(185, 62, 185, 132, 200, 132);
-    this.ctx.stroke();
+    this.ctx.lineWidth = 2.6;
+    this.ctx.lineCap = 'round';
+
+    for (let i = 0; i < edges.length; i++) {
+      const edge = edges[i];
+      const src = nodes.find((n: CanvasNodeLayout) => n.id === edge.source);
+      const dst = nodes.find((n: CanvasNodeLayout) => n.id === edge.target);
+      if (!src || !dst) { continue; }
+      const x1 = src.x + this.offsetX + NODE_CARD_W;
+      const y1 = src.y + this.offsetY + NODE_CARD_H * 0.5;
+      const x2 = dst.x + this.offsetX;
+      const y2 = dst.y + this.offsetY + NODE_CARD_H * 0.5;
+      const ctrlSpan = Math.max(28, Math.abs(x2 - x1) * 0.5);
+      this.ctx.beginPath();
+      this.ctx.moveTo(x1, y1);
+      this.ctx.bezierCurveTo(x1 + ctrlSpan, y1, x2 - ctrlSpan, y2, x2, y2);
+      this.ctx.stroke();
+
+      // 终点锚点圆点
+      this.ctx.fillStyle = this.accentHex;
+      this.ctx.beginPath();
+      this.ctx.arc(x2, y2, 3.4, 0, Math.PI * 2);
+      this.ctx.fill();
+    }
+  }
+
+  private isPaused(wf: MpWorkflowItem): boolean {
+    const st = (wf.state || '').toUpperCase();
+    return st === 'P' || st === 'PAUSE' || st === 'S' || st === 'STOP';
+  }
+
+  private async handleRun(wf: MpWorkflowItem): Promise<void> {
+    if (this.busyWfId === wf.id) { return; }
+    this.busyWfId = wf.id;
+    const ok = await MoviePilotRepository.shared().runWorkflow(wf.id);
+    this.busyWfId = -1;
+    this.notice = ok ? `已触发执行工作流「${wf.name}」` : '执行工作流失败';
+    if (ok) { await this.loadWorkflows(); }
+  }
+
+  private async handleToggleState(wf: MpWorkflowItem): Promise<void> {
+    if (this.busyWfId === wf.id) { return; }
+    this.busyWfId = wf.id;
+    const paused = this.isPaused(wf);
+    const ok = paused
+      ? await MoviePilotRepository.shared().startWorkflow(wf.id)
+      : await MoviePilotRepository.shared().pauseWorkflow(wf.id);
+    this.busyWfId = -1;
+    this.notice = ok ? (paused ? `已启用「${wf.name}」` : `已暂停「${wf.name}」`) : '切换工作流状态失败';
+    if (ok) { await this.loadWorkflows(); }
+  }
+
+  private confirmDeleteWorkflow(wf: MpWorkflowItem): void {
+    this.getUIContext().showAlertDialog({
+      title: '删除工作流',
+      message: `确定要删除工作流「${wf.name}」吗？此操作不可撤销。`,
+      autoCancel: true,
+      primaryButton: {
+        value: '取消',
+        action: () => {}
+      },
+      secondaryButton: {
+        value: '确认删除',
+        fontColor: '#E84855',
+        action: () => {
+          this.executeDeleteWorkflow(wf);
+        }
+      }
+    });
+  }
+
+  private async executeDeleteWorkflow(wf: MpWorkflowItem): Promise<void> {
+    this.busyWfId = wf.id;
+    const ok = await MoviePilotRepository.shared().deleteWorkflow(wf.id);
+    this.busyWfId = -1;
+    this.notice = ok ? `已删除工作流「${wf.name}」` : '删除工作流失败';
+    if (ok) {
+      if (this.activeWorkflowId === wf.id) {
+        this.activeWorkflowId = -1;
+      }
+      await this.loadWorkflows();
+    }
+  }
+
+  private async handleForkShare(sh: MpWorkflowShareItem): Promise<void> {
+    if (this.forkingId === sh.id) { return; }
+    this.forkingId = sh.id;
+    const ok = await MoviePilotRepository.shared().forkWorkflow(sh);
+    this.forkingId = -1;
+    this.notice = ok ? `已复用工作流「${sh.shareTitle || sh.name}」` : '复用工作流失败';
+    if (ok) {
+      await this.loadWorkflows();
+    }
   }
 
   build() {
-    Column({ space: 12 }) {
+    Column({ space: 10 }) {
       NativeBackHeader({
         title: `工作流 (${this.workflows.length})`,
-        trailingText: `${Math.round(this.scaleVal * 100)}%`,
-        onBack: () => this.onBack()
+        trailingSymbol: 'sys.symbol.arrow_clockwise',
+        trailingAccessibility: '刷新工作流',
+        onBack: () => this.onBack(),
+        onTrailingClick: () => {
+          if (this.wfTabIdx === 0) {
+            this.loadWorkflows();
+          } else {
+            this.shares = [];
+            this.loadSharesIfNeeded();
+          }
+        }
       })
 
-      Scroll() {
-        Column({ space: 12 }) {
-          if (this.workflows.length > 0) {
-            ForEach(this.workflows, (wf: MpWorkflowItem) => {
-              CinematicPanel({ panelPadding: 14, cornerRadius: 18 }) {
+      HarmonyPillTabBar({
+        tabs: [`我的工作流 (${this.workflows.length})`, '工作流广场'],
+        selectedIndex: this.wfTabIdx,
+        onSelect: (idx: number) => {
+          this.wfTabIdx = idx;
+          if (idx === 1) {
+            this.loadSharesIfNeeded();
+          }
+        }
+      })
+
+      if (this.notice.length > 0) {
+        Text(this.notice).fontSize(12).fontColor('#34C759').padding({ left: 16, right: 16 }).width('100%')
+      }
+
+      if (this.wfTabIdx === 0) {
+        Scroll() {
+          Column({ space: 12 }) {
+            if (this.loading && this.workflows.length === 0) {
+              Column() { LoadingProgress().width(32).height(32).color(this.accentHex) }
+                .width('100%').height(140).justifyContent(FlexAlign.Center)
+            } else if (this.workflows.length === 0) {
+              CinematicPanel({ panelPadding: 22, cornerRadius: 18 }) {
                 Column({ space: 6 }) {
-                  Row() {
-                    Text(wf.name).fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
-                    NativeAdaptiveBadge({ text: `${wf.actionCount} 节点`, tintHex: this.accentHex })
-                  }.width('100%')
-                  if (wf.description.length > 0) {
-                    Text(wf.description).fontSize(12).fontColor(mpSecondaryText(this.isDark)).maxLines(2).width('100%')
-                  }
-                  if (wf.timer.length > 0) {
-                    Text(`定时：${RustCoreBridge.analyzeCron(wf.timer).descriptionZh}`).fontSize(11).fontColor(this.accentHex).width('100%')
-                  }
-                }
+                  Text('暂无已配置工作流').fontSize(14.5).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                  Text('可切至「工作流广场」一键复用社区自动化模板。').fontSize(12).fontColor(mpSecondaryText(this.isDark))
+                }.width('100%').alignItems(HorizontalAlign.Center)
               }
-            }, (wf: MpWorkflowItem) => String(wf.id))
-          }
+            } else {
+              ForEach(this.workflows, (wf: MpWorkflowItem) => {
+                CinematicPanel({ panelPadding: 14, cornerRadius: 18 }) {
+                  Column({ space: 8 }) {
+                    Row({ space: 8 }) {
+                      Text(wf.name)
+                        .fontSize(15)
+                        .fontWeight(FontWeight.Bold)
+                        .fontColor(mpPrimaryText(this.isDark))
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                        .layoutWeight(1)
+                      NativeAdaptiveBadge({
+                        text: this.isPaused(wf) ? '已暂停' : '已启用',
+                        tintHex: this.isPaused(wf) ? '#F29B38' : '#34C759'
+                      })
+                      NativeAdaptiveBadge({ text: `${wf.actionCount} 节点`, tintHex: this.accentHex })
+                    }.width('100%')
 
-          CinematicPanel({ panelPadding: 14, cornerRadius: 20 }) {
-            Column({ space: 8 }) {
-              Text('交互式节点画布（双指缩放 / 拖拽）').fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark)).width('100%')
-              Stack({ alignContent: Alignment.TopStart }) {
-                Canvas(this.ctx).width('100%').height(210).onReady(() => this.drawEdges())
-                Column({ space: 4 }) {
-                  Text('● 获取 RSS 资源').fontSize(12).fontWeight(FontWeight.Bold).fontColor(Color.White)
-                  Text('FetchRssAction').fontSize(10).fontColor('#CCFFFFFF')
-                }
-                .width(142).padding(10).borderRadius(12)
-                .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, 'B8'))
-                .border({ width: 1.1, color: this.accentHex, radius: 12 })
-                .position({ x: 8 + this.offsetX, y: 28 + this.offsetY })
-                .onClick(() => { this.selectedNode = '获取 RSS 资源'; })
+                    if (wf.description.length > 0) {
+                      Text(wf.description).fontSize(12).fontColor(mpSecondaryText(this.isDark)).maxLines(2).width('100%')
+                    }
+                    Row({ space: 8 }) {
+                      if (wf.timer.length > 0) {
+                        Text(`定时：${RustCoreBridge.analyzeCron(wf.timer).descriptionZh}`)
+                          .fontSize(11.5).fontColor(this.accentHex)
+                      }
+                      if (wf.runCount > 0) {
+                        Text(`已执行 ${wf.runCount} 次`).fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                      }
+                    }.width('100%')
 
-                Column({ space: 4 }) {
-                  Text('● 过滤资源').fontSize(12).fontWeight(FontWeight.Bold).fontColor(Color.White)
-                  Text('FilterTorrentsAction').fontSize(10).fontColor('#CCFFFFFF')
+                    Row({ space: 8 }) {
+                      Row({ space: 4 }) {
+                        SymbolGlyph($r('sys.symbol.play_fill')).fontSize(12).fontColor([Color.White])
+                        Text('运行').fontSize(12).fontWeight(FontWeight.Bold).fontColor(Color.White)
+                      }
+                      .padding({ left: 10, right: 12, top: 6, bottom: 6 })
+                      .borderRadius(14)
+                      .backgroundColor(this.accentHex)
+                      .opacity(this.busyWfId === wf.id ? 0.6 : 1)
+                      .onClick(() => { this.handleRun(wf); })
+
+                      Row({ space: 4 }) {
+                        SymbolGlyph($r(this.isPaused(wf) ? 'sys.symbol.play_fill' : 'sys.symbol.pause_fill'))
+                          .fontSize(12).fontColor([mpPrimaryText(this.isDark)])
+                        Text(this.isPaused(wf) ? '启用' : '暂停')
+                          .fontSize(12).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                      }
+                      .padding({ left: 10, right: 12, top: 6, bottom: 6 })
+                      .borderRadius(14)
+                      .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                      .onClick(() => { this.handleToggleState(wf); })
+
+                      NativeAdaptivePill({
+                        title: '画布',
+                        selected: (this.activeWorkflow()?.id ?? -1) === wf.id,
+                        onTap: () => {
+                          this.activeWorkflowId = wf.id;
+                          this.offsetX = 12;
+                          this.offsetY = 18;
+                          this.scaleVal = 1.0;
+                          const nodes = this.activeNodes();
+                          this.selectedNode = nodes.length > 0 ? nodes[0].name : '';
+                          this.drawEdges();
+                        }
+                      })
+
+                      Blank()
+
+                      Button({ type: ButtonType.Circle }) {
+                        SymbolGlyph($r('sys.symbol.trash')).fontSize(14).fontColor(['#E84855'])
+                      }
+                      .width(32).height(32)
+                      .backgroundColor(HarmonyThemeColors.softDangerBg(this.isDark))
+                      .accessibilityText('删除工作流')
+                      .onClick(() => this.confirmDeleteWorkflow(wf))
+                    }.width('100%')
+                  }
                 }
-                .width(142).padding(10).borderRadius(12).backgroundColor('#B81B2230')
-                .border({ width: 0.8, color: '#33FFFFFF', radius: 12 })
-                .position({ x: 168 + this.offsetX, y: 102 + this.offsetY })
-                .onClick(() => { this.selectedNode = '过滤资源'; })
-              }
-              .width('100%')
-              .height(210)
-              .scale({ x: this.scaleVal, y: this.scaleVal })
-              .gesture(
-                GestureGroup(GestureMode.Parallel,
-                  PanGesture().onActionUpdate((ev: GestureEvent) => {
-                    this.offsetX = Math.max(-40, Math.min(40, ev.offsetX * 0.4));
-                    this.offsetY = Math.max(-20, Math.min(20, ev.offsetY * 0.4));
-                  }),
-                  PinchGesture().onActionUpdate((ev: GestureEvent) => {
-                    this.scaleVal = Math.max(0.7, Math.min(1.5, ev.scale));
-                  })
-                )
-              )
-              Text(`当前选中节点：${this.selectedNode}`).fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
+              }, (wf: MpWorkflowItem) => `${wf.id}_${wf.state}_${wf.runCount}`)
             }
-          }
-        }.padding({ left: 16, right: 16, bottom: 40 })
-      }.scrollBar(BarState.Off).layoutWeight(1)
+
+            // 交互式工作流节点画布
+            CinematicPanel({ panelPadding: 14, cornerRadius: 20 }) {
+              Column({ space: 8 }) {
+                Row() {
+                  Text(`节点拓扑画布${this.activeWorkflow() ? ' · ' + (this.activeWorkflow()?.name ?? '') : ''}`)
+                    .fontSize(14).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                  Text(`${Math.round(this.scaleVal * 100)}% · 重置`)
+                    .fontSize(12).fontColor(this.accentHex)
+                    .onClick(() => {
+                      this.scaleVal = 1.0;
+                      this.offsetX = 12;
+                      this.offsetY = 18;
+                      this.drawEdges();
+                    })
+                }.width('100%')
+
+                Stack({ alignContent: Alignment.TopStart }) {
+                  Canvas(this.ctx)
+                    .width('100%')
+                    .height(220)
+                    .onReady(() => {
+                      this.canvasReady = true;
+                      this.drawEdges();
+                    })
+
+                  ForEach(this.activeNodes(), (nd: CanvasNodeLayout) => {
+                    Column({ space: 3 }) {
+                      Text(`● ${nd.name}`)
+                        .fontSize(11.5)
+                        .fontWeight(FontWeight.Bold)
+                        .fontColor(Color.White)
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      Text(nd.type)
+                        .fontSize(9.5)
+                        .fontColor('#CCFFFFFF')
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    }
+                    .width(NODE_CARD_W)
+                    .height(NODE_CARD_H)
+                    .padding({ left: 10, right: 10, top: 7, bottom: 7 })
+                    .justifyContent(FlexAlign.Center)
+                    .alignItems(HorizontalAlign.Start)
+                    .borderRadius(12)
+                    .backgroundColor(this.selectedNode === nd.name
+                      ? HarmonyAppearanceStore.withAlpha(this.accentHex, 'C8')
+                      : '#CC1B2230')
+                    .border({
+                      width: this.selectedNode === nd.name ? 1.2 : 0.8,
+                      color: this.selectedNode === nd.name ? this.accentHex : '#38FFFFFF',
+                      radius: 12
+                    })
+                    .position({ x: nd.x + this.offsetX, y: nd.y + this.offsetY })
+                    .onClick(() => { this.selectedNode = nd.name; })
+                  }, (nd: CanvasNodeLayout) => nd.id)
+                }
+                .width('100%')
+                .height(220)
+                .clip(true)
+                .borderRadius(14)
+                .backgroundColor(this.isDark ? '#14FFFFFF' : '#0A000000')
+                .scale({ x: this.scaleVal, y: this.scaleVal })
+                .gesture(
+                  GestureGroup(GestureMode.Parallel,
+                    PanGesture()
+                      .onActionStart(() => {
+                        this.panStartX = this.offsetX;
+                        this.panStartY = this.offsetY;
+                      })
+                      .onActionUpdate((ev: GestureEvent) => {
+                        this.offsetX = Math.max(-160, Math.min(160, Math.round(this.panStartX + ev.offsetX)));
+                        this.offsetY = Math.max(-90, Math.min(90, Math.round(this.panStartY + ev.offsetY)));
+                        this.drawEdges();
+                      }),
+                    PinchGesture()
+                      .onActionStart(() => {
+                        this.pinchStartScale = this.scaleVal;
+                      })
+                      .onActionUpdate((ev: GestureEvent) => {
+                        this.scaleVal = Math.max(0.65, Math.min(1.6, this.pinchStartScale * ev.scale));
+                        this.drawEdges();
+                      })
+                  )
+                )
+
+                Text(this.selectedNode.length > 0 ? `当前选中节点：${this.selectedNode}（支持单指拖拽与双指缩放）` : '支持单指拖拽画布与双指缩放')
+                  .fontSize(11.5)
+                  .fontColor(mpSecondaryText(this.isDark))
+                  .width('100%')
+              }
+            }
+          }.padding({ left: 16, right: 16, bottom: 44 })
+        }.scrollBar(BarState.Off).layoutWeight(1)
+      } else {
+        if (this.loadingShares) {
+          Column() { LoadingProgress().width(32).height(32).color(this.accentHex) }
+            .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+        } else if (this.shares.length === 0) {
+          Column({ space: 8 }) {
+            SymbolGlyph($r('sys.symbol.share')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
+            Text('暂无社区共享工作流').fontSize(14).fontColor(mpSecondaryText(this.isDark))
+          }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+        } else {
+          Scroll() {
+            Column({ space: 10 }) {
+              ForEach(this.shares, (sh: MpWorkflowShareItem) => {
+                CinematicPanel({ panelPadding: 14, cornerRadius: 18 }) {
+                  Column({ space: 6 }) {
+                    Row({ space: 8 }) {
+                      Text(sh.shareTitle || sh.name)
+                        .fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+                      NativeAdaptiveBadge({ text: `${sh.count} 复用`, tintHex: this.accentHex })
+                    }.width('100%')
+
+                    if (sh.shareComment.length > 0) {
+                      Text(sh.shareComment)
+                        .fontSize(12).fontColor(mpSecondaryText(this.isDark)).maxLines(2).width('100%')
+                    }
+
+                    Row({ space: 8 }) {
+                      Text(`分享者：${sh.shareUser || '社区用户'}`)
+                        .fontSize(11.5).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
+                      Button(this.forkingId === sh.id ? '复用中…' : '复用工作流')
+                        .height(30).padding({ left: 12, right: 12 }).borderRadius(15)
+                        .fontSize(12).fontWeight(FontWeight.Bold)
+                        .backgroundColor(this.accentHex).fontColor(Color.White)
+                        .enabled(this.forkingId !== sh.id)
+                        .onClick(() => { this.handleForkShare(sh); })
+                    }.width('100%')
+                  }
+                }
+              }, (sh: MpWorkflowShareItem) => `${sh.id}_${sh.count}`)
+            }.padding({ left: 16, right: 16, bottom: 44 })
+          }.scrollBar(BarState.Off).layoutWeight(1)
+        }
+      }
     }.width('100%').height('100%')
   }
 }
 
 /**
- * 鸿蒙「站点管理」页（支持完整新增、编辑、删除、连通测试与双向流量展示）。
+ * 鸿蒙「站点管理」页（搭载真实 `/api/v1/site/icon/{id}` 图标与精确 0 字节双向流量比例条）。
  */
 @Component
 export struct HarmonySitesPage {
@@ -163,7 +571,6 @@ export struct HarmonySitesPage {
   @State private edProxy: boolean = false;
   @State private edRender: boolean = false;
   @State private saving: boolean = false;
-  @State private showDeleteConfirm: boolean = false;
 
   onBack: () => void = () => {};
 
@@ -246,10 +653,75 @@ export struct HarmonySitesPage {
     if (ok) { await this.loadSites(); }
   }
 
-  private uploadWeight(s: MpSiteItem): number {
+  private confirmDeleteCurrentSite(): void {
+    const targetId = this.edId;
+    const targetName = this.edName;
+    this.getUIContext().showAlertDialog({
+      title: '确认删除站点',
+      message: `确定要删除站点「${targetName}」吗？`,
+      autoCancel: true,
+      primaryButton: {
+        value: '取消',
+        action: () => {}
+      },
+      secondaryButton: {
+        value: '确认删除',
+        fontColor: '#E84855',
+        action: () => {
+          this.executeDeleteSite(targetId, targetName);
+        }
+      }
+    });
+  }
+
+  private async executeDeleteSite(siteId: number, siteName: string): Promise<void> {
+    this.showEditor = false;
+    const ok = await MoviePilotRepository.shared().deleteSite(siteId);
+    this.notice = ok ? `已删除站点「${siteName}」` : '删除站点失败';
+    await this.loadSites();
+  }
+
+  private proportionalUploadPct(s: MpSiteItem): number {
     const total = s.uploadBytes + s.downloadBytes;
-    if (total <= 0) { return 50; }
-    return Math.max(6, Math.min(94, Math.round((s.uploadBytes / total) * 100)));
+    if (total <= 0) { return 0; }
+    return Math.max(2, Math.min(98, Math.round((s.uploadBytes / total) * 100)));
+  }
+
+  @Builder
+  trafficBarBuilder(s: MpSiteItem) {
+    if (s.uploadBytes <= 0 && s.downloadBytes <= 0) {
+      // 0 B 上传且 0 B 下载：渲染 0% 纯中性空槽，绝不伪造绿/粉假条
+      Column()
+        .width('100%')
+        .height(5)
+        .borderRadius(3)
+        .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+    } else if (s.uploadBytes > 0 && s.downloadBytes <= 0) {
+      Column()
+        .width('100%')
+        .height(5)
+        .borderRadius(3)
+        .backgroundColor('#34C759')
+    } else if (s.uploadBytes <= 0 && s.downloadBytes > 0) {
+      Column()
+        .width('100%')
+        .height(5)
+        .borderRadius(3)
+        .backgroundColor('#EE6896')
+    } else {
+      Row({ space: 3 }) {
+        Column()
+          .height(5)
+          .borderRadius(3)
+          .backgroundColor('#34C759')
+          .layoutWeight(this.proportionalUploadPct(s))
+        Column()
+          .height(5)
+          .borderRadius(3)
+          .backgroundColor('#EE6896')
+          .layoutWeight(100 - this.proportionalUploadPct(s))
+      }.width('100%')
+    }
   }
 
   @Builder
@@ -267,7 +739,17 @@ export struct HarmonySitesPage {
             if (s) { this.openEditSite(s); }
           }
         })
-        Text(this.selectedSite.domain).fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
+        Row({ space: 10 }) {
+          HarmonyEntityLogo({
+            kind: 'site',
+            value: this.selectedSite.name,
+            dataUri: this.selectedSite.iconDataUri,
+            logoSize: 28,
+            cornerRadius: 7
+          })
+          Text(this.selectedSite.domain).fontSize(12.5).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
+        }.width('100%')
+
         Row({ space: 10 }) {
           Column() {
             CinematicPanel({ panelPadding: 12 }) {
@@ -410,41 +892,12 @@ export struct HarmonySitesPage {
               .width('100%').height(44).borderRadius(22)
               .backgroundColor(HarmonyThemeColors.softDangerBg(this.isDark))
               .fontColor('#E84855').fontWeight(FontWeight.Bold)
-              .onClick(() => { this.showDeleteConfirm = true; })
+              .onClick(() => { this.confirmDeleteCurrentSite(); })
           }
         }.padding({ bottom: 28 })
       }.scrollBar(BarState.Off).layoutWeight(1)
     }
-    .bindSheet($$this.showDeleteConfirm, this.deleteConfirmSheetBuilder(), {
-      detents: [SheetSize.FIT_CONTENT],
-      blurStyle: BlurStyle.COMPONENT_REGULAR,
-      dragBar: true,
-        showClose: false,
-      backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
-    })
     .padding(20).width('100%').height('100%')
-  }
-
-  @Builder
-  deleteConfirmSheetBuilder() {
-    Column({ space: 16 }) {
-      Text('确认删除站点').fontSize(18).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
-      Text(`确定要删除站点「${this.edName}」吗？`).fontSize(14).fontColor(mpSecondaryText(this.isDark)).width('100%')
-      Row({ space: 12 }) {
-        Button('取消').layoutWeight(1).height(44).borderRadius(22)
-          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).fontColor(mpPrimaryText(this.isDark))
-          .onClick(() => { this.showDeleteConfirm = false; })
-        Button('确认删除').layoutWeight(1).height(44).borderRadius(22)
-          .backgroundColor('#E84855').fontColor(Color.White).fontWeight(FontWeight.Bold)
-          .onClick(async () => {
-            this.showDeleteConfirm = false;
-            this.showEditor = false;
-            const ok = await MoviePilotRepository.shared().deleteSite(this.edId);
-            this.notice = ok ? `已删除站点「${this.edName}」` : '删除站点失败';
-            await this.loadSites();
-          })
-      }.width('100%')
-    }.padding(22).width('100%')
   }
 
   build() {
@@ -471,12 +924,14 @@ export struct HarmonySitesPage {
               Column() {
                 CinematicPanel({ panelPadding: 15, cornerRadius: 20, interactive: true }) {
                   Column({ space: 8 }) {
-                    Row({ space: 8 }) {
-                      Stack() {
-                        SymbolGlyph($r('sys.symbol.worldclock')).fontSize(18).fontColor([this.accentHex])
-                      }
-                      .width(34).height(34).borderRadius(17)
-                      .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '26' : '18'))
+                    Row({ space: 10 }) {
+                      HarmonyEntityLogo({
+                        kind: 'site',
+                        value: s.name,
+                        dataUri: s.iconDataUri,
+                        logoSize: 34,
+                        cornerRadius: 9
+                      })
 
                       Column({ space: 2 }) {
                         Row({ space: 6 }) {
@@ -500,10 +955,7 @@ export struct HarmonySitesPage {
                         .fontSize(11).fontColor(mpSecondaryText(this.isDark))
                     }.width('100%')
 
-                    Row({ space: 3 }) {
-                      Column().height(5).borderRadius(3).backgroundColor('#34C759').layoutWeight(this.uploadWeight(s))
-                      Column().height(5).borderRadius(3).backgroundColor('#EE6896').layoutWeight(100 - this.uploadWeight(s))
-                    }.width('100%')
+                    this.trafficBarBuilder(s)
                   }
                 }
               }
@@ -512,8 +964,8 @@ export struct HarmonySitesPage {
                 this.selectedSite = s;
                 this.showDetail = true;
               })
-            }, (s: MpSiteItem) => `${s.id}_${s.name}_${s.isActive}`)
-          }.padding({ left: 16, right: 16, bottom: 40 })
+            }, (s: MpSiteItem) => `${s.id}_${s.name}_${s.isActive}_${s.iconDataUri.length}`)
+          }.padding({ left: 16, right: 16, bottom: 44 })
         }.scrollBar(BarState.Off).layoutWeight(1)
       }
 

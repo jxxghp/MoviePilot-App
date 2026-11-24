@@ -45,6 +45,7 @@ data class MediaCardItem(
     val popularityCount: Int = 0,
     val shareUser: String? = null,
     val shareComment: String? = null,
+    val rawJson: String = "",
 ) {
     /** 稳定业务标识。 */
     val resolvedId: String
@@ -60,6 +61,7 @@ data class ContinueWatchingItem(
     val image: String? = null,
     val percent: Int = 0,
     val server: String = "",
+    val serverType: String = "",
     val type: String = "电视剧",
     val link: String? = null,
 )
@@ -141,6 +143,7 @@ data class TransferHistoryDto(
     val destStorage: String = "local",
     val sizeBytes: Long = 0L,
     val image: String? = null,
+    val rawJson: String = "",
 )
 
 /** 多存储文件条目。 */
@@ -235,6 +238,7 @@ data class ServiceConfigDto(
     val apikey: String = "",
     val playHost: String = "",
     val switchs: List<String> = emptyList(),
+    val config: Map<String, String> = emptyMap(),
     val extraSummary: String = "",
     val rawJson: String = "",
 )
@@ -329,6 +333,7 @@ data class PluginItemDto(
     @SerialName("has_page") val hasPage: Boolean = false,
     @SerialName("has_update") val hasUpdate: Boolean = false,
     @SerialName("render_mode") val renderMode: String = "vuetify",
+    @SerialName("repo_url") val repoUrl: String = "",
 )
 
 /** 消息中心通知条目。 */
@@ -569,6 +574,7 @@ data class WorkflowShareDto(
     val shareUser: String = "",
     val count: Int = 0,
     val date: String = "",
+    val rawJson: String = "",
 )
 
 /** 整理队列任务条目。 */
@@ -656,4 +662,173 @@ data class MediaPlaybackManifestDto(
     val durationMs: Long = 0L,
     val resumePositionMs: Long = 0L,
     val headers: Map<String, String> = emptyMap(),
+)
+
+/** 订阅播映日历单日条目（对应 `GET /api/v1/subscribe/calendar`）。 */
+@Serializable
+data class CalendarEntryDto(
+    val id: String = "",
+    val subscribeId: Int = 0,
+    val title: String = "",
+    val year: String = "",
+    val type: String = "电视剧",
+    val season: Int? = null,
+    val episode: Int? = null,
+    val episodeTitle: String = "",
+    val airDate: String = "",
+    val poster: String? = null,
+    val backdrop: String? = null,
+    val voteAverage: Double = 0.0,
+    val source: String = "themoviedb",
+    val tmdbId: Int? = null,
+    val doubanId: String? = null,
+    val bangumiId: Int? = null,
+    val mediaId: String? = null,
+    val overview: String = "",
+) {
+    /** 转换为媒体详情卡片参数，以便点击日历条目直接进入影视详情页。 */
+    fun toMediaCardItem(): MediaCardItem = MediaCardItem(
+        title = title,
+        year = year,
+        type = type.ifBlank { "电视剧" },
+        overview = overview.ifBlank { episodeTitle },
+        posterPath = poster,
+        backdropPath = backdrop ?: poster,
+        voteAverage = voteAverage,
+        source = source.ifBlank { "themoviedb" },
+        tmdbId = tmdbId,
+        doubanId = doubanId,
+        bangumiId = bangumiId,
+        mediaId = mediaId,
+        releaseDate = airDate,
+    )
+}
+
+/** 系统模块健康检测条目（对应 `GET /api/v1/module/modulelist` 与 `/moduletest/{id}`）。 */
+@Serializable
+data class SystemModuleStatusDto(
+    val id: String = "",
+    val name: String = "",
+    val moduleType: String = "",
+    val subType: String = "",
+    val ok: Boolean? = null,
+    val message: String = "待检测",
+)
+
+/** 媒体名称识别结果（对应 `GET /api/v1/media/recognize`）。 */
+@Serializable
+data class RecognizeResultDto(
+    val rawTitle: String = "",
+    val cnName: String = "",
+    val enName: String = "",
+    val recognizedTitle: String = "",
+    val year: String = "",
+    val type: String = "",
+    val category: String = "",
+    val tmdbId: Int? = null,
+    val seasonEpisode: String = "",
+    val resourcePix: String = "",
+    val resourceType: String = "",
+    val videoEncode: String = "",
+    val audioEncode: String = "",
+    val resourceTeam: String = "",
+    val voteAverage: Double = 0.0,
+    val posterPath: String? = null,
+    val overview: String = "",
+) {
+    /** 转换为影视详情卡片条目。 */
+    fun toMediaCardItem(): MediaCardItem = MediaCardItem(
+        title = recognizedTitle.ifBlank { cnName.ifBlank { enName.ifBlank { rawTitle } } },
+        year = year,
+        type = type.ifBlank { "电影" },
+        overview = overview,
+        posterPath = posterPath,
+        voteAverage = voteAverage,
+        tmdbId = tmdbId,
+    )
+}
+
+/** 网络连通性检测结果（对应 `GET /api/v1/system/nettest`）。 */
+@Serializable
+data class NetTestResultDto(
+    val name: String = "",
+    val url: String = "",
+    val proxy: Boolean = false,
+    val ok: Boolean = false,
+    val latencyMs: Long? = null,
+    val message: String = "",
+)
+
+/** 渠道授权 5 分钟短效绑定码快照（对应 `/api/v1/authorization`）。 */
+@Serializable
+data class ChannelBindingCodeDto(
+    val code: String = "",
+    val expiresInSeconds: Int = 300,
+    val commandHint: String = "",
+    val createdAtEpochMs: Long = 0L,
+)
+
+/** 渠道授权绑定记录条目（对应 `/api/v1/authorization`）。 */
+@Serializable
+data class ChannelAuthRecordDto(
+    val id: String = "",
+    val channel: String = "",
+    val channelUserId: String = "",
+    val channelUsername: String = "",
+    val boundUsername: String = "",
+    val status: String = "approved", // "pending" | "approved"
+    val createdAt: String = "",
+)
+
+/** 媒体库入库与可直放状态快照（对应 `POST /api/v1/media/status` 及媒体服务器匹配）。 */
+@Serializable
+data class MediaLibraryStatusDto(
+    val inLibrary: Boolean = false,
+    val server: String = "",
+    val serverType: String = "",
+    val itemId: String = "",
+    val existingEpisodesBySeason: Map<Int, List<Int>> = emptyMap(),
+)
+
+/** 发现页内存会话快照（用于切 Tab 与详情返回时零闪烁保留滚动位置与已加载内容）。 */
+data class DiscoverSessionSnapshot(
+    val trending: List<MediaCardItem> = emptyList(),
+    val movies: List<MediaCardItem> = emptyList(),
+    val tvs: List<MediaCardItem> = emptyList(),
+    val musicAlbums: List<MusicAlbumDto> = emptyList(),
+    val showing: List<MediaCardItem> = emptyList(),
+    val top250: List<MediaCardItem> = emptyList(),
+    val continueWatching: List<ContinueWatchingItem> = emptyList(),
+    val latestItems: List<MediaCardItem> = emptyList(),
+    val libraries: List<MediaServerLibraryDto> = emptyList(),
+    val heroLogos: Map<String, String> = emptyMap(),
+)
+
+/** 探索页筛选维度内存快照。 */
+data class ExploreSessionSnapshot(
+    val items: List<MediaCardItem> = emptyList(),
+    val musicAlbums: List<MusicAlbumDto> = emptyList(),
+    val page: Int = 1,
+    val hasMore: Boolean = true,
+)
+
+/** 仪表盘内存会话快照。 */
+data class DashboardSessionSnapshot(
+    val stats: DashboardStatsDto = DashboardStatsDto(),
+    val communityProfileJson: String? = null,
+    val latestMedia: List<MediaCardItem> = emptyList(),
+    val schedules: List<ScheduledServiceDto> = emptyList(),
+    val pluginMetas: List<PluginDashboardMetaDto> = emptyList(),
+    val pluginWidgets: Map<String, String> = emptyMap(),
+)
+
+/** 工作台内存会话快照。 */
+data class WorkspaceSessionSnapshot(
+    val stats: DashboardStatsDto = DashboardStatsDto(),
+    val activeDownloads: List<DownloadTaskDto> = emptyList(),
+    val sites: List<SiteItemDto> = emptyList(),
+    val pluginsCount: Int = 0,
+    val workflows: List<WorkflowItemDto> = emptyList(),
+    val libraries: List<MediaServerLibraryDto> = emptyList(),
+    val recentTransfers: List<TransferHistoryDto> = emptyList(),
 )

@@ -1,6 +1,7 @@
 package com.moviepilot.pluginhost
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
@@ -12,7 +13,11 @@ import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -96,6 +101,35 @@ private fun JsonElement?.safeObj(): JsonObject? = this as? JsonObject
 private fun JsonElement?.safeArr(): JsonArray? = this as? JsonArray
 private fun JsonElement?.safePrim(): JsonPrimitive? = this as? JsonPrimitive
 private fun JsonObject.safeStr(key: String): String? = this[key].safePrim()?.content?.takeIf { it != "null" }
+
+/**
+ * 清空受控隔离 Vue 模块联邦 WebView 的全部会话态（Cookie、localStorage/WebStorage 与磁盘缓存）。
+ * 必须在用户主动退出登录或 401 令牌失效自动退登时调用，杜绝跨账号残留。
+ */
+fun clearIsolatedPluginWebViewSession(context: Context) {
+    runCatching {
+        val cm = CookieManager.getInstance()
+        cm.removeAllCookies(null)
+        cm.flush()
+    }
+    runCatching {
+        WebStorage.getInstance().deleteAllData()
+    }
+    val runOnMain = Runnable {
+        runCatching {
+            WebView(context.applicationContext).apply {
+                clearCache(true)
+                clearHistory()
+                destroy()
+            }
+        }
+    }
+    if (Looper.myLooper() == Looper.getMainLooper()) {
+        runOnMain.run()
+    } else {
+        Handler(Looper.getMainLooper()).post(runOnMain)
+    }
+}
 
 /** 插件 Vue 模块联邦隔离 WebView 启动配置（1:1 对齐 iOS `VuePluginLaunchConfig`）。 */
 data class VuePluginSessionPayload(
@@ -194,6 +228,44 @@ fun NativePluginFormRenderer(
         onDirtyChanged?.invoke(true)
     }
 
+    // 构造实时模型快照：每当用户修改开关或输入项时动态重算 v-if / v-show / show 表达式显隐
+    val livePatchEntries = draftValues.entries.joinToString(",") { (k, v) ->
+        val orig = initialModel[k]
+        val origPrim = orig.safePrim()
+        val jsonVal = when {
+            v == "true" || v == "false" -> v
+            (v.trim().startsWith("[") && v.trim().endsWith("]")) ||
+                (v.trim().startsWith("{") && v.trim().endsWith("}")) -> v
+            v.toLongOrNull() != null && origPrim != null && !origPrim.isString -> v
+            else -> "\"${v.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+        }
+        "\"$k\":$jsonVal"
+    }
+    val liveModelJson = remember(originalModelJson, livePatchEntries) {
+        runCatching {
+            RustCoreBridge.applyPluginPatch(originalModelJson, "{$livePatchEntries}")
+        }.getOrDefault(originalModelJson)
+    }
+    val confConditionMap = remember(rawDocObj) {
+        val confArr = rawDocObj?.get("conf").safeArr()
+            ?: rawDocObj?.get("page").safeArr()
+            ?: JsonArray(emptyList())
+        extractFieldConditionMap(confArr)
+    }
+    val liveFields = remember(rawDocObj, liveModelJson, fields) {
+        val rePlanned = runCatching {
+            if (rawDocObj != null) {
+                val liveModelObj = json.parseToJsonElement(liveModelJson).safeObj()
+                if (liveModelObj != null) {
+                    val nextDoc = rawDocObj.toMutableMap().apply { put("model", liveModelObj) }
+                    val nextPlanStr = RustCoreBridge.planPluginForm(JsonObject(nextDoc).toString())
+                    json.parseToJsonElement(nextPlanStr).safeObj()?.get("fields").safeArr()
+                } else null
+            } else null
+        }.getOrNull()
+        if (rePlanned != null && rePlanned.isNotEmpty()) rePlanned else fields
+    }
+
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = colors.textPrimary,
         unfocusedTextColor = colors.textPrimary,
@@ -207,6 +279,7 @@ fun NativePluginFormRenderer(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .imePadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -217,14 +290,29 @@ fun NativePluginFormRenderer(
             }
         }
 
-        fields.forEach { el ->
+        liveFields.forEach { el ->
             val field = el.safeObj() ?: return@forEach
             val component = field.safeStr("component") ?: return@forEach
             val key = field.safeStr("modelKey")
             val label = field.safeStr("label").orEmpty()
             val hint = field.safeStr("hint").orEmpty()
             val text = field.safeStr("text").orEmpty()
-            val visible = field["visible"].safePrim()?.booleanOrNull ?: true
+            val rawProps = field["rawProps"].safeObj()
+            val showExpr = field.safeStr("showExpr")
+                ?: field.safeStr("show")
+                ?: field.safeStr("vIf")
+                ?: field.safeStr("vShow")
+                ?: field.safeStr("condition")
+                ?: rawProps?.safeStr("show")
+                ?: rawProps?.safeStr("v-show")
+                ?: rawProps?.safeStr("v-if")
+                ?: key?.let { confConditionMap[it] }
+            val exprVisible = if (!showExpr.isNullOrBlank()) {
+                RustCoreBridge.evalFormExpression(showExpr, liveModelJson)
+            } else {
+                true
+            }
+            val visible = (field["visible"].safePrim()?.booleanOrNull ?: true) && exprVisible
             if (!visible) return@forEach
 
             when (component) {
@@ -748,12 +836,13 @@ private fun RenderApexChart(props: JsonObject) {
     val colors = LocalMoviePilotColors.current
     val options = props["options"].safeObj() ?: JsonObject(emptyMap())
     val title = options["title"].safeObj()?.safeStr("text") ?: props.safeStr("title") ?: "数据统计"
+    val chartType = (options["chart"].safeObj()?.safeStr("type") ?: props.safeStr("type") ?: "donut").lowercase()
     val labels = options["labels"].safeArr()?.mapNotNull { it.safePrim()?.content?.takeIf { s -> s != "null" } }.orEmpty()
+    val xCategories = options["xaxis"].safeObj()?.get("categories").safeArr()
+        ?.mapNotNull { it.safePrim()?.content?.takeIf { s -> s != "null" } }
+        .orEmpty()
+        .ifEmpty { labels }
     val rawSeries = props["series"].safeArr() ?: JsonArray(emptyList())
-    val values = rawSeries.mapNotNull { el ->
-        el.safePrim()?.doubleOrNull
-            ?: el.safeObj()?.get("data").safeArr()?.sumOf { it.safePrim()?.doubleOrNull ?: 0.0 }
-    }
     val palette = listOf(
         Color(0xFF8B6EFF),
         Color(0xFFE95C96),
@@ -762,63 +851,201 @@ private fun RenderApexChart(props: JsonObject) {
         Color(0xFFFFB74D),
         Color(0xFF26C6DA),
     )
-    val total = values.sum()
+
+    val isRadial = chartType in setOf("donut", "pie", "radialbar")
 
     CinematicPanel(padding = 16.dp, cornerRadius = 20.dp, showsShadow = false) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text(title, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            if (values.isEmpty() || total <= 0.0) {
-                Text("暂无图表数据", color = colors.textMuted, fontSize = 13.sp)
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(18.dp),
-                ) {
-                    Box(modifier = Modifier.size(126.dp), contentAlignment = Alignment.Center) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val strokeW = 19.dp.toPx()
-                            val inset = strokeW / 2f
-                            var startAngle = -90f
+            if (isRadial) {
+                val values = rawSeries.mapNotNull { el ->
+                    el.safePrim()?.doubleOrNull
+                        ?: el.safeObj()?.get("data").safeArr()?.sumOf { it.safePrim()?.doubleOrNull ?: 0.0 }
+                }
+                val total = values.sum()
+                if (values.isEmpty() || total <= 0.0) {
+                    Text("暂无图表数据", color = colors.textMuted, fontSize = 13.sp)
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    ) {
+                        Box(modifier = Modifier.size(126.dp), contentAlignment = Alignment.Center) {
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val strokeW = 19.dp.toPx()
+                                val inset = strokeW / 2f
+                                var startAngle = -90f
+                                values.forEachIndexed { idx, v ->
+                                    val sweep = ((v / total) * 360.0).toFloat()
+                                    drawArc(
+                                        color = palette[idx % palette.size],
+                                        startAngle = startAngle,
+                                        sweepAngle = sweep,
+                                        useCenter = false,
+                                        topLeft = Offset(inset, inset),
+                                        size = Size(size.width - strokeW, size.height - strokeW),
+                                        style = Stroke(width = strokeW, cap = StrokeCap.Butt),
+                                    )
+                                    startAngle += sweep
+                                }
+                            }
+                            Text(
+                                text = if (total >= 100) String.format("%.0f", total) else String.format("%.1f", total),
+                                color = colors.textPrimary,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                             values.forEachIndexed { idx, v ->
-                                val sweep = ((v / total) * 360.0).toFloat()
-                                drawArc(
-                                    color = palette[idx % palette.size],
-                                    startAngle = startAngle,
-                                    sweepAngle = sweep,
-                                    useCenter = false,
-                                    topLeft = Offset(inset, inset),
-                                    size = Size(size.width - strokeW, size.height - strokeW),
-                                    style = Stroke(width = strokeW, cap = StrokeCap.Butt),
-                                )
-                                startAngle += sweep
+                                val lbl = labels.getOrElse(idx) { "项 ${idx + 1}" }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.weight(1f)) {
+                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(palette[idx % palette.size]))
+                                        Text(lbl, color = colors.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                    Text(
+                                        text = if (v % 1.0 == 0.0) v.toInt().toString() else String.format("%.1f", v),
+                                        color = colors.textPrimary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
                             }
                         }
-                        Text(
-                            text = if (total >= 100) String.format("%.0f", total) else String.format("%.1f", total),
-                            color = colors.textPrimary,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
                     }
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                        values.forEachIndexed { idx, v ->
-                            val lbl = labels.getOrElse(idx) { "项 ${idx + 1}" }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.weight(1f)) {
-                                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(palette[idx % palette.size]))
-                                    Text(lbl, color = colors.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            } else {
+                // 折线图 / 面积图 / 柱状图原生 Canvas 绘制
+                val parsedSeries: List<Pair<String, List<Double>>> = remember(rawSeries, title) {
+                    fun extractPoint(p: JsonElement): Double? = when (p) {
+                        is JsonPrimitive -> p.doubleOrNull
+                        is JsonObject -> p["y"]?.safePrim()?.doubleOrNull ?: p["value"]?.safePrim()?.doubleOrNull
+                        is JsonArray -> p.getOrNull(1)?.safePrim()?.doubleOrNull ?: p.firstOrNull()?.safePrim()?.doubleOrNull
+                    }
+                    val objSeries = rawSeries.mapIndexedNotNull { idx, el ->
+                        val so = el.safeObj() ?: return@mapIndexedNotNull null
+                        val sName = so.safeStr("name") ?: "系列 ${idx + 1}"
+                        val pts = so["data"].safeArr()?.mapNotNull { extractPoint(it) }.orEmpty()
+                        if (pts.isEmpty()) null else sName to pts
+                    }
+                    if (objSeries.isNotEmpty()) {
+                        objSeries
+                    } else {
+                        val flatPts = rawSeries.mapNotNull { extractPoint(it) }
+                        if (flatPts.isNotEmpty()) listOf(title to flatPts) else emptyList()
+                    }
+                }
+                val maxVal = parsedSeries.flatMap { it.second }.maxOrNull()?.takeIf { it > 0.0 } ?: 0.0
+                if (parsedSeries.isEmpty() || maxVal <= 0.0) {
+                    Text("暂无图表数据", color = colors.textMuted, fontSize = 13.sp)
+                } else {
+                    val isBar = chartType == "bar" || chartType == "column"
+                    if (parsedSeries.size > 1) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            parsedSeries.forEachIndexed { sIdx, (sName, _) ->
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(palette[sIdx % palette.size]))
+                                    Text(sName, color = colors.textSecondary, fontSize = 12.sp, maxLines = 1)
                                 }
-                                Text(
-                                    text = if (v % 1.0 == 0.0) v.toInt().toString() else String.format("%.1f", v),
-                                    color = colors.textPrimary,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
+                            }
+                        }
+                    }
+                    Canvas(modifier = Modifier.fillMaxWidth().height(152.dp)) {
+                        val padTop = 8.dp.toPx()
+                        val padBottom = 10.dp.toPx()
+                        val usableH = (size.height - padTop - padBottom).coerceAtLeast(1f)
+                        val gridColor = colors.divider
+                        for (g in 0..3) {
+                            val gy = padTop + usableH * (g / 3f)
+                            drawLine(
+                                color = gridColor,
+                                start = Offset(0f, gy),
+                                end = Offset(size.width, gy),
+                                strokeWidth = 1.dp.toPx(),
+                            )
+                        }
+                        if (isBar) {
+                            val primaryPts = parsedSeries.first().second
+                            val count = primaryPts.size.coerceAtLeast(1)
+                            val slotW = size.width / count
+                            val groupCount = parsedSeries.size.coerceAtLeast(1)
+                            val barW = ((slotW * 0.68f) / groupCount).coerceAtMost(28.dp.toPx())
+                            parsedSeries.forEachIndexed { sIdx, (_, pts) ->
+                                val barColor = palette[sIdx % palette.size]
+                                pts.forEachIndexed { pIdx, v ->
+                                    if (pIdx >= count) return@forEachIndexed
+                                    val ratio = (v / maxVal).coerceIn(0.0, 1.0).toFloat()
+                                    val bh = (usableH * ratio).coerceAtLeast(2.dp.toPx())
+                                    val groupStart = pIdx * slotW + (slotW - barW * groupCount) / 2f
+                                    val bx = groupStart + sIdx * barW
+                                    val by = padTop + usableH - bh
+                                    drawRoundRect(
+                                        color = barColor,
+                                        topLeft = Offset(bx, by),
+                                        size = Size((barW - 2.dp.toPx()).coerceAtLeast(2f), bh),
+                                        cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                                    )
+                                }
+                            }
+                        } else {
+                            parsedSeries.forEachIndexed { sIdx, (_, pts) ->
+                                if (pts.isEmpty()) return@forEachIndexed
+                                val lineColor = palette[sIdx % palette.size]
+                                val stepX = if (pts.size > 1) size.width / (pts.size - 1) else 0f
+                                val coords = pts.mapIndexed { idx, v ->
+                                    val x = if (pts.size > 1) idx * stepX else size.width / 2f
+                                    val y = padTop + usableH * (1f - (v / maxVal).coerceIn(0.0, 1.0).toFloat())
+                                    Offset(x, y)
+                                }
+                                if (coords.size >= 2) {
+                                    val areaPath = Path().apply {
+                                        moveTo(coords.first().x, padTop + usableH)
+                                        coords.forEach { lineTo(it.x, it.y) }
+                                        lineTo(coords.last().x, padTop + usableH)
+                                        close()
+                                    }
+                                    drawPath(
+                                        path = areaPath,
+                                        brush = Brush.verticalGradient(
+                                            colors = listOf(lineColor.copy(alpha = 0.28f), lineColor.copy(alpha = 0.01f)),
+                                            startY = padTop,
+                                            endY = padTop + usableH,
+                                        ),
+                                    )
+                                    val strokePath = Path().apply {
+                                        moveTo(coords.first().x, coords.first().y)
+                                        coords.drop(1).forEach { lineTo(it.x, it.y) }
+                                    }
+                                    drawPath(
+                                        path = strokePath,
+                                        color = lineColor,
+                                        style = Stroke(width = 2.6.dp.toPx(), cap = StrokeCap.Round),
+                                    )
+                                }
+                                coords.forEach { pt ->
+                                    drawCircle(color = lineColor, radius = 3.2.dp.toPx(), center = pt)
+                                }
+                            }
+                        }
+                    }
+                    if (xCategories.isNotEmpty()) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(xCategories.first(), color = colors.textMuted, fontSize = 11.sp, maxLines = 1)
+                            if (xCategories.size >= 3) {
+                                Text(xCategories[xCategories.size / 2], color = colors.textMuted, fontSize = 11.sp, maxLines = 1)
+                            }
+                            if (xCategories.size >= 2) {
+                                Text(xCategories.last(), color = colors.textMuted, fontSize = 11.sp, maxLines = 1)
                             }
                         }
                     }
@@ -893,6 +1120,35 @@ private fun collectAllText(arr: JsonArray): String {
     return parts.joinToString(" ").trim()
 }
 
+/** 提取原始 Vuetify 节点树中各 `model` 字段挂载的显隐表达式（支持父级容器继承 `show` / `v-show` / `v-if`）。 */
+private fun extractFieldConditionMap(nodes: JsonArray): Map<String, String> {
+    val map = mutableMapOf<String, String>()
+    fun walk(arr: JsonArray, inheritedExpr: String?) {
+        arr.forEach { el ->
+            val obj = el.safeObj() ?: return@forEach
+            val props = obj["props"].safeObj() ?: JsonObject(emptyMap())
+            val ownExpr = obj.safeStr("show")
+                ?: obj.safeStr("v-show")
+                ?: obj.safeStr("v-if")
+                ?: props.safeStr("show")
+                ?: props.safeStr("v-show")
+                ?: props.safeStr("v-if")
+            val combinedExpr = when {
+                !inheritedExpr.isNullOrBlank() && !ownExpr.isNullOrBlank() -> "($inheritedExpr) && ($ownExpr)"
+                !ownExpr.isNullOrBlank() -> ownExpr
+                else -> inheritedExpr
+            }
+            val modelKey = props.safeStr("model")
+            if (!modelKey.isNullOrBlank() && !combinedExpr.isNullOrBlank()) {
+                map[modelKey] = combinedExpr
+            }
+            obj["content"].safeArr()?.let { walk(it, combinedExpr) }
+        }
+    }
+    walk(nodes, null)
+    return map
+}
+
 /**
  * 100% JsonNull 免疫的 Vuetify 插件表单节点扁平提取器：
  * 兼容 Python 插件中 `props: null` / `content: null` / 嵌套 VForm/VRow/VCol/VCard 树结构。
@@ -904,13 +1160,24 @@ private fun extractNullSafeFormFields(nodes: JsonArray): List<JsonObject> {
         "VAutocomplete", "VCombobox", "VCronField", "VSlider", "VRangeSlider",
         "VAlert", "VAceEditor", "VBtn",
     )
-    fun walk(arr: JsonArray) {
+    fun walk(arr: JsonArray, inheritedExpr: String? = null) {
         arr.forEach { el ->
             val obj = el.safeObj() ?: return@forEach
             val comp = obj.safeStr("component").orEmpty()
             val props = obj["props"].safeObj() ?: JsonObject(emptyMap())
             val events = obj["events"].safeObj()
             val children = obj["content"].safeArr() ?: JsonArray(emptyList())
+            val ownExpr = obj.safeStr("show")
+                ?: obj.safeStr("v-show")
+                ?: obj.safeStr("v-if")
+                ?: props.safeStr("show")
+                ?: props.safeStr("v-show")
+                ?: props.safeStr("v-if")
+            val combinedExpr = when {
+                !inheritedExpr.isNullOrBlank() && !ownExpr.isNullOrBlank() -> "($inheritedExpr) && ($ownExpr)"
+                !ownExpr.isNullOrBlank() -> ownExpr
+                else -> inheritedExpr
+            }
             if (comp in leafComponents) {
                 val modelKey = props.safeStr("model")
                 val label = props.safeStr("label") ?: props.safeStr("title") ?: ""
@@ -945,6 +1212,7 @@ private fun extractNullSafeFormFields(nodes: JsonArray): List<JsonObject> {
                         put("hint", JsonPrimitive(hint))
                         put("placeholder", JsonPrimitive(placeholder))
                         put("visible", JsonPrimitive(true))
+                        if (!combinedExpr.isNullOrBlank()) put("showExpr", JsonPrimitive(combinedExpr))
                         put("multiple", JsonPrimitive(multiple))
                         put("items", JsonArray(normItems))
                         put("text", JsonPrimitive(text))
@@ -952,11 +1220,11 @@ private fun extractNullSafeFormFields(nodes: JsonArray): List<JsonObject> {
                     },
                 )
             } else if (children.isNotEmpty()) {
-                walk(children)
+                walk(children, combinedExpr)
             }
         }
     }
-    walk(nodes)
+    walk(nodes, null)
     return out
 }
 
@@ -1503,13 +1771,17 @@ fun IsolatedVuePluginWebView(
             }
           } catch (e) {}
 
-          // 1. 注入去壳与去原背景 CSS（与 MoviePilot-Frontend native.scss 协同，剥离 Vue 渐变/毛玻璃底壳与悬浮球）
+          // 1. 注入去壳与去原背景 CSS（与 MoviePilot-Frontend native.scss 协同，剥离 Vue 渐变/毛玻璃底壳与悬浮球，并守护输入框对比度）
           function applyNativePluginStyle() {
             try {
-              if (document.getElementById('mp-native-vue-plugin-style')) return;
-              var s = document.createElement('style');
+              var existing = document.getElementById('mp-native-vue-plugin-style');
+              var s = existing || document.createElement('style');
               s.id = 'mp-native-vue-plugin-style';
+              var inputBg = '$themeName' === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.05)';
+              var inputText = '$themeName' === 'dark' ? '#F3F5FA' : '#181C26';
+              var inputBorder = '$themeName' === 'dark' ? 'rgba(255,255,255,0.18)' : 'rgba(15,23,42,0.20)';
               s.textContent = [
+                'html{color-scheme:$themeName;}',
                 '.layout-navbar,.layout-vertical-nav,.layout-overlay,.layout-footer,.footer-content-container,',
                 '.mobile-dock,.v-bottom-navigation,.app-customizer-toggler,.agent-pet-container,',
                 '.agent-pet-stage-layer,.agent-assistant-fab,.floating-agent-btn,',
@@ -1518,16 +1790,21 @@ fun IsolatedVuePluginWebView(
                 'html[data-native-chrome="active"][data-native-sheet] [data-native-sheet-current]>.v-overlay__content>*,',
                 'html[data-native-chrome="active"][data-native-sheet] [data-native-sheet-current]>.v-overlay__content>.v-card,',
                 'html[data-native-chrome="active"][data-native-sheet] [data-native-sheet-current] [class*="dialog-card"],',
-                'html[data-native-chrome="active"][data-native-sheet] [data-native-sheet-current] [class*="plugin-config"],',
-                'html[data-native-chrome="active"][data-native-sheet] [data-native-sheet-current] [class*="plugin-page"]{',
+                'html[data-native-chrome="active"][data-native-sheet] [data-native-sheet-current] [class*="plugin-config"]:not(input):not(textarea):not(select):not(.v-field),',
+                'html[data-native-chrome="active"][data-native-sheet] [data-native-sheet-current] [class*="plugin-page"]:not(input):not(textarea):not(select):not(.v-field){',
                 '  background:transparent!important;background-color:transparent!important;background-image:none!important;',
                 '  backdrop-filter:none!important;-webkit-backdrop-filter:none!important;',
                 '  border:0!important;border-radius:0!important;box-shadow:none!important;',
                 '}',
+                'input:not([type="checkbox"]):not([type="radio"]):not(.v-field__input),textarea:not(.v-field__input),select{',
+                '  background-color:' + inputBg + '!important;color:' + inputText + '!important;border:1px solid ' + inputBorder + '!important;border-radius:10px;',
+                '}',
+                '.v-field__input,.v-label{color:' + inputText + '!important;}',
+                '.v-field--variant-filled .v-field__overlay,.v-field--variant-solo .v-field__overlay{background-color:' + inputBg + '!important;opacity:1!important;}',
                 'html[data-native-chrome="active"][data-native-sheet] [data-native-sheet-current]>.v-overlay__content>*::before,',
                 'html[data-native-chrome="active"][data-native-sheet] [data-native-sheet-current]>.v-overlay__content>*::after{display:none!important;}'
               ].join('\n');
-              (document.head || document.documentElement).appendChild(s);
+              if (!existing) (document.head || document.documentElement).appendChild(s);
             } catch (e) {}
           }
           applyNativePluginStyle();

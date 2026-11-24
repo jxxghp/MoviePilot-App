@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -23,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Language
@@ -79,6 +82,8 @@ fun ServerConnectionScreen(
     onConnect: (String) -> Result<String>,
     onSelectSaved: (SavedServerEntry) -> Unit,
     onDeleteSaved: (String) -> Unit,
+    allowSelfSignedTls: Boolean = false,
+    onToggleSelfSignedTls: (Boolean) -> Unit = {},
 ) {
     val colors = LocalMoviePilotColors.current
     var address by remember { mutableStateOf("") }
@@ -88,6 +93,8 @@ fun ServerConnectionScreen(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -158,6 +165,22 @@ fun ServerConnectionScreen(
                         },
                     )
                 }
+                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("允许自签名 HTTPS 证书", color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("内网 NAS 或私有证书环境可开启", color = colors.textMuted, fontSize = 11.5.sp)
+                    }
+                    Switch(
+                        checked = allowSelfSignedTls,
+                        onCheckedChange = onToggleSelfSignedTls,
+                        colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
+                    )
+                }
             }
         }
 
@@ -213,6 +236,17 @@ fun ServerConnectionScreen(
                                 Text(entry.name, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                                 Text(entry.url, color = colors.textMuted, fontSize = 12.sp)
                             }
+                            IconButton(
+                                onClick = { onDeleteSaved(entry.url) },
+                                modifier = Modifier.size(34.dp),
+                            ) {
+                                Icon(
+                                    Icons.Outlined.DeleteOutline,
+                                    contentDescription = "删除已保存服务",
+                                    tint = colors.textMuted,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                             Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textMuted)
                         }
                     }
@@ -244,6 +278,7 @@ fun LoginScreen(
     var showOtpField by remember { mutableStateOf(false) }
     var keepLogin by remember { mutableStateOf(repository.secretStore.keepLogin) }
     var rememberCreds by remember { mutableStateOf(repository.secretStore.rememberCredentials) }
+    var allowSelfSigned by remember { mutableStateOf(repository.secretStore.allowSelfSignedTls) }
     var loading by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf(initialNotice) }
 
@@ -258,6 +293,8 @@ fun LoginScreen(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -403,6 +440,19 @@ fun LoginScreen(
                     Switch(
                         checked = rememberCreds,
                         onCheckedChange = { rememberCreds = it; repository.secretStore.rememberCredentials = it },
+                        colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
+                    )
+                }
+                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("允许自签名 HTTPS 证书", color = colors.textPrimary, fontSize = 15.sp)
+                    Switch(
+                        checked = allowSelfSigned,
+                        onCheckedChange = { allowSelfSigned = it; repository.secretStore.allowSelfSignedTls = it },
                         colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
                     )
                 }

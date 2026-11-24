@@ -138,35 +138,55 @@ export struct CinematicPanel {
 }
 
 /**
- * 鸿蒙原生顶部状态栏渐进模糊保护罩。
+ * 鸿蒙原生顶部状态栏渐进模糊与柔光遮罩：
+ * 随 `visibilityProgress`（如 `scrollOffsetY / 150`）平滑插值，向下自然衰减至完全透明，无生硬底边遮挡海报。
  */
 @Component
 export struct NativeTopStatusBarBlur {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_PALETTE_ID) paletteId: string = 'harmony_blue';
+  @StorageLink(HarmonyAppearanceStore.KEY_PURE_BLACK) pureBlack: boolean = false;
   @Prop visibilityProgress: number = 1.0;
+  @Prop veilHeight: number = 92;
+
+  private clampedProgress(): number {
+    return Math.max(0, Math.min(1, this.visibilityProgress));
+  }
+
+  private baseCanvasHex(): string {
+    return HarmonyThemeColors.canvas(this.isDark, this.paletteId, this.pureBlack);
+  }
 
   build() {
-    Column()
-      .width('100%')
-      .height(54)
-      .linearGradient({
-        angle: 180,
-        colors: this.isDark
-          ? [
-            [HarmonyAppearanceStore.withAlpha(HarmonyThemeColors.canvas(true, this.paletteId), 'EC'), 0.0],
-            [HarmonyAppearanceStore.withAlpha(HarmonyThemeColors.canvas(true, this.paletteId), 'B8'), 0.58],
+    Stack({ alignContent: Alignment.Top }) {
+      Column()
+        .width('100%')
+        .height(this.veilHeight)
+        .linearGradientBlur(26 * this.clampedProgress(), {
+          fractionStops: [[1, 0], [0.68, 0.48], [0.22, 0.80], [0, 1]],
+          direction: GradientDirection.Bottom
+        })
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+
+      Column()
+        .width('100%')
+        .height(this.veilHeight)
+        .linearGradient({
+          angle: 180,
+          colors: [
+            [HarmonyAppearanceStore.withAlpha(this.baseCanvasHex(), 'DC'), 0.0],
+            [HarmonyAppearanceStore.withAlpha(this.baseCanvasHex(), '9E'), 0.36],
+            [HarmonyAppearanceStore.withAlpha(this.baseCanvasHex(), '42'), 0.72],
             ['#00000000', 1.0]
           ]
-          : [
-            [HarmonyAppearanceStore.withAlpha(HarmonyThemeColors.canvas(false, this.paletteId), 'EC'), 0.0],
-            [HarmonyAppearanceStore.withAlpha(HarmonyThemeColors.canvas(false, this.paletteId), 'B8'), 0.58],
-            ['#00FFFFFF', 1.0]
-          ]
-      })
-      .opacity(Math.max(0, Math.min(1, this.visibilityProgress)))
-      .hitTestBehavior(HitTestMode.None)
-      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+        })
+        .opacity(this.clampedProgress())
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+    }
+    .width('100%')
+    .height(this.veilHeight)
+    .hitTestBehavior(HitTestMode.None)
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
   }
 }
 
@@ -751,28 +771,186 @@ export struct HarmonySideNavRail {
   }
 }
 
-/** 悬浮 AI 助手入口球（跟随当前鸿蒙主题强调色光晕）。 */
+/**
+ * 紧凑可拖拽 MoviePilot 紫色机器人悬浮吉祥物（44×52vp，与 iOS/Android 视觉同源）：
+ * - Canvas 原生绘制：微倾天线、#A385FA->#7A57E0 紫韵渐变头身、#262140 深色面罩、#F0EBFF 弯月睡眼、胸口纯白播放三角；
+ * - 支持全屏安全边界内自由拖拽（`PanGesture`），当迷你音乐条可见时自动向上避让 `+68vp`，绝不遮挡底栏或播控条。
+ */
 @Component
 export struct FloatingAiMascotButton {
-  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
+  @StorageLink(HarmonyAppearanceStore.KEY_BREAKPOINT) breakpoint: string = 'sm';
+  @Prop miniMusicVisible: boolean = false;
+  @Prop baseRight: number = 14;
+  @Prop baseBottom: number = 94;
+  @State private dragDx: number = 0;
+  @State private dragDy: number = 0;
+  private dragStartDx: number = 0;
+  private dragStartDy: number = 0;
+  private mascotSettings: RenderingContextSettings = new RenderingContextSettings(true);
+  private mascotCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.mascotSettings);
   onTap: () => void = () => {};
 
+  private roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+    const rad = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rad);
+    ctx.arcTo(x + w, y + h, x, y + h, rad);
+    ctx.arcTo(x, y + h, x, y, rad);
+    ctx.arcTo(x, y, x + w, y, rad);
+    ctx.closePath();
+  }
+
+  private drawMascot(): void {
+    const ctx = this.mascotCtx;
+    ctx.clearRect(0, 0, 44, 52);
+
+    // 底部柔和紫晕投影
+    const glow = ctx.createRadialGradient(22, 46, 2, 22, 46, 15);
+    glow.addColorStop(0, '#507A57E0');
+    glow.addColorStop(1, '#007A57E0');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(22, 46, 15, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 微倾天线（右上倾斜）
+    ctx.save();
+    ctx.strokeStyle = '#9D7FF5';
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(23, 11.5);
+    ctx.lineTo(27.5, 4.5);
+    ctx.stroke();
+
+    ctx.fillStyle = '#EAE2FF';
+    ctx.beginPath();
+    ctx.arc(28, 4, 2.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#8361E8';
+    ctx.lineWidth = 1.0;
+    ctx.stroke();
+    ctx.restore();
+
+    // 左右小耳廓
+    ctx.fillStyle = '#8361E8';
+    this.roundRectPath(ctx, 3.2, 16.5, 4.2, 8.5, 2.1);
+    ctx.fill();
+    this.roundRectPath(ctx, 36.6, 16.5, 4.2, 8.5, 2.1);
+    ctx.fill();
+
+    // 圆润头部（#A385FA -> #7A57E0）
+    const headGrad = ctx.createLinearGradient(22, 10, 22, 31);
+    headGrad.addColorStop(0, '#A385FA');
+    headGrad.addColorStop(1, '#7A57E0');
+    ctx.fillStyle = headGrad;
+    this.roundRectPath(ctx, 6, 10, 32, 20.5, 9.5);
+    ctx.fill();
+    ctx.strokeStyle = '#52FFFFFF';
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
+
+    // 深色护目镜面罩（#262140）
+    ctx.fillStyle = '#262140';
+    this.roundRectPath(ctx, 9.5, 13.5, 25, 13, 6);
+    ctx.fill();
+
+    // 慵懒可爱弯月眼（#F0EBFF）
+    ctx.save();
+    ctx.strokeStyle = '#F0EBFF';
+    ctx.lineWidth = 2.0;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(13.2, 20.4);
+    ctx.quadraticCurveTo(16.2, 17.4, 19.2, 20.4);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(24.8, 20.4);
+    ctx.quadraticCurveTo(27.8, 17.4, 30.8, 20.4);
+    ctx.stroke();
+    ctx.restore();
+
+    // 左右小圆润手臂
+    ctx.fillStyle = '#8664E8';
+    this.roundRectPath(ctx, 6.2, 34.2, 4.2, 9.2, 2.1);
+    ctx.fill();
+    this.roundRectPath(ctx, 33.6, 34.2, 4.2, 9.2, 2.1);
+    ctx.fill();
+
+    // 紧凑躯干（#A385FA -> #7A57E0）
+    const bodyGrad = ctx.createLinearGradient(22, 31.5, 22, 48.5);
+    bodyGrad.addColorStop(0, '#A385FA');
+    bodyGrad.addColorStop(1, '#7A57E0');
+    ctx.fillStyle = bodyGrad;
+    this.roundRectPath(ctx, 9.5, 31.8, 25, 16.5, 7.8);
+    ctx.fill();
+    ctx.strokeStyle = '#48FFFFFF';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+
+    // 躯干中央纯白播放三角（MoviePilot 标志）
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.moveTo(19.4, 36.4);
+    ctx.lineTo(26.4, 40.2);
+    ctx.lineTo(19.4, 44.0);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  private effectiveBottomVp(): number {
+    return this.baseBottom + (this.miniMusicVisible ? 68 : 0);
+  }
+
+  private clampDx(rawDx: number): number {
+    const railWidth = (this.breakpoint === 'md' || this.breakpoint === 'lg') ? 84 : 0;
+    const availW = Math.max(260, this.windowWidthVp - railWidth);
+    const minDx = -(availW - 44 - this.baseRight - 10);
+    const maxDx = Math.max(0, this.baseRight - 8);
+    return Math.max(minDx, Math.min(maxDx, rawDx));
+  }
+
+  private clampDy(rawDy: number): number {
+    const availH = Math.max(480, this.windowHeightVp);
+    const minDy = -(availH - 52 - this.effectiveBottomVp() - 56);
+    return Math.max(Math.min(0, minDy), Math.min(0, rawDy));
+  }
+
   build() {
-    Button({ type: ButtonType.Circle }) {
-      SymbolGlyph($r('sys.symbol.ai_edit'))
-        .fontSize(22)
-        .fontColor([Color.White])
+    Stack({ alignContent: Alignment.Center }) {
+      Canvas(this.mascotCtx)
+        .width(44)
+        .height(52)
+        .onReady(() => this.drawMascot())
     }
-    .width(50)
-    .height(50)
-    .linearGradient({
-      angle: 135,
-      colors: [[this.accentHex, 0], ['#FF5B8DFF', 0.55], ['#FF26B8A8', 1]]
+    .width(44)
+    .height(52)
+    .position({
+      right: this.baseRight,
+      bottom: this.effectiveBottomVp()
     })
-    .shadow({ radius: 16, color: HarmonyAppearanceStore.withAlpha(this.accentHex, '66'), offsetY: 5 })
+    .translate({
+      x: this.clampDx(this.dragDx),
+      y: this.clampDy(this.dragDy)
+    })
+    .animation({ duration: HarmonyMotionTokens.DURATION_LOCAL, curve: HarmonyMotionTokens.CURVE_STANDARD })
     .hoverEffect(HoverEffect.Scale)
-    .accessibilityText('打开智能助手')
+    .accessibilityText('打开 MoviePilot 智能助手（支持按住自由拖拽）')
     .onClick(() => this.onTap())
+    .gesture(
+      PanGesture({ distance: 4 })
+        .onActionStart(() => {
+          this.dragStartDx = this.clampDx(this.dragDx);
+          this.dragStartDy = this.clampDy(this.dragDy);
+        })
+        .onActionUpdate((ev: GestureEvent) => {
+          this.dragDx = this.clampDx(this.dragStartDx + ev.offsetX);
+          this.dragDy = this.clampDy(this.dragStartDy + ev.offsetY);
+        })
+    )
   }
 }
 

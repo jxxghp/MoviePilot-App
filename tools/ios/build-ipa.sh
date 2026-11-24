@@ -8,11 +8,25 @@ if [[ ! "$release_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)
   exit 1
 fi
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+build_number="1"
+if [[ -f "$source_root/BUILD_NUMBER" ]]; then
+  raw_build="$(tr -d '[:space:]' < "$source_root/BUILD_NUMBER")"
+  if [[ "$raw_build" =~ ^[1-9][0-9]*$ ]]; then
+    build_number="$raw_build"
+  fi
+fi
+
 output_dir="${2:-$source_root/artifacts}"
 mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
-build_dir="$(mktemp -d "$output_dir/.ipa-build.XXXXXX")"
+
+if [[ -d "/Volumes/DISK/TmpBuild" ]]; then
+  build_dir="$(mktemp -d "/Volumes/DISK/TmpBuild/.ipa-build.XXXXXX")"
+else
+  build_dir="$(mktemp -d "$output_dir/.ipa-build.XXXXXX")"
+fi
 trap 'rm -rf "$build_dir"' EXIT
+
 source_packages_dir="${CLONED_SOURCE_PACKAGES_DIR:-/Volumes/DISK/Xcode/SourcePackages}"
 if [[ ! -d "$source_packages_dir" ]]; then
   source_packages_dir="$build_dir/SourcePackages"
@@ -31,11 +45,11 @@ xcodebuild archive \
   -derivedDataPath "$build_dir/DerivedData" \
   -clonedSourcePackagesDirPath "$source_packages_dir" \
   ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
-  MARKETING_VERSION="$release_version" CURRENT_PROJECT_VERSION=1 \
+  MARKETING_VERSION="$release_version" CURRENT_PROJECT_VERSION="$build_number" \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
   CODE_SIGN_IDENTITY='' DEVELOPMENT_TEAM='' \
   MOVIEPILOT_APNS_ENVIRONMENT=production \
-  | tee "$output_dir/build.log"
+  | tee "$output_dir/build-ios.log"
 
 app_path="$build_dir/MoviePilot.xcarchive/Products/Applications/MoviePilot.app"
 test -d "$app_path"
@@ -53,11 +67,8 @@ fi
 codesign --force --sign - --timestamp=none --generate-entitlement-der \
   --entitlements "$build_dir/app.entitlements" "$staged_app"
 codesign --verify --deep --strict "$staged_app"
-ipa_path="$output_dir/MoviePilot-$release_version-unsigned.ipa"
+ipa_path="$output_dir/MoviePilot-$release_version-ios-unsigned.ipa"
 ditto -c -k --norsrc --noextattr --keepParent "$build_dir/staging/Payload" "$ipa_path"
-python3 "$source_root/tools/ios/verify-ipa.py" "$ipa_path" --version "$release_version" --build-number 1
-(
-  cd "$output_dir"
-  shasum -a 256 "$(basename "$ipa_path")" > SHA256SUMS
-  shasum -a 256 -c SHA256SUMS
-)
+rm -f "$output_dir/build-ios.log"
+python3 "$source_root/tools/ios/verify-ipa.py" "$ipa_path" --version "$release_version" --build-number "$build_number"
+echo "iOS IPA 构建与校验通过：$ipa_path"

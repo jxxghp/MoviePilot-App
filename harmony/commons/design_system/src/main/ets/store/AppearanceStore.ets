@@ -144,7 +144,11 @@ export class HarmonyAppearanceStore {
   static readonly KEY_ANIMATE_BG = 'mp_animate_bg';
   static readonly KEY_DYNAMIC_LIGHT = 'mp_dynamic_light';
   static readonly KEY_PURE_BLACK = 'mp_pure_black';
+  static readonly KEY_SHOW_AI_MASCOT = 'mp_show_ai_mascot';
+  static readonly KEY_LOCALE = 'mp_locale';
+  static readonly KEY_ALLOW_SELF_SIGNED = 'mp_allow_self_signed';
   static readonly KEY_WINDOW_WIDTH_VP = 'mp_window_width_vp';
+  static readonly KEY_WINDOW_HEIGHT_VP = 'mp_window_height_vp';
   static readonly KEY_BREAKPOINT = 'mp_breakpoint';
   static readonly KEY_DISCOVER_MODULES = 'mp_discover_modules_v2';
   static readonly KEY_DASHBOARD_MODULES = 'mp_dashboard_modules_v2';
@@ -158,7 +162,11 @@ export class HarmonyAppearanceStore {
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_ANIMATE_BG, true);
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT, true);
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_PURE_BLACK, false);
+    AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_SHOW_AI_MASCOT, true);
+    AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_LOCALE, 'zh-CN');
+    AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_ALLOW_SELF_SIGNED, false);
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP, 412);
+    AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP, 892);
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_BREAKPOINT, 'sm');
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_DISCOVER_MODULES, JSON.stringify(DEFAULT_DISCOVER_MODULES));
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_DASHBOARD_MODULES, JSON.stringify(DEFAULT_DASHBOARD_MODULES));
@@ -185,7 +193,65 @@ export class HarmonyAppearanceStore {
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_PURE_BLACK, false);
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT, true);
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_ANIMATE_BG, true);
+    AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_SHOW_AI_MASCOT, true);
     HarmonyAppearanceStore.applyPalette('harmony_blue', true);
+  }
+
+  /** 导出当前外观与模块编排快照 JSON，供安全持久化跨重启恢复。 */
+  static exportSnapshot(): string {
+    const snap: Record<string, Object> = {};
+    snap['mode'] = AppStorage.get<string>(HarmonyAppearanceStore.KEY_MODE) ?? 'dark';
+    snap['isDark'] = AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_IS_DARK) ?? true;
+    snap['paletteId'] = AppStorage.get<string>(HarmonyAppearanceStore.KEY_PALETTE_ID) ?? 'harmony_blue';
+    snap['accentHex'] = AppStorage.get<string>(HarmonyAppearanceStore.KEY_ACCENT_HEX) ?? '#317AF7';
+    snap['pureBlack'] = AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_PURE_BLACK) ?? false;
+    snap['dynamicLight'] = AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) ?? true;
+    snap['animateBg'] = AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_ANIMATE_BG) ?? true;
+    snap['showAiMascot'] = AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_SHOW_AI_MASCOT) ?? true;
+    snap['locale'] = AppStorage.get<string>(HarmonyAppearanceStore.KEY_LOCALE) ?? 'zh-CN';
+    snap['discoverModules'] = AppStorage.get<string>(HarmonyAppearanceStore.KEY_DISCOVER_MODULES) ?? '';
+    snap['dashboardModules'] = AppStorage.get<string>(HarmonyAppearanceStore.KEY_DASHBOARD_MODULES) ?? '';
+    return JSON.stringify(snap);
+  }
+
+  /** 从持久化 JSON 恢复外观与模块配置。 */
+  static importSnapshot(rawJson: string): void {
+    if (!rawJson || rawJson.trim().length === 0) {
+      return;
+    }
+    try {
+      const rec = JSON.parse(rawJson) as Record<string, Object>;
+      if (!rec || typeof rec !== 'object') { return; }
+      const mode = typeof rec['mode'] === 'string' ? (rec['mode'] as string) : 'dark';
+      const isDark = typeof rec['isDark'] === 'boolean' ? (rec['isDark'] as boolean) : (mode !== 'light');
+      const paletteId = typeof rec['paletteId'] === 'string' ? (rec['paletteId'] as string) : 'harmony_blue';
+      AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_MODE, mode);
+      AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_IS_DARK, isDark);
+      HarmonyAppearanceStore.applyPalette(paletteId, isDark);
+      if (typeof rec['pureBlack'] === 'boolean') {
+        AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_PURE_BLACK, rec['pureBlack'] as boolean);
+      }
+      if (typeof rec['dynamicLight'] === 'boolean') {
+        AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT, rec['dynamicLight'] as boolean);
+      }
+      if (typeof rec['animateBg'] === 'boolean') {
+        AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_ANIMATE_BG, rec['animateBg'] as boolean);
+      }
+      if (typeof rec['showAiMascot'] === 'boolean') {
+        AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_SHOW_AI_MASCOT, rec['showAiMascot'] as boolean);
+      }
+      if (typeof rec['locale'] === 'string' && (rec['locale'] as string).length > 0) {
+        AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_LOCALE, rec['locale'] as string);
+      }
+      if (typeof rec['discoverModules'] === 'string' && (rec['discoverModules'] as string).length > 2) {
+        AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_DISCOVER_MODULES, rec['discoverModules'] as string);
+      }
+      if (typeof rec['dashboardModules'] === 'string' && (rec['dashboardModules'] as string).length > 2) {
+        AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_DASHBOARD_MODULES, rec['dashboardModules'] as string);
+      }
+    } catch {
+      // ignore malformed snapshot
+    }
   }
 
   /** 将 `#RRGGBB` 或 `#AARRGGBB` 转为带指定 2 位十六进制透明度的 `#AARRGGBB`。 */

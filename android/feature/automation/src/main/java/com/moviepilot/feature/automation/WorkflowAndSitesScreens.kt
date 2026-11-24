@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -28,23 +29,24 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ShowChart
 import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.automirrored.rounded.ShowChart
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.WifiTethering
 import androidx.compose.material.icons.rounded.ZoomIn
 import androidx.compose.material.icons.rounded.ZoomOut
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -80,41 +82,44 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.moviepilot.designsystem.AdaptiveDeviceLayout
 import com.moviepilot.designsystem.CinematicCircleButton
 import com.moviepilot.designsystem.CinematicPanel
+import com.moviepilot.designsystem.ExpressiveHeaderActionButton
 import com.moviepilot.designsystem.ExpressivePillTabRow
 import com.moviepilot.designsystem.ExpressiveTintedScaffold
+import com.moviepilot.designsystem.LocalBottomOverlayInset
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.LocalSnackbarHostState
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
 import com.moviepilot.designsystem.NativeGlassFab
 import com.moviepilot.designsystem.NativeGlassSheet
-import com.moviepilot.designsystem.NativeGlassTopBar
-import com.moviepilot.designsystem.NativePrimaryTabBar
+import com.moviepilot.designsystem.NativeNetworkEntityLogo
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.RustCoreBridge
 import com.moviepilot.rustbridge.SiteItemDto
 import com.moviepilot.rustbridge.SiteUserDataPointDto
 import com.moviepilot.rustbridge.WorkflowActionDto
-import com.moviepilot.rustbridge.WorkflowFlowEdgeDto
 import com.moviepilot.rustbridge.WorkflowItemDto
 import com.moviepilot.rustbridge.WorkflowShareDto
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** Android Material 3 工作流中心：HorizontalPager 左右滑切「我的工作流 / 社区分享」+ 下拉刷新 + 右下角单手 FAB。 */
+/**
+ * Android Material 3 工作流中心：
+ * - 彻底移除假样本数据兜底，真实展示 `/api/v1/workflow/` 工作流列表与空态提示；
+ * - 真实对接 `POST /api/v1/workflow/{id}/{run,start,pause}`、`DELETE /api/v1/workflow/{id}` 与社区 `POST /api/v1/workflow/fork` 一键复用。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkflowsScreen(
@@ -123,6 +128,7 @@ fun WorkflowsScreen(
     onOpenCanvas: (WorkflowItemDto) -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val scope = rememberCoroutineScope()
     val snackbar = LocalSnackbarHostState.current
@@ -130,15 +136,19 @@ fun WorkflowsScreen(
 
     var workflows by remember { mutableStateOf<List<WorkflowItemDto>>(emptyList()) }
     var shares by remember { mutableStateOf<List<WorkflowShareDto>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
+    var confirmDeleteWorkflow by remember { mutableStateOf<WorkflowItemDto?>(null) }
+    var forkedShareIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var forkingShareId by remember { mutableStateOf<Int?>(null) }
 
     suspend fun loadPage(page: Int) {
         if (page == 0) {
-            val fetched = repository.fetchWorkflows()
-            workflows = fetched.ifEmpty { sampleWorkflows() }
+            workflows = repository.fetchWorkflows()
         } else {
             shares = repository.fetchWorkflowShares(1)
         }
+        isLoading = false
         isRefreshing = false
     }
 
@@ -147,69 +157,245 @@ fun WorkflowsScreen(
         loadPage(1)
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        ExpressiveTintedScaffold(
-            title = "工作流",
-            onBack = onBack,
-            headerExtra = {
-                ExpressivePillTabRow(
-                    tabs = listOf("我的工作流 (${workflows.size})", "社区分享 (${shares.size})"),
-                    selectedIndex = pagerState.currentPage,
-                    onSelect = { idx -> scope.launch { pagerState.animateScrollToPage(idx) } },
-                    onTintedHeader = true,
-                )
-            },
-        ) {
-            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { pageIdx ->
-                PullToRefreshBox(
-                    isRefreshing = isRefreshing,
-                    onRefresh = {
-                        isRefreshing = true
-                        scope.launch { loadPage(pageIdx) }
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                ) {
+    ExpressiveTintedScaffold(
+        title = "工作流",
+        onBack = onBack,
+        headerExtra = {
+            ExpressivePillTabRow(
+                tabs = listOf("我的工作流 (${workflows.size})", "社区分享 (${shares.size})"),
+                selectedIndex = pagerState.currentPage,
+                onSelect = { idx -> scope.launch { pagerState.animateScrollToPage(idx) } },
+                onTintedHeader = true,
+            )
+        },
+    ) {
+        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { pageIdx ->
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    isRefreshing = true
+                    scope.launch { loadPage(pageIdx) }
+                },
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                if (isLoading && workflows.isEmpty() && shares.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = colors.accent)
+                    }
+                } else {
                     LazyColumn(
-                        contentPadding = PaddingValues(start = margin, end = margin, top = 14.dp, bottom = 96.dp),
+                        contentPadding = PaddingValues(start = margin, end = margin, top = 14.dp, bottom = 96.dp + bottomOverlayInset),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         if (pageIdx == 0) {
-                            items(workflows, key = { it.id }) { wf ->
-                                val cronDesc = remember(wf.timer) { RustCoreBridge.analyzeCron(wf.timer).descriptionZh }
-                                CinematicPanel(
-                                    padding = 16.dp,
-                                    modifier = Modifier.clickable { onOpenCanvas(wf) },
-                                ) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                            Text(wf.name, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                            NativeAdaptiveBadge(if (wf.state == "R") "运行中" else "已就绪", tint = if (wf.state == "R") colors.success else colors.accent)
+                            if (workflows.isEmpty()) {
+                                item {
+                                    CinematicPanel(padding = 28.dp, showsShadow = false) {
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                                        ) {
+                                            Icon(Icons.Rounded.AccountTree, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(38.dp))
+                                            Text("当前暂无自动化工作流", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                            Text(
+                                                "可切换至「社区分享」页签一键复用热门自动化模板，或在网页端编排后下拉刷新同步。",
+                                                color = colors.textSecondary,
+                                                fontSize = 13.sp,
+                                                textAlign = TextAlign.Center,
+                                            )
                                         }
-                                        if (wf.description.isNotBlank()) {
-                                            Text(wf.description, color = colors.textSecondary, fontSize = 13.sp)
-                                        }
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                            Text("${wf.actions.size} 节点 · $cronDesc", color = colors.textMuted, fontSize = 12.sp)
-                                            NativeAdaptivePill("打开画布", selected = false, icon = Icons.Rounded.PlayArrow, onClick = { onOpenCanvas(wf) })
+                                    }
+                                }
+                            } else {
+                                items(workflows, key = { it.id }) { wf ->
+                                    val cronDesc = remember(wf.timer) {
+                                        if (wf.timer.isBlank()) "手动触发" else RustCoreBridge.analyzeCron(wf.timer).descriptionZh
+                                    }
+                                    val isRunningState = wf.state == "W" || wf.state == "R"
+                                    var rowMenuOpen by remember { mutableStateOf(false) }
+
+                                    CinematicPanel(
+                                        padding = 16.dp,
+                                        modifier = Modifier.clickable { onOpenCanvas(wf) },
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Text(
+                                                    text = wf.name,
+                                                    color = colors.textPrimary,
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                                Spacer(Modifier.width(8.dp))
+                                                NativeAdaptiveBadge(
+                                                    text = if (isRunningState) "启用中" else "已暂停",
+                                                    tint = if (isRunningState) colors.success else colors.warning,
+                                                )
+                                                Box {
+                                                    IconButton(onClick = { rowMenuOpen = true }, modifier = Modifier.size(30.dp)) {
+                                                        Icon(Icons.Rounded.MoreVert, contentDescription = "更多操作", tint = colors.textMuted, modifier = Modifier.size(18.dp))
+                                                    }
+                                                    DropdownMenu(expanded = rowMenuOpen, onDismissRequest = { rowMenuOpen = false }) {
+                                                        DropdownMenuItem(
+                                                            text = { Text("立即运行一次") },
+                                                            leadingIcon = { Icon(Icons.Rounded.PlayCircle, contentDescription = null) },
+                                                            onClick = {
+                                                                rowMenuOpen = false
+                                                                scope.launch {
+                                                                    val (ok, msg) = repository.runWorkflow(wf.id)
+                                                                    if (ok) loadPage(0)
+                                                                    snackbar?.showSnackbar(msg)
+                                                                }
+                                                            },
+                                                        )
+                                                        DropdownMenuItem(
+                                                            text = { Text(if (isRunningState) "暂停工作流" else "启用工作流") },
+                                                            leadingIcon = { Icon(if (isRunningState) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null) },
+                                                            onClick = {
+                                                                rowMenuOpen = false
+                                                                scope.launch {
+                                                                    val (ok, msg) = if (isRunningState) {
+                                                                        repository.pauseWorkflow(wf.id)
+                                                                    } else {
+                                                                        repository.startWorkflow(wf.id)
+                                                                    }
+                                                                    if (ok) loadPage(0)
+                                                                    snackbar?.showSnackbar(msg)
+                                                                }
+                                                            },
+                                                        )
+                                                        DropdownMenuItem(
+                                                            text = { Text("删除工作流", color = colors.danger) },
+                                                            leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = colors.danger) },
+                                                            onClick = {
+                                                                rowMenuOpen = false
+                                                                confirmDeleteWorkflow = wf
+                                                            },
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            if (wf.description.isNotBlank()) {
+                                                Text(wf.description, color = colors.textSecondary, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                            }
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Text(
+                                                    text = "${wf.actions.size} 节点 · 已执行 ${wf.runCount} 次 · $cronDesc",
+                                                    color = colors.textMuted,
+                                                    fontSize = 12.sp,
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                                Spacer(Modifier.width(8.dp))
+                                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                    NativeAdaptivePill(
+                                                        title = "运行",
+                                                        selected = false,
+                                                        icon = Icons.Rounded.PlayArrow,
+                                                        onClick = {
+                                                            scope.launch {
+                                                                val (ok, msg) = repository.runWorkflow(wf.id)
+                                                                if (ok) loadPage(0)
+                                                                snackbar?.showSnackbar(msg)
+                                                            }
+                                                        },
+                                                    )
+                                                    NativeAdaptivePill(
+                                                        title = "画布",
+                                                        selected = true,
+                                                        icon = Icons.Rounded.AccountTree,
+                                                        onClick = { onOpenCanvas(wf) },
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
                         } else {
-                            items(shares, key = { it.id }) { sh ->
-                                CinematicPanel(padding = 16.dp, showsShadow = false) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                            Text(sh.shareTitle.ifBlank { sh.name }, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                            NativeAdaptiveBadge("🔥 ${sh.count}", tint = colors.warning)
-                                        }
-                                        if (sh.shareComment.isNotBlank() || sh.description.isNotBlank()) {
-                                            Text(sh.shareComment.ifBlank { sh.description }, color = colors.textSecondary, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        }
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text("作者：${sh.shareUser.ifBlank { "社区用户" }}", color = colors.textMuted, fontSize = 12.sp)
-                                            Text(sh.date.take(10), color = colors.textMuted, fontSize = 12.sp)
+                            if (shares.isEmpty()) {
+                                item {
+                                    CinematicPanel(padding = 26.dp, showsShadow = false) {
+                                        Text("暂无社区分享工作流，下拉可重新刷新。", color = colors.textSecondary, fontSize = 14.sp)
+                                    }
+                                }
+                            } else {
+                                items(shares, key = { "${it.id}_${it.name}" }) { sh ->
+                                    val isForked = sh.id in forkedShareIds
+                                    val isForking = forkingShareId == sh.id
+                                    CinematicPanel(padding = 16.dp, showsShadow = false) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Text(
+                                                    text = sh.shareTitle.ifBlank { sh.name },
+                                                    color = colors.textPrimary,
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                                Spacer(Modifier.width(8.dp))
+                                                NativeAdaptiveBadge("🔥 ${sh.count}", tint = colors.warning)
+                                            }
+                                            if (sh.shareComment.isNotBlank() || sh.description.isNotBlank()) {
+                                                Text(
+                                                    text = sh.shareComment.ifBlank { sh.description },
+                                                    color = colors.textSecondary,
+                                                    fontSize = 13.sp,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text("作者：${sh.shareUser.ifBlank { "社区用户" }}", color = colors.textMuted, fontSize = 12.sp)
+                                                    if (sh.date.isNotBlank()) {
+                                                        Text(sh.date.take(10), color = colors.textMuted, fontSize = 11.sp)
+                                                    }
+                                                }
+                                                NativeAdaptivePill(
+                                                    title = when {
+                                                        isForked -> "已复用"
+                                                        isForking -> "复用中…"
+                                                        else -> "复用工作流"
+                                                    },
+                                                    selected = !isForked,
+                                                    icon = Icons.Rounded.Add,
+                                                    onClick = {
+                                                        if (!isForked && !isForking) {
+                                                            forkingShareId = sh.id
+                                                            scope.launch {
+                                                                val (ok, msg) = repository.forkWorkflowShare(sh)
+                                                                forkingShareId = null
+                                                                if (ok) {
+                                                                    forkedShareIds = forkedShareIds + sh.id
+                                                                    loadPage(0)
+                                                                }
+                                                                snackbar?.showSnackbar(msg)
+                                                            }
+                                                        }
+                                                    },
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -219,33 +405,49 @@ fun WorkflowsScreen(
                 }
             }
         }
+    }
 
-        NativeGlassFab(
-            icon = Icons.Rounded.Add,
-            label = "新建工作流",
-            onClick = {
-                val draft = sampleWorkflows().first().copy(id = 0, name = "新建自动化工作流")
-                onOpenCanvas(draft)
-                scope.launch { snackbar?.showSnackbar("已进入新建工作流节点画布") }
+    confirmDeleteWorkflow?.let { target ->
+        AlertDialog(
+            onDismissRequest = { confirmDeleteWorkflow = null },
+            title = { Text("确认删除工作流") },
+            text = { Text("确定要永久删除工作流「${target.name}」吗？") },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteWorkflow = null }) { Text("取消") }
             },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .navigationBarsPadding()
-                .padding(end = margin, bottom = 20.dp),
+            confirmButton = {
+                TextButton(onClick = {
+                    val deleting = target
+                    confirmDeleteWorkflow = null
+                    scope.launch {
+                        val (ok, msg) = repository.deleteWorkflow(deleting.id)
+                        if (ok) {
+                            workflows = workflows.filterNot { it.id == deleting.id }
+                        }
+                        snackbar?.showSnackbar(msg)
+                    }
+                }) {
+                    Text("确认删除", color = colors.danger)
+                }
+            },
         )
     }
 }
 
 /**
- * 纯 Compose 原生工作流节点画布（1:1 对标 iOS 黄金截图 `native-v2-live-workflow-canvas.jpg`）：
- * 支持双指缩放和平移、点阵背景、纵/横智能贝塞尔连线、玻璃节点卡片与底部实时磨砂属性检视浮卡。
+ * 纯 Compose 原生工作流节点画布（升级为统一 `ExpressiveTintedScaffold` 并支持直接运行/启停工作流）：
+ * 支持双指缩放和平移、点阵背景、纵/横智能贝塞尔连线、玻璃节点卡片与底部实时节点属性检视浮卡。
  */
 @Composable
 fun WorkflowCanvasScreen(
     workflow: WorkflowItemDto,
     onBack: () -> Unit,
+    repository: MoviePilotRepository? = null,
 ) {
     val colors = LocalMoviePilotColors.current
+    val bottomOverlayInset = LocalBottomOverlayInset.current
+    val snackbar = LocalSnackbarHostState.current
+    val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val nodeWidthDp = 172f
     val nodeHeightDp = 90f
@@ -253,144 +455,180 @@ fun WorkflowCanvasScreen(
     val nodeHeightPx = with(density) { nodeHeightDp.dp.toPx() }
     val resolvedActions = remember(workflow.actions) { resolveNonOverlappingNodes(workflow.actions) }
 
+    var currentState by remember(workflow.id) { mutableStateOf(workflow.state) }
     var scale by remember { mutableFloatStateOf(0.86f) }
     var panX by remember { mutableFloatStateOf(with(density) { 18.dp.toPx() }) }
     var panY by remember { mutableFloatStateOf(with(density) { 42.dp.toPx() }) }
     var selectedNode by remember { mutableStateOf(resolvedActions.firstOrNull()) }
 
+    val isRunningState = currentState == "W" || currentState == "R"
+
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            NativeGlassTopBar(
-                title = workflow.name,
-                onBack = onBack,
-                trailing = {
-                    CinematicCircleButton(Icons.Rounded.Add, "新增节点", {})
-                },
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(Icons.Rounded.AccountTree, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
-                    Text("${resolvedActions.size} 节点 · ${workflow.flows.size} 连线", color = colors.textSecondary, fontSize = 13.sp)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    IconButton(onClick = { scale = (scale - 0.12f).coerceAtLeast(0.45f) }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Rounded.ZoomOut, contentDescription = "缩小", tint = colors.textPrimary, modifier = Modifier.size(18.dp))
-                    }
-                    NativeAdaptiveBadge("${(scale * 100).roundToInt()}%")
-                    IconButton(onClick = { scale = (scale + 0.12f).coerceAtMost(1.8f) }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Rounded.ZoomIn, contentDescription = "放大", tint = colors.textPrimary, modifier = Modifier.size(18.dp))
-                    }
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            scale = (scale * zoom).coerceIn(0.45f, 1.8f)
-                            panX += pan.x
-                            panY += pan.y
-                        }
-                    },
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val step = 28.dp.toPx() * scale
-                    if (step > 8f) {
-                        val dotColor = if (colors.isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.10f)
-                        var x = ((panX % step) + step) % step
-                        while (x < size.width) {
-                            var y = ((panY % step) + step) % step
-                            while (y < size.height) {
-                                drawCircle(dotColor, radius = 1.6f, center = Offset(x, y))
-                                y += step
-                            }
-                            x += step
-                        }
-                    }
-
-                    val nodeMap = resolvedActions.associateBy { it.id }
-                    workflow.flows.forEach { edge ->
-                        val src = nodeMap[edge.source] ?: return@forEach
-                        val dst = nodeMap[edge.target] ?: return@forEach
-                        val isHorizontal = dst.x > src.x + nodeWidthDp * 0.65f
-                        val sx: Float
-                        val sy: Float
-                        val ex: Float
-                        val ey: Float
-                        val path = Path()
-                        if (isHorizontal) {
-                            sx = (src.x.dp.toPx() + nodeWidthPx) * scale + panX
-                            sy = (src.y.dp.toPx() + nodeHeightPx * 0.48f) * scale + panY
-                            ex = dst.x.dp.toPx() * scale + panX
-                            ey = (dst.y.dp.toPx() + nodeHeightPx * 0.48f) * scale + panY
-                            val ctrlSpan = ((ex - sx) * 0.48f).coerceAtLeast(48.dp.toPx() * scale)
-                            path.moveTo(sx, sy)
-                            path.cubicTo(sx + ctrlSpan, sy, ex - ctrlSpan, ey, ex, ey)
-                        } else {
-                            sx = (src.x.dp.toPx() + nodeWidthPx * 0.5f) * scale + panX
-                            sy = (src.y.dp.toPx() + nodeHeightPx * 0.94f) * scale + panY
-                            ex = (dst.x.dp.toPx() + nodeWidthPx * 0.5f) * scale + panX
-                            ey = dst.y.dp.toPx() * scale + panY
-                            val ctrlSpan = ((ey - sy) * 0.52f).coerceAtLeast(36.dp.toPx() * scale)
-                            path.moveTo(sx, sy)
-                            path.cubicTo(sx, sy + ctrlSpan, ex, ey - ctrlSpan, ex, ey)
-                        }
-                        drawPath(
-                            path = path,
-                            brush = Brush.linearGradient(listOf(colors.accent, colors.pink), start = Offset(sx, sy), end = Offset(ex, ey)),
-                            style = Stroke(width = 3.dp.toPx() * scale, cap = StrokeCap.Round),
-                        )
-                        drawCircle(colors.accent, radius = 4.5.dp.toPx() * scale, center = Offset(sx, sy))
-                        drawCircle(colors.pink, radius = 4.5.dp.toPx() * scale, center = Offset(ex, ey))
-                    }
-                }
-
-                resolvedActions.forEach { node ->
-                    val isSelected = selectedNode?.id == node.id
-                    Box(
-                        modifier = Modifier
-                            .offset {
-                                IntOffset(
-                                    (with(density) { node.x.dp.toPx() } * scale + panX).roundToInt(),
-                                    (with(density) { node.y.dp.toPx() } * scale + panY).roundToInt(),
-                                )
-                            }
-                            .graphicsLayer {
-                                transformOrigin = TransformOrigin(0f, 0f)
-                                scaleX = scale
-                                scaleY = scale
-                            }
-                            .width(nodeWidthDp.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(
-                                if (isSelected) {
-                                    colors.accent.copy(alpha = if (colors.isDark) 0.36f else 0.20f)
+        ExpressiveTintedScaffold(
+            title = workflow.name,
+            subtitle = "${resolvedActions.size} 节点 · ${workflow.flows.size} 连线",
+            onBack = onBack,
+            actions = {
+                if (repository != null && workflow.id > 0) {
+                    ExpressiveHeaderActionButton(
+                        icon = if (isRunningState) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = if (isRunningState) "暂停工作流" else "启用工作流",
+                        onClick = {
+                            scope.launch {
+                                val (ok, msg) = if (isRunningState) {
+                                    repository.pauseWorkflow(workflow.id)
                                 } else {
-                                    if (colors.isDark) Color(0xCC282236) else Color(0xEEFFFFFF)
-                                },
-                            )
-                            .border(
-                                width = if (isSelected) 1.5.dp else 0.85.dp,
-                                color = if (isSelected) colors.accent else colors.chipBorder,
-                                shape = RoundedCornerShape(16.dp),
-                            )
-                            .clickable { selectedNode = node }
-                            .padding(12.dp),
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Box(Modifier.size(7.dp).clip(CircleShape).background(if (isSelected) colors.accent else colors.success))
-                                Text(node.name, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    repository.startWorkflow(workflow.id)
+                                }
+                                if (ok) {
+                                    currentState = if (isRunningState) "P" else "W"
+                                }
+                                snackbar?.showSnackbar(msg)
                             }
-                            Text(node.type, color = colors.textSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                            if (node.description.isNotBlank()) {
-                                Text(node.description, color = colors.textMuted, fontSize = 11.sp, maxLines = 2)
+                        },
+                    )
+                    ExpressiveHeaderActionButton(
+                        icon = Icons.Rounded.PlayCircle,
+                        contentDescription = "立即运行",
+                        onClick = {
+                            scope.launch {
+                                val (_, msg) = repository.runWorkflow(workflow.id)
+                                snackbar?.showSnackbar(msg)
+                            }
+                        },
+                    )
+                }
+            },
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Rounded.AccountTree, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
+                        NativeAdaptiveBadge(
+                            text = if (isRunningState) "调度已启用" else "调度已暂停",
+                            tint = if (isRunningState) colors.success else colors.warning,
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        IconButton(onClick = { scale = (scale - 0.12f).coerceAtLeast(0.45f) }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Rounded.ZoomOut, contentDescription = "缩小", tint = colors.textPrimary, modifier = Modifier.size(18.dp))
+                        }
+                        NativeAdaptiveBadge("${(scale * 100).roundToInt()}%")
+                        IconButton(onClick = { scale = (scale + 0.12f).coerceAtMost(1.8f) }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Rounded.ZoomIn, contentDescription = "放大", tint = colors.textPrimary, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .pointerInput(Unit) {
+                            detectTransformGestures { _, pan, zoom, _ ->
+                                scale = (scale * zoom).coerceIn(0.45f, 1.8f)
+                                panX += pan.x
+                                panY += pan.y
+                            }
+                        },
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val step = 28.dp.toPx() * scale
+                        if (step > 8f) {
+                            val dotColor = if (colors.isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.10f)
+                            var x = ((panX % step) + step) % step
+                            while (x < size.width) {
+                                var y = ((panY % step) + step) % step
+                                while (y < size.height) {
+                                    drawCircle(dotColor, radius = 1.6f, center = Offset(x, y))
+                                    y += step
+                                }
+                                x += step
+                            }
+                        }
+
+                        val nodeMap = resolvedActions.associateBy { it.id }
+                        workflow.flows.forEach { edge ->
+                            val src = nodeMap[edge.source] ?: return@forEach
+                            val dst = nodeMap[edge.target] ?: return@forEach
+                            val isHorizontal = dst.x > src.x + nodeWidthDp * 0.65f
+                            val sx: Float
+                            val sy: Float
+                            val ex: Float
+                            val ey: Float
+                            val path = Path()
+                            if (isHorizontal) {
+                                sx = (src.x.dp.toPx() + nodeWidthPx) * scale + panX
+                                sy = (src.y.dp.toPx() + nodeHeightPx * 0.48f) * scale + panY
+                                ex = dst.x.dp.toPx() * scale + panX
+                                ey = (dst.y.dp.toPx() + nodeHeightPx * 0.48f) * scale + panY
+                                val ctrlSpan = ((ex - sx) * 0.48f).coerceAtLeast(48.dp.toPx() * scale)
+                                path.moveTo(sx, sy)
+                                path.cubicTo(sx + ctrlSpan, sy, ex - ctrlSpan, ey, ex, ey)
+                            } else {
+                                sx = (src.x.dp.toPx() + nodeWidthPx * 0.5f) * scale + panX
+                                sy = (src.y.dp.toPx() + nodeHeightPx * 0.94f) * scale + panY
+                                ex = (dst.x.dp.toPx() + nodeWidthPx * 0.5f) * scale + panX
+                                ey = dst.y.dp.toPx() * scale + panY
+                                val ctrlSpan = ((ey - sy) * 0.52f).coerceAtLeast(36.dp.toPx() * scale)
+                                path.moveTo(sx, sy)
+                                path.cubicTo(sx, sy + ctrlSpan, ex, ey - ctrlSpan, ex, ey)
+                            }
+                            drawPath(
+                                path = path,
+                                brush = Brush.linearGradient(listOf(colors.accent, colors.pink), start = Offset(sx, sy), end = Offset(ex, ey)),
+                                style = Stroke(width = 3.dp.toPx() * scale, cap = StrokeCap.Round),
+                            )
+                            drawCircle(colors.accent, radius = 4.5.dp.toPx() * scale, center = Offset(sx, sy))
+                            drawCircle(colors.pink, radius = 4.5.dp.toPx() * scale, center = Offset(ex, ey))
+                        }
+                    }
+
+                    resolvedActions.forEach { node ->
+                        val isSelected = selectedNode?.id == node.id
+                        Box(
+                            modifier = Modifier
+                                .offset {
+                                    IntOffset(
+                                        (with(density) { node.x.dp.toPx() } * scale + panX).roundToInt(),
+                                        (with(density) { node.y.dp.toPx() } * scale + panY).roundToInt(),
+                                    )
+                                }
+                                .graphicsLayer {
+                                    transformOrigin = TransformOrigin(0f, 0f)
+                                    scaleX = scale
+                                    scaleY = scale
+                                }
+                                .width(nodeWidthDp.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(
+                                    if (isSelected) {
+                                        colors.accent.copy(alpha = if (colors.isDark) 0.36f else 0.20f)
+                                    } else {
+                                        if (colors.isDark) Color(0xCC282236) else Color(0xEEFFFFFF)
+                                    },
+                                )
+                                .border(
+                                    width = if (isSelected) 1.5.dp else 0.85.dp,
+                                    color = if (isSelected) colors.accent else colors.borderSubtle.copy(alpha = 0.55f),
+                                    shape = RoundedCornerShape(16.dp),
+                                )
+                                .clickable { selectedNode = node }
+                                .padding(12.dp),
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Box(Modifier.size(7.dp).clip(CircleShape).background(if (isSelected) colors.accent else colors.success))
+                                    Text(node.name, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Text(node.type, color = colors.textSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                                if (node.description.isNotBlank()) {
+                                    Text(node.description, color = colors.textMuted, fontSize = 11.sp, maxLines = 2)
+                                }
                             }
                         }
                     }
@@ -404,11 +642,12 @@ fun WorkflowCanvasScreen(
                 elevatedBlur = true,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(start = 18.dp, end = 18.dp, bottom = 108.dp),
+                    .navigationBarsPadding()
+                    .padding(start = 18.dp, end = 18.dp, bottom = 24.dp + bottomOverlayInset),
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(node.name, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             Text("${node.type} · 参数 ${node.paramCount} 项", color = colors.textSecondary, fontSize = 12.sp)
                         }
@@ -416,14 +655,8 @@ fun WorkflowCanvasScreen(
                             Icon(Icons.Rounded.Close, contentDescription = "关闭", tint = colors.textMuted)
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        NativeAdaptivePill("编辑参数", selected = true, icon = Icons.Rounded.Tune, onClick = {})
-                        NativeAdaptivePill("连线", selected = false, icon = Icons.Rounded.AccountTree, onClick = {})
-                        Spacer(Modifier.weight(1f))
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.Rounded.Delete, contentDescription = "删除", tint = colors.danger, modifier = Modifier.size(16.dp))
-                            Text("删除", color = colors.danger, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        }
+                    if (node.description.isNotBlank()) {
+                        Text(node.description, color = colors.textSecondary, fontSize = 13.sp)
                     }
                 }
             }
@@ -432,8 +665,8 @@ fun WorkflowCanvasScreen(
 }
 
 /**
- * Android Material 3 站点管理与双向流量图示：
- * 真实站点图标、聚合实时上传下载量、双向流量条、下拉刷新、尾部 `⋮` 溢出菜单与 13 天历史流量面积图弹窗。
+ * Android Material 3 站点管理与双向流量图示（统一升级为 `ExpressiveTintedScaffold`）：
+ * 全量加载 `/api/v1/site/icon/{id}` 真实站点 Favicon 并以 `logo_site` 兜底，支持聚合实时流量条、连通性测试、CRUD 与 13 天历史趋势弹窗。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -442,9 +675,11 @@ fun SitesScreen(
     onBack: () -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val scope = rememberCoroutineScope()
     val snackbar = LocalSnackbarHostState.current
+    val listState = rememberLazyListState()
 
     var sites by remember { mutableStateOf<List<SiteItemDto>>(emptyList()) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -455,12 +690,16 @@ fun SitesScreen(
     val loadedIcons = remember { mutableStateMapOf<Int, String>() }
 
     suspend fun loadSites() {
-        sites = repository.fetchSites()
+        val fetched = repository.fetchSites()
+        sites = fetched
         isRefreshing = false
-        sites.take(20).forEach { s ->
+        fetched.forEach { s ->
+            repository.resolveImageUrl(s.iconUrl)?.let { loadedIcons[s.id] = it }
             if (!loadedIcons.containsKey(s.id)) {
                 scope.launch {
-                    repository.fetchSiteIcon(s.id)?.let { loadedIcons[s.id] = it }
+                    repository.fetchSiteIcon(s.id)?.let { raw ->
+                        loadedIcons[s.id] = repository.resolveImageUrl(raw) ?: raw
+                    }
                 }
             }
         }
@@ -469,27 +708,26 @@ fun SitesScreen(
     LaunchedEffect(Unit) { loadSites() }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            NativeGlassTopBar(
-                title = "站点管理 (${sites.size})",
-                onBack = onBack,
-            )
-
+        ExpressiveTintedScaffold(
+            title = "站点管理 (${sites.size})",
+            onBack = onBack,
+        ) {
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = {
                     isRefreshing = true
                     scope.launch { loadSites() }
                 },
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                modifier = Modifier.fillMaxSize(),
             ) {
                 LazyColumn(
-                    contentPadding = PaddingValues(start = margin, end = margin, top = 6.dp, bottom = 96.dp),
+                    state = listState,
+                    contentPadding = PaddingValues(start = margin, end = margin, top = 14.dp, bottom = 96.dp + bottomOverlayInset),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     items(sites, key = { it.id }) { site ->
-                        val iconData = loadedIcons[site.id] ?: site.iconUrl
+                        val iconData = loadedIcons[site.id] ?: repository.resolveImageUrl(site.iconUrl)
                         val totalTraffic = (site.uploadBytes + site.downloadBytes).coerceAtLeast(1.0)
                         val hasTraffic = site.uploadBytes > 0.0 || site.downloadBytes > 0.0
                         val upFraction = if (hasTraffic) (site.uploadBytes / totalTraffic).toFloat().coerceIn(0.02f, 0.98f) else 0.5f
@@ -501,23 +739,13 @@ fun SitesScreen(
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(44.dp)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(Brush.linearGradient(listOf(Color(0xFF42A5F5), Color(0xFF2962FF)))),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Icon(Icons.Rounded.Language, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
-                                        if (!iconData.isNullOrBlank()) {
-                                            AsyncImage(
-                                                model = iconData,
-                                                contentDescription = site.name,
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)),
-                                            )
-                                        }
-                                    }
+                                    NativeNetworkEntityLogo(
+                                        imageUrl = iconData,
+                                        kind = "site",
+                                        value = site.name,
+                                        size = 44.dp,
+                                        cornerRadius = 12.dp,
+                                    )
                                     Spacer(Modifier.width(12.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -633,14 +861,14 @@ fun SitesScreen(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
-                .padding(end = margin, bottom = 20.dp),
+                .padding(end = margin, bottom = 20.dp + bottomOverlayInset),
         )
     }
 
     selectedSiteForData?.let { site ->
         SiteDataDetailSheet(
             site = site,
-            iconData = loadedIcons[site.id] ?: site.iconUrl,
+            iconData = loadedIcons[site.id] ?: repository.resolveImageUrl(site.iconUrl),
             repository = repository,
             onDismiss = { selectedSiteForData = null },
         )
@@ -729,8 +957,10 @@ fun SitesScreen(
                                     isCreate = isCreatingSite,
                                 )
                                 saving = false
-                                editingSite = null
-                                loadSites()
+                                if (ok) {
+                                    editingSite = null
+                                    loadSites()
+                                }
                                 snackbar?.showSnackbar(msg)
                             }
                         },
@@ -817,24 +1047,20 @@ private fun SiteDataDetailSheet(
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.width(38.dp))
             }
 
-            // 站点头部卡 + 刷新数据按钮
             CinematicPanel(padding = 14.dp) {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF2962FF)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (!iconData.isNullOrBlank()) {
-                            AsyncImage(model = iconData, contentDescription = site.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                        } else {
-                            Icon(Icons.Rounded.Language, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
-                        }
-                    }
+                    NativeNetworkEntityLogo(
+                        imageUrl = iconData,
+                        kind = "site",
+                        value = site.name,
+                        size = 46.dp,
+                        cornerRadius = 12.dp,
+                    )
                     Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(site.name, color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
@@ -849,7 +1075,6 @@ private fun SiteDataDetailSheet(
                 }
             }
 
-            // 2×3 指标统计卡
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SiteMetricBox("上传量", formatTraffic(upBytes), colors.success, Modifier.weight(1f))
                 SiteMetricBox("下载量", formatTraffic(dlBytes), colors.warning, Modifier.weight(1f))
@@ -863,7 +1088,6 @@ private fun SiteDataDetailSheet(
                 SiteMetricBox("用户等级", level, colors.cyan, Modifier.weight(1f))
             }
 
-            // 历史流量趋势双曲线面积图
             val points = history.ifEmpty {
                 listOf(
                     SiteUserDataPointDto(uploadBytes = upBytes, downloadBytes = dlBytes, updatedDay = updatedDay),
@@ -956,7 +1180,6 @@ private fun SiteDataDetailSheet(
                 }
             }
 
-            // 账号与统计元数据
             CinematicPanel(padding = 0.dp, showsShadow = false) {
                 Column {
                     SiteMetaRow("站点账号", username)
@@ -1022,24 +1245,3 @@ private fun formatTraffic(bytes: Double): String {
     if (mb >= 1.0) return String.format("%.1f MB", mb)
     return String.format("%.0f KB", bytes / 1024.0)
 }
-
-private fun sampleWorkflows() = listOf(
-    WorkflowItemDto(
-        id = 31,
-        name = "观众海外剧集",
-        description = "自动拉取 RSS 订阅、按画质规则过滤并推送下载整理",
-        timer = "*/15 * * * *",
-        state = "R",
-        runCount = 18,
-        actions = listOf(
-            WorkflowActionDto("n1", "FetchRssAction", "获取 RSS 资源", "订阅 RSS 地址获取资源", 18f, 40f, 9),
-            WorkflowActionDto("n2", "FilterTorrentsAction", "过滤资源", "对资源列表数据进行过滤", 240f, 18f, 6),
-            WorkflowActionDto("n3", "AddDownloadAction", "添加下载任务", "推送精选种子到下载器", 240f, 160f, 4),
-            WorkflowActionDto("n4", "NoteAction", "备注", "给工作流添加备注", 28f, 190f, 1),
-        ),
-        flows = listOf(
-            WorkflowFlowEdgeDto("n1", "n2"),
-            WorkflowFlowEdgeDto("n2", "n3"),
-        ),
-    ),
-)

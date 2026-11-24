@@ -4,6 +4,7 @@ import {
   MpMediaItem,
   MpSubscribeItem,
   MpSubscribeShareItem,
+  MpCalendarEpisodeItem,
   MpSiteItem,
   MpServiceConfig,
   MpFilterRuleGroup,
@@ -18,6 +19,8 @@ import {
   HarmonyPillTabBar,
   HarmonySegmentedSwitch,
   HarmonySheetHeader,
+  HarmonyEntityLogo,
+  HarmonyEntityLogoPill,
   HarmonyThemeColors,
   HarmonyAppearanceStore,
   HarmonyAdaptiveLayout,
@@ -32,8 +35,9 @@ const EFFECT_OPTIONS: string[] = ['', '杜比视界', '杜比全景声', 'HDR', 
 /**
  * 鸿蒙「订阅」中心（完整对齐 iOS 功能与简洁布局）：
  * - 一级页顶栏右侧配备「搜索」与「追剧日历」悬浮圆钮，统一大胶囊切换「我的订阅 / 订阅广场」；
- * - 订阅卡片右上角仅留清晰状态角标，底部内联「暂停/恢复」「编辑」与柔和危险色「删除」；
- * - 订阅编辑器 1:1 覆盖 iOS 全量字段（画质/洗版、剧集季集与剧集组、下载器与路径、多选真实站点与优先级规则组、IMDB 精确搜索、搜索间隔、包含/排除/识别词）并无损提交。
+ * - 追剧日历真实消费 `GET /api/v1/subscribe/calendar` 展示剧集排期并支持直达详情；
+ * - 订阅广场支持点击热门海报或分享卡片查看详情，以及「复用订阅」（`POST /api/v1/subscribe/fork`）；
+ * - 订阅编辑器全量搭载品牌图标（下载器与真实站点图标）并无损提交。
  */
 @Component
 export struct HarmonySubscriptionsPage {
@@ -48,10 +52,13 @@ export struct HarmonySubscriptionsPage {
   @State private filter: string = '全部';
   @State private loading: boolean = true;
   @State private loadingSquare: boolean = false;
+  @State private loadingCalendar: boolean = false;
   @State private items: MpSubscribeItem[] = [];
+  @State private calendarItems: MpCalendarEpisodeItem[] = [];
   @State private popularMovies: MpMediaItem[] = [];
   @State private popularTvs: MpMediaItem[] = [];
   @State private shares: MpSubscribeShareItem[] = [];
+  @State private forkingShareId: number = -1;
   @State private feedbackMsg: string = '';
 
   // 编辑弹窗全量状态
@@ -94,6 +101,8 @@ export struct HarmonySubscriptionsPage {
     if (this.initialMode === 'square') {
       this.mainTabIndex = 1;
       this.loadSquareIfNeeded();
+    } else if (this.initialMode === 'calendar') {
+      this.loadCalendar();
     }
     this.loadSubscriptions();
   }
@@ -106,6 +115,16 @@ export struct HarmonySubscriptionsPage {
       this.items = [];
     }
     this.loading = false;
+  }
+
+  private async loadCalendar(): Promise<void> {
+    this.loadingCalendar = true;
+    try {
+      this.calendarItems = await MoviePilotRepository.shared().fetchSubscribeCalendar();
+    } catch {
+      this.calendarItems = [];
+    }
+    this.loadingCalendar = false;
   }
 
   private async loadSquareIfNeeded(): Promise<void> {
@@ -126,6 +145,115 @@ export struct HarmonySubscriptionsPage {
       // keep existing state
     }
     this.loadingSquare = false;
+  }
+
+  private openSubMediaDetail(sub: MpSubscribeItem): void {
+    let tmdbId = '';
+    let doubanId = '';
+    let mediaId = '';
+    if (sub.rawJson && sub.rawJson.length > 2) {
+      try {
+        const rec = JSON.parse(sub.rawJson) as Record<string, Object>;
+        if (rec['tmdbid'] !== undefined && rec['tmdbid'] !== null) {
+          tmdbId = String(rec['tmdbid']);
+        }
+        if (rec['doubanid'] !== undefined && rec['doubanid'] !== null) {
+          doubanId = String(rec['doubanid']);
+        }
+        if (rec['mediaid'] !== undefined && rec['mediaid'] !== null) {
+          mediaId = String(rec['mediaid']);
+        }
+      } catch {
+        // ignore parse error
+      }
+    }
+    const item: MpMediaItem = {
+      id: tmdbId || doubanId || mediaId || String(sub.id),
+      mediaId: mediaId,
+      tmdbId: tmdbId,
+      doubanId: doubanId,
+      title: sub.name,
+      enTitle: '',
+      year: sub.year,
+      type: sub.type,
+      overview: sub.description,
+      vote: sub.vote,
+      posterUrl: sub.posterUrl,
+      backdropUrl: sub.backdropUrl,
+      logoUrl: '',
+      source: doubanId.length > 0 && tmdbId.length === 0 ? 'douban' : 'themoviedb',
+      inLibrary: false,
+      subtitle: '',
+      percent: 0,
+      serverName: '',
+      playUrl: ''
+    };
+    this.onOpenMedia(item);
+  }
+
+  private openCalendarMediaDetail(ep: MpCalendarEpisodeItem): void {
+    const item: MpMediaItem = {
+      id: ep.tmdbId || ep.id,
+      mediaId: ep.tmdbId ? `tmdb:${ep.tmdbId}` : '',
+      tmdbId: ep.tmdbId,
+      doubanId: '',
+      title: ep.title,
+      enTitle: '',
+      year: ep.airDate.length >= 4 ? ep.airDate.substring(0, 4) : '',
+      type: '电视剧',
+      overview: ep.overview,
+      vote: 0,
+      posterUrl: ep.posterUrl,
+      backdropUrl: '',
+      logoUrl: '',
+      source: 'themoviedb',
+      inLibrary: false,
+      subtitle: '',
+      percent: 0,
+      serverName: '',
+      playUrl: ''
+    };
+    this.onOpenMedia(item);
+  }
+
+  private openShareMediaDetail(sh: MpSubscribeShareItem): void {
+    const tmdb = sh.tmdbId ?? '';
+    const douban = sh.doubanId ?? '';
+    const mid = sh.mediaId ?? '';
+    const item: MpMediaItem = {
+      id: tmdb || douban || mid || String(sh.id),
+      mediaId: mid,
+      tmdbId: tmdb,
+      doubanId: douban,
+      title: sh.name || sh.shareTitle,
+      enTitle: '',
+      year: sh.year,
+      type: sh.type || '电视剧',
+      overview: sh.shareComment,
+      vote: sh.vote,
+      posterUrl: sh.posterUrl,
+      backdropUrl: '',
+      logoUrl: '',
+      source: douban.length > 0 && tmdb.length === 0 ? 'douban' : 'themoviedb',
+      inLibrary: false,
+      subtitle: '',
+      percent: 0,
+      serverName: '',
+      playUrl: ''
+    };
+    this.onOpenMedia(item);
+  }
+
+  private async handleForkShare(sh: MpSubscribeShareItem): Promise<void> {
+    if (this.forkingShareId === sh.id) { return; }
+    this.forkingShareId = sh.id;
+    const ok = await MoviePilotRepository.shared().forkSubscribeShare(sh);
+    this.forkingShareId = -1;
+    this.feedbackMsg = ok ? `已复用订阅「${sh.shareTitle || sh.name}」` : '复用订阅失败，请稍后重试';
+    if (ok) {
+      await this.loadSubscriptions();
+      this.shares = await MoviePilotRepository.shared().fetchSubscribeShares();
+    }
   }
 
   private async openEditor(sub: MpSubscribeItem): Promise<void> {
@@ -234,6 +362,12 @@ export struct HarmonySubscriptionsPage {
     }
     if (this.filter === '全部') { return this.items; }
     return this.items.filter((i: MpSubscribeItem) => i.type === this.filter);
+  }
+
+  private episodeTag(ep: MpCalendarEpisodeItem): string {
+    const s = ep.seasonNumber > 0 ? `S${String(ep.seasonNumber).padStart(2, '0')}` : 'S01';
+    const e = ep.episodeNumber > 0 ? `E${String(ep.episodeNumber).padStart(2, '0')}` : '';
+    return `${s}${e}`;
   }
 
   private posterColumnsTemplate(): string {
@@ -352,19 +486,23 @@ export struct HarmonySubscriptionsPage {
             }
           }
 
-          // 3. 下载与保存
+          // 3. 下载与保存（搭载真实下载器品牌图标）
           Text('下载与保存').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
           CinematicPanel({ panelPadding: 14, cornerRadius: 18 }) {
             Column({ space: 10 }) {
               Text('下载器').fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
               Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
-                NativeAdaptivePill({
+                HarmonyEntityLogoPill({
+                  kind: 'downloader',
+                  value: 'downloader',
                   title: '默认',
                   selected: this.edDownloader.length === 0,
                   onTap: () => { this.edDownloader = ''; }
                 })
                 ForEach(this.allDownloaders, (dl: MpServiceConfig) => {
-                  NativeAdaptivePill({
+                  HarmonyEntityLogoPill({
+                    kind: 'downloader',
+                    value: dl.type || dl.name,
                     title: dl.name,
                     selected: this.edDownloader === dl.name,
                     onTap: () => { this.edDownloader = dl.name; }
@@ -382,7 +520,7 @@ export struct HarmonySubscriptionsPage {
             }
           }
 
-          // 4. 站点与优先级规则
+          // 4. 站点与优先级规则（搭载真实站点图标）
           Text('站点与优先级规则').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
           CinematicPanel({ panelPadding: 14, cornerRadius: 18 }) {
             Column({ space: 10 }) {
@@ -402,7 +540,10 @@ export struct HarmonySubscriptionsPage {
                     onTap: () => { this.edSites = []; }
                   })
                   ForEach(this.allSites, (s: MpSiteItem) => {
-                    NativeAdaptivePill({
+                    HarmonyEntityLogoPill({
+                      kind: 'site',
+                      value: s.name,
+                      dataUri: s.iconDataUri,
                       title: s.name,
                       selected: this.edSites.includes(s.id),
                       onTap: () => this.toggleEdSite(s.id)
@@ -595,14 +736,158 @@ export struct HarmonySubscriptionsPage {
     .layoutWeight(1)
   }
 
+  @Builder
+  calendarListBuilder() {
+    if (this.loadingCalendar) {
+      Column() {
+        LoadingProgress().width(32).height(32).color(this.accentHex)
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .justifyContent(FlexAlign.Center)
+    } else if (this.calendarItems.length > 0) {
+      Scroll() {
+        Column({ space: 12 }) {
+          ForEach(this.calendarItems, (ep: MpCalendarEpisodeItem) => {
+            Column() {
+              CinematicPanel({ panelPadding: 13, cornerRadius: 18, interactive: true }) {
+                Row({ space: 12 }) {
+                  if (ep.posterUrl.length > 0) {
+                    MpRemoteImage({
+                      src: ep.posterUrl,
+                      imgWidth: 64,
+                      imgHeight: 94,
+                      imgRadius: 10,
+                      placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                    })
+                  } else {
+                    Column()
+                      .width(64)
+                      .height(94)
+                      .borderRadius(10)
+                      .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                  }
+
+                  Column({ space: 6 }) {
+                    Row({ space: 8 }) {
+                      NativeAdaptiveBadge({
+                        text: ep.airDate.length > 0 ? ep.airDate : '近期播出',
+                        tintHex: this.accentHex,
+                        filled: true
+                      })
+                      NativeAdaptiveBadge({
+                        text: this.episodeTag(ep),
+                        tintHex: '#34C759'
+                      })
+                    }.width('100%')
+
+                    Text(ep.title)
+                      .fontSize(15)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor(mpPrimaryText(this.isDark))
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .width('100%')
+
+                    if (ep.episodeTitle.length > 0) {
+                      Text(ep.episodeTitle)
+                        .fontSize(12.5)
+                        .fontWeight(FontWeight.Medium)
+                        .fontColor(mpPrimaryText(this.isDark))
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                        .width('100%')
+                    }
+
+                    if (ep.overview.length > 0) {
+                      Text(ep.overview)
+                        .fontSize(11.5)
+                        .fontColor(mpSecondaryText(this.isDark))
+                        .maxLines(2)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                        .width('100%')
+                    }
+                  }
+                  .layoutWeight(1)
+                  .alignItems(HorizontalAlign.Start)
+                }
+                .width('100%')
+              }
+            }
+            .width('100%')
+            .onClick(() => this.openCalendarMediaDetail(ep))
+          }, (ep: MpCalendarEpisodeItem) => ep.id)
+        }
+        .padding({ left: 16, right: 16, top: 4, bottom: 44 })
+      }
+      .scrollBar(BarState.Off)
+      .layoutWeight(1)
+    } else if (this.filteredItems().length > 0) {
+      // 若服务端暂未生成剧集排期，回退展示在追剧集进度列表
+      Scroll() {
+        Column({ space: 12 }) {
+          Text('暂无未来单集排期，以下为当前订阅剧集：')
+            .fontSize(12)
+            .fontColor(mpSecondaryText(this.isDark))
+            .width('100%')
+          ForEach(this.filteredItems(), (sub: MpSubscribeItem) => {
+            Column() {
+              CinematicPanel({ panelPadding: 13, cornerRadius: 18, interactive: true }) {
+                Row({ space: 12 }) {
+                  if (sub.posterUrl.length > 0) {
+                    MpRemoteImage({
+                      src: sub.posterUrl,
+                      imgWidth: 58,
+                      imgHeight: 86,
+                      imgRadius: 10,
+                      placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                    })
+                  }
+                  Column({ space: 5 }) {
+                    Text(`${sub.name}${sub.season > 0 ? ' S' + String(sub.season).padStart(2, '0') : ''}`)
+                      .fontSize(14.5).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).maxLines(1).width('100%')
+                    if (sub.totalEpisode > 0) {
+                      Text(`已更新 ${RustCoreBridge.computeSubscribeProgress(sub.totalEpisode, sub.lackEpisode).label}`)
+                        .fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                    }
+                  }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                }.width('100%')
+              }
+            }
+            .width('100%')
+            .onClick(() => this.openSubMediaDetail(sub))
+          }, (sub: MpSubscribeItem) => `cal_fallback_${sub.id}`)
+        }
+        .padding({ left: 16, right: 16, top: 4, bottom: 44 })
+      }
+      .scrollBar(BarState.Off)
+      .layoutWeight(1)
+    } else {
+      Column({ space: 8 }) {
+        SymbolGlyph($r('sys.symbol.calendar')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
+        Text('暂无近期追剧日历排期').fontSize(14).fontColor(mpSecondaryText(this.isDark))
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .justifyContent(FlexAlign.Center)
+    }
+  }
+
   build() {
     Column({ space: 10 }) {
       if (this.showBack) {
         NativeBackHeader({
           title: this.initialMode === 'calendar'
-            ? `追剧日历 (${this.filteredItems().length})`
+            ? `追剧日历 (${this.calendarItems.length > 0 ? this.calendarItems.length : this.filteredItems().length})`
             : (this.initialMode === 'square' ? '订阅广场' : `${this.initialTitle} (${this.items.length})`),
-          onBack: () => this.onBack()
+          trailingSymbol: this.initialMode === 'calendar' ? 'sys.symbol.arrow_clockwise' : '',
+          trailingAccessibility: this.initialMode === 'calendar' ? '刷新日历' : '',
+          onBack: () => this.onBack(),
+          onTrailingClick: () => {
+            if (this.initialMode === 'calendar') {
+              this.loadCalendar();
+            }
+          }
         })
       } else {
         HarmonyPageHeader({
@@ -624,7 +909,9 @@ export struct HarmonySubscriptionsPage {
           .width('100%')
       }
 
-      if (this.initialMode !== 'calendar') {
+      if (this.initialMode === 'calendar') {
+        this.calendarListBuilder()
+      } else {
         HarmonyPillTabBar({
           tabs: [`我的订阅 (${this.items.length})`, '订阅广场'],
           selectedIndex: this.mainTabIndex,
@@ -633,10 +920,8 @@ export struct HarmonySubscriptionsPage {
             if (idx === 1) { this.loadSquareIfNeeded(); }
           }
         })
-      }
 
-      if (this.mainTabIndex === 0 || this.initialMode === 'calendar') {
-        if (this.initialMode !== 'calendar') {
+        if (this.mainTabIndex === 0) {
           Scroll() {
             Row({ space: 8 }) {
               ForEach(['全部', '电影', '电视剧', '音乐'], (tab: string) => {
@@ -651,224 +936,269 @@ export struct HarmonySubscriptionsPage {
           }
           .scrollable(ScrollDirection.Horizontal)
           .scrollBar(BarState.Off)
-        }
 
-        if (this.loading && this.items.length === 0) {
-          Column() {
-            LoadingProgress().width(32).height(32).color(this.accentHex)
-          }
-          .width('100%')
-          .layoutWeight(1)
-          .justifyContent(FlexAlign.Center)
-        } else if (this.filteredItems().length === 0) {
-          Column({ space: 8 }) {
-            SymbolGlyph($r('sys.symbol.bookmark')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
-            Text('暂无匹配的订阅条目').fontSize(14).fontColor(mpSecondaryText(this.isDark))
-          }
-          .width('100%')
-          .layoutWeight(1)
-          .justifyContent(FlexAlign.Center)
-        } else {
-          Scroll() {
-            Column({ space: 12 }) {
-              ForEach(this.filteredItems(), (sub: MpSubscribeItem) => {
-                CinematicPanel({ panelPadding: 13, cornerRadius: 18 }) {
-                  Row({ space: 12 }) {
-                    if (sub.posterUrl.length > 0) {
-                      MpRemoteImage({
-                        src: sub.posterUrl,
-                        imgWidth: 72,
-                        imgHeight: 106,
-                        imgRadius: 12,
-                        placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
-                      })
-                    } else {
-                      Column()
-                        .width(72)
-                        .height(106)
-                        .borderRadius(12)
-                        .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-                    }
-
-                    Column({ space: 6 }) {
-                      // 顶部仅留标题与状态角标（无多余三点按钮）
-                      Row({ space: 8 }) {
-                        Text(`${sub.name}${sub.season > 0 ? ' S' + String(sub.season).padStart(2, '0') : ''}`)
-                          .fontSize(15.5)
-                          .fontWeight(FontWeight.Bold)
-                          .fontColor(mpPrimaryText(this.isDark))
-                          .maxLines(1)
-                          .textOverflow({ overflow: TextOverflow.Ellipsis })
-                          .layoutWeight(1)
-                        NativeAdaptiveBadge({
-                          text: sub.state === 'S' ? '已暂停' : '订阅中',
-                          tintHex: sub.state === 'S' ? '#F29B38' : '#34C759'
-                        })
-                      }
-                      .width('100%')
-
-                      Row({ space: 6 }) {
-                        Text(`${sub.year ? sub.year + ' · ' : ''}${sub.type}`)
-                          .fontSize(12)
-                          .fontColor(mpSecondaryText(this.isDark))
-                        if (sub.vote > 0) {
-                          Text(`★ ${sub.vote.toFixed(1)}`)
-                            .fontSize(12)
-                            .fontWeight(FontWeight.Medium)
-                            .fontColor('#F2B830')
+          if (this.loading && this.items.length === 0) {
+            Column() {
+              LoadingProgress().width(32).height(32).color(this.accentHex)
+            }
+            .width('100%')
+            .layoutWeight(1)
+            .justifyContent(FlexAlign.Center)
+          } else if (this.filteredItems().length === 0) {
+            Column({ space: 8 }) {
+              SymbolGlyph($r('sys.symbol.bookmark')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
+              Text('暂无匹配的订阅条目').fontSize(14).fontColor(mpSecondaryText(this.isDark))
+            }
+            .width('100%')
+            .layoutWeight(1)
+            .justifyContent(FlexAlign.Center)
+          } else {
+            Scroll() {
+              Column({ space: 12 }) {
+                ForEach(this.filteredItems(), (sub: MpSubscribeItem) => {
+                  CinematicPanel({ panelPadding: 13, cornerRadius: 18 }) {
+                    Row({ space: 12 }) {
+                      Column() {
+                        if (sub.posterUrl.length > 0) {
+                          MpRemoteImage({
+                            src: sub.posterUrl,
+                            imgWidth: 72,
+                            imgHeight: 106,
+                            imgRadius: 12,
+                            placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                          })
+                        } else {
+                          Column()
+                            .width(72)
+                            .height(106)
+                            .borderRadius(12)
+                            .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
                         }
                       }
-                      .width('100%')
+                      .onClick(() => this.openSubMediaDetail(sub))
 
-                      if (sub.totalEpisode > 0) {
-                        Text(`已更新 ${RustCoreBridge.computeSubscribeProgress(sub.totalEpisode, sub.lackEpisode).label}`)
-                          .fontSize(11.5)
-                          .fontColor(mpSecondaryText(this.isDark))
-                          .width('100%')
-                        Progress({
-                          value: RustCoreBridge.computeSubscribeProgress(sub.totalEpisode, sub.lackEpisode).completed,
-                          total: sub.totalEpisode,
-                          type: ProgressType.Linear
-                        })
-                          .color(this.accentHex)
-                          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-                      }
-
-                      // 底部清晰内联动作行：暂停/恢复 + 编辑 + 右侧柔和危险删除
-                      Row({ space: 10 }) {
-                        Row({ space: 4 }) {
-                          SymbolGlyph($r(sub.state === 'S' ? 'sys.symbol.play_fill' : 'sys.symbol.pause_fill'))
-                            .fontSize(13)
-                            .fontColor([mpPrimaryText(this.isDark)])
-                          Text(sub.state === 'S' ? '恢复' : '暂停')
-                            .fontSize(12.5)
-                            .fontWeight(FontWeight.Medium)
+                      Column({ space: 6 }) {
+                        Row({ space: 8 }) {
+                          Text(`${sub.name}${sub.season > 0 ? ' S' + String(sub.season).padStart(2, '0') : ''}`)
+                            .fontSize(15.5)
+                            .fontWeight(FontWeight.Bold)
                             .fontColor(mpPrimaryText(this.isDark))
+                            .maxLines(1)
+                            .textOverflow({ overflow: TextOverflow.Ellipsis })
+                            .layoutWeight(1)
+                            .onClick(() => this.openSubMediaDetail(sub))
+                          NativeAdaptiveBadge({
+                            text: sub.state === 'S' ? '已暂停' : '订阅中',
+                            tintHex: sub.state === 'S' ? '#F29B38' : '#34C759'
+                          })
                         }
-                        .padding({ left: 10, right: 12, top: 6, bottom: 6 })
-                        .borderRadius(14)
-                        .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-                        .onClick(async () => {
-                          await MoviePilotRepository.shared().toggleSubscribeState(sub);
-                          await this.loadSubscriptions();
-                        })
-
-                        Row({ space: 4 }) {
-                          SymbolGlyph($r('sys.symbol.square_and_pencil'))
-                            .fontSize(13)
-                            .fontColor([this.accentHex])
-                          Text('编辑')
-                            .fontSize(12.5)
-                            .fontWeight(FontWeight.Medium)
-                            .fontColor(this.accentHex)
-                        }
-                        .padding({ left: 10, right: 12, top: 6, bottom: 6 })
-                        .borderRadius(14)
-                        .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '24' : '16'))
-                        .onClick(() => this.openEditor(sub))
-
-                        Blank()
-
-                        Button({ type: ButtonType.Circle }) {
-                          SymbolGlyph($r('sys.symbol.trash'))
-                            .fontSize(15)
-                            .fontColor(['#E84855'])
-                        }
-                        .width(34)
-                        .height(34)
-                        .backgroundColor(HarmonyThemeColors.softDangerBg(this.isDark))
-                        .accessibilityText('删除订阅')
-                        .onClick(() => {
-                          this.confirmDeleteSub = sub;
-                          this.showDeleteConfirm = true;
-                        })
-                      }
-                      .width('100%')
-                      .margin({ top: 4 })
-                    }
-                    .layoutWeight(1)
-                    .alignItems(HorizontalAlign.Start)
-                  }
-                  .width('100%')
-                }
-              }, (sub: MpSubscribeItem) => `${sub.id}_${sub.state}_${sub.lackEpisode}`)
-            }
-            .padding({ left: 16, right: 16, top: 4, bottom: this.showBack ? 40 : 128 })
-          }
-          .scrollBar(BarState.Off)
-          .layoutWeight(1)
-        }
-      } else {
-        Column() {
-          HarmonySegmentedSwitch({
-            options: ['热门电影', '热门剧集', '社区分享'],
-            selectedIndex: this.squareModeIndex,
-            onSelect: (idx: number) => {
-              this.squareModeIndex = idx;
-              this.loadSquareIfNeeded();
-            }
-          })
-        }
-        .padding({ left: 16, right: 16, top: 2 })
-
-        if (this.loadingSquare) {
-          Column() {
-            LoadingProgress().width(32).height(32).color(this.accentHex)
-          }
-          .width('100%')
-          .layoutWeight(1)
-          .justifyContent(FlexAlign.Center)
-        } else if (this.squareModeIndex === 0) {
-          this.popularGrid(this.popularMovies)
-        } else if (this.squareModeIndex === 1) {
-          this.popularGrid(this.popularTvs)
-        } else {
-          Scroll() {
-            Column({ space: 10 }) {
-              ForEach(this.shares, (sh: MpSubscribeShareItem) => {
-                CinematicPanel({ panelPadding: 13, cornerRadius: 18 }) {
-                  Row({ space: 12 }) {
-                    if (sh.posterUrl.length > 0) {
-                      MpRemoteImage({
-                        src: sh.posterUrl,
-                        imgWidth: 56,
-                        imgHeight: 82,
-                        imgRadius: 10,
-                        placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
-                      })
-                    }
-                    Column({ space: 5 }) {
-                      Row({ space: 6 }) {
-                        Text(sh.shareTitle || sh.name)
-                          .fontSize(14)
-                          .fontWeight(FontWeight.Bold)
-                          .fontColor(mpPrimaryText(this.isDark))
-                          .maxLines(1)
-                          .layoutWeight(1)
-                        NativeAdaptiveBadge({ text: `${sh.count} 复用`, tintHex: this.accentHex })
-                      }.width('100%')
-                      if (sh.shareComment.length > 0) {
-                        Text(sh.shareComment)
-                          .fontSize(12)
-                          .fontColor(mpSecondaryText(this.isDark))
-                          .maxLines(2)
-                          .width('100%')
-                      }
-                      Text(`分享者：${sh.shareUser} · ${sh.type}${sh.year ? ' · ' + sh.year : ''}`)
-                        .fontSize(11)
-                        .fontColor(mpSecondaryText(this.isDark))
                         .width('100%')
+
+                        Row({ space: 6 }) {
+                          Text(`${sub.year ? sub.year + ' · ' : ''}${sub.type}`)
+                            .fontSize(12)
+                            .fontColor(mpSecondaryText(this.isDark))
+                          if (sub.vote > 0) {
+                            Text(`★ ${sub.vote.toFixed(1)}`)
+                              .fontSize(12)
+                              .fontWeight(FontWeight.Medium)
+                              .fontColor('#F2B830')
+                          }
+                          if (sub.downloader && sub.downloader.length > 0) {
+                            HarmonyEntityLogo({
+                              kind: 'downloader',
+                              value: sub.downloader,
+                              logoSize: 15,
+                              cornerRadius: 4
+                            })
+                          }
+                        }
+                        .width('100%')
+
+                        if (sub.totalEpisode > 0) {
+                          Text(`已更新 ${RustCoreBridge.computeSubscribeProgress(sub.totalEpisode, sub.lackEpisode).label}`)
+                            .fontSize(11.5)
+                            .fontColor(mpSecondaryText(this.isDark))
+                            .width('100%')
+                          Progress({
+                            value: RustCoreBridge.computeSubscribeProgress(sub.totalEpisode, sub.lackEpisode).completed,
+                            total: sub.totalEpisode,
+                            type: ProgressType.Linear
+                          })
+                            .color(this.accentHex)
+                            .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                        }
+
+                        Row({ space: 10 }) {
+                          Row({ space: 4 }) {
+                            SymbolGlyph($r(sub.state === 'S' ? 'sys.symbol.play_fill' : 'sys.symbol.pause_fill'))
+                              .fontSize(13)
+                              .fontColor([mpPrimaryText(this.isDark)])
+                            Text(sub.state === 'S' ? '恢复' : '暂停')
+                              .fontSize(12.5)
+                              .fontWeight(FontWeight.Medium)
+                              .fontColor(mpPrimaryText(this.isDark))
+                          }
+                          .padding({ left: 10, right: 12, top: 6, bottom: 6 })
+                          .borderRadius(14)
+                          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                          .onClick(async () => {
+                            await MoviePilotRepository.shared().toggleSubscribeState(sub);
+                            await this.loadSubscriptions();
+                          })
+
+                          Row({ space: 4 }) {
+                            SymbolGlyph($r('sys.symbol.square_and_pencil'))
+                              .fontSize(13)
+                              .fontColor([this.accentHex])
+                            Text('编辑')
+                              .fontSize(12.5)
+                              .fontWeight(FontWeight.Medium)
+                              .fontColor(this.accentHex)
+                          }
+                          .padding({ left: 10, right: 12, top: 6, bottom: 6 })
+                          .borderRadius(14)
+                          .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '24' : '16'))
+                          .onClick(() => this.openEditor(sub))
+
+                          Blank()
+
+                          Button({ type: ButtonType.Circle }) {
+                            SymbolGlyph($r('sys.symbol.trash'))
+                              .fontSize(15)
+                              .fontColor(['#E84855'])
+                          }
+                          .width(34)
+                          .height(34)
+                          .backgroundColor(HarmonyThemeColors.softDangerBg(this.isDark))
+                          .accessibilityText('删除订阅')
+                          .onClick(() => {
+                            this.confirmDeleteSub = sub;
+                            this.showDeleteConfirm = true;
+                          })
+                        }
+                        .width('100%')
+                        .margin({ top: 4 })
+                      }
+                      .layoutWeight(1)
+                      .alignItems(HorizontalAlign.Start)
                     }
-                    .alignItems(HorizontalAlign.Start)
-                    .layoutWeight(1)
-                  }.width('100%')
-                }
-              }, (sh: MpSubscribeShareItem) => String(sh.id))
+                    .width('100%')
+                  }
+                }, (sub: MpSubscribeItem) => `${sub.id}_${sub.state}_${sub.lackEpisode}`)
+              }
+              .padding({ left: 16, right: 16, top: 4, bottom: this.showBack ? 40 : 128 })
             }
-            .padding({ left: 16, right: 16, top: 6, bottom: this.showBack ? 40 : 128 })
+            .scrollBar(BarState.Off)
+            .layoutWeight(1)
           }
-          .scrollBar(BarState.Off)
-          .layoutWeight(1)
+        } else {
+          Column() {
+            HarmonySegmentedSwitch({
+              options: ['热门电影', '热门剧集', '社区分享'],
+              selectedIndex: this.squareModeIndex,
+              onSelect: (idx: number) => {
+                this.squareModeIndex = idx;
+                this.loadSquareIfNeeded();
+              }
+            })
+          }
+          .padding({ left: 16, right: 16, top: 2 })
+
+          if (this.loadingSquare) {
+            Column() {
+              LoadingProgress().width(32).height(32).color(this.accentHex)
+            }
+            .width('100%')
+            .layoutWeight(1)
+            .justifyContent(FlexAlign.Center)
+          } else if (this.squareModeIndex === 0) {
+            this.popularGrid(this.popularMovies)
+          } else if (this.squareModeIndex === 1) {
+            this.popularGrid(this.popularTvs)
+          } else {
+            Scroll() {
+              Column({ space: 10 }) {
+                ForEach(this.shares, (sh: MpSubscribeShareItem) => {
+                  CinematicPanel({ panelPadding: 13, cornerRadius: 18 }) {
+                    Row({ space: 12 }) {
+                      Column() {
+                        if (sh.posterUrl.length > 0) {
+                          MpRemoteImage({
+                            src: sh.posterUrl,
+                            imgWidth: 58,
+                            imgHeight: 86,
+                            imgRadius: 10,
+                            placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                          })
+                        } else {
+                          Column()
+                            .width(58)
+                            .height(86)
+                            .borderRadius(10)
+                            .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                        }
+                      }
+                      .onClick(() => this.openShareMediaDetail(sh))
+
+                      Column({ space: 6 }) {
+                        Row({ space: 6 }) {
+                          Text(sh.shareTitle || sh.name)
+                            .fontSize(14.5)
+                            .fontWeight(FontWeight.Bold)
+                            .fontColor(mpPrimaryText(this.isDark))
+                            .maxLines(1)
+                            .textOverflow({ overflow: TextOverflow.Ellipsis })
+                            .layoutWeight(1)
+                            .onClick(() => this.openShareMediaDetail(sh))
+                          NativeAdaptiveBadge({ text: `${sh.count} 复用`, tintHex: this.accentHex })
+                        }.width('100%')
+
+                        if (sh.shareComment.length > 0) {
+                          Text(sh.shareComment)
+                            .fontSize(12)
+                            .fontColor(mpSecondaryText(this.isDark))
+                            .maxLines(2)
+                            .width('100%')
+                            .onClick(() => this.openShareMediaDetail(sh))
+                        }
+
+                        Row({ space: 8 }) {
+                          Text(`分享者：${sh.shareUser} · ${sh.type}${sh.year ? ' · ' + sh.year : ''}`)
+                            .fontSize(11)
+                            .fontColor(mpSecondaryText(this.isDark))
+                            .maxLines(1)
+                            .textOverflow({ overflow: TextOverflow.Ellipsis })
+                            .layoutWeight(1)
+
+                          Row({ space: 4 }) {
+                            SymbolGlyph($r('sys.symbol.plus'))
+                              .fontSize(12)
+                              .fontColor([Color.White])
+                            Text(this.forkingShareId === sh.id ? '复用中…' : '复用订阅')
+                              .fontSize(12)
+                              .fontWeight(FontWeight.Bold)
+                              .fontColor(Color.White)
+                          }
+                          .padding({ left: 10, right: 12, top: 5, bottom: 5 })
+                          .borderRadius(14)
+                          .backgroundColor(this.accentHex)
+                          .opacity(this.forkingShareId === sh.id ? 0.6 : 1)
+                          .onClick(() => { this.handleForkShare(sh); })
+                        }
+                        .width('100%')
+                      }
+                      .alignItems(HorizontalAlign.Start)
+                      .layoutWeight(1)
+                    }.width('100%')
+                  }
+                }, (sh: MpSubscribeShareItem) => `${sh.id}_${sh.count}`)
+              }
+              .padding({ left: 16, right: 16, top: 6, bottom: this.showBack ? 40 : 128 })
+            }
+            .scrollBar(BarState.Off)
+            .layoutWeight(1)
+          }
         }
       }
 

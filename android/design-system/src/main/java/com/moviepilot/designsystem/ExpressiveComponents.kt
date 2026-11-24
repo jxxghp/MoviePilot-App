@@ -227,6 +227,7 @@ fun ExpressivePillTabRow(
     onSelect: (Int) -> Unit,
     scrollable: Boolean = false,
     onTintedHeader: Boolean = false,
+    tabIcons: List<(@Composable () -> Unit)?>? = null,
     modifier: Modifier = Modifier,
 ) {
     if (tabs.isEmpty()) return
@@ -234,7 +235,7 @@ fun ExpressivePillTabRow(
     val scheme = MaterialTheme.colorScheme
     val safeIndex = selectedIndex.coerceIn(0, tabs.lastIndex)
     val inactiveBg = if (onTintedHeader) {
-        if (colors.isDark) Color(0xFF0A1220).copy(alpha = 0.78f) else Color.White.copy(alpha = 0.72f)
+        if (colors.isDark) Color(0xFF0A1220).copy(alpha = 0.78f) else Color.White.copy(alpha = 0.78f)
     } else {
         scheme.surfaceContainerLow
     }
@@ -247,6 +248,7 @@ fun ExpressivePillTabRow(
     @Composable
     fun TabItem(idx: Int, label: String, itemModifier: Modifier) {
         val selected = idx == safeIndex
+        val customIcon = tabIcons?.getOrNull(idx)
         val bg by animateColorAsState(
             targetValue = if (selected) scheme.primary else inactiveBg,
             animationSpec = tween(200),
@@ -274,20 +276,33 @@ fun ExpressivePillTabRow(
                     .heightIn(min = 44.dp)
                     .clip(CircleShape)
                     .background(bg, CircleShape)
+                    .then(
+                        if (!selected && !onTintedHeader) {
+                            Modifier.border(0.8.dp, colors.borderSubtle.copy(alpha = 0.72f), CircleShape)
+                        } else {
+                            Modifier
+                        },
+                    )
                     .clickable { onSelect(idx) }
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                    .padding(horizontal = if (customIcon != null) 16.dp else 20.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = label,
-                    color = fg,
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontSize = 14.sp,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    customIcon?.invoke()
+                    Text(
+                        text = label,
+                        color = fg,
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontSize = 14.sp,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             Box(
                 modifier = Modifier

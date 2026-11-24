@@ -8,7 +8,7 @@ android {
     namespace = "com.moviepilot.feature.download"
     compileSdk = 35
     buildToolsVersion = "35.0.0"
-    defaultConfig { minSdk = 28 }
+    defaultConfig { minSdk = 29 }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -20,6 +20,7 @@ android {
 dependencies {
     implementation(project(":design-system"))
     implementation(project(":core-rust-bridge"))
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     testImplementation(libs.junit)
 }

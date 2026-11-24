@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -79,8 +80,11 @@ import com.moviepilot.designsystem.AdaptiveDeviceLayout
 import com.moviepilot.designsystem.CinematicCircleButton
 import com.moviepilot.designsystem.CinematicGlassSurface
 import com.moviepilot.designsystem.CinematicPanel
+import com.moviepilot.designsystem.ExpressiveTintedScaffold
+import com.moviepilot.designsystem.LocalBottomOverlayInset
 import com.moviepilot.designsystem.LocalMoviePilotColors
-import com.moviepilot.designsystem.NativeGlassTopBar
+import com.moviepilot.designsystem.NativeAdaptivePill
+import com.moviepilot.designsystem.NativeEntityLogo
 import com.moviepilot.designsystem.NativePosterCard
 import com.moviepilot.designsystem.NativeSectionHeader
 import com.moviepilot.designsystem.NativeTopStatusBarProgressiveBlur
@@ -88,6 +92,7 @@ import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.rustbridge.MediaCardItem
 import com.moviepilot.rustbridge.MediaEpisodeDto
+import com.moviepilot.rustbridge.MediaLibraryStatusDto
 import com.moviepilot.rustbridge.MediaPersonDto
 import com.moviepilot.rustbridge.MediaSeasonDto
 import com.moviepilot.rustbridge.MoviePilotRepository
@@ -117,6 +122,7 @@ fun MediaDetailScreen(
     onOpenMedia: (MediaCardItem) -> Unit = {},
 ) {
     val colors = LocalMoviePilotColors.current
+    val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val config = LocalConfiguration.current
     val isPortraitPhone = config.screenWidthDp < config.screenHeightDp && config.screenWidthDp < 680
@@ -132,10 +138,13 @@ fun MediaDetailScreen(
     var seasons by remember(item.resolvedId) { mutableStateOf<List<MediaSeasonDto>>(emptyList()) }
     val episodesBySeason = remember(item.resolvedId) { mutableStateMapOf<Int, List<MediaEpisodeDto>>() }
     var expandedSeason by remember(item.resolvedId) { mutableStateOf<Int?>(null) }
+    var showAllEpisodesSeasons by remember(item.resolvedId) { mutableStateOf<Set<Int>>(emptySet()) }
     var expandOverview by remember(item.resolvedId) { mutableStateOf(false) }
     var subscribedSeasons by remember(item.resolvedId) { mutableStateOf<Set<Int>>(emptySet()) }
     var subscribedMovie by remember(item.resolvedId) { mutableStateOf(false) }
+    var libraryStatus by remember(item.resolvedId) { mutableStateOf(MediaLibraryStatusDto(inLibrary = item.inLibrary)) }
     var feedback by remember(item.resolvedId) { mutableStateOf<String?>(null) }
+    var feedbackIsError by remember(item.resolvedId) { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
 
     suspend fun loadDetail() {
@@ -159,6 +168,24 @@ fun MediaDetailScreen(
             val resolvedTmdbId = detail.tmdbId ?: item.tmdbId
             if (detail.type == "电视剧" && resolvedTmdbId != null) {
                 seasons = repository.fetchMediaSeasons(resolvedTmdbId)
+            }
+            val subDef = async {
+                repository.checkMediaSubscribed(
+                    detail,
+                    season = if (detail.type == "电视剧") (seasons.firstOrNull()?.seasonNumber ?: 1) else null,
+                )
+            }
+            val libDef = async { repository.checkMediaInLibraryStatus(detail) }
+            val (isSub, subSeasons) = subDef.await()
+            if (detail.type == "电视剧") {
+                subscribedSeasons = subSeasons
+            } else {
+                subscribedMovie = isSub
+            }
+            val libStatus = libDef.await()
+            libraryStatus = libStatus
+            if (libStatus.inLibrary && !detail.inLibrary) {
+                detail = detail.copy(inLibrary = true)
             }
             isRefreshing = false
         }
@@ -298,7 +325,7 @@ fun MediaDetailScreen(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 48.dp),
+                    contentPadding = PaddingValues(bottom = 48.dp + bottomOverlayInset),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
                     // 1. 前景透明片名 Logo / 标题、元数据、评分与类型胶囊（1.0x 随正文自然上滚）
@@ -387,7 +414,7 @@ fun MediaDetailScreen(
                         }
                     }
 
-                    // 2. 核心操作栏（纯白主按钮 + 玻璃次按钮 + 媒体库直放）
+                    // 2. 核心操作栏（深浅双模高对比度主按钮 + 玻璃次按钮 + 媒体库直放）
                     item {
                         Column(
                             modifier = Modifier.padding(horizontal = margin),
@@ -397,10 +424,20 @@ fun MediaDetailScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
+                                val primaryBtnBg = when {
+                                    primarySubscribed -> colors.success
+                                    colors.isDark -> Color.White
+                                    else -> colors.accent
+                                }
+                                val primaryBtnFg = when {
+                                    primarySubscribed -> Color.White
+                                    colors.isDark -> Color(0xFF14111D)
+                                    else -> colors.primaryButtonFg
+                                }
                                 Button(
                                     onClick = {
                                         scope.launch {
-                                            val ok = repository.createOrUpdateSubscription(
+                                            val (ok, msg) = repository.createOrUpdateSubscriptionWithMessage(
                                                 SubscribeItemDto(
                                                     name = detail.title,
                                                     year = detail.year,
@@ -410,13 +447,19 @@ fun MediaDetailScreen(
                                                     mediaId = detail.tmdbId?.toString() ?: detail.doubanId ?: detail.resolvedId,
                                                 ),
                                             )
-                                            if (isTv) subscribedSeasons = subscribedSeasons + primarySeason else subscribedMovie = true
-                                            feedback = if (ok) "已添加到我的订阅" else "已提交订阅请求"
+                                            if (ok) {
+                                                if (isTv) subscribedSeasons = subscribedSeasons + primarySeason else subscribedMovie = true
+                                                feedbackIsError = false
+                                                feedback = "已添加到我的订阅"
+                                            } else {
+                                                feedbackIsError = true
+                                                feedback = msg
+                                            }
                                         }
                                     },
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (primarySubscribed) colors.success else Color.White,
-                                        contentColor = if (primarySubscribed) Color.White else Color(0xFF14111D),
+                                        containerColor = primaryBtnBg,
+                                        contentColor = primaryBtnFg,
                                     ),
                                     shape = CircleShape,
                                     modifier = Modifier.weight(1f).height(50.dp),
@@ -459,21 +502,27 @@ fun MediaDetailScreen(
                                 }
                             }
 
-                            if (detail.inLibrary) {
+                            if (detail.inLibrary || libraryStatus.inLibrary) {
                                 Button(
                                     onClick = {
                                         scope.launch {
                                             feedback = null
-                                            val candidateId = detail.mediaId?.takeIf { it.isNotBlank() }
+                                            val candidateId = libraryStatus.itemId.takeIf { it.isNotBlank() }
+                                                ?: detail.mediaId?.takeIf { it.isNotBlank() && !it.contains(":") }
                                                 ?: repository.searchMedia(detail.title, "library", 1).firstOrNull()?.mediaId
-                                            val manifest = candidateId?.let { repository.fetchVideoStreamInfo(it, null) }
+                                            val targetSrv = libraryStatus.server.takeIf { it.isNotBlank() }
+                                            val manifest = candidateId?.let { repository.fetchVideoStreamInfo(it, targetSrv) }
                                             if (manifest != null) {
                                                 val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
                                                 onPlayMedia(
                                                     MediaPlaybackRequest(
                                                         url = manifest.contentUrl,
                                                         title = manifest.title.ifBlank { detail.title },
-                                                        subtitle = "${detail.year} · ${detail.type}",
+                                                        subtitle = listOfNotNull(
+                                                            manifest.server.ifBlank { targetSrv },
+                                                            detail.year.ifBlank { null },
+                                                            detail.type.ifBlank { null },
+                                                        ).joinToString(" · "),
                                                         artworkUrl = detail.posterPath,
                                                         isAudio = manifest.mediaType == "audio",
                                                         lyricsLrc = lrc,
@@ -487,6 +536,7 @@ fun MediaDetailScreen(
                                                     ),
                                                 )
                                             } else {
+                                                feedbackIsError = true
                                                 feedback = "当前媒体服务器未找到该条目的直放流"
                                             }
                                         }
@@ -495,14 +545,27 @@ fun MediaDetailScreen(
                                     shape = CircleShape,
                                     modifier = Modifier.fillMaxWidth().height(46.dp),
                                 ) {
-                                    Icon(Icons.Rounded.PlayArrow, contentDescription = null)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("立即播放", fontWeight = FontWeight.SemiBold)
+                                    if (libraryStatus.server.isNotBlank()) {
+                                        NativeEntityLogo(
+                                            kind = "mediaserver",
+                                            value = libraryStatus.serverType.ifBlank { libraryStatus.server },
+                                            size = 18.dp,
+                                            cornerRadius = 5.dp,
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                    } else {
+                                        Icon(Icons.Rounded.PlayArrow, contentDescription = null)
+                                        Spacer(Modifier.width(6.dp))
+                                    }
+                                    Text(
+                                        text = if (libraryStatus.server.isNotBlank()) "立即播放 · ${libraryStatus.server}" else "立即播放",
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
                                 }
                             }
 
                             feedback?.let {
-                                Text(it, color = colors.success, fontSize = 13.sp)
+                                Text(it, color = if (feedbackIsError) colors.warning else colors.success, fontSize = 13.sp)
                             }
                         }
                     }
@@ -603,7 +666,7 @@ fun MediaDetailScreen(
                                                             .border(0.7.dp, if (isSeasonSub) colors.success else colors.chipBorder, CircleShape)
                                                             .clickable {
                                                                 scope.launch {
-                                                                    val ok = repository.createOrUpdateSubscription(
+                                                                    val (ok, msg) = repository.createOrUpdateSubscriptionWithMessage(
                                                                         SubscribeItemDto(
                                                                             name = detail.title,
                                                                             year = detail.year,
@@ -613,8 +676,14 @@ fun MediaDetailScreen(
                                                                             mediaId = detail.tmdbId?.toString() ?: detail.resolvedId,
                                                                         ),
                                                                     )
-                                                                    subscribedSeasons = subscribedSeasons + season.seasonNumber
-                                                                    feedback = if (ok) "已订阅第 ${season.seasonNumber} 季" else "已提交分季订阅"
+                                                                    if (ok) {
+                                                                        subscribedSeasons = subscribedSeasons + season.seasonNumber
+                                                                        feedbackIsError = false
+                                                                        feedback = "已订阅第 ${season.seasonNumber} 季"
+                                                                    } else {
+                                                                        feedbackIsError = true
+                                                                        feedback = msg
+                                                                    }
                                                                 }
                                                             }
                                                             .padding(horizontal = 12.dp, vertical = 5.dp),
@@ -630,8 +699,12 @@ fun MediaDetailScreen(
                                             if (isExpanded) {
                                                 val eps = episodesBySeason[season.seasonNumber].orEmpty()
                                                 if (eps.isNotEmpty()) {
+                                                    val showAllEps = season.seasonNumber in showAllEpisodesSeasons
+                                                    val visibleEps = if (showAllEps) eps else eps.take(12)
+                                                    val existingEps = libraryStatus.existingEpisodesBySeason[season.seasonNumber].orEmpty().toSet()
                                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                        eps.take(12).forEach { ep ->
+                                                        visibleEps.forEach { ep ->
+                                                            val inLibEp = ep.episodeNumber in existingEps
                                                             Row(
                                                                 modifier = Modifier
                                                                     .fillMaxWidth()
@@ -655,6 +728,27 @@ fun MediaDetailScreen(
                                                                         Text(ep.airDate + (ep.runtime?.let { " · ${it}分钟" } ?: ""), color = colors.textMuted, fontSize = 11.sp)
                                                                     }
                                                                 }
+                                                                if (inLibEp) {
+                                                                    Text("已入库", color = colors.success, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                                }
+                                                            }
+                                                        }
+                                                        if (eps.size > 12) {
+                                                            Box(
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                contentAlignment = Alignment.Center,
+                                                            ) {
+                                                                NativeAdaptivePill(
+                                                                    title = if (showAllEps) "收起分集" else "展开全部 ${eps.size} 集",
+                                                                    selected = false,
+                                                                    onClick = {
+                                                                        showAllEpisodesSeasons = if (showAllEps) {
+                                                                            showAllEpisodesSeasons - season.seasonNumber
+                                                                        } else {
+                                                                            showAllEpisodesSeasons + season.seasonNumber
+                                                                        }
+                                                                    },
+                                                                )
                                                             }
                                                         }
                                                     }
@@ -765,9 +859,10 @@ fun PersonDetailScreen(
     onOpenMedia: (MediaCardItem) -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val columns = AdaptiveDeviceLayout.posterGridColumns()
-    val localHaze = remember { HazeState() }
+    val gridState = rememberLazyGridState()
 
     var person by remember(seed.id) { mutableStateOf(seed) }
     var works by remember(seed.id) { mutableStateOf<List<MediaCardItem>>(emptyList()) }
@@ -779,13 +874,21 @@ fun PersonDetailScreen(
         works = list
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    ExpressiveTintedScaffold(
+        title = person.name,
+        subtitle = person.department.takeIf { it.isNotBlank() },
+        onBack = onBack,
+    ) {
         LazyVerticalGrid(
+            state = gridState,
             columns = GridCells.Fixed(columns),
-            modifier = Modifier
-                .fillMaxSize()
-                .hazeSource(localHaze),
-            contentPadding = PaddingValues(start = margin, end = margin, top = 104.dp, bottom = 48.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = margin,
+                end = margin,
+                top = 20.dp,
+                bottom = 48.dp + bottomOverlayInset,
+            ),
             horizontalArrangement = Arrangement.spacedBy(11.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -801,7 +904,7 @@ fun PersonDetailScreen(
                             .size(116.dp)
                             .clip(CircleShape)
                             .background(colors.chipFill)
-                            .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape),
+                            .border(1.dp, colors.borderSubtle.copy(alpha = 0.45f), CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(Icons.Rounded.Person, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(46.dp))
@@ -887,20 +990,6 @@ fun PersonDetailScreen(
                     )
                 }
             }
-        }
-
-        // 顶部状态栏渐进模糊 + 居中标题导航栏
-        Box(modifier = Modifier.align(Alignment.TopCenter)) {
-            NativeTopStatusBarProgressiveBlur(
-                visibilityProgress = 1f,
-                extraHeight = 62.dp,
-                blurSourceState = localHaze,
-            )
-            NativeGlassTopBar(
-                title = person.name,
-                onBack = onBack,
-                showTopBlur = false,
-            )
         }
     }
 }

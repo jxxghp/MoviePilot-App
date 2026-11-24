@@ -14,7 +14,9 @@ export {
 
 export {
   NativeHuksStore,
-  SavedServerEntry
+  SavedServerEntry,
+  PersistedAuthSession,
+  SavedCredentialPair
 } from './src/main/ets/security/NativeHuksStore';
 
 export {
@@ -28,9 +30,16 @@ export {
   MpMediaItem,
   MpCastMember,
   MpSeasonInfo,
+  MpMediaDetailBundle,
   MpDashboardStats,
   MpCommunityMedal,
   MpCommunityState,
+  MpCalendarEpisodeItem,
+  MpWorkflowActionNode,
+  MpWorkflowFlowEdge,
+  MpWorkflowShareItem,
+  MpAuthorizationItem,
+  MpAuthorizationCode,
   MpSubscribeItem,
   MpSiteItem,
   MpResourceItem,

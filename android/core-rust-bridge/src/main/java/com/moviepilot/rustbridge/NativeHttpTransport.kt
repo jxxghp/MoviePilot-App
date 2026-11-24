@@ -15,7 +15,9 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.BufferedReader
 import java.io.File
+import java.io.InputStreamReader
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.concurrent.ConcurrentHashMap
@@ -68,6 +70,7 @@ private class InMemoryCookieJar : CookieJar {
  */
 class NativeHttpTransport(
     private val allowSelfSignedTls: () -> Boolean = { false },
+    @Volatile var onAuthClassified: ((decision: String, status: Int, body: String) -> Unit)? = null,
 ) {
     private val cookieJar = InMemoryCookieJar()
     private val defaultClient: OkHttpClient = buildClient(trustAll = false)
@@ -75,6 +78,14 @@ class NativeHttpTransport(
 
     private fun client(): OkHttpClient =
         if (allowSelfSignedTls()) selfSignedClient else defaultClient
+
+    private fun notifyAuthDecision(token: String?, status: Int, body: String): String {
+        val decision = RustCoreBridge.classifyAuthStatus(status, body)
+        if (!token.isNullOrBlank() && decision != "valid") {
+            onAuthClassified?.invoke(decision, status, body)
+        }
+        return decision
+    }
 
     fun clearCookies() {
         cookieJar.clear()
@@ -114,7 +125,11 @@ class NativeHttpTransport(
         }
         val dlClient = client().newBuilder().readTimeout(120, TimeUnit.SECONDS).build()
         dlClient.newCall(reqBuilder.build()).execute().use { resp ->
-            if (!resp.isSuccessful) return@use false
+            if (!resp.isSuccessful) {
+                val errBody = resp.body?.string().orEmpty()
+                notifyAuthDecision(token, resp.code, errBody)
+                return@use false
+            }
             val stream = resp.body?.byteStream() ?: return@use false
             destFile.parentFile?.mkdirs()
             destFile.outputStream().use { out ->
@@ -205,9 +220,11 @@ class NativeHttpTransport(
         }
         client().newCall(reqBuilder.build()).execute().use { resp ->
             val headersMap = resp.headers.names().associateWith { resp.headers[it].orEmpty() }
+            val bodyText = resp.body?.string().orEmpty()
+            notifyAuthDecision(token, resp.code, bodyText)
             NativeHttpResponse(
                 status = resp.code,
-                body = resp.body?.string().orEmpty(),
+                body = bodyText,
                 headers = headersMap,
             )
         }
@@ -240,15 +257,20 @@ class NativeHttpTransport(
         client().newBuilder().readTimeout(60, TimeUnit.SECONDS).writeTimeout(60, TimeUnit.SECONDS).build()
             .newCall(reqBuilder.build()).execute().use { resp ->
                 val headersMap = resp.headers.names().associateWith { resp.headers[it].orEmpty() }
+                val bodyText = resp.body?.string().orEmpty()
+                notifyAuthDecision(token, resp.code, bodyText)
                 NativeHttpResponse(
                     status = resp.code,
-                    body = resp.body?.string().orEmpty(),
+                    body = bodyText,
                     headers = headersMap,
                 )
             }
     }
 
-    /** 建立 SSE 流式通道，逐块喂入 Rust `NativeSseParser` 并以 Kotlin `Flow` 向下游分发事件帧。 */
+    /**
+     * 建立 SSE 流式通道，使用 UTF-8 字符流按行解码避免多字节中文字符跨块截断为 U+FFFD，
+     * 并在非 2xx 响应时触发 Rust 认证态分类后以 Kotlin `Flow` 向下游分发事件帧。
+     */
     fun streamSse(
         url: String,
         token: String?,
@@ -270,14 +292,20 @@ class NativeHttpTransport(
         val streamClient = client().newBuilder().readTimeout(0, TimeUnit.SECONDS).build()
         val parser = RustCoreBridge.createSseParser()
         streamClient.newCall(reqBuilder.build()).execute().use { resp ->
-            val source = resp.body?.source() ?: return@use
-            val buffer = ByteArray(4096)
-            while (!source.exhausted()) {
-                val read = source.read(buffer)
-                if (read <= 0) break
-                val chunk = String(buffer, 0, read, Charsets.UTF_8)
-                for (ev in parser.pushChunk(chunk)) {
-                    emit(ev)
+            if (!resp.isSuccessful) {
+                val errBody = resp.body?.string().orEmpty()
+                val decision = notifyAuthDecision(token, resp.code, errBody)
+                throw IllegalStateException(
+                    if (decision == "logout") "登录状态已过期" else "SSE 流式连接失败 (HTTP ${resp.code})",
+                )
+            }
+            val bodyStream = resp.body?.byteStream() ?: return@use
+            BufferedReader(InputStreamReader(bodyStream, Charsets.UTF_8)).use { reader ->
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    for (ev in parser.pushChunk("$line\n")) {
+                        emit(ev)
+                    }
                 }
             }
             for (ev in parser.finish()) {
