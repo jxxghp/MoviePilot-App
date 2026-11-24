@@ -54,8 +54,8 @@ const RESOLUTION_OPTIONS: string[] = ['', '4k', '1080p', '720p'];
 const EFFECT_OPTIONS: string[] = ['', '杜比视界', '杜比全景声', 'HDR', '60fps'];
 
 /**
- * 鸿蒙「订阅」中心（完整对齐 iOS 功能与简洁布局）：
- * - 一级页顶栏右侧配备「搜索」与「追剧日历」悬浮圆钮，统一大胶囊切换「我的订阅 / 订阅广场」；
+ * 鸿蒙「订阅」中心：
+ * - 一级页采用统一大胶囊切换「我的订阅 / 订阅广场 / 追剧日历」，支持二级独立模式直达「追剧日历」或「订阅广场」；
  * - 追剧日历真实消费 `GET /api/v1/subscribe/calendar` 展示剧集排期并支持直达详情；
  * - 订阅广场支持点击热门海报或分享卡片查看详情，以及「复用订阅」（`POST /api/v1/subscribe/fork`）；
  * - 订阅编辑器全量搭载品牌图标（下载器与真实站点图标）并无损提交。
@@ -123,8 +123,6 @@ export struct HarmonySubscriptionsPage {
   @State private filesStatusFilter: string = '全部'; // '全部' | '已入库' | '已下载' | '待入库'
 
   onBack: () => void = () => {};
-  onOpenSearch: () => void = () => {};
-  onOpenCalendar: () => void = () => {};
   onOpenMedia: (item: MpMediaItem) => void = () => {};
   onPlayServerItem: (itemId: string, server: string, title: string) => void = () => {};
 
@@ -513,9 +511,13 @@ export struct HarmonySubscriptionsPage {
     return this.items.filter((i: MpSubscribeItem) => i.type === t).length;
   }
 
+  private calendarFallbackTvItems(): MpSubscribeItem[] {
+    return this.items.filter((i: MpSubscribeItem) => i.type === '电视剧');
+  }
+
   private filteredItems(): MpSubscribeItem[] {
     if (this.initialMode === 'calendar') {
-      return this.items.filter((i: MpSubscribeItem) => i.type === '电视剧');
+      return this.calendarFallbackTvItems();
     }
     if (this.filter === '全部') { return this.items; }
     return this.items.filter((i: MpSubscribeItem) => i.type === this.filter);
@@ -1352,7 +1354,7 @@ export struct HarmonySubscriptionsPage {
       HarmonyPosterRowCardGridSkeleton({
         variant: 'calendar',
         fillViewport: true,
-        bottomPadding: 44
+        bottomPadding: this.showBack ? 44 : 128
       })
     } else if (this.calendarItems.length > 0) {
       Grid() {
@@ -1431,10 +1433,10 @@ export struct HarmonySubscriptionsPage {
       .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
       .columnsGap(12)
       .rowsGap(12)
-      .padding({ left: 16, right: 16, top: 4, bottom: 44 })
+      .padding({ left: 16, right: 16, top: 4, bottom: this.showBack ? 44 : 128 })
       .scrollBar(BarState.Off)
       .layoutWeight(1)
-    } else if (this.filteredItems().length > 0) {
+    } else if (this.calendarFallbackTvItems().length > 0) {
       // 若服务端暂未生成剧集排期，回退展示在追剧集进度列表
       Scroll() {
         Column({ space: 12 }) {
@@ -1443,7 +1445,7 @@ export struct HarmonySubscriptionsPage {
             .fontColor(mpSecondaryText(this.isDark))
             .width('100%')
           Grid() {
-            ForEach(this.filteredItems(), (sub: MpSubscribeItem) => {
+            ForEach(this.calendarFallbackTvItems(), (sub: MpSubscribeItem) => {
               GridItem() {
                 Column() {
                   CinematicPanel({ panelPadding: 13, cornerRadius: 18, interactive: true }) {
@@ -1478,7 +1480,7 @@ export struct HarmonySubscriptionsPage {
           .rowsGap(12)
           .width('100%')
         }
-        .padding({ left: 16, right: 16, top: 4, bottom: 44 })
+        .padding({ left: 16, right: 16, top: 4, bottom: this.showBack ? 44 : 128 })
       }
       .scrollBar(BarState.Off)
       .layoutWeight(1)
@@ -1500,7 +1502,7 @@ export struct HarmonySubscriptionsPage {
           title: this.initialMode === 'calendar'
             ? ((this.loadingCalendar || (this.loading && this.calendarItems.length === 0))
               ? '追剧日历'
-              : `追剧日历 (${this.calendarItems.length > 0 ? this.calendarItems.length : this.filteredItems().length})`)
+              : `追剧日历 (${this.calendarItems.length > 0 ? this.calendarItems.length : this.calendarFallbackTvItems().length})`)
             : (this.initialMode === 'square'
               ? '订阅广场'
               : (this.loading && this.items.length === 0 ? this.initialTitle : `${this.initialTitle} (${this.items.length})`)),
@@ -1515,13 +1517,7 @@ export struct HarmonySubscriptionsPage {
         })
       } else {
         HarmonyPageHeader({
-          title: '订阅',
-          secondarySymbol: 'sys.symbol.magnifyingglass',
-          secondaryAccessibility: '全局搜索',
-          primarySymbol: 'sys.symbol.calendar',
-          primaryAccessibility: '追剧日历',
-          onSecondaryClick: () => this.onOpenSearch(),
-          onPrimaryClick: () => this.onOpenCalendar()
+          title: '订阅'
         })
       }
 
@@ -1536,17 +1532,24 @@ export struct HarmonySubscriptionsPage {
       if (this.initialMode === 'calendar') {
         this.calendarListBuilder()
       } else {
-        HarmonyPillTabBar({
-          tabs: [
-            this.loading && this.items.length === 0 ? '我的订阅' : `我的订阅 (${this.items.length})`,
-            '订阅广场'
-          ],
-          selectedIndex: this.mainTabIndex,
-          onSelect: (idx: number) => {
-            this.mainTabIndex = idx;
-            if (idx === 1) { this.loadSquareIfNeeded(); }
-          }
-        })
+        if (!this.showBack) {
+          HarmonyPillTabBar({
+            tabs: [
+              this.loading && this.items.length === 0 ? '我的订阅' : `我的订阅 (${this.items.length})`,
+              '订阅广场',
+              '追剧日历'
+            ],
+            selectedIndex: this.mainTabIndex,
+            onSelect: (idx: number) => {
+              this.mainTabIndex = idx;
+              if (idx === 1) {
+                this.loadSquareIfNeeded();
+              } else if (idx === 2) {
+                this.loadCalendar();
+              }
+            }
+          })
+        }
 
         if (this.mainTabIndex === 0) {
           Scroll() {
@@ -1742,7 +1745,7 @@ export struct HarmonySubscriptionsPage {
             .scrollBar(BarState.Off)
             .layoutWeight(1)
           }
-        } else {
+        } else if (this.mainTabIndex === 1) {
           Column() {
             HarmonySegmentedSwitch({
               options: ['热门电影', '热门剧集', '社区分享'],
@@ -1866,6 +1869,8 @@ export struct HarmonySubscriptionsPage {
             .scrollBar(BarState.Off)
             .layoutWeight(1)
           }
+        } else {
+          this.calendarListBuilder()
         }
       }
 

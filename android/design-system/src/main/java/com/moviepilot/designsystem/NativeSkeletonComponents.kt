@@ -1761,6 +1761,43 @@ fun NativeDashboardSkeleton(
             ),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
+            item(key = "sk_dash_user_profile") {
+                CinematicPanel(padding = 18.dp) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        NativeSkeletonCircle(size = 62.dp, role = SkeletonSurfaceRole.Tile)
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            NativeSkeletonBlock(
+                                cornerRadius = 6.dp,
+                                role = SkeletonSurfaceRole.Bar,
+                                modifier = Modifier.size(width = 118.dp, height = 20.dp),
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(72.dp, 64.dp, 46.dp).forEach { w ->
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = w, height = 20.dp)
+                                            .skeletonChildSemantics()
+                                            .nativeSkeletonFill(shape = CircleShape, role = SkeletonSurfaceRole.Bar),
+                                    )
+                                }
+                            }
+                            NativeSkeletonBlock(
+                                cornerRadius = 5.dp,
+                                role = SkeletonSurfaceRole.Bar,
+                                modifier = Modifier.size(width = 156.dp, height = 13.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
             item(key = "sk_dash_media_stats") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SkeletonSectionHeaderRow()
@@ -1820,7 +1857,7 @@ fun NativeDashboardSkeleton(
 }
 
 /**
- * 「更多（工作台）」全屏自适应骨架（实时运行概览卡 + 2..4 列自适应 `92.dp` 功能磁贴网格，消除「媒体库」磁贴晚到跳动与 `0 KB/s` 假零态）。
+ * 「更多（工作台）」全屏自适应骨架（分组 2..4 列自适应 `92.dp` 功能磁贴网格，1:1 对齐真实分组卡片结构）。
  */
 @Composable
 fun NativeWorkspaceSkeleton(
@@ -1904,65 +1941,8 @@ fun NativeWorkspaceSkeleton(
             ),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            item(key = "sk_ws_overview") {
-                CinematicPanel(padding = 16.dp) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            NativeSkeletonBlock(
-                                cornerRadius = 6.dp,
-                                role = SkeletonSurfaceRole.Bar,
-                                modifier = Modifier.size(width = 104.dp, height = 18.dp),
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(width = 74.dp, height = 22.dp)
-                                    .skeletonChildSemantics()
-                                    .nativeSkeletonFill(shape = CircleShape, role = SkeletonSurfaceRole.Bar),
-                            )
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            repeat(2) {
-                                Row(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .skeletonChildSemantics()
-                                        .nativeSkeletonFill(
-                                            shape = RoundedCornerShape(12.dp),
-                                            role = SkeletonSurfaceRole.Bar,
-                                        )
-                                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    NativeSkeletonCircle(size = 20.dp, role = SkeletonSurfaceRole.Bar)
-                                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                        NativeSkeletonBlock(
-                                            cornerRadius = 4.dp,
-                                            role = SkeletonSurfaceRole.Bar,
-                                            modifier = Modifier.size(width = 48.dp, height = 11.dp),
-                                        )
-                                        NativeSkeletonBlock(
-                                            cornerRadius = 5.dp,
-                                            role = SkeletonSurfaceRole.Bar,
-                                            modifier = Modifier.size(width = 66.dp, height = 14.dp),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             item(key = "sk_ws_flow") { TileSectionSkeleton(tileCount = 6) }
-            item(key = "sk_ws_plugins") { TileSectionSkeleton(tileCount = 2) }
+            item(key = "sk_ws_plugins") { TileSectionSkeleton(tileCount = 3) }
             item(key = "sk_ws_subscribe") { TileSectionSkeleton(tileCount = 2) }
         }
     }

@@ -1,12 +1,14 @@
 package com.moviepilot.app
 
 import androidx.compose.ui.graphics.Color
+import com.moviepilot.designsystem.MainTab
 import com.moviepilot.designsystem.NativeAppearanceMode
 import com.moviepilot.designsystem.NativeAppearanceStore
 import com.moviepilot.designsystem.resolveMoviePilotColors
 import com.moviepilot.designsystem.resolveSkeletonPalette
 import com.moviepilot.rustbridge.MediaServerStreamTrackDto
 import com.moviepilot.rustbridge.MoviePilotRepository
+import com.moviepilot.rustbridge.UserIdentity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -122,5 +124,18 @@ class RemediationContractsTest {
         assertEquals(Color.Black.copy(alpha = 0.05f), lightPalette.tileBorder)
         assertEquals(lightColors.textPrimary.copy(alpha = 0.075f), lightPalette.barFill)
         assertEquals(Color.White.copy(alpha = 0.70f), lightPalette.sweepPeak)
+    }
+
+    @Test
+    fun mainTabEntriesAlignWithUnifiedFourTabOrder() {
+        assertEquals(
+            listOf("发现", "订阅", "我的", "更多"),
+            MainTab.entries.map { it.label },
+        )
+        assertEquals(
+            listOf("discover", "subscribe", "dashboard", "workspace"),
+            MainTab.entries.map { it.id },
+        )
+        assertEquals(1, UserIdentity().level)
     }
 }

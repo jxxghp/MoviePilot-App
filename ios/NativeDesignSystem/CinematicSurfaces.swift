@@ -1218,77 +1218,110 @@ struct NativeMediaDetailSkeletonView: View {
   }
 }
 
-/// 仪表盘（「我的」页）占位骨架布局：按实时容器宽度自适应 1×4 / 2×2 媒体库指标、宽屏双列 Bento 与窄屏单列排布。
+/// 仪表盘（「我的」页）占位骨架布局：包含顶部用户身份卡占位，并按实时容器宽度自适应 1×4 / 2×2 媒体库指标、宽屏双列 Bento 与窄屏单列排布。
 @MainActor
 struct NativeDashboardSkeletonView: View {
   var containerWidth: CGFloat = 0
   var horizontalMargin: CGFloat = CinematicStyle.margin
+  var showsUserCard: Bool = true
+  var isEmbeddedInScroll: Bool = false
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
     let useTwoColumns = containerWidth >= 820 && !dynamicTypeSize.isAccessibilitySize
+    if isEmbeddedInScroll {
+      skeletonSections(useTwoColumns: useTwoColumns)
+        .allowsHitTesting(false)
+        .nativeSkeletonShimmer()
+    } else {
+      ScrollView {
+        skeletonSections(useTwoColumns: useTwoColumns)
+          .frame(maxWidth: useTwoColumns ? 1200 : 820, alignment: .leading)
+          .padding(.horizontal, horizontalMargin)
+          .padding(.top, 8)
+          .padding(.bottom, 36)
+          .frame(maxWidth: .infinity)
+      }
+      .scrollIndicators(.hidden)
+      .allowsHitTesting(false)
+      .nativeSkeletonShimmer()
+    }
+  }
+
+  @ViewBuilder
+  private func skeletonSections(useTwoColumns: Bool) -> some View {
     let metricColumnsCount: Int =
       dynamicTypeSize.isAccessibilitySize ? 1 : (containerWidth >= 740 ? 4 : 2)
     let metricColumns = Array(
       repeating: GridItem(.flexible(), spacing: 12, alignment: .top),
       count: metricColumnsCount
     )
+    VStack(alignment: .leading, spacing: 20) {
+      if showsUserCard {
+        userProfileCardSkeleton
+      }
 
-    ScrollView {
-      VStack(alignment: .leading, spacing: 20) {
-        VStack(alignment: .leading, spacing: 10) {
-          sectionHeaderSkeleton(width: 104, detailWidth: 52)
-          LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 12) {
-            ForEach(0..<4, id: \.self) { _ in
-              CinematicPanel(padding: 15) {
-                VStack(alignment: .leading, spacing: 10) {
-                  HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 5) {
-                      NativeSkeletonBlock(width: 72, height: 28, cornerRadius: 7)
-                      NativeSkeletonBlock(width: 48, height: 13, cornerRadius: 5)
-                    }
-                    Spacer(minLength: 6)
-                    NativeSkeletonBlock(width: 32, height: 32, cornerRadius: 16)
+      VStack(alignment: .leading, spacing: 10) {
+        sectionHeaderSkeleton(width: 104, detailWidth: 52)
+        LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 12) {
+          ForEach(0..<4, id: \.self) { _ in
+            CinematicPanel(padding: 15) {
+              VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top) {
+                  VStack(alignment: .leading, spacing: 5) {
+                    NativeSkeletonBlock(width: 72, height: 28, cornerRadius: 7)
+                    NativeSkeletonBlock(width: 48, height: 13, cornerRadius: 5)
                   }
-                  Spacer(minLength: 0)
-                  NativeSkeletonBlock(width: 86, height: 20, cornerRadius: 10)
+                  Spacer(minLength: 6)
+                  NativeSkeletonBlock(width: 32, height: 32, cornerRadius: 16)
                 }
-                .frame(maxWidth: .infinity, minHeight: 106, alignment: .leading)
+                Spacer(minLength: 0)
+                NativeSkeletonBlock(width: 86, height: 20, cornerRadius: 10)
               }
+              .frame(maxWidth: .infinity, minHeight: 106, alignment: .leading)
             }
           }
         }
+      }
 
-        if useTwoColumns {
-          LazyVGrid(
-            columns: [
-              GridItem(.flexible(), spacing: 18, alignment: .top),
-              GridItem(.flexible(), spacing: 18, alignment: .top),
-            ],
-            alignment: .leading,
-            spacing: 18
-          ) {
-            storageCardSkeleton
-            recentImportsSkeleton
-            chartCardSkeleton
-            servicesCardSkeleton
-          }
-        } else {
+      if useTwoColumns {
+        LazyVGrid(
+          columns: [
+            GridItem(.flexible(), spacing: 18, alignment: .top),
+            GridItem(.flexible(), spacing: 18, alignment: .top),
+          ],
+          alignment: .leading,
+          spacing: 18
+        ) {
           storageCardSkeleton
           recentImportsSkeleton
           chartCardSkeleton
           servicesCardSkeleton
         }
+      } else {
+        storageCardSkeleton
+        recentImportsSkeleton
+        chartCardSkeleton
+        servicesCardSkeleton
       }
-      .frame(maxWidth: useTwoColumns ? 1200 : 820, alignment: .leading)
-      .padding(.horizontal, horizontalMargin)
-      .padding(.top, 8)
-      .padding(.bottom, 36)
-      .frame(maxWidth: .infinity)
     }
-    .scrollIndicators(.hidden)
-    .allowsHitTesting(false)
-    .nativeSkeletonShimmer()
+  }
+
+  private var userProfileCardSkeleton: some View {
+    CinematicPanel(padding: 16) {
+      HStack(alignment: .center, spacing: 14) {
+        NativeSkeletonBlock(width: 60, height: 60, cornerRadius: 30)
+        VStack(alignment: .leading, spacing: 7) {
+          NativeSkeletonBlock(width: 124, height: 20, cornerRadius: 6)
+          HStack(spacing: 6) {
+            NativeSkeletonBlock(width: 68, height: 20, cornerRadius: 10)
+            NativeSkeletonBlock(width: 44, height: 20, cornerRadius: 10)
+          }
+          NativeSkeletonBlock(width: 156, height: 12, cornerRadius: 5)
+        }
+        Spacer(minLength: 0)
+      }
+    }
   }
 
   private func sectionHeaderSkeleton(width: CGFloat, detailWidth: CGFloat) -> some View {
@@ -1515,29 +1548,30 @@ struct NativeCardListSkeletonView: View {
       }
 
     case .subscribeCard:
-      CinematicPanel(padding: 12) {
+      CinematicPanel(padding: 13) {
         HStack(alignment: .top, spacing: 13) {
-          NativeSkeletonBlock(width: 68, height: 102, cornerRadius: 10)
-          VStack(alignment: .leading, spacing: 6) {
+          NativeSkeletonBlock(width: 76, height: 114, cornerRadius: 11)
+          VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .top, spacing: 8) {
-              NativeSkeletonBlock(height: 16, cornerRadius: 6)
+              NativeSkeletonBlock(height: 17, cornerRadius: 6)
               Spacer(minLength: 4)
-              NativeSkeletonBlock(width: 48, height: 20, cornerRadius: 10)
+              NativeSkeletonBlock(width: 50, height: 20, cornerRadius: 10)
             }
             HStack(spacing: 8) {
-              NativeSkeletonBlock(width: 36, height: 12, cornerRadius: 5)
               NativeSkeletonBlock(width: 38, height: 12, cornerRadius: 5)
-              NativeSkeletonBlock(width: 32, height: 12, cornerRadius: 5)
+              NativeSkeletonBlock(width: 42, height: 12, cornerRadius: 5)
+              NativeSkeletonBlock(width: 34, height: 12, cornerRadius: 5)
             }
             VStack(alignment: .leading, spacing: 5) {
-              NativeSkeletonBlock(width: 96, height: 11, cornerRadius: 5)
-              NativeSkeletonBlock(height: 7, cornerRadius: 3.5)
+              NativeSkeletonBlock(width: 104, height: 11, cornerRadius: 5)
+              NativeSkeletonBlock(height: 8, cornerRadius: 3.5)
             }
             .padding(.top, 2)
             HStack(spacing: 8) {
-              NativeSkeletonBlock(width: 64, height: 32, cornerRadius: 16)
-              NativeSkeletonBlock(width: 64, height: 32, cornerRadius: 16)
-              Spacer()
+              NativeSkeletonBlock(width: 62, height: 34, cornerRadius: 17)
+              NativeSkeletonBlock(width: 62, height: 34, cornerRadius: 17)
+              NativeSkeletonBlock(width: 62, height: 34, cornerRadius: 17)
+              Spacer(minLength: 0)
             }
             .padding(.top, 2)
           }
@@ -1940,6 +1974,63 @@ struct NativeCardListSkeletonView: View {
         }
         NativeSkeletonBlock(height: 12, cornerRadius: 5)
       }
+    }
+  }
+}
+
+/// 订阅主页面首帧占位骨架：包含顶部分区切换胶囊（可选）、追剧总览英雄卡、分类与搜索栏以及多列自适应订阅卡片列表。
+@MainActor
+struct NativeSubscriptionsHubSkeletonView: View {
+  var columns: Int = 1
+  var includesModePills: Bool = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      if includesModePills {
+        HStack(spacing: 8) {
+          NativeSkeletonBlock(width: 96, height: 36, cornerRadius: 18)
+          NativeSkeletonBlock(width: 92, height: 36, cornerRadius: 18)
+          NativeSkeletonBlock(width: 92, height: 36, cornerRadius: 18)
+          Spacer(minLength: 0)
+        }
+      }
+
+      CinematicPanel(padding: 16) {
+        VStack(alignment: .leading, spacing: 13) {
+          HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+              NativeSkeletonBlock(width: 118, height: 30, cornerRadius: 8)
+              NativeSkeletonBlock(width: 168, height: 13, cornerRadius: 5)
+            }
+            Spacer(minLength: 8)
+            NativeSkeletonBlock(width: 94, height: 32, cornerRadius: 16)
+          }
+          NativeSkeletonBlock(height: 7, cornerRadius: 3.5)
+          HStack(spacing: 8) {
+            NativeSkeletonBlock(width: 62, height: 22, cornerRadius: 11)
+            NativeSkeletonBlock(width: 62, height: 22, cornerRadius: 11)
+            NativeSkeletonBlock(width: 62, height: 22, cornerRadius: 11)
+            Spacer(minLength: 0)
+          }
+        }
+      }
+      .nativeSkeletonShimmer()
+
+      HStack(spacing: 8) {
+        NativeSkeletonBlock(width: 62, height: 34, cornerRadius: 17)
+        NativeSkeletonBlock(width: 58, height: 34, cornerRadius: 17)
+        NativeSkeletonBlock(width: 68, height: 34, cornerRadius: 17)
+        NativeSkeletonBlock(width: 58, height: 34, cornerRadius: 17)
+        Spacer(minLength: 6)
+        NativeSkeletonBlock(width: 120, height: 34, cornerRadius: 17)
+      }
+      .nativeSkeletonShimmer()
+
+      NativeCardListSkeletonView(
+        count: max(columns, 1) * 3,
+        style: .subscribeCard,
+        columns: max(columns, 1)
+      )
     }
   }
 }

@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -34,15 +36,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Book
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Language
@@ -61,6 +62,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -70,6 +72,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -92,11 +95,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.moviepilot.designsystem.AdaptiveDeviceLayout
-import com.moviepilot.designsystem.CinematicCircleButton
 import com.moviepilot.designsystem.CinematicGlassSurface
 import com.moviepilot.designsystem.CinematicPanel
 import com.moviepilot.designsystem.ExpressiveHeaderActionButton
@@ -110,6 +113,7 @@ import com.moviepilot.designsystem.NativeCardListSkeleton
 import com.moviepilot.designsystem.NativeDashboardSkeleton
 import com.moviepilot.designsystem.NativeEntityLogo
 import com.moviepilot.designsystem.NativeGlassSheet
+import com.moviepilot.designsystem.NativeNetworkEntityLogo
 import com.moviepilot.designsystem.NativeSectionHeader
 import com.moviepilot.designsystem.SkeletonCardStyle
 import com.moviepilot.medal3d.CommunityProfile
@@ -123,8 +127,10 @@ import com.moviepilot.rustbridge.NetTestResultDto
 import com.moviepilot.rustbridge.PluginDashboardMetaDto
 import com.moviepilot.rustbridge.RecognizeResultDto
 import com.moviepilot.rustbridge.ScheduledServiceDto
+import com.moviepilot.rustbridge.SessionState
 import com.moviepilot.rustbridge.SystemMessageDto
 import com.moviepilot.rustbridge.SystemModuleStatusDto
+import com.moviepilot.rustbridge.UserIdentity
 import com.moviepilot.rustcore.PermissionsFfi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -176,7 +182,8 @@ private fun savePersistedDashboardModules(context: Context, list: List<Dashboard
 }
 
 /**
- * 「我的」仪表盘：支持自定义模块显隐与顺序编排、2×2 媒体库统计、存储环形图、
+ * 「我的」个人中心与仪表盘：顶部展示用户头像与身份铭牌卡（`DashboardUserProfileCard`），
+ * 顶栏右上角仅保留「消息中心」，支持自定义模块显隐与顺序编排、媒体库统计、存储环形图、
  * 下载器双速卡、社区勋章陈列墙、7 天整理趋势、系统负载、后台服务与插件仪表盘小组件。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -186,7 +193,6 @@ fun DashboardScreen(
     onOpenMessages: () -> Unit,
     onOpenDiagnosticTab: (String) -> Unit,
     onOpenMedalShowcase: (CommunityProfile, String) -> Unit,
-    onOpenSettings: () -> Unit = {},
     permissions: PermissionsFfi? = null,
 ) {
     val colors = LocalMoviePilotColors.current
@@ -199,6 +205,8 @@ fun DashboardScreen(
     val medalJson = remember { Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true } }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    val session by repository.session.collectAsState()
+    val auth = session as? SessionState.Authenticated
     val isAdmin = permissions?.admin != false
     val initialCache = remember { repository.cachedDashboard }
 
@@ -218,7 +226,6 @@ fun DashboardScreen(
             } ?: emptyList(),
         )
     }
-    var showShortcutsSheet by remember { mutableStateOf(false) }
     var showModulesSheet by remember { mutableStateOf(false) }
     var isInitialLoading by remember { mutableStateOf(initialCache == null) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -279,18 +286,6 @@ fun DashboardScreen(
                 icon = Icons.Outlined.Notifications,
                 contentDescription = "消息中心",
                 onClick = onOpenMessages,
-            )
-            if (isAdmin) {
-                ExpressiveHeaderActionButton(
-                    icon = Icons.Outlined.Bolt,
-                    contentDescription = "捷径与诊断",
-                    onClick = { showShortcutsSheet = true },
-                )
-            }
-            ExpressiveHeaderActionButton(
-                icon = Icons.Outlined.Settings,
-                contentDescription = "设置",
-                onClick = onOpenSettings,
             )
         },
     ) {
@@ -509,6 +504,26 @@ fun DashboardScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
+                if (auth != null) {
+                    val earnedMedals = communityProfile?.takeIf { it.hasEarnedMedals }?.orderedKnownMedals.orEmpty()
+                    item(key = "dash_user_profile") {
+                        DashboardUserProfileCard(
+                            identity = auth.identity,
+                            serverUrl = auth.serverUrl,
+                            resolvedAvatarUrl = repository.resolveImageUrl(auth.identity.avatar),
+                            isAdmin = isAdmin,
+                            earnedCount = earnedMedals.size,
+                            onOpenMedals = {
+                                val profile = communityProfile
+                                val firstMedal = earnedMedals.firstOrNull()
+                                if (profile != null && firstMedal != null) {
+                                    onOpenMedalShowcase(profile, firstMedal.key)
+                                }
+                            },
+                        )
+                    }
+                }
+
                 var idx = 0
                 while (idx < enabledModules.size) {
                     val mod = enabledModules[idx]
@@ -768,47 +783,153 @@ fun DashboardScreen(
             }
         }
     }
+}
 
-    // Material 3 Expressive 捷径菜单 BottomSheet（宽屏 3 列自适应 + 可纵向滚动防截断）
-    if (showShortcutsSheet) {
-        val shortcutCols = if (effectiveWidth >= 640) 3 else 2
-        val shortcutItems: List<@Composable (Modifier) -> Unit> = listOf(
-            { mod -> ShortcutCard("系统检查", "组件健康与运行状态", Icons.Rounded.Shield, colors.success, mod) { showShortcutsSheet = false; onOpenDiagnosticTab("健康检查") } },
-            { mod -> ShortcutCard("网络测试", "自动测速与连通检测", Icons.Rounded.Language, colors.info, mod) { showShortcutsSheet = false; onOpenDiagnosticTab("网络测试") } },
-            { mod -> ShortcutCard("识别与规则", "名称识别与规则验证", Icons.Rounded.Search, colors.brand, mod) { showShortcutsSheet = false; onOpenDiagnosticTab("名称识别") } },
-            { mod -> ShortcutCard("词表", "识别词、屏蔽词与剧集规则", Icons.Rounded.Book, colors.cyan, mod) { showShortcutsSheet = false; onOpenDiagnosticTab("词表") } },
-            { mod -> ShortcutCard("实时日志", "结构化查看与级别过滤", Icons.Rounded.Terminal, colors.warning, mod) { showShortcutsSheet = false; onOpenDiagnosticTab("实时日志") } },
-            { mod -> ShortcutCard("定时服务", "系统与插件任务手动触发", Icons.Rounded.History, colors.pink, mod) { showShortcutsSheet = false; onOpenDiagnosticTab("定时服务") } },
-        )
-        NativeGlassSheet(onDismissRequest = { showShortcutsSheet = false }) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 18.dp, vertical = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+/**
+ * 「我的」顶部用户头像与身份资料卡：
+ * 展示 60dp 圆形用户头像（配微光主题描边与绿色在线状态圆点）、用户名、角色与等级/2FA/社区勋章胶囊徽章行，
+ * 以及当前连接的 MoviePilot 实例域名地址。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DashboardUserProfileCard(
+    identity: UserIdentity,
+    serverUrl: String,
+    resolvedAvatarUrl: String?,
+    isAdmin: Boolean,
+    earnedCount: Int,
+    onOpenMedals: () -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    val hostLabel = remember(serverUrl) {
+        serverUrl.substringAfter("://").substringBefore("/").ifBlank { "MoviePilot" }
+    }
+    val levelValue = identity.level.coerceAtLeast(1)
+    val levelLabel = if (levelValue >= 2) "Lv.$levelValue 已认证" else "Lv.$levelValue"
+
+    CinematicPanel(padding = 18.dp) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Box(
+                modifier = Modifier.size(66.dp),
+                contentAlignment = Alignment.Center,
             ) {
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    CinematicCircleButton(Icons.Rounded.Close, "关闭", { showShortcutsSheet = false }, size = 38.dp)
-                    Text(
-                        "捷径",
-                        color = colors.textPrimary,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                        .border(
+                            width = 1.8.dp,
+                            brush = Brush.linearGradient(listOf(colors.accent, colors.pink.copy(alpha = 0.78f))),
+                            shape = CircleShape,
+                        )
+                        .padding(2.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    NativeNetworkEntityLogo(
+                        imageUrl = resolvedAvatarUrl,
+                        kind = "avatar",
+                        value = identity.name.ifBlank { "M" },
+                        size = 60.dp,
+                        cornerRadius = 30.dp,
                     )
-                    Spacer(Modifier.width(38.dp))
                 }
-                shortcutItems.chunked(shortcutCols).forEach { rowItems ->
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        rowItems.forEach { item -> item(Modifier.weight(1f)) }
-                        repeat(shortcutCols - rowItems.size) {
-                            Spacer(Modifier.weight(1f))
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(1.dp)
+                        .size(16.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                        .padding(2.5.dp)
+                        .clip(CircleShape)
+                        .background(colors.success),
+                )
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = identity.name.ifBlank { "MoviePilot 用户" },
+                    color = colors.textPrimary,
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (identity.isSuperuser || isAdmin) {
+                        NativeAdaptiveBadge(
+                            text = "超级管理员",
+                            tint = colors.accent,
+                        )
+                    } else {
+                        NativeAdaptiveBadge(
+                            text = "普通成员",
+                            tint = colors.textSecondary,
+                        )
+                    }
+
+                    NativeAdaptiveBadge(
+                        text = levelLabel,
+                        tint = if (levelValue >= 2) colors.success else colors.info,
+                    )
+
+                    if (identity.isOtp) {
+                        NativeAdaptiveBadge(
+                            text = "2FA",
+                            tint = colors.cyan,
+                        )
+                    }
+
+                    if (earnedCount > 0) {
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(colors.warning.copy(alpha = if (colors.isDark) 0.20f else 0.14f))
+                                .border(0.7.dp, colors.warning.copy(alpha = 0.42f), CircleShape)
+                                .clickable(onClick = onOpenMedals)
+                                .padding(horizontal = 10.dp, vertical = 3.5.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "\uD83C\uDFC5 $earnedCount 枚勋章",
+                                color = colors.warning,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                            )
                         }
                     }
                 }
-                Spacer(Modifier.height(22.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Dns,
+                        contentDescription = "已连接实例",
+                        tint = colors.textMuted,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Text(
+                        text = hostLabel,
+                        color = colors.textSecondary,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
@@ -986,29 +1107,6 @@ fun MessagesCenterScreen(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ShortcutCard(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    tint: Color,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    val colors = LocalMoviePilotColors.current
-    CinematicPanel(
-        padding = 16.dp,
-        cornerRadius = 18.dp,
-        modifier = modifier.clickable(onClick = onClick),
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
-            Text(title, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            Text(subtitle, color = colors.textSecondary, fontSize = 11.sp, maxLines = 1)
         }
     }
 }

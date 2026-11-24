@@ -18,6 +18,8 @@ struct NativeSubscribeCommunityPage: View {
   }
 
   let session: NativeSession
+  let isEmbedded: Bool
+  let onSubscribed: (() -> Void)?
 
   @State private var selectedTab: Tab = .popularMovies
   @State private var popularItems: [NativePopularSubscribeItem] = []
@@ -34,54 +36,34 @@ struct NativeSubscribeCommunityPage: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
+  /// 初始化订阅广场，支持独立二级页面与「订阅」主页内嵌两种形态。
+  init(
+    session: NativeSession,
+    isEmbedded: Bool = false,
+    onSubscribed: (() -> Void)? = nil
+  ) {
+    self.session = session
+    self.isEmbedded = isEmbedded
+    self.onSubscribed = onSubscribed
+  }
+
   /// 连续深色紫玫瑰渐变、分区切换胶囊、热门海报网格与分享订阅卡片列表。
   var body: some View {
-    let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
-    ZStack {
-      CinematicBackground()
-      ScrollView {
-        VStack(alignment: .leading, spacing: 16) {
-          tabSelector
-          if let feedback {
-            feedbackBanner(feedback)
-          }
-          if isLoading && isCurrentEmpty {
-            if selectedTab == .shares {
-              sharesSkeleton
-                .transition(.opacity)
-            } else {
-              NativePosterGridSkeletonView(
-                columns: columns.count,
-                count: columns.count * 3,
-                horizontalSpacing: 11,
-                centeredCaption: true
-              )
-              .transition(.opacity)
-            }
-          } else if loadFailed && isCurrentEmpty {
-            failureCard
-          } else if selectedTab == .shares {
-            sharesContent
-          } else {
-            popularGrid
-          }
+    Group {
+      if isEmbedded {
+        scrollContent
+      } else {
+        ZStack {
+          CinematicBackground()
+          scrollContent
         }
-        .frame(maxWidth: 1200)
-        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: resolvedWidth))
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity)
+        .navigationTitle("订阅广场")
+        .navigationBarTitleDisplayMode(.inline)
+        .nativeTopNavigationBar()
+        .searchable(text: $searchText, prompt: "筛选片名或分享标题")
+        .onSubmit(of: .search) { reloadToken += 1 }
       }
-      .nativeTrackContainerWidth($containerWidth)
-      .scrollIndicators(.hidden)
-      .refreshable { await load() }
-      .modifier(NativeSoftTopScrollEdge())
-      .accessibilityIdentifier("native-community-scroll")
     }
-    .navigationTitle("订阅广场")
-    .navigationBarTitleDisplayMode(.inline)
-    .nativeTopNavigationBar()
-    .searchable(text: $searchText, prompt: "筛选片名或分享标题")
-    .onSubmit(of: .search) { reloadToken += 1 }
     .task(id: "\(selectedTab.rawValue)|\(reloadToken)") { await load() }
     .alert(
       "复用订阅",
@@ -97,6 +79,101 @@ struct NativeSubscribeCommunityPage: View {
       Button("取消", role: .cancel) {}
     } message: { item in
       Text("将「\(item.displayTitle)」的过滤规则添加到我的订阅列表吗？")
+    }
+  }
+
+  /// 主体可滚动内容：内嵌模式下提供紧凑内联搜索框，避免叠加二级导航栏。
+  private var scrollContent: some View {
+    let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    return ScrollView {
+      VStack(alignment: .leading, spacing: 16) {
+        if isEmbedded {
+          ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+              tabSelector
+              embeddedSearchField
+                .frame(maxWidth: 260)
+            }
+            VStack(alignment: .leading, spacing: 10) {
+              tabSelector
+              embeddedSearchField
+            }
+          }
+        } else {
+          tabSelector
+        }
+        if let feedback {
+          feedbackBanner(feedback)
+        }
+        if isLoading && isCurrentEmpty {
+          if selectedTab == .shares {
+            sharesSkeleton
+              .transition(.opacity)
+          } else {
+            NativePosterGridSkeletonView(
+              columns: columns.count,
+              count: columns.count * 3,
+              horizontalSpacing: 11,
+              centeredCaption: true
+            )
+            .transition(.opacity)
+          }
+        } else if loadFailed && isCurrentEmpty {
+          failureCard
+        } else if selectedTab == .shares {
+          sharesContent
+        } else {
+          popularGrid
+        }
+      }
+      .frame(maxWidth: 1200)
+      .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: resolvedWidth))
+      .padding(.vertical, 14)
+      .frame(maxWidth: .infinity)
+    }
+    .nativeTrackContainerWidth($containerWidth)
+    .scrollIndicators(.hidden)
+    .refreshable { await load() }
+    .modifier(NativeSoftTopScrollEdge())
+    .accessibilityIdentifier("native-community-scroll")
+  }
+
+  /// 内嵌在「订阅」主页时展示的紧凑毛玻璃搜索框。
+  private var embeddedSearchField: some View {
+    HStack(spacing: 8) {
+      Image(systemName: "magnifyingglass")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+      TextField("筛选片名或分享标题…", text: $searchText)
+        .font(.subheadline)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .submitLabel(.search)
+        .onSubmit { reloadToken += 1 }
+        .accessibilityIdentifier("native-community-search")
+      if !searchText.isEmpty {
+        Button {
+          searchText = ""
+          if selectedTab == .shares {
+            reloadToken += 1
+          }
+        } label: {
+          Image(systemName: "xmark.circle.fill")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("清除筛选")
+      }
+    }
+    .padding(.horizontal, 12)
+    .frame(height: 36)
+    .background {
+      Capsule()
+        .fill(NativeTheme.fieldFill)
+        .overlay {
+          Capsule().strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.7)
+        }
     }
   }
 
@@ -488,6 +565,8 @@ struct NativeSubscribeCommunityPage: View {
       let endpoint = try APIEndpoint(path: ["subscribe", "fork"], method: .post, body: body)
       try await session.perform(endpoint, requiring: .init(category: .subscribe))
       try Task.checkCancellation()
+      NativePageDataCache.shared.remove("subscriptions|list", session: session)
+      onSubscribed?()
       feedback = NativeCommunityFeedback(isError: false, message: "已复用「\(item.displayTitle)」到我的订阅。")
     } catch is CancellationError {
       return

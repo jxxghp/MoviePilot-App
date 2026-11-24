@@ -101,6 +101,10 @@
       "value": "Resume listening"
     },
     {
+      "name": "mp_0fee3e35",
+      "value": "Calendar & Community"
+    },
+    {
       "name": "mp_10_e4d73412",
       "value": "Back 10 seconds"
     },
@@ -115,6 +119,10 @@
     {
       "name": "mp_11d02415",
       "value": "Back"
+    },
+    {
+      "name": "mp_1204486f",
+      "value": "Music Center"
     },
     {
       "name": "mp_1209bc96",
@@ -255,6 +263,10 @@
     {
       "name": "mp_245a6285",
       "value": "Generate pairing code"
+    },
+    {
+      "name": "mp_2478069f",
+      "value": "Plugins & Workflows"
     },
     {
       "name": "mp_2484f5fd",
@@ -581,6 +593,10 @@
       "value": "Pairing code copied. Paste it in the Home Screen notification page."
     },
     {
+      "name": "mp_513189d7",
+      "value": "Airing Schedule"
+    },
+    {
       "name": "mp_513c1c63",
       "value": "Expression"
     },
@@ -603,6 +619,10 @@
     {
       "name": "mp_55a8b99f",
       "value": "The service response could not be read. Check the backend version and address."
+    },
+    {
+      "name": "mp_5692388b",
+      "value": "Shortcuts & Diagnostics"
     },
     {
       "name": "mp_57fce0c4",
@@ -725,6 +745,10 @@
       "value": "Close"
     },
     {
+      "name": "mp_6d09dc34",
+      "value": "Plugin Center"
+    },
+    {
       "name": "mp_6f22a707",
       "value": "Administrator"
     },
@@ -809,8 +833,16 @@
       "value": "Settings"
     },
     {
+      "name": "mp_7e45236f",
+      "value": "Explore Categories"
+    },
+    {
       "name": "mp_7ea6ff3e",
       "value": "Unable to load playback information. Check the library item and server connection."
+    },
+    {
+      "name": "mp_823f4d1e",
+      "value": "Release Calendar"
     },
     {
       "name": "mp_83689796",
@@ -915,6 +947,10 @@
     {
       "name": "mp_9a051ee2",
       "value": "Checking server connection…"
+    },
+    {
+      "name": "mp_9b0c6c78",
+      "value": "More"
     },
     {
       "name": "mp_9b5d7644",
@@ -1393,6 +1429,10 @@
       "value": "Your sign-in status changed. Reopen notification settings."
     },
     {
+      "name": "mp_d4ca35d0",
+      "value": "AI, Plugins & Automation"
+    },
+    {
       "name": "mp_d4cb2e28",
       "value": "Change address"
     },
@@ -1467,6 +1507,10 @@
     {
       "name": "mp_e10994d9",
       "value": "Unable to verify the passkey. Try again."
+    },
+    {
+      "name": "mp_e1119ef7",
+      "value": "Resources & Media Flow"
     },
     {
       "name": "mp_e188ebca",
@@ -1585,6 +1629,10 @@
       "value": "Empty value"
     },
     {
+      "name": "mp_f1aff11d",
+      "value": "Community Subscriptions"
+    },
+    {
       "name": "mp_f28c38e5",
       "value": "Unable to connect. Check the address, port and server status, then retry."
     },
@@ -1647,6 +1695,10 @@
     {
       "name": "mp_fb1c7dc7",
       "value": "Main navigation"
+    },
+    {
+      "name": "mp_fc2d686b",
+      "value": "Installed Plugins & Store"
     },
     {
       "name": "mp_fc58bba4",

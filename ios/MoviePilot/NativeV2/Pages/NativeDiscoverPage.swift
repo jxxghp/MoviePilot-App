@@ -1247,7 +1247,12 @@ struct NativeDiscoverPage: View {
   /// 独立「分类浏览」模块：展示带真实海报的多来源分类探索入口，可与媒体库独立开关和排序。
   private var categoriesSection: some View {
     VStack(alignment: .leading, spacing: 14) {
-      sectionHeader("分类浏览")
+      sectionHeader(
+        "分类浏览",
+        action: onOpenCategory.map { openCategory in
+          { openCategory(NativeExploreSourceKind.tmdbMovies.rawValue) }
+        }
+      )
       let perRow = NativeDeviceLayout.discoverCategoryColumns(
         for: effectiveWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
       let rows = stride(from: 0, to: content.categories.count, by: perRow).map {
@@ -1315,28 +1320,43 @@ struct NativeDiscoverPage: View {
     .accessibilityValue(provider.itemCount.map { "\($0) 项内容" } ?? "")
   }
 
-  /// 没有接入分类查询时保持分类海报信息可见，但不会显示无效操作。
+  /// 没有接入分类查询时保持分类海报信息可见，但不会显示无效操作；英文品牌名与中文类型分行呈现避免断词。
   private func categoryArtwork(_ category: NativeDiscoverCategory) -> some View {
-    HStack(spacing: 11) {
+    let parts = category.title.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+    return HStack(spacing: 9) {
       artwork(category.posterReference, .poster)
         .aspectRatio(2.0 / 3.0, contentMode: .fill)
-        .frame(width: 46, height: 69).clipped()
+        .frame(width: 44, height: 66).clipped()
         .clipShape(.rect(cornerRadius: 9))
-      VStack(alignment: .leading, spacing: 5) {
-        Text(category.title).font(.subheadline.weight(.semibold))
-          .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+      VStack(alignment: .leading, spacing: 3) {
+        if parts.count == 2 && !dynamicTypeSize.isAccessibilitySize {
+          Text(String(parts[0]))
+            .font(.subheadline.weight(.semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.68)
+          Text(String(parts[1]))
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        } else {
+          Text(category.title)
+            .font(.subheadline.weight(.semibold))
+            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+            .minimumScaleFactor(0.85)
+        }
         if let count = category.itemCount {
           Text("\(count) 部").font(.caption).foregroundStyle(.secondary)
         }
       }
-      Spacer(minLength: 0)
+      Spacer(minLength: 2)
       if onOpenCategory != nil {
-        Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+        Image(systemName: "chevron.right").font(.caption2.weight(.semibold))
           .foregroundStyle(.secondary).accessibilityHidden(true)
       }
     }
     .frame(maxWidth: .infinity, minHeight: 84, alignment: .leading)
-    .padding(10)
+    .padding(.horizontal, 9)
+    .padding(.vertical, 10)
     .contentShape(.rect(cornerRadius: CinematicStyle.radius))
     .background { CinematicPanel(padding: 0) { Color.clear } }
   }

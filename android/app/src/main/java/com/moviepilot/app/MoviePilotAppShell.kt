@@ -58,6 +58,7 @@ import com.moviepilot.designsystem.FloatingAgentMascot
 import com.moviepilot.designsystem.FloatingNavigationRail
 import com.moviepilot.designsystem.LocalAppearanceStore
 import com.moviepilot.designsystem.LocalBottomOverlayInset
+import com.moviepilot.designsystem.LocalHazeState
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.LocalSnackbarHostState
 import com.moviepilot.designsystem.MainTab
@@ -116,15 +117,18 @@ import com.moviepilot.rustbridge.RustCoreBridge
 import com.moviepilot.rustbridge.SessionState
 import com.moviepilot.rustbridge.WorkflowItemDto
 import com.moviepilot.rustcore.PermissionsFfi
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/** 主壳路由目的栈条目（覆盖全部业务页面、媒体库、独立人物页、独立消息页、渠道授权、插件宿主与全部设置模块）。 */
+/** 主壳路由目的栈条目（覆盖全部业务页面、分类探索、媒体库、独立人物页、独立消息页、渠道授权、插件宿主与全部设置模块）。 */
 sealed interface AppRoute {
     data object TabRoot : AppRoute
+    data class Explore(val source: String = "tmdb_movies") : AppRoute
     data object SettingsHub : AppRoute
     data class GlobalSearch(val query: String = "", val kind: String = "media") : AppRoute
     data class MediaDetail(val item: MediaCardItem) : AppRoute
@@ -195,6 +199,8 @@ private fun checkRoutePermission(route: AppRoute, perms: PermissionsFfi): String
         is AppRoute.History,
         -> if (perms.manage) null else "当前账号无下载与文件整理权限"
 
+        is AppRoute.Explore -> if (perms.discovery) null else "当前账号无探索与发现权限"
+
         is AppRoute.Resources -> if (perms.search) null else "当前账号无站点资源搜索权限"
 
         is AppRoute.Subscriptions,
@@ -208,8 +214,8 @@ private fun checkRoutePermission(route: AppRoute, perms: PermissionsFfi): String
 
 /**
  * MoviePilot Android Material Design 3 根容器：
- * 1. 维护 5 个一级 Tab 各自独立的子路由栈（`tabStacks`）并配合 `rememberSaveableStateHolder` 保活滚动位置与视图状态；
- * 2. 宽屏（`>= 600dp`）跨一级 Tab 与全部深层子路由常驻左侧 `FloatingNavigationRail`；
+ * 1. 维护 4 个一级 Tab（发现、订阅、我的、更多）各自独立的子路由栈（`tabStacks`）并配合 `rememberSaveableStateHolder` 保活滚动位置与视图状态；
+ * 2. 窄屏提供 4+1 分离式实时磨砂玻璃胶囊底栏（左侧 4 主 Tab + 右侧独立圆形「搜索」按钮），宽屏（`>= 600dp`）常驻左侧 `FloatingNavigationRail`；
  * 3. 支持 `NeedsLogin` -> `Authenticated` 跨登录态保留并自动重放 `incomingDeepLink`；
  * 4. 全局拦截 RBAC 管理员/子权限越权路由，并在登出或 401 会话过期时自动清理隔离插件 WebView 会话；
  * 5. 动态计算底部覆盖层安全内边距（`LocalBottomOverlayInset`），兼顾未登录本地音频悬浮迷你播控条。
@@ -234,6 +240,7 @@ fun MoviePilotRootShell(
     val session by repository.session.collectAsState()
     val savedServers by repository.savedServers.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val shellHazeState = remember { HazeState() }
     val saveableStateHolder = rememberSaveableStateHolder()
     val medalJson = remember { Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true } }
 
@@ -242,15 +249,13 @@ fun MoviePilotRootShell(
     var selectedTabId by rememberSaveable { mutableStateOf(MainTab.Discover.id) }
     val selectedTab = MainTab.entries.firstOrNull { it.id == selectedTabId } ?: MainTab.Discover
 
-    var exploreSource by rememberSaveable { mutableStateOf("tmdb_movies") }
     var nextEntrySeq by rememberSaveable { mutableIntStateOf(1) }
     val tabStacks = remember {
         mutableStateMapOf<MainTab, List<BackStackEntry>>(
             MainTab.Discover to emptyList(),
-            MainTab.Explore to emptyList(),
             MainTab.Subscribe to emptyList(),
-            MainTab.Workspace to emptyList(),
             MainTab.Dashboard to emptyList(),
+            MainTab.Workspace to emptyList(),
         )
     }
 
@@ -458,20 +463,21 @@ fun MoviePilotRootShell(
                 when (kind) {
                     "discover" -> pushRoute(AppRoute.TabRoot, MainTab.Discover)
                     "explore" -> {
-                        obj["source"]?.jsonPrimitive?.content?.takeIf { it != "null" }?.let { exploreSource = it }
-                        pushRoute(AppRoute.TabRoot, MainTab.Explore)
+                        val src = obj["source"]?.jsonPrimitive?.content?.takeIf { it != "null" && it.isNotBlank() } ?: "tmdb_movies"
+                        pushRoute(AppRoute.Explore(src), MainTab.Discover)
                     }
                     "dashboard" -> pushRoute(AppRoute.TabRoot, MainTab.Dashboard)
+                    "workspace", "more" -> pushRoute(AppRoute.TabRoot, MainTab.Workspace)
                     "messages" -> pushRoute(AppRoute.Messages, MainTab.Dashboard)
                     "authorization" -> {
-                        clearTabStack(MainTab.Dashboard)
-                        pushRoute(AppRoute.SettingsHub, MainTab.Dashboard)
-                        pushRoute(AppRoute.ChannelAuthorization, MainTab.Dashboard)
+                        clearTabStack(MainTab.Workspace)
+                        pushRoute(AppRoute.SettingsHub, MainTab.Workspace)
+                        pushRoute(AppRoute.ChannelAuthorization, MainTab.Workspace)
                     }
                     "settings" -> {
                         val sub = obj["sub"]?.jsonPrimitive?.content?.takeIf { it != "null" }
-                        clearTabStack(MainTab.Dashboard)
-                        pushRoute(AppRoute.SettingsHub, MainTab.Dashboard)
+                        clearTabStack(MainTab.Workspace)
+                        pushRoute(AppRoute.SettingsHub, MainTab.Workspace)
                         val target = when (sub) {
                             "users" -> AppRoute.Users
                             "subscribe" -> AppRoute.SubscribeSearchSettings
@@ -482,13 +488,14 @@ fun MoviePilotRootShell(
                             "notifications" -> AppRoute.NotificationsSettings
                             "authorization", "channel-auth" -> AppRoute.ChannelAuthorization
                             "playback" -> AppRoute.PlaybackSettings
+                            "appearance" -> AppRoute.Appearance
                             else -> null
                         }
-                        if (target != null) pushRoute(target, MainTab.Dashboard)
+                        if (target != null) pushRoute(target, MainTab.Workspace)
                     }
-                    "users" -> pushRoute(AppRoute.Users, MainTab.Dashboard)
-                    "systemSettings" -> pushRoute(AppRoute.MediaSourcesSettings, MainTab.Dashboard)
-                    "playbackSettings" -> pushRoute(AppRoute.PlaybackSettings, MainTab.Dashboard)
+                    "users" -> pushRoute(AppRoute.Users, MainTab.Workspace)
+                    "systemSettings" -> pushRoute(AppRoute.MediaSourcesSettings, MainTab.Workspace)
+                    "playbackSettings" -> pushRoute(AppRoute.PlaybackSettings, MainTab.Workspace)
                     "diagnostics" -> {
                         val sec = obj["section"]?.jsonPrimitive?.content?.takeIf { it != "null" }.orEmpty()
                         val tabName = when (sec.lowercase()) {
@@ -533,7 +540,7 @@ fun MoviePilotRootShell(
                     "agent" -> pushRoute(AppRoute.Agent(obj["prompt"]?.jsonPrimitive?.content?.takeIf { it != "null" }.orEmpty()))
                     "music" -> pushRoute(AppRoute.Music, MainTab.Discover)
                     "shortcuts" -> pushRoute(AppRoute.Diagnostics("词表"), MainTab.Workspace)
-                    "appearance" -> pushRoute(AppRoute.Appearance, MainTab.Dashboard)
+                    "appearance" -> pushRoute(AppRoute.Appearance, MainTab.Workspace)
                     "mediaDetail" -> pushRoute(
                         AppRoute.MediaDetail(
                             MediaCardItem(
@@ -558,8 +565,8 @@ fun MoviePilotRootShell(
 
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottomOverlayInset = when {
-        showBottomNav && showMiniMusicBar -> 160.dp + navBarBottom
-        showBottomNav -> 92.dp + navBarBottom
+        showBottomNav && showMiniMusicBar -> 154.dp + navBarBottom
+        showBottomNav -> 88.dp + navBarBottom
         showMiniMusicBar -> 78.dp + navBarBottom
         else -> 12.dp + navBarBottom
     }
@@ -567,10 +574,9 @@ fun MoviePilotRootShell(
     CompositionLocalProvider(
         LocalSnackbarHostState provides snackbarHostState,
         LocalBottomOverlayInset provides bottomOverlayInset,
+        LocalHazeState provides shellHazeState,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            CinematicAmbientGradient()
-
             Row(modifier = Modifier.fillMaxSize()) {
                 // 1. 宽屏（>= 600dp）常驻左侧 NavigationRail（跨一级 Tab 与全部深层子路由可见，自带左侧刘海与上下系统栏避让）
                 if (showWideRail && authSession != null) {
@@ -594,322 +600,329 @@ fun MoviePilotRootShell(
                                 .only(if (showWideRail) WindowInsetsSides.End else WindowInsetsSides.Horizontal),
                         ),
                 ) {
-                    val currentConnectedUrl = when (val cur = session) {
-                        is SessionState.Authenticated -> cur.serverUrl
-                        is SessionState.NeedsLogin -> cur.serverUrl
-                        SessionState.Unconnected -> null
-                    }
-                    if (session is SessionState.Unconnected || isSwitchingServer) {
-                        ServerConnectionScreen(
-                            savedServers = savedServers,
-                            currentServerUrl = currentConnectedUrl,
-                            onBack = if (isSwitchingServer) ({ isSwitchingServer = false }) else null,
-                            onConnect = { rawUrl ->
-                                val normalizedRes = RustCoreBridge.normalizeAddress(rawUrl)
-                                normalizedRes.fold(
-                                    onSuccess = { normalized ->
+                    // 主背景流光 + 业务页面内容层（挂载 shellHazeState 为底部 4+1 磨砂玻璃胶囊提供实时背板模糊采样）
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .hazeSource(shellHazeState),
+                    ) {
+                        CinematicAmbientGradient()
+
+                        CompositionLocalProvider(LocalHazeState provides null) {
+                            val currentConnectedUrl = when (val cur = session) {
+                                is SessionState.Authenticated -> cur.serverUrl
+                                is SessionState.NeedsLogin -> cur.serverUrl
+                                SessionState.Unconnected -> null
+                            }
+                            if (session is SessionState.Unconnected || isSwitchingServer) {
+                                ServerConnectionScreen(
+                                    savedServers = savedServers,
+                                    currentServerUrl = currentConnectedUrl,
+                                    onBack = if (isSwitchingServer) ({ isSwitchingServer = false }) else null,
+                                    onConnect = { rawUrl ->
+                                        val normalizedRes = RustCoreBridge.normalizeAddress(rawUrl)
+                                        normalizedRes.fold(
+                                            onSuccess = { normalized ->
+                                                if (isSwitchingServer && !currentConnectedUrl.isNullOrBlank() &&
+                                                    normalized.trimEnd('/').equals(currentConnectedUrl.trimEnd('/'), ignoreCase = true)
+                                                ) {
+                                                    isSwitchingServer = false
+                                                    Result.success(normalized)
+                                                } else {
+                                                    val connectRes = repository.connectServer(rawUrl)
+                                                    if (connectRes.isSuccess) {
+                                                        releaseBackgroundAudio()
+                                                        clearAllNavigationAndWebSession()
+                                                        isSwitchingServer = false
+                                                    }
+                                                    connectRes
+                                                }
+                                            },
+                                            onFailure = { Result.failure(it) },
+                                        )
+                                    },
+                                    onSelectSaved = { entry ->
                                         if (isSwitchingServer && !currentConnectedUrl.isNullOrBlank() &&
-                                            normalized.trimEnd('/').equals(currentConnectedUrl.trimEnd('/'), ignoreCase = true)
+                                            entry.url.trimEnd('/').equals(currentConnectedUrl.trimEnd('/'), ignoreCase = true)
                                         ) {
                                             isSwitchingServer = false
-                                            Result.success(normalized)
                                         } else {
-                                            val connectRes = repository.connectServer(rawUrl)
-                                            if (connectRes.isSuccess) {
-                                                releaseBackgroundAudio()
-                                                clearAllNavigationAndWebSession()
-                                                isSwitchingServer = false
-                                            }
-                                            connectRes
+                                            releaseBackgroundAudio()
+                                            clearAllNavigationAndWebSession()
+                                            repository.selectSavedServer(entry)
+                                            isSwitchingServer = false
                                         }
                                     },
-                                    onFailure = { Result.failure(it) },
-                                )
-                            },
-                            onSelectSaved = { entry ->
-                                if (isSwitchingServer && !currentConnectedUrl.isNullOrBlank() &&
-                                    entry.url.trimEnd('/').equals(currentConnectedUrl.trimEnd('/'), ignoreCase = true)
-                                ) {
-                                    isSwitchingServer = false
-                                } else {
-                                    releaseBackgroundAudio()
-                                    clearAllNavigationAndWebSession()
-                                    repository.selectSavedServer(entry)
-                                    isSwitchingServer = false
-                                }
-                            },
-                            onDeleteSaved = { url ->
-                                repository.forgetServer(url)
-                                if (repository.session.value is SessionState.Unconnected) {
-                                    isSwitchingServer = false
-                                }
-                            },
-                            allowSelfSignedTls = allowSelfSignedTls,
-                            onToggleSelfSignedTls = { enabled ->
-                                allowSelfSignedTls = enabled
-                                repository.secretStore.allowSelfSignedTls = enabled
-                            },
-                        )
-                    } else when (val s = session) {
-                        SessionState.Unconnected -> Unit
-
-                        is SessionState.NeedsLogin -> {
-                            LoginScreen(
-                                serverUrl = s.serverUrl,
-                                initialNotice = s.notice,
-                                repository = repository,
-                                onSwitchServer = { isSwitchingServer = true },
-                                onLoginSuccess = {},
-                            )
-                        }
-
-                        is SessionState.Authenticated -> {
-                            AnimatedContent(
-                                targetState = Triple(selectedTab, currentRoute, currentStateKey),
-                                transitionSpec = {
-                                    val sameTab = targetState.first == initialState.first
-                                    val enteringSub = sameTab && targetState.second != AppRoute.TabRoot && initialState.second == AppRoute.TabRoot
-                                    val returningRoot = sameTab && targetState.second == AppRoute.TabRoot && initialState.second != AppRoute.TabRoot
-                                    when {
-                                        enteringSub -> (slideInHorizontally(tween(220)) { it / 5 } + fadeIn(tween(220)))
-                                            .togetherWith(fadeOut(tween(150)))
-                                        returningRoot -> fadeIn(tween(200))
-                                            .togetherWith(slideOutHorizontally(tween(200)) { it / 5 } + fadeOut(tween(180)))
-                                        else -> fadeIn(tween(160)).togetherWith(fadeOut(tween(120)))
-                                    }
-                                },
-                                label = "mpMainRouter",
-                            ) { (tabAtFrame, route, stateKey) ->
-                                saveableStateHolder.SaveableStateProvider(stateKey) {
-                                    when (route) {
-                                        AppRoute.TabRoot -> when (tabAtFrame) {
-                                            MainTab.Discover -> DiscoverScreen(
-                                                repository = repository,
-                                                onOpenMedia = ::openMediaSmart,
-                                                onOpenExplore = { src ->
-                                                    exploreSource = src
-                                                    onTabBarClick(MainTab.Explore)
-                                                },
-                                                onOpenMusic = { pushRoute(AppRoute.Music) },
-                                                onOpenMediaLibrary = { lib -> pushRoute(AppRoute.MediaServerLibrary(lib)) },
-                                                onOpenSearch = { pushRoute(AppRoute.GlobalSearch()) },
-                                                onPlayMedia = ::startPlayback,
-                                            )
-                                            MainTab.Explore -> ExploreScreen(
-                                                repository = repository,
-                                                initialSource = exploreSource,
-                                                onOpenMedia = ::openMediaSmart,
-                                                onOpenSearch = { pushRoute(AppRoute.GlobalSearch()) },
-                                                onPlayAudio = ::startPlayback,
-                                            )
-                                            MainTab.Subscribe -> SubscriptionsScreen(
-                                                repository = repository,
-                                                initialCategory = null,
-                                                onBack = null,
-                                                onOpenSearch = { pushRoute(AppRoute.GlobalSearch()) },
-                                                onOpenCalendar = { pushRoute(AppRoute.Calendar) },
-                                                onOpenCommunity = { pushRoute(AppRoute.SubscribeCommunity) },
-                                                onOpenMedia = ::openMediaSmart,
-                                                onPlayMedia = ::startPlayback,
-                                                onOpenServerItem = { itemId, server, title ->
-                                                    pushRoute(AppRoute.MediaServerDetail(itemId, server, title))
-                                                },
-                                            )
-                                            MainTab.Workspace -> WorkspaceHubScreen(
-                                                repository = repository,
-                                                onOpenSearch = { pushRoute(AppRoute.GlobalSearch()) },
-                                                onOpenResources = { pushRoute(AppRoute.Resources()) },
-                                                onOpenDownloads = { pushRoute(AppRoute.Downloads) },
-                                                onOpenFiles = { pushRoute(AppRoute.Files()) },
-                                                onOpenHistory = { pushRoute(AppRoute.History()) },
-                                                onOpenWorkflows = { pushRoute(AppRoute.Workflows) },
-                                                onOpenPlugins = { pushRoute(AppRoute.Plugins(installedOnly = true)) },
-                                                onOpenSites = { pushRoute(AppRoute.Sites) },
-                                                onOpenCalendar = { pushRoute(AppRoute.Calendar) },
-                                                onOpenSubscribeCommunity = { pushRoute(AppRoute.SubscribeCommunity) },
-                                                onOpenMediaLibrary = { lib -> pushRoute(AppRoute.MediaServerLibrary(lib)) },
-                                                onOpenDiagnosticTab = { tab -> pushRoute(AppRoute.Diagnostics(tab)) },
-                                                permissions = s.permissions,
-                                            )
-                                            MainTab.Dashboard -> DashboardScreen(
-                                                repository = repository,
-                                                onOpenMessages = { pushRoute(AppRoute.Messages) },
-                                                onOpenDiagnosticTab = { tab -> pushRoute(AppRoute.Diagnostics(tab)) },
-                                                onOpenMedalShowcase = { profile, key -> activeMedalShowcase = profile to key },
-                                                onOpenSettings = { pushRoute(AppRoute.SettingsHub) },
-                                                permissions = s.permissions,
-                                            )
+                                    onDeleteSaved = { url ->
+                                        repository.forgetServer(url)
+                                        if (repository.session.value is SessionState.Unconnected) {
+                                            isSwitchingServer = false
                                         }
+                                    },
+                                    allowSelfSignedTls = allowSelfSignedTls,
+                                    onToggleSelfSignedTls = { enabled ->
+                                        allowSelfSignedTls = enabled
+                                        repository.secretStore.allowSelfSignedTls = enabled
+                                    },
+                                )
+                            } else when (val s = session) {
+                                SessionState.Unconnected -> Unit
 
-                                        AppRoute.SettingsHub -> SettingsHubScreen(
-                                            repository = repository,
-                                            serverUrl = s.serverUrl,
-                                            userName = s.identity.name,
-                                            onBack = ::popRoute,
-                                            onOpenSites = { pushRoute(AppRoute.Sites) },
-                                            onOpenUsers = { pushRoute(AppRoute.Users) },
-                                            onOpenSubscribeSearch = { pushRoute(AppRoute.SubscribeSearchSettings) },
-                                            onOpenMediaSources = { pushRoute(AppRoute.MediaSourcesSettings) },
-                                            onOpenDownloaders = { pushRoute(AppRoute.DownloadersSettings) },
-                                            onOpenMediaServers = { pushRoute(AppRoute.MediaServersSettings) },
-                                            onOpenDirectories = { pushRoute(AppRoute.DirectoriesSettings) },
-                                            onOpenPlayback = { pushRoute(AppRoute.PlaybackSettings) },
-                                            onOpenNotifications = { pushRoute(AppRoute.NotificationsSettings) },
-                                            onOpenAppearance = { pushRoute(AppRoute.Appearance) },
-                                            onOpenPlugins = { pushRoute(AppRoute.Plugins(installedOnly = true)) },
-                                            onOpenChannelAuth = { pushRoute(AppRoute.ChannelAuthorization) },
-                                            permissions = s.permissions,
-                                            onSwitchServer = { isSwitchingServer = true },
-                                            onLogout = {
-                                                releaseBackgroundAudio()
-                                                clearAllNavigationAndWebSession()
-                                                repository.logout()
-                                            },
-                                        )
-                                        is AppRoute.GlobalSearch -> GlobalSearchScreen(
-                                            repository = repository,
-                                            initialQuery = route.query,
-                                            initialKind = route.kind,
-                                            onBack = ::popRoute,
-                                            onOpenMedia = ::openMediaSmart,
-                                            onOpenPerson = { pushRoute(AppRoute.PersonDetail(it)) },
-                                            onPlayLibraryItem = ::startPlayback,
-                                        )
-                                        is AppRoute.MediaDetail -> MediaDetailScreen(
-                                            item = route.item,
-                                            repository = repository,
-                                            onBack = ::popRoute,
-                                            onSearchResource = { kw -> pushRoute(AppRoute.Resources(kw)) },
-                                            onPlayMedia = ::startPlayback,
-                                            onOpenPerson = { p -> pushRoute(AppRoute.PersonDetail(p)) },
-                                            onOpenMedia = ::openMediaSmart,
-                                            onOpenServerDetail = { itemId, server, title ->
-                                                pushRoute(AppRoute.MediaServerDetail(itemId, server, title))
-                                            },
-                                        )
-                                        is AppRoute.MediaServerDetail -> MediaServerDetailScreen(
-                                            itemId = route.itemId,
-                                            server = route.server,
-                                            fallbackTitle = route.fallbackTitle,
-                                            fallbackPoster = route.fallbackPoster,
-                                            repository = repository,
-                                            onBack = ::popRoute,
-                                            onPlayMedia = ::startPlayback,
-                                            onSearchResource = { kw -> pushRoute(AppRoute.Resources(kw)) },
-                                            onOpenMedia = ::openMediaSmart,
-                                            onOpenServerDetail = { itemId, server, title, poster ->
-                                                pushRoute(AppRoute.MediaServerDetail(itemId, server, title, poster))
-                                            },
-                                            onOpenPerson = { p -> pushRoute(AppRoute.PersonDetail(p)) },
-                                        )
-                                        is AppRoute.PersonDetail -> PersonDetailScreen(
-                                            seed = route.person,
-                                            repository = repository,
-                                            onBack = ::popRoute,
-                                            onOpenMedia = ::openMediaSmart,
-                                        )
-                                        is AppRoute.MediaServerLibrary -> MediaServerLibraryScreen(
-                                            repository = repository,
-                                            initialLibrary = route.library,
-                                            onBack = ::popRoute,
-                                            onOpenMedia = ::openMediaSmart,
-                                            onPlayMedia = ::startPlayback,
-                                            onOpenServerDetail = { itemId, server, title, poster ->
-                                                pushRoute(AppRoute.MediaServerDetail(itemId, server, title, poster))
-                                            },
-                                        )
-                                        AppRoute.Messages -> MessagesCenterScreen(
-                                            repository = repository,
-                                            onBack = ::popRoute,
-                                        )
-                                        AppRoute.Music -> MusicDiscoveryScreen(
-                                            onBack = ::popRoute,
-                                            onPlayAudio = ::startPlayback,
-                                            repository = repository,
-                                        )
-                                        is AppRoute.Subscriptions -> SubscriptionsScreen(
-                                            repository = repository,
-                                            initialCategory = route.category,
-                                            onBack = ::popRoute,
-                                            onOpenSearch = { pushRoute(AppRoute.GlobalSearch()) },
-                                            onOpenCalendar = { pushRoute(AppRoute.Calendar) },
-                                            onOpenCommunity = { pushRoute(AppRoute.SubscribeCommunity) },
-                                            onOpenMedia = ::openMediaSmart,
-                                            onPlayMedia = ::startPlayback,
-                                            onOpenServerItem = { itemId, server, title ->
-                                                pushRoute(AppRoute.MediaServerDetail(itemId, server, title))
-                                            },
-                                        )
-                                        AppRoute.Calendar -> CalendarScreen(
-                                            repository = repository,
-                                            onBack = ::popRoute,
-                                            onOpenMedia = { pushRoute(AppRoute.MediaDetail(it)) },
-                                        )
-                                        AppRoute.SubscribeCommunity -> SubscribeCommunityScreen(
-                                            repository = repository,
-                                            onBack = ::popRoute,
-                                            onOpenMedia = { pushRoute(AppRoute.MediaDetail(it)) },
-                                        )
-                                        is AppRoute.Resources -> ResourceSearchScreen(repository, route.keyword, onBack = ::popRoute)
-                                        AppRoute.Downloads -> DownloadsScreen(repository, onBack = ::popRoute)
-                                        is AppRoute.Files -> FileManagerScreen(repository, route.storage, route.path, onBack = ::popRoute, onPlayMedia = ::startPlayback)
-                                        is AppRoute.History -> TransferHistoryScreen(repository, route.search, onBack = ::popRoute)
-                                        AppRoute.Workflows -> WorkflowsScreen(
-                                            repository = repository,
-                                            onBack = ::popRoute,
-                                            onOpenCanvas = { pushRoute(AppRoute.WorkflowCanvas(it)) },
-                                        )
-                                        is AppRoute.WorkflowCanvas -> WorkflowCanvasScreen(
-                                            workflow = route.workflow,
-                                            onBack = ::popRoute,
-                                            repository = repository,
-                                        )
-                                        AppRoute.Sites -> SitesScreen(repository, onBack = ::popRoute)
-                                        AppRoute.Users -> UsersManagementScreen(repository, s.identity.name, onBack = ::popRoute)
-                                        AppRoute.SubscribeSearchSettings -> SubscribeSearchSettingsScreen(repository, onBack = ::popRoute)
-                                        AppRoute.MediaSourcesSettings -> MediaSourcesSettingsScreen(repository, onBack = ::popRoute)
-                                        AppRoute.DownloadersSettings -> DownloadersSettingsScreen(repository, onBack = ::popRoute)
-                                        AppRoute.MediaServersSettings -> MediaServersSettingsScreen(repository, onBack = ::popRoute)
-                                        AppRoute.DirectoriesSettings -> DirectoriesStorageSettingsScreen(repository, onBack = ::popRoute)
-                                        AppRoute.NotificationsSettings -> NotificationsSettingsScreen(repository, onBack = ::popRoute)
-                                        AppRoute.ChannelAuthorization -> ChannelAuthorizationScreen(
-                                            repository = repository,
-                                            isAdmin = s.permissions.admin,
-                                            onBack = ::popRoute,
-                                        )
-                                        AppRoute.PlaybackSettings -> PlaybackPreferencesScreen(onBack = ::popRoute)
-                                        is AppRoute.Plugins -> PluginsCenterScreen(
-                                            repository = repository,
-                                            initialInstalledOnly = route.installedOnly,
-                                            onBack = ::popRoute,
-                                            onOpenPluginDetail = { p -> pushRoute(AppRoute.PluginDetail(p)) },
-                                        )
-                                        is AppRoute.PluginDetail -> PluginDetailScreen(
-                                            plugin = route.plugin,
-                                            repository = repository,
-                                            onBack = ::popRoute,
-                                        )
-                                        is AppRoute.Diagnostics -> ShortcutsDiagnosticsScreen(
-                                            repository = repository,
-                                            initialTab = route.tab,
-                                            onBack = ::popRoute,
-                                            onOpenMedia = { pushRoute(AppRoute.MediaDetail(it)) },
-                                        )
-                                        is AppRoute.Agent -> AgentChatScreen(repository, route.prompt, onBack = ::popRoute)
-                                        AppRoute.Appearance -> AppearanceSettingsScreen(onBack = ::popRoute)
+                                is SessionState.NeedsLogin -> {
+                                    LoginScreen(
+                                        serverUrl = s.serverUrl,
+                                        initialNotice = s.notice,
+                                        repository = repository,
+                                        onSwitchServer = { isSwitchingServer = true },
+                                        onLoginSuccess = {},
+                                    )
+                                }
+
+                                is SessionState.Authenticated -> {
+                                    AnimatedContent(
+                                        targetState = Triple(selectedTab, currentRoute, currentStateKey),
+                                        transitionSpec = {
+                                            val sameTab = targetState.first == initialState.first
+                                            val enteringSub = sameTab && targetState.second != AppRoute.TabRoot && initialState.second == AppRoute.TabRoot
+                                            val returningRoot = sameTab && targetState.second == AppRoute.TabRoot && initialState.second != AppRoute.TabRoot
+                                            when {
+                                                enteringSub -> (slideInHorizontally(tween(220)) { it / 5 } + fadeIn(tween(220)))
+                                                    .togetherWith(fadeOut(tween(150)))
+                                                returningRoot -> fadeIn(tween(200))
+                                                    .togetherWith(slideOutHorizontally(tween(200)) { it / 5 } + fadeOut(tween(180)))
+                                                else -> fadeIn(tween(160)).togetherWith(fadeOut(tween(120)))
+                                            }
+                                        },
+                                        label = "mpMainRouter",
+                                    ) { (tabAtFrame, route, stateKey) ->
+                                        saveableStateHolder.SaveableStateProvider(stateKey) {
+                                            when (route) {
+                                                AppRoute.TabRoot -> when (tabAtFrame) {
+                                                    MainTab.Discover -> DiscoverScreen(
+                                                        repository = repository,
+                                                        onOpenMedia = ::openMediaSmart,
+                                                        onOpenExplore = { src -> pushRoute(AppRoute.Explore(src)) },
+                                                        onOpenMusic = { pushRoute(AppRoute.Music) },
+                                                        onOpenMediaLibrary = { lib -> pushRoute(AppRoute.MediaServerLibrary(lib)) },
+                                                        onPlayMedia = ::startPlayback,
+                                                    )
+                                                    MainTab.Subscribe -> SubscriptionsScreen(
+                                                        repository = repository,
+                                                        initialCategory = null,
+                                                        onBack = null,
+                                                        onOpenCalendar = { pushRoute(AppRoute.Calendar) },
+                                                        onOpenCommunity = { pushRoute(AppRoute.SubscribeCommunity) },
+                                                        onOpenMedia = ::openMediaSmart,
+                                                        onPlayMedia = ::startPlayback,
+                                                        onOpenServerItem = { itemId, server, title ->
+                                                            pushRoute(AppRoute.MediaServerDetail(itemId, server, title))
+                                                        },
+                                                    )
+                                                    MainTab.Dashboard -> DashboardScreen(
+                                                        repository = repository,
+                                                        onOpenMessages = { pushRoute(AppRoute.Messages) },
+                                                        onOpenDiagnosticTab = { tab -> pushRoute(AppRoute.Diagnostics(tab)) },
+                                                        onOpenMedalShowcase = { profile, key -> activeMedalShowcase = profile to key },
+                                                        permissions = s.permissions,
+                                                    )
+                                                    MainTab.Workspace -> WorkspaceHubScreen(
+                                                        repository = repository,
+                                                        onOpenSettings = { pushRoute(AppRoute.SettingsHub) },
+                                                        onOpenAgent = { pushRoute(AppRoute.Agent()) },
+                                                        onOpenMusic = { pushRoute(AppRoute.Music) },
+                                                        onOpenResources = { pushRoute(AppRoute.Resources()) },
+                                                        onOpenDownloads = { pushRoute(AppRoute.Downloads) },
+                                                        onOpenFiles = { pushRoute(AppRoute.Files()) },
+                                                        onOpenHistory = { pushRoute(AppRoute.History()) },
+                                                        onOpenWorkflows = { pushRoute(AppRoute.Workflows) },
+                                                        onOpenPlugins = { pushRoute(AppRoute.Plugins(installedOnly = true)) },
+                                                        onOpenSites = { pushRoute(AppRoute.Sites) },
+                                                        onOpenCalendar = { pushRoute(AppRoute.Calendar) },
+                                                        onOpenSubscribeCommunity = { pushRoute(AppRoute.SubscribeCommunity) },
+                                                        onOpenMediaLibrary = { lib -> pushRoute(AppRoute.MediaServerLibrary(lib)) },
+                                                        onOpenDiagnosticTab = { tab -> pushRoute(AppRoute.Diagnostics(tab)) },
+                                                        permissions = s.permissions,
+                                                    )
+                                                }
+
+                                                is AppRoute.Explore -> ExploreScreen(
+                                                    repository = repository,
+                                                    initialSource = route.source,
+                                                    onBack = ::popRoute,
+                                                    onOpenMedia = ::openMediaSmart,
+                                                    onPlayAudio = ::startPlayback,
+                                                )
+
+                                                AppRoute.SettingsHub -> SettingsHubScreen(
+                                                    repository = repository,
+                                                    serverUrl = s.serverUrl,
+                                                    userName = s.identity.name,
+                                                    onBack = ::popRoute,
+                                                    onOpenSites = { pushRoute(AppRoute.Sites) },
+                                                    onOpenUsers = { pushRoute(AppRoute.Users) },
+                                                    onOpenSubscribeSearch = { pushRoute(AppRoute.SubscribeSearchSettings) },
+                                                    onOpenMediaSources = { pushRoute(AppRoute.MediaSourcesSettings) },
+                                                    onOpenDownloaders = { pushRoute(AppRoute.DownloadersSettings) },
+                                                    onOpenMediaServers = { pushRoute(AppRoute.MediaServersSettings) },
+                                                    onOpenDirectories = { pushRoute(AppRoute.DirectoriesSettings) },
+                                                    onOpenPlayback = { pushRoute(AppRoute.PlaybackSettings) },
+                                                    onOpenNotifications = { pushRoute(AppRoute.NotificationsSettings) },
+                                                    onOpenAppearance = { pushRoute(AppRoute.Appearance) },
+                                                    onOpenPlugins = { pushRoute(AppRoute.Plugins(installedOnly = true)) },
+                                                    onOpenChannelAuth = { pushRoute(AppRoute.ChannelAuthorization) },
+                                                    permissions = s.permissions,
+                                                    onSwitchServer = { isSwitchingServer = true },
+                                                    onLogout = {
+                                                        releaseBackgroundAudio()
+                                                        clearAllNavigationAndWebSession()
+                                                        repository.logout()
+                                                    },
+                                                )
+                                                is AppRoute.GlobalSearch -> GlobalSearchScreen(
+                                                    repository = repository,
+                                                    initialQuery = route.query,
+                                                    initialKind = route.kind,
+                                                    onBack = ::popRoute,
+                                                    onOpenMedia = ::openMediaSmart,
+                                                    onOpenPerson = { pushRoute(AppRoute.PersonDetail(it)) },
+                                                    onPlayLibraryItem = ::startPlayback,
+                                                )
+                                                is AppRoute.MediaDetail -> MediaDetailScreen(
+                                                    item = route.item,
+                                                    repository = repository,
+                                                    onBack = ::popRoute,
+                                                    onSearchResource = { kw -> pushRoute(AppRoute.Resources(kw)) },
+                                                    onPlayMedia = ::startPlayback,
+                                                    onOpenPerson = { p -> pushRoute(AppRoute.PersonDetail(p)) },
+                                                    onOpenMedia = ::openMediaSmart,
+                                                    onOpenServerDetail = { itemId, server, title ->
+                                                        pushRoute(AppRoute.MediaServerDetail(itemId, server, title))
+                                                    },
+                                                )
+                                                is AppRoute.MediaServerDetail -> MediaServerDetailScreen(
+                                                    itemId = route.itemId,
+                                                    server = route.server,
+                                                    fallbackTitle = route.fallbackTitle,
+                                                    fallbackPoster = route.fallbackPoster,
+                                                    repository = repository,
+                                                    onBack = ::popRoute,
+                                                    onPlayMedia = ::startPlayback,
+                                                    onSearchResource = { kw -> pushRoute(AppRoute.Resources(kw)) },
+                                                    onOpenMedia = ::openMediaSmart,
+                                                    onOpenServerDetail = { itemId, server, title, poster ->
+                                                        pushRoute(AppRoute.MediaServerDetail(itemId, server, title, poster))
+                                                    },
+                                                    onOpenPerson = { p -> pushRoute(AppRoute.PersonDetail(p)) },
+                                                )
+                                                is AppRoute.PersonDetail -> PersonDetailScreen(
+                                                    seed = route.person,
+                                                    repository = repository,
+                                                    onBack = ::popRoute,
+                                                    onOpenMedia = ::openMediaSmart,
+                                                )
+                                                is AppRoute.MediaServerLibrary -> MediaServerLibraryScreen(
+                                                    repository = repository,
+                                                    initialLibrary = route.library,
+                                                    onBack = ::popRoute,
+                                                    onOpenMedia = ::openMediaSmart,
+                                                    onPlayMedia = ::startPlayback,
+                                                    onOpenServerDetail = { itemId, server, title, poster ->
+                                                        pushRoute(AppRoute.MediaServerDetail(itemId, server, title, poster))
+                                                    },
+                                                )
+                                                AppRoute.Messages -> MessagesCenterScreen(
+                                                    repository = repository,
+                                                    onBack = ::popRoute,
+                                                )
+                                                AppRoute.Music -> MusicDiscoveryScreen(
+                                                    onBack = ::popRoute,
+                                                    onPlayAudio = ::startPlayback,
+                                                    repository = repository,
+                                                )
+                                                is AppRoute.Subscriptions -> SubscriptionsScreen(
+                                                    repository = repository,
+                                                    initialCategory = route.category,
+                                                    onBack = ::popRoute,
+                                                    onOpenCalendar = { pushRoute(AppRoute.Calendar) },
+                                                    onOpenCommunity = { pushRoute(AppRoute.SubscribeCommunity) },
+                                                    onOpenMedia = ::openMediaSmart,
+                                                    onPlayMedia = ::startPlayback,
+                                                    onOpenServerItem = { itemId, server, title ->
+                                                        pushRoute(AppRoute.MediaServerDetail(itemId, server, title))
+                                                    },
+                                                )
+                                                AppRoute.Calendar -> CalendarScreen(
+                                                    repository = repository,
+                                                    onBack = ::popRoute,
+                                                    onOpenMedia = { pushRoute(AppRoute.MediaDetail(it)) },
+                                                )
+                                                AppRoute.SubscribeCommunity -> SubscribeCommunityScreen(
+                                                    repository = repository,
+                                                    onBack = ::popRoute,
+                                                    onOpenMedia = { pushRoute(AppRoute.MediaDetail(it)) },
+                                                )
+                                                is AppRoute.Resources -> ResourceSearchScreen(repository, route.keyword, onBack = ::popRoute)
+                                                AppRoute.Downloads -> DownloadsScreen(repository, onBack = ::popRoute)
+                                                is AppRoute.Files -> FileManagerScreen(repository, route.storage, route.path, onBack = ::popRoute, onPlayMedia = ::startPlayback)
+                                                is AppRoute.History -> TransferHistoryScreen(repository, route.search, onBack = ::popRoute)
+                                                AppRoute.Workflows -> WorkflowsScreen(
+                                                    repository = repository,
+                                                    onBack = ::popRoute,
+                                                    onOpenCanvas = { pushRoute(AppRoute.WorkflowCanvas(it)) },
+                                                )
+                                                is AppRoute.WorkflowCanvas -> WorkflowCanvasScreen(
+                                                    workflow = route.workflow,
+                                                    onBack = ::popRoute,
+                                                    repository = repository,
+                                                )
+                                                AppRoute.Sites -> SitesScreen(repository, onBack = ::popRoute)
+                                                AppRoute.Users -> UsersManagementScreen(repository, s.identity.name, onBack = ::popRoute)
+                                                AppRoute.SubscribeSearchSettings -> SubscribeSearchSettingsScreen(repository, onBack = ::popRoute)
+                                                AppRoute.MediaSourcesSettings -> MediaSourcesSettingsScreen(repository, onBack = ::popRoute)
+                                                AppRoute.DownloadersSettings -> DownloadersSettingsScreen(repository, onBack = ::popRoute)
+                                                AppRoute.MediaServersSettings -> MediaServersSettingsScreen(repository, onBack = ::popRoute)
+                                                AppRoute.DirectoriesSettings -> DirectoriesStorageSettingsScreen(repository, onBack = ::popRoute)
+                                                AppRoute.NotificationsSettings -> NotificationsSettingsScreen(repository, onBack = ::popRoute)
+                                                AppRoute.ChannelAuthorization -> ChannelAuthorizationScreen(
+                                                    repository = repository,
+                                                    isAdmin = s.permissions.admin,
+                                                    onBack = ::popRoute,
+                                                )
+                                                AppRoute.PlaybackSettings -> PlaybackPreferencesScreen(onBack = ::popRoute)
+                                                is AppRoute.Plugins -> PluginsCenterScreen(
+                                                    repository = repository,
+                                                    initialInstalledOnly = route.installedOnly,
+                                                    onBack = ::popRoute,
+                                                    onOpenPluginDetail = { p -> pushRoute(AppRoute.PluginDetail(p)) },
+                                                )
+                                                is AppRoute.PluginDetail -> PluginDetailScreen(
+                                                    plugin = route.plugin,
+                                                    repository = repository,
+                                                    onBack = ::popRoute,
+                                                )
+                                                is AppRoute.Diagnostics -> ShortcutsDiagnosticsScreen(
+                                                    repository = repository,
+                                                    initialTab = route.tab,
+                                                    onBack = ::popRoute,
+                                                    onOpenMedia = { pushRoute(AppRoute.MediaDetail(it)) },
+                                                )
+                                                is AppRoute.Agent -> AgentChatScreen(repository, route.prompt, onBack = ::popRoute)
+                                                AppRoute.Appearance -> AppearanceSettingsScreen(onBack = ::popRoute)
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
 
-                    // 3. 一级主 Tab 右下角 AI 助手入口（受外观开关控制，自动避让底部导航栏与悬浮迷你播控条）
+                    // 3. 一级主 Tab 右下角 AI 助手入口（受外观开关控制，自动避让底部 4+1 导航栏与悬浮迷你播控条）
                     if (authSession != null && !isSwitchingServer && isTopLevelTab && appearanceStore.showAgentMascot && activeMedalShowcase == null && activePlayerRequest == null) {
                         val mascotBottom = when {
-                            isWideCanvas && showMiniMusicBar -> 96.dp
+                            isWideCanvas && showMiniMusicBar -> 92.dp
                             isWideCanvas -> 24.dp
-                            showMiniMusicBar -> 168.dp
-                            else -> 96.dp
+                            showMiniMusicBar -> 158.dp
+                            else -> 92.dp
                         }
                         FloatingAgentMascot(
                             onClick = { pushRoute(AppRoute.Agent()) },
@@ -920,7 +933,7 @@ fun MoviePilotRootShell(
                         )
                     }
 
-                    // 4. 底部悬浮区域：迷你音乐播控条（含未登录本地音频，宽屏限宽 560dp）+ 手机态贴底 5 Tab NavigationBar
+                    // 4. 底部悬浮区域：迷你音乐播控条（含未登录本地音频，宽屏限宽 560dp）+ 手机态 4+1 分离式磨砂玻璃胶囊底栏
                     if (showMiniMusicBar || showBottomNav) {
                         Column(
                             modifier = Modifier
@@ -953,7 +966,7 @@ fun MoviePilotRootShell(
                                                 if (!showBottomNav) Modifier.navigationBarsPadding().padding(bottom = 10.dp) else Modifier,
                                             ),
                                     )
-                                    if (showBottomNav) Spacer(Modifier.height(6.dp))
+                                    if (showBottomNav) Spacer(Modifier.height(2.dp))
                                 }
                             }
 
@@ -961,6 +974,7 @@ fun MoviePilotRootShell(
                                 MoviePilotBottomNavigationBar(
                                     selectedTab = selectedTab,
                                     onTabClick = ::onTabBarClick,
+                                    onSearchClick = { pushRoute(AppRoute.GlobalSearch()) },
                                     userAvatarUrl = repository.resolveImageUrl(authSession.identity.avatar),
                                     userInitial = authSession.identity.name.ifBlank { "M" },
                                 )

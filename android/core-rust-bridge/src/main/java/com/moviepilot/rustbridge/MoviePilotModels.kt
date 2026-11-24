@@ -15,6 +15,7 @@ data class UserIdentity(
     @SerialName("is_superuser") val isSuperuser: Boolean = false,
     @SerialName("is_active") val isActive: Boolean = true,
     @SerialName("is_otp") val isOtp: Boolean = false,
+    val level: Int = 1,
     val avatar: String? = null,
     val permissions: Map<String, JsonElement> = emptyMap(),
 )

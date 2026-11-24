@@ -591,7 +591,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
                                             .background(if (colors.isDark) Color(0xFF0A1220).copy(alpha = 0.72f) else Color.White.copy(alpha = 0.75f))
                                             .padding(horizontal = 14.dp, vertical = 6.dp),
                                     ) {
-                                        Text("媒体库", color = colors.headerTitle, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("订阅", color = colors.headerTitle, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                     }
                                     Box(
                                         modifier = Modifier
@@ -599,7 +599,15 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
                                             .background(if (colors.isDark) Color(0xFF0A1220).copy(alpha = 0.72f) else Color.White.copy(alpha = 0.75f))
                                             .padding(horizontal = 14.dp, vertical = 6.dp),
                                     ) {
-                                        Text("订阅", color = colors.headerTitle, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("我的", color = colors.headerTitle, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .background(if (colors.isDark) Color(0xFF0A1220).copy(alpha = 0.72f) else Color.White.copy(alpha = 0.75f))
+                                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                                    ) {
+                                        Text("更多", color = colors.headerTitle, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                     }
                                 }
                             }

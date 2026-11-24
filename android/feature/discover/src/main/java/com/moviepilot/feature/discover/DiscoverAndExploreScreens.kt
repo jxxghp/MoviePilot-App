@@ -50,6 +50,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.BookmarkAdd
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FolderSpecial
 import androidx.compose.material.icons.rounded.LocalFireDepartment
@@ -202,7 +203,6 @@ fun DiscoverScreen(
     onOpenExplore: (String) -> Unit,
     onOpenMusic: () -> Unit,
     onOpenMediaLibrary: (MediaServerLibraryDto) -> Unit = {},
-    onOpenSearch: () -> Unit = {},
     onPlayMedia: (MediaPlaybackRequest) -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
@@ -210,13 +210,7 @@ fun DiscoverScreen(
     val context = LocalContext.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
-    val categoryCols = AdaptiveDeviceLayout.effectiveContentWidthDp().let { w ->
-        when {
-            w >= 960 -> 4
-            w >= 640 -> 3
-            else -> 2
-        }
-    }
+    val categoryCols = if (AdaptiveDeviceLayout.effectiveContentWidthDp() >= 640) 3 else 2
     val heroHeight = AdaptiveDeviceLayout.discoverHeroHeight()
     val posterWidth = AdaptiveDeviceLayout.discoverPosterWidth()
     val density = LocalDensity.current
@@ -1136,15 +1130,25 @@ fun DiscoverScreen(
                                     val categoryEntries = listOf(
                                         Triple("TMDB 电影", "tmdb_movies", movies.firstOrNull()?.posterPath),
                                         Triple("TMDB 剧集", "tmdb_tvs", tvs.firstOrNull()?.posterPath),
-                                        Triple("豆瓣片库", "douban_movies", movies.getOrNull(1)?.posterPath),
-                                        Triple("Bangumi 番剧", "bangumi", tvs.getOrNull(1)?.posterPath),
-                                        Triple("音乐探索", "music", musicAlbums.firstOrNull()?.coverUrl ?: movies.getOrNull(2)?.posterPath),
+                                        Triple(
+                                            "豆瓣电影",
+                                            "douban_movies",
+                                            doubanShowing.firstOrNull()?.posterPath
+                                                ?: doubanTop250.firstOrNull()?.posterPath
+                                                ?: movies.getOrNull(1)?.posterPath,
+                                        ),
+                                        Triple("豆瓣剧集", "douban_tvs", tvs.getOrNull(1)?.posterPath ?: movies.getOrNull(2)?.posterPath),
+                                        Triple("Bangumi 番剧", "bangumi", tvs.getOrNull(2)?.posterPath ?: tvs.firstOrNull()?.posterPath),
+                                        Triple("音乐探索", "music", musicAlbums.firstOrNull()?.coverUrl ?: movies.getOrNull(3)?.posterPath),
                                     )
                                     Column(
                                         verticalArrangement = Arrangement.spacedBy(12.dp),
                                         modifier = Modifier.padding(horizontal = margin),
                                     ) {
-                                        NativeSectionHeader(title = "分类浏览")
+                                        NativeSectionHeader(
+                                            title = "分类浏览",
+                                            onClickMore = { onOpenExplore("tmdb_movies") },
+                                        )
                                         categoryEntries.chunked(categoryCols).forEach { row ->
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
@@ -1205,22 +1209,6 @@ fun DiscoverScreen(
             extraHeight = 40.dp,
             blurSourceState = localHaze,
             modifier = Modifier.align(Alignment.TopCenter),
-        )
-
-        // Android 顶栏右上角搜索入口（悬浮半透玻璃圆钮，自动避让状态栏与右侧挖孔）
-        com.moviepilot.designsystem.CinematicCircleButton(
-            icon = Icons.Rounded.Search,
-            contentDescription = "全局搜索",
-            onClick = onOpenSearch,
-            size = if (compactHeight) 40.dp else 44.dp,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .windowInsetsPadding(
-                    WindowInsets.statusBars
-                        .union(WindowInsets.displayCutout)
-                        .only(WindowInsetsSides.Top + WindowInsetsSides.End),
-                )
-                .padding(top = if (compactHeight) 6.dp else 8.dp, end = 16.dp),
         )
     }
 
@@ -1432,25 +1420,25 @@ private fun CategoryPosterTile(
 ) {
     val colors = LocalMoviePilotColors.current
     CinematicPanel(
-        padding = 10.dp,
+        padding = 9.dp,
         modifier = modifier.clickable(onClick = onClick),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(11.dp))
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(10.dp))
                     .background(colors.surfaceContainerHigh),
                 contentAlignment = Alignment.Center,
             ) {
                 NativeEntityLogo(
                     kind = "datasource",
                     value = sourceKey,
-                    size = 28.dp,
-                    cornerRadius = 8.dp,
+                    size = 26.dp,
+                    cornerRadius = 7.dp,
                 )
                 if (!posterUrl.isNullOrBlank()) {
                     AsyncImage(
@@ -1470,7 +1458,7 @@ private fun CategoryPosterTile(
                         NativeEntityLogo(
                             kind = "datasource",
                             value = sourceKey,
-                            size = 15.dp,
+                            size = 14.dp,
                             cornerRadius = 4.dp,
                         )
                     }
@@ -1479,17 +1467,17 @@ private fun CategoryPosterTile(
             Text(
                 title,
                 color = colors.textPrimary,
-                fontSize = 14.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            NativeEntityLogo(
-                kind = "datasource",
-                value = sourceKey,
-                size = 20.dp,
-                cornerRadius = 6.dp,
+            Icon(
+                Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                tint = colors.textMuted,
+                modifier = Modifier.size(15.dp),
             )
         }
     }
@@ -1508,8 +1496,8 @@ private data class ExploreSourceTab(val id: String, val brand: String, val sub: 
 fun ExploreScreen(
     repository: MoviePilotRepository,
     initialSource: String = "tmdb_movies",
+    onBack: (() -> Unit)? = null,
     onOpenMedia: (MediaCardItem) -> Unit,
-    onOpenSearch: () -> Unit = {},
     onPlayAudio: (MediaPlaybackRequest) -> Unit = {},
 ) {
     val colors = LocalMoviePilotColors.current
@@ -1612,14 +1600,8 @@ fun ExploreScreen(
 
     val activeSourceIdx = sources.indexOfFirst { it.id == activeSource }.coerceAtLeast(0)
     ExpressiveTintedScaffold(
-        title = "探索",
-        actions = {
-            ExpressiveHeaderActionButton(
-                icon = Icons.Rounded.Search,
-                contentDescription = "全局搜索",
-                onClick = onOpenSearch,
-            )
-        },
+        title = "分类探索",
+        onBack = onBack,
         headerExtra = {
             ExpressivePillTabRow(
                 tabs = sources.map { if (it.id == "music") "音乐" else "${it.brand} ${it.sub}" },

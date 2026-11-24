@@ -4,12 +4,13 @@ import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
 
-/// 登录后的原生「我的」仪表盘：右上角提供消息中心（左）与捷径（右），底部提供编辑仪表盘组件，完整呈现媒体库、存储、最近入库、下载器、CPU/内存/网络实时监控、7 天整理趋势、后台服务、系统信息与插件 JSON 动态卡片。
+/// 登录后的原生「我的」仪表盘：顶部固定呈现当前登录用户头像与身份概览卡片，右上角提供消息中心入口，完整呈现媒体库、存储、最近入库、下载器、CPU/内存/网络实时监控、7 天整理趋势、后台服务、系统信息与插件 JSON 动态卡片。
 @MainActor
 struct NativeDashboardPage: View {
   let session: NativeSession
+  let snapshot: NativeSessionSnapshot
+  let currentLanguage: AppLanguage
   let onOpenMessages: (() -> Void)?
-  let onOpenShortcuts: (() -> Void)?
 
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @ObservedObject private var appearance = NativeAppearanceStore.shared
@@ -41,12 +42,14 @@ struct NativeDashboardPage: View {
   /// 优先从会话级缓存同步恢复数据，避免切换标签时闪烁加载态。
   init(
     session: NativeSession,
-    onOpenMessages: (() -> Void)? = nil,
-    onOpenShortcuts: (() -> Void)? = nil
+    snapshot: NativeSessionSnapshot,
+    currentLanguage: AppLanguage = .current,
+    onOpenMessages: (() -> Void)? = nil
   ) {
     self.session = session
+    self.snapshot = snapshot
+    self.currentLanguage = currentLanguage
     self.onOpenMessages = onOpenMessages
-    self.onOpenShortcuts = onOpenShortcuts
     let realtimeModel = NativeDashboardRealtimeModel()
     if let cached: NativeDashboardCacheSnapshot = NativePageDataCache.shared.get(
       "dashboard|overview.v3", session: session)
@@ -79,28 +82,43 @@ struct NativeDashboardPage: View {
       || (communityProfile?.hasEarnedMedals == true)
   }
 
-  /// 首次进入且尚未完成初次载入时仅展示纯粹的居中加载动画，不露出空卡片或底部编辑按钮。
+  /// 首次进入且尚未完成初次载入时展示仪表盘骨架，顶部用户卡片保持首帧直出。
   private var isInitialLoading: Bool {
     !hasLoadedOnce && !hasAnyContent
   }
 
-  /// 主体使用连续渐变底色，所有已启用仪表盘组件依次流式呈现，底部提供「编辑仪表盘组件」胶囊入口。
+  /// 当前已获得的已知社区勋章枚数。
+  private var earnedMedalCount: Int {
+    guard let profile = communityProfile, profile.hasEarnedMedals else { return 0 }
+    return profile.orderedKnownMedals.count
+  }
+
+  /// 主体使用连续渐变底色，首项固定为用户身份卡片，下方流式呈现所有已启用仪表盘组件，底部提供「编辑仪表盘组件」胶囊入口。
   var body: some View {
     let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
     let margin = NativeDeviceLayout.horizontalMargin(for: resolvedWidth)
+    let useTwoColumns = resolvedWidth >= 820 && !dynamicTypeSize.isAccessibilitySize
     ZStack {
       CinematicBackground()
-      if isInitialLoading {
-        NativeDashboardSkeletonView(
-          containerWidth: resolvedWidth,
-          horizontalMargin: margin
-        )
-        .transition(.opacity)
-        .accessibilityIdentifier("native-dashboard-loading")
-      } else {
-        ScrollView {
-          let useTwoColumns = resolvedWidth >= 820 && !dynamicTypeSize.isAccessibilitySize
-          VStack(alignment: .leading, spacing: 20) {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 20) {
+          NativeDashboardUserProfileCard(
+            session: session,
+            user: snapshot.user,
+            earnedMedalCount: earnedMedalCount,
+            currentLanguage: currentLanguage
+          )
+
+          if isInitialLoading {
+            NativeDashboardSkeletonView(
+              containerWidth: resolvedWidth,
+              horizontalMargin: margin,
+              showsUserCard: false,
+              isEmbeddedInScroll: true
+            )
+            .transition(.opacity)
+            .accessibilityIdentifier("native-dashboard-loading")
+          } else {
             if loading && !hasAnyContent { loadingIndicator }
             if !failedSections.isEmpty { errorPanel }
             if useTwoColumns {
@@ -135,20 +153,20 @@ struct NativeDashboardPage: View {
             }
             .padding(.top, 4)
           }
-          .frame(maxWidth: useTwoColumns ? 1200 : 820, alignment: .leading)
-          .padding(.horizontal, margin)
-          .padding(.top, 8)
-          .padding(.bottom, 36)
-          .frame(maxWidth: .infinity)
         }
-        .scrollIndicators(.hidden)
-        .modifier(NativeSoftTopScrollEdge())
-        .refreshable { await load(forceRefresh: true) }
-        .accessibilityIdentifier("native-dashboard-scroll")
+        .frame(maxWidth: useTwoColumns ? 1200 : 820, alignment: .leading)
+        .padding(.horizontal, margin)
+        .padding(.top, 8)
+        .padding(.bottom, 36)
+        .frame(maxWidth: .infinity)
       }
+      .scrollIndicators(.hidden)
+      .modifier(NativeSoftTopScrollEdge())
+      .refreshable { await load(forceRefresh: true) }
+      .accessibilityIdentifier("native-dashboard-scroll")
     }
     .nativeTrackContainerWidth($containerWidth)
-    .navigationTitle("")
+    .navigationTitle(L10n.text("我的", language: currentLanguage))
     .navigationBarTitleDisplayMode(.inline)
     .nativeTopNavigationBar()
     .onAppear {
@@ -184,7 +202,7 @@ struct NativeDashboardPage: View {
       }
     }
     .toolbar {
-      ToolbarItemGroup(placement: .topBarTrailing) {
+      ToolbarItem(placement: .topBarTrailing) {
         if let onOpenMessages {
           Button(action: onOpenMessages) {
             Image(systemName: "bell")
@@ -192,14 +210,6 @@ struct NativeDashboardPage: View {
           .tint(.primary)
           .accessibilityLabel("消息中心")
           .accessibilityIdentifier("native-dashboard-messages-btn")
-        }
-        if let onOpenShortcuts {
-          Button(action: onOpenShortcuts) {
-            Image(systemName: "bolt.fill")
-          }
-          .tint(.primary)
-          .accessibilityLabel("捷径")
-          .accessibilityIdentifier("native-dashboard-shortcuts-btn")
         }
       }
     }
@@ -2109,4 +2119,126 @@ private struct NativeDashboardCacheSnapshot {
   let systemInfo: NativeDashboardSystemInfo?
   let pluginWidgets: [NativeDashboardPluginWidget]
   let communityProfile: CommunityProfile?
+}
+
+/// 「我的」页顶部用户身份概览卡片：统一供管理员仪表盘与普通成员个人页置顶展示真实头像、在线状态、角色与认证徽章、社区勋章统计及当前实例地址。
+@MainActor
+struct NativeDashboardUserProfileCard: View {
+  let session: NativeSession
+  let user: SessionUser
+  var earnedMedalCount: Int = 0
+  var currentLanguage: AppLanguage = .current
+
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @Environment(\.colorScheme) private var colorScheme
+
+  /// 按当前界面语言解析文案。
+  private func t(_ key: String) -> String {
+    L10n.text(key, language: currentLanguage)
+  }
+
+  /// 服务器主机名或完整连接地址。
+  private var serverHostText: String {
+    session.instance.address.url.host ?? session.instance.address.url.absoluteString
+  }
+
+  var body: some View {
+    let accent = appearance.accentColor
+    CinematicPanel(padding: 16) {
+      HStack(alignment: .center, spacing: 14) {
+        ZStack(alignment: .bottomTrailing) {
+          NativeUserAvatarView(
+            session: session,
+            avatar: user.avatar,
+            name: user.name,
+            isSuperuser: user.isSuperuser,
+            size: 60
+          )
+          .overlay {
+            Circle()
+              .strokeBorder(accent.opacity(colorScheme == .light ? 0.36 : 0.52), lineWidth: 1.5)
+          }
+
+          Circle()
+            .fill(Color(red: 0.22, green: 0.86, blue: 0.48))
+            .frame(width: 13, height: 13)
+            .overlay {
+              Circle()
+                .strokeBorder(
+                  colorScheme == .light ? Color.white : Color(red: 0.14, green: 0.12, blue: 0.20),
+                  lineWidth: 2
+                )
+            }
+            .offset(x: 1, y: 1)
+            .accessibilityHidden(true)
+        }
+
+        VStack(alignment: .leading, spacing: 6) {
+          Text(user.name)
+            .font(.title3.weight(.bold))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .accessibilityIdentifier("native-v2-account")
+
+          ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) {
+              profileBadges
+            }
+            VStack(alignment: .leading, spacing: 5) {
+              HStack(spacing: 6) {
+                roleBadge
+                if user.level >= 2 {
+                  levelBadge
+                }
+              }
+              if earnedMedalCount > 0 {
+                medalBadge
+              }
+            }
+          }
+
+          HStack(spacing: 5) {
+            Image(systemName: "server.rack")
+              .font(.caption2.weight(.semibold))
+              .foregroundStyle(.secondary)
+              .accessibilityHidden(true)
+            Text(serverHostText)
+              .font(.caption.monospaced())
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+              .truncationMode(.middle)
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("native-dashboard-user-card")
+  }
+
+  @ViewBuilder
+  private var profileBadges: some View {
+    roleBadge
+    if user.level >= 2 {
+      levelBadge
+    }
+    if earnedMedalCount > 0 {
+      medalBadge
+    }
+  }
+
+  private var roleBadge: some View {
+    NativeAdaptiveBadge(
+      user.isSuperuser ? t("超级管理员") : t("普通成员"),
+      tint: user.isSuperuser ? appearance.accentColor : NativeTheme.info
+    )
+  }
+
+  private var levelBadge: some View {
+    NativeAdaptiveBadge("Lv.\(user.level)", tint: NativeTheme.warning)
+  }
+
+  private var medalBadge: some View {
+    NativeAdaptiveBadge("🏅 \(earnedMedalCount) 枚勋章", tint: NativeTheme.pink)
+  }
 }

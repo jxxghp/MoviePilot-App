@@ -97,7 +97,7 @@ final class NativeV2EntryTests: XCTestCase {
       return
     }
     if environment["MOVIEPILOT_NATIVE_V2_LIVE_SCOPE"] == "subscriptions" {
-      openOverflowItem("native-workspace-subscriptions", viaTab: "探索", app: app)
+      tap(tabButton("订阅", app: app), app: app)
       let subScroll = app.scrollViews["native-subscriptions-scroll"]
       XCTAssertTrue(subScroll.waitForExistence(timeout: 15))
       try await Task.sleep(nanoseconds: 2_500_000_000)
@@ -122,8 +122,7 @@ final class NativeV2EntryTests: XCTestCase {
           }
         }
       }
-      app.navigationBars.buttons.firstMatch.tap()
-      openOverflowItem("native-workspace-downloads", viaTab: "探索", app: app)
+      openOverflowItem("native-workspace-downloads", app: app)
       if app.scrollViews["native-downloads-scroll"].waitForExistence(timeout: 12) {
         try await Task.sleep(nanoseconds: 2_000_000_000)
         capture("native-v2-live-downloads-card")
@@ -135,12 +134,34 @@ final class NativeV2EntryTests: XCTestCase {
       // 等待实际后端图片代理完成首屏解码，不用合成海报代替线上媒体素材。
       try await Task.sleep(nanoseconds: 4_000_000_000)
       try await Task.sleep(nanoseconds: 2_500_000_000)
-      captureDiscoverScrollPhases(app, prefix: "native-v2-live-discover")
-      let manageModulesBtn = app.buttons["native-discover-manage-modules"]
       let discoverScroll = app.scrollViews["native-discover-page"]
-      for _ in 0..<8 where !manageModulesBtn.exists {
+      let win = app.windows.firstMatch.frame
+      let winOrigin = app.coordinate(withNormalizedOffset: .zero)
+      capture("native-v2-live-discover-phase-1")
+      winOrigin.withOffset(CGVector(dx: win.midX, dy: win.height * 0.78)).press(
+        forDuration: 0.05,
+        thenDragTo: winOrigin.withOffset(CGVector(dx: win.midX, dy: win.height * 0.18)),
+        withVelocity: .slow, thenHoldForDuration: 0.25)
+      try await Task.sleep(nanoseconds: 1_500_000_000)
+      capture("native-v2-live-discover-phase-2")
+
+      for _ in 0..<2 {
+        winOrigin.withOffset(CGVector(dx: win.midX, dy: win.height * 0.78)).press(
+          forDuration: 0.05,
+          thenDragTo: winOrigin.withOffset(CGVector(dx: win.midX, dy: win.height * 0.20)),
+          withVelocity: .slow, thenHoldForDuration: 0.2)
+      }
+      try await Task.sleep(nanoseconds: 2_000_000_000)
+      capture("native-v2-live-discover-phase-3")
+
+      let manageModulesBtn = app.buttons["native-discover-manage-modules"]
+      for _ in 0..<8
+      where !manageModulesBtn.exists || !visible(manageModulesBtn, app: app, scroll: discoverScroll)
+      {
         discoverScroll.swipeUp()
       }
+      try await Task.sleep(nanoseconds: 2_000_000_000)
+      capture("native-v2-live-discover-phase-4")
       if manageModulesBtn.waitForExistence(timeout: 5) {
         tap(manageModulesBtn, app: app)
         if app.buttons["native-modules-cancel"].waitForExistence(timeout: 8) {
@@ -149,7 +170,7 @@ final class NativeV2EntryTests: XCTestCase {
           app.buttons["native-modules-cancel"].tap()
         }
       }
-      for _ in 0..<6 where !more.isHittable {
+      for _ in 0..<10 where !more.isHittable {
         discoverScroll.swipeDown()
       }
       tap(more, app: app)
@@ -192,7 +213,17 @@ final class NativeV2EntryTests: XCTestCase {
           capture("native-v2-live-person")
         }
       }
-      tap(tabButton("探索", app: app), app: app)
+      // 返回「发现」根页面，通过「分类浏览」卡片进入多来源片库探索
+      tap(tabButton("发现", app: app), app: app)
+      for _ in 0..<4 where !app.scrollViews["native-discover-page"].exists {
+        if app.navigationBars.buttons.firstMatch.exists {
+          app.navigationBars.buttons.firstMatch.tap()
+        }
+      }
+      let tmdbCategory = app.buttons["native-discover-category-tmdb_movies"]
+      reveal(tmdbCategory, app: app)
+      XCTAssertTrue(tmdbCategory.waitForExistence(timeout: 10))
+      tap(tmdbCategory, app: app)
       XCTAssertTrue(app.scrollViews["native-explore-scroll"].waitForExistence(timeout: 15))
       try await Task.sleep(nanoseconds: 2_500_000_000)
       capture("native-v2-live-explore")
@@ -262,31 +293,31 @@ final class NativeV2EntryTests: XCTestCase {
           tap(tmdbTab, app: app)
         }
       }
-      // 二次点击当前「探索」底栏图标弹出全部功能悬浮菜单，验证非底栏菜单分组入口
-      tap(tabButton("探索", app: app), app: app)
-      let overflowHeader = app.descendants(matching: .any)["native-overflow-user-header"].firstMatch
-      if overflowHeader.waitForExistence(timeout: 6) {
-        try await Task.sleep(nanoseconds: 600_000_000)
-        capture("native-v2-live-overflow-menu")
+      // 切换到「更多」主标签验证四大分组全功能枢纽，并采集更多页顶部与底部截图
+      tap(tabButton("更多", app: app), app: app)
+      let moreScroll = app.scrollViews["native-more-scroll"]
+      if moreScroll.waitForExistence(timeout: 8) {
+        try await Task.sleep(nanoseconds: 800_000_000)
+        capture("native-v2-live-more")
+        moreScroll.swipeUp()
+        try await Task.sleep(nanoseconds: 800_000_000)
+        capture("native-v2-live-more-bottom")
       }
 
-      openOverflowItem("native-workspace-subscriptions", viaTab: "探索", app: app)
+      // 切换到「订阅」旗舰主标签验收追剧全景卡、规则编辑与内联订阅广场
+      tap(tabButton("订阅", app: app), app: app)
       XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 15))
       try await Task.sleep(nanoseconds: 2_500_000_000)
       capture("native-v2-live-subscriptions")
-      let firstSubCard = app.descendants(matching: .any).matching(
-        NSPredicate(format: "identifier BEGINSWITH 'native-subscribe-card-'")
+      let inlineEditRuleBtn = app.buttons.matching(
+        NSPredicate(format: "identifier BEGINSWITH 'native-subscribe-edit-'")
       ).firstMatch
-      if firstSubCard.waitForExistence(timeout: 5) {
-        firstSubCard.press(forDuration: 1.0)
-        let editRuleBtn = app.buttons["编辑订阅规则"]
-        if editRuleBtn.waitForExistence(timeout: 5) {
-          editRuleBtn.tap()
-          if app.scrollViews["native-subscribe-editor-scroll"].waitForExistence(timeout: 10) {
-            try await Task.sleep(nanoseconds: 1_000_000_000)
-            capture("native-v2-live-subscribe-editor")
-            app.buttons["native-subscribe-editor-cancel"].tap()
-          }
+      if inlineEditRuleBtn.waitForExistence(timeout: 5) {
+        tap(inlineEditRuleBtn, app: app)
+        if app.scrollViews["native-subscribe-editor-scroll"].waitForExistence(timeout: 10) {
+          try await Task.sleep(nanoseconds: 1_000_000_000)
+          capture("native-v2-live-subscribe-editor")
+          app.buttons["native-subscribe-editor-cancel"].tap()
         }
       }
       let communityBtn = app.buttons["native-subscriptions-community"]
@@ -304,27 +335,26 @@ final class NativeV2EntryTests: XCTestCase {
           app.navigationBars.buttons.firstMatch.tap()
         }
       }
-      app.navigationBars.buttons.firstMatch.tap()
 
-      openOverflowItem("native-workspace-resources", viaTab: "探索", app: app)
+      openOverflowItem("native-workspace-resources", app: app)
       XCTAssertTrue(app.scrollViews["native-resource-search-scroll"].waitForExistence(timeout: 15))
       try await Task.sleep(nanoseconds: 2_000_000_000)
       capture("native-v2-live-resources")
       app.navigationBars.buttons.firstMatch.tap()
 
-      openOverflowItem("native-workspace-downloads", viaTab: "探索", app: app)
+      openOverflowItem("native-workspace-downloads", app: app)
       XCTAssertTrue(app.scrollViews["native-downloads-scroll"].waitForExistence(timeout: 15))
       try await Task.sleep(nanoseconds: 2_000_000_000)
       capture("native-v2-live-downloads")
       app.navigationBars.buttons.firstMatch.tap()
 
-      openOverflowItem("native-workspace-calendar", viaTab: "探索", app: app)
+      openOverflowItem("native-workspace-calendar", app: app)
       XCTAssertTrue(app.scrollViews["native-calendar-scroll"].waitForExistence(timeout: 15))
       try await Task.sleep(nanoseconds: 2_000_000_000)
       capture("native-v2-live-calendar")
       app.navigationBars.buttons.firstMatch.tap()
 
-      openOverflowItem("native-workspace-history", viaTab: "探索", app: app)
+      openOverflowItem("native-workspace-history", app: app)
       XCTAssertTrue(app.scrollViews["native-history-scroll"].waitForExistence(timeout: 15))
       try await Task.sleep(nanoseconds: 2_000_000_000)
       capture("native-v2-live-history")
@@ -339,13 +369,13 @@ final class NativeV2EntryTests: XCTestCase {
       }
       app.navigationBars.buttons.firstMatch.tap()
 
-      openOverflowItem("native-workspace-files", viaTab: "探索", app: app)
+      openOverflowItem("native-workspace-files", app: app)
       XCTAssertTrue(app.scrollViews["native-files-scroll"].waitForExistence(timeout: 15))
       try await Task.sleep(nanoseconds: 1_500_000_000)
       capture("native-v2-live-files")
       app.navigationBars.buttons.firstMatch.tap()
 
-      openOverflowItem("native-workspace-workflows", viaTab: "探索", app: app)
+      openOverflowItem("native-workspace-workflows", app: app)
       XCTAssertTrue(app.scrollViews["native-workflows-scroll"].waitForExistence(timeout: 15))
       try await Task.sleep(nanoseconds: 1_500_000_000)
       capture("native-v2-live-workflows")
@@ -371,7 +401,7 @@ final class NativeV2EntryTests: XCTestCase {
       }
       app.navigationBars.buttons.firstMatch.tap()
 
-      openOverflowItem("native-overflow-plugin-market", viaTab: "探索", app: app)
+      openOverflowItem("native-overflow-plugin-market", app: app)
       if app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 15) {
         try await Task.sleep(nanoseconds: 1_800_000_000)
         capture("native-v2-live-plugin-installed")
@@ -419,7 +449,7 @@ final class NativeV2EntryTests: XCTestCase {
         try await Task.sleep(nanoseconds: 500_000_000)
       }
 
-      // 「我的」对应仪表盘（含插件扩展图表），右上角承载消息中心与捷径，右下悬浮按钮开启智能助手
+      // 「我的」对应仪表盘（顶部用户身份卡 + 插件扩展图表），右上角仅保留消息中心入口
       tap(tabButton("我的", app: app), app: app)
       XCTAssertTrue(
         app.descendants(matching: .any)["native-dashboard-storage"].firstMatch.waitForExistence(
@@ -449,44 +479,19 @@ final class NativeV2EntryTests: XCTestCase {
         try await Task.sleep(nanoseconds: 500_000_000)
       }
 
-      let shortcutsBtn = app.buttons["native-dashboard-shortcuts-btn"]
-      if shortcutsBtn.waitForExistence(timeout: 8) {
-        shortcutsBtn.tap()
-        let wordsShortcut = app.buttons["native-shortcut-词表"]
-        if wordsShortcut.waitForExistence(timeout: 8) {
-          try await Task.sleep(nanoseconds: 700_000_000)
-          capture("native-v2-live-shortcuts")
-          tap(wordsShortcut, app: app)
-          if app.scrollViews["native-diag-scroll"].waitForExistence(timeout: 12) {
-            try await Task.sleep(nanoseconds: 1_200_000_000)
-            capture("native-v2-live-diag-words")
-            app.navigationBars.buttons.firstMatch.tap()
-            try await Task.sleep(nanoseconds: 400_000_000)
-          }
-          let schedShortcut = app.buttons["native-shortcut-定时服务"]
-          if schedShortcut.waitForExistence(timeout: 6) {
-            tap(schedShortcut, app: app)
-            if app.scrollViews["native-diag-scroll"].waitForExistence(timeout: 12) {
-              try await Task.sleep(nanoseconds: 1_200_000_000)
-              capture("native-v2-live-diag-schedulers")
-              app.navigationBars.buttons.firstMatch.tap()
-              try await Task.sleep(nanoseconds: 400_000_000)
-            }
-          }
-          let logShortcut = app.buttons["native-shortcut-实时日志"]
-          if logShortcut.waitForExistence(timeout: 6) {
-            tap(logShortcut, app: app)
-            if app.scrollViews["native-diag-scroll"].waitForExistence(timeout: 12) {
-              try await Task.sleep(nanoseconds: 1_200_000_000)
-              capture("native-v2-live-diag-logs")
-              app.navigationBars.buttons.firstMatch.tap()
-              try await Task.sleep(nanoseconds: 400_000_000)
-            }
-          }
+      // 从「更多」页快捷工具与系统诊断分组进入各诊断工具
+      for (shortcutID, snapName) in [
+        ("native-shortcut-词表", "native-v2-live-diag-words"),
+        ("native-shortcut-定时服务", "native-v2-live-diag-schedulers"),
+        ("native-shortcut-实时日志", "native-v2-live-diag-logs"),
+      ] {
+        openOverflowItem(shortcutID, app: app)
+        if app.scrollViews["native-diag-scroll"].waitForExistence(timeout: 12) {
+          try await Task.sleep(nanoseconds: 1_200_000_000)
+          capture(snapName)
+          app.navigationBars.buttons.firstMatch.tap()
+          try await Task.sleep(nanoseconds: 400_000_000)
         }
-        let closeShortcuts = app.buttons["native-shortcuts-close"]
-        if closeShortcuts.exists { closeShortcuts.tap() }
-        try await Task.sleep(nanoseconds: 400_000_000)
       }
 
       let mascotBtn = app.buttons["native-agent-floating-mascot"]
@@ -501,8 +506,8 @@ final class NativeV2EntryTests: XCTestCase {
         try await Task.sleep(nanoseconds: 500_000_000)
       }
 
-      // 「设置」对应多样化设置中心（存储概览 + 站点/用户/渠道三卡 + 原生分组列表）
-      tap(tabButton("设置", app: app), app: app)
+      // 通过「更多 -> 右上角设置」进入多样化设置中心（存储概览 + 站点/用户/渠道三卡 + 原生分组列表）
+      openSettingsHub(app: app)
       XCTAssertTrue(app.buttons["native-workspace-sites"].waitForExistence(timeout: 12))
       try await Task.sleep(nanoseconds: 1_500_000_000)
       capture("native-v2-live-settings-hub")
@@ -682,28 +687,10 @@ final class NativeV2EntryTests: XCTestCase {
       toggle("native-v2-remember-session", to: false, app: app)
     }
     tap(app.buttons["native-v2-login"], app: app)
-    XCTAssertTrue(tabButton("设置", app: app).waitForExistence(timeout: 20))
+    XCTAssertTrue(tabButton("更多", app: app).waitForExistence(timeout: 20))
     XCTAssertEqual(app.webViews.count, 0)
 
-    tap(tabButton("探索", app: app), app: app)
-    XCTAssertTrue(app.scrollViews["native-explore-scroll"].waitForExistence(timeout: 10))
-    tap(tabButton("探索", app: app), app: app)
-    XCTAssertTrue(
-      app.descendants(matching: .any)["native-overflow-menu-scroll"].waitForExistence(timeout: 8))
-    let pluginMarket = app.descendants(matching: .any).matching(
-      NSPredicate(format: "label == %@", "插件")
-    ).firstMatch
-    let hasPluginMarket = pluginMarket.waitForExistence(timeout: 8)
-    let menuAccessibility = app.descendants(matching: .any).allElementsBoundByIndex
-      .filter {
-        $0.identifier.contains("overflow") || $0.identifier == "native-overflow-plugin-market"
-          || $0.label.contains("插件")
-      }
-      .prefix(20)
-      .map { "\($0.elementType):\($0.identifier):\($0.label)" }
-      .joined(separator: "|")
-    XCTAssertTrue(hasPluginMarket, menuAccessibility)
-    tap(pluginMarket, app: app)
+    openOverflowItem("native-overflow-plugin-market", app: app)
     XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 15))
 
     let signInCard = app.descendants(matching: .any)[
@@ -892,9 +879,8 @@ final class NativeV2EntryTests: XCTestCase {
     let confirmSubDelete = app.alerts["取消订阅"].buttons["取消订阅"]
     XCTAssertTrue(confirmSubDelete.waitForExistence(timeout: 8))
     confirmSubDelete.tap()
-    app.navigationBars.buttons.firstMatch.tap()
 
-    openOverflowItem("native-workspace-downloads", viaTab: "发现", app: app)
+    openOverflowItem("native-workspace-downloads", app: app)
     XCTAssertTrue(app.scrollViews["native-downloads-scroll"].waitForExistence(timeout: 10))
     let dlToggle = app.buttons["native-download-toggle-abc123def456"]
     XCTAssertTrue(dlToggle.waitForExistence(timeout: 10))
@@ -1004,8 +990,8 @@ final class NativeV2EntryTests: XCTestCase {
         .waitForExistence(timeout: 8))
     app.navigationBars.buttons.firstMatch.tap()
 
-    // 站点管理位于「设置」中心
-    tap(tabButton("设置", app: app), app: app)
+    // 站点管理位于「更多 -> 设置」中心
+    openSettingsHub(app: app)
     let sitesEntry = app.buttons["native-workspace-sites"]
     XCTAssertTrue(sitesEntry.waitForExistence(timeout: 10))
     tap(sitesEntry, app: app)
@@ -1020,7 +1006,7 @@ final class NativeV2EntryTests: XCTestCase {
 
     // 消息中心位于「我的」仪表盘右上角
     tap(tabButton("我的", app: app), app: app)
-    let msgEntry = app.buttons["native-workspace-messages"]
+    let msgEntry = app.buttons["native-dashboard-messages-btn"]
     XCTAssertTrue(msgEntry.waitForExistence(timeout: 10))
     msgEntry.tap()
     XCTAssertTrue(app.scrollViews["native-messages-scroll"].waitForExistence(timeout: 10))
@@ -1089,7 +1075,7 @@ final class NativeV2EntryTests: XCTestCase {
   func testNativeSystemSettingsAndUsersFlows() async throws {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
-    tap(tabButton("设置", app: app), app: app)
+    openSettingsHub(app: app)
 
     let settingsEntry = app.buttons["native-workspace-settings"]
     reveal(settingsEntry, app: app)
@@ -1143,7 +1129,10 @@ final class NativeV2EntryTests: XCTestCase {
     tap(app.buttons["native-modules-save"], app: app)
     XCTAssertTrue(app.buttons["native-discover-more-豆瓣热映"].waitForExistence(timeout: 12))
 
-    tap(tabButton("探索", app: app), app: app)
+    let tmdbCategory = app.buttons["native-discover-category-tmdb_movies"]
+    reveal(tmdbCategory, app: app)
+    XCTAssertTrue(tmdbCategory.waitForExistence(timeout: 10))
+    tap(tmdbCategory, app: app)
     XCTAssertTrue(app.scrollViews["native-explore-scroll"].waitForExistence(timeout: 10))
     let doubanBtn = app.buttons["native-explore-source-douban_movies"]
     XCTAssertTrue(doubanBtn.waitForExistence(timeout: 10))
@@ -1174,8 +1163,11 @@ final class NativeV2EntryTests: XCTestCase {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
 
-    openOverflowItem("native-workspace-subscriptions", viaTab: "发现", app: app)
+    openOverflowItem("native-workspace-subscriptions", app: app)
     XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 10))
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-subscriptions-overview"].firstMatch
+        .waitForExistence(timeout: 8))
 
     let editCard = app.descendants(matching: .any)["native-subscribe-card-702"].firstMatch
     XCTAssertTrue(editCard.waitForExistence(timeout: 10))
@@ -1227,13 +1219,11 @@ final class NativeV2EntryTests: XCTestCase {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
 
-    tap(tabButton("探索", app: app), app: app)
-    let exploreMore = app.buttons["native-explore-more"]
-    XCTAssertTrue(exploreMore.waitForExistence(timeout: 10))
-    exploreMore.tap()
-    let musicMenu = app.buttons["音乐发现"]
-    XCTAssertTrue(musicMenu.waitForExistence(timeout: 8))
-    musicMenu.tap()
+    tap(tabButton("发现", app: app), app: app)
+    let musicCategory = app.buttons["native-discover-category-music"]
+    reveal(musicCategory, app: app)
+    XCTAssertTrue(musicCategory.waitForExistence(timeout: 10))
+    tap(musicCategory, app: app)
     XCTAssertTrue(app.scrollViews["native-music-scroll"].waitForExistence(timeout: 10))
 
     let chartTab = app.buttons["native-music-feed-热门专辑"]
@@ -1273,13 +1263,12 @@ final class NativeV2EntryTests: XCTestCase {
   func testNativePluginMarketInstallResetAndUninstall() async throws {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
-    tap(tabButton("设置", app: app), app: app)
-
-    let marketEntry = app.buttons["native-workspace-plugin-market"]
-    reveal(marketEntry, app: app)
-    XCTAssertTrue(marketEntry.waitForExistence(timeout: 10))
-    tap(marketEntry, app: app)
+    openOverflowItem("native-overflow-plugin-market", app: app)
     XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 10))
+
+    let openStoreBtn = app.buttons["native-plugin-open-store"]
+    XCTAssertTrue(openStoreBtn.waitForExistence(timeout: 8))
+    openStoreBtn.tap()
 
     let marketCard = app.descendants(matching: .any)["native-market-card-AutoSignIn"].firstMatch
     XCTAssertTrue(marketCard.waitForExistence(timeout: 10))
@@ -1287,12 +1276,8 @@ final class NativeV2EntryTests: XCTestCase {
     let confirmInstall = app.alerts["安装插件"].buttons["确认安装"]
     XCTAssertTrue(confirmInstall.waitForExistence(timeout: 8))
     confirmInstall.tap()
-    XCTAssertTrue(
-      app.descendants(matching: .any)["native-plugin-market-feedback"].firstMatch
-        .waitForExistence(timeout: 10))
+    app.navigationBars.buttons.firstMatch.tap()
 
-    let installedMode = app.buttons["native-plugin-mode-已安装管理"]
-    tap(installedMode, app: app)
     let demoCard = app.descendants(matching: .any)["native-installed-card-DemoPlugin"].firstMatch
     XCTAssertTrue(demoCard.waitForExistence(timeout: 10))
     demoCard.press(forDuration: 1.0)
@@ -1328,13 +1313,9 @@ final class NativeV2EntryTests: XCTestCase {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
 
-    tap(tabButton("我的", app: app), app: app)
-    let dashMore = app.buttons["native-dashboard-refresh"]
-    XCTAssertTrue(dashMore.waitForExistence(timeout: 10))
-    dashMore.tap()
-    let agentMenu = app.buttons["智能助手"]
-    XCTAssertTrue(agentMenu.waitForExistence(timeout: 8))
-    agentMenu.tap()
+    let mascotBtn = app.buttons["native-agent-floating-mascot"]
+    XCTAssertTrue(mascotBtn.waitForExistence(timeout: 8))
+    mascotBtn.tap()
     XCTAssertTrue(app.scrollViews["native-agent-scroll"].waitForExistence(timeout: 10))
 
     let input = app.textFields["native-agent-input"]
@@ -1370,16 +1351,11 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["近 7 日任务分布"].waitForExistence(timeout: 12))
     XCTAssertEqual(app.webViews.count, 0)
 
-    tap(tabButton("设置", app: app), app: app)
-    let marketEntry = app.buttons["native-workspace-plugin-market"]
-    reveal(marketEntry, app: app)
-    tap(marketEntry, app: app)
+    openOverflowItem("native-overflow-plugin-market", app: app)
     XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 10))
 
-    let installedMode = app.buttons["native-plugin-mode-已安装管理"]
-    tap(installedMode, app: app)
-
-    let demoPageBtn = app.buttons["native-installed-page-DemoPlugin"]
+    let demoPageBtn = app.descendants(matching: .any)["native-installed-card-DemoPlugin"]
+      .firstMatch
     XCTAssertTrue(demoPageBtn.waitForExistence(timeout: 10))
     tap(demoPageBtn, app: app)
     XCTAssertTrue(app.scrollViews["native-plugin-page-scroll"].waitForExistence(timeout: 10))
@@ -1388,7 +1364,8 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(app.webViews.count, 0)
     app.navigationBars.buttons.firstMatch.tap()
 
-    let vuePageBtn = app.buttons["native-installed-page-VueCompatDemo"]
+    let vuePageBtn = app.descendants(matching: .any)["native-installed-card-VueCompatDemo"]
+      .firstMatch
     reveal(vuePageBtn, app: app)
     XCTAssertTrue(vuePageBtn.waitForExistence(timeout: 10))
     tap(vuePageBtn, app: app)
@@ -1466,42 +1443,42 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
-  /// P6.2b / P6.3b + 4+1 导航：验证 4+1 底栏、任意图标二次点击溢出菜单、动态 +1 按钮回退全局搜索、卡片式设置中心专项配置与用户编辑，零 WebView。
+  /// P6.2b / P6.3b + 4+1 导航：验证统一 4+1 底栏（发现 / 订阅 / 我的 / 更多 + 全局搜索）、取消重复点击溢出菜单、更多总枢纽与右上角设置中心专项配置及用户编辑，零 WebView。
   func testNativeFourPlusOneNavOverflowDynamicActionAndSettingsHub() async throws {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
 
-    // 验证 4+1 底栏：发现 / 探索 / 我的 / 设置 + 全局搜索
+    // 验证统一 4+1 底栏：发现 / 订阅 / 我的 / 更多 + 全局搜索（无独立探索与设置主标签）
     XCTAssertTrue(tabButton("发现", app: app).waitForExistence(timeout: 10))
-    XCTAssertTrue(tabButton("探索", app: app).exists)
+    XCTAssertTrue(tabButton("订阅", app: app).exists)
     XCTAssertTrue(tabButton("我的", app: app).exists)
-    XCTAssertTrue(tabButton("设置", app: app).exists)
+    XCTAssertTrue(tabButton("更多", app: app).exists)
     XCTAssertTrue(tabButton("搜索", app: app).exists)
+    XCTAssertFalse(tabButton("探索", app: app).exists)
+    XCTAssertFalse(tabButton("设置", app: app).exists)
 
-    // 切到「探索」再二次点击「探索」，验证重复点击弹出菜单仅含 8 项核心入口且不含站点/用户管理
-    tap(tabButton("探索", app: app), app: app)
-    XCTAssertTrue(app.scrollViews["native-explore-scroll"].waitForExistence(timeout: 10))
-    tap(tabButton("探索", app: app), app: app)
-    XCTAssertTrue(app.scrollViews["native-overflow-menu-scroll"].waitForExistence(timeout: 8))
-    XCTAssertTrue(app.buttons["native-workspace-subscriptions"].exists)
-    XCTAssertTrue(app.buttons["native-workspace-calendar"].exists)
+    // 切到「更多」总枢纽，验证四大分组磁贴存在，且再次点击底栏不会弹出旧式溢出菜单
+    tap(tabButton("更多", app: app), app: app)
+    XCTAssertTrue(app.scrollViews["native-more-scroll"].waitForExistence(timeout: 8))
     XCTAssertTrue(app.buttons["native-workspace-resources"].exists)
+    XCTAssertTrue(app.buttons["native-more-sites"].exists)
     XCTAssertTrue(app.buttons["native-workspace-downloads"].exists)
     XCTAssertTrue(app.buttons["native-workspace-files"].exists)
     XCTAssertTrue(app.buttons["native-workspace-history"].exists)
-    XCTAssertTrue(app.buttons["native-workspace-workflows"].exists)
+    XCTAssertFalse(app.buttons["native-workspace-music"].exists)
+    XCTAssertFalse(app.buttons["native-workspace-agent"].exists)
     XCTAssertTrue(app.buttons["native-overflow-plugin-market"].exists)
-    XCTAssertFalse(app.buttons["native-workspace-sites"].exists)
-    XCTAssertFalse(app.buttons["native-overflow-users"].exists)
-    tap(tabButton("探索", app: app), app: app)
+    XCTAssertTrue(app.buttons["native-workspace-workflows"].exists)
+    tap(tabButton("更多", app: app), app: app)
+    XCTAssertFalse(app.descendants(matching: .any)["native-overflow-user-header"].exists)
 
-    // 切到多样化「设置」中心，验证站点/用户双卡、站点范围、横幅与原生列表目录/刮削保存/网络诊断
-    tap(tabButton("设置", app: app), app: app)
+    // 通过「更多」右上角齿轮按钮推入「设置」中心，验证站点/用户双卡、站点范围、目录/刮削保存/网络诊断
+    openSettingsHub(app: app)
     XCTAssertTrue(app.buttons["native-workspace-sites"].waitForExistence(timeout: 10))
     let usersEntry = app.buttons["native-workspace-users"]
     XCTAssertTrue(usersEntry.exists)
 
-    // 验证浮动智能助手形象存在，并核对二次点击菜单顶部用户信息与通知中心入口
+    // 验证浮动智能助手形象存在
     XCTAssertTrue(app.buttons["native-agent-floating-mascot"].waitForExistence(timeout: 8))
 
     // 先进入顶部的「用户管理」验证右上角已有新增按钮时右下角统一保持「搜索」，并通过长按菜单编辑用户权限
@@ -1604,16 +1581,12 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
-  /// 验证设置页新增的捷径与诊断工具集：系统检查、网络测试、名称识别/规则测试、实时日志与定时服务，零 WebView。
+  /// 验证「更多」页快捷工具与系统诊断集合：系统检查、网络测试、名称识别/规则测试、实时日志与定时服务，零 WebView。
   func testNativeDiagnosticsAndShortcutsTools() async throws {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
 
-    tap(tabButton("设置", app: app), app: app)
-    let healthTile = app.buttons["native-settings-hub-health"]
-    reveal(healthTile, app: app)
-    XCTAssertTrue(healthTile.waitForExistence(timeout: 10))
-    tap(healthTile, app: app)
+    openOverflowItem("native-shortcut-系统检查", app: app)
     XCTAssertTrue(app.scrollViews["native-diag-scroll"].waitForExistence(timeout: 10))
     XCTAssertTrue(app.staticTexts["TMDB 元数据"].waitForExistence(timeout: 10))
 
@@ -1675,7 +1648,7 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(app.scrollViews["native-media-search-scroll"].waitForExistence(timeout: 15))
 
     app.open(URL(string: "moviepilot://shortcuts")!)
-    XCTAssertTrue(app.buttons["native-shortcuts-close"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.scrollViews["native-more-scroll"].waitForExistence(timeout: 15))
     capture("sheet-preview-shortcuts")
 
     app.open(URL(string: "moviepilot://messages")!)
@@ -1782,8 +1755,10 @@ final class NativeV2EntryTests: XCTestCase {
     assertAccount("b", app: app)
     capture("native-v2-account")
     XCTAssertFalse(tabButton("发现", app: app).exists)
+    XCTAssertFalse(tabButton("订阅", app: app).exists)
     XCTAssertFalse(tabButton("探索", app: app).exists)
     XCTAssertFalse(tabButton("搜索", app: app).exists)
+    XCTAssertTrue(tabButton("更多", app: app).exists)
     let counts = try await stats()
     XCTAssertTrue(
       counts["b"]?.keys.allSatisfy {
@@ -1805,26 +1780,48 @@ final class NativeV2EntryTests: XCTestCase {
     return app
   }
 
-  /// 通过二次点击指定底栏主图标弹出全局溢出菜单，并点选指定功能入口。
+  /// 通过主标签「订阅」或「更多」总枢纽直达指定功能页面。
   private func openOverflowItem(
-    _ identifier: String, viaTab tab: String = "发现", app: XCUIApplication
+    _ identifier: String, viaTab tab: String = "更多", app: XCUIApplication
   ) {
-    let menuHeader = app.descendants(matching: .any)["native-overflow-user-header"].firstMatch
-    if !menuHeader.exists {
-      let tabBtn = tabButton(tab, app: app)
-      XCTAssertTrue(tabBtn.waitForExistence(timeout: 10))
-      tap(tabBtn, app: app)
-      if !menuHeader.waitForExistence(timeout: 1.8) {
-        tap(tabBtn, app: app)
-      }
+    if identifier == "native-workspace-subscriptions" {
+      let subTab = tabButton("订阅", app: app)
+      XCTAssertTrue(subTab.waitForExistence(timeout: 10))
+      tap(subTab, app: app)
+      return
     }
-    XCTAssertTrue(menuHeader.waitForExistence(timeout: 8))
+    let moreTab = tabButton("更多", app: app)
+    XCTAssertTrue(moreTab.waitForExistence(timeout: 10))
+    tap(moreTab, app: app)
+    if !app.scrollViews["native-more-scroll"].waitForExistence(timeout: 2.5) {
+      tap(moreTab, app: app)
+    }
+    XCTAssertTrue(app.scrollViews["native-more-scroll"].waitForExistence(timeout: 8))
     let item = app.buttons[identifier]
-    if !item.waitForExistence(timeout: 4), app.scrollViews["native-overflow-menu-scroll"].exists {
+    if !item.waitForExistence(timeout: 4) || !item.isHittable {
       reveal(item, app: app)
     }
     XCTAssertTrue(item.waitForExistence(timeout: 6))
     tap(item, app: app)
+  }
+
+  /// 通过「更多」主标签右上角齿轮按钮进入原生设置中心。
+  private func openSettingsHub(app: XCUIApplication) {
+    if app.scrollViews["native-settings-scroll"].exists
+      && app.scrollViews["native-settings-scroll"].isHittable
+    {
+      return
+    }
+    let moreTab = tabButton("更多", app: app)
+    XCTAssertTrue(moreTab.waitForExistence(timeout: 10))
+    tap(moreTab, app: app)
+    if !app.scrollViews["native-more-scroll"].waitForExistence(timeout: 2.5) {
+      tap(moreTab, app: app)
+    }
+    let gearBtn = app.buttons["native-more-settings-btn"]
+    XCTAssertTrue(gearBtn.waitForExistence(timeout: 8))
+    gearBtn.tap()
+    XCTAssertTrue(app.scrollViews["native-settings-scroll"].waitForExistence(timeout: 10))
   }
 
   /// iPhone 底栏、iPad 顶部浮动标签栏与 iPhone Duo 竖向侧边操作区结构不同，统一解析当前平台的原生入口按钮。
@@ -2515,7 +2512,9 @@ final class NativeV2EntryTests: XCTestCase {
   /// 普通账号保持既有权限，没有配置入口或后台插件请求。
   func testPluginConfigurationRequiresAdministrator() async throws {
     let app = try await pluginAccount("b")
-    XCTAssertFalse(app.buttons["native-v2-plugins"].exists)
+    tap(tabButton("更多", app: app), app: app)
+    XCTAssertTrue(app.scrollViews["native-more-scroll"].waitForExistence(timeout: 8))
+    XCTAssertFalse(app.buttons["native-overflow-plugin-market"].exists)
     let state = try await pluginState()
     XCTAssertTrue((state["counts"] as? [String: Int])?.isEmpty == true)
     app.terminate()
@@ -2564,8 +2563,8 @@ final class NativeV2EntryTests: XCTestCase {
   private func openPlugin(
     _ id: String, initialControl: String = "native-plugin-field-enabled", app: XCUIApplication
   ) {
-    tap(app.buttons["native-v2-plugins"], app: app)
-    let row = app.buttons["native-plugin-" + id]
+    openOverflowItem("native-overflow-plugin-market", app: app)
+    let row = app.descendants(matching: .any)["native-installed-card-" + id].firstMatch
     reveal(row, app: app)
     XCTAssertTrue(row.waitForExistence(timeout: 10))
     capture("cinematic-plugin-installed-list")
@@ -2655,6 +2654,7 @@ final class NativeV2EntryTests: XCTestCase {
     tap(app.buttons["native-v2-login"], app: app)
     assertAccount("a", app: app)
     capture("native-v2-03-account")
+    openSettingsHub(app: app)
     tap(app.buttons["native-v2-switch"], app: app)
     XCTAssertTrue(app.textFields["native-v2-address"].waitForExistence(timeout: 10))
     capture("native-v2-01b-connection-saved")
@@ -2664,6 +2664,7 @@ final class NativeV2EntryTests: XCTestCase {
     enterCredentials("b", app: app)
     tap(app.buttons["native-v2-login"], app: app)
     assertAccount("b", app: app)
+    openSettingsHub(app: app)
     tap(app.buttons["native-v2-switch"], app: app)
     select("a", app: app)
     assertAccount("a", app: app)
@@ -2684,7 +2685,11 @@ final class NativeV2EntryTests: XCTestCase {
     try await configure("a", mode: "ready")
     tap(app.buttons["native-v2-login"], app: app)
     assertAccount("a", app: app)
+    openSettingsHub(app: app)
     tap(app.buttons["native-v2-logout"], app: app)
+    if app.alerts["退出登录"].buttons["退出登录"].waitForExistence(timeout: 3) {
+      app.alerts["退出登录"].buttons["退出登录"].tap()
+    }
     XCTAssertTrue(app.textFields["native-v2-username"].waitForExistence(timeout: 10))
     toggle("native-v2-remember-password", to: false, app: app)
     tap(app.buttons["native-v2-change-server"], app: app)
@@ -3026,7 +3031,9 @@ final class NativeV2EntryTests: XCTestCase {
     let personScroll = app.scrollViews.matching(identifier: "native-person-detail-scroll")
       .allElementsBoundByIndex.last(where: { $0.isHittable })
     let workspaceScroll = [
-      "native-overflow-menu-scroll", "native-sysmod-scroll",
+      "native-more-scroll", "native-diag-scroll", "native-appearance-scroll",
+      "native-notification-settings-scroll", "native-widget-settings-scroll",
+      "native-sysmod-scroll",
       "native-plugin-page-scroll", "native-dashboard-scroll",
       "native-agent-scroll", "native-plugin-market-scroll", "native-music-artist-scroll",
       "native-music-album-scroll", "native-music-scroll", "native-subscribe-editor-scroll",
@@ -3133,6 +3140,8 @@ final class NativeV2EntryTests: XCTestCase {
       "native-workflow-node-editor-apply", "native-workflow-node-editor-cancel",
       "native-workflow-catalog-close",
       "native-user-editor-save", "native-user-editor-cancel",
+      "native-more-settings-btn",
+      "native-subscriptions-community", "native-subscriptions-calendar",
     ].contains(element.identifier) {
       // iPad 原生 sheet 的工具栏 AX 框可能仍用局部坐标；这是导航动作，不属于滚动内容。
       return app.windows.firstMatch.frame.contains(
@@ -3146,7 +3155,7 @@ final class NativeV2EntryTests: XCTestCase {
       }
     }
     if [
-      "发现", "探索", "我的", "设置", "搜索", "保存", "添加节点", "新建目录", "新增用户", "新建对话",
+      "发现", "订阅", "我的", "更多", "探索", "设置", "搜索", "保存", "添加节点", "新建目录", "新增用户", "新建对话",
     ].contains(element.label),
       app.windows.firstMatch.frame.contains(CGPoint(x: element.frame.midX, y: element.frame.midY)),
       element.isHittable
@@ -3172,13 +3181,13 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(row.value as? String, enabled ? "1" : "0", row.debugDescription)
   }
 
-  /// 已认证账号标签必须属于本次服务，同时检查运行中的可访问性树没有 WebView。
+  /// 已认证账号标签必须属于本次服务（「我的」顶部身份卡），同时检查运行中的可访问性树没有 WebView。
   private func assertAccount(_ name: String, app: XCUIApplication) {
-    let settingsTab = tabButton("设置", app: app)
+    let mineTab = tabButton("我的", app: app)
     if !app.descendants(matching: .any)["native-v2-account"].firstMatch.exists,
-      settingsTab.exists
+      mineTab.exists
     {
-      tap(settingsTab, app: app)
+      tap(mineTab, app: app)
     }
     let account = app.descendants(matching: .any)["native-v2-account"].firstMatch
     reveal(account, app: app)
@@ -3233,11 +3242,23 @@ final class NativeV2EntryTests: XCTestCase {
       try await waitForArtwork("a", minimum: 2)
       capture("duo-01-discover")
 
-      let exploreBtn = tabButton("探索", app: app)
-      XCTAssertTrue(exploreBtn.waitForExistence(timeout: 8))
-      exploreBtn.tap()
+      let tmdbCat = app.buttons["native-discover-category-tmdb_movies"]
+      reveal(tmdbCat, app: app)
+      XCTAssertTrue(tmdbCat.waitForExistence(timeout: 8))
+      tap(tmdbCat, app: app)
+      XCTAssertTrue(app.scrollViews["native-explore-scroll"].waitForExistence(timeout: 12))
       try await Task.sleep(nanoseconds: 1_200_000_000)
       capture("duo-02-explore")
+      if app.navigationBars.buttons.element(boundBy: 0).exists {
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+      }
+
+      let subsBtn = tabButton("订阅", app: app)
+      XCTAssertTrue(subsBtn.waitForExistence(timeout: 8))
+      subsBtn.tap()
+      XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 12))
+      try await Task.sleep(nanoseconds: 1_000_000_000)
+      capture("duo-06-subscriptions")
 
       let mineBtn = tabButton("我的", app: app)
       XCTAssertTrue(mineBtn.waitForExistence(timeout: 8))
@@ -3246,34 +3267,25 @@ final class NativeV2EntryTests: XCTestCase {
       try await Task.sleep(nanoseconds: 1_200_000_000)
       capture("duo-03-dashboard")
 
-      let settingsBtn = tabButton("设置", app: app)
-      XCTAssertTrue(settingsBtn.waitForExistence(timeout: 8))
-      settingsBtn.tap()
+      let moreBtn = tabButton("更多", app: app)
+      XCTAssertTrue(moreBtn.waitForExistence(timeout: 8), "iPhone Duo 侧边操作区应提供「更多」主入口。")
+      moreBtn.tap()
+      XCTAssertTrue(app.scrollViews["native-more-scroll"].waitForExistence(timeout: 12))
+      try await Task.sleep(nanoseconds: 600_000_000)
+      capture("duo-05-more")
+
+      let settingsGear = app.buttons["native-more-settings-btn"]
+      XCTAssertTrue(settingsGear.waitForExistence(timeout: 8))
+      settingsGear.tap()
       XCTAssertTrue(app.scrollViews["native-settings-scroll"].waitForExistence(timeout: 12))
       try await Task.sleep(nanoseconds: 800_000_000)
       capture("duo-04-settings")
 
-      let moreMenuBtn = app.buttons["native-duo-more-menu"].firstMatch
-      XCTAssertTrue(moreMenuBtn.waitForExistence(timeout: 8), "iPhone Duo 侧边操作区应提供「更多」功能入口。")
-      moreMenuBtn.tap()
-      XCTAssertTrue(
-        app.descendants(matching: .any)["native-overflow-user-header"].firstMatch.waitForExistence(
-          timeout: 8))
-      try await Task.sleep(nanoseconds: 600_000_000)
-      capture("duo-05-overflow-menu")
-
-      let subsItem = app.buttons["native-workspace-subscriptions"].firstMatch
-      XCTAssertTrue(subsItem.waitForExistence(timeout: 6))
-      subsItem.tap()
-      XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 12))
-      try await Task.sleep(nanoseconds: 1_000_000_000)
-      capture("duo-06-subscriptions")
-
-      // 返回根页并验证侧边操作区的搜索与智能助手入口
+      // 返回更多根页并验证侧边操作区的搜索与智能助手入口
       let backCandidates = [
         app.buttons["返回"].firstMatch,
         app.buttons["Back"].firstMatch,
-        app.buttons["设置"].firstMatch,
+        app.buttons["更多"].firstMatch,
         app.navigationBars.buttons.element(boundBy: 0),
       ]
       if let backBtn = backCandidates.first(where: { $0.exists && $0.isHittable }) {
@@ -3302,21 +3314,42 @@ final class NativeV2EntryTests: XCTestCase {
       try await waitForArtwork("a", minimum: 2)
       capture("ipad-portrait-01-discover")
 
-      tabButton("探索", app: app).tap()
-      try await Task.sleep(nanoseconds: 1_200_000_000)
-      capture("ipad-portrait-02-explore")
+      let tmdbCat = app.buttons["native-discover-category-tmdb_movies"]
+      reveal(tmdbCat, app: app)
+      if tmdbCat.waitForExistence(timeout: 8) {
+        tap(tmdbCat, app: app)
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+        capture("ipad-portrait-02-explore")
+        if app.navigationBars.buttons.firstMatch.exists {
+          app.navigationBars.buttons.firstMatch.tap()
+        }
+      }
+
+      tabButton("订阅", app: app).tap()
+      XCTAssertTrue(app.scrollViews["native-subscriptions-scroll"].waitForExistence(timeout: 12))
+      try await Task.sleep(nanoseconds: 1_000_000_000)
+      capture("ipad-portrait-02b-subscriptions")
 
       tabButton("我的", app: app).tap()
       XCTAssertTrue(app.scrollViews["native-dashboard-scroll"].waitForExistence(timeout: 12))
       try await Task.sleep(nanoseconds: 1_200_000_000)
       capture("ipad-portrait-03-dashboard")
 
-      tabButton("设置", app: app).tap()
-      XCTAssertTrue(app.scrollViews["native-settings-scroll"].waitForExistence(timeout: 12))
-      try await Task.sleep(nanoseconds: 800_000_000)
-      capture("ipad-portrait-04-settings")
+      tabButton("更多", app: app).tap()
+      XCTAssertTrue(app.scrollViews["native-more-scroll"].waitForExistence(timeout: 12))
+      try await Task.sleep(nanoseconds: 600_000_000)
+      capture("ipad-portrait-04-more")
 
-      // 切换横屏验收 iPadOS 原生侧边栏工作台（「我的订阅」双列、「下载」、发现页、仪表盘 Bento 双列与探索多列）
+      let settingsGear = app.buttons["native-more-settings-btn"]
+      if settingsGear.waitForExistence(timeout: 6) {
+        settingsGear.tap()
+        XCTAssertTrue(app.scrollViews["native-settings-scroll"].waitForExistence(timeout: 12))
+        try await Task.sleep(nanoseconds: 800_000_000)
+        capture("ipad-portrait-04b-settings")
+        app.navigationBars.buttons.firstMatch.tap()
+      }
+
+      // 切换横屏验收 iPadOS 原生侧边栏工作台（「我的订阅」双列、「下载」、发现页、仪表盘 Bento 双列与更多总枢纽）
       XCUIDevice.shared.orientation = .landscapeLeft
       try await Task.sleep(nanoseconds: 1_200_000_000)
 
@@ -3337,9 +3370,10 @@ final class NativeV2EntryTests: XCTestCase {
       try await Task.sleep(nanoseconds: 1_200_000_000)
       capture("ipad-landscape-03-dashboard")
 
-      sidebarOrTabElement("探索", app: app).tap()
-      try await Task.sleep(nanoseconds: 1_200_000_000)
-      capture("ipad-landscape-04-explore")
+      sidebarOrTabElement("更多", app: app).tap()
+      XCTAssertTrue(app.scrollViews["native-more-scroll"].waitForExistence(timeout: 12))
+      try await Task.sleep(nanoseconds: 800_000_000)
+      capture("ipad-landscape-04-more")
 
       let downloadsCell = app.cells.staticTexts["下载"].firstMatch
       if downloadsCell.waitForExistence(timeout: 5) {

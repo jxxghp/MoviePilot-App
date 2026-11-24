@@ -1252,7 +1252,7 @@ export struct HarmonyWorkflowCanvasSkeleton {
 
 /**
  * 「我的」Bento 仪表盘完整骨架：
- * 覆盖 4/2 列媒体库统计、存储空间圆环、下载器双速卡片、社区勋章矩阵、内存条、近期入库海报条、整理趋势柱图与定时任务卡。
+ * 覆盖顶部用户头像与身份卡片、4/2 列媒体库统计、存储空间圆环、下载器双速卡片、社区勋章矩阵、内存条、近期入库海报条、整理趋势柱图与定时任务卡。
  */
 @Component
 export struct HarmonyBentoDashboardSkeleton {
@@ -1264,6 +1264,29 @@ export struct HarmonyBentoDashboardSkeleton {
   build() {
     HarmonySkeletonHost({ loadingLabel: '正在加载仪表盘统计数据' }) {
       Column({ space: 18 }) {
+        // 0. 顶部用户头像与身份概览卡骨架
+        CinematicPanel({ panelPadding: 16, cornerRadius: 20 }) {
+          Row({ space: 14 }) {
+            HarmonySkeletonBlock({
+              blockWidth: 62,
+              blockHeight: 62,
+              cornerRadius: 31,
+              shimmerSweep: true
+            })
+            Column({ space: 7 }) {
+              HarmonySkeletonBlock({ blockWidth: 112, blockHeight: 20, cornerRadius: 6 })
+              Row({ space: 8 }) {
+                HarmonySkeletonBlock({ blockWidth: 76, blockHeight: 20, cornerRadius: 10 })
+                HarmonySkeletonBlock({ blockWidth: 82, blockHeight: 20, cornerRadius: 10, tone: 'subtle' })
+              }
+              HarmonySkeletonBlock({ blockWidth: 168, blockHeight: 13, cornerRadius: 5, tone: 'subtle' })
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+          }
+          .width('100%')
+        }
+
         // 1. 媒体库统计 4 宫格 / 2 宫格
         Column({ space: 12 }) {
           HarmonySkeletonBlock({ blockWidth: 96, blockHeight: 18, cornerRadius: 6 })

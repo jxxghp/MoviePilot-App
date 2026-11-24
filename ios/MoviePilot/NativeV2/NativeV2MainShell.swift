@@ -6,15 +6,15 @@ import MoviePilotSession
 import SwiftUI
 import UIKit
 
-/// 已认证 MoviePilot 的原生主导航：4+1 底部架构（发现 / 探索 / 我的 / 设置 + 动态上下文或全局搜索按钮），二次点击任意主标签弹出其余全部功能菜单。
+/// 已认证 MoviePilot 的原生主导航：统一 4+1 主架构（发现 / 订阅 / 我的 / 更多 + 右侧独立动态或全局搜索按钮），跨 iPhone、iPad 与 iPhone Duo 自适应呈现。
 @MainActor
 struct NativeV2MainShell<PluginDestination: View>: View {
   /// 主导航目的地：iPhone 为 4+1 底部架构，iPad 额外扩展侧栏工作台直达入口，iPhone Duo 通过系统竖向侧边操作区切换。
   private enum Page: Hashable {
     case discover
-    case explore
+    case subscriptions
     case mine
-    case settings
+    case more
     case search
     case sidebarWorkspace(NativeWorkspaceDestination)
   }
@@ -32,7 +32,6 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @ObservedObject private var routeHub = NativeSystemRouteHub.shared
   @ObservedObject private var appearance = NativeAppearanceStore.shared
   @ObservedObject private var playbackLauncher = NativeMediaPlaybackLauncher.shared
-  @Environment(\.colorScheme) private var colorScheme
   @Environment(\.verticalSizeClass) private var verticalSizeClass
   @Environment(\.nativeVerticalBarEdge) private var verticalBarEdge
   @State private var selectedTab: Page = .discover
@@ -45,17 +44,15 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @State private var mediaServerItems: [String: MediaServerNavigationTarget] = [:]
   @State private var pendingSearchQuery: String?
   @State private var pendingSearchKind: String?
-  @State private var pendingExploreSource: NativeExploreSourceKind?
+  @State private var pendingSubscriptionFilter: NativeSubscriptionsPage.Filter?
   @State private var pendingAgentPrompt = ""
   @State private var discoverPath: [NativeMediaDestination] = []
-  @State private var explorePath: [NativeWorkspaceDestination] = []
+  @State private var subscriptionsPath: [NativeWorkspaceDestination] = []
   @State private var minePath: [NativeWorkspaceDestination] = []
-  @State private var settingsPath: [NativeWorkspaceDestination] = []
+  @State private var morePath: [NativeWorkspaceDestination] = []
   @State private var searchPath: [NativeMediaIdentity] = []
-  @State private var showsOverflowMenu = false
   @State private var showsAgentSheet = false
   @State private var showsMessagesSheet = false
-  @State private var showsShortcutsSheet = false
   @State private var userTabAvatar: UIImage?
   @AppStorage("nativeV2.showFloatingAssistant") private var showFloatingAssistant = true
   @State private var discoverModules = NativeDiscoverModuleItem.defaults
@@ -64,7 +61,6 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @State private var latestServerName: String?
   @State private var railNextPage: [String: Int] = [:]
   @State private var loadingRailIDs: Set<String> = []
-  @State private var lastOverflowToggleAt: Date = .distantPast
   @State private var lastTrailingActionAt: Date = .distantPast
   @State private var hasLoadedDiscoveryOnce = false
   @State private var launchSplashTimedOut = false
@@ -101,7 +97,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       initialValue: snapshot.user.allows(.init(category: .discovery)) ? .discover : .mine)
   }
 
-  /// 主导航交给系统 TabView 和每页独立 NavigationStack，并注入跨栈动态主按钮中心、浮动智能助手形象与全局溢出菜单。
+  /// 主导航交给系统 TabView 和每页独立 NavigationStack，并注入跨栈动态主按钮中心与浮动智能助手形象。
   var body: some View {
     ZStack {
       if showsLaunchSplash {
@@ -117,28 +113,18 @@ struct NativeV2MainShell<PluginDestination: View>: View {
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .zIndex(40)
         }
-        if let miniMusic = playbackLauncher.miniMusicState, !showsOverflowMenu {
+        if let miniMusic = playbackLauncher.miniMusicState {
           floatingMiniMusicBar(miniMusic)
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .zIndex(45)
         }
-        if showFloatingAssistant && !usesDuoSideOperationBar && !showsOverflowMenu
-          && !showsAgentSheet && !showsShortcutsSheet && !showsMessagesSheet
+        if showFloatingAssistant && !usesDuoSideOperationBar && !showsAgentSheet
+          && !showsMessagesSheet
         {
           NativeAgentFloatingMascot(
             onOpen: { showsAgentSheet = true },
             onHide: { showFloatingAssistant = false }
           )
-        }
-        if showsOverflowMenu {
-          overflowMenuBackdrop
-            .transition(.opacity)
-            .zIndex(49)
-        }
-        if showsOverflowMenu {
-          overflowMenuCard
-            .transition(overflowMenuTransition)
-            .zIndex(50)
         }
         if let banner = routeHub.bannerMessage {
           systemBannerOverlay(banner)
@@ -164,10 +150,6 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .task(id: "\(snapshot.scope)|\(snapshot.user.avatar)") {
       userTabAvatar = await NativeUserAvatarRenderer.loadTabAvatar(
         session: session, avatar: snapshot.user.avatar)
-    }
-    .sheet(isPresented: $showsShortcutsSheet) {
-      NativeShortcutsSheet(session: session)
-        .nativeAdaptiveSheetSizing()
     }
     .sheet(isPresented: $showsMessagesSheet) {
       NavigationStack {
@@ -239,9 +221,14 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           featured: nil, rails: [], continueWatching: [], providers: [], categories: [])
         mediaIdentities = [:]
         discoverPath = []
-        explorePath = []
         searchPath = []
-        if selectedTab == .discover || selectedTab == .explore || selectedTab == .search {
+        if selectedTab == .discover || selectedTab == .search {
+          selectedTab = .mine
+        }
+      }
+      if !canSubscribe {
+        subscriptionsPath = []
+        if selectedTab == .subscriptions {
           selectedTab = .mine
         }
       }
@@ -262,22 +249,6 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     snapshot.user.isSuperuser || snapshot.user.allows(.init(category: .manage))
   }
 
-  /// 统一切换底部溢出菜单状态（内置 180ms 防抖，避免 UIKit 拦截代理与 SwiftUI 绑定重复触发）。
-  private func toggleOverflowMenu() {
-    let now = Date()
-    guard now.timeIntervalSince(lastOverflowToggleAt) > 0.18 else { return }
-    lastOverflowToggleAt = now
-    let opening = !showsOverflowMenu
-    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-    withAnimation(
-      opening
-        ? .spring(response: 0.36, dampingFraction: 0.64, blendDuration: 0.08)
-        : .spring(response: 0.22, dampingFraction: 0.90)
-    ) {
-      showsOverflowMenu = opening
-    }
-  }
-
   /// 当前右下角独立按钮是否被页面动态动作接管（无动态动作时固定为全局搜索按钮）。
   private var hasTrailingCustomAction: Bool {
     dynamicActionCenter.current != nil
@@ -288,7 +259,6 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     let now = Date()
     guard now.timeIntervalSince(lastTrailingActionAt) > 0.18 else { return }
     lastTrailingActionAt = now
-    showsOverflowMenu = false
     if let dynamic = dynamicActionCenter.current {
       dynamic.handler()
     }
@@ -312,7 +282,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     isCompactPhoneLandscape ? 58 : 72
   }
 
-  /// 构造 iOS 26 以下 iPhone 的 4+1 悬浮毛玻璃胶囊底部栏覆盖层。
+  /// 构造 iOS 26 以下 iPhone 的 4+1 悬浮毛玻璃胶囊底部栏覆盖层（发现 / 订阅 / 我的 / 更多 + 搜索）。
   private var legacyFloatingTabBarOverlay: some View {
     var items: [NativeLegacyFloatingTabItem] = []
     if canDiscover {
@@ -332,18 +302,20 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           }
         )
       )
+    }
+    if canSubscribe {
       items.append(
         NativeLegacyFloatingTabItem(
-          id: "explore",
-          title: t("探索"),
-          symbol: "safari",
-          activeSymbol: "safari.fill",
+          id: "subscriptions",
+          title: t("订阅"),
+          symbol: "bookmark",
+          activeSymbol: "bookmark.fill",
           isAvatar: false,
-          accessibilityID: "native-v2-tab-探索",
-          isSelected: selectedTab == .explore,
+          accessibilityID: "native-v2-tab-订阅",
+          isSelected: selectedTab == .subscriptions,
           action: {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-              tabSelection.wrappedValue = .explore
+              tabSelection.wrappedValue = .subscriptions
             }
           }
         )
@@ -367,16 +339,16 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     )
     items.append(
       NativeLegacyFloatingTabItem(
-        id: "settings",
-        title: t("设置"),
-        symbol: "gearshape",
-        activeSymbol: "gearshape.fill",
+        id: "more",
+        title: t("更多"),
+        symbol: "square.grid.2x2",
+        activeSymbol: "square.grid.2x2.fill",
         isAvatar: false,
-        accessibilityID: "native-v2-tab-设置",
-        isSelected: selectedTab == .settings,
+        accessibilityID: "native-v2-tab-更多",
+        isSelected: selectedTab == .more,
         action: {
           withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-            tabSelection.wrappedValue = .settings
+            tabSelection.wrappedValue = .more
           }
         }
       )
@@ -401,15 +373,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     )
   }
 
-  /// 是否属于顶层 4 主标签（用于控制双击弹出溢出菜单与代理拦截范围，iPad 侧栏工作台项与搜索项不参与）。
-  private func isPrimaryRootTab(_ page: Page) -> Bool {
-    switch page {
-    case .discover, .explore, .mine, .settings: true
-    case .search, .sidebarWorkspace: false
-    }
-  }
-
-  /// 二次点击底部 4 个主图标中的任意一个时弹出溢出菜单；切换主标签时自动清理离开标签上临时承载的溢出页面，避免跨标签堆积无关导航历史。
+  /// 主标签选择绑定：切换主标签时重置跨栈动态主按钮，二次点击当前标签退回栈根。
   private var tabSelection: Binding<Page> {
     Binding(
       get: { selectedTab },
@@ -418,29 +382,38 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           triggerTrailingCustomAction()
           return
         }
-        if next == selectedTab && isPrimaryRootTab(next) {
-          toggleOverflowMenu()
-        } else {
-          if showsOverflowMenu {
-            withAnimation(.spring(response: 0.22, dampingFraction: 0.90)) {
-              showsOverflowMenu = false
-            }
+        if next == selectedTab {
+          dynamicActionCenter.reset()
+          switch next {
+          case .discover:
+            discoverPath = []
+          case .subscriptions:
+            subscriptionsPath = []
+          case .mine:
+            minePath = []
+          case .more:
+            morePath = []
+            showsPlugins = false
+          case .search:
+            searchPath = []
+          case .sidebarWorkspace:
+            break
           }
-          clearOverflowDestinations(in: selectedTab)
+        } else {
           dynamicActionCenter.reset()
           selectedTab = next
         }
       })
   }
 
-  /// 拦截 iPhone 上 UITabBarController 对当前已选中标签的重复点击以及右下角动态自定义按钮的点击；iOS 26 以下同步彻底隐藏系统灰底标签栏。
+  /// 拦截 iPhone 上右下角动态自定义按钮的点击；不再拦截重复点击主标签，iOS 26 以下同步隐藏系统灰底标签栏。
   @ViewBuilder
   private var tabReselectInterceptor: some View {
     if !usesDuoSideOperationBar && !NativeDeviceLayout.isIPad {
       NativeTabBarReselectInterceptor(
         hidesSystemTabBar: usesLegacyFloatingTabBar,
-        shouldInterceptReselect: { isPrimaryRootTab(selectedTab) },
-        onReselect: { toggleOverflowMenu() },
+        shouldInterceptReselect: { false },
+        onReselect: {},
         shouldInterceptTrailingTab: { hasTrailingCustomAction },
         onSelectTrailingTab: { triggerTrailingCustomAction() }
       )
@@ -485,7 +458,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
   }
 
-  /// iPhone Duo 专属壳层：移除底部/顶部标签栏，由各根页面的系统竖向侧边操作区直接承载主导航、全部功能入口、智能助手与上下文动态主动作。
+  /// iPhone Duo 专属壳层：移除底部/顶部标签栏，由各根页面的系统竖向侧边操作区直接承载 4+1 主导航、智能助手与上下文动态主动作。
   @ViewBuilder private var duoSideOperationShell: some View {
     switch selectedTab {
     case .discover:
@@ -494,16 +467,16 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       } else {
         mineTab
       }
-    case .explore:
-      if canDiscover {
-        exploreTab
+    case .subscriptions:
+      if canSubscribe {
+        subscriptionsTab
       } else {
         mineTab
       }
     case .mine:
       mineTab
-    case .settings:
-      settingsTab
+    case .more:
+      moreTab
     case .search:
       if canDiscover {
         searchTab
@@ -515,7 +488,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
   }
 
-  /// iPhone Duo 根页面竖向侧边操作栏：充分利用侧边纵向空间集中放置 4 主入口、工作台菜单、智能助手与底部动态动作/全局搜索。
+  /// iPhone Duo 根页面竖向侧边操作栏：充分利用侧边纵向空间集中放置发现、订阅、我的、更多、智能助手与底部动态动作/全局搜索。
   @ToolbarContentBuilder
   private var duoSideOperationToolbar: some ToolbarContent {
     ToolbarItemGroup(placement: .bottomBar) {
@@ -528,13 +501,15 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         ) {
           selectDuoRootTab(.discover)
         }
+      }
+      if canSubscribe {
         duoNavToolbarButton(
-          title: t("探索"),
-          symbol: selectedTab == .explore ? "safari.fill" : "safari",
-          isSelected: selectedTab == .explore,
-          id: "native-v2-tab-探索"
+          title: t("订阅"),
+          symbol: selectedTab == .subscriptions ? "bookmark.fill" : "bookmark",
+          isSelected: selectedTab == .subscriptions,
+          id: "native-v2-tab-订阅"
         ) {
-          selectDuoRootTab(.explore)
+          selectDuoRootTab(.subscriptions)
         }
       }
       Button {
@@ -558,21 +533,12 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       .accessibilityIdentifier("native-v2-tab-我的")
 
       duoNavToolbarButton(
-        title: t("设置"),
-        symbol: selectedTab == .settings ? "gearshape.fill" : "gearshape",
-        isSelected: selectedTab == .settings,
-        id: "native-v2-tab-设置"
-      ) {
-        selectDuoRootTab(.settings)
-      }
-
-      duoNavToolbarButton(
         title: t("更多"),
-        symbol: showsOverflowMenu ? "square.grid.2x2.fill" : "square.grid.2x2",
-        isSelected: showsOverflowMenu,
-        id: "native-duo-more-menu"
+        symbol: selectedTab == .more ? "square.grid.2x2.fill" : "square.grid.2x2",
+        isSelected: selectedTab == .more,
+        id: "native-v2-tab-更多"
       ) {
-        toggleOverflowMenu()
+        selectDuoRootTab(.more)
       }
 
       duoNavToolbarButton(
@@ -581,7 +547,6 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         isSelected: showsAgentSheet,
         id: "native-duo-agent"
       ) {
-        showsOverflowMenu = false
         showsAgentSheet = true
       }
 
@@ -621,35 +586,35 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .accessibilityIdentifier(id)
   }
 
-  /// iPhone Duo 侧边操作区切换根入口：切换不同入口时清理跨标签溢出栈；重复点击当前已激活主入口时切换工作台菜单。
+  /// iPhone Duo 侧边操作区切换根入口：再次点击当前已激活入口时重置其导航栈，不弹出任何溢出菜单。
   private func selectDuoRootTab(_ target: Page) {
-    if target == selectedTab && isPrimaryRootTab(target) {
-      toggleOverflowMenu()
+    dynamicActionCenter.reset()
+    if target == selectedTab {
+      switch target {
+      case .discover:
+        discoverPath = []
+      case .subscriptions:
+        subscriptionsPath = []
+      case .mine:
+        minePath = []
+      case .more:
+        morePath = []
+        showsPlugins = false
+      case .search:
+        searchPath = []
+      case .sidebarWorkspace:
+        break
+      }
       return
     }
-    if showsOverflowMenu {
-      withAnimation(.spring(response: 0.22, dampingFraction: 0.90)) {
-        showsOverflowMenu = false
-      }
-    }
-    clearOverflowDestinations(in: selectedTab)
-    dynamicActionCenter.reset()
     selectedTab = target
   }
 
   /// iPhone Duo 子页面底部动态动作栏：当推入的子页面注册了动态主动作（如新增、搜索）时，将其直接呈现在侧边操作区中。
   @ToolbarContentBuilder
   private var duoPushedDynamicActionToolbar: some ToolbarContent {
-    ToolbarItemGroup(placement: .bottomBar) {
-      duoNavToolbarButton(
-        title: t("更多"),
-        symbol: showsOverflowMenu ? "square.grid.2x2.fill" : "square.grid.2x2",
-        isSelected: showsOverflowMenu,
-        id: "native-duo-more-menu"
-      ) {
-        toggleOverflowMenu()
-      }
-      if let dynamic = dynamicActionCenter.current {
+    if let dynamic = dynamicActionCenter.current {
+      ToolbarItemGroup(placement: .bottomBar) {
         Spacer()
         duoNavToolbarButton(
           title: dynamic.title,
@@ -660,11 +625,11 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           triggerTrailingCustomAction()
         }
       }
+      .nativeDuoVerticalPreferred()
     }
-    .nativeDuoVerticalPreferred()
   }
 
-  /// iPadOS 18+ 原生自适应侧边栏壳层：顶部浮动胶囊保留 4+1 主入口，展开左侧边栏可一键直达订阅、日历、资源、下载、文件、整理、工作流、插件与工具。
+  /// iPadOS 18+ 原生自适应侧边栏壳层：顶部浮动胶囊统一呈现「发现 / 订阅 / 我的 / 更多 + 搜索」，展开左侧边栏可一键直达工作台与快捷工具。
   @available(iOS 18, *)
   private var iPadSidebarAdaptableShell: some View {
     TabView(selection: tabSelection) {
@@ -673,11 +638,12 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           discoveryTab
         }
         .accessibilityIdentifier("native-v2-tab-发现")
-
-        Tab(t("探索"), systemImage: "safari", value: Page.explore) {
-          exploreTab
+      }
+      if canSubscribe {
+        Tab(t("订阅"), systemImage: "bookmark", value: Page.subscriptions) {
+          subscriptionsTab
         }
-        .accessibilityIdentifier("native-v2-tab-探索")
+        .accessibilityIdentifier("native-v2-tab-订阅")
       }
       Tab(value: Page.mine) {
         mineTab
@@ -694,10 +660,10 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       }
       .accessibilityIdentifier("native-v2-tab-我的")
 
-      Tab(t("设置"), systemImage: "gearshape", value: Page.settings) {
-        settingsTab
+      Tab(t("更多"), systemImage: "square.grid.2x2", value: Page.more) {
+        moreTab
       }
-      .accessibilityIdentifier("native-v2-tab-设置")
+      .accessibilityIdentifier("native-v2-tab-更多")
 
       if canDiscover || hasTrailingCustomAction {
         Tab(
@@ -817,7 +783,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
   }
 
-  /// iPhone iOS 18+ 原生 4+1 TabView：前 4 项为发现、探索、我的（仪表盘）、设置，第 +1 项为右侧动态主按钮/全局搜索。
+  /// iPhone iOS 18+ 原生 4+1 TabView：前 4 项为发现、订阅、我的（仪表盘）、更多，第 +1 项为右侧动态主按钮/全局搜索。
   @available(iOS 18, *)
   private var iPhoneModernTabShell: some View {
     TabView(selection: tabSelection) {
@@ -826,11 +792,12 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           discoveryTab
         }
         .accessibilityIdentifier("native-v2-tab-发现")
-
-        Tab(t("探索"), systemImage: "safari", value: Page.explore) {
-          exploreTab
+      }
+      if canSubscribe {
+        Tab(t("订阅"), systemImage: "bookmark", value: Page.subscriptions) {
+          subscriptionsTab
         }
-        .accessibilityIdentifier("native-v2-tab-探索")
+        .accessibilityIdentifier("native-v2-tab-订阅")
       }
       Tab(value: Page.mine) {
         mineTab
@@ -847,10 +814,10 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       }
       .accessibilityIdentifier("native-v2-tab-我的")
 
-      Tab(t("设置"), systemImage: "gearshape", value: Page.settings) {
-        settingsTab
+      Tab(t("更多"), systemImage: "square.grid.2x2", value: Page.more) {
+        moreTab
       }
-      .accessibilityIdentifier("native-v2-tab-设置")
+      .accessibilityIdentifier("native-v2-tab-更多")
 
       if canDiscover || hasTrailingCustomAction {
         Tab(
@@ -876,11 +843,13 @@ struct NativeV2MainShell<PluginDestination: View>: View {
             Label(t("发现"), systemImage: "sparkles.tv")
               .accessibilityIdentifier("native-v2-tab-发现")
           }
-        exploreTab
-          .tag(Page.explore)
+      }
+      if canSubscribe {
+        subscriptionsTab
+          .tag(Page.subscriptions)
           .tabItem {
-            Label(t("探索"), systemImage: "safari")
-              .accessibilityIdentifier("native-v2-tab-探索")
+            Label(t("订阅"), systemImage: "bookmark")
+              .accessibilityIdentifier("native-v2-tab-订阅")
           }
       }
       mineTab
@@ -898,13 +867,13 @@ struct NativeV2MainShell<PluginDestination: View>: View {
               .accessibilityIdentifier("native-v2-tab-我的")
           }
         }
-      settingsTab
-        .tag(Page.settings)
+      moreTab
+        .tag(Page.more)
         .tabItem {
-          Label(t("设置"), systemImage: "gearshape")
-            .accessibilityIdentifier("native-v2-tab-设置")
+          Label(t("更多"), systemImage: "square.grid.2x2")
+            .accessibilityIdentifier("native-v2-tab-更多")
         }
-      if canDiscover {
+      if canDiscover || hasTrailingCustomAction {
         searchTab
           .tag(Page.search)
           .tabItem {
@@ -916,13 +885,14 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
   }
 
-  /// 探索标签：承载原生多来源影视与音乐探索片库，并支持从全局溢出菜单推入任意业务页。
-  private var exploreTab: some View {
-    NavigationStack(path: $explorePath) {
-      NativeExplorePage(
+  /// 订阅主标签：呈现「我的订阅」全景卡片与列表，右上角通过图标直达追剧日历与订阅广场。
+  private var subscriptionsTab: some View {
+    NavigationStack(path: $subscriptionsPath) {
+      NativeSubscriptionsPage(
         session: session,
-        initialSource: .tmdbMovies,
-        externalSource: $pendingExploreSource
+        isRootTab: true,
+        requestedFilter: $pendingSubscriptionFilter,
+        onOpenGlobalSearch: canDiscover ? { selectedTab = .search } : nil
       )
       .modifier(NativeLegacyHideSystemTabBarModifier(isHidden: usesLegacyFloatingTabBar))
       .nativeDuoPrefersToolbarItems()
@@ -948,15 +918,16 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .background(tabReselectInterceptor)
   }
 
-  /// 我的标签：超级管理员直显原生仪表盘，普通成员展示个人概览与权限快捷卡；右上角统一提供消息中心与捷径入口。
+  /// 我的标签：超级管理员直显原生仪表盘，普通成员展示个人概览与权限快捷卡；顶部统一呈现用户身份卡，右上角仅保留消息中心入口。
   private var mineTab: some View {
     NavigationStack(path: $minePath) {
       Group {
         if snapshot.user.isSuperuser {
           NativeDashboardPage(
             session: session,
-            onOpenMessages: { showsMessagesSheet = true },
-            onOpenShortcuts: { showsShortcutsSheet = true }
+            snapshot: snapshot,
+            currentLanguage: currentLanguage,
+            onOpenMessages: { showsMessagesSheet = true }
           )
         } else {
           memberDashboardView
@@ -986,50 +957,36 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .background(tabReselectInterceptor)
   }
 
-  /// 非超级管理员进入「我的」时的个人概览卡片页，避免调用管理员统计接口。
+  /// 非超级管理员进入「我的」时的个人概览卡片页，顶部统一渲染用户头像与角色卡片，避免调用管理员统计接口。
   private var memberDashboardView: some View {
     ZStack {
       CinematicBackground()
       ScrollView {
         VStack(alignment: .leading, spacing: 18) {
-          VStack(alignment: .leading, spacing: 4) {
-            Text(Date.now, format: .dateTime.weekday(.wide).month(.wide).day())
-              .font(.subheadline.weight(.medium))
-              .foregroundStyle(.secondary)
-            Text("我的")
-              .font(.largeTitle.bold())
-              .foregroundStyle(.primary)
-              .accessibilityAddTraits(.isHeader)
-          }
-          .padding(.horizontal, 2)
+          NativeDashboardUserProfileCard(
+            session: session,
+            user: snapshot.user,
+            currentLanguage: currentLanguage
+          )
 
-          CinematicPanel(padding: 16) {
-            VStack(alignment: .leading, spacing: 10) {
-              Text("欢迎回来，\(snapshot.user.name)")
-                .font(.headline)
-                .foregroundStyle(.primary)
-              Text("再次点击底部任意标签图标，可随时展开全部功能菜单。")
-                .font(.caption)
-                .foregroundStyle(.primary.opacity(0.72))
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-          }
-
-          HStack(spacing: 12) {
-            if canSubscribe {
-              memberShortcutCard(title: "我的订阅", symbol: "bookmark.fill") {
-                openFromOverflow(.subscriptions)
+          if canSubscribe {
+            HStack(spacing: 12) {
+              memberShortcutCard(title: t("我的订阅"), symbol: "bookmark.fill") {
+                subscriptionsPath = []
+                selectedTab = .subscriptions
               }
-              memberShortcutCard(title: "追剧日历", symbol: "calendar") {
-                openFromOverflow(.calendar)
+              memberShortcutCard(title: t("追剧日历"), symbol: "calendar") {
+                selectedTab = .subscriptions
+                subscriptionsPath = [.calendar]
               }
             }
           }
+
           HStack(spacing: 12) {
             memberShortcutCard(title: "消息中心", symbol: "bell.fill") {
               showsMessagesSheet = true
             }
-            memberShortcutCard(title: "智能助手", symbol: "sparkles") {
+            memberShortcutCard(title: t("智能助手"), symbol: "sparkles") {
               showsAgentSheet = true
             }
           }
@@ -1043,7 +1000,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       .scrollIndicators(.hidden)
       .modifier(NativeSoftTopScrollEdge())
     }
-    .navigationTitle("")
+    .navigationTitle(t("我的"))
     .navigationBarTitleDisplayMode(.inline)
     .nativeTopNavigationBar()
     .toolbar {
@@ -1080,30 +1037,21 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .buttonStyle(.plain)
   }
 
-  /// 设置标签：承载设置主中心与各专项管理页。
-  private var settingsTab: some View {
-    NavigationStack(path: $settingsPath) {
-      NativeSettingsHubPage(
-        session: session,
+  /// 更多标签：承载四大分组全功能入口卡片，右上角齿轮按钮推入设置中心。
+  private var moreTab: some View {
+    NavigationStack(path: $morePath) {
+      NativeMoreHubPage(
         snapshot: snapshot,
         currentLanguage: currentLanguage,
         onNavigate: { destination in
-          clearOverflowDestinations(in: .settings)
-          if settingsPath.last != destination {
-            settingsPath.append(destination)
+          if morePath.last != destination {
+            morePath.append(destination)
           }
         },
-        onOpenModules: { showsModuleSheet = true },
-        onOpenPlugins: { showsPlugins = true },
-        onSelectLanguage: onSelectLanguage,
-        onSwitchServer: {
-          onSwitchServer()
-        },
-        onLogout: {
-          NativePageDataCache.shared.clearAll()
-          NativeMediaArtworkCache.shared.clearSession(session)
-          NativeEntityIconCache.shared.clearSession(session)
-          onLogout()
+        onOpenSettings: {
+          if morePath.last != .settingsHub {
+            morePath.append(.settingsHub)
+          }
         }
       )
       .modifier(NativeLegacyHideSystemTabBarModifier(isHidden: usesLegacyFloatingTabBar))
@@ -1345,7 +1293,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .background(tabReselectInterceptor)
   }
 
-  /// 统一将工作台路由映射到对应原生业务页面，供全部 4 个主标签与全局溢出菜单复用。
+  /// 统一将工作台路由映射到对应原生业务页面，供全部主标签与侧边工作台复用。
   @ViewBuilder
   private func workspaceDestinationView(_ destination: NativeWorkspaceDestination) -> some View {
     switch destination {
@@ -1354,9 +1302,18 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     case .music:
       NativeMusicPage(session: session)
     case .subscriptions:
-      NativeSubscriptionsPage(session: session)
+      NativeSubscriptionsPage(
+        session: session,
+        isRootTab: false,
+        onOpenGlobalSearch: canDiscover ? { selectedTab = .search } : nil
+      )
     case .subscriptionsFiltered(let filter):
-      NativeSubscriptionsPage(session: session, initialFilter: filter)
+      NativeSubscriptionsPage(
+        session: session,
+        initialFilter: filter,
+        isRootTab: false,
+        onOpenGlobalSearch: canDiscover ? { selectedTab = .search } : nil
+      )
     case .subscribeCommunity:
       NativeSubscribeCommunityPage(session: session)
     case .downloads:
@@ -1384,6 +1341,29 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       NativeFileManagerPage(session: session, initialStorage: storage, initialPath: path)
     case .workflows:
       NativeWorkflowsPage(session: session)
+    case .settingsHub:
+      NativeSettingsHubPage(
+        session: session,
+        snapshot: snapshot,
+        currentLanguage: currentLanguage,
+        onNavigate: { next in
+          if selectedTab != .more {
+            selectedTab = .more
+            morePath = [.settingsHub, next]
+          } else if morePath.last != next {
+            morePath.append(next)
+          }
+        },
+        onOpenModules: { showsModuleSheet = true },
+        onOpenPlugins: {
+          selectedTab = .more
+          morePath = []
+          showsPlugins = true
+        },
+        onSelectLanguage: onSelectLanguage,
+        onSwitchServer: onSwitchServer,
+        onLogout: onLogout
+      )
     case .settings:
       NativeSystemSettingsPage(session: session)
     case .systemModule(let domain):
@@ -1411,85 +1391,17 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
   }
 
-  /// 判断路由是否属于底部溢出菜单的跨标签功能页（不属于单个主标签的持久历史）。
-  private func isOverflowWorkspaceDestination(_ destination: NativeWorkspaceDestination) -> Bool {
-    switch destination {
-    case .subscriptions, .subscriptionsFiltered, .subscribeCommunity, .calendar, .resources,
-      .resourcesQuery, .downloads, .files, .filesTarget, .history, .historyQuery, .workflows,
-      .pluginMarket, .music:
-      true
-    default:
-      false
-    }
-  }
-
-  /// 清理指定主标签栈中由底部溢出菜单临时推入的跨标签页面，保持各主标签导航历史纯净。
-  private func clearOverflowDestinations(in page: Page) {
-    switch page {
-    case .discover:
-      discoverPath.removeAll {
-        if case .workspace = $0 { return true }
-        return false
-      }
-    case .explore:
-      explorePath.removeAll(where: isOverflowWorkspaceDestination)
-    case .mine:
-      minePath.removeAll(where: isOverflowWorkspaceDestination)
-    case .settings:
-      settingsPath.removeAll(where: isOverflowWorkspaceDestination)
-      if showsPlugins { showsPlugins = false }
-    case .search, .sidebarWorkspace:
-      break
-    }
-  }
-
-  /// 全局清理所有主标签上残留的临时溢出页面，避免多次通过溢出菜单切换后在某标签中堆积多层无关历史。
-  private func clearAllOverflowDestinations() {
-    clearOverflowDestinations(in: .discover)
-    clearOverflowDestinations(in: .explore)
-    clearOverflowDestinations(in: .mine)
-    clearOverflowDestinations(in: .settings)
-  }
-
-  /// 从全局溢出菜单选中任意功能时，单层替换跨标签临时页面（永不层层叠加无关历史），在当前标签中直接呈现；iPad 若已位于侧栏工作台则直接切换对应侧栏项。
-  private func openFromOverflow(_ destination: NativeWorkspaceDestination) {
-    withAnimation(.easeOut(duration: 0.2)) {
-      showsOverflowMenu = false
-    }
-    clearAllOverflowDestinations()
-    switch selectedTab {
-    case .discover:
-      discoverPath.append(.workspace(destination))
-    case .explore:
-      explorePath.append(destination)
-    case .mine:
-      minePath.append(destination)
-    case .settings:
-      settingsPath.append(destination)
-    case .search:
-      selectedTab = .mine
-      minePath.append(destination)
-    case .sidebarWorkspace:
-      if NativeDeviceLayout.isIPad {
-        selectedTab = .sidebarWorkspace(destination)
-      } else {
-        selectedTab = .mine
-        minePath.append(destination)
-      }
-    }
-  }
-
-  /// 在设置主标签下安全打开专项设置或运维工具子页面。
+  /// 在「更多 → 设置中心」导航栈下打开专项设置子页面。
   private func openSettingsDestination(_ destination: NativeWorkspaceDestination) {
-    clearAllOverflowDestinations()
-    selectedTab = .settings
-    settingsPath = [destination]
+    showsPlugins = false
+    selectedTab = .more
+    morePath = [.settingsHub, destination]
   }
 
   /// 判断目标路由是否需要在宿主根控制器上弹出模态面板。
   private static func requiresRootSheetPresentation(_ target: AppDeepLink) -> Bool {
     switch target {
-    case .messages, .agent, .shortcuts:
+    case .messages, .agent:
       true
     default:
       false
@@ -1568,7 +1480,6 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   /// 消费来自 APNs 通知、桌面小组件、主屏幕快捷方式与 `moviepilot://` 联动链接的受限路由意图，严格遵循当前账号权限门禁。
   private func consumeSystemRouteIfNeeded() {
     guard let target = routeHub.consumeTarget() else { return }
-    showsOverflowMenu = false
     if target != .discover {
       launchSplashTimedOut = true
     }
@@ -1591,7 +1502,6 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
     showsMessagesSheet = false
     showsAgentSheet = false
-    showsShortcutsSheet = false
     showsModuleSheet = false
     switch target {
     case .playMediaServerItem, .playStorageFile, .playExternalURL, .playLocalFile:
@@ -1612,7 +1522,6 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         routeHub.postBanner(t("当前账号没有访问发现页的权限。"))
         return
       }
-      clearOverflowDestinations(in: selectedTab)
       discoverPath = []
       selectedTab = .discover
 
@@ -1621,29 +1530,24 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         routeHub.postBanner(t("当前账号没有访问探索页的权限。"))
         return
       }
-      clearOverflowDestinations(in: selectedTab)
-      explorePath = []
-      if let rawSource, let source = NativeExploreSourceKind(rawValue: rawSource) {
-        pendingExploreSource = source
-      }
-      selectedTab = .explore
+      let source = rawSource.flatMap(NativeExploreSourceKind.init(rawValue:)) ?? .tmdbMovies
+      selectedTab = .discover
+      discoverPath = [.explore(source)]
 
     case .dashboard:
-      clearOverflowDestinations(in: selectedTab)
       minePath = []
       selectedTab = .mine
 
     case .settings:
-      clearOverflowDestinations(in: selectedTab)
-      settingsPath = []
-      selectedTab = .settings
+      showsPlugins = false
+      selectedTab = .more
+      morePath = [.settingsHub]
 
     case .search(let query, let kind):
       guard canDiscover else {
         routeHub.postBanner(t("当前账号没有访问搜索页的权限。"))
         return
       }
-      clearOverflowDestinations(in: selectedTab)
       searchPath = []
       pendingSearchQuery = query
       pendingSearchKind = kind
@@ -1654,7 +1558,6 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         routeHub.postBanner(t("当前账号没有访问影视详情的权限。"))
         return
       }
-      clearAllOverflowDestinations()
       selectedTab = .discover
       discoverPath = [
         .media(NativeMediaIdentity(source: source, mediaID: mediaID, type: mediaType))
@@ -1672,31 +1575,37 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         case "music": .music
         default: .all
         }
-      openFromOverflow(filter == .all ? .subscriptions : .subscriptionsFiltered(filter))
+      pendingSubscriptionFilter = filter
+      subscriptionsPath = []
+      selectedTab = .subscriptions
 
     case .subscribeCommunity:
       guard canSubscribe else {
         routeHub.postBanner(t("当前账号没有访问订阅分享的权限。"))
         return
       }
-      openFromOverflow(.subscribeCommunity)
+      selectedTab = .subscriptions
+      subscriptionsPath = [.subscribeCommunity]
 
     case .calendar:
       guard canSubscribe else {
         routeHub.postBanner(t("当前账号没有访问订阅日历的权限。"))
         return
       }
-      openFromOverflow(.calendar)
+      selectedTab = .subscriptions
+      subscriptionsPath = [.calendar]
 
     case .resources(let keyword, let browseHome):
       guard canSearchResources else {
         routeHub.postBanner(t("当前账号没有搜索站点资源的权限。"))
         return
       }
+      showsPlugins = false
+      selectedTab = .more
       if keyword == nil && !browseHome {
-        openFromOverflow(.resources)
+        morePath = [.resources]
       } else {
-        openFromOverflow(.resourcesQuery(keyword: keyword, browseHome: browseHome))
+        morePath = [.resourcesQuery(keyword: keyword, browseHome: browseHome)]
       }
 
     case .downloads:
@@ -1704,17 +1613,21 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         routeHub.postBanner(t("当前账号没有访问下载管理的权限。"))
         return
       }
-      openFromOverflow(.downloads)
+      showsPlugins = false
+      selectedTab = .more
+      morePath = [.downloads]
 
     case .files(let storage, let path):
       guard canManageDownloads else {
         routeHub.postBanner(t("当前账号没有访问文件管理的权限。"))
         return
       }
+      showsPlugins = false
+      selectedTab = .more
       if storage == nil && path == nil {
-        openFromOverflow(.files)
+        morePath = [.files]
       } else {
-        openFromOverflow(.filesTarget(storage: storage, path: path))
+        morePath = [.filesTarget(storage: storage, path: path)]
       }
 
     case .history(let search):
@@ -1722,10 +1635,12 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         routeHub.postBanner(t("当前账号没有访问整理历史的权限。"))
         return
       }
+      showsPlugins = false
+      selectedTab = .more
       if let search, !search.isEmpty {
-        openFromOverflow(.historyQuery(search))
+        morePath = [.historyQuery(search)]
       } else {
-        openFromOverflow(.history)
+        morePath = [.history]
       }
 
     case .workflows:
@@ -1733,7 +1648,9 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         routeHub.postBanner(t("当前账号没有访问工作流的权限。"))
         return
       }
-      openFromOverflow(.workflows)
+      showsPlugins = false
+      selectedTab = .more
+      morePath = [.workflows]
 
     case .sites:
       guard canManageDownloads else {
@@ -1751,12 +1668,13 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         return
       }
       if installedOnly {
-        clearAllOverflowDestinations()
-        selectedTab = .settings
-        settingsPath = []
+        selectedTab = .more
+        morePath = []
         showsPlugins = true
       } else {
-        openFromOverflow(.pluginMarket)
+        showsPlugins = false
+        selectedTab = .more
+        morePath = [.pluginMarket]
       }
 
     case .agent(let prompt):
@@ -1768,10 +1686,18 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         routeHub.postBanner(t("当前账号没有访问音乐中心的权限。"))
         return
       }
-      openFromOverflow(.music)
+      showsPlugins = false
+      selectedTab = .more
+      morePath = [.music]
 
     case .shortcuts:
-      showsShortcutsSheet = true
+      guard snapshot.user.isSuperuser else {
+        routeHub.postBanner(t("仅管理员可访问系统诊断工具。"))
+        return
+      }
+      showsPlugins = false
+      selectedTab = .more
+      morePath = []
 
     case .users:
       guard snapshot.user.isSuperuser else {
@@ -1804,7 +1730,9 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         return
       }
       guard let tool = Self.diagnosticsTool(for: rawTool) else { return }
-      openSettingsDestination(.diagnostics(tool))
+      showsPlugins = false
+      selectedTab = .more
+      morePath = [.diagnostics(tool)]
 
     case .channelAuth:
       openSettingsDestination(.channelAuth)
@@ -2054,265 +1982,9 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .accessibilityIdentifier("native-system-route-banner")
   }
 
-  /// 溢出菜单弹出锚点：iPhone 跟随底部主标签，iPad 贴近顶部浮动标签栏，iPhone Duo 贴靠系统竖向侧边操作区边缘。
-  private var overflowMenuAnchor: UnitPoint {
-    if usesDuoSideOperationBar {
-      return verticalBarEdge == .leading ? .leading : .trailing
-    }
-    if NativeDeviceLayout.isIPad {
-      return .top
-    }
-    switch selectedTab {
-    case .discover: return .bottomLeading
-    case .explore: return UnitPoint(x: 0.34, y: 1.0)
-    case .mine: return UnitPoint(x: 0.66, y: 1.0)
-    case .settings: return .bottomTrailing
-    case .search, .sidebarWorkspace: return .bottomLeading
-    }
-  }
-
-  /// 溢出菜单屏幕停靠位置：iPhone Duo 贴靠当前系统侧栏边，iPad 顶部居中贴靠浮动栏下方，iPhone 左右贴底对齐。
-  private var overflowMenuAlignment: Alignment {
-    if usesDuoSideOperationBar {
-      return verticalBarEdge == .leading ? .bottomLeading : .bottomTrailing
-    }
-    if NativeDeviceLayout.isIPad {
-      return .top
-    }
-    switch selectedTab {
-    case .mine, .settings: return .bottomTrailing
-    default: return .bottomLeading
-    }
-  }
-
-  /// 溢出菜单动态非对称弹性绽放过渡（直接挂在条件渲染卡片节点上，确保每次弹出都有明显缩放、位移与回弹）。
-  private var overflowMenuTransition: AnyTransition {
-    let anchor = overflowMenuAnchor
-    let insertionY: CGFloat = NativeDeviceLayout.isIPad ? -24 : (usesDuoSideOperationBar ? 14 : 48)
-    let removalY: CGFloat = NativeDeviceLayout.isIPad ? -14 : (usesDuoSideOperationBar ? 8 : 26)
-    return .asymmetric(
-      insertion: .scale(scale: 0.28, anchor: anchor)
-        .combined(with: .offset(y: insertionY))
-        .combined(with: .opacity),
-      removal: .scale(scale: 0.64, anchor: anchor)
-        .combined(with: .offset(y: removalY))
-        .combined(with: .opacity)
-    )
-  }
-
-  /// 溢出菜单点击关闭透明遮罩层（独立条件节点，仅淡入淡出不吞掉卡片弹性动画）。
-  private var overflowMenuBackdrop: some View {
-    Color.black.opacity(colorScheme == .light ? 0.10 : 0.16)
-      .ignoresSafeArea()
-      .contentShape(Rectangle())
-      .onTapGesture {
-        withAnimation(.spring(response: 0.22, dampingFraction: 0.90)) {
-          showsOverflowMenu = false
-        }
-      }
-      .accessibilityIdentifier("native-overflow-menu-backdrop")
-  }
-
   /// 当前是否处于普通 iPhone 横屏紧凑高度形态（底部标签栏压缩、垂直可用高度约 354–393pt）。
   private var isCompactPhoneLandscape: Bool {
     verticalSizeClass == .compact && !NativeDeviceLayout.isIPad && !usesDuoSideOperationBar
-  }
-
-  /// 高透液态玻璃悬浮菜单卡片：顶部展示当前用户头像与信息，下方集中承载全部次级功能入口；手机横屏自动切换双列紧凑排布避免触顶裁剪。
-  private var overflowMenuCard: some View {
-    let compactLandscape = isCompactPhoneLandscape
-    return VStack(alignment: .leading, spacing: 0) {
-      HStack(spacing: 11) {
-        NativeUserAvatarView(
-          session: session,
-          avatar: snapshot.user.avatar,
-          name: snapshot.user.name,
-          isSuperuser: snapshot.user.isSuperuser,
-          size: compactLandscape ? 34 : 38
-        )
-        VStack(alignment: .leading, spacing: 2) {
-          Text(snapshot.user.name)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.primary)
-            .lineLimit(1)
-          HStack(spacing: 5) {
-            Circle()
-              .fill(Color(red: 0.42, green: 0.88, blue: 0.56))
-              .frame(width: 6, height: 6)
-            Text(snapshot.user.isSuperuser ? t("超级管理员") : t("普通成员"))
-              .font(.caption2.weight(.medium))
-              .foregroundStyle(.primary.opacity(0.68))
-              .lineLimit(1)
-          }
-        }
-        Spacer(minLength: 0)
-      }
-      .padding(.horizontal, 14)
-      .padding(.vertical, compactLandscape ? 9 : 12)
-      .accessibilityElement(children: .combine)
-      .accessibilityIdentifier("native-overflow-user-header")
-
-      Divider().overlay(.primary.opacity(0.12))
-
-      ViewThatFits(in: .vertical) {
-        overflowMenuRows(
-          canSubscribe: canSubscribe,
-          canSearchResources: canSearchResources,
-          canManageDownloads: canManageDownloads,
-          twoColumns: compactLandscape
-        )
-        ScrollView {
-          overflowMenuRows(
-            canSubscribe: canSubscribe,
-            canSearchResources: canSearchResources,
-            canManageDownloads: canManageDownloads,
-            twoColumns: compactLandscape
-          )
-        }
-        .scrollIndicators(.hidden)
-        .frame(maxHeight: compactLandscape ? 220 : 440)
-        .accessibilityIdentifier("native-overflow-menu-scroll")
-      }
-    }
-    .frame(width: compactLandscape ? 356 : (NativeDeviceLayout.isIPad ? 276 : 238))
-    .modifier(NativeLiquidGlassPopoverSurface(cornerRadius: 26))
-    .padding(.horizontal, 16)
-    .padding(.top, NativeDeviceLayout.isIPad ? 72 : (compactLandscape ? 8 : 0))
-    .padding(
-      .bottom,
-      NativeDeviceLayout.isIPad ? 24 : (usesDuoSideOperationBar ? 20 : (compactLandscape ? 58 : 92))
-    )
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: overflowMenuAlignment)
-  }
-
-  /// 悬浮快捷菜单条目容器：竖屏单列、手机横屏双列紧凑排布，仅在超长字号时退化为滚动。
-  @ViewBuilder
-  private func overflowMenuRows(
-    canSubscribe: Bool,
-    canSearchResources: Bool,
-    canManageDownloads: Bool,
-    twoColumns: Bool = false
-  ) -> some View {
-    if twoColumns {
-      LazyVGrid(
-        columns: [GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4)],
-        spacing: 2
-      ) {
-        if canSubscribe {
-          overflowMenuRow(
-            title: t("我的订阅"), symbol: "bookmark.fill", id: "native-workspace-subscriptions",
-            compact: true
-          ) { openFromOverflow(.subscriptions) }
-          overflowMenuRow(
-            title: t("订阅日历"), symbol: "calendar", id: "native-workspace-calendar",
-            compact: true
-          ) { openFromOverflow(.calendar) }
-        }
-        if canSearchResources {
-          overflowMenuRow(
-            title: t("站点资源"), symbol: "magnifyingglass.circle.fill",
-            id: "native-workspace-resources", compact: true
-          ) { openFromOverflow(.resources) }
-        }
-        if canManageDownloads {
-          overflowMenuRow(
-            title: t("下载"), symbol: "arrow.down.circle.fill", id: "native-workspace-downloads",
-            compact: true
-          ) { openFromOverflow(.downloads) }
-          overflowMenuRow(
-            title: t("文件管理"), symbol: "folder.fill", id: "native-workspace-files",
-            compact: true
-          ) { openFromOverflow(.files) }
-          overflowMenuRow(
-            title: t("整理历史"), symbol: "clock.arrow.circlepath", id: "native-workspace-history",
-            compact: true
-          ) { openFromOverflow(.history) }
-          overflowMenuRow(
-            title: t("工作流"), symbol: "flowchart", id: "native-workspace-workflows",
-            compact: true
-          ) { openFromOverflow(.workflows) }
-        }
-        if snapshot.user.isSuperuser {
-          overflowMenuRow(
-            title: t("插件"), symbol: "puzzlepiece.extension.fill",
-            id: "native-overflow-plugin-market", compact: true
-          ) { openFromOverflow(.pluginMarket) }
-        }
-      }
-      .padding(.horizontal, 6)
-      .padding(.vertical, 6)
-    } else {
-      VStack(alignment: .leading, spacing: 2) {
-        if canSubscribe || canSearchResources || canManageDownloads {
-          if canSubscribe {
-            overflowMenuRow(
-              title: t("我的订阅"), symbol: "bookmark.fill", id: "native-workspace-subscriptions"
-            ) { openFromOverflow(.subscriptions) }
-            overflowMenuRow(
-              title: t("订阅日历"), symbol: "calendar", id: "native-workspace-calendar"
-            ) { openFromOverflow(.calendar) }
-          }
-          if canSearchResources {
-            overflowMenuRow(
-              title: t("站点资源"), symbol: "magnifyingglass.circle.fill",
-              id: "native-workspace-resources"
-            ) { openFromOverflow(.resources) }
-          }
-          if canManageDownloads {
-            overflowMenuRow(
-              title: t("下载"), symbol: "arrow.down.circle.fill", id: "native-workspace-downloads"
-            ) { openFromOverflow(.downloads) }
-          }
-        }
-
-        if canManageDownloads || snapshot.user.isSuperuser {
-          Divider().overlay(.primary.opacity(0.10)).padding(.vertical, 4)
-          if canManageDownloads {
-            overflowMenuRow(
-              title: t("文件管理"), symbol: "folder.fill", id: "native-workspace-files"
-            ) { openFromOverflow(.files) }
-            overflowMenuRow(
-              title: t("整理历史"), symbol: "clock.arrow.circlepath", id: "native-workspace-history"
-            ) { openFromOverflow(.history) }
-            overflowMenuRow(
-              title: t("工作流"), symbol: "flowchart", id: "native-workspace-workflows"
-            ) { openFromOverflow(.workflows) }
-          }
-          if snapshot.user.isSuperuser {
-            overflowMenuRow(
-              title: t("插件"), symbol: "puzzlepiece.extension.fill",
-              id: "native-overflow-plugin-market"
-            ) { openFromOverflow(.pluginMarket) }
-          }
-        }
-      }
-      .padding(.vertical, 8)
-    }
-  }
-
-  /// 悬浮快捷菜单中的单个原生入口行（图标统一采用文本色，不叠加额外彩色）。
-  private func overflowMenuRow(
-    title: String, symbol: String, id: String, compact: Bool = false,
-    action: @escaping () -> Void
-  ) -> some View {
-    Button(action: action) {
-      HStack(spacing: compact ? 9 : 12) {
-        Image(systemName: symbol)
-          .font(compact ? .subheadline.weight(.medium) : .body.weight(.medium))
-          .frame(width: compact ? 20 : 22)
-          .foregroundStyle(.primary)
-        Text(title)
-          .font(.subheadline.weight(.medium))
-          .foregroundStyle(.primary)
-          .lineLimit(1)
-        Spacer(minLength: 0)
-      }
-      .padding(.horizontal, compact ? 10 : 16)
-      .frame(minHeight: compact ? 38 : 42)
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .accessibilityIdentifier(id)
   }
 
   /// 从 MoviePilot 发现、推荐与媒体服务器端点读取真实海报与进度，已加载过则静默复用缓存，仅显式刷新时重拉。
@@ -2480,14 +2152,20 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         id: NativeExploreSourceKind.tmdbTVs.rawValue, title: "TheMovieDB 剧集",
         posterReference: projectedTVs?.first?.posterReference),
       NativeDiscoverCategory(
-        id: NativeExploreSourceKind.doubanMovies.rawValue, title: "豆瓣片库",
-        posterReference: projectedMovies?.dropFirst().first?.posterReference),
+        id: NativeExploreSourceKind.doubanMovies.rawValue, title: "豆瓣电影",
+        posterReference: doubanShowing?.first?.posterPath
+          ?? projectedMovies?.dropFirst().first?.posterReference),
       NativeDiscoverCategory(
-        id: NativeExploreSourceKind.bangumi.rawValue, title: "Bangumi 番剧",
+        id: NativeExploreSourceKind.doubanTVs.rawValue, title: "豆瓣剧集",
         posterReference: projectedTVs?.dropFirst().first?.posterReference),
       NativeDiscoverCategory(
+        id: NativeExploreSourceKind.bangumi.rawValue, title: "Bangumi 番剧",
+        posterReference: projectedTVs?.dropFirst(2).first?.posterReference),
+      NativeDiscoverCategory(
         id: NativeExploreSourceKind.music.rawValue, title: "音乐探索",
-        posterReference: projectedMovies?.dropFirst(2).first?.posterReference),
+        posterReference: doubanMusic?.first?.coverURL
+          ?? doubanMusic?.first?.posterPath
+          ?? projectedMovies?.dropFirst(2).first?.posterReference),
     ]
 
     let heroPool: [(NativeDiscoverAPIItem, String)] =
@@ -3048,7 +2726,7 @@ struct NativeMediaIdentity: Identifiable, Hashable, Sendable {
   }
 }
 
-/// 跨标签与全局溢出菜单可推入的受控业务路由。
+/// 跨标签与侧边工作台可推入的受控业务路由。
 enum NativeWorkspaceDestination: Hashable {
   case explore(NativeExploreSourceKind)
   case music
@@ -3067,6 +2745,7 @@ enum NativeWorkspaceDestination: Hashable {
   case files
   case filesTarget(storage: String?, path: String?)
   case workflows
+  case settingsHub
   case settings
   case systemModule(NativeSystemModulesPage.Domain)
   case diagnostics(NativeDiagnosticsToolsPage.Tool)
@@ -3642,119 +3321,6 @@ private struct NativeTabBarReselectInterceptor: UIViewControllerRepresentable {
       }
       return super.forwardingTarget(for: aSelector)
     }
-  }
-}
-
-/// 「我的」页右上角捷径弹窗：集中承载系统检查、网络测试、识别与规则、词表、实时日志与定时服务，点击后直接在弹窗栈内进入工具页。
-@MainActor
-private struct NativeShortcutsSheet: View {
-  let session: NativeSession
-
-  @Environment(\.dismiss) private var dismiss
-  @State private var selectedTool: NativeDiagnosticsToolsPage.Tool?
-  @State private var detent: PresentationDetent = .medium
-
-  private struct ShortcutEntry: Identifiable {
-    let tool: NativeDiagnosticsToolsPage.Tool
-    let title: String
-    let subtitle: String
-    let symbol: String
-    let tint: Color
-
-    var id: String { tool.rawValue }
-  }
-
-  private let entries: [ShortcutEntry] = [
-    ShortcutEntry(
-      tool: .health, title: "系统检查", subtitle: "组件健康与运行状态",
-      symbol: "checkmark.shield", tint: NativeTheme.success),
-    ShortcutEntry(
-      tool: .nettest, title: "网络测试", subtitle: "自动测速与连通检测",
-      symbol: "network", tint: NativeTheme.info),
-    ShortcutEntry(
-      tool: .ruleTest, title: "识别与规则", subtitle: "名称识别与规则验证",
-      symbol: "text.magnifyingglass", tint: NativeTheme.brand),
-    ShortcutEntry(
-      tool: .words, title: "词表", subtitle: "识别词、屏蔽词与剧集规则",
-      symbol: "character.book.closed", tint: NativeTheme.cyan),
-    ShortcutEntry(
-      tool: .liveLog, title: "实时日志", subtitle: "结构化查看与级别过滤",
-      symbol: "terminal", tint: NativeTheme.warning),
-    ShortcutEntry(
-      tool: .scheduler, title: "定时服务", subtitle: "系统与插件任务手动触发",
-      symbol: "clock.arrow.2.circlepath", tint: NativeTheme.pink),
-  ]
-
-  var body: some View {
-    NavigationStack {
-      ZStack {
-        CinematicBackground()
-        ScrollView {
-          LazyVGrid(
-            columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
-            spacing: 12
-          ) {
-            ForEach(entries) { entry in
-              Button {
-                detent = .large
-                selectedTool = entry.tool
-              } label: {
-                CinematicPanel(padding: 14) {
-                  VStack(alignment: .leading, spacing: 10) {
-                    Image(systemName: entry.symbol)
-                      .font(.title2.weight(.medium))
-                      .foregroundStyle(entry.tint)
-                      .frame(width: 28, height: 28, alignment: .leading)
-                    VStack(alignment: .leading, spacing: 2) {
-                      Text(entry.title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary.opacity(0.92))
-                      Text(entry.subtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    }
-                  }
-                  .frame(maxWidth: .infinity, alignment: .leading)
-                }
-              }
-              .buttonStyle(.plain)
-              .accessibilityIdentifier("native-shortcut-\(entry.tool.rawValue)")
-            }
-          }
-          .padding(.horizontal, CinematicStyle.margin)
-          .padding(.vertical, 14)
-        }
-        .scrollIndicators(.hidden)
-      }
-      .navigationTitle("捷径")
-      .navigationBarTitleDisplayMode(.inline)
-      .nativeTopNavigationBar()
-      .toolbar {
-        ToolbarItem(placement: .topBarLeading) {
-          Button {
-            dismiss()
-          } label: {
-            Image(systemName: "xmark")
-          }
-          .tint(.primary)
-          .accessibilityLabel("关闭")
-          .accessibilityIdentifier("native-shortcuts-close")
-        }
-      }
-      .navigationDestination(
-        isPresented: Binding(
-          get: { selectedTool != nil },
-          set: { if !$0 { selectedTool = nil } })
-      ) {
-        if let tool = selectedTool {
-          NativeDiagnosticsToolsPage(session: session, initialTool: tool)
-        }
-      }
-    }
-    .presentationDetents([.medium, .large], selection: $detent)
-    .presentationDragIndicator(.visible)
-    .nativeGlassSheet()
   }
 }
 

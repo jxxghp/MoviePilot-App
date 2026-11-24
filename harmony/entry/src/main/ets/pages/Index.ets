@@ -51,12 +51,12 @@ import { HarmonySettingsHubPage, HarmonyPluginsPage } from '@moviepilot/settings
 
 import EntryAbility from '../entryability/EntryAbility';
 
-const MAIN_TAB_ORDER: HarmonyMainTab[] = ['discover', 'explore', 'subscribe', 'more', 'dashboard'];
+const MAIN_TAB_ORDER: HarmonyMainTab[] = ['discover', 'subscribe', 'dashboard', 'more'];
 
 /**
  * MoviePilot HarmonyOS NEXT / HarmonyOS 7 主入口页面：
  * - 启动时自动恢复 HUKS 安全凭据会话、已保存服务器与主题外观快照，401/令牌失效自动全局登出；
- * - 5 大主导航常驻挂载于隐藏标签栏的 `Tabs` 容器，二级页面叠加于上方，返回时 100% 保留滚动位置；
+ * - 4 大主导航（发现 · 订阅 · 我的 · 更多）常驻挂载于隐藏标签栏的 `Tabs` 容器，搭配独立悬浮搜索圆钮，二级页面叠加于上方并保留滚动位置；
  * - 联动 `HarmonyAudioSession` 迷你音乐条无缝续播、可拖拽紫色机器人吉祥物避让及深度链接分发。
  */
 @Entry
@@ -212,8 +212,10 @@ struct Index {
         this.switchTab('discover');
       } else if (kind === 'explore') {
         const src = String(obj['source'] ?? '');
-        if (src.length > 0) { this.exploreSource = src; }
-        this.switchTab('explore');
+        if (src.length > 0) {
+          this.exploreSource = src;
+        }
+        this.routeStack = ['explore'];
       } else if (kind === 'subscriptions') {
         this.switchTab('subscribe');
       } else if (kind === 'subscribeCommunity') {
@@ -481,9 +483,8 @@ struct Index {
           onOpenMedia: (it: MpMediaItem) => this.openMediaSmart(it),
           onOpenExplore: (src: string) => {
             this.exploreSource = src;
-            this.switchTab('explore');
+            this.pushRoute('explore');
           },
-          onOpenSearch: () => this.pushRoute('search'),
           onOpenLibrary: (libId: string, srv: string) => {
             this.activeLibraryId = libId;
             this.activeLibraryServer = srv;
@@ -494,23 +495,24 @@ struct Index {
       }
 
       TabContent() {
-        HarmonyExplorePage({
-          initialSource: this.exploreSource,
-          onOpenMedia: (it: MpMediaItem) => this.openMediaSmart(it),
-          onOpenSearch: () => this.pushRoute('search')
-        })
-      }
-
-      TabContent() {
         HarmonySubscriptionsPage({
           showBack: false,
           initialMode: 'mine',
-          onOpenSearch: () => this.pushRoute('search'),
-          onOpenCalendar: () => this.pushRoute('calendar'),
           onOpenMedia: (it: MpMediaItem) => this.openMediaSmart(it),
           onPlayServerItem: (itemId: string, server: string, title: string) => {
             this.playServerItemById(itemId, server, title);
           }
+        })
+      }
+
+      TabContent() {
+        HarmonyDashboardPage({
+          userName: this.userName,
+          userAvatar: this.userAvatar,
+          isSuperuser: this.isSuperuser,
+          serverUrl: this.serverUrl,
+          onOpenShortcutRoute: (routeId: string) => this.pushRoute(routeId),
+          onOpenMedia: (it: MpMediaItem) => this.openMediaSmart(it)
         })
       }
 
@@ -525,18 +527,7 @@ struct Index {
               this.resourceSearchKeyword = '';
             }
             this.pushRoute(routeId);
-          },
-          onOpenSearch: () => this.pushRoute('search')
-        })
-      }
-
-      TabContent() {
-        HarmonyDashboardPage({
-          userName: this.userName,
-          serverUrl: this.serverUrl,
-          onOpenShortcutRoute: (routeId: string) => this.pushRoute(routeId),
-          onOpenSettings: () => this.pushRoute('settings'),
-          onOpenMedia: (it: MpMediaItem) => this.openMediaSmart(it)
+          }
         })
       }
     }
@@ -560,6 +551,12 @@ struct Index {
             this.selectedPerson = person;
             this.pushRoute('person');
           }
+        })
+      } else if (this.currentRoute() === 'explore') {
+        HarmonyExplorePage({
+          initialSource: this.exploreSource,
+          onBack: () => this.popRoute(),
+          onOpenMedia: (it: MpMediaItem) => this.openMediaSmart(it)
         })
       } else if (this.currentRoute() === 'search') {
         HarmonyGlobalSearchPage({
@@ -794,7 +791,7 @@ struct Index {
           HarmonySideNavRail({
             selectedTab: this.selectedTab,
             userInitial: this.userName.substring(0, 1).toUpperCase(),
-            userAvatar: this.userAvatar,
+            userAvatar: MoviePilotRepository.shared().resolveImageUrl(this.userAvatar),
             onTabClick: (tab: HarmonyMainTab) => this.switchTab(tab),
             onSearchClick: () => this.pushRoute('search')
           })
@@ -856,7 +853,7 @@ struct Index {
               FloatingAiMascotButton({
                 miniMusicVisible: this.miniMusic !== null,
                 baseRight: 14,
-                baseBottom: (this.windowHeightVp > 0 && this.windowHeightVp < 480 ? 68 : 76) + Math.max(10, this.safeBottomVp),
+                baseBottom: (this.windowHeightVp > 0 && this.windowHeightVp < 480 ? 70 : 80) + Math.max(10, this.safeBottomVp),
                 onTap: () => this.pushRoute('agent')
               })
             }
@@ -877,8 +874,9 @@ struct Index {
               HarmonyBottomNavBar({
                 selectedTab: this.selectedTab,
                 userInitial: this.userName.substring(0, 1).toUpperCase(),
-                userAvatar: this.userAvatar,
-                onTabClick: (tab: HarmonyMainTab) => this.switchTab(tab)
+                userAvatar: MoviePilotRepository.shared().resolveImageUrl(this.userAvatar),
+                onTabClick: (tab: HarmonyMainTab) => this.switchTab(tab),
+                onSearchClick: () => this.pushRoute('search')
               })
             }
           }

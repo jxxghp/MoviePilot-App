@@ -241,6 +241,11 @@
       "zh-Hant": "內嵌 · %@",
       "en": "Embedded · %@"
     },
+    "分类探索": {
+      "zh-Hans": "分类探索",
+      "zh-Hant": "分類探索",
+      "en": "Explore Categories"
+    },
     "分钟": {
       "zh-Hans": "分钟",
       "zh-Hant": "分鐘",
@@ -586,6 +591,11 @@
       "zh-Hant": "已安裝",
       "en": "Installed"
     },
+    "已安装管理与插件商店": {
+      "zh-Hans": "已安装管理与插件商店",
+      "zh-Hant": "已安裝管理與插件商店",
+      "en": "Installed Plugins & Store"
+    },
     "已授": {
       "zh-Hans": "已授",
       "zh-Hant": "已授權",
@@ -761,6 +771,11 @@
       "zh-Hant": "待審批",
       "en": "Pending"
     },
+    "快捷工具与系统诊断": {
+      "zh-Hans": "快捷工具与系统诊断",
+      "zh-Hant": "快捷工具與系統診斷",
+      "en": "Shortcuts & Diagnostics"
+    },
     "总入库": {
       "zh-Hans": "总入库",
       "zh-Hant": "總入庫",
@@ -825,6 +840,16 @@
       "zh-Hans": "插件",
       "zh-Hant": "外掛",
       "en": "Plugins"
+    },
+    "插件与工作流": {
+      "zh-Hans": "插件与工作流",
+      "zh-Hant": "插件與工作流",
+      "en": "Plugins & Workflows"
+    },
+    "插件中心": {
+      "zh-Hans": "插件中心",
+      "zh-Hant": "插件中心",
+      "en": "Plugin Center"
     },
     "插件图标已加载": {
       "zh-Hans": "插件图标已加载",
@@ -1086,6 +1111,11 @@
       "zh-Hant": "一般成員",
       "en": "Member"
     },
+    "智能、插件与自动化": {
+      "zh-Hans": "智能、插件与自动化",
+      "zh-Hant": "智能、插件與自動化",
+      "en": "AI, Plugins & Automation"
+    },
     "暂不支持的配置组件": {
       "zh-Hans": "暂不支持的配置组件",
       "zh-Hant": "暫不支援的設定元件",
@@ -1140,6 +1170,11 @@
       "zh-Hans": "暂时无法连接",
       "zh-Hant": "暫時無法連接",
       "en": "Unable to connect"
+    },
+    "更多": {
+      "zh-Hans": "更多",
+      "zh-Hant": "更多",
+      "en": "More"
     },
     "更多播放选项": {
       "zh-Hans": "更多播放选项",
@@ -1766,6 +1801,11 @@
       "zh-Hant": "訂閱與搜尋",
       "en": "Subscribe & Search"
     },
+    "订阅广场": {
+      "zh-Hans": "订阅广场",
+      "zh-Hant": "訂閱廣場",
+      "en": "Community Subscriptions"
+    },
     "订阅日历": {
       "zh-Hans": "订阅日历",
       "zh-Hant": "訂閱行事曆",
@@ -1936,6 +1976,11 @@
       "zh-Hant": "資源",
       "en": "Torrents"
     },
+    "资源与媒体流转": {
+      "zh-Hans": "资源与媒体流转",
+      "zh-Hant": "資源與媒體流轉",
+      "en": "Resources & Media Flow"
+    },
     "起点": {
       "zh-Hans": "起点",
       "zh-Hant": "起點",
@@ -2015,6 +2060,21 @@
       "zh-Hans": "连接超时，请重试或更改地址。",
       "zh-Hant": "連線逾時，請重試或變更位址。",
       "en": "The connection timed out. Retry or change the address."
+    },
+    "追剧与社区": {
+      "zh-Hans": "追剧与社区",
+      "zh-Hant": "追劇與社區",
+      "en": "Calendar & Community"
+    },
+    "追剧排期": {
+      "zh-Hans": "追剧排期",
+      "zh-Hant": "追劇排期",
+      "en": "Airing Schedule"
+    },
+    "追剧日历": {
+      "zh-Hans": "追剧日历",
+      "zh-Hant": "追劇日曆",
+      "en": "Release Calendar"
     },
     "退出后需要重新输入账号密码或凭据登录当前 MoviePilot 服务。": {
       "zh-Hans": "退出后需要重新输入账号密码或凭据登录当前 MoviePilot 服务。",
@@ -2190,6 +2250,11 @@
       "zh-Hans": "音乐",
       "zh-Hant": "音樂",
       "en": "Music"
+    },
+    "音乐中心": {
+      "zh-Hans": "音乐中心",
+      "zh-Hant": "音樂中心",
+      "en": "Music Center"
     },
     "音乐订阅": {
       "zh-Hans": "音乐订阅",

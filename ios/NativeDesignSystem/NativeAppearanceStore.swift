@@ -196,7 +196,7 @@ final class NativeAppearanceStore: ObservableObject {
       NativeAppearanceMode(rawValue: defaults.string(forKey: Keys.mode) ?? "") ?? .dark
     backgroundPreset =
       NativeBackgroundPreset(rawValue: defaults.string(forKey: Keys.backgroundPreset) ?? "")
-      ?? .cinematic
+      ?? .graphite
     customBackgroundStartHex = defaults.string(forKey: Keys.bgStartHex) ?? "#30334A"
     customBackgroundMidHex = defaults.string(forKey: Keys.bgMidHex) ?? "#4A3B57"
     customBackgroundEndHex = defaults.string(forKey: Keys.bgEndHex) ?? "#242E40"
@@ -316,10 +316,10 @@ final class NativeAppearanceStore: ObservableObject {
     return colors.first ?? CinematicStyle.background
   }
 
-  /// 恢复默认「深色 + 星夜紫玫 + 星耀紫 + 自动文字前景色」。
+  /// 恢复默认「深色 + 极简石墨 + 星耀紫 + 自动文字前景色」。
   func resetToDefaults() {
     mode = .dark
-    backgroundPreset = .cinematic
+    backgroundPreset = .graphite
     customBackgroundStartHex = "#30334A"
     customBackgroundMidHex = "#4A3B57"
     customBackgroundEndHex = "#242E40"

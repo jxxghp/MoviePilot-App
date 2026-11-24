@@ -25,6 +25,7 @@ import {
   HarmonyThemeColors,
   GeneratedDesignTokens,
   HarmonyAppearanceStore,
+  HarmonyEntityLogo,
   HarmonySkeletonHost,
   HarmonySkeletonBlock,
   HarmonyBentoDashboardSkeleton,
@@ -36,14 +37,6 @@ import {
   NativeCommunityMedalsWidget,
   CommunityMedal3DComponent
 } from '@moviepilot/medal_3d';
-
-interface ShortcutEntryDef {
-  routeId: string;
-  title: string;
-  subtitle: string;
-  symbol: string;
-  tint: string;
-}
 
 interface WordCategoryDef {
   id: string;
@@ -57,15 +50,6 @@ interface WordCategoryDef {
   examples: string;
   guideNote: string;
 }
-
-const SHORTCUT_ENTRIES: ShortcutEntryDef[] = [
-  { routeId: 'diag_check', title: '系统检查', subtitle: '查看服务运行状态与核心组件连通', symbol: 'sys.symbol.checkmark_shield', tint: '#34C759' },
-  { routeId: 'diag_schedulers', title: '定时服务', subtitle: '查看全部后台定时任务并手动触发', symbol: 'sys.symbol.clock', tint: '#EE6896' },
-  { routeId: 'diag_logs', title: '实时日志', subtitle: '追踪服务端运行与插件输出日志', symbol: 'sys.symbol.doc_text', tint: '#5AC8FA' },
-  { routeId: 'diag_words', title: '词表管理', subtitle: '编辑识别词、制作组、占位符、屏蔽词与剧集规则', symbol: 'sys.symbol.bookmark', tint: '#26B8A8' },
-  { routeId: 'diag_recognize', title: '名称识别', subtitle: '输入种子名或文件名在线验证识别结果', symbol: 'sys.symbol.magnifyingglass', tint: '#317AF7' },
-  { routeId: 'diag_network', title: '网络测试', subtitle: '检测 TMDB、豆瓣、GitHub 等节点延迟', symbol: 'sys.symbol.worldclock', tint: '#F29B38' }
-];
 
 const WORD_CATEGORIES: WordCategoryDef[] = [
   {
@@ -131,8 +115,9 @@ const WORD_CATEGORIES: WordCategoryDef[] = [
 ];
 
 /**
- * 鸿蒙「我的」主仪表盘（完整对齐 iOS 视觉与功能）：
- * - 媒体库统计 4 宫格对齐为「电影 / 剧集 / 剧集单集 / 音乐」+ 分类图标与本月 `+N` 角标；
+ * 鸿蒙「我的」主仪表盘：
+ * - 顶部呈现用户头像、权限角色、社区勋章数与连接服务端信息卡片，右上角仅保留消息中心入口；
+ * - 媒体库统计 4 宫格为「电影 / 剧集 / 剧集单集 / 音乐」+ 分类图标与本月 `+N` 角标；
  * - 消息中心支持交互式回复（`POST /api/v1/message/web`）；
  * - 3D 社区勋章弹窗支持等级徽标、解锁条件、佩戴勋章（`/medals/wear`）与刷新勋章（`/medals/refresh`）。
  */
@@ -146,6 +131,8 @@ export struct HarmonyDashboardPage {
   @StorageProp('mp_open_messages_revision') @Watch('onOpenMessagesRevisionChanged') openMessagesRevision: number = 0;
   private static lastConsumedMessagesRevision: number = 0;
   @Prop userName: string = 'admin';
+  @Prop userAvatar: string = '';
+  @Prop isSuperuser: boolean = true;
   @Prop serverUrl: string = '';
   @State private stats: MpDashboardStats = {
     movieCount: 0, tvCount: 0, episodeCount: 0, userCount: 0, musicCount: 0,
@@ -161,7 +148,6 @@ export struct HarmonyDashboardPage {
   @State private hasLoadedOnce: boolean = false;
   @State private loadingMessages: boolean = false;
   @State private showMessagesSheet: boolean = false;
-  @State private showShortcutsSheet: boolean = false;
   @State private showModulesSheet: boolean = false;
   @State private showMedalSheet: boolean = false;
   @State private selectedMedal: MpCommunityMedal | null = null;
@@ -172,7 +158,6 @@ export struct HarmonyDashboardPage {
   @State private msgFeedback: string = '';
 
   onOpenShortcutRoute: (routeId: string) => void = () => {};
-  onOpenSettings: () => void = () => {};
   onOpenMedia: (item: MpMediaItem) => void = () => {};
 
   aboutToAppear(): void {
@@ -194,7 +179,6 @@ export struct HarmonyDashboardPage {
   }
 
   private presentMessagesFromSystemIntent(): void {
-    this.showShortcutsSheet = false;
     this.showModulesSheet = false;
     this.showMedalSheet = false;
     this.showMessagesSheet = true;
@@ -293,66 +277,105 @@ export struct HarmonyDashboardPage {
     return this.windowWidthVp > this.windowHeightVp && this.windowHeightVp > 0 && this.windowHeightVp < 520;
   }
 
+  private resolvedUserAvatarUrl(): string {
+    const trimmed = this.userAvatar.trim();
+    if (trimmed.length === 0) {
+      return '';
+    }
+    return MoviePilotRepository.shared().resolveImageUrl(trimmed);
+  }
+
+  private formattedServerHost(): string {
+    const cleaned = this.serverUrl.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    return cleaned.length > 0 ? cleaned : '未连接服务器';
+  }
+
   @Builder
-  shortcutsPopupSheetBuilder() {
-    Column({ space: 12 }) {
-      HarmonySheetHeader({
-        title: '快捷工具',
-        cancelText: '关闭',
-        onCancel: () => { this.showShortcutsSheet = false; }
-      })
-      Text('选择一项工具直接进入，无需在工具内来回切换')
-        .fontSize(12)
-        .fontColor(mpSecondaryText(this.isDark))
-        .width('100%')
-
-      Scroll() {
-        Grid() {
-          ForEach(SHORTCUT_ENTRIES, (entry: ShortcutEntryDef) => {
-            GridItem() {
-              Column() {
-                CinematicPanel({ panelPadding: 13, cornerRadius: 16, interactive: true }) {
-                  Row({ space: 12 }) {
-                    Stack() {
-                      SymbolGlyph($r(entry.symbol)).fontSize(19).fontColor([entry.tint])
-                    }
-                    .width(38).height(38).borderRadius(19)
-                    .backgroundColor(HarmonyAppearanceStore.withAlpha(entry.tint, this.isDark ? '28' : '18'))
-
-                    Column({ space: 2 }) {
-                      Text(entry.title).fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
-                      Text(entry.subtitle).fontSize(11.5).fontColor(mpSecondaryText(this.isDark)).maxLines(1)
-                        .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    }
-                    .alignItems(HorizontalAlign.Start)
-                    .layoutWeight(1)
-
-                    SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(15).fontColor([mpSecondaryText(this.isDark)])
-                  }
-                  .width('100%')
-                }
-              }
-              .width('100%')
-              .onClick(() => {
-                this.showShortcutsSheet = false;
-                this.onOpenShortcutRoute(entry.routeId);
+  userProfileCardBuilder() {
+    CinematicPanel({ panelPadding: 16, cornerRadius: 20 }) {
+      Row({ space: 14 }) {
+        Stack({ alignContent: Alignment.BottomEnd }) {
+          Stack({ alignContent: Alignment.Center }) {
+            if (this.resolvedUserAvatarUrl().length > 0) {
+              MpRemoteImage({
+                src: this.resolvedUserAvatarUrl(),
+                imgWidth: 58,
+                imgHeight: 58,
+                imgRadius: 29,
+                placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+              })
+            } else {
+              HarmonyEntityLogo({
+                kind: 'avatar',
+                value: this.userName,
+                logoSize: 58,
+                cornerRadius: 29
               })
             }
-          }, (entry: ShortcutEntryDef) => entry.routeId)
+          }
+          .width(62)
+          .height(62)
+          .borderRadius(31)
+          .border({
+            width: 1.5,
+            color: HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '72' : '48'),
+            radius: 31
+          })
+
+          Column()
+            .width(13)
+            .height(13)
+            .borderRadius(6.5)
+            .backgroundColor('#34C759')
+            .border({
+              width: 2,
+              color: HarmonyThemeColors.card(this.isDark),
+              radius: 6.5
+            })
+            .margin({ right: 1, bottom: 1 })
         }
-        .columnsTemplate(this.windowWidthVp >= 600 ? '1fr 1fr' : '1fr')
-        .columnsGap(10)
-        .rowsGap(10)
-        .width('100%')
-        .padding({ bottom: 20 })
+
+        Column({ space: 6 }) {
+          Text(this.userName || 'admin')
+            .fontSize(19)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(mpPrimaryText(this.isDark))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+
+          Row({ space: 8 }) {
+            NativeAdaptiveBadge({
+              text: this.isSuperuser ? '超级管理员' : '普通成员',
+              tintHex: this.accentHex
+            })
+            if (this.community.earnedCount > 0) {
+              NativeAdaptiveBadge({
+                text: '🏅 ' + this.community.earnedCount + ' 枚勋章',
+                tintHex: '#F2B830'
+              })
+            }
+          }
+
+          Row({ space: 5 }) {
+            SymbolGlyph($r('sys.symbol.worldclock'))
+              .fontSize(13)
+              .fontColor([mpSecondaryText(this.isDark)])
+            Text(this.formattedServerHost())
+              .fontSize(12)
+              .fontColor(mpSecondaryText(this.isDark))
+              .maxLines(1)
+              .wordBreak(WordBreak.BREAK_ALL)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .layoutWeight(1)
+          }
+          .width('100%')
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
       }
-      .scrollBar(BarState.Off)
-      .layoutWeight(1)
       .width('100%')
     }
-    .padding(20)
-    .width('100%')
-    .height('100%')
   }
 
   @Builder
@@ -892,15 +915,9 @@ export struct HarmonyDashboardPage {
     Column() {
       HarmonyPageHeader({
         title: '我的',
-        tertiarySymbol: 'sys.symbol.bell',
-        tertiaryAccessibility: '消息中心',
-        secondarySymbol: 'sys.symbol.bolt',
-        secondaryAccessibility: '快捷工具',
-        primarySymbol: 'sys.symbol.gearshape',
-        primaryAccessibility: '系统设置',
-        onTertiaryClick: () => { this.showMessagesSheet = true; },
-        onSecondaryClick: () => { this.showShortcutsSheet = true; },
-        onPrimaryClick: () => this.onOpenSettings()
+        primarySymbol: 'sys.symbol.bell',
+        primaryAccessibility: '消息中心',
+        onPrimaryClick: () => { this.showMessagesSheet = true; }
       })
 
       Scroll() {
@@ -908,6 +925,8 @@ export struct HarmonyDashboardPage {
           if (this.loading && !this.hasLoadedOnce) {
             HarmonyBentoDashboardSkeleton()
           } else {
+            this.userProfileCardBuilder()
+
             ForEach(this.modules, (mod: CustomModulePref) => {
               if (mod.enabled) {
                 this.renderDashboardModule(mod.id)
@@ -937,14 +956,6 @@ export struct HarmonyDashboardPage {
       .layoutWeight(1)
 
       Blank().width(0).height(0).bindSheet($$this.showMessagesSheet, this.messagesSheetBuilder(), {
-        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
-        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
-        blurStyle: BlurStyle.COMPONENT_REGULAR,
-        dragBar: true,
-        showClose: false,
-        backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
-      })
-      Blank().width(0).height(0).bindSheet($$this.showShortcutsSheet, this.shortcutsPopupSheetBuilder(), {
         detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
         preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,

@@ -14,12 +14,10 @@ import {
   NativeAdaptivePill,
   NativeBackHeader,
   NativeTopStatusBarBlur,
-  HarmonyPageHeader,
   HarmonyPillTabBar,
   HarmonySheetHeader,
   HarmonyAdaptiveLayout,
   HarmonyAppearanceStore,
-  HarmonySurfaceModifier,
   HarmonyThemeColors,
   HarmonyEntityLogo,
   HarmonyEntityLogoPill,
@@ -234,7 +232,7 @@ struct PosterCard {
 }
 
 /**
- * 鸿蒙「发现」首页（100% 对齐 iOS 10 大模块 + 顶部固定 Hero 锚点 + 媒体库封面无遮挡 + 自定义开关与顺序）：
+ * 鸿蒙「发现」首页（10 大模块 + 顶部固定 Hero 锚点 + 媒体库封面无遮挡 + 自定义开关与顺序）：
  * - 继续观看 / 热门电影 / 热门剧集 / 本周趋势 (16:9) / 热门音乐 (1:1) / 豆瓣热映 / 豆瓣 Top250 / 最新入库 / 我的媒体库 / 分类浏览；
  * - 「我的媒体库」封面不叠标题文字、不盖底部黑罩，仅在右上角精巧显示条目数量角标，点击进入独立全屏媒体库页。
  */
@@ -243,11 +241,9 @@ export struct HarmonyDiscoverPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_PALETTE_ID) paletteId: string = 'harmony_blue';
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
-  @StorageLink(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) dynamicLight: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_DISCOVER_MODULES) modulesRaw: string = '';
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
-  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_TOP_VP) safeTopVp: number = 38;
   @State private loading: boolean = true;
   @State private scrollOffsetY: number = 0;
   @State private heroItems: MpMediaItem[] = [];
@@ -265,7 +261,6 @@ export struct HarmonyDiscoverPage {
   private scroller: Scroller = new Scroller();
   onOpenMedia: (item: MpMediaItem) => void = () => {};
   onOpenExplore: (src: string) => void = () => {};
-  onOpenSearch: () => void = () => {};
   onOpenLibrary: (libraryId: string, serverName: string) => void = () => {};
   onPlayMedia: (req: HarmonyPlaybackRequest) => void = () => {};
 
@@ -366,8 +361,8 @@ export struct HarmonyDiscoverPage {
   }
 
   private categoriesColumnsTemplate(): string {
-    if (this.windowWidthVp >= 960) {
-      return '1fr 1fr 1fr 1fr 1fr';
+    if (this.windowWidthVp >= 1080) {
+      return '1fr 1fr 1fr 1fr 1fr 1fr';
     }
     if (this.windowWidthVp >= 680) {
       return '1fr 1fr 1fr';
@@ -377,11 +372,40 @@ export struct HarmonyDiscoverPage {
 
   private categoryEntries(): CategoryEntryDef[] {
     return [
-      { title: 'TMDB 电影', sourceKey: 'tmdb_movies', posterUrl: this.popularMovies.length > 0 ? this.popularMovies[0].posterUrl : '' },
-      { title: 'TMDB 剧集', sourceKey: 'tmdb_tvs', posterUrl: this.popularTvs.length > 0 ? this.popularTvs[0].posterUrl : '' },
-      { title: '豆瓣片库', sourceKey: 'douban_movies', posterUrl: this.popularMovies.length > 1 ? this.popularMovies[1].posterUrl : '' },
-      { title: 'Bangumi 番剧', sourceKey: 'bangumi', posterUrl: this.popularTvs.length > 1 ? this.popularTvs[1].posterUrl : '' },
-      { title: '音乐探索', sourceKey: 'music', posterUrl: this.musicAlbums.length > 0 ? this.musicAlbums[0].coverUrl : '' }
+      {
+        title: 'TMDB 电影',
+        sourceKey: 'tmdb_movies',
+        posterUrl: this.popularMovies.length > 0 ? this.popularMovies[0].posterUrl : ''
+      },
+      {
+        title: 'TMDB 剧集',
+        sourceKey: 'tmdb_tvs',
+        posterUrl: this.popularTvs.length > 0 ? this.popularTvs[0].posterUrl : ''
+      },
+      {
+        title: '豆瓣电影',
+        sourceKey: 'douban_movies',
+        posterUrl: this.doubanShowing.length > 0
+          ? this.doubanShowing[0].posterUrl
+          : (this.popularMovies.length > 1 ? this.popularMovies[1].posterUrl : '')
+      },
+      {
+        title: '豆瓣剧集',
+        sourceKey: 'douban_tvs',
+        posterUrl: this.popularTvs.length > 1 ? this.popularTvs[1].posterUrl : ''
+      },
+      {
+        title: 'Bangumi 番剧',
+        sourceKey: 'bangumi',
+        posterUrl: this.popularTvs.length > 2
+          ? this.popularTvs[2].posterUrl
+          : (this.popularTvs.length > 0 ? this.popularTvs[0].posterUrl : '')
+      },
+      {
+        title: '音乐探索',
+        sourceKey: 'music',
+        posterUrl: this.musicAlbums.length > 0 ? this.musicAlbums[0].coverUrl : ''
+      }
     ];
   }
 
@@ -726,11 +750,20 @@ export struct HarmonyDiscoverPage {
   @Builder
   categoriesShelf() {
     Column({ space: 12 }) {
-      Text('分类浏览')
-        .fontSize(19)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(mpPrimaryText(this.isDark))
-        .width('100%')
+      Row() {
+        Text('分类浏览')
+          .fontSize(19)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(mpPrimaryText(this.isDark))
+          .layoutWeight(1)
+        Row({ space: 2 }) {
+          Text('全部').fontSize(13).fontColor(this.accentHex).fontWeight(FontWeight.Medium)
+          SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(13).fontColor([this.accentHex])
+        }
+        .accessibilityText('查看全部分类探索')
+        .onClick(() => this.onOpenExplore('tmdb_movies'))
+      }
+      .width('100%')
 
       Grid() {
         ForEach(this.categoryEntries(), (cat: CategoryEntryDef) => {
@@ -1075,7 +1108,7 @@ export struct HarmonyDiscoverPage {
             backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
           })
         }
-        .padding({ bottom: this.isShortLandscape() ? 48 : 128 })
+        .padding({ bottom: this.isShortLandscape() ? 84 : 128 })
       }
       .scrollBar(BarState.Off)
       .onDidScroll(() => {
@@ -1090,33 +1123,6 @@ export struct HarmonyDiscoverPage {
         visibilityProgress: Math.min(1, Math.max(0, this.scrollOffsetY / 150)),
         veilHeight: 92
       })
-
-      // 右上角仅保留单枚悬浮光感搜索圆钮（空白区域穿透手势，不阻挡下方海报滑动）
-      Row() {
-        Blank()
-        Button({ type: ButtonType.Circle }) {
-          SymbolGlyph($r('sys.symbol.magnifyingglass'))
-            .fontSize(this.isShortLandscape() ? 17 : 19)
-            .fontColor([this.scrollOffsetY > 180 ? mpPrimaryText(this.isDark) : Color.White])
-        }
-        .width(this.isShortLandscape() ? 36 : 40)
-        .height(this.isShortLandscape() ? 36 : 40)
-        .backgroundColor(Color.Transparent)
-        .attributeModifier(new HarmonySurfaceModifier(
-          this.scrollOffsetY > 180 ? this.isDark : true,
-          'pill',
-          this.isShortLandscape() ? 18 : 20,
-          this.accentHex,
-          true,
-          this.dynamicLight
-        ))
-        .accessibilityText('全局搜索')
-        .onClick(() => this.onOpenSearch())
-      }
-      .width('100%')
-      .padding({ left: 16, right: 16, top: Math.max(10, this.safeTopVp + 4), bottom: 8 })
-      .hitTestBehavior(HitTestMode.Transparent)
-      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
     }
     .width('100%')
     .height('100%')
@@ -1400,7 +1406,7 @@ export struct HarmonyMediaServerLibraryPage {
   }
 }
 
-/** 鸿蒙「探索」片库页（统一大胶囊自动滚动页签 + 多维筛选 + 音乐专辑视图）。 */
+/** 鸿蒙「分类探索」二级片库页（统一大胶囊自动滚动页签 + 多维筛选 + 音乐专辑视图）。 */
 @Component
 export struct HarmonyExplorePage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
@@ -1413,8 +1419,8 @@ export struct HarmonyExplorePage {
   @State private items: MpMediaItem[] = [];
   @State private albums: MpMusicAlbum[] = [];
   @State private loading: boolean = true;
+  onBack: () => void = () => {};
   onOpenMedia: (item: MpMediaItem) => void = () => {};
-  onOpenSearch: () => void = () => {};
 
   aboutToAppear(): void {
     if (this.initialSource.length > 0) {
@@ -1457,11 +1463,9 @@ export struct HarmonyExplorePage {
 
   build() {
     Column({ space: 10 }) {
-      HarmonyPageHeader({
-        title: '探索',
-        primarySymbol: 'sys.symbol.magnifyingglass',
-        primaryAccessibility: '全局搜索',
-        onPrimaryClick: () => this.onOpenSearch()
+      NativeBackHeader({
+        title: '分类探索',
+        onBack: () => this.onBack()
       })
 
       Scroll() {
@@ -1530,12 +1534,12 @@ export struct HarmonyExplorePage {
         if (this.activeSource === 'music') {
           HarmonyAlbumGridSkeleton({
             fillViewport: true,
-            bottomPadding: 128
+            bottomPadding: 44
           })
         } else {
           HarmonyPosterGridSkeleton({
             fillViewport: true,
-            bottomPadding: 128
+            bottomPadding: 44
           })
         }
       } else if (this.activeSource === 'music') {
@@ -1586,7 +1590,8 @@ export struct HarmonyExplorePage {
           .columnsTemplate(HarmonyAdaptiveLayout.albumGridColumns(this.windowWidthVp))
           .columnsGap(12)
           .rowsGap(16)
-          .padding({ left: 16, right: 16, bottom: 128 })
+          .padding({ left: 16, right: 16, bottom: 44 })
+          .scrollBar(BarState.Off)
           .layoutWeight(1)
         }
       } else if (this.items.length === 0) {
@@ -1612,7 +1617,8 @@ export struct HarmonyExplorePage {
         .columnsTemplate(this.gridColumnsTemplate())
         .columnsGap(10)
         .rowsGap(14)
-        .padding({ left: 16, right: 16, bottom: 128 })
+        .padding({ left: 16, right: 16, bottom: 44 })
+        .scrollBar(BarState.Off)
         .layoutWeight(1)
       }
     }

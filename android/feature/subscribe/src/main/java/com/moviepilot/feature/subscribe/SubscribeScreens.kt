@@ -154,7 +154,6 @@ fun SubscriptionsScreen(
     repository: MoviePilotRepository,
     initialCategory: String? = null,
     onBack: (() -> Unit)? = null,
-    onOpenSearch: () -> Unit = {},
     onOpenCalendar: () -> Unit,
     onOpenCommunity: () -> Unit,
     onOpenMedia: (MediaCardItem) -> Unit = {},
@@ -216,11 +215,6 @@ fun SubscriptionsScreen(
         title = if (onBack == null) "订阅" else "我的订阅",
         onBack = onBack,
         actions = {
-            ExpressiveHeaderActionButton(
-                icon = Icons.Rounded.Search,
-                contentDescription = "全局搜索",
-                onClick = onOpenSearch,
-            )
             ExpressiveHeaderActionButton(
                 icon = Icons.Rounded.CalendarMonth,
                 contentDescription = "追剧日历",
@@ -317,7 +311,7 @@ fun SubscriptionsScreen(
                                         ) {
                                             Icon(Icons.Rounded.VideoLibrary, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(36.dp))
                                             Text("当前分类暂无订阅条目", color = colors.textPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
-                                            Text("可点击右上角搜索添加影视剧或切换至「订阅广场」发现热门分享。", color = colors.textSecondary, fontSize = 13.sp, textAlign = TextAlign.Center)
+                                            Text("可点击底栏「搜索」添加影视剧，或切换至「订阅广场」发现热门分享。", color = colors.textSecondary, fontSize = 13.sp, textAlign = TextAlign.Center)
                                         }
                                     }
                                 }

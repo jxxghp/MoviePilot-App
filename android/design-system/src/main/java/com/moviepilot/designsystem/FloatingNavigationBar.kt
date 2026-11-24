@@ -34,11 +34,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.outlined.Explore
-import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.rounded.Bookmark
-import androidx.compose.material.icons.rounded.Explore
-import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -51,14 +49,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -66,28 +65,29 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 
 /**
- * Android Material 3 Expressive 顶级 5 大对等导航目标：
- * 发现 · 探索 · 订阅 · 更多 · 我的（设置位于「我的」顶栏右上角，全局搜索位于各影音页顶栏右上角）。
+ * Android Material 3 Expressive 顶级 4+1 对等导航目标：
+ * 发现 · 订阅 · 我的 · 更多 + 右侧分离「搜索」圆钮（1:1 对齐 iOS 与鸿蒙导航架构）。
  */
 enum class MainTab(val id: String, val label: String) {
     Discover("discover", "发现"),
-    Explore("explore", "探索"),
     Subscribe("subscribe", "订阅"),
-    Workspace("workspace", "更多"),
     Dashboard("dashboard", "我的"),
+    Workspace("workspace", "更多"),
 }
 
-/** 品牌特色带闪星的圆角电视屏图标，用于「发现」主导航。 */
+/** 品牌特色带闪星镂空的圆角电视屏图标，用于「发现」主导航（离屏图层镂空，适配激活胶囊与半透磨砂玻璃）。 */
 @Composable
 private fun DiscoverTvSparkleIcon(
     tint: Color,
-    cutoutColor: Color,
     modifier: Modifier = Modifier,
 ) {
-    Canvas(modifier = modifier) {
+    Canvas(
+        modifier = modifier.graphicsLayer {
+            compositingStrategy = CompositingStrategy.Offscreen
+        },
+    ) {
         val w = size.width
         val h = size.height
         drawRoundRect(
@@ -112,7 +112,7 @@ private fun DiscoverTvSparkleIcon(
                 quadraticTo(cx - inner, cy - inner, cx, cy - r)
                 close()
             }
-            drawPath(p, color = cutoutColor)
+            drawPath(p, color = Color.Black, blendMode = BlendMode.DstOut)
         }
         drawStar(w * 0.56f, h * 0.47f, w * 0.18f)
         drawStar(w * 0.34f, h * 0.33f, w * 0.08f)
@@ -129,21 +129,12 @@ private fun MainTabIcon(
     compact: Boolean = false,
 ) {
     val colors = LocalMoviePilotColors.current
-    val baseSize = if (compact) 20.dp else 23.dp
+    val baseSize = if (compact) 20.dp else 22.dp
     when (tab) {
         MainTab.Discover -> {
             DiscoverTvSparkleIcon(
                 tint = tint,
-                cutoutColor = if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
                 modifier = Modifier.size(if (compact) 20.dp else 22.dp),
-            )
-        }
-        MainTab.Explore -> {
-            Icon(
-                imageVector = if (active) Icons.Rounded.Explore else Icons.Outlined.Explore,
-                contentDescription = tab.label,
-                tint = tint,
-                modifier = Modifier.size(baseSize),
             )
         }
         MainTab.Subscribe -> {
@@ -154,16 +145,8 @@ private fun MainTabIcon(
                 modifier = Modifier.size(baseSize),
             )
         }
-        MainTab.Workspace -> {
-            Icon(
-                imageVector = if (active) Icons.Rounded.MoreHoriz else Icons.Outlined.MoreHoriz,
-                contentDescription = tab.label,
-                tint = tint,
-                modifier = Modifier.size(if (compact) 21.dp else 24.dp),
-            )
-        }
         MainTab.Dashboard -> {
-            val avatarSize = if (compact) 21.dp else 24.dp
+            val avatarSize = if (compact) 20.dp else 23.dp
             Box(
                 modifier = Modifier
                     .size(avatarSize)
@@ -185,19 +168,28 @@ private fun MainTabIcon(
                 )
             }
         }
+        MainTab.Workspace -> {
+            Icon(
+                imageVector = if (active) Icons.Rounded.GridView else Icons.Outlined.GridView,
+                contentDescription = tab.label,
+                tint = tint,
+                modifier = Modifier.size(baseSize),
+            )
+        }
     }
 }
 
 /**
- * Material 3 Expressive 底部 5 Tab 导航栏：
- * - 默认采用 **圆角悬浮导航栏**（`FloatingPill`：外层 `32.dp` 悬浮圆角胶囊底座 + 柔和层级阴影）；
- * - 选中态将 **图标与文字整体包裹在同一圆角胶囊指示器内** 联合高亮，杜绝图标与文字割裂感；
- * - 支持在「外观与主题」中切换为 **圆角贴底**（`RoundedDock`）模式。
+ * Material 3 Expressive 底部 4+1 分离式悬浮磨砂玻璃胶囊导航栏：
+ * - 左侧 `62.dp` 实时背板模糊圆胶囊承载「发现、订阅、我的、更多」4 大主入口；
+ * - 右侧独立分离 `62.dp` 圆形实时磨砂玻璃「全局搜索」按钮，与 iOS / 鸿蒙形成统一视觉节奏；
+ * - 兼容「外观与主题」中的 `FloatingPill`（标准通透悬浮）与 `RoundedDock`（高不透明度贴底 4+1 胶囊）模式。
  */
 @Composable
 fun MoviePilotBottomNavigationBar(
     selectedTab: MainTab,
     onTabClick: (MainTab) -> Unit,
+    onSearchClick: () -> Unit = {},
     userAvatarUrl: String? = null,
     userInitial: String = "M",
     modifier: Modifier = Modifier,
@@ -205,58 +197,43 @@ fun MoviePilotBottomNavigationBar(
     val colors = LocalMoviePilotColors.current
     val scheme = MaterialTheme.colorScheme
     val haptic = LocalHapticFeedback.current
-    val barBg = scheme.surfaceContainer
     val isFloating = colors.navBarStyle == ExpressiveNavBarStyle.FloatingPill
-    val barShape = if (isFloating) {
-        RoundedCornerShape(32.dp)
-    } else {
-        RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)
-    }
+    val darkTintAlpha = if (isFloating) 0.74f else 0.88f
+    val lightTintAlpha = if (isFloating) 0.88f else 0.95f
+    val verticalPad = if (isFloating) 10.dp else 6.dp
     val activeFg = if (colors.isDark) scheme.primary else scheme.onSecondaryContainer
+    val activePillTarget = scheme.secondaryContainer.copy(alpha = if (colors.isDark) 0.90f else 0.94f)
+    val searchInteraction = remember { MutableInteractionSource() }
 
-    Box(
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .then(
-                if (isFloating) {
-                    Modifier
-                        .navigationBarsPadding()
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
-                } else {
-                    Modifier
-                },
-            ),
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = verticalPad),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(
+        // 左侧 4-Tab 悬浮磨砂玻璃主胶囊
+        CinematicGlassSurface(
+            shape = CircleShape,
+            blurRadiusDp = 24.dp,
+            darkTintAlpha = darkTintAlpha,
+            lightTintAlpha = lightTintAlpha,
             modifier = Modifier
-                .fillMaxWidth()
-                .shadow(
-                    elevation = if (isFloating) (if (colors.isDark) 12.dp else 8.dp) else (if (colors.isDark) 8.dp else 5.dp),
-                    shape = barShape,
-                    ambientColor = Color.Black.copy(alpha = if (colors.isDark) 0.50f else 0.16f),
-                    spotColor = Color.Black.copy(alpha = if (colors.isDark) 0.50f else 0.16f),
-                )
-                .clip(barShape)
-                .background(barBg, barShape)
-                .border(
-                    width = 0.8.dp,
-                    color = scheme.outlineVariant.copy(alpha = if (colors.isDark) 0.50f else 0.72f),
-                    shape = barShape,
-                )
-                .then(if (!isFloating) Modifier.navigationBarsPadding() else Modifier),
+                .weight(1f)
+                .height(62.dp),
         ) {
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(68.dp)
-                    .padding(horizontal = 6.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    .fillMaxSize()
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 MainTab.entries.forEach { tab ->
                     val active = tab == selectedTab
                     val pillBg by animateColorAsState(
-                        targetValue = if (active) scheme.secondaryContainer else Color.Transparent,
+                        targetValue = if (active) activePillTarget else Color.Transparent,
                         animationSpec = tween(200),
                         label = "navPillBg",
                     )
@@ -270,8 +247,8 @@ fun MoviePilotBottomNavigationBar(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(pillBg, RoundedCornerShape(24.dp))
+                            .clip(CircleShape)
+                            .background(pillBg, CircleShape)
                             .clickable(
                                 interactionSource = interaction,
                                 indication = ripple(bounded = true, color = scheme.primary),
@@ -309,14 +286,46 @@ fun MoviePilotBottomNavigationBar(
                 }
             }
         }
+
+        // 右侧分离圆形磨砂玻璃「全局搜索」按钮
+        CinematicGlassSurface(
+            shape = CircleShape,
+            blurRadiusDp = 24.dp,
+            darkTintAlpha = darkTintAlpha,
+            lightTintAlpha = lightTintAlpha,
+            modifier = Modifier.size(62.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .clickable(
+                        interactionSource = searchInteraction,
+                        indication = ripple(bounded = true, color = scheme.primary),
+                        role = Role.Button,
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onSearchClick()
+                        },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Search,
+                    contentDescription = "全局搜索",
+                    tint = scheme.onSurface,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        }
     }
 }
 
 /**
  * Android Material 3 Expressive 宽屏 / 手机横屏 / 折叠屏展开 / 平板侧边导航栏（NavigationRail 规范）：
- * - 当窗口宽度 >= 600dp 时自动替换底部 NavigationBar，顶置高对比圆形搜索按钮；
+ * - 当窗口宽度 >= 600dp 时自动替换底部 NavigationBar，渲染 4 个一级主 Tab（发现、订阅、我的、更多）与独立分离圆形「搜索」按钮；
  * - 单一合并消费 `systemBars + displayCutout` 的 `Start + Vertical` 安全区，消除双重内边距叠加；
- * - 手机短屏横屏（`< 480dp`）自动压缩按钮与指示胶囊高度，确保 5 个一级主 Tab 带文字标签完整同屏展示，并在分屏/大字号下平滑纵向滚动。
+ * - 手机短屏横屏（`< 480dp`）自动压缩按钮与指示胶囊高度，确保全部入口完整同屏展示，并在分屏/大字号下平滑纵向滚动。
  */
 @Composable
 fun FloatingNavigationRail(
@@ -456,6 +465,7 @@ private fun PreviewMoviePilotBottomNav() {
         MoviePilotBottomNavigationBar(
             selectedTab = MainTab.Discover,
             onTabClick = {},
+            onSearchClick = {},
         )
     }
 }

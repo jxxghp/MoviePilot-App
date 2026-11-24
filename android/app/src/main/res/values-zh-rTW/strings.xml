@@ -26,10 +26,12 @@
     <string name="mp_0d776c4b" formatted="false">複製綁定碼</string>
     <string name="mp_0df05ba1" formatted="false">無法恢復系統音頻會話，請手動繼續播放。</string>
     <string name="mp_0fecb1ba" formatted="false">繼續收聽</string>
+    <string name="mp_0fee3e35" formatted="false">追劇與社區</string>
     <string name="mp_10_e4d73412" formatted="false">後退 10 秒</string>
     <string name="mp_10_f9e98b75" formatted="false">前進 10 秒</string>
     <string name="mp_10e20c82" formatted="false">服務已初始化，請登入。</string>
     <string name="mp_11d02415" formatted="false">返回</string>
+    <string name="mp_1204486f" formatted="false">音樂中心</string>
     <string name="mp_1209bc96" formatted="false">當前服務</string>
     <string name="mp_130448bc" formatted="false">暫停</string>
     <string name="mp_15_3e0c2a0a" formatted="false">每 15 分鐘</string>
@@ -65,6 +67,7 @@
     <string name="mp_21f1e882" formatted="false">登錄</string>
     <string name="mp_22ef5dde" formatted="false">插件面板</string>
     <string name="mp_245a6285" formatted="false">生成綁定碼</string>
+    <string name="mp_2478069f" formatted="false">插件與工作流</string>
     <string name="mp_2484f5fd" formatted="false">自適應</string>
     <string name="mp_24e1b9a7" formatted="false">五段順序：分、時、日、月、週。</string>
     <string name="mp_24ebb954" formatted="false">播放偏好</string>
@@ -146,12 +149,14 @@
     <string name="mp_4fab9865" formatted="false">重新檢查</string>
     <string name="mp_4fe5a423" formatted="false">外觀與本機</string>
     <string name="mp_50d42057" formatted="false">綁定碼已複製。請在主屏幕通知網頁中粘貼。</string>
+    <string name="mp_513189d7" formatted="false">追劇排期</string>
     <string name="mp_513c1c63" formatted="false">運算式</string>
     <string name="mp_5156d0c2" formatted="false">無法套用，修改已保留。</string>
     <string name="mp_51d80639" formatted="false">月份</string>
     <string name="mp_523e40a0" formatted="false">發現</string>
     <string name="mp_5319af76" formatted="false">訂閱</string>
     <string name="mp_55a8b99f" formatted="false">服務回應無法解析，請檢查後端版本及位址。</string>
+    <string name="mp_5692388b" formatted="false">快捷工具與系統診斷</string>
     <string name="mp_57fce0c4" formatted="false">待審批</string>
     <string name="mp_58421bd3" formatted="false">暫時無法開啟子母畫面，請等待影片開始播放後重試。</string>
     <string name="mp_58ce18ea" formatted="false">整理與目錄</string>
@@ -182,6 +187,7 @@
     <string name="mp_6b576e0f" formatted="false">請輸入用戶名和密碼。</string>
     <string name="mp_6ba4b7be" formatted="false">繼續觀看？</string>
     <string name="mp_6c14bd7f" formatted="false">關閉</string>
+    <string name="mp_6d09dc34" formatted="false">插件中心</string>
     <string name="mp_6f22a707" formatted="false">超級管理員</string>
     <string name="mp_70322e1a" formatted="false">插件圖標已加載</string>
     <string name="mp_70b20820" formatted="false">選擇</string>
@@ -203,7 +209,9 @@
     <string name="mp_7a66c0d0" formatted="false">通知</string>
     <string name="mp_7d126146" formatted="false">刪除服務？</string>
     <string name="mp_7debf9cb" formatted="false">設定</string>
+    <string name="mp_7e45236f" formatted="false">分類探索</string>
     <string name="mp_7ea6ff3e" formatted="false">無法讀取播放資訊，請確認影片仍在媒體庫中並檢查後台連接。</string>
+    <string name="mp_823f4d1e" formatted="false">追劇日曆</string>
     <string name="mp_83689796" formatted="false">請選擇範圍內的值，至少選擇一項。</string>
     <string name="mp_838c3aed" formatted="false">正在讀取歌詞…</string>
     <string name="mp_83dc943e" formatted="false">系統概覽</string>
@@ -230,6 +238,7 @@
     <string name="mp_94d1041d" formatted="false">選擇站點</string>
     <string name="mp_99f6904f" formatted="false">小時</string>
     <string name="mp_9a051ee2" formatted="false">正在檢測服務連接…</string>
+    <string name="mp_9b0c6c78" formatted="false">更多</string>
     <string name="mp_9b5d7644" formatted="false">你的媒體世界，隨時連接。</string>
     <string name="mp_9c619be3" formatted="false">實例與重新整理</string>
     <string name="mp_9ca32f98" formatted="false">正在儲存…</string>
@@ -349,6 +358,7 @@
     <string name="mp_d42da9e2" formatted="false">服務狀態</string>
     <string name="mp_d438f926" formatted="false">選擇音軌</string>
     <string name="mp_d470d7bb" formatted="false">登錄狀態已改變，請重新打開通知設置。</string>
+    <string name="mp_d4ca35d0" formatted="false">智能、插件與自動化</string>
     <string name="mp_d4cb2e28" formatted="false">更改地址</string>
     <string name="mp_d4e9ca3d" formatted="false">啟用</string>
     <string name="mp_d53f301f" formatted="false">完整運算式</string>
@@ -368,6 +378,7 @@
     <string name="mp_df16deba" formatted="false">整理記錄</string>
     <string name="mp_dns_daec2d0d" formatted="false">無法解析服務地址，請檢查主機名及當前網路的 DNS 設置。</string>
     <string name="mp_e10994d9" formatted="false">未能完成通行密鑰驗證，請重新嘗試。</string>
+    <string name="mp_e1119ef7" formatted="false">資源與媒體流轉</string>
     <string name="mp_e188ebca" formatted="false">起點</string>
     <string name="mp_e3526937" formatted="false">星期</string>
     <string name="mp_e39b02ad" formatted="false">目錄對應與刮削</string>
@@ -397,6 +408,7 @@
     <string name="mp_f0739f4f" formatted="false">此實例要求客戶端證書，請使用網頁登錄。</string>
     <string name="mp_f12849f1" formatted="false">切換服務</string>
     <string name="mp_f152f119" formatted="false">空值</string>
+    <string name="mp_f1aff11d" formatted="false">訂閱廣場</string>
     <string name="mp_f28c38e5" formatted="false">無法連接服務，請檢查地址、端口和服務狀態後重試。</string>
     <string name="mp_f3ea6d34" formatted="false">操作</string>
     <string name="mp_f40b79d7" formatted="false">站點管理</string>
@@ -413,6 +425,7 @@
     <string name="mp_f9e6afb1" formatted="false">通知服務中心</string>
     <string name="mp_fadf24db" formatted="false">保存</string>
     <string name="mp_fb1c7dc7" formatted="false">主導航</string>
+    <string name="mp_fc2d686b" formatted="false">已安裝管理與插件商店</string>
     <string name="mp_fc58bba4" formatted="false">自定義探索</string>
     <string name="mp_fcabadb2" formatted="false">正在讀取…</string>
     <string name="mp_fd099e4d" formatted="false">此外掛沒有設定項目</string>

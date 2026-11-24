@@ -26,10 +26,12 @@
     <string name="mp_0d776c4b" formatted="false">Copy pairing code</string>
     <string name="mp_0df05ba1" formatted="false">Unable to resume audio. Resume playback manually.</string>
     <string name="mp_0fecb1ba" formatted="false">Resume listening</string>
+    <string name="mp_0fee3e35" formatted="false">Calendar &amp; Community</string>
     <string name="mp_10_e4d73412" formatted="false">Back 10 seconds</string>
     <string name="mp_10_f9e98b75" formatted="false">Forward 10 seconds</string>
     <string name="mp_10e20c82" formatted="false">This service is already set up. Please sign in.</string>
     <string name="mp_11d02415" formatted="false">Back</string>
+    <string name="mp_1204486f" formatted="false">Music Center</string>
     <string name="mp_1209bc96" formatted="false">Current server</string>
     <string name="mp_130448bc" formatted="false">Pause</string>
     <string name="mp_15_3e0c2a0a" formatted="false">Every 15 minutes</string>
@@ -65,6 +67,7 @@
     <string name="mp_21f1e882" formatted="false">Sign in</string>
     <string name="mp_22ef5dde" formatted="false">Plugin panel</string>
     <string name="mp_245a6285" formatted="false">Generate pairing code</string>
+    <string name="mp_2478069f" formatted="false">Plugins &amp; Workflows</string>
     <string name="mp_2484f5fd" formatted="false">Fit</string>
     <string name="mp_24e1b9a7" formatted="false">Five fields: minute, hour, day, month, weekday.</string>
     <string name="mp_24ebb954" formatted="false">Playback Preferences</string>
@@ -146,12 +149,14 @@
     <string name="mp_4fab9865" formatted="false">Check again</string>
     <string name="mp_4fe5a423" formatted="false">Appearance &amp; Device</string>
     <string name="mp_50d42057" formatted="false">Pairing code copied. Paste it in the Home Screen notification page.</string>
+    <string name="mp_513189d7" formatted="false">Airing Schedule</string>
     <string name="mp_513c1c63" formatted="false">Expression</string>
     <string name="mp_5156d0c2" formatted="false">Unable to apply. Your changes are kept.</string>
     <string name="mp_51d80639" formatted="false">Month</string>
     <string name="mp_523e40a0" formatted="false">Discover</string>
     <string name="mp_5319af76" formatted="false">Subscriptions</string>
     <string name="mp_55a8b99f" formatted="false">The service response could not be read. Check the backend version and address.</string>
+    <string name="mp_5692388b" formatted="false">Shortcuts &amp; Diagnostics</string>
     <string name="mp_57fce0c4" formatted="false">Pending</string>
     <string name="mp_58421bd3" formatted="false">Picture in Picture is not ready. Wait for the video to start, then try again.</string>
     <string name="mp_58ce18ea" formatted="false">Transfer &amp; Directories</string>
@@ -182,6 +187,7 @@
     <string name="mp_6b576e0f" formatted="false">Enter your username and password.</string>
     <string name="mp_6ba4b7be" formatted="false">Resume watching?</string>
     <string name="mp_6c14bd7f" formatted="false">Close</string>
+    <string name="mp_6d09dc34" formatted="false">Plugin Center</string>
     <string name="mp_6f22a707" formatted="false">Administrator</string>
     <string name="mp_70322e1a" formatted="false">Plugin icon loaded</string>
     <string name="mp_70b20820" formatted="false">Select</string>
@@ -203,7 +209,9 @@
     <string name="mp_7a66c0d0" formatted="false">Notifications</string>
     <string name="mp_7d126146" formatted="false">Delete Service?</string>
     <string name="mp_7debf9cb" formatted="false">Settings</string>
+    <string name="mp_7e45236f" formatted="false">Explore Categories</string>
     <string name="mp_7ea6ff3e" formatted="false">Unable to load playback information. Check the library item and server connection.</string>
+    <string name="mp_823f4d1e" formatted="false">Release Calendar</string>
     <string name="mp_83689796" formatted="false">Select at least one value within the range.</string>
     <string name="mp_838c3aed" formatted="false">Loading lyrics…</string>
     <string name="mp_83dc943e" formatted="false">System overview</string>
@@ -230,6 +238,7 @@
     <string name="mp_94d1041d" formatted="false">Select sites</string>
     <string name="mp_99f6904f" formatted="false">Hour</string>
     <string name="mp_9a051ee2" formatted="false">Checking server connection…</string>
+    <string name="mp_9b0c6c78" formatted="false">More</string>
     <string name="mp_9b5d7644" formatted="false">Your media world, always connected.</string>
     <string name="mp_9c619be3" formatted="false">Instance &amp; Refresh</string>
     <string name="mp_9ca32f98" formatted="false">Saving…</string>
@@ -349,6 +358,7 @@
     <string name="mp_d42da9e2" formatted="false">Server status</string>
     <string name="mp_d438f926" formatted="false">Select audio track</string>
     <string name="mp_d470d7bb" formatted="false">Your sign-in status changed. Reopen notification settings.</string>
+    <string name="mp_d4ca35d0" formatted="false">AI, Plugins &amp; Automation</string>
     <string name="mp_d4cb2e28" formatted="false">Change address</string>
     <string name="mp_d4e9ca3d" formatted="false">Active</string>
     <string name="mp_d53f301f" formatted="false">Full expression</string>
@@ -368,6 +378,7 @@
     <string name="mp_df16deba" formatted="false">Transfer History</string>
     <string name="mp_dns_daec2d0d" formatted="false">Unable to resolve the server address. Check the hostname and DNS settings.</string>
     <string name="mp_e10994d9" formatted="false">Unable to verify the passkey. Try again.</string>
+    <string name="mp_e1119ef7" formatted="false">Resources &amp; Media Flow</string>
     <string name="mp_e188ebca" formatted="false">Starting value</string>
     <string name="mp_e3526937" formatted="false">Weekday</string>
     <string name="mp_e39b02ad" formatted="false">Directories &amp; Scraping</string>
@@ -397,6 +408,7 @@
     <string name="mp_f0739f4f" formatted="false">This instance requires a client certificate. Sign in with a browser.</string>
     <string name="mp_f12849f1" formatted="false">Switch Server</string>
     <string name="mp_f152f119" formatted="false">Empty value</string>
+    <string name="mp_f1aff11d" formatted="false">Community Subscriptions</string>
     <string name="mp_f28c38e5" formatted="false">Unable to connect. Check the address, port and server status, then retry.</string>
     <string name="mp_f3ea6d34" formatted="false">Actions</string>
     <string name="mp_f40b79d7" formatted="false">Sites</string>
@@ -413,6 +425,7 @@
     <string name="mp_f9e6afb1" formatted="false">Notification server</string>
     <string name="mp_fadf24db" formatted="false">Save</string>
     <string name="mp_fb1c7dc7" formatted="false">Main navigation</string>
+    <string name="mp_fc2d686b" formatted="false">Installed Plugins &amp; Store</string>
     <string name="mp_fc58bba4" formatted="false">Customize discovery</string>
     <string name="mp_fcabadb2" formatted="false">Loading…</string>
     <string name="mp_fd099e4d" formatted="false">This plugin has no settings</string>

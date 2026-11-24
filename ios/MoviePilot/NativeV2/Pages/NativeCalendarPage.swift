@@ -8,6 +8,8 @@ import SwiftUI
 @MainActor
 struct NativeCalendarPage: View {
   let session: NativeSession
+  let isEmbedded: Bool
+  @Binding private var externalRefreshTrigger: Int
 
   @State private var anchorWeekStart: Date
   @State private var selectedDate: Date
@@ -16,9 +18,15 @@ struct NativeCalendarPage: View {
   @State private var loadFailed = false
   @State private var attempt = 0
 
-  /// 默认定位到包含今天的自然周（周日至周六）。
-  init(session: NativeSession) {
+  /// 默认定位到包含今天的自然周（周日至周六），支持独立页面与「订阅」主页内嵌双模式。
+  init(
+    session: NativeSession,
+    isEmbedded: Bool = false,
+    externalRefreshTrigger: Binding<Int> = .constant(0)
+  ) {
     self.session = session
+    self.isEmbedded = isEmbedded
+    _externalRefreshTrigger = externalRefreshTrigger
     let calendar = Calendar(identifier: .gregorian)
     let today = calendar.startOfDay(for: Date())
     let weekday = calendar.component(.weekday, from: today)
@@ -29,56 +37,111 @@ struct NativeCalendarPage: View {
 
   /// 顶部周日期切换栏 + 当日播出卡片（或优雅空态）+ 本周排期总览。
   var body: some View {
-    ZStack {
-      CinematicBackground()
-      ScrollView {
-        VStack(alignment: .leading, spacing: 20) {
-          weekStrip
-          if isLoading && entries.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-              NativeSkeletonBlock(width: 124, height: 18, cornerRadius: 5)
-                .nativeSkeletonShimmer()
-              NativeCardListSkeletonView(count: 4, style: .posterRow)
+    Group {
+      if isEmbedded {
+        scrollContent
+      } else {
+        ZStack {
+          CinematicBackground()
+          scrollContent
+        }
+        .navigationTitle(navigationMonthTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .nativeTopNavigationBar()
+        .toolbar {
+          ToolbarItem(placement: .topBarTrailing) {
+            Button("今天") {
+              jumpToToday()
             }
-            .transition(.opacity)
-          } else if loadFailed && entries.isEmpty {
-            failureCard
-          } else {
-            selectedDaySection
-            if !entries.isEmpty {
-              weekOverviewSection
-            }
+            .tint(.primary)
+            .accessibilityIdentifier("native-calendar-today")
           }
         }
-        .frame(maxWidth: 820)
-        .padding(.horizontal, CinematicStyle.margin)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity)
       }
-      .scrollIndicators(.hidden)
-      .refreshable { await load(forceRefresh: true) }
-      .modifier(NativeSoftTopScrollEdge())
-      .accessibilityIdentifier("native-calendar-scroll")
     }
-    .navigationTitle(navigationMonthTitle)
-    .navigationBarTitleDisplayMode(.inline)
-    .nativeTopNavigationBar()
-    .toolbar {
-      ToolbarItem(placement: .topBarTrailing) {
-        Button("今天") {
-          let today = calendar.startOfDay(for: Date())
-          let weekday = calendar.component(.weekday, from: today)
-          anchorWeekStart =
-            calendar.date(byAdding: .day, value: -(weekday - 1), to: today) ?? today
-          selectedDate = today
-        }
-        .tint(.primary)
-        .accessibilityIdentifier("native-calendar-today")
-      }
+    .onChange(of: externalRefreshTrigger) { _ in
+      attempt += 1
     }
     .task(id: "\(Self.isoDate(anchorWeekStart))|\(attempt)") {
       await load(forceRefresh: attempt > 0)
     }
+  }
+
+  /// 重置日历锚点与选中日期至今天。
+  private func jumpToToday() {
+    let today = calendar.startOfDay(for: Date())
+    let weekday = calendar.component(.weekday, from: today)
+    anchorWeekStart =
+      calendar.date(byAdding: .day, value: -(weekday - 1), to: today) ?? today
+    selectedDate = today
+  }
+
+  /// 日历滚动主体。
+  private var scrollContent: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 18) {
+        if isEmbedded {
+          HStack(alignment: .center) {
+            Label(embeddedMonthLabel, systemImage: "calendar.badge.clock")
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(.secondary)
+            Spacer()
+            Button {
+              withAnimation(.easeInOut(duration: 0.2)) {
+                jumpToToday()
+              }
+            } label: {
+              Text("回到今天")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(NativeTheme.chipText)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 5)
+                .background {
+                  Capsule()
+                    .fill(NativeTheme.chipFill)
+                    .overlay {
+                      Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.7)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-calendar-today")
+          }
+          .padding(.horizontal, 2)
+        }
+        weekStrip
+        if isLoading && entries.isEmpty {
+          VStack(alignment: .leading, spacing: 12) {
+            NativeSkeletonBlock(width: 124, height: 18, cornerRadius: 5)
+              .nativeSkeletonShimmer()
+            NativeCardListSkeletonView(count: 4, style: .posterRow)
+          }
+          .transition(.opacity)
+        } else if loadFailed && entries.isEmpty {
+          failureCard
+        } else {
+          selectedDaySection
+          if !entries.isEmpty {
+            weekOverviewSection
+          }
+        }
+      }
+      .frame(maxWidth: 860)
+      .padding(.horizontal, CinematicStyle.margin)
+      .padding(.vertical, 14)
+      .frame(maxWidth: .infinity)
+    }
+    .scrollIndicators(.hidden)
+    .refreshable { await load(forceRefresh: true) }
+    .modifier(NativeSoftTopScrollEdge())
+    .accessibilityIdentifier("native-calendar-scroll")
+  }
+
+  /// 内嵌模式下展示的紧凑年月标题。
+  private var embeddedMonthLabel: String {
+    let selectedYear = calendar.component(.year, from: selectedDate)
+    let month = calendar.component(.month, from: selectedDate)
+    return "\(selectedYear)年\(month)月排期"
   }
 
   private let calendar = Calendar(identifier: .gregorian)

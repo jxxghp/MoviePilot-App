@@ -44,8 +44,10 @@ final class CommunityMedalAssetLoader: @unchecked Sendable {
     lock.unlock()
 
     guard
-      let url = Bundle.main.url(
-        forResource: stem, withExtension: "webp", subdirectory: "CommunityMedals"),
+      let url =
+        Bundle.main.url(
+          forResource: stem, withExtension: "webp", subdirectory: "CommunityMedals")
+        ?? Bundle.main.url(forResource: stem, withExtension: "webp"),
       let image = UIImage(contentsOfFile: url.path)
     else { return nil }
 
@@ -67,8 +69,10 @@ final class CommunityMedalAssetLoader: @unchecked Sendable {
     lock.unlock()
 
     guard
-      let url = Bundle.main.url(
-        forResource: "\(stem).outline", withExtension: "json", subdirectory: "CommunityMedals"),
+      let url =
+        Bundle.main.url(
+          forResource: "\(stem).outline", withExtension: "json", subdirectory: "CommunityMedals")
+        ?? Bundle.main.url(forResource: "\(stem).outline", withExtension: "json"),
       let data = try? Data(contentsOf: url),
       let decoded = try? JSONDecoder().decode(CommunityMedalOutline.self, from: data)
     else { return nil }
@@ -142,8 +146,10 @@ final class CommunityMedalAssetLoader: @unchecked Sendable {
     var downsampled: CGImage?
     for stem in stems {
       guard
-        let url = Bundle.main.url(
-          forResource: stem, withExtension: "webp", subdirectory: "CommunityMedals"),
+        let url =
+          Bundle.main.url(
+            forResource: stem, withExtension: "webp", subdirectory: "CommunityMedals")
+          ?? Bundle.main.url(forResource: stem, withExtension: "webp"),
         let source = CGImageSourceCreateWithURL(
           url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
         let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)

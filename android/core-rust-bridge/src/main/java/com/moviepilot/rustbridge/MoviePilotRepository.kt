@@ -140,6 +140,7 @@ class MoviePilotRepository(context: Context) {
                 isSuperuser = isSu,
                 isActive = dataObj.bool("is_active") ?: true,
                 isOtp = dataObj.bool("is_otp") ?: false,
+                level = dataObj.int("level") ?: auth.identity.level,
                 avatar = dataObj.str("avatar") ?: auth.identity.avatar,
             )
             val perms = RustCoreBridge.evaluatePermissions(
@@ -258,6 +259,7 @@ class MoviePilotRepository(context: Context) {
 
         val superUser = root.bool("super_user") ?: true
         val userName = root.str("user_name") ?: username.trim()
+        val userLevel = root.int("level") ?: root["data"].asObj()?.int("level") ?: 1
         val avatar = root.str("avatar")
         val permsJson = root["permissions"]?.toString() ?: "{}"
 
@@ -266,7 +268,7 @@ class MoviePilotRepository(context: Context) {
             transport.execute(url = meUrl, method = "GET", token = token)
         }.getOrNull()
 
-        var identity = UserIdentity(name = userName, isSuperuser = superUser, avatar = avatar)
+        var identity = UserIdentity(name = userName, isSuperuser = superUser, level = userLevel, avatar = avatar)
         var permissions = RustCoreBridge.evaluatePermissions(permsJson, superUser)
 
         if (identityResp != null && identityResp.status == 200) {
@@ -280,6 +282,7 @@ class MoviePilotRepository(context: Context) {
                     isSuperuser = isSu,
                     isActive = dataObj.bool("is_active") ?: true,
                     isOtp = dataObj.bool("is_otp") ?: false,
+                    level = dataObj.int("level") ?: userLevel,
                     avatar = dataObj.str("avatar") ?: avatar,
                 )
                 permissions = RustCoreBridge.evaluatePermissions(

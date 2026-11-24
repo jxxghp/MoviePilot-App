@@ -64,6 +64,7 @@
 		BE036DC842893643B15A3BE2 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC001A55D766FA81E7EC654 /* Views.swift */; };
 		C38CDC369F7BE7AB52EF08E5 /* NativeTransferHistoryPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD83F9ADCEC4810F8AB5FA50 /* NativeTransferHistoryPage.swift */; };
 		C5315286AFDA4CCAD1E92407 /* NativeSubscribeFilesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A58B21E3ADBBEB0DA68B282 /* NativeSubscribeFilesSheet.swift */; };
+		CD0E0C643287EA44A2611F7C /* NativeMoreHubPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9AB903ED4FAEABC5A9E0569 /* NativeMoreHubPage.swift */; };
 		D25729D75787FFE684BCE836 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDC7F876AC1F304D50E70B03 /* SceneDelegate.swift */; };
 		D2AE907740AD1CA35EDE9E4F /* NativeV2SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18137A11C852F3555A73F283 /* NativeV2SceneDelegate.swift */; };
 		D2F28E40B4CA7F797613B2BD /* NativeMediaSearchPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 018FA9D54CDFDB2AC49D2983 /* NativeMediaSearchPage.swift */; };
@@ -204,6 +205,7 @@
 		F1C1F71B18FE29C82A939B7C /* NativeWorkflowCanvasPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWorkflowCanvasPage.swift; sourceTree = "<group>"; };
 		F3EF638076E3852573384373 /* NativeAppearanceSettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAppearanceSettingsPage.swift; sourceTree = "<group>"; };
 		F5CA3958D36BFB5E17CA6E7E /* NativeSubscribeCommunityPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscribeCommunityPage.swift; sourceTree = "<group>"; };
+		F9AB903ED4FAEABC5A9E0569 /* NativeMoreHubPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMoreHubPage.swift; sourceTree = "<group>"; };
 		FF26A18662E7326F40027471 /* NativePluginMarketPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginMarketPage.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -284,6 +286,7 @@
 				A8D947D97A101D7977471583 /* NativeMediaServerDetailPage.swift */,
 				3B862EABE429A361CC27AD33 /* NativeMediaServerLibraryPage.swift */,
 				B6459B12BBE68089FA81AC88 /* NativeMessagesPage.swift */,
+				F9AB903ED4FAEABC5A9E0569 /* NativeMoreHubPage.swift */,
 				08443236F43B97DD00EC6B5A /* NativeMusicPage.swift */,
 				3D388D03E1CAFD2739ADF561 /* NativePluginDataPageView.swift */,
 				FF26A18662E7326F40027471 /* NativePluginMarketPage.swift */,
@@ -602,6 +605,7 @@
 				82F26380686E29CF97D4DFC7 /* NativeMediaServerDetailPage.swift in Sources */,
 				6CDCB467D0F4D78498B4B275 /* NativeMediaServerLibraryPage.swift in Sources */,
 				B3D2A711BFF5C857E13FF960 /* NativeMessagesPage.swift in Sources */,
+				CD0E0C643287EA44A2611F7C /* NativeMoreHubPage.swift in Sources */,
 				08E6A5EB18261F0E3B4964F6 /* NativeMusicPage.swift in Sources */,
 				FA7D96C95BCA99B1CDDEABA8 /* NativePluginCatalogView.swift in Sources */,
 				98EB4831D3C52B37D00D990D /* NativePluginComboboxEditor.swift in Sources */,
